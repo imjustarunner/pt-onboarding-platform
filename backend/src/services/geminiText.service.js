@@ -57,7 +57,7 @@ function buildCandidateModels(configured) {
   return list;
 }
 
-async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive = false }) {
+async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive = false, systemInstruction, jsonMode }) {
   const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
     projectId
   )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelName)}:generateContent`;
@@ -72,8 +72,9 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
     },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
+      ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
       model: `projects/${projectId}/locations/${location}/publishers/google/models/${modelName}`,
-      generationConfig: translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget })
+      generationConfig: { ...translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget }), ...(jsonMode ? { responseMimeType: 'application/json' } : {}) }
     })
   });
 
@@ -105,7 +106,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
   return { text: String(text), modelName, latencyMs, provider: 'vertex', finishReason: data?.candidates?.[0]?.finishReason || null };
 }
 
-async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget }) {
+async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive = false, systemInstruction, jsonMode }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     modelName
   )}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -113,10 +114,12 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
   const started = Date.now();
   const resp = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(90000),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
-      generationConfig: translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget })
+      ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
+      generationConfig: { ...translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget }), ...(jsonMode ? { responseMimeType: 'application/json' } : {}) }
     })
   });
 
@@ -124,7 +127,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
 
   if (!resp.ok) {
     const t = await resp.text();
-    const details = String(t || '').slice(0, 1000);
+    const details = sensitive ? 'Sensitive request details withheld' : String(t || '').slice(0, 1000);
     console.error(`[Gemini] HTTP ${resp.status} latency=${latencyMs}ms model=${modelName} details=${details}`);
     const err = new Error('Gemini request failed');
     err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
@@ -152,7 +155,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
  * Attempt the public Generative Language API (GEMINI_API_KEY) path, trying the
  * configured model then known-good fallbacks. Returns a result or throws.
  */
-async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null, thinkingBudget }) {
+async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null, thinkingBudget, sensitive, systemInstruction, jsonMode }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not configured');
@@ -164,7 +167,7 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = nul
   let lastErr = null;
   for (const modelName of candidates) {
     try {
-      return await performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget });
+      return await performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive, systemInstruction, jsonMode });
     } catch (err) {
       lastErr = err;
       if (!isModelLevelError(err?.status)) throw err;
@@ -174,7 +177,7 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = nul
   throw lastErr || new Error('Gemini request failed for all candidate models');
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, vertexOnly = false, sensitive = false }) {
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, vertexOnly = false, sensitive = false, systemInstruction, jsonMode = false }) {
   const useVertex = shouldUseVertex();
   if (vertexOnly && !useVertex) throw Object.assign(new Error('An approved Vertex configuration is required'), { status: 503 });
   const hasApiKey = !!(process.env.GEMINI_API_KEY || '').trim();
@@ -197,7 +200,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
       for (const modelName of candidates) {
         try {
           return await performVertexCall({
-            modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive
+            modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive, systemInstruction, jsonMode
           });
         } catch (err) {
           lastErr = err;
@@ -213,16 +216,16 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
         console.warn(
           `[Vertex] unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY path`
         );
-        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget });
+        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode });
       }
       throw vertexErr;
     }
   }
 
-  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget });
+  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode });
 }
 
-// Optional translation optimization; other Gemini callers retain their existing configuration.
+// Optional reasoning configuration; callers that omit it retain existing defaults.
 export function translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget }) {
   const config = { temperature, maxOutputTokens };
   if (thinkingBudget === 0 && /^gemini-2\.5-flash(?:-|$)/.test(modelName)) {

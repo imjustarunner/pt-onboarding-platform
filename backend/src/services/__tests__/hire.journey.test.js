@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: mocks }));
+vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite: vi.fn() }));
 vi.mock('../portalTraining.service.js', () => ({ portalModuleForms: vi.fn(async () => ({ fields: [] })) }));
 import { taskPhase, taskProgress, creditedActivitySeconds, recordOnboardingActivity, completeOnboarding, requireOnboardingSubmitted } from '../hireJourney.service.js';
 
@@ -42,9 +42,14 @@ describe('server activity', () => {
   });
 });
 describe('payroll submission', () => {
-  function completionDb({ completed = false, failClaim = false, pending = false } = {}) {
+  function completionDb({ completed = false, failClaim = false, pending = false, guideRequired = false } = {}) {
     mocks.execute.mockImplementation(async (sql) => {
       if (sql.startsWith('SELECT status')) return [[{ status: 'ONBOARDING' }]];
+      if (sql.startsWith('SELECT * FROM users')) return [[{ id: 1, status: 'ONBOARDING', role: 'provider' }]];
+      if (sql.startsWith('SELECT id, name, slug FROM agencies')) return [[{ id: 8, slug: guideRequired ? 'itsco' : 'unrelated-company' }]];
+      if (sql.startsWith('SELECT u.*')) return [[{ id: 1, role: 'provider', status: 'ONBOARDING' }]];
+      if (sql.startsWith('SELECT expected_school_work')) return [[{ expected_school_work: false }]];
+      if (sql.startsWith('SELECT id, document_key, status FROM company_document_learning')) return [[]];
       if (sql.includes('SELECT * FROM hire_journeys')) return [[{ agency_id: 8, onboarding_completed_at: completed ? new Date() : null }]];
       if (sql.includes('FROM tasks WHERE')) return [[{ id: 2, task_type: 'document', metadata: { portalPhase: 'onboarding' }, is_required: 1, status: pending ? 'pending' : 'completed' }]];
       if (sql.startsWith('SELECT * FROM hire_onboarding_time')) return [[{ seconds: 1800, work_date: '2026-09-11', payroll_claim_id: null }]];
@@ -58,6 +63,10 @@ describe('payroll submission', () => {
     const call = mocks.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO payroll_time_claims'));
     expect(JSON.parse(call[1][4])).toMatchObject({ totalMinutes: 30, actualSeconds: 1800, source: 'onboarding_portal' });
     expect(db.commit).toHaveBeenCalledTimes(1);
+  });
+  it('blocks final onboarding submission before required guide quizzes are complete', async () => {
+    completionDb({ guideRequired: true }); await expect(completeOnboarding(1)).rejects.toThrow('required guide reading and quizzes');
+    expect(db.rollback).toHaveBeenCalled(); expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO payroll_time_claims'))).toBe(false);
   });
   it('does not create duplicate claims after submission', async () => {
     completionDb({ completed: true }); await completeOnboarding(1);

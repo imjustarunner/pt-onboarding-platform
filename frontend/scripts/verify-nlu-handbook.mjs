@@ -1,0 +1,90 @@
+import { chromium } from 'playwright';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+import { getHandbookSource } from '../../backend/src/services/workplaceHandbookContent.js';
+
+const source = getHandbookSource({ slug: 'nlu' });
+const output = fileURLToPath(new URL('../../deliverables/handbook-verification/nlu/', import.meta.url));
+mkdirSync(output, { recursive: true });
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+const errors = [], requests = [], results = [];
+try {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('request', r => { if (/\/api\/evaluations/.test(r.url())) requests.push(r.url()); });
+  const open = async slug => {
+    await page.getByRole('searchbox', { name: 'Search handbook' }).fill('');
+    await page.locator(`.outline-link[href="#handbook-${slug}"]`).click();
+    assert.equal(await page.locator('.book-page').getAttribute('id'), `handbook-${slug}`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, slug);
+  };
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('http://127.0.0.1:5181/nlu-handbook-preview', { waitUntil: 'networkidle' });
+    assert.equal(await page.locator('.outline-link').count(), source.sections.length);
+    assert.equal(await page.locator('.cover-logo').evaluate(img => img.complete && img.naturalWidth > 0), true);
+    assert.match(await page.locator('.cover-art').getAttribute('src'), /nlu-cover\.png$/);
+    await page.locator('.cover-art').evaluate(img => img.decode());
+    assert.match(await page.locator('.book-page').innerText(), /Welcome to Next Level Up/);
+    assert.equal(await page.locator('a[download]').count(), 0);
+    if ([1440, 390].includes(width)) await page.screenshot({ path: `${output}cover-${width}.png` });
+    await open('history-and-background-of-next-level-up');
+    assert.deepEqual(await page.locator('.founder-portrait strong').allTextContents(), ['Michael Mendez', 'Melissa Mendez']);
+    assert.equal(await page.locator('.founder-portrait img').count(), 1);
+    await page.locator('.founder-portrait img').evaluate(img => img.decode());
+    if ([1440, 390].includes(width)) await page.locator('.book-page').screenshot({ path: `${output}founders-${width}.png` });
+    await open('values');
+    assert.equal(await page.locator('.value-card').count(), 7);
+    if ([1440, 390].includes(width)) await page.locator('.book-page').screenshot({ path: `${output}values-${width}.png` });
+    await open('therapy-plus-tutoring-groups');
+    assert.match(await page.locator('.book-page').innerText(), /At least two must attend/);
+    await open('therapy-plus-tutoring-blended-visit');
+    assert.match(await page.locator('.book-page').innerText(), /up to 30 minutes of counseling/);
+    if ([1440, 390].includes(width)) await page.locator('.book-page').screenshot({ path: `${output}blended-visit-${width}.png` });
+    await open('therapy-plus-tutoring-documentation-and-billing');
+    assert.match(await page.locator('.book-page').innerText(), /not automatically a two-unit claim/);
+    await open('workplace-safety-policy-and-procedures');
+    assert.equal(await page.locator('.pending-section').count(), 0);
+    assert.equal(await page.locator('.chapter-sections button').count(), 8);
+    await open('nlu-parent-pickup');
+    assert.match(await page.locator('.book-page').innerText(), /15–30 minutes/);
+    if ([1440, 390].includes(width)) await page.locator('.book-page').screenshot({ path: `${output}parent-pickup-${width}.png` });
+    await open('typical-duties-mental-health-facilitator');
+    assert.match(await page.locator('.book-page > h3').innerText(), /Learning & Wellness Facilitator/);
+    await open('client-policies-and-attendance');
+    assert.match(await page.locator('.book-page').innerText(), /does not cancel wages earned/);
+    await open('digital-workplace-and-transition-procedures');
+    assert.match(await page.locator('.book-page').innerText(), /The app is the workplace system of record/);
+    await open('student-training-program-disclosure-and-liability');
+    assert.match(await page.locator('.book-page').innerText(), /clinical malpractice insurance/);
+    await page.getByRole('searchbox', { name: 'Search handbook' }).fill('clinical malpractice');
+    assert.ok(await page.locator('.outline-link').count() >= 2);
+    await open('scheduling-and-consistent-hours-policy');
+    assert.equal(await page.locator('.pending-section').count(), 1);
+    await open('clinical-development-supervision-rubric');
+    assert.equal(await page.locator('.training-band').count(), 28);
+    await open('appendix-i');
+    assert.equal(await page.locator('.pending-section').count(), 1);
+    await page.getByRole('button', { name: 'Review handbook updates', exact: true }).click();
+    const links = page.locator('.policy-locations a');
+    const destinations = await links.evaluateAll(els => els.map(e => e.getAttribute('href')));
+    assert.ok(destinations.length > 40);
+    for (let i = 0; i < destinations.length; i++) {
+      await links.nth(i).click();
+      assert.equal(await page.locator('.book-page').getAttribute('id'), destinations[i].slice(1));
+      await page.getByRole('button', { name: 'Review handbook updates', exact: true }).click();
+    }
+    await page.getByRole('button', { name: 'Read handbook', exact: true }).click();
+    await open('therapy-plus-tutoring-groups');
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await page.locator('.book-page').getAttribute('id'), 'handbook-therapy-plus-tutoring-groups');
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await page.locator('.book-layout').isVisible(), false);
+    await page.emulateMedia({ media: 'screen' });
+    results.push({ width, sectionCount: source.sections.length, policyLinks: destinations.length, overflow: false });
+  }
+  assert.deepEqual(errors, []); assert.deepEqual(requests, []);
+  writeFileSync(`${output}results.json`, JSON.stringify({ results, errors, personnelRequests: requests }, null, 2));
+  console.log(JSON.stringify({ results, errors, output }));
+} finally { await browser.close(); }

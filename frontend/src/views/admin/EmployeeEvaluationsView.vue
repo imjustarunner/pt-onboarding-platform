@@ -2,9 +2,9 @@
   <div class="page-container eval-page">
     <div class="page-header">
       <h1>Employee Evaluations</h1>
-      <p class="page-subtitle">Semiannual employee self-assessments and review roster.</p>
+      <p class="page-subtitle">Employee self-assessments, review roster and quarterly student training evaluations.</p>
     </div>
-    <EvaluationRosterPanel v-if="agencyId" :agency-id="agencyId" />
+    <template v-if="agencyId"><EvaluationRosterPanel :agency-id="agencyId" /><StudentTrainingEvaluationsPanel :agency-id="agencyId" /></template>
     <p v-else class="eval-page__muted">Select an agency to view the evaluation roster.</p>
   </div>
 </template>
@@ -14,6 +14,7 @@ import { computed } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import EvaluationRosterPanel from '../../components/evaluations/EvaluationRosterPanel.vue';
+import StudentTrainingEvaluationsPanel from '../../components/evaluations/StudentTrainingEvaluationsPanel.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

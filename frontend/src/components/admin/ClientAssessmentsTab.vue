@@ -1,5 +1,6 @@
 <template>
   <div class="cc-assess-tab">
+    <OutcomeMeasuresPanel ref="outcomePanel" :key="`outcomes:${clientId}`" :client-id="clientId" />
     <div class="cc-enc-toolbar">
       <div class="cc-enc-toolbar__meta">
         <h3>Assessments &amp; Evaluations</h3>
@@ -171,6 +172,7 @@ import {
   getAssessmentTokenUrl
 } from '../../navigation/toolsCatalog.js';
 import ToolCard from '../tools/ToolCard.vue';
+import OutcomeMeasuresPanel from '../clinical/OutcomeMeasuresPanel.vue';
 import RichTextEditor from './RichTextEditor.vue';
 import '../../styles/client-encounters-tab.css';
 
@@ -181,6 +183,8 @@ const props = defineProps({
 });
 
 const loading = ref(false);
+const outcomePanel = ref(null);
+defineExpose({ canLeave: () => outcomePanel.value?.canLeave() !== false });
 const assigning = ref(false);
 const saving = ref(false);
 const error = ref('');

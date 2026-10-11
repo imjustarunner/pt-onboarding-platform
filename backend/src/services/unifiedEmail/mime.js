@@ -76,7 +76,8 @@ function buildMimeMessage({
   messageId = null,
   inReplyTo = null,
   references = null,
-  attachments = null
+  attachments = null,
+  autoSubmitted = false
 }) {
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const ccHeader = Array.isArray(cc)
@@ -95,6 +96,7 @@ function buildMimeMessage({
     ...(replyTo ? [`Reply-To: ${normalizeHeaderValue(replyTo)}`] : []),
     ...(inReplyTo ? [`In-Reply-To: ${normalizeHeaderValue(inReplyTo)}`] : []),
     ...(references ? [`References: ${normalizeHeaderValue(references)}`] : []),
+    ...(autoSubmitted ? ['Auto-Submitted: auto-replied', 'X-Auto-Response-Suppress: All'] : []),
     'MIME-Version: 1.0'
   ];
 

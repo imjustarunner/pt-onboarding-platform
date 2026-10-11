@@ -1,0 +1,18 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({agencies:vi.fn(),job:vi.fn(),render:vi.fn(),pdf:vi.fn()}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:2,name:'ITSCO'})}}));
+vi.mock('../../models/HiringJobDescription.model.js',()=>({default:{findById:m.job}}));
+vi.mock('../../services/contractGenerator.service.js',()=>({listConfigs:vi.fn()}));
+vi.mock('../../services/contractCompensation.service.js',()=>({contractCompensationLevels:vi.fn()}));
+vi.mock('../../services/contractMerge.service.js',()=>({renderContractHtml:m.render,getAgencyBuilderDefaults:async()=>({agency:{name:'ITSCO',address:'Office'}}),inferCompensationFromCredential:vi.fn()}));
+vi.mock('../../services/referenceReleasePdf.service.js',()=>({buildReferenceReleasePdfBuffer:m.pdf}));
+import {packetPreviewContract,packetPreviewReference} from '../hirePacketPreview.controller.js';
+const req=()=>({user:{id:9,role:'admin'},query:{agencyId:2,jobId:5},body:{agencyId:2,jobId:5,configId:8,category:3,level:2}});
+let res,next;
+beforeEach(()=>{vi.clearAllMocks();m.agencies.mockResolvedValue([{id:2}]);m.job.mockResolvedValue({id:5,agency_id:2,is_active:1,title:'Facilitator',description_text:'Approved duties',job_desc_clause_key:'JOB_DESC_JD_5'});m.render.mockResolvedValue({html:'<p>Current contract</p>',unresolvedTokens:['START_DATE']});m.pdf.mockResolvedValue(Buffer.from('pdf'));res={set:vi.fn().mockReturnThis(),json:vi.fn(),send:vi.fn()};next=vi.fn();});
+it('uses the selected posting, its specific duties and configured category and level without looking up a real applicant',async()=>{await packetPreviewContract(req(),res,next);expect(next).not.toHaveBeenCalled();expect(m.render).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,configId:8,compensationCategory:3,compensationLevel:2,jobDescClauseKey:'JOB_DESC_JD_5',tokens:expect.objectContaining({EMPLOYEE_FULL_NAME:'Alex Demo',JOB_DESCRIPTION_ID:'5',JOB_TITLE:'Facilitator'})}));expect(res.json).toHaveBeenCalledWith(expect.objectContaining({unresolvedTokens:['START_DATE']}));});
+it('rejects another agency before reading its job or rates',async()=>{m.agencies.mockResolvedValue([{id:6}]);await packetPreviewContract(req(),res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.job).not.toHaveBeenCalled();});
+it('rejects a cross-agency posting even for an allowed agency',async()=>{m.job.mockResolvedValue({id:5,agency_id:6,is_active:1});await packetPreviewContract(req(),res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));expect(m.render).not.toHaveBeenCalled();});
+it('does not silently substitute LPC duties when a posting has no linked clause',async()=>{m.job.mockResolvedValue({id:5,agency_id:2,is_active:1});await packetPreviewContract(req(),res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.render).not.toHaveBeenCalled();});
+it('marks the actual reference release as an unsigned preview tied to the chosen job',async()=>{await packetPreviewReference(req(),res,next);expect(next).not.toHaveBeenCalled();expect(m.pdf).toHaveBeenCalledWith(expect.objectContaining({preview:true,applicantName:'Alex Demo (preview)',jobTitle:'Facilitator',agencyName:'ITSCO'}));});

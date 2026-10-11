@@ -6,6 +6,7 @@
       <a href="#prefs-email" @click.prevent="scrollToSection('prefs-email')">Email settings</a>
       <a href="#prefs-notifications" @click.prevent="scrollToSection('prefs-notifications')">Notifications</a>
       <a href="#prefs-availability" @click.prevent="scrollToSection('prefs-availability')">Schedule</a>
+      <a v-if="isOwnAccount && (isWorkforceEmployeeRole || ['tutor','clinical_director'].includes(effectiveRoleNorm))" href="#prefs-vacation" @click.prevent="scrollToSection('prefs-vacation')">Vacation email</a>
       <a href="#prefs-communication" @click.prevent="scrollToSection('prefs-communication')">Support assist</a>
       <a href="#prefs-privacy" @click.prevent="scrollToSection('prefs-privacy')">Privacy & Quick View</a>
       <a href="#prefs-security" @click.prevent="scrollToSection('prefs-security')">PINs & lock</a>
@@ -192,6 +193,7 @@
 
 
     <PersonalMessageDeliverySettings v-if="isOwnAccount && !viewOnly" />
+    <VacationResponderSettings id="prefs-vacation" v-if="isOwnAccount && !viewOnly && (isWorkforceEmployeeRole || ['tutor','clinical_director'].includes(effectiveRoleNorm))" :agency-id="agencyStore.currentAgency?.id" />
 
     <!-- Section 2: Availability & Work Style -->
     <section id="prefs-availability" class="preferences-section">
@@ -903,6 +905,7 @@
 
 <script setup>
 import EmailSignatureNote from './communications/EmailSignatureNote.vue';
+import VacationResponderSettings from './communications/VacationResponderSettings.vue';
 import StaffCommunicationChoices from './communications/StaffCommunicationChoices.vue';
 import { canAccessMedicalBilling } from '../config/medicalBillingAccess.js';
 const canSeeClaimBillingPreferences = computed(() => canAccessMedicalBilling(authStore.user, agencyStore.currentAgency?.id));

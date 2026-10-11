@@ -1,0 +1,33 @@
+{
+  "reviewedOn": "2026-10-10",
+  "context": "These studies examine social-emotional learning, self-regulation and tutoring in other programs and settings. They support the components we draw on; they did not evaluate NLU’s Therapy + Tutoring program. Individual results vary.",
+  "studies": [
+    {
+      "id": "social-emotional-learning",
+      "heading": "Learning includes emotional skills",
+      "citation": "Durlak and colleagues · Child Development · 2011",
+      "title": "The Impact of Enhancing Students’ Social and Emotional Learning: A Meta-Analysis of School-Based Universal Interventions",
+      "url": "https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1467-8624.2010.01564.x",
+      "finding": "Across 213 school-based studies involving 270,034 students, social-emotional learning programs improved social-emotional skills, behavior and academic performance compared with controls.",
+      "limit": "These were universal school programs, not a trial of outpatient counseling combined with tutoring. Implementation and program design matter."
+    },
+    {
+      "id": "self-regulation",
+      "heading": "Regulation skills can develop",
+      "citation": "Pandey and colleagues · JAMA Pediatrics · 2018",
+      "title": "Effectiveness of Universal Self-regulation–Based Interventions in Children and Adolescents: A Systematic Review and Meta-analysis",
+      "url": "https://jamanetwork.com/journals/jamapediatrics/fullarticle/2677898",
+      "finding": "A review of 49 randomized trials found that a range of interventions improved self-regulation. Of 13 studies reporting academic achievement, 11 reported positive results and two found no effect.",
+      "limit": "Participants were ages 2–17, mostly younger children. Programs varied, and only a subset measured academic outcomes; improvement is not assured for every child."
+    },
+    {
+      "id": "tutoring",
+      "heading": "Academic instruction still matters",
+      "citation": "Nickow, Oreopoulos and Quan · American Educational Research Journal · 2024",
+      "title": "The Promise of Tutoring for PreK–12 Learning: A Systematic Review and Meta-Analysis of the Experimental Evidence",
+      "url": "https://journals.sagepub.com/doi/10.3102/00028312231208687",
+      "finding": "A meta-analysis of randomized tutoring experiments found positive learning effects overall. Effects tended to be larger with teachers or paraprofessionals, earlier grades, and tutoring at least three days a week during school.",
+      "limit": "This research evaluated tutoring, not NLU’s combined model. Results from frequent school-day tutoring cannot be promised for a weekly or shorter session."
+    }
+  ]
+}

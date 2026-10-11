@@ -420,15 +420,15 @@
 
               <div v-if="panelStep !== 'consent' || activeTask.status === 'completed'" class="review-block">
                 <HireDocumentPreview v-if="activeTaskDetail?.document" :key="activeTask.id" :http="portalApi"
-                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" :editable="!isContractTask && activeTask.status !== 'completed' && activeTask.actionType !== 'review' && !fillableFields.length" v-model="documentAnnotations" @ready="previewReady = $event" />
-                <div v-if="fillableFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
+                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" :editable="!isContractTask && activeTask.status !== 'completed' && activeTask.actionType !== 'review' && (!fillableFields.length || onDocumentFields.length > 0)" :field-definitions="onDocumentFields" v-model:field-values="fieldValues" v-model="documentAnnotations" @ready="previewReady = $event" />
+                <div v-if="detachedFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
                   <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
                     <div class="doc-form-title">{{ activeTask.title }}</div>
                     <p v-if="activeTask.description" class="doc-form-desc">{{ activeTask.description }}</p>
-                    <p class="doc-form-hint">Complete the fields below, then proceed to sign.</p>
+                    <p class="doc-form-hint">Complete any additional fields below, then proceed to sign.</p>
                   </div>
                   <div
-                    v-for="field in fillableFields"
+                    v-for="field in detachedFields"
                     :key="field.id"
                     class="doc-field"
                     :data-field-id="field.id"
@@ -563,9 +563,11 @@
 
     </template>
   </div>
+  <PlotlineSignature/>
 </template>
 
 <script setup>
+import PlotlineSignature from '../components/plotline/PlotlineSignature.vue';
 import HirePortalWorkspace from '../components/prehire/HirePortalWorkspace.vue';
 import HireAccountAccess from '../components/prehire/HireAccountAccess.vue';
 import HireWorkEmailPicker from '../components/prehire/HireWorkEmailPicker.vue';
@@ -581,6 +583,7 @@ import AdaptiveSignatureCapture from '../components/adaptive-intake/AdaptiveSign
 import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import { buildFormUrl } from '../utils/publicIntakeUrl.js';
 import { learnerFillableFields } from '../utils/documentFieldLayout.js';
+import { canFillOnDocument } from '../utils/pdfFillLayout.js';
 import { coverLetterParagraphs as splitCoverLetter } from '../utils/coverLetterDisplay.js';
 import '../styles/adaptive-intake.css';
 import '../styles/digital-form.css';
@@ -636,7 +639,7 @@ const embeddedTraining = ref(false);
 const embeddedVideoPlaying = ref(false);
 function onWorkspaceSection(section, step) {
   activeSection.value = ({ home: 'dashboard', steps: 'tasks', documents: 'submissions', messages: 'messages', help: 'help' })[section] || section;
-  embeddedTraining.value = section === 'steps' && step?.task?.taskType === 'training';
+  embeddedTraining.value = section === 'steps' && (step?.task?.taskType === 'training' || step?.kind === 'guide-training');
   if (section === 'documents') openSubmissions();
 }
 const viewingPrehire = computed(() => selectedProcess.value === 'pre_hire' || candidate.value.status !== 'ONBOARDING');
@@ -1320,6 +1323,9 @@ const fillableFields = computed(() => {
   if (!Array.isArray(defs) || !defs.length) return [];
   return learnerFillableFields(defs).filter((def) => isFieldVisible(def, fieldValues.value));
 });
+
+const onDocumentFields = computed(() => activeTaskDetail.value?.document?.templateType === 'pdf' ? fillableFields.value.filter(canFillOnDocument) : []);
+const detachedFields = computed(() => fillableFields.value.filter(field => !onDocumentFields.value.includes(field)));
 
 const formatFieldLabel = (field) => field?.label || field?.type || 'Field';
 

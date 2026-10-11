@@ -22,8 +22,8 @@ describe('packet composition and validation', () => {
   });
   it('rejects active URL schemes and keeps unconfigured items incomplete', () => expect(sanitizeWorkflow({ resources: [{ id: 'x', title: 'Bad URL', url: 'javascript:alert(1)' }] }).resources[0].url).toBe(''));
   it('cannot replace core profile or signing steps with a configured resource', () => {
-    const clean = sanitizeWorkflow({ resources: [{ id: 'profile', title: 'Extra form' }, { id: 'task-17', title: 'Extra task' }] });
-    expect(clean.resources.map(r => r.id)).toEqual(['resource-profile', 'resource-task-17']);
+    const clean = sanitizeWorkflow({ resources: [{ id: 'profile', title: 'Extra form' }, { id: 'task-17', title: 'Extra task' }, { id: 'guide-training-provider-guide', title: 'Override attempt' }] });
+    expect(clean.resources.map(r => r.id)).toEqual(['resource-profile', 'resource-task-17', 'resource-guide-training-provider-guide']);
     expect(sanitizeWorkflow(clean)).toEqual(clean);
   });
   it('separates assigning a supervisor from making the employee a supervisor', () => {
@@ -73,6 +73,8 @@ describe('phase manifest', () => {
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'ONBOARDING' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: { signed: true }, journey: { prehireCompletedAt: '2026-09-01' } });
     expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('profile');
     expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('headshot');
+    expect(manifest.steps.pre_hire.find(s => s.kind === 'handbook')).toMatchObject({ required: false, complete: false });
+    expect(manifest.steps.onboarding.find(s => s.kind === 'handbook')).toMatchObject({ required: true, complete: false });
   });
 });
 describe('persistent step writes', () => {

@@ -165,7 +165,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   if (!prehireClosed || stored('pre_hire', 'profile')) add('pre_hire', { key: 'profile', kind: 'profile', title: 'Pre-employment information', complete: !!stored('pre_hire', 'profile')?.completedAt });
   if (!prehireClosed || stored('pre_hire', 'headshot')) add('pre_hire', { key: 'headshot', kind: 'headshot', title: 'Your professional headshot', complete: !!stored('pre_hire', 'headshot')?.completedAt });
   const handbook = packet.handbookUrl || handbookUrl;
-  if (!prehireClosed || stored('pre_hire', 'handbook')) add('pre_hire', { key: 'handbook', kind: 'handbook', title: 'Workplace handbook', url: handbook, required: false, complete: !!stored('pre_hire', 'handbook')?.completedAt });
+  add('pre_hire', { key: 'handbook', kind: 'handbook', title: 'Workplace handbook · Reference', required: false, instructions: 'Search and reference the handbook here at any time. You will review and acknowledge it during onboarding.', url: handbook, complete: !!stored('pre_hire', 'handbook')?.completedAt });
   for (const doc of extras.prehireDocs || []) {
     // Template-backed documents already have a signing task; do not ask twice.
     if (doc.kind === 'acknowledgement') continue; // Legacy alias for the built-in job-description signature.
@@ -205,7 +205,11 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
       communicationChoices:choices,complete:!!stored('onboarding','staff-communications')?.completedAt && !choices.needsReview});
   }
   for (const task of uniquePortalTasks(user.status === 'ONBOARDING' ? tasks : [])) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
-  add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Handbook acknowledgement', url: handbook, complete: !!stored('onboarding', 'handbook')?.completedAt });
+  if (user.status === 'ONBOARDING') {
+    const { onboardingGuideSteps } = await import('./companyDocumentLearning.service.js');
+    for (const step of await onboardingGuideSteps(user, agencyId, pool, { closed: onboardingClosed })) add('onboarding', step);
+  }
+  add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Review the workplace handbook', instructions: 'Review the handbook and the policies that apply to your role, then sign your acknowledgment of the published edition. Use search or Ask the handbook for help finding a policy.', url: handbook, complete: !!stored('onboarding', 'handbook')?.completedAt });
   for (const resource of config.resources || []) {
     if (resource.kind === 'document') {
       const assigned = (resource.phase === 'pre_hire' ? pTasks : tasks).find((t) => t.taskType === 'document' && Number(t.referenceId) === Number(resource.templateId));

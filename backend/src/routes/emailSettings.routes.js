@@ -1,3 +1,4 @@
+import { getVacationSettings, updateVacationSettings, updateVacationDefaults } from '../controllers/vacationResponder.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -18,6 +19,10 @@ const upload = multer({
     cb(ok ? null : new Error('Only PNG, JPEG, or WebP images are allowed'), ok);
   }
 });
+
+router.get('/vacation', authenticate, getVacationSettings);
+router.put('/vacation', authenticate, updateVacationSettings);
+router.put('/vacation/defaults', authenticate, updateVacationDefaults);
 
 router.get('/', authenticate, requireBackofficeAdmin, getEmailSettings);
 router.put('/', authenticate, requireBackofficeAdmin, updateEmailSettings);

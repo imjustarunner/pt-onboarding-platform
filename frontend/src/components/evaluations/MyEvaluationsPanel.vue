@@ -1,5 +1,6 @@
 <template>
   <div class="my-evals">
+    <StudentTrainingEvaluationsPanel v-if="agencyId" :agency-id="agencyId" />
     <div v-if="loading" class="my-evals__muted">Loading your evaluations…</div>
     <div v-else-if="error" class="my-evals__error">{{ error }}</div>
     <template v-else>
@@ -53,6 +54,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import EmployeeEvaluationWorkspace from './EmployeeEvaluationWorkspace.vue';
+import StudentTrainingEvaluationsPanel from './StudentTrainingEvaluationsPanel.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null }

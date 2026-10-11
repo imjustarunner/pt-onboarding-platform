@@ -38,6 +38,7 @@
           </div>
         </div>
 
+        <DocumentLearningCatalog :search="searchQuery" @progress="guideProgress = $event" />
         <div class="toolbar">
           <div class="tabs">
             <button
@@ -237,6 +238,7 @@
 </template>
 
 <script setup>
+import DocumentLearningCatalog from '../components/training/DocumentLearningCatalog.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
@@ -247,6 +249,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
+const guideProgress = ref({ total: 0, completed: 0 });
 const loading = ref(true);
 const error = ref('');
 const searchQuery = ref('');
@@ -399,12 +402,12 @@ const savedCourses = computed(() =>
   allCourses.value.filter((c) => savedSet.value.has(`${c.type === 'focus' ? 'focus' : 'module'}:${c.id}`))
 );
 
-const totalCount = computed(() => allCourses.value.length);
-const completedCount = computed(() => completedCourses.value.length);
+const totalCount = computed(() => allCourses.value.length + guideProgress.value.total);
+const completedCount = computed(() => completedCourses.value.length + guideProgress.value.completed);
 const overallPct = computed(() =>
   totalCount.value ? Math.round((completedCount.value / totalCount.value) * 100) : 0
 );
-const certificateCount = computed(() => certificates.value.length || completedCount.value);
+const certificateCount = computed(() => certificates.value.length || completedCourses.value.length);
 
 const recentAchievements = computed(() =>
   completedCourses.value.slice(0, 5).map((c, i) => ({

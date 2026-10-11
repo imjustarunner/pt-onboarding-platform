@@ -1,4 +1,5 @@
 import express from 'express';
+import studentTrainingEvaluationRoutes from './studentTrainingEvaluation.routes.js';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
   getCurrentPeriod,
@@ -25,6 +26,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
+router.use('/student-training', studentTrainingEvaluationRoutes);
 
 router.get('/period', getCurrentPeriod);
 router.get('/me/cycles', getMyCycles);

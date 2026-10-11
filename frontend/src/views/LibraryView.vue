@@ -41,7 +41,9 @@
         />
       </header>
 
+      <DocumentAnalyticsControl :agency-id="referenceAgencyId" />
       <HireJourneyLibrary />
+      <CompanyReferenceLibrary v-if="referenceAgencyId" :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" />
 
       <div class="library-search-row">
         <div class="library-search">
@@ -360,6 +362,8 @@
 </template>
 
 <script setup>
+import DocumentAnalyticsControl from '../components/library/DocumentAnalyticsControl.vue';
+import CompanyReferenceLibrary from '../components/library/CompanyReferenceLibrary.vue';
 import HireJourneyLibrary from '../components/prehire/HireJourneyLibrary.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
@@ -470,6 +474,7 @@ const categories = computed(() => home.value?.categories || []);
 const folders = computed(() => home.value?.folders || []);
 
 const agencyStore = useAgencyStore();
+const referenceAgencyId = computed(() => home.value?.agencyId || agencyStore.currentAgency?.id || agencyId.value);
 const brandingStore = useBrandingStore();
 const orgSlug = computed(() => route.params.organizationSlug || '');
 const orgPrefix = computed(() => (orgSlug.value ? `/${orgSlug.value}` : ''));

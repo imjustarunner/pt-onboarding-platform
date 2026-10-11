@@ -14,6 +14,7 @@ import {protectProviderUpdatePreview} from '../middleware/providerUpdatePreview.
 
 const router = express.Router();
 router.post('/:token/save-for-later', review.saveForLater);
+import { handbookAssistantLimit } from '../middleware/handbookAssistantLimit.middleware.js';
 router.use('/:token',protectProviderUpdatePreview);
 
 router.get('/:token', ctrl.getPublicByToken);
@@ -25,6 +26,7 @@ router.get('/:token/admin-update-latest', ctrl.latestAdminUpdatePublic);
 router.get('/:token/fall-actions', ctrl.fallActionsPublic);
 
 router.get('/:token/handbook', hb.publicPublishedByToken);
+router.post('/:token/handbook/answer', handbookAssistantLimit, hb.answerQuestionByToken);
 router.post('/:token/handbook/views', hb.publicTrackByToken);
 router.post('/:token/handbook/questions', hb.publicAskByToken);
 

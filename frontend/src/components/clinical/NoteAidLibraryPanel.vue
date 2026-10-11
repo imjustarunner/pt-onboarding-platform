@@ -2,6 +2,7 @@
   <div class="nal">
     <aside class="nal-nav">
       <h2 class="nal-nav-title">Documentation Hub Library</h2>
+      <p v-if="hasCareGuide" class="nal-empty"><router-link :to="{ path: '/library', query: { companyDocument: 'clinical-note-aid-guide' } }">Clinical Note Aid &amp; Care Continuity Guide ↗</router-link></p>
       <nav class="nal-cats" aria-label="Aid families">
         <button
           type="button"
@@ -155,6 +156,9 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue';
+import { useAgencyStore } from '../../store/agency';
+const agencyStore = useAgencyStore();
+const hasCareGuide = computed(() => ['itsco', 'nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up', 'tisi', 'innerstrength', 'inner-strength', 'theinnerstrengthinstitute', 'the-inner-strength-institute'].includes(String(agencyStore.currentAgency?.slug || '').toLowerCase()));
 import {
   NOTE_AID_CATEGORY_TONES,
   NOTE_AID_KIND_FILTERS,

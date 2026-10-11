@@ -4,7 +4,11 @@
     <div v-else-if="error" class="ee-error">{{ error }}</div>
     <template v-else-if="cycle">
       <header class="ee-header">
-        <div>
+        <div v-if="preview">
+          <h3 class="ee-title">Blank self-assessment</h3>
+          <p class="ee-meta">Complete your assigned form in My Account → Evaluations. Individual responses stay private.</p>
+        </div>
+        <div v-else>
           <h3 class="ee-title">
             {{ periodLabel }}
             <span v-if="cycle.job_title_snapshot || cycle.jobTitleSnapshot" class="ee-job">
@@ -168,7 +172,8 @@ const props = defineProps({
     default: 'employee',
     validator: (v) => ['employee', 'admin', 'readonly'].includes(v)
   },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  preview: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['updated', 'submitted']);
@@ -195,7 +200,7 @@ const periodLabel = computed(() => {
 });
 
 const canEdit = computed(() => {
-  if (props.mode !== 'employee') return false;
+  if (props.preview || props.mode !== 'employee') return false;
   return ['scheduled', 'in_progress'].includes(cycleStatus.value);
 });
 

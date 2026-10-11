@@ -8,6 +8,11 @@ export async function enforcePortalWritePhase(req, res, next) {
   // Account details stay accessible while the submitted onboarding package awaits activation.
   if (req.portalUser?.status === 'ONBOARDING' && req.method === 'POST'
     && /^\/credential-packet\/(acknowledge|systems\/[^/]+\/reveal-temp-password)\/?$/.test(path)) return next();
+  // Reading telemetry is separate from closed onboarding forms or payroll.
+  if (req.method === 'POST' && /^\/document-analytics\/(sessions|events)\/?$/.test(path)) return next();
+  // Handbook Q&A is a read operation, including after submission closes.
+  if (req.method === 'POST' && /^\/resources\/handbook\/answer\/?$/.test(path)) return next();
+  if (req.method === 'POST' && /^\/document-learning\/enrollments\/\d+\/answer\/?$/.test(path)) return next();
   try {
     const user = req.portalUser;
     const journey = await getJourney(user.id);

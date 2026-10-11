@@ -1,6 +1,8 @@
 import { loadPortalPrehireExtras, resolveJobDescriptionIdForCandidate } from '../services/hirePortalExtras.service.js';
 import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 import { applicantReferenceStatus } from '../models/HiringReferenceContact.model.js';
+import { handbookResponseForReader } from '../services/workplaceHandbookAccess.js';
+import { answerPublishedHandbook } from '../services/workplaceHandbookAnswer.service.js';
 import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys, assertPortalStepCompletion } from '../services/hirePortalWorkflow.service.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 /**
@@ -256,7 +258,7 @@ export const getPortal = async (req, res, next) => {
     let referenceNames = hiringProfile?.references_json || [];
     if (typeof referenceNames === 'string') { try { referenceNames = JSON.parse(referenceNames); } catch { referenceNames = []; } }
     for (const status of referenceStatus) status.referenceName ||= referenceNames[status.referenceIndex]?.name || `Reference ${status.referenceIndex + 1}`;
-    res.json({
+    res.json(handbookResponseForReader({
       referenceStatus,
       candidate: {
         id: user.id,
@@ -320,7 +322,7 @@ export const getPortal = async (req, res, next) => {
         }
       })(),
       ...extras
-    });
+    }));
   } catch (e) { next(e); }
 };
 
@@ -1665,6 +1667,7 @@ export const uploadPortalPrehireDocument = async (req, res, next) => {
 
 export const getPortalHandbook = async (req, res, next) => {
   try {
+    res.set('Cache-Control', 'private, no-store');
     const agency = await loadPortalAgency(req.portalUser.id);
     if (!agency) return res.status(404).json({ error: { message: 'Organization not found.' } });
     const { getPublishedHandbook, recordHandbookView } = await import('../services/workplaceHandbook.service.js');
@@ -1679,18 +1682,26 @@ export const getPortalHandbook = async (req, res, next) => {
         versionId: handbook.version?.id || null
       });
     } catch { /* ignore */ }
-    res.json({
+    res.json(handbookResponseForReader({
       available: true,
+      analytics: { agencyId: agency.id, surface: req.portalUser.status === 'ONBOARDING' ? 'onboarding' : 'prehire' },
       handbook: {
+        ...handbook,
         title: handbook.document?.title || 'Workplace Handbook',
-        sections: (handbook.sections || []).map((s) => ({
-          id: s.id,
-          title: s.title,
-          bodyHtml: s.body_html || s.content_html || s.body || ''
-        }))
+        sections: (handbook.sections || []).map((s) => ({ ...s, bodyHtml: s.body_html || s.content_html || s.body || '' }))
       }
-    });
+    }));
   } catch (e) { next(e); }
+};
+
+export const answerPortalHandbook = async (req, res, next) => {
+  try {
+    const agency = await loadPortalAgency(req.portalUser.id);
+    if (!agency) return res.status(404).json({ error: { message: 'Organization not found.' } });
+    const answer = await answerPublishedHandbook(agency.id, req.body, req.portalUser.id, req.portalUser.status === 'ONBOARDING' ? 'onboarding' : 'prehire');
+    res.set('Cache-Control', 'private, no-store');
+    res.json(answer);
+  } catch (error) { next(error); }
 };
 
 export const viewPortalSignedFile = async (req, res, next) => {

@@ -1,0 +1,38 @@
+import { chromium } from 'playwright';
+import { mkdir, writeFile } from 'node:fs/promises';
+const dir = new URL('../../deliverables/vacation-responder-verification/', import.meta.url); await mkdir(dir, { recursive: true });
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+const errors = [], checks = []; page.on('pageerror', e => errors.push(e.message));
+await page.route('**/*', r => new URL(r.request().url()).origin === 'http://127.0.0.1:5194' ? r.continue() : r.abort());
+const check = (ok, label) => { if (!ok) throw Error(label); checks.push(label); };
+try {
+  await page.request.put('http://127.0.0.1:5194/preview-api/email-settings/vacation', { data: { enabled: false, plannedOutId: null, templateKey: 'provider_colorado_springs', messageTemplate: '', endsAt: null } });
+  await page.goto('http://127.0.0.1:5194');
+  await page.getByRole('button', { name: 'Save my responder' }).waitFor();
+  check((await page.locator('pre').innerText()).includes('115 S. Parkside'), 'Colorado Springs template available');
+  await page.getByLabel('Planned out', { exact: true }).selectOption('4');
+  await page.getByLabel('Template', { exact: true }).selectOption('provider_denver');
+  await page.getByLabel('Expected return / turn responder off').fill('2026-12-29T09:00');
+  await page.getByLabel('Turn on my vacation responder').check();
+  check((await page.locator('pre').innerText()).includes('4353 E. Colfax'), 'Denver template uses local resource');
+  check(!(await page.locator('pre').innerText()).includes('Parkside'), 'Denver preview does not mix Springs location');
+  await page.getByRole('button', { name: 'Save my responder' }).click();
+  await page.getByText('Vacation responder saved.', { exact: true }).waitFor();
+  check((await page.locator('.state').innerText()).includes('Waiting'), 'Future absence stays waiting after explicit opt-in');
+  await page.screenshot({ path: new URL('desktop.png', dir).pathname, fullPage: true });
+  await page.getByLabel('Customize my message').check();
+  await page.getByLabel('My reply', { exact: true }).fill('Hello! Back {return_at}. Call 988 for crisis support; 911 for emergencies.');
+  check((await page.locator('pre').innerText()).includes('2026-12-29 09:00'), 'Personal message renders return date');
+  await page.getByLabel('Turn on my vacation responder').uncheck();
+  await page.getByRole('button', { name: 'Save my responder' }).click();
+  await page.waitForFunction(() => document.querySelector('.state')?.textContent === 'Off');
+  check(true, 'Responder can be turned off independently');
+  await page.setViewportSize({ width: 390, height: 850 });
+  await page.screenshot({ path: new URL('mobile.png', dir).pathname, fullPage: true });
+  check(!await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), 'Settings fit mobile width');
+  await page.screenshot({ path: new URL('mobile.png', dir).pathname, fullPage: true });
+  check(errors.length === 0, 'No browser runtime errors');
+  await writeFile(new URL('results.json', dir), JSON.stringify({ checks, errors, fixtureOnly: true }, null, 2));
+  console.log(JSON.stringify({ passed: checks.length, errors }));
+} finally { await browser.close(); }

@@ -29,6 +29,7 @@ function wrapText(text, font, size, maxWidth) {
 }
 
 export async function buildReferenceReleasePdfBuffer({
+  preview = false,
   agencyName = 'the organization',
   applicantName = '',
   applicantEmail = '',
@@ -72,6 +73,7 @@ export async function buildReferenceReleasePdfBuffer({
     }
   };
 
+  if (preview) draw('PREVIEW - FICTIONAL APPLICANT - NOT SIGNED', { size: 10, bold: true });
   draw('Reference Release', { size: 18, bold: true, gap: 10 });
   if (jobTitle) draw(`Role: ${jobTitle}`, { size: 11, color: rgb(0.35, 0.4, 0.45) });
   if (applicantName) draw(`Applicant: ${applicantName}`, { size: 11, color: rgb(0.35, 0.4, 0.45) });
@@ -96,7 +98,7 @@ export async function buildReferenceReleasePdfBuffer({
   const when = signedAt instanceof Date && Number.isFinite(signedAt.getTime())
     ? signedAt.toISOString()
     : String(signedAt || '');
-  draw(`Signed electronically on ${when}`, { size: 10, color: rgb(0.35, 0.4, 0.45), gap: 8 });
+  draw(preview ? 'Signature and date are collected when the applicant signs.' : `Signed electronically on ${when}`, { size: 10, color: rgb(0.35, 0.4, 0.45), gap: 8 });
 
   const dataUrl = String(signatureDataUrl || '').trim();
   if (dataUrl.startsWith('data:image')) {
@@ -114,7 +116,7 @@ export async function buildReferenceReleasePdfBuffer({
     }
   }
 
-  page.drawText('Electronic signature — ESIGN Act, 15 U.S.C. § 7001 et seq.', {
+  page.drawText(preview ? 'Preview only. No signature, reference request or employment record has been created.' : 'Electronic signature — ESIGN Act, 15 U.S.C. § 7001 et seq.', {
     x: margin,
     y: margin,
     size: 8,

@@ -5,6 +5,7 @@
       <p class="subtitle">Access training modules and videos anytime</p>
     </div>
 
+    <DocumentLearningCatalog mode="on-demand" />
     <div v-if="loading" class="loading">Loading training library...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     
@@ -161,6 +162,7 @@
 </template>
 
 <script setup>
+import DocumentLearningCatalog from '../components/training/DocumentLearningCatalog.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api';

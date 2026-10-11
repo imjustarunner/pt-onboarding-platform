@@ -1,0 +1,10 @@
+import express from 'express';
+import { authenticate } from '../middleware/auth.middleware.js';
+import * as analytics from '../controllers/documentAnalytics.controller.js';
+const router = express.Router();
+router.use(authenticate);
+router.post('/sessions', analytics.start);
+router.post('/events', analytics.event);
+router.get('/report', analytics.report);
+router.post('/query', analytics.query);
+export default router;

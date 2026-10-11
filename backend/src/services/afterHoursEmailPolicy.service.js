@@ -50,3 +50,13 @@ export async function usesAppEmailAvailability(userId) {
   }
   return [true, 1, '1'].includes(user.login_is_group_email) && !!await Directory.getGroup({ groupEmail: login });
 }
+
+// Vacation notices require a current, explicit opt-in tied to an active planned-out period.
+export async function eligibleVacationReply(context) {
+  const {agencyId, ownerUserId, inbox, recipientEmails, fromEmail, senderTrust} = context;
+  if(senderTrust === 'blocked' || inbox?.kind !== 'personal' || Number(inbox.owner_user_id)!==Number(ownerUserId) || Number(inbox.agency_id)!==Number(agencyId)) return false;
+  const recipients=[...new Set((recipientEmails || []).map(email).filter(Boolean))];
+  if(recipients.length!==1 || recipients[0]!==email(inbox.from_email) || email(fromEmail)===email(inbox.from_email)) return false;
+  const {resolveVacation}=await import('./vacationResponder.service.js');
+  return (await resolveVacation(agencyId,ownerUserId,new Date()))?.state === 'active';
+}

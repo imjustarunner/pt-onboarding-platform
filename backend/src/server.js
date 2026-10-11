@@ -41,6 +41,7 @@ import courseTemplateRoutes from './routes/courseTemplate.routes.js';
 import trainingMediaLibraryRoutes from './routes/trainingMediaLibrary.routes.js';
 import trainingSavedRoutes from './routes/trainingSaved.routes.js';
 import libraryRoutes from './routes/library.routes.js';
+import documentAnalyticsRoutes from './routes/documentAnalytics.routes.js';
 import signatureRoutes from './routes/signature.routes.js';
 import agencyRoutes from './routes/agency.routes.js';
 import trackRoutes from './routes/track.routes.js';
@@ -249,6 +250,7 @@ import familyFunctioningRoutes from './routes/familyFunctioning.routes.js';
 import savageBlueprintRoutes from './routes/savageBlueprint.routes.js';
 import rewardRegulationRoutes from './routes/rewardRegulation.routes.js';
 import assessmentDeliverablesRoutes from './routes/assessmentDeliverables.routes.js';
+import outcomeMeasuresRoutes from './routes/outcomeMeasures.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicWebsiteAnalyticsRoutes from './routes/publicWebsiteAnalytics.routes.js';
@@ -851,6 +853,7 @@ app.use('/api/family-functioning', familyFunctioningRoutes);
 app.use('/api/savage-blueprint', savageBlueprintRoutes);
 app.use('/api/reward-regulation', rewardRegulationRoutes);
 app.use('/api/assessment-deliverables', assessmentDeliverablesRoutes);
+app.use('/api/outcome-measures', outcomeMeasuresRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 
@@ -875,6 +878,7 @@ app.use('/api/course-templates', courseTemplateRoutes);
 app.use('/api/training-media', trainingMediaLibraryRoutes);
 app.use('/api/training-saved', trainingSavedRoutes);
 app.use('/api/library', libraryRoutes);
+app.use('/api/document-analytics', documentAnalyticsRoutes);
 app.use('/api/signatures', signatureRoutes);
 // Mount agency public routes (resolve, slug, portal, login-theme) FIRST so unauthenticated
 // login-page branding requests succeed. agencySchools/agencyDepartments use router.use(authenticate)

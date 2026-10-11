@@ -13,6 +13,7 @@
         <div v-if="loading" class="cc-empty pad">Loading email settings…</div>
         <div v-else-if="error" class="cc-banner-err">{{ error }}</div>
         <template v-else>
+          <VacationResponderSettings :agency-id="agencyId" />
           <section class="cc-settings-block highlight">
             <h4>School ROI / release emails</h4>
             <p class="cc-settings-status ok">ROI signing links and completion confirmations send immediately from your agency’s schools@ address. Replies go to support@.</p>
@@ -309,6 +310,7 @@
 </template>
 
 <script setup>
+import VacationResponderSettings from './VacationResponderSettings.vue';
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';

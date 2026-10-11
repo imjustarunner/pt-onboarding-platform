@@ -4,23 +4,31 @@
       <button type="button" :disabled="page <= 1 || busy" @click="page--">Previous page</button>
       <span>Page {{ page }} of {{ pages }}</span>
       <button type="button" :disabled="page >= pages || busy" @click="page++">Next page</button>
-      <label>Add <select v-model="tool" aria-label="Add entry type"><option value="text">Text</option><option value="check">Checkmark</option><option value="signature">My signature</option></select></label>
+      <button v-if="fieldDefinitions.length" type="button" :disabled="busy || !widgets.length" @click="nextField">Next field →</button>
+      <label v-if="!fieldDefinitions.length">Add <select v-model="tool" aria-label="Add entry type"><option value="text">Text</option><option value="check">Checkmark</option><option value="signature">My signature</option></select></label>
       <label>Zoom <select v-model.number="zoom" aria-label="Document zoom"><option :value="1">Fit page</option><option :value="1.5">150%</option><option :value="2">200%</option><option :value="3">300%</option></select></label>
     </div>
-    <p>Choose a tool, then click or tap where it belongs on the page. Select an entry to change its size or position. Your signature is captured before submission.</p>
+    <p v-if="fieldDefinitions.length">Click or tap a highlighted field on the document and enter your answer. Use Tab or Next field to continue. Required fields and your signature are checked before submission.</p>
+    <p v-else>Choose a tool, then click or tap where it belongs on the page. Select an entry to change its size or position. Your signature is captured before submission.</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Retry</button></p>
     <p v-if="busy" role="status">Loading page…</p>
-    <div class="fill-workspace">
+    <div class="fill-workspace" :class="{ 'mapped-fields': fieldDefinitions.length }">
     <div class="page-scroll">
     <div v-show="!busy && !error" class="page-surface" :style="{ aspectRatio: `${pageWidth} / ${pageHeight}`, width: `${zoom * 100}%` }" @click="place">
       <canvas ref="canvas" aria-label="Document page" />
+      <template v-for="field in pageFields" :key="field.widgetId">
+        <input v-if="field.type === 'checkbox' || field.type === 'radio'" class="mapped-input mapped-choice" :style="fieldStyle(field)" :type="field.type" :name="`pdf-${field.fieldId}`" :data-pdf-field="field.widgetId" :aria-label="field.label" :title="field.label" :checked="field.type === 'checkbox' ? !!fieldValues[field.fieldId] : String(fieldValues[field.fieldId]) === String(field.option)" :disabled="field.autoToday" @click.stop @change="setField(field, field.type === 'checkbox' ? $event.target.checked : field.option)" />
+        <select v-else-if="field.type === 'select'" class="mapped-input" :style="fieldStyle(field)" :data-pdf-field="field.widgetId" :aria-label="field.label" :title="field.label" :value="fieldValues[field.fieldId] || ''" :required="field.required" @click.stop @change="setField(field,$event.target.value)"><option value="">Select</option><option v-for="option in field.options" :key="option.value ?? option.label" :value="option.value ?? option.label">{{ option.label ?? option.value }}</option></select>
+        <textarea v-else-if="field.type === 'textarea'" class="mapped-input" :style="fieldStyle(field)" :data-pdf-field="field.widgetId" :aria-label="field.label" :title="field.label" :value="fieldValues[field.fieldId] || ''" :required="field.required" @click.stop @input="setField(field,$event.target.value)" />
+        <input v-else class="mapped-input" :style="fieldStyle(field)" :data-pdf-field="field.widgetId" :aria-label="field.label" :title="field.label" :type="field.type === 'ssn' ? 'password' : 'text'" :placeholder="field.type === 'date' && !field.autoToday ? 'MM/DD/YYYY' : ''" :value="fieldValues[field.fieldId] || ''" :readonly="field.autoToday" :required="field.required" autocomplete="off" @click.stop @input="setField(field,$event.target.value)" />
+      </template>
       <button v-for="entry in pageEntries" :key="entry.index" type="button" :aria-label="`${entry.kind} entry ${entry.index + 1}`" :class="['entry', { selected: selected === entry.index }]" :style="entryStyle(entry)" @click.stop="selected = entry.index" @pointerdown="beginMove($event, entry)" @pointermove="moveEntry" @pointerup="endMove" @pointercancel="endMove">
         <template v-if="entry.kind === 'signature'"><img v-if="signatureData" :src="signatureData" alt="Your signature" /><span v-else>Your signature</span></template>
         <span v-else>{{ entry.kind === 'check' ? '✓' : entry.text || 'Type your answer below' }}</span>
       </button>
     </div>
     </div>
-    <div v-if="selectedEntry" class="entry-controls">
+    <div v-if="!fieldDefinitions.length && selectedEntry" class="entry-controls">
       <label v-if="selectedEntry.kind === 'text'">Your answer<textarea :value="selectedEntry.text" maxlength="4000" rows="3" @input="updateEntry({ text: $event.target.value })" /></label>
       <div class="dimensions">
         <label v-for="dimension in ['x', 'y', 'width', 'height']" :key="dimension">{{ {x:'Left',y:'Top',width:'Width',height:'Height'}[dimension] }}
@@ -31,21 +39,41 @@
       <button type="button" @click="removeEntry">Remove this entry</button>
       <p v-if="selectedEntry.kind === 'text'">Text shrinks to fit when saved. Enlarge the box for longer answers.</p>
     </div>
-    <p v-else class="entry-controls">Select an entry to edit it, or tap the document to add one.</p>
+    <p v-else-if="!fieldDefinitions.length" class="entry-controls">Select an entry to edit it, or tap the document to add one.</p>
     </div>
-    <p>{{ modelValue.length }} {{ modelValue.length === 1 ? 'entry' : 'entries' }} added. Entries are saved in the completed PDF when you sign and submit.</p>
+    <p v-if="!fieldDefinitions.length">{{ modelValue.length }} {{ modelValue.length === 1 ? 'entry' : 'entries' }} added. Entries are saved in the completed PDF when you sign and submit.</p>
   </section>
 </template>
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue';
+import { pdfFieldWidgets, pdfFieldStyle } from '../../utils/pdfFillLayout';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-const props = defineProps({ pdfUrl: String, modelValue: { type: Array, default: () => [] }, signatureData: String });
-const emit = defineEmits(['update:modelValue', 'ready']);
+const props = defineProps({ pdfUrl: String, modelValue: { type: Array, default: () => [] }, signatureData: String, fieldDefinitions: { type: Array, default: () => [] }, fieldValues: { type: Object, default: () => ({}) } });
+const emit = defineEmits(['update:modelValue', 'update:fieldValues', 'ready']);
 const canvas = ref(null), page = ref(1), pages = ref(0), busy = ref(true), error = ref('');
 const zoom = ref(1);
 const pageWidth = ref(612), pageHeight = ref(792), tool = ref('text'), selected = ref(-1);
+const widgets = computed(() => pdfFieldWidgets(props.fieldDefinitions, pages.value));
+const pageFields = computed(() => widgets.value.filter(field => field.page === page.value));
+const fieldStyle = field => pdfFieldStyle(field, pageWidth.value, pageHeight.value);
+function setField(field,value) { fieldCursor = widgets.value.findIndex(widget => widget.widgetId === field.widgetId); emit('update:fieldValues', {...props.fieldValues,[field.fieldId]:value}); }
+let fieldCursor = -1, pendingFocus = null;
+async function focusField() {
+  await nextTick();
+  if (!pendingFocus || busy.value) return;
+  const element = canvas.value?.parentElement?.querySelector(`[data-pdf-field="${CSS.escape(pendingFocus)}"]`);
+  element?.focus(); element?.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'});
+  pendingFocus = null;
+}
+async function nextField() {
+  if (!widgets.value.length) return;
+  fieldCursor = (fieldCursor + 1) % widgets.value.length;
+  const target = widgets.value[fieldCursor]; pendingFocus = target.widgetId;
+  if (page.value !== target.page) page.value = target.page;
+  else await focusField();
+}
 let moving = null;
 function beginMove(event, entry) {
   selected.value = entry.index;
@@ -61,7 +89,7 @@ function entryStyle(entry) {
   return { left: `${entry.x / pageWidth.value * 100}%`, top: `${entry.y / pageHeight.value * 100}%`, width: `${entry.width / pageWidth.value * 100}%`, height: `${entry.height / pageHeight.value * 100}%`, fontSize: `${entry.fontSize / pageWidth.value * 100}cqw` };
 }
 function place(event) {
-  if (busy.value || error.value || props.modelValue.length >= 100) return;
+  if (props.fieldDefinitions.length || busy.value || error.value || props.modelValue.length >= 100) return;
   const rect = event.currentTarget.getBoundingClientRect();
   const width = Math.min(tool.value === 'check' ? 18 : 170, pageWidth.value), height = tool.value === 'signature' ? 55 : tool.value === 'check' ? 18 : 30;
   const x = Math.max(0, Math.min(pageWidth.value - width, (event.clientX - rect.left) / rect.width * pageWidth.value));
@@ -94,7 +122,7 @@ async function render() {
     await renderTask.promise;
     if (current === renderGeneration) emit('ready', true);
   } catch (e) { if (current === renderGeneration && e.name !== 'RenderingCancelledException') error.value = 'Could not display this page. Please retry.'; }
-  finally { if (current === renderGeneration) busy.value = false; }
+  finally { if (current === renderGeneration) { busy.value = false; await focusField(); } }
 }
 async function load() {
   const current = ++generation; renderGeneration++; renderTask?.cancel(); loader?.destroy();
@@ -113,6 +141,6 @@ watch(page, () => { selected.value = -1; render(); });
 onBeforeUnmount(() => { generation++; renderGeneration++; renderTask?.cancel(); loader?.destroy(); });
 </script>
 <style scoped>
-.fill-editor{display:grid;gap:12px;color:#213b34}.fill-tools,.dimensions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.fill-editor p{font-size:13px;margin:0;line-height:1.5}.fill-editor button,.fill-editor select,.fill-editor input,.fill-editor textarea{font:inherit;border:1px solid #b4c9c0;border-radius:5px;padding:8px;background:white;color:#163e31}.fill-editor button:disabled{opacity:.5}.fill-editor label{display:grid;gap:5px;font-size:13px}.fill-editor input{width:90px}.fill-workspace{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}.page-scroll{overflow:auto;max-height:80vh;min-width:0}.page-surface{position:relative;width:100%;background:white;container-type:inline-size;cursor:crosshair}.page-surface canvas{width:100%;height:100%;display:block}.page-surface .entry{position:absolute;padding:0;border:1px dashed #678e80;border-radius:0;background:rgba(239,248,241,.25);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;overflow:hidden;line-height:1.2;color:#111;cursor:move;touch-action:none}.page-surface .entry.selected{outline:2px solid #165b45}.entry img{width:100%;height:100%;object-fit:contain;object-position:left center}.entry-controls{position:sticky;top:12px;display:grid;gap:10px;padding:12px;border:1px solid #cadad4;border-radius:6px}.entry-controls textarea{width:100%;box-sizing:border-box}
+.mapped-fields{grid-template-columns:minmax(0,1fr)!important}.page-surface .mapped-input{position:absolute;box-sizing:border-box;margin:0;min-width:0;width:auto;border:1px solid #237963;border-radius:2px;background:rgba(226,247,239,.65);padding:1px 2px;line-height:1.15;color:#132c22;resize:none;font-family:Arial,sans-serif}.page-surface .mapped-input:focus{outline:2px solid #12583f;background:#fff;z-index:2}.page-surface .mapped-choice{padding:0;accent-color:#12583f;cursor:pointer}.page-surface .mapped-input[readonly]{background:rgba(238,241,244,.8);border-color:#83938b}.fill-editor{display:grid;gap:12px;color:#213b34}.fill-tools,.dimensions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.fill-editor p{font-size:13px;margin:0;line-height:1.5}.fill-editor button,.fill-editor select,.fill-editor input,.fill-editor textarea{font:inherit;border:1px solid #b4c9c0;border-radius:5px;padding:8px;background:white;color:#163e31}.fill-editor button:disabled{opacity:.5}.fill-editor label{display:grid;gap:5px;font-size:13px}.fill-editor input{width:90px}.fill-workspace{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}.page-scroll{overflow:auto;max-height:80vh;min-width:0}.page-surface{position:relative;width:100%;background:white;container-type:inline-size;cursor:crosshair}.page-surface canvas{width:100%;height:100%;display:block}.page-surface .entry{position:absolute;padding:0;border:1px dashed #678e80;border-radius:0;background:rgba(239,248,241,.25);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;overflow:hidden;line-height:1.2;color:#111;cursor:move;touch-action:none}.page-surface .entry.selected{outline:2px solid #165b45}.entry img{width:100%;height:100%;object-fit:contain;object-position:left center}.entry-controls{position:sticky;top:12px;display:grid;gap:10px;padding:12px;border:1px solid #cadad4;border-radius:6px}.entry-controls textarea{width:100%;box-sizing:border-box}
 @media(max-width:900px){.fill-workspace{grid-template-columns:minmax(0,1fr)}.entry-controls{position:static}.page-scroll{max-height:65vh}}
 </style>

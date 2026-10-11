@@ -596,5 +596,16 @@ export const PLAN_FEATURES = Object.freeze([
       "platform"
     ],
     "scope": "agency"
+  },
+  {
+    "key": "workplaceDocumentLibrary",
+    "label": "Company document library",
+    "description": "Plot Twist CO workplace handbook templates, company branding, section editing, search and versioned company editions.",
+    "category": "People Operations",
+    "minimumTier": "basic",
+    "products": [
+      "platform"
+    ],
+    "scope": "agency"
   }
 ].map(feature => Object.freeze({ ...feature, products: Object.freeze(feature.products) })));

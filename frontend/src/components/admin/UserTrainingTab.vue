@@ -1,6 +1,7 @@
 <template>
   <div class="user-training-tab">
     <h2 style="margin-bottom: 20px;">Training Progress</h2>
+    <StaffDocumentLearning v-for="agency in userAgencies" :key="`${userId}:${agency.id}`" :agency-id="agency.id" :agency-name="agency.name" :user-id="userId" />
 
     <div v-if="loading" class="loading">Loading training data...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
@@ -220,6 +221,7 @@
 </template>
 
 <script setup>
+import StaffDocumentLearning from '../training/StaffDocumentLearning.vue';
 import { ref, onMounted } from 'vue';
 import api from '../../services/api';
 import TrainingFocusDetailView from './TrainingFocusDetailView.vue';

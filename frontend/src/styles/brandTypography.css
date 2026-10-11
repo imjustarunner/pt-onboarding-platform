@@ -1,0 +1,24 @@
+/* Brand fonts are served with the app, including local handbook previews.
+ * Keep font licenses beside the source assets when distributing a build. */
+@font-face {
+  font-family: 'Comfortaa';
+  src: url('../assets/fonts/business-cards/Comfortaa-Variable.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/brand/Montserrat-Variable.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --font-itsco: 'Comfortaa', Arial, sans-serif;
+  --font-nlu: 'Montserrat', Arial, sans-serif;
+  --font-isi: 'Montserrat', Arial, sans-serif;
+  --font-ptco: 'Montserrat', Arial, sans-serif;
+}

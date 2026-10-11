@@ -76,3 +76,22 @@ backend/tmp-*
 # Standalone Plotline website build and local browser verification
 frontend/dist-plotline/
 deliverables/plotline/website/
+
+# Internal policies and training text are restored from authenticated app storage.
+/backend/src/content/handbooks/
+/backend/src/content/care-guides/
+/backend/src/content/caseload-management/
+/backend/src/content/clinical-note-aid/
+/backend/src/content/crisis-guides/
+/backend/src/content/document-library/
+/backend/src/content/document-training/
+/backend/src/content/documentation-standards/
+/backend/src/content/evaluations/
+/backend/src/content/facilitator-protocols/
+/backend/src/content/facilities-guides/
+/backend/src/content/group-therapy-sop/
+/backend/src/content/mandated-reporting/
+/backend/src/content/nlu-learning-pilot/
+/backend/src/content/provider-guides/
+/backend/src/content/school-practice-guides/
+/backend/src/content/skill-development-guides/

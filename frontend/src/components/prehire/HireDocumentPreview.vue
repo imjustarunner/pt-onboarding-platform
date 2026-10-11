@@ -1,10 +1,10 @@
-<template><div class="pdf-preview"><p v-if="loading" role="status">Preparing your branded document…</p><div v-else-if="error" role="alert"><p>{{ error }}</p><button type="button" @click="load">Try again</button></div><template v-else><PDFDocumentFillEditor v-if="editable" :pdf-url="blobUrl" :model-value="modelValue" :signature-data="signatureData" @update:model-value="emit('update:modelValue', $event)" @ready="emit('ready', $event)" /><PDFPreview v-else :pdf-url="blobUrl" @loaded="emit('ready', true)" /><a :href="blobUrl" target="_blank" rel="noopener">Open full PDF</a></template></div></template>
+<template><div class="pdf-preview"><p v-if="loading" role="status">Preparing your branded document…</p><div v-else-if="error" role="alert"><p>{{ error }}</p><button type="button" @click="load">Try again</button></div><template v-else><PDFDocumentFillEditor v-if="editable" :pdf-url="blobUrl" :model-value="modelValue" :signature-data="signatureData" :field-definitions="fieldDefinitions" :field-values="fieldValues" @update:field-values="emit('update:fieldValues', $event)" @update:model-value="emit('update:modelValue', $event)" @ready="emit('ready', $event)" /><PDFPreview v-else :pdf-url="blobUrl" @loaded="emit('ready', true)" /><a :href="blobUrl" target="_blank" rel="noopener">Open full PDF</a></template></div></template>
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import PDFDocumentFillEditor from '../documents/PDFDocumentFillEditor.vue';
 import PDFPreview from '../documents/PDFPreview.vue';
-const props = defineProps({ http: Object, url: String, title: String, editable: Boolean, modelValue: { type: Array, default: () => [] }, signatureData: String });
-const emit = defineEmits(['ready', 'update:modelValue']);
+const props = defineProps({ http: Object, url: String, title: String, editable: Boolean, modelValue: { type: Array, default: () => [] }, signatureData: String, fieldDefinitions: { type: Array, default: () => [] }, fieldValues: { type: Object, default: () => ({}) } });
+const emit = defineEmits(['ready', 'update:modelValue', 'update:fieldValues']);
 const loading = ref(true), error = ref(''), blobUrl = ref('');
 let generation = 0;
 async function load() {

@@ -1,5 +1,6 @@
 <template>
   <div class="admin-evals">
+    <StudentTrainingEvaluationsPanel v-if="agencyId && userId" :agency-id="agencyId" :student-id="userId" />
     <div class="admin-evals__toolbar">
       <button type="button" class="ae-btn ae-btn--secondary" :disabled="loading" @click="load">
         Refresh
@@ -69,6 +70,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import EmployeeEvaluationWorkspace from './EmployeeEvaluationWorkspace.vue';
+import StudentTrainingEvaluationsPanel from './StudentTrainingEvaluationsPanel.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },

@@ -1,0 +1,40 @@
+import { chromium } from 'playwright';
+import { mkdir, writeFile } from 'node:fs/promises';
+const browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+const page=await browser.newPage({viewport:{width:1400,height:1000}}),errors=[],checks=[];
+page.on('pageerror',e=>errors.push(e.message));
+await page.route('**/*',r=>new URL(r.request().url()).origin==='http://127.0.0.1:5197'?r.continue():r.abort());
+const out=new URL('../../deliverables/nlu-learning-pilot-verification/',import.meta.url).pathname;
+await mkdir(out,{recursive:true});
+const check=(value,label)=>{if(!value)throw new Error(label);checks.push(label);};
+async function context(caregiver=false){await page.locator('.pilot-context input[type=number]').fill('12');await page.locator('.pilot-context input[type=date]').fill('2026-10-01');if(caregiver)await page.locator('.pilot-context select').selectOption('caregiver_1');await page.locator('.pilot-context input[type=checkbox]').check();await page.locator('.record-controls > label.confirmation input').check();}
+try{
+ await page.goto('http://127.0.0.1:5197/?client');await page.locator('.measure-cards button').first().waitFor();
+ await page.evaluate(async()=>fetch('/__synthetic/outcome-measures/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}));
+ check(await page.locator('.measure-cards button').count()===3,'Three separate NLU pilot instruments');
+ await page.locator('.measure-cards button').filter({hasText:'Student'}).click();
+ check(await page.locator('.measure-form fieldset').count()===12,'Twelve student items');
+ for(let i=1;i<=12;i++)await page.locator(`[data-question=q${i}] input[value="${i<=4?'3':'2'}"]`).check();
+ await context();await page.getByRole('button',{name:'Save to client record',exact:true}).click();await page.locator('.result-card').first().waitFor();
+ check((await page.locator('.result-card').first().innerText()).includes('No total score'),'Student has domain scores without a combined total');
+ await page.locator('.measure-cards button').filter({hasText:'Caregiver'}).click();
+ for(let i=1;i<=12;i++)await page.locator(`[data-question=q${i}] input[value="${i===1?'not_observed':'2'}"]`).check();
+ await context(true);await page.getByRole('button',{name:'Save to client record',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.result-card').length===2);
+ check((await page.locator('.result-card').first().innerText()).includes('Not scored'),'Unobserved item withholds affected domain');
+ await page.locator('.measure-cards button').filter({hasText:'Academic Task'}).click();
+ for(const [key,value]of Object.entries({subject:'reading_accuracy',unit:'word',support:'independent'}))await page.locator(`[data-question=${key}] input[value=${value}]`).check();
+ for(const [key,value]of Object.entries({task_family:'Synthetic reading probe',task_form:'A',difficulty:'Synthetic passage',conditions:'First exposure; quiet room'}))await page.locator(`[data-question=${key}] textarea`).fill(value);
+ for(const [key,value]of Object.entries({presented:'100',attempted:'80',correct:'60'}))await page.locator(`[data-question=${key}] input`).fill(value);
+ await context();await page.getByRole('button',{name:'Save to client record',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.result-card').length===3);
+ check((await page.locator('.nlu-progress').innerText()).includes('75%'),'Academic task accuracy uses attempted opportunities');
+ check(await page.locator('.nlu-progress .tracks > article').count()===2,'Emotional and academic tracks stay separate');
+ check((await page.locator('.nlu-progress').innerText()).includes('Caregiver 1'),'Caregiver identity retained separately');
+ await page.locator('.nlu-progress').screenshot({path:out+'progress-desktop.png'});
+ await page.setViewportSize({width:390,height:844});check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Mobile view fits viewport');await page.locator('.nlu-progress').screenshot({path:out+'progress-mobile.png'});
+ await page.goto('http://127.0.0.1:5197/?guide=nlu');await page.locator('.outline-link').first().waitFor();
+ check(await page.locator('.outline-link').count()===8,'Eight linked pilot guide sections');
+ await page.locator('input[type=search]').fill('kiosk');await page.locator('.outline-link').filter({hasText:'Kiosk'}).click();
+ check((await page.locator('.book-page').innerText()).includes('do not need to measure academic achievement'),'Guide preserves kiosk purpose');
+ check(errors.length===0,'No browser errors');
+ await writeFile(out+'results.json',JSON.stringify({checks,errors},null,2));console.log(JSON.stringify({passed:checks.length,errors}));
+}finally{await browser.close();}

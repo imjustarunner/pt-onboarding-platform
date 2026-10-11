@@ -1,3 +1,4 @@
+import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
 import { getCandidateReferenceWorkspace, postCandidateReferenceContact } from '../controllers/hiring.controller.js';
 import { getInterviewBrief, viewInterviewDocument, previewInterviewInvite, resendInterviewInvite } from '../controllers/interviewHub.controller.js';
 import express from 'express';
@@ -108,6 +109,9 @@ router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
 router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
 router.post('/interview-hub/interviews/:id/end-guest-access', endInterviewGuestAccess);
 router.use(requireCapability('canManageHiring'));
+router.get('/packet-preview/options', packetPreviewOptions);
+router.get('/packet-preview/reference', packetPreviewReference);
+router.post('/packet-preview/contract', packetPreviewContract);
 
 const storage = multer.memoryStorage();
 const upload = multer({

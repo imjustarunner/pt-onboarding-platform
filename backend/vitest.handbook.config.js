@@ -1,0 +1,39 @@
+export default {
+  root: new URL('.', import.meta.url).pathname,
+  resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
+  test: {
+    environment: 'node',
+    include: [
+      'src/services/__tests__/clinicalNoteAidGuide.test.js',
+      'src/services/__tests__/mandatedReporting.test.js',
+      'src/services/__tests__/groupPsychotherapySop.test.js',
+      'src/services/__tests__/caseloadManagement.test.js',
+      'src/services/__tests__/facilitiesGuide.test.js',
+      'src/services/__tests__/crisisGuide.test.js',
+      'src/services/__tests__/facilitatorProtocol.test.js',
+      'src/services/__tests__/documentationStandards.test.js',
+      'src/services/__tests__/documentAnalytics.test.js',
+      'src/controllers/__tests__/documentAnalytics.controller.test.js',
+      'src/services/__tests__/skillDevelopmentGuide.test.js',
+      'src/services/__tests__/careGuide.test.js',
+      'src/services/__tests__/documentTrainingContent.test.js',
+      'src/services/__tests__/companyDocumentLearning.test.js',
+      'src/controllers/__tests__/companyDocumentLearning.controller.test.js',
+      'src/services/__tests__/hire.journey.test.js',
+      'src/services/__tests__/hire.phaseAccess.test.js',
+      'src/services/__tests__/companyReferenceDocuments.test.js',
+      'src/services/__tests__/hire.workflow.test.js',
+      'src/services/__tests__/workplaceDocumentLibrary.test.js',
+      'src/services/__tests__/studentTrainingEvaluation.test.js',
+      'src/services/__tests__/workplaceHandbookWorkflow.test.js',
+      'src/services/__tests__/workplaceHandbookMutation.test.js',
+      'src/services/__tests__/workplaceHandbookAssistant.test.js',
+      'src/services/__tests__/workplaceHandbookAnswer.test.js',
+      'src/services/__tests__/handbookGeminiTransport.test.js',
+      'src/services/__tests__/handbookPortalRead.test.js',
+      'src/controllers/__tests__/workplaceHandbook.controller.test.js',
+      'src/controllers/__tests__/workplaceHandbookPortal.test.js'
+    ],
+    restoreMocks: true
+  }
+};

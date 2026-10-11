@@ -10,6 +10,7 @@ import { safePortalUrl } from '../utils/hirePortalWorkflow.js';
 import StorageService from '../services/storage.service.js';
 import { buildSignedReceipt } from '../services/prehireSignedReceipt.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
+import { getPublishedHandbook } from '../services/workplaceHandbook.service.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 async function context(req) {
@@ -52,9 +53,16 @@ export async function saveWorkflowStep(req, res, next) {
       value = { email, preferenceOnly: true };
     } else {
       if (!ctx.step || !['handbook', 'link', 'video', 'meeting', 'acknowledgement'].includes(ctx.step.kind)) fail('This item is completed by its form, upload or signature.', 403);
-      if (!safePortalUrl(ctx.step.url)) fail('People Operations needs to attach this resource before it can be completed.');
       if (req.body?.acknowledged !== true) fail('Confirm that you have completed this step.');
-      value = { title: ctx.step.title, url: ctx.step.url, acknowledged: true };
+      if (ctx.step.kind === 'handbook') {
+        const handbook = await getPublishedHandbook(ctx.agencyId);
+        if (!handbook?.version?.id || !handbook.sections?.length) fail('People Operations needs to publish the in-app handbook before it can be acknowledged.');
+        if (Number(req.body?.handbookVersionId) !== Number(handbook.version.id)) fail('The handbook has changed. Reopen it and review the current version before acknowledging.', 409);
+        value = { title: ctx.step.title, handbookVersionId: handbook.version.id, handbookVersionNumber: handbook.version.version_number, acknowledged: true };
+      } else {
+        if (!safePortalUrl(ctx.step.url)) fail('People Operations needs to attach this resource before it can be completed.');
+        value = { title: ctx.step.title, url: ctx.step.url, acknowledged: true };
+      }
       if (ctx.step.kind === 'meeting') {
         const when = new Date(req.body?.scheduledAt);
         if (!Number.isFinite(when.getTime())) fail('Enter the date and time confirmed by the meeting scheduler.');
@@ -63,7 +71,8 @@ export async function saveWorkflowStep(req, res, next) {
       }
       if (ctx.step.kind === 'acknowledgement' || (ctx.step.kind === 'handbook' && ctx.phase === 'onboarding')) {
         const signerName = ctx.state.workflow.profile?.full_legal_name || `${ctx.state.candidate.firstName} ${ctx.state.candidate.lastName}`;
-        const pdf = await buildSignedReceipt({ title: `${ctx.state.agency.name} · ${ctx.step.title}`, body: `I acknowledge that I reviewed ${ctx.step.title}.\nResource: ${ctx.step.url}\n${ctx.step.instructions || ''}`, signerName, signatureData: req.body?.signatureData });
+        const reference = ctx.step.kind === 'handbook' ? `In-app handbook version ${value.handbookVersionNumber} (ID ${value.handbookVersionId})` : `Resource: ${ctx.step.url}`;
+        const pdf = await buildSignedReceipt({ title: `${ctx.state.agency.name} · ${ctx.step.title}`, body: `I acknowledge that I reviewed ${ctx.step.title}.\n${reference}\n${ctx.step.instructions || ''}`, signerName, signatureData: req.body?.signatureData });
         const name = `acknowledgement-${randomUUID()}.pdf`;
         const saved = await StorageService.saveAdminDoc(pdf, name, 'application/pdf');
         file = { title: ctx.step.title, path: saved.relativePath, name, mime: 'application/pdf', docType: 'hire_portal_acknowledgement' };

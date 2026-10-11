@@ -68,6 +68,13 @@
           </div>
 
           <div v-show="wizardStep === 0"><HirePackageContents :package-id="selectedPackageId" :edit-url="packageEditUrl" @loaded="onPackageLoaded" />
+            <div v-if="guideSetup?.courses?.length" class="pto-section">
+              <h3>Guide learning</h3>
+              <p>Applicable company guide modules are added to onboarding automatically. Other published guides can be assigned by a supervisor or administrator. Required training time is included in payroll review; care-guide completion records orientation, not authorization to practice.</p>
+              <ul><li v-for="course in guideSetup.courses" :key="course.key">{{ course.title }} · {{ course.onboardingDefault ? 'Included in onboarding' : 'Available for assignment when published' }}</li></ul>
+              <label v-if="guideSetup.courses.some(c => c.key === 'school-practice-guide')"><input v-model="expectedSchoolWork" type="checkbox" /> Expected to work in schools · Include the School Practice Guide</label>
+              <p v-if="guideSetup.courses.some(c => c.status !== 'ready')">Prepare and publish the guides, and review their quizzes, before the employee needs to complete these steps.</p>
+            </div>
             <h3>Also included</h3><p>Account setup, a clinical profile for staff who see clients, handbook acknowledgement, onboarding time tracking and final review.</p>
             <HireWorkflowEditor v-model="portalWorkflow" phase="onboarding" :templates="documentTemplates" :editor-url="documentEditUrl" heading="Additional onboarding steps" />
           </div>
@@ -163,6 +170,7 @@ const packageContents = ref(null), portalWorkflow = ref({ resources: [] }), docu
 const documentEditUrl = computed(() => `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/documents?agencyId=${props.agencyId}`);
 const packageEditUrl = computed(() => `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/settings?agencyId=${props.agencyId}&category=workflow&item=packages`);
 function onPackageLoaded(value) { if (JSON.stringify(value) !== JSON.stringify(packageContents.value)) packageContents.value = value; }
+const guideSetup = ref(null), expectedSchoolWork = ref(false);
 const packages = ref([]);
 const accessSetup = ref(null), showCreateCollection = ref(false), collectionName = ref(''), collectionDescription = ref(''), creatingCollection = ref(false);
 const eligibleCollections = list => (Array.isArray(list) ? list : []).filter(p => p.package_type === 'onboarding' && p.is_active !== false && p.is_active !== 0 && p.is_active !== '0' && (!p.agency_id || Number(p.agency_id) === Number(props.agencyId)));
@@ -214,12 +222,14 @@ onMounted(async () => {
   try {
     const params = props.agencyId ? { agencyId: props.agencyId } : {};
 
-    const [pkgsRes, settingsRes, documentsRes] = await Promise.all([
+    const [pkgsRes, settingsRes, documentsRes, guidesRes] = await Promise.all([
       api.get('/onboarding-packages', { params }),
       api.get('/hiring/settings', { params }),
-      api.get('/document-templates', { params: { ...params, limit: 1000 } })
+      api.get('/document-templates', { params: { ...params, limit: 1000 } }),
+      api.get(`/provider-update/document-learning/staff/${props.candidate.id}`, { params })
     ]);
 
+    guideSetup.value = guidesRes.data; expectedSchoolWork.value = guidesRes.data.expectedSchoolWork;
     packages.value = eligibleCollections(pkgsRes.data);
     const settings = settingsRes.data?.settings || settingsRes.data || {};
     documentTemplates.value = Array.isArray(documentsRes.data) ? documentsRes.data : documentsRes.data?.templates || [];
@@ -265,6 +275,7 @@ const confirm = async () => {
       {
         packageId: selectedPackageId.value || null,
         portalWorkflow: portalWorkflow.value,
+        ...(guideSetup.value?.courses?.some(c => c.key === 'school-practice-guide') ? { expectedSchoolWork: expectedSchoolWork.value } : {}),
         sendMethod: sendMethod.value
       },
       { params }

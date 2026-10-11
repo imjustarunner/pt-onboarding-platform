@@ -1,3 +1,4 @@
+import { documentAnalyticsIntent } from './documentAnalyticsIntent.js';
 /**
  * Assistant capability catalog.
  *
@@ -825,6 +826,7 @@ const SURFACE_PLACEMENT_PREFS = {
       'office_roster',
       'people_directory_lookup',
       'user_lookup',
+      'document_analytics',
       'payroll_analytics',
       'payroll_summary',
       'school_portal_lookup',
@@ -986,6 +988,11 @@ export async function matchDeterministicCapabilityIntent({
         };
       }
     }
+  }
+
+  if (allowedToolNames?.has?.('queryDocumentAnalytics')) {
+    const result = documentAnalyticsIntent(prompt);
+    if (result) return result;
   }
 
   // Staff payroll analytics (sessions-by-code for a person, etc.) before service-code research.
@@ -2192,6 +2199,18 @@ function catalogEntries() {
           toolCalls: [{ name: 'searchEvents', args: { query, limit: 10 } }]
         };
       }
+    },
+    {
+      id: 'document_analytics',
+      audience: ['admin_like'],
+      group: 'Library insights',
+      prompt: 'Who opened the workplace handbook in the last 30 days?',
+      requiredToolsAll: ['queryDocumentAnalytics'],
+      subtitleTag: 'document statistics',
+      routeHints: ['library statistics', 'document analytics', 'guide readers', 'handbook questions', 'link clicks', 'helpfulness', 'active reading time'],
+      semanticExamples: ['who opened the handbook', 'what questions were asked about the provider guide', 'show library usage statistics', 'which guide sections were helpful', 'how long did staff spend in the documentation guide'],
+      matcher: (lower, tools) => tools.has('queryDocumentAnalytics') && !!documentAnalyticsIntent(lower),
+      buildIntent: lower => documentAnalyticsIntent(lower)
     },
     {
       id: 'payroll_analytics',

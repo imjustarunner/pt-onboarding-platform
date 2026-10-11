@@ -1,4 +1,7 @@
 <template>
+  <section ref="analyticsRoot" class="resource-viewer">
+  <DocumentAnalyticsControl v-if="resource.scope === 'organization'" :agency-id="resource.agencyId" :document-key="`resource:${resource.id}`" :document-title="resource.name" />
+  <p v-if="resource.scope === 'organization'" class="reading-notice">Company administrators can see resource opens and app activity. Activity inside external sites or embedded files is not measured.</p>
   <LibraryDocumentWorkspace v-if="isBranded" ref="workspace" :key="resource.id" :resource="resource" :can-distribute="canDistribute" @close="$emit('close')" @saved="$emit('saved', $event)" @copied="$emit('copied', $event)" @distribute="$emit('distribute')" />
   <div v-else class="lib-viewer" role="dialog" aria-modal="true" aria-label="Resource viewer">
     <header class="lib-viewer__bar">
@@ -72,11 +75,14 @@
       </div>
     </div>
   </div>
+  </section>
 </template>
 
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { fetchLibraryGooglePreview } from '../../services/library.js';
+import DocumentAnalyticsControl from './DocumentAnalyticsControl.vue';
+import { useDocumentAnalytics } from '../../composables/useDocumentAnalytics';
 import LibraryDocumentWorkspace from './LibraryDocumentWorkspace.vue';
 import {
   isGoogleWorkspaceUrl,
@@ -90,6 +96,10 @@ const props = defineProps({
 
 defineEmits(['close', 'distribute', 'saved', 'copied']);
 const workspace = ref(null);
+const analyticsRoot = ref(null);
+const openedVersion = ref(props.resource.version || 1);
+watch(() => [props.resource.agencyId, props.resource.id], () => { openedVersion.value = props.resource.version || 1; }, { flush: 'sync' });
+useDocumentAnalytics(() => props.resource.scope === 'organization' ? { agencyId: props.resource.agencyId, documentKey: `resource:${props.resource.id}`, versionId: openedVersion.value, surface: 'library' } : null, { root: analyticsRoot });
 defineExpose({ prepareToLeave: () => workspace.value?.prepareToLeave() ?? true });
 
 const isBranded = computed(
@@ -179,6 +189,9 @@ onBeforeUnmount(() => { previewSequence++; previewRequest?.abort(); releasePrevi
 </script>
 
 <style scoped>
+.resource-viewer{height:100%;overflow:auto;background:white;border-radius:12px}
+.reading-notice{font-size:11px;color:#596b60;padding:8px 12px}
+
 .lib-viewer {
   display: flex;
   flex-direction: column;

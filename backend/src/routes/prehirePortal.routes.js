@@ -7,7 +7,11 @@ import { portalTrainingAction } from '../controllers/portalTraining.controller.j
 import multer from 'multer';
 import { body } from 'express-validator';
 import { enforcePortalWritePhase } from '../middleware/portalWritePhase.middleware.js';
+import { portal as portalDocumentAnalytics } from '../controllers/documentAnalytics.controller.js';
+import { portalLearning } from '../controllers/companyDocumentLearning.controller.js';
 import { authenticatePrehireToken } from '../middleware/prehirePortalAuth.middleware.js';
+import { handbookAssistantLimit } from '../middleware/handbookAssistantLimit.middleware.js';
+import { answerPortalHandbook } from '../controllers/prehirePortal.controller.js';
 import {
   getPortal,
   portalActivity,
@@ -122,7 +126,18 @@ router.post(
   setPortalAccountPassword
 );
 router.get('/:token/submissions', getPortalSubmissions);
+router.post('/:token/document-analytics/sessions', portalDocumentAnalytics('start'));
+router.post('/:token/document-analytics/events', portalDocumentAnalytics('event'));
+router.get('/:token/document-learning', portalLearning('catalog'));
+router.post('/:token/document-learning/courses/:key/start', portalLearning('start'));
+router.get('/:token/document-learning/enrollments/:id', portalLearning('detail'));
+router.post('/:token/document-learning/enrollments/:id/reading', portalLearning('reading'));
+router.post('/:token/document-learning/enrollments/:id/quiz', portalLearning('quiz'));
+router.post('/:token/document-learning/enrollments/:id/heartbeat', portalLearning('heartbeat'));
+router.post('/:token/document-learning/enrollments/:id/time', portalLearning('time'));
+router.post('/:token/document-learning/enrollments/:id/answer', handbookAssistantLimit, portalLearning('answer'));
 router.get('/:token/resources/handbook', getPortalHandbook);
+router.post('/:token/resources/handbook/answer', handbookAssistantLimit, answerPortalHandbook);
 router.post('/:token/background-check', submitPortalBackgroundCheck);
 router.post('/:token/resources/handbook/open', recordPortalHandbookOpen);
 router.post('/:token/checklist/:itemKey/complete', completePortalChecklistItem);

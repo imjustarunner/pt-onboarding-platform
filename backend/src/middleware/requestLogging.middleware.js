@@ -40,6 +40,9 @@ import config from '../config/config.js';
  * // because the middleware ensures sensitive fields are never in req.sanitizedBody.
  */
 export const requestLoggingMiddleware = (req, res, next) => {
+  if (/\/handbook\/answer\/?$/.test(req.path)) { req.sanitizedBody = { question: '[REDACTED]', history: '[REDACTED]' }; return next(); }
+  if (/\/evaluations\/student-training(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE STUDENT EVALUATION]'; return next(); }
+
   if (/^\/api\/auricwell-records(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE RECORDS REQUEST]'; next(); return; }
   // Signed consent and permission evidence include recipient identity and choices.
   if (/^\/api\/sms-numbers(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE SMS CONSENT REQUEST]'; next(); return; }

@@ -1,3 +1,5 @@
+import { resolveVacation, vacationDefaults, currentPlannedOut, claimVacationReply, releaseVacationReply } from './vacationResponder.service.js';
+import { renderVacationTemplate, escapeReplyHtml } from './vacationResponderPolicy.js';
 /**
  * Availability-aware client OOO auto-replies, SUPPORT keyword routing,
  * and cancellation/termination intent → support ticket review.
@@ -18,11 +20,12 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import Agency from '../models/Agency.model.js';
+import User from '../models/User.model.js';
 import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
 
 const DEFAULT_OOO = `Thank you for emailing {provider_name} at {agency_name}. I am currently outside my Availability Hours and will return {return_at}.
 
-If this is an emergency, please dial 988 or 911.
+For immediate danger or a medical emergency, call 911. For a mental health crisis or emotional distress, call or text 988. Do not wait for an email reply.
 
 If you would like this email sent to support, please reply with the word {support_keyword}.`;
 
@@ -68,39 +71,60 @@ export async function maybeSendClientOooAutoReply({
   if (!ownerUserId || !conversationId) return { sent: false, reason: 'missing_owner' };
 
   const [convRows] = await pool.execute(
-    `SELECT id, auto_reply_sent_at, sender_trust, inbox_id FROM communication_conversations WHERE id = ? LIMIT 1`,
-    [conversationId]
+    `SELECT id, auto_reply_sent_at, sender_trust, inbox_id FROM communication_conversations WHERE id = ? AND agency_id = ? LIMIT 1`,
+    [conversationId, agencyId]
   );
   const conv = convRows?.[0];
   if (!conv) return { sent: false, reason: 'no_conversation' };
-  if (conv.auto_reply_sent_at) return { sent: false, reason: 'already_sent' };
-  if (!['client', 'guardian'].includes(String(conv.sender_trust || ''))) {
-    return { sent: false, reason: 'not_client' };
-  }
-
-  const inbox = conv.inbox_id ? await CommunicationInbox.findById(conv.inbox_id) : null;
-  const afterHoursReplyContext = { agencyId, ownerUserId, inbox, recipientEmails, senderTrust: conv.sender_trust, fromEmail };
-  const provider = await eligibleClientAfterHoursReply(afterHoursReplyContext);
-  if (!provider) return { sent: false, reason: 'after_hours_reply_not_allowed' };
-
+  if (conv.sender_trust === 'blocked') return { sent: false, reason: 'blocked' };
+  if (/^(mailer-daemon|postmaster|no-?reply)@/i.test(String(fromEmail || '')) || /^(automatic reply|auto.?reply|out of office):/i.test(String(subject || ''))) return { sent: false, reason: 'automated_sender' };
   const now = new Date();
+  const inbox = conv.inbox_id ? await CommunicationInbox.findById(conv.inbox_id) : null;
+  if (!inbox?.sender_identity_id || Number(inbox.agency_id) !== Number(agencyId)) return { sent: false, reason: 'no_identity' };
+  if (String(inbox.from_email || '').toLowerCase() === String(fromEmail || '').toLowerCase()) return { sent: false, reason: 'self' };
+  // Personal vacation notices must never be emitted by a shared agency inbox.
+  const personal = inbox.kind === 'personal' && Number(inbox.owner_user_id) === Number(ownerUserId);
+  let vacation = null;
+  if (personal) {
+    try { vacation = await resolveVacation(agencyId, ownerUserId, now); }
+    catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+  }
+  const vacationActive = vacation?.state === 'active';
+  if (!vacationActive && !['client', 'guardian'].includes(String(conv.sender_trust || ''))) return { sent: false, reason: 'not_client' };
+  if (!vacationActive && conv.auto_reply_sent_at) return { sent: false, reason: 'already_sent' };
+  const afterHoursReplyContext = { agencyId, ownerUserId, inbox, recipientEmails, senderTrust: conv.sender_trust, fromEmail };
+  if (!vacationActive && !await eligibleClientAfterHoursReply(afterHoursReplyContext)) return { sent: false, reason: 'after_hours_reply_not_allowed' };
   const { available, schedule } = await isUserAvailable(ownerUserId, now, { agencyId });
-  if (available || !schedule?.enabled) return { sent: false, reason: 'available' };
-
-  const returnAt = nextAvailableAt(schedule, now);
+  const plannedOut = !vacationActive ? await currentPlannedOut(agencyId, ownerUserId, now) : null;
+  if (!vacationActive && !plannedOut && (available || !schedule?.enabled)) return { sent: false, reason: 'available' };
+  const returnAt = vacationActive ? new Date(vacation.endsAt) : plannedOut ? null : nextAvailableAt(schedule, now);
+  const provider = await User.findById(ownerUserId);
   const agency = await Agency.findById(agencyId);
   const providerName = [provider?.first_name, provider?.last_name].filter(Boolean).join(' ') || 'your provider';
   const agencyName = agency?.name || 'our team';
   const keyword = settings.clientOooSupportKeyword || 'SUPPORT';
-  const text = renderOooTemplate(settings.clientOooTemplate || DEFAULT_OOO, {
-    provider_name: providerName,
-    agency_name: agencyName,
-    return_at: formatReturnAt(returnAt, schedule.timezone),
-    support_keyword: keyword
-  });
-
-  if (!inbox?.sender_identity_id) return { sent: false, reason: 'no_identity' };
-
+  let text;
+  if (vacationActive) {
+    const defaults = await vacationDefaults(agency);
+    text = renderVacationTemplate(vacation.messageTemplate || defaults.templates[vacation.templateKey], {
+      provider_name: providerName, agency_name: agencyName,
+      return_at: formatReturnAt(returnAt, vacation.timeZone), support_contact: defaults.supportContact
+    });
+  } else if (plannedOut) {
+    text = `Thank you for contacting ${providerName} at ${agencyName}. I am currently unavailable. Your message will remain in my inbox for review when I return. To request support review, reply ${keyword}. Support response times depend on staff availability.\n\nFor immediate danger or a medical emergency, call 911. For emotional distress or a mental health crisis, call or text 988. Do not wait for an email reply.`;
+  } else {
+    text = renderOooTemplate(settings.clientOooTemplate || DEFAULT_OOO, {
+      provider_name: providerName, agency_name: agencyName,
+      return_at: formatReturnAt(returnAt, schedule.timezone), support_keyword: keyword
+    });
+  }
+  const html = escapeReplyHtml(text);
+  let claim = null;
+  if (vacationActive) {
+    claim = await claimVacationReply(agencyId, ownerUserId, fromEmail, now);
+    if (!claim) return { sent: false, reason: 'vacation_cooldown' };
+  }
+  let delivered = false;
   try {
     const mailbox = await resolveMessagesSendMailbox(agencyId);
     const sendResult = await sendEmailFromIdentity({
@@ -110,15 +134,18 @@ export async function maybeSendClientOooAutoReply({
       to: fromEmail,
       subject: /^re:/i.test(subject || '') ? subject : `Re: ${subject || '(no subject)'}`,
       text,
-      html: `<p>${text.replace(/\n/g, '<br/>')}</p>`,
+      html,
       source: 'auto',
       generatedByUserId: ownerUserId,
-      templateType: 'client_ooo_auto_reply',
+      templateType: vacationActive ? 'vacation_auto_reply' : 'client_ooo_auto_reply',
       afterHoursReplyContext
     });
 
-    if (!sendResult?.id || sendResult.blocked || sendResult.skipped || sendResult.queued || sendResult.pendingApproval) return { sent: false, reason: sendResult?.reason || 'not_delivered' };
-
+    if (sendResult?.skipped || sendResult?.blocked || sendResult?.queued || sendResult?.pendingApproval || !sendResult?.id) {
+      if (claim) await releaseVacationReply(agencyId, ownerUserId, claim);
+      return { sent: false, reason: sendResult?.reason || 'not_delivered' };
+    }
+    delivered = true;
     await CommunicationConversation.addMessage({
       conversationId,
       channel: 'email',
@@ -128,35 +155,25 @@ export async function maybeSendClientOooAutoReply({
       to: [{ email: fromEmail }],
       subject: /^re:/i.test(subject || '') ? subject : `Re: ${subject || '(no subject)'}`,
       bodyText: text,
-      bodyHtml: `<p>${text.replace(/\n/g, '<br/>')}</p>`,
+      bodyHtml: html,
       sendStatus: 'sent',
       sentAt: now,
       isAutoReply: true,
-      autoReplyKind: 'ooo',
-      internetMessageId: sendResult?.id || null
-    }).catch(async () => {
-      // Fallback if model doesn't yet accept isAutoReply kwargs — update after insert
-      const [msgRows] = await pool.execute(
-        `SELECT id FROM communication_messages
-         WHERE conversation_id = ? AND direction = 'outbound'
-         ORDER BY id DESC LIMIT 1`,
-        [conversationId]
-      );
-      if (msgRows?.[0]?.id) {
-        await pool.execute(
-          `UPDATE communication_messages SET is_auto_reply = 1, auto_reply_kind = 'ooo' WHERE id = ?`,
-          [msgRows[0].id]
-        );
-      }
+      autoReplyKind: vacationActive ? 'vacation' : 'ooo',
+      internetMessageId: sendResult?.internetMessageId || null
+    }).catch(error => {
+      // The send already happened. Never mark another outbound message as this reply.
+      console.warn('[emailAutomation] Sent reply could not be added to conversation:', error.code || 'log_failed');
     });
 
-    await pool.execute(
+    if (!vacationActive) await pool.execute(
       `UPDATE communication_conversations SET auto_reply_sent_at = ? WHERE id = ?`,
       [now, conversationId]
     );
 
     return { sent: true, returnAt };
   } catch (e) {
+    if (claim && !delivered) await releaseVacationReply(agencyId, ownerUserId, claim);
     console.warn('[emailAutomation] OOO reply failed:', e?.message || e);
     return { sent: false, reason: e?.message || 'send_failed' };
   }

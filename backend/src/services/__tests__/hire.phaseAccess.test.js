@@ -34,6 +34,11 @@ describe('portal process permissions', () => {
     ]);
     expect(next).toHaveBeenCalledWith();
   });
+  it('keeps guide questions readable after closing while rejecting quiz and reading writes', async () => {
+    m.getJourney.mockResolvedValue({ onboardingCompletedAt: '2026-10-10' });
+    expect((await request('/document-learning/enrollments/1/answer', 'ONBOARDING')).next).toHaveBeenCalledWith();
+    for (const action of ['quiz', 'reading', 'heartbeat']) expect((await request('/document-learning/enrollments/1/' + action, 'ONBOARDING')).res.status).toHaveBeenCalledWith(409);
+  });
   it('leaves People Operations messaging available after submission', async () => {
     const { next } = await request('/messages', 'PREHIRE_REVIEW'); expect(next).toHaveBeenCalledWith();
   });

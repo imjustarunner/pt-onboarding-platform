@@ -2009,6 +2009,18 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/outcome-measures',
+    name: 'OrganizationOutcomeMeasures',
+    component: () => import('../views/OutcomeMeasuresView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary', organizationSlug: true }
+  },
+  {
+    path: '/outcome-measures',
+    name: 'OutcomeMeasures',
+    component: () => import('../views/OutcomeMeasuresView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary' }
+  },
+  {
     path: '/:organizationSlug/library',
     name: 'OrganizationLibrary',
     component: () => import('../views/LibraryView.vue'),
@@ -2360,6 +2372,18 @@ const routes = [
     }
   },
 
+  {
+    path: '/:organizationSlug/workplace-handbook',
+    name: 'OrganizationWorkplaceHandbook',
+    component: () => import('../views/WorkplaceHandbookView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/document-library',
+    name: 'OrganizationWorkplaceDocumentLibrary',
+    component: () => import('../views/admin/WorkplaceDocumentLibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+  },
   {
     path: '/:organizationSlug/admin/provider-update',
     name: 'OrganizationProviderUpdateAdmin',
@@ -3006,6 +3030,12 @@ const routes = [
     name: 'OrganizationAgencyCredentialing',
     component: () => import('../views/admin/AgencyCredentialingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/hiring/preview',
+    name: 'OrganizationHirePacketPreview',
+    component: () => import('../views/admin/HirePacketPreviewView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/hiring',
@@ -3848,6 +3878,18 @@ const routes = [
   },
 
   {
+    path: '/workplace-handbook',
+    name: 'WorkplaceHandbook',
+    component: () => import('../views/WorkplaceHandbookView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/document-library',
+    name: 'WorkplaceDocumentLibrary',
+    component: () => import('../views/admin/WorkplaceDocumentLibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'] }
+  },
+  {
     path: '/admin/provider-update',
     name: 'ProviderUpdateAdmin',
     component: () => import('../views/admin/ProviderUpdateAdminView.vue'),
@@ -4579,6 +4621,12 @@ const routes = [
     name: 'AgencyCredentialing',
     component: () => import('../views/admin/AgencyCredentialingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing' }
+  },
+  {
+    path: '/admin/hiring/preview',
+    name: 'HirePacketPreview',
+    component: () => import('../views/admin/HirePacketPreviewView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {
     path: '/admin/hiring',
