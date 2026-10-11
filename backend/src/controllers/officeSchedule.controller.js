@@ -819,7 +819,7 @@ export const listLocations = async (req, res, next) => {
     }
 
     if (req.user.role === 'super_admin') {
-      const rows = await OfficeLocation.listAll({ includeInactive: false });
+      const rows = await OfficeLocation.listAll({ includeInactive: false, physicalOnly: true });
       return res.json(rows || []);
     }
 
@@ -829,7 +829,7 @@ export const listLocations = async (req, res, next) => {
 
     const all = [];
     for (const agencyId of agencyIds) {
-      const rows = await OfficeLocation.findByAgencyMembership(agencyId);
+      const rows = await OfficeLocation.findByAgencyMembership(agencyId, { physicalOnly: true });
       all.push(...rows);
     }
     // De-dupe (multi-agency users will see shared offices)

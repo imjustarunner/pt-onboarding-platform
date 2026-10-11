@@ -15704,7 +15704,7 @@ export const listOfficeLocationsForPayroll = async (req, res, next) => {
     const assigned = await listAssignedOfficeLocationsForUser({ targetUserId: req.user?.id, agencyId });
     const assignedMap = new Map((assigned || []).map((o) => [Number(o.id), o]));
     const data = (rows || []).map((r) => {
-      const linked = assignedMap.get(Number(r.id)) || null;
+      const linked = assignedMap.get(Number(r.physical_office_location_id || r.id)) || null;
       return {
         ...r,
         isAssigned: Boolean(linked),

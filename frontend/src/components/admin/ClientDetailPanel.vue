@@ -4734,8 +4734,9 @@ async function suggestDefaultsFromPrimaryProviderForTenant(agencyId) {
       tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
       return;
     }
-    draft.officeId = String(officeId);
-    const office = officeOptionsForTenant(aid).find((o) => Number(o.id) === officeId);
+    const office = officeOptionsForTenant(aid).find((o) => Number(o.physical_office_location_id || o.id) === officeId || Number(o.id) === officeId);
+    const billingOfficeId = Number(office?.id || officeId);
+    draft.officeId = String(billingOfficeId);
     const pos = String(
       office?.default_place_of_service || office?.defaultPlaceOfService || draft.pos || '11'
     ).trim();
@@ -4743,7 +4744,7 @@ async function suggestDefaultsFromPrimaryProviderForTenant(agencyId) {
     const matchingLoc = serviceLocationOptionsForTenant(aid).find((loc) => {
       const locPos = String(loc.placeOfService || loc.place_of_service || '');
       const billingOffice = Number(loc.billing_office_location_id || loc.billingOfficeLocationId || 0);
-      return (billingOffice && billingOffice === officeId) || (locPos && locPos === pos);
+      return (billingOffice && billingOffice === billingOfficeId) || (locPos && locPos === pos);
     });
     if (matchingLoc?.id) draft.serviceLocationId = String(matchingLoc.id);
     draft.hint = 'Suggested from provider office — click Save defaults to keep.';

@@ -275,9 +275,7 @@ export async function ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId
 
   let billingOfficeId = null;
   try {
-    const offices = await OfficeLocation.findByAgencyMembership(aid, { includeInactive: false }).catch(() =>
-      OfficeLocation.findByAgency(aid, { includeInactive: false })
-    );
+    const offices = await OfficeLocation.findBillingByAgency(aid);
     billingOfficeId = Number(offices?.[0]?.id || 0) || null;
   } catch {
     billingOfficeId = null;

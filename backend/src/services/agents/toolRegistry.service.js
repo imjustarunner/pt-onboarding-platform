@@ -3397,7 +3397,7 @@ export async function executeToolCall({ req, toolCall }) {
     const dayEnd = `${dateYmd} 23:59:59`;
 
     // Pull office locations available to this agency.
-    const locWhere = ['ola.agency_id = ?', 'ol.is_active = TRUE'];
+    const locWhere = ['ola.agency_id = ?', 'ol.is_active = TRUE', 'ol.physical_office_location_id IS NULL'];
     const locParams = [agencyId];
     if (locationQuery) {
       locWhere.push('ol.name LIKE ?');

@@ -16,7 +16,8 @@
         <OfficeKioskAccessSettings v-if="['admin','super_admin'].includes(authStore.user?.role)" :key="officeId" :office-id="officeId" />
 
         <div v-if="canManageOfficeSettings" class="section">
-          <div class="section-title">Add Building</div>
+          <div class="section-title">Add a new physical building</div>
+          <p class="hint">For another agency at an existing address, select the existing building and use Agency Access below. Each building shares one schedule, directory, and kiosk.</p>
           <div class="row">
             <input v-model="newOfficeName" placeholder="Building name" />
             <select v-if="isSuperAdmin" v-model="newOfficeAgencyId">

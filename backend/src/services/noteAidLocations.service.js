@@ -8,7 +8,7 @@ const address = (row) => [row.street_address, row.city, row.state, row.postal_co
 /** Use the tenant's billing records and the user's explicit office assignments. */
 export function buildNoteAidLocationChoices({ locations = [], offices = [], officeIds = [] }) {
   const assigned = new Set(officeIds.map(Number));
-  const availableOffices = offices.filter(o => assigned.has(Number(o.id)) && Number(o.is_active) !== 0);
+  const availableOffices = offices.filter(o => (assigned.has(Number(o.physical_office_location_id || o.id)) || assigned.has(Number(o.id))) && Number(o.is_active) !== 0);
   const byOffice = new Map(availableOffices.map(o => [Number(o.id), o]));
   const visible = locations.filter(l => (l.is_active == null || Number(l.is_active) !== 0) && (l.is_provider_visible == null || Number(l.is_provider_visible) !== 0)
     && (!Number(l.billing_office_location_id) || byOffice.has(Number(l.billing_office_location_id))));

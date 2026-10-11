@@ -34,9 +34,7 @@ export async function resolveBillingOfficeForSchool({ agencyId, schoolOrganizati
     district = null;
   }
 
-  const offices = await OfficeLocation.findByAgencyMembership(aid, { includeInactive: false }).catch(() =>
-    OfficeLocation.findByAgency(aid, { includeInactive: false })
-  );
+  const offices = await OfficeLocation.findBillingByAgency(aid);
   const list = offices || [];
   const wind = list.find((o) => /windchime/i.test(`${o.name || ''} ${o.street_address || ''}`));
   const denver = list.find((o) => /denver/i.test(`${o.name || ''}`) || String(o.city || '').toLowerCase() === 'denver');

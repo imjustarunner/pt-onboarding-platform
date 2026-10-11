@@ -2,6 +2,7 @@ import { bookOfficeToday } from '../services/officeSameDayBooking.service.js';
 import express from 'express';
 import * as officePolicy from '../controllers/officeSchedulingPolicy.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { requirePhysicalOffice } from '../middleware/physicalOffice.middleware.js';
 import {
   listLocations,
   getLocation,
@@ -56,6 +57,8 @@ router.get('/board/:locationId', publicBoard);
 
 // Authenticated routes
 router.use(authenticate);
+router.param('locationId', requirePhysicalOffice);
+router.param('id', (req,res,next,value) => req.path.startsWith('/locations/') ? requirePhysicalOffice(req,res,next,value) : next());
 router.get('/scheduling-policies', officePolicy.listPolicies);
 router.get('/scheduling-policies/:agencyId/preview', officePolicy.previewPolicy);
 router.put('/scheduling-policies/:agencyId', officePolicy.savePolicy);
@@ -88,10 +91,10 @@ router.post('/locations/:locationId/same-day-booking', async (req,res,next) => {
 });
 
 // User booking request
-router.post('/requests', createBookingRequest);
+router.post('/requests', (req,res,next) => requirePhysicalOffice(req,res,next,req.body?.locationId), createBookingRequest);
 
 // Office booking requests (frequency-aware, supports kiosk auto-book for same-day open slots)
-router.post('/booking-requests', createOfficeBookingRequest);
+router.post('/booking-requests', (req,res,next) => requirePhysicalOffice(req,res,next,req.body?.officeLocationId), createOfficeBookingRequest);
 
 // Approvals (CPA/Admin)
 router.get('/requests/pending', listPendingRequests);
@@ -140,4 +143,3 @@ router.get('/provider-schedule-list', getProviderScheduleList);
 router.post('/watchdog/run-coverage-audit', runAllLocationsCoverageAudit);
 
 export default router;
-

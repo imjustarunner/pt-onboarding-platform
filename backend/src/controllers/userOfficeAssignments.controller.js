@@ -40,6 +40,7 @@ async function listAssignableOfficeOptionsForUser(targetUserId) {
      JOIN user_agencies ua ON ua.agency_id = ola.agency_id
      WHERE ua.user_id = ?
        AND COALESCE(ol.is_active, TRUE) = TRUE
+       AND ol.physical_office_location_id IS NULL
      ORDER BY ol.name ASC`,
     [targetUserId]
   );
@@ -193,4 +194,3 @@ export const upsertUserOfficeAssignments = async (req, res, next) => {
     if (conn) conn.release();
   }
 };
-

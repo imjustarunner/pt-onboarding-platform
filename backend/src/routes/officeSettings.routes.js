@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { requirePhysicalOffice } from '../middleware/physicalOffice.middleware.js';
 import { kioskSameOrigin } from '../middleware/officeKioskAccess.middleware.js';
 import {
   listOffices,
@@ -43,6 +44,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
+router.param('officeId', requirePhysicalOffice);
 
 // Kiosk users (must be before :officeId)
 router.get('/kiosk-users', listKioskUsers);

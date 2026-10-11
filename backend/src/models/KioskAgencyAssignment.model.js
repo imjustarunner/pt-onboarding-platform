@@ -67,7 +67,7 @@ class KioskAgencyAssignment {
         }
       }
       if (locationIds.size === 0) {
-        const allLocs = await OfficeLocation.findByAgencyMembership(a.agency_id);
+        const allLocs = await OfficeLocation.findByAgencyMembership(a.agency_id, { physicalOnly: true });
         for (const loc of allLocs || []) {
           if (!locationIds.has(loc.id)) {
             locationIds.add(loc.id);

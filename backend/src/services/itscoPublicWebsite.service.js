@@ -41,7 +41,7 @@ export async function getItscoWebsiteData(req) {
 async function buildItscoWebsiteData({agency,page,settings,baseUrl}) {
   const [officeRows] = await pool.execute(`SELECT DISTINCT l.id,l.name,l.city,l.state,l.street_address,l.postal_code
     FROM office_locations l JOIN office_location_agencies a ON a.office_location_id=l.id
-    WHERE a.agency_id=? AND l.is_active=1 ORDER BY l.city,l.name`,[agency.id]);
+    WHERE a.agency_id=? AND l.is_active=1 AND l.physical_office_location_id IS NULL ORDER BY l.city,l.name`,[agency.id]);
   const offices=officeRows.map(o=>({id:Number(o.id),name:o.name,city:o.city||'',state:o.state||'',address:[o.street_address,o.city,o.state,o.postal_code].filter(Boolean).join(', ')}));
   // A school must have a real portal account, not just an outreach/directory entry.
   const [schoolRows] = await pool.execute(`SELECT org.id, org.name, org.official_name, org.slug, org.portal_url, org.logo_url, org.logo_path, org.city, org.state,

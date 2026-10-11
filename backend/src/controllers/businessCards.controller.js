@@ -50,7 +50,7 @@ export async function getBusinessCardTemplate(req, res, next) {
           WHERE agency_id = ? AND is_active = TRUE ORDER BY display_order, name`, [scope.agencyId]),
         pool.execute(`SELECT DISTINCT ol.id, ol.name, ol.street_address, ol.city, ol.state, ol.postal_code
           FROM office_locations ol JOIN office_location_agencies ola ON ola.office_location_id = ol.id
-          WHERE ola.agency_id = ? AND COALESCE(ol.is_active, TRUE) = TRUE
+          WHERE ola.agency_id = ? AND COALESCE(ol.is_active, TRUE) = TRUE AND ol.physical_office_location_id IS NULL
           ORDER BY ol.name`, [scope.agencyId])
       ]);
       offices = agencyOffices.map(office => ({ ...office, agencyIds: [scope.agencyId], isActive: true }));

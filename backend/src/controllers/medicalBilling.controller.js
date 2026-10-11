@@ -3154,9 +3154,7 @@ export const listServiceLocations = async (req, res, next) => {
     const items = await AgencyServiceLocation.listByAgency(agencyId, {
       includeInactive: String(req.query.includeInactive || '') === '1'
     });
-    const offices = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false }).catch(() =>
-      OfficeLocation.findByAgency(agencyId, { includeInactive: false })
-    );
+    const offices = await OfficeLocation.findBillingByAgency(agencyId);
     if (String(req.query.forNoteAid || '') === '1') {
       const officeIds = await listUserOfficeIds(req.user.id);
       return res.json({ choices: buildNoteAidLocationChoices({ locations: items, offices: offices || [], officeIds }) });
@@ -3256,9 +3254,7 @@ export const ensureSchoolServiceLocation = async (req, res, next) => {
       }
     }
     if (!billingOfficeLocationId) {
-      const offices = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false }).catch(() =>
-        OfficeLocation.findByAgency(agencyId, { includeInactive: false })
-      );
+      const offices = await OfficeLocation.findBillingByAgency(agencyId);
       billingOfficeLocationId = Number(offices?.[0]?.id || 0) || null;
     }
 

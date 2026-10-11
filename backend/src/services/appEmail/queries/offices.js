@@ -9,7 +9,7 @@ export async function listAgencyOffices(agencyId) {
     `SELECT DISTINCT ol.id, ol.name, ol.timezone
      FROM office_locations ol
      JOIN office_location_agencies ola ON ola.office_location_id = ol.id
-     WHERE ola.agency_id = ? AND ol.is_active = TRUE
+     WHERE ola.agency_id = ? AND ol.is_active = TRUE AND ol.physical_office_location_id IS NULL
      ORDER BY ol.name ASC
      LIMIT 50`,
     [agencyId]

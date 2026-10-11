@@ -22,6 +22,7 @@ export const manageOfficeKioskAccess = async (req, res, next) => {
     }
     const location = await OfficeLocation.findById(officeId);
     if (!location?.is_active) return res.status(404).json({ error: { message: 'Active office not found.' } });
+    if (location.physical_office_location_id) return res.status(409).json({ error: { message: 'This is an agency billing identity. Set up the kiosk for its shared building.', physicalOfficeId: location.physical_office_location_id } });
     if (req.method === 'POST') return res.json(await rotateOfficeCode(officeId, req.user.id));
     if (req.method === 'DELETE') { await revokeOfficeDevice(officeId, req.params.deviceId); return res.sendStatus(204); }
     return res.json(await officeAccessStatus(officeId));
@@ -93,7 +94,7 @@ async function withOfficeAgencyIds(locations) {
 export const listOffices = async (req, res, next) => {
   try {
     if (req.user.role === 'super_admin') {
-      const rows = await OfficeLocation.listAll({ includeInactive: false });
+      const rows = await OfficeLocation.listAll({ includeInactive: false, physicalOnly: true });
       return res.json(await withOfficeAgencyIds(rows || []));
     }
 
@@ -103,7 +104,7 @@ export const listOffices = async (req, res, next) => {
 
     const all = [];
     for (const agencyId of agencyIds) {
-      const rows = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false });
+      const rows = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false, physicalOnly: true });
       all.push(...rows);
     }
     const byId = new Map();

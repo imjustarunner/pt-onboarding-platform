@@ -66,7 +66,7 @@ export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) 
     const legacy=context.profile?.details?.[{IN_PERSON:'officeAvailability',VIRTUAL:'virtualAvailability',SCHOOL:'schoolAvailability'}[format]];
     return [format,context.policy?agencyIntakeStatus(context.policy,format):['accepting','waitlist','unavailable'].includes(legacy)?legacy:agencyIntakeStatus(context.preferences,format)];
   }));
-  const [offices]=await pool.execute(`SELECT DISTINCT l.id,l.name,l.city FROM office_locations l LEFT JOIN office_location_agencies a ON a.office_location_id=l.id WHERE l.is_active=1 AND (l.agency_id=? OR a.agency_id=?) ORDER BY l.name`,[ids.agencyId,ids.agencyId]);
+  const [offices]=await pool.execute(`SELECT DISTINCT l.id,l.name,l.city FROM office_locations l LEFT JOIN office_location_agencies a ON a.office_location_id=l.id WHERE l.is_active=1 AND l.physical_office_location_id IS NULL AND (l.agency_id=? OR a.agency_id=?) ORDER BY l.name`,[ids.agencyId,ids.agencyId]);
   return {offices,...calendar,assignments,weekly,profileServices,preferences:{...context.preferences,intakeStatusByFormat},
     canRequestRooms:!previewOnly && Number(sourceId)===Number(ids.agencyId) && (context.preferences.seesClients || assignments.length>0),
     canEdit:!previewOnly && Number(sourceId)===Number(ids.agencyId) && context.preferences.seesClients,

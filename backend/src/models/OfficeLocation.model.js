@@ -3,8 +3,8 @@ import crypto from 'crypto';
 import OfficeLocationAgency from './OfficeLocationAgency.model.js';
 
 class OfficeLocation {
-  static async listAll({ includeInactive = false } = {}) {
-    const where = includeInactive ? '1=1' : 'is_active = TRUE';
+  static async listAll({ includeInactive = false, physicalOnly = false } = {}) {
+    const where = (includeInactive ? '1=1' : 'is_active = TRUE') + (physicalOnly ? ' AND physical_office_location_id IS NULL' : '');
     const [rows] = await pool.execute(
       `SELECT * FROM office_locations WHERE ${where} ORDER BY name ASC`
     );
@@ -21,8 +21,8 @@ class OfficeLocation {
   }
 
   // Multi-agency: list offices assigned to an agency via join table
-  static async findByAgencyMembership(agencyId, { includeInactive = false } = {}) {
-    const where = includeInactive ? '1=1' : 'ol.is_active = TRUE';
+  static async findByAgencyMembership(agencyId, { includeInactive = false, physicalOnly = false } = {}) {
+    const where = (includeInactive ? '1=1' : 'ol.is_active = TRUE') + (physicalOnly ? ' AND ol.physical_office_location_id IS NULL' : '');
     const [rows] = await pool.execute(
       `SELECT ol.*
        FROM office_locations ol
@@ -33,6 +33,20 @@ class OfficeLocation {
       [agencyId]
     );
     return rows;
+  }
+
+  // Prefer the agency's own billing identity at each shared physical building.
+  // Scheduling membership alone must not select another agency's NPI by name order.
+  static async findBillingByAgency(agencyId) {
+    const rows = await this.findByAgencyMembership(agencyId);
+    const owned = await this.findByAgency(agencyId);
+    const byBuilding = new Map();
+    for (const row of [...rows, ...owned]) {
+      const id = Number(row.physical_office_location_id || row.id);
+      const existing = byBuilding.get(id);
+      if (!existing || Number(row.agency_id) === Number(agencyId)) byBuilding.set(id, row);
+    }
+    return [...byBuilding.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   static async userHasAccess({ officeLocationId, userId }) {
@@ -53,11 +67,18 @@ class OfficeLocation {
   }
 
   static async create({ agencyId, name, timezone = 'America/New_York', svgMarkup = null, accessKey = null }) {
+    const normalizedName = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!normalizedName) throw Object.assign(new Error('Building name is required.'), { status: 400 });
+    const [existing] = await pool.execute(`SELECT ol.id, ol.physical_office_location_id FROM office_locations ol
+      WHERE ol.is_active = TRUE AND LOWER(TRIM(ol.name)) = LOWER(?)
+      AND (ol.agency_id = ? OR EXISTS (SELECT 1 FROM office_location_agencies a WHERE a.office_location_id = ol.id AND a.agency_id = ?))
+      ORDER BY ol.physical_office_location_id IS NULL DESC, ol.id LIMIT 1`, [normalizedName, agencyId, agencyId]);
+    if (existing.length) throw Object.assign(new Error('This building already exists for this agency. Select it in Building Settings; use Agency Access to share it with another agency.'), { status: 409, statusCode: 409 });
     const key = accessKey || crypto.randomBytes(16).toString('hex'); // 32 chars
     const [result] = await pool.execute(
       `INSERT INTO office_locations (agency_id, name, timezone, access_key, svg_markup)
        VALUES (?, ?, ?, ?, ?)`,
-      [agencyId, name, timezone, key, svgMarkup]
+      [agencyId, normalizedName, timezone, key, svgMarkup]
     );
     const loc = await this.findById(result.insertId);
     // Seed join table for multi-agency access (creating agency auto-assigned).
@@ -111,4 +132,3 @@ class OfficeLocation {
 }
 
 export default OfficeLocation;
-

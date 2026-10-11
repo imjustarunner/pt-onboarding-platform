@@ -25,6 +25,7 @@ export function bookingSegments(startAt, endAt, assignments) {
 }
 export async function bookOfficeToday({ user, locationId, roomId, date, time, endTime }) {
   const location = await OfficeLocation.findById(locationId);
+  if (location?.physical_office_location_id) throw Object.assign(new Error('Choose the shared physical building for this booking.'), { status: 409 });
   if (!location?.is_active) throw fail(404, 'Office location not found.');
   const provider = await User.findById(user.id);
   if (!provider?.is_active || provider.status !== 'ACTIVE_EMPLOYEE' || provider.terminated_at || ['client','guardian','kiosk'].includes(provider.role)) throw fail(403, 'A staff account is required to reserve an office.');

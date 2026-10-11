@@ -298,7 +298,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
   const agency = agencyRows?.[0] || null;
   let offices = [];
   try {
-    offices = await OfficeLocation.findByAgencyMembership(agencyId);
+    offices = await OfficeLocation.findByAgencyMembership(agencyId, { physicalOnly: true });
     if (!offices?.length) offices = await OfficeLocation.findByAgency(agencyId);
   } catch {
     offices = [];
