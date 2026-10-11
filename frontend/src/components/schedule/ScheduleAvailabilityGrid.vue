@@ -3340,6 +3340,7 @@
 
           <!-- Slot details: summary lives in the green header; main pane stays action-focused -->
           <div v-if="requestType === 'slot_details'" class="slot-details-panel">
+            <button v-if="modalContext?.officeEventId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('office',modalContext.officeEventId)">Appointment attendance letter</button>
             <div class="slot-details-lead">
               Use the actions on the left to book, cancel an office reservation, or reassign this selection.
             </div>
@@ -4633,6 +4634,7 @@
             {{ isMeetingStackItem(editingScheduleStackItem) ? 'Cancel meeting' : 'Cancel event' }}
           </button>
           <div class="nr-footer__actions">
+            <button v-if="!isMeetingStackItem(editingScheduleStackItem)&&scheduleEventEditForm.clientId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('provider',editingScheduleStackItem.eventId)">Appointment attendance letter</button>
             <button
               v-if="canJoinEditingMeeting"
               class="btn nr-btn-join"
@@ -5915,6 +5917,11 @@ const emit = defineEmits([
 
 const route = useRoute();
 const router = useRouter();
+const openAttendanceVerification = (eventType,eventId) => {
+  const prefix=route.params.organizationSlug?`/${encodeURIComponent(route.params.organizationSlug)}`:'';
+  const resolved=router.resolve({path:`${prefix}/clinical-forms`,query:{form:'attendance-verification',eventType,eventId:String(eventId)}});
+  window.open(resolved.href,'_blank','noopener,noreferrer');
+};
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();

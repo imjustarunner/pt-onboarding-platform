@@ -252,6 +252,7 @@ import savageBlueprintRoutes from './routes/savageBlueprint.routes.js';
 import rewardRegulationRoutes from './routes/rewardRegulation.routes.js';
 import assessmentDeliverablesRoutes from './routes/assessmentDeliverables.routes.js';
 import outcomeMeasuresRoutes from './routes/outcomeMeasures.routes.js';
+import safetyPlansRoutes from './routes/safetyPlans.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicWebsiteAnalyticsRoutes from './routes/publicWebsiteAnalytics.routes.js';
@@ -855,6 +856,8 @@ app.use('/api/savage-blueprint', savageBlueprintRoutes);
 app.use('/api/reward-regulation', rewardRegulationRoutes);
 app.use('/api/assessment-deliverables', assessmentDeliverablesRoutes);
 app.use('/api/outcome-measures', outcomeMeasuresRoutes);
+app.use('/api/clinical-forms', safetyPlansRoutes);
+app.use('/api/safety-plans', safetyPlansRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 

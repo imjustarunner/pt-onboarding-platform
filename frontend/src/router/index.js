@@ -2010,6 +2010,20 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/clinical-forms',
+    alias: '/:organizationSlug/safety-plans',
+    name: 'OrganizationSafetyPlans',
+    component: () => import('../views/SafetyPlansView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary', organizationSlug: true }
+  },
+  {
+    path: '/clinical-forms',
+    alias: '/safety-plans',
+    name: 'SafetyPlans',
+    component: () => import('../views/SafetyPlansView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary' }
+  },
+  {
     path: '/:organizationSlug/outcome-measures',
     name: 'OrganizationOutcomeMeasures',
     component: () => import('../views/OutcomeMeasuresView.vue'),

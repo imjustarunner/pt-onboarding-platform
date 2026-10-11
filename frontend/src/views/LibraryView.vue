@@ -41,6 +41,10 @@
         />
       </header>
 
+      <section class="clinical-form-card" v-if="referenceAgencyId">
+        <p>Clinical forms</p><h2>Forms for client care</h2><p>Safety plans, releases of information, client information updates, and appointment attendance letters. Create an individual, organization-branded document. Save it in the client’s medical record, or start a private draft until the client record is available.</p>
+        <router-link :to="`${orgPrefix}/clinical-forms`">Open clinical forms →</router-link>
+      </section>
       <DocumentAnalyticsControl :agency-id="referenceAgencyId" />
       <HireJourneyLibrary />
       <CompanyReferenceLibrary v-if="referenceAgencyId" :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" />
@@ -1557,4 +1561,8 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 }
+</style>
+
+<style scoped>
+.clinical-form-card{border:1px solid #d3e1d9;border-radius:14px;background:#f2f6ef;padding:24px;margin:20px 0;color:#244638}.clinical-form-card>p{max-width:850px;line-height:1.7}.clinical-form-card>p:first-child{font-size:12px;letter-spacing:.1em;text-transform:uppercase}.clinical-form-card a{color:#175b48;font-weight:600}
 </style>

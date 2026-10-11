@@ -3,7 +3,7 @@ import { recordDocumentQuestion } from './documentAnalytics.service.js';
 import { referenceAllowed } from './companyReferenceContent.js';
 import { answerFromHandbook } from './workplaceHandbookAssistant.service.js';
 import { recordOnboardingActivity } from './hireJourney.service.js';
-import { trainingDefinitionsFor, requiredTrainingKeys, expectedSchoolWork, validateTrainingDefinition, trainingMatchesEdition, learnerDefinition, trainingHash, gradeDocumentQuiz, validateTrainingHeartbeat, trainingCreditSeconds } from './documentTrainingContent.js';
+import { trainingDefinitionsFor, requiredTrainingKeys, expectedSchoolWork, validateTrainingDefinition, trainingMatchesEdition, trainingTemplateForEdition, learnerDefinition, trainingHash, gradeDocumentQuiz, validateTrainingHeartbeat, trainingCreditSeconds } from './documentTrainingContent.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const json = (value, fallback = {}) => value == null ? fallback : typeof value === 'string' ? JSON.parse(value) : value;
@@ -47,7 +47,7 @@ export async function documentTrainingCourse(agency, key, db = pool) {
   if (!book) return { key, title: template.title, status: 'unpublished', definition: template, book: null };
   const [[review]] = await db.execute('SELECT * FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ?', [agency.id, key, row.id]);
   const [[previousReview]] = !review ? await db.execute('SELECT definition_json FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? ORDER BY reviewed_at DESC, version_id DESC LIMIT 1', [agency.id, key]) : [[]];
-  const definition = review ? json(review.definition_json) : previousReview ? json(previousReview.definition_json) : template;
+  const definition = review ? json(review.definition_json) : previousReview ? json(previousReview.definition_json) : trainingTemplateForEdition(template, book);
   const ready = trainingMatchesEdition(definition, book);
   return { key, title: definition.title, status: ready ? 'ready' : 'needs_review', definition, book, revision: trainingHash(definition) };
 }

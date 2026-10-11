@@ -5,7 +5,7 @@
     <p v-if="loading" role="status">Loading the guide…</p>
     <template v-else-if="manage">
       <nav class="edition-tabs" aria-label="Guide editions"><button v-for="item in modes" :key="item.key" type="button" :aria-pressed="mode === item.key" :disabled="!state[item.key]" @click="selectMode(item.key)">{{ item.title }}</button></nav>
-      <div class="reference-actions"><p v-if="state.draft">Draft v{{ state.draft.version.version_number }} · {{ state.changes?.length || 0 }} changes to review. Staff see the published edition.</p><p v-else-if="state.source || state.published">Review this company’s edition, then create a draft to make changes.</p><p v-else>This company’s guide becomes available when its document package is assigned.</p><button v-if="!state.draft && (state.source || state.published)" type="button" :disabled="busy" @click="createDraft">{{ busy ? 'Preparing…' : 'Create company draft' }}</button><button v-if="mode === 'draft'" type="button" :disabled="busy || dirty || !ready" @click="publish">{{ busy ? 'Saving…' : 'Publish reviewed edition' }}</button></div>
+      <div class="reference-actions"><p v-if="state.draft">Draft v{{ state.draft.version.version_number }} · {{ state.changes?.length || 0 }} changes to review. Staff see the published edition.</p><p v-else-if="state.source || state.published">Review this company’s edition, then create a draft to make changes.</p><p v-else>This company’s guide becomes available when its document package is assigned.</p><button v-if="!state.draft && (state.source || state.published)" type="button" :disabled="busy" @click="createDraft(false)">{{ busy ? 'Preparing…' : 'Create company draft' }}</button><button v-if="documentKey === 'crisis-response-guide' && state.source && state.published && !state.draft" type="button" :disabled="busy" @click="createDraft(true)">Prepare safety-plan workflow update</button><button v-if="mode === 'draft'" type="button" :disabled="busy || dirty || !ready" @click="publish">{{ busy ? 'Saving…' : 'Publish reviewed edition' }}</button></div>
       <HandbookSectionEditor v-if="mode === 'draft' && state.draft" :key="state.draft.version.id" :agency-id="agencyId" :version-id="state.draft.version.id" :sections="state.draft.sections" :required-sections="state.draft.metadata.requiredSections || []" :api-base="base" :anchor-prefix="documentKey" updates-label="this guide’s change record" @saved="load" @dirty="dirty = $event; $emit('dirty', $event)" />
       <details v-if="mode === 'draft' && state.changes?.length" class="reference-changes"><summary>Review {{ state.changes.length }} section changes</summary><article v-for="change in state.changes" :key="change.slug"><h3>{{ change.title }} · {{ change.kind }}</h3><div class="change-comparison"><div v-if="change.beforeHtml"><strong>Before</strong><div v-html="safe(change.beforeHtml)" /></div><div v-if="change.afterHtml"><strong>After</strong><div v-html="safe(change.afterHtml)" /></div></div></article></details>
     </template>
@@ -48,9 +48,9 @@ async function load() {
   } catch (e) { if (current === sequence) error.value = e?.response?.data?.error?.message || 'The guide could not be loaded.'; }
   finally { if (current === sequence) loading.value = false; }
 }
-async function createDraft() {
+async function createDraft(applyCrisisWorkflowUpdate = false) {
   busy.value = true; error.value = '';
-  try { await api.post(`${base.value}/draft`, { agencyId: Number(props.agencyId), sourceRevision: state.value.source?.revision, expectedPublishedVersionId: state.value.published?.version.id || null }); mode.value = 'draft'; await load(); }
+  try { await api.post(`${base.value}/draft`, { agencyId: Number(props.agencyId), sourceRevision: state.value.source?.revision, applyCrisisWorkflowUpdate, expectedPublishedVersionId: state.value.published?.version.id || null }); mode.value = 'draft'; await load(); }
   catch (e) { error.value = e?.response?.data?.error?.message || 'Could not create the draft.'; }
   finally { busy.value = false; }
 }

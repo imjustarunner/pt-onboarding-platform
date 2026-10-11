@@ -73,17 +73,36 @@ async function versionRow(conn, document, id) {
   const [[row]] = await conn.execute('SELECT * FROM company_reference_versions WHERE document_id = ? AND id = ?', [document.id, id]);
   return row;
 }
+// Append reviewed source additions without replacing agency-authored policy text.
+export function mergeCrisisWorkflowUpdate(key, sections, source) {
+  if (key !== 'crisis-response-guide' || !source?.sections || !sections) fail('This workflow update is not available for this document.', 400);
+  const markers = {
+    'suicide-risk': '<h3>SAMHSA SAFE-T · Clinician assessment reference</h3>',
+    'safety-planning': '<h3>Complete and share the safety plan in AuricWell</h3>',
+    'references-and-updates': '<p>Safety-planning workflow updated October 11, 2026'
+  };
+  const next = structuredClone(sections);
+  for (const [slug, marker] of Object.entries(markers)) {
+    const target = next.find(section => section.slug === slug);
+    const supplied = source.sections.find(section => section.slug === slug)?.body_html || '';
+    const offset = supplied.indexOf(marker);
+    if (!target || offset < 0) fail('A required crisis section is missing. Review the supplied starting point and restore that section before applying the update.', 409);
+    if (!target.body_html.includes(marker)) target.body_html += supplied.slice(offset);
+  }
+  validateHandbookSections(next);
+  return next;
+}
 export async function createReferenceDraft(agencyId, key, userId, input) {
   const source = await sourceForReference(agencyId, key);
   return transaction(agencyId, key, async (conn, document) => {
     if (Number(input.expectedPublishedVersionId || 0) !== Number(document.published_version_id || 0)) fail('The publication changed. Reload before creating a draft.', 409);
-    if (document.draft_version_id) return { versionId: document.draft_version_id, existing: true };
+    if (document.draft_version_id) { if (input.applyCrisisWorkflowUpdate === true) fail('A company draft already exists. Review or publish it before staging the workflow update.', 409); return { versionId: document.draft_version_id, existing: true }; }
     const published = book(await versionRow(conn, document, document.published_version_id));
     if (!published && (!source || source.revision !== input.sourceRevision)) fail('Reload the available source before creating a draft.', 409);
     // A new revision always starts from the company's last publication, so
     // template/source refreshes cannot silently undo company customization.
     const metadata = published?.metadata || referenceMetadata(source);
-    const sections = published?.sections || source.sections;
+    const sections = input.applyCrisisWorkflowUpdate === true ? mergeCrisisWorkflowUpdate(key, published?.sections || source?.sections, source) : published?.sections || source.sections;
     const [result] = await conn.execute('INSERT INTO company_reference_versions (document_id, version_number, metadata_json, sections_json, created_by_user_id) VALUES (?, ?, ?, ?, ?)', [document.id, (published?.version.version_number || 0) + 1, JSON.stringify(metadata), JSON.stringify(sections), userId]);
     await conn.execute('UPDATE company_reference_documents SET draft_version_id = ? WHERE id = ?', [result.insertId, document.id]);
     return { versionId: result.insertId };

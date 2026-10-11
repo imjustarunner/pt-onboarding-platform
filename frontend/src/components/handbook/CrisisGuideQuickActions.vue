@@ -9,19 +9,23 @@
     <nav aria-label="Response procedures">
       <button type="button" @click="$emit('open', 'on-site-emergency')">On-site response →</button>
       <button type="button" @click="$emit('open', 'remote-emergency')">Remote / off-site response →</button>
+      <a :href="safetyPlanUrl">Open agency safety plan →</a>
+      <button type="button" @click="$emit('open', 'suicide-risk')">Assessment guidance · SAFE-T →</button>
       <button type="button" @click="$emit('open', 'contacts-and-readiness')">Contacts &amp; local readiness →</button>
     </nav>
+    <p class="crisis-location"><a href="https://www.samhsa.gov/resource/dbhis/safe-t-pocket-card-suicide-assessment-five-step-evaluation-triage-safe-t-clinicians" target="_blank" rel="noopener noreferrer">SAMHSA SAFE-T · Clinician reference</a>. Qualified assessment, a collaborative safety plan, and documented follow-up are separate parts of the response.</p>
     <p class="crisis-location">For a remote client, direct emergency help to their current physical location. Q&amp;A explains the guide; it cannot assess a person’s safety or dispatch help.</p>
   </section>
 </template>
 <script setup>
 defineEmits(['open']);
+defineProps({safetyPlanUrl:{type:String,default:'/clinical-forms?form=safety-plan'}});
 </script>
 <style scoped>
 .crisis-quick-actions { padding: 26px 30px; background: #fff7e8; color: #493421; border-bottom: 1px solid #dbc8a7; }
 .crisis-intro strong { font-size: 22px; }.crisis-intro p { font-size: 13px; line-height: 1.7; margin: 8px 0 18px; max-width: 780px; }
 .crisis-contacts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }.crisis-contacts a { display: block; background: #fffdf7; border: 1px solid #d6b889; border-radius: 9px; padding: 14px 16px; color: #583810; text-decoration: none; }.crisis-contacts strong { display: block; font-size: 22px; line-height: 1.4; }.crisis-contacts span { display: block; font-size: 12px; line-height: 1.5; margin-top: 5px; }
-nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }button { font: inherit; font-size: 12px; color: #493421; background: transparent; border: 1px solid #cbb494; border-radius: 6px; padding: 10px 12px; cursor: pointer; }
+nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }nav a,button { font: inherit; font-size: 12px; color: #493421; background: transparent; border: 1px solid #cbb494; border-radius: 6px; padding: 10px 12px; cursor: pointer; }
 .crisis-location { font-size: 12px; line-height: 1.7; margin: 15px 0 0; max-width: 850px; }a:focus-visible,button:focus-visible { outline: 3px solid #795421; outline-offset: 3px; }
 @media(max-width:650px) { .crisis-quick-actions { padding: 22px 18px; }.crisis-contacts { grid-template-columns: 1fr; }.crisis-contacts a { padding: 12px 14px; }nav button { width: 100%; text-align: left; } }
 </style>

@@ -95,7 +95,7 @@
                   not load guardian document queues.
                 </p>
               </div>
-              <template v-else><GuardianIntakeDocuments :client-id="selectedChildId" /><DocumentsTab /></template>
+              <template v-else><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" /><GuardianIntakeDocuments :client-id="selectedChildId" /><DocumentsTab /></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -611,6 +611,7 @@
 </template>
 
 <script setup>
+import PortalSafetyPlans from '../../components/safetyPlans/PortalSafetyPlans.vue';
 import { resolveFamilyPortalOrganization, familyPortalClients } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';

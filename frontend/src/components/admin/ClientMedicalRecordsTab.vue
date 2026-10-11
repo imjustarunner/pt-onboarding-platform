@@ -1,5 +1,6 @@
 <template>
   <div class="cc-enc-tab">
+    <SafetyPlansPanel v-if="clientId" :key="`safety:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
     <div class="cc-enc-toolbar">
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
@@ -230,6 +231,7 @@
 </template>
 
 <script setup>
+import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';

@@ -127,6 +127,7 @@ RUN echo '{"type":"module"}' > /frontend/package.json
 
 # Copy database migrations (run automatically on startup via bootstrap.js)
 COPY database/migrations ./database/migrations
+COPY database/clinical_migrations/025_client_safety_plans.sql ./database/clinical_migrations/025_client_safety_plans.sql
 
 # Offline Hogwarts demo zip templates (README, local Node server, start scripts)
 COPY tools/hogwarts-offline-demo ./tools/hogwarts-offline-demo

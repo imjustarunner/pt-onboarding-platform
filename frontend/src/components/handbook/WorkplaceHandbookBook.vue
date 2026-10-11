@@ -4,7 +4,7 @@
     <p class="handbook-print-notice">Read the current {{ documentTitle }} in the app. Printing and PDF export are not available in this view.</p>
     <DocumentAnalyticsControl v-if="analytics" :agency-id="analytics.agencyId" :document-key="metadata.documentKey || 'workplace-handbook'" :document-title="documentTitle" />
     <p v-if="analytics && analytics.enabled !== false" class="reading-disclosure">Your company administrators can see reading activity, link clicks, helpfulness feedback and questions asked here.</p>
-    <CrisisGuideQuickActions v-if="isCrisisGuide" @open="selectSection($event, true)" />
+    <CrisisGuideQuickActions v-if="isCrisisGuide" :safety-plan-url="`${documentRoute?.params?.organizationSlug ? '/'+encodeURIComponent(documentRoute.params.organizationSlug) : ''}/clinical-forms?form=safety-plan`" @open="selectSection($event, true)" />
     <header class="book-cover">
       <BrandedHandbookCover v-if="isGuide || ['isi-foundations', 'company-foundations'].includes(metadata.presentation?.theme)" class="cover-art" :organization="metadata.organization" :title-lines="metadata.coverTitle" :presentation="metadata.presentation" :isi="metadata.presentation?.theme === 'isi-foundations'" />
       <img v-else-if="metadata.coverUrl" :src="metadata.coverUrl" :alt="`${metadata.organization || ''} Workplace Handbook cover`" class="cover-art" />
@@ -171,7 +171,7 @@ const sourceUrl = computed(() => props.canOpenOriginal && /^https?:\/\//i.test(p
 const documentRoute = inject(routeLocationKey, null);
 const safeHtml = value => {
   const prefix = documentRoute?.params?.organizationSlug ? `/${encodeURIComponent(documentRoute.params.organizationSlug)}` : '';
-  return DOMPurify.sanitize(String(value || '').replace(/href="\/(outcome-measures|library)(?=[?"])/g, (_, path) => `href="${prefix}/${path}`));
+  return DOMPurify.sanitize(String(value || '').replace(/href="\/(outcome-measures|library|clinical-forms|safety-plans)(?=[?"])/g, (_, path) => `href="${prefix}/${path}`));
 };
 function safeChanged(value) {
   const raw = String(value || '');

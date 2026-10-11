@@ -7,7 +7,7 @@ import User from '../../models/User.model.js';
 import { answerFromHandbook } from '../workplaceHandbookAssistant.service.js';
 import { referenceSource, referenceMetadata, referenceCatalogFor } from '../companyReferenceContent.js';
 import { getHandbookSource } from '../workplaceHandbookContent.js';
-import { assertReferenceAccess, sourceForReference, referenceCatalogForAgency, publishedReference, referenceWorkspace, createReferenceDraft, changeReferenceSection, publishReference, answerReference } from '../companyReferenceDocuments.service.js';
+import { mergeCrisisWorkflowUpdate, assertReferenceAccess, sourceForReference, referenceCatalogForAgency, publishedReference, referenceWorkspace, createReferenceDraft, changeReferenceSection, publishReference, answerReference } from '../companyReferenceDocuments.service.js';
 import * as controller from '../../controllers/companyReferenceDocuments.controller.js';
 
 let agency;
@@ -249,5 +249,32 @@ describe('ITSCO-only school practice guide', () => {
     await publishReference(12, key, 7, { expectedVersionId: document.draft_version_id, expectedRevision: 2 });
     expect((await publishedReference(12, key)).changes).toEqual([expect.objectContaining({ slug: target.slug, beforeHtml: target.body_html, afterHtml: '<p>Revised closure procedure.</p>' })]);
     expect(conn.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT INTO company_reference_documents')).every(([, values]) => values[1] === key)).toBe(true);
+  });
+});
+
+describe('crisis workflow source updates', () => {
+  it('preserves custom policy text and stages additions once without mutating publication', () => {
+    const src = referenceSource({slug:'itsco'}, 'crisis-response-guide');
+    const sections = structuredClone(src.sections);
+    for (const section of sections) {
+      if (section.slug === 'suicide-risk') section.body_html = '<p>Agency assessment workflow.</p>';
+      if (section.slug === 'safety-planning') section.body_html = '<p>Agency follow-up workflow.</p>';
+    }
+    const next = mergeCrisisWorkflowUpdate('crisis-response-guide', sections, src);
+    expect(next.find(s => s.slug === 'suicide-risk').body_html).toContain('Agency assessment workflow.');
+    expect(next.find(s => s.slug === 'suicide-risk').body_html).toContain('SAMHSA SAFE-T');
+    expect(next.find(s => s.slug === 'safety-planning').body_html).toContain('/clinical-forms?form=safety-plan');
+    expect(sections.find(s => s.slug === 'safety-planning').body_html).toBe('<p>Agency follow-up workflow.</p>');
+    expect(mergeCrisisWorkflowUpdate('crisis-response-guide', next, src)).toEqual(next);
+    expect(() => mergeCrisisWorkflowUpdate('provider-guide', sections, src)).toThrow();
+    expect(() => mergeCrisisWorkflowUpdate('crisis-response-guide', [], src)).toThrow();
+  });
+  it('creates a reviewable draft and refuses to overwrite an existing draft', async () => {
+    document.document_key = 'crisis-response-guide';
+    const src = referenceSource(agency, 'crisis-response-guide');
+    const result = await createReferenceDraft(12, 'crisis-response-guide', 7, {sourceRevision:src.revision, applyCrisisWorkflowUpdate:true});
+    expect(result.versionId).toBe(document.draft_version_id);
+    expect(document.published_version_id).toBeNull();
+    await expect(createReferenceDraft(12, 'crisis-response-guide', 7, {sourceRevision:src.revision, applyCrisisWorkflowUpdate:true})).rejects.toMatchObject({status:409});
   });
 });

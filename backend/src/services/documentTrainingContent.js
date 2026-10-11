@@ -62,7 +62,11 @@ export function trainingMatchesEdition(definition, book) {
     return section?.content_status === 'ready' && trainingHash(section.body_html) === hash;
   });
 }
-export const learnerDefinition = definition => ({ ...definition, sectionHashes: undefined, questions: definition.questions.map(({ id, prompt, options }) => ({ id, prompt, options })) });
+export function trainingTemplateForEdition(template, book) {
+  const {previousEditions, ...current} = template;
+  return [current, ...(previousEditions || [])].find(definition => trainingMatchesEdition(definition, book)) || current;
+}
+export const learnerDefinition = definition => ({ ...definition, sectionHashes: undefined, previousEditions: undefined, questions: definition.questions.map(({ id, prompt, options }) => ({ id, prompt, options })) });
 export function gradeDocumentQuiz(definition, answers) {
   if (!Array.isArray(answers) || answers.length !== definition.questions.length || answers.some((a, i) => !Number.isInteger(a) || a < 0 || a >= definition.questions[i].options.length)) fail('Answer every question before submitting.');
   const feedback = definition.questions.map((q, i) => ({ id: q.id, correct: answers[i] === q.correctAnswer, correctAnswer: q.correctAnswer, explanation: q.explanation, sourceSlug: q.sourceSlug }));

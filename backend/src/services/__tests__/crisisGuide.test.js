@@ -59,3 +59,7 @@ describe('crisis guide Q&A (synthetic sources only)',()=>{
     expect(answer.status).toBe('not_found');expect(answer.message).toContain('clinical lead');expect(answer.message).not.toContain('People Operations');
   });
 });
+
+describe('safety-plan workflow integration',()=>{
+ it.each(['itsco','nlu','tisi'])('links %s to protected blank forms and keeps SAFE-T in clinician guidance',slug=>{const b=book(slug),plan=b.sections.find(s=>s.slug==='safety-planning'),assessment=b.sections.find(s=>s.slug==='suicide-risk');expect(plan.body_html).toContain('/clinical-forms?form=safety-plan');expect(plan.body_html).toContain('unlinked private draft');expect(plan.body_html).toContain('earlier signatures remain');expect(assessment.body_html).toContain('samhsa.gov');expect(assessment.body_html).toContain('does not expand anyone’s scope');expect(plan.body_html).not.toContain('clientId=');});
+});
