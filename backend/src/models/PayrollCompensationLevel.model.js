@@ -310,69 +310,9 @@ const PayrollCompensationLevel = {
    * Apply staged pay-level changes and activate the new pay system from effectiveStart.
    * Overrides compensation tables for enrolled users once payroll period ends on/after that date.
    */
-  async applyGo(agencyId, {
-    effectiveStart,
-    waiveProbation = false,
-    enrollExistingWithoutPending = true,
-    appliedByUserId = null
-  } = {}) {
-    if (!effectiveStart || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveStart).slice(0, 10))) {
-      throw new Error('effectiveStart (YYYY-MM-DD) is required');
-    }
-    const start = String(effectiveStart).slice(0, 10);
-    const pending = await this.listPendingForAgency(agencyId);
-    let appliedPending = 0;
-
-    for (const row of pending) {
-      const existingBefore = await this.getForUser(agencyId, row.user_id);
-      await this.assignToUser(
-        agencyId,
-        row.user_id,
-        Number(row.category),
-        row.level != null ? Number(row.level) : null,
-        appliedByUserId || row.created_by_user_id,
-        Number(row.bypass) === 1,
-        {
-          paySystemEnabled: Number(row.pay_system_enabled) !== 0,
-          waiveProbation: !!waiveProbation || Number(existingBefore?.waive_probation) === 1,
-          waiveMinimumWorkload: Number(existingBefore?.waive_minimum_workload || 0) === 1,
-          probationStartOverride: existingBefore?.probation_start_override || null,
-          spanishBonusEligible: Number(existingBefore?.spanish_bonus_eligible || 0) === 1
-        }
-      );
-      await this.updatePaySystemFlags(agencyId, row.user_id, {
-        paySystemEnabled: Number(row.pay_system_enabled) !== 0,
-        waiveProbation: !!waiveProbation || Number(existingBefore?.waive_probation) === 1,
-        paySystemEffectiveStart: start,
-        locationBonusEligible: Number(existingBefore?.location_bonus_eligible || 0) === 1
-      });
-      appliedPending += 1;
-    }
-
-    await this.clearPending(agencyId);
-
-    let enrolledExisting = 0;
-    if (enrollExistingWithoutPending) {
-      const [result] = await pool.execute(
-        `UPDATE payroll_user_compensation_levels
-         SET pay_system_enabled = 1,
-             pay_system_effective_start = ?,
-             waive_probation = IF(?, 1, waive_probation),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE agency_id = ?`,
-        [start, waiveProbation ? 1 : 0, agencyId]
-      );
-      enrolledExisting = result?.affectedRows || 0;
-    } else {
-      await pool.execute(
-        `UPDATE payroll_user_compensation_levels
-         SET pay_system_effective_start = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE agency_id = ? AND pay_system_enabled = 1`,
-        [start, agencyId]
-      );
-    }
-
-    return { appliedPending, enrolledExisting, effectiveStart: start };
+  async applyGo(agencyId, options = {}) {
+    const { activatePayrollAssignments } = await import('../services/payrollActivation.service.js');
+    return activatePayrollAssignments(agencyId, options);
   },
 
   async removeFromUser(agencyId, userId) {

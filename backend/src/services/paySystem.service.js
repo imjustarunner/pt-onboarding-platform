@@ -605,7 +605,7 @@ export async function loadUserPaySystemContext({
 
   const assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);
   const userEnabled = Number(assignment?.pay_system_enabled || 0) === 1;
-  if (!userEnabled || !assignment?.category || !assignment?.level) {
+  if (!userEnabled) {
     return {
       enabled: false,
       agencyEnabled: true,
@@ -619,6 +619,7 @@ export async function loadUserPaySystemContext({
     assignment.pay_system_effective_start || assignment.paySystemEffectiveStart
   );
   const periodEndDate = parseDateOnly(periodEnd);
+  if (!effectiveStart || !periodEndDate) throw Object.assign(new Error(`Payroll activation needs valid service-period and start dates for employee ${userId}.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
   if (effectiveStart && periodEndDate && periodEndDate < effectiveStart) {
     return {
       enabled: false,
@@ -630,9 +631,11 @@ export async function loadUserPaySystemContext({
     };
   }
 
+  if (!assignment?.category || !assignment?.level) throw Object.assign(new Error(`Payroll setup is incomplete for employee ${userId}: a category and level are required.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+
   let rateProfile = await PayrollPaySystemRate.get(agencyId, assignment.category, assignment.level);
   if (!rateProfile) {
-    return { enabled: false, agencyEnabled: true, userEnabled: true, assignment, rateProfile: null };
+    throw Object.assign(new Error(`The assigned payroll rate profile is missing for employee ${userId}.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
   }
 
   let providerStartDate = null;
@@ -657,10 +660,13 @@ export async function loadUserPaySystemContext({
   }
 
   const legacyAssignment = {...assignment};
-  const legacyRateProfile = rateProfile;
   let agreement;
   try { agreement = await effectiveCompensationAgreement({agencyId,userId,asOfDate:periodEnd}); }
   catch(error) { error.code='AMENDMENT_PAYROLL_REVIEW_REQUIRED'; throw error; }
+  if (!agreement) throw Object.assign(new Error(`Employee ${userId} needs an executed compensation agreement before new payroll rates can be applied. A draft does not activate pay.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  if (Number(agreement.data.schedule?.category) !== Number(assignment.category) || Number(agreement.data.schedule?.level) !== Number(assignment.level)) {
+    throw Object.assign(new Error(`Employee ${userId}'s signed agreement does not match their assigned category and level. Review the assignment before running payroll.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  }
   if (agreement) {
     assignment.compensation_agreement_effective_on = agreement.effectiveOn;
     assignment.compensation_policy_version = agreement.data.compensationPolicyVersion;
@@ -683,8 +689,9 @@ export async function loadUserPaySystemContext({
   status.preCutoffStatus = split.preStatus;
   status.postCutoffStatus = split.postStatus;
   if (agreement) {
-    status.agreementBoundary = agreement.effectiveOn;
-    status.agreementPriorRateProfile = legacyRateProfile;
+    status.agreementBoundary = [agreement.effectiveOn, effectiveStart.toISOString().slice(0,10)].sort().at(-1);
+    // A current matrix cannot establish the employee's historical individual terms.
+    status.agreementPriorRateProfile = null;
     status.agreementLegacyAssignment = legacyAssignment;
     status.agreementStatusArgs = statusArgs;
   }
@@ -833,21 +840,26 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
     const code=canonicalServiceCode(key,row), units=Number(row.finalizedUnits??row.units??0);
     if (!(units>0) || classifyPayType(code,row)==='skip') continue;
     const dates=datedUnitsByCode?.get(code) || [];
+    if(dates.some(item=>!Number.isFinite(Number(item.units??item.payable_units)) || Number(item.units??item.payable_units)<0))throw Object.assign(new Error(`Invalid dated units for ${code}; reconcile the import before applying the amendment.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     const total=dates.reduce((n,d)=>n+Math.max(0,Number(d.units??d.payable_units??0)),0);
     if (!(total>0)) {
       // Do not invent a service date and silently apply new/reduced rates to old work.
       throw Object.assign(new Error(`Service dates are required to apply the signed compensation amendment to ${code}.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     }
+    if (Math.abs(total-units)>0.000001) throw Object.assign(new Error(`Dated units for ${code} do not match payable units. Reconcile carryovers and overrides before applying the amendment.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     const groups=new Map();
     for(const item of dates) {
-      const date=String(item.serviceDate||item.service_date||'').slice(0,10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Object.assign(new Error(`A valid service date is required for ${code}.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+      const rawDate=item.serviceDate||item.service_date;
+      const date=rawDate instanceof Date?rawDate.toISOString().slice(0,10):String(rawDate||'').slice(0,10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)!==date) throw Object.assign(new Error(`A valid service date is required for ${code}.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+      if(Number(item.units??item.payable_units)===0)continue;
       const prior=date<boundary;
+      if (prior && !status.agreementPriorRateProfile) throw Object.assign(new Error(`Work dated ${date} for ${code} precedes the new pay terms. Review its historical rate separately; the current category/level matrix cannot price earlier work.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
       const lineStatus=resolveUserPaySystemStatus({...args,assignment:prior?status.agreementLegacyAssignment:args.assignment,asOfDate:date});
       const datedProfile=prior?status.agreementPriorRateProfile:profileWithDatedAddition(rateProfile,date);
       const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${datedProfile.conditionalAdditionPolicyId||''}`;
       const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile};
-      group.units+=Number(item.units??item.payable_units??0)*units/total;groups.set(groupKey,group);
+      group.units+=Number(item.units??item.payable_units??0);groups.set(groupKey,group);
     }
     delete breakdown[key];
     let first=true;
@@ -870,6 +882,7 @@ export function applyPaySystemToBreakdown({
   datedUnitsByCode = null
 }) {
   if (status?.agreementBoundary) {
+    if(Number(shiftDirectHours)>0 || Number(shiftIndirectHours)>0)throw Object.assign(new Error('Shift hours require a dated rate review during the compensation transition; aggregate hours cannot establish which pay terms apply.'),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCode});
   } else if (status?.rateChangeDate && datedUnitsByCode && status.preCutoffStatus && status.postCutoffStatus) {
     splitBreakdownByCutoff(breakdown, {

@@ -262,7 +262,6 @@ export const goPaySystem = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'effectiveStart (YYYY-MM-DD) is required' } });
     }
 
-    await PayrollPaySystemRate.setAgencyEnabled(agencyId, true);
     const result = await PayrollCompensationLevel.applyGo(agencyId, {
       effectiveStart,
       waiveProbation: req.body?.waiveProbation === true,
@@ -284,6 +283,7 @@ export const goPaySystem = async (req, res, next) => {
       message: `Pay system live from ${result.effectiveStart}. Applied ${result.appliedPending} staged level change(s); enrolled/updated ${result.enrolledExisting} assignment(s).`
     });
   } catch (e) {
+    if(e?.code==='AMENDMENT_PAYROLL_REVIEW_REQUIRED')return res.status(409).json({error:{code:e.code,message:e.message}});
     if (e?.message?.includes('effectiveStart')) {
       return res.status(400).json({ error: { message: e.message } });
     }

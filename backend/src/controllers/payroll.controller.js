@@ -7045,6 +7045,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         displayTierLevel
       });
       if (payCtx?.enabled && payCtx.rateProfile) {
+        if(salaryAmount>0.001 && !salaryIncludeServicePay)throw Object.assign(new Error(`Employee ${userId} has salary and new service terms in this period. Reconcile the salary/service-pay split before running payroll so service pay is not suppressed.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
         const shiftDirect = Number(shiftHours?.directHours || 0) || 0;
         const shiftIndirect = Number(shiftHours?.indirectHours || 0) || 0;
         const datedForUser = new Map();
@@ -7133,9 +7134,13 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         }
       }
     } catch (paySysErr) {
-      // A signed amendment cannot silently fall back to the old pay terms.
-      if (paySysErr?.code === 'AMENDMENT_PAYROLL_REVIEW_REQUIRED') throw paySysErr;
-      console.warn('[payroll] pay system overlay failed:', paySysErr?.message || paySysErr);
+      // Never save a fallback total when the selected compensation calculation failed.
+      // A failed re-run must also invalidate the earlier run's posting/export gate.
+      await pool.execute(`UPDATE payroll_periods SET status='staged',ran_at=NULL,ran_by_user_id=NULL
+        WHERE id=? AND agency_id=? AND status IN ('draft','raw_imported','staged','ran')`,[payrollPeriodId,agencyId]);
+      paySysErr.code = 'AMENDMENT_PAYROLL_REVIEW_REQUIRED';
+      paySysErr.status = 409;
+      throw paySysErr;
     }
 
     if (breakdown.__paySystem?.status?.compensationPolicyVersion && Number(breakdown.__paySystem.status.currentTierLevel) >= 3) {

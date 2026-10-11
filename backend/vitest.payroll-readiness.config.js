@@ -11,6 +11,8 @@ export default {
       'src/services/__tests__/meetingCompensationPolicy.test.js',
       'src/controllers/__tests__/activityProtection.payroll.test.js',
       'src/services/__tests__/payrollReadiness.test.js',
+      'src/services/__tests__/payrollTransition.test.js',
+      'src/services/__tests__/payrollActivation.test.js',
       'src/utils/__tests__/payrollLeaveExport.test.js',
       'src/controllers/__tests__/payrollLeaveExport.test.js'
     ]

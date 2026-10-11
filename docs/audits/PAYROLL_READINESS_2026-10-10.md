@@ -8,7 +8,17 @@
 - Initialized the remaining missing leave record. All 48 active internal accounts now have a record; this includes nonparticipants/system accounts and is not a claim that 48 people move to service pay. New balances remain unreconciled; no ADP handoff or sick-rate amount was invented.
 - Rechecked production configuration after preparation: 38 assigned, 0 enabled, 0 executed amendments, 48 leave records, 0 confirmed Training PTO handoffs. Signature, salary-exception and handoff reviews remain outstanding.
 - Added a private plain-language report with a label on every employee value, saved amendment sick rates, definitions and UI instructions. `missing` no longer stands alone without explaining the field/action. Use `--report-path=/private/tmp/<new-report>.txt` with the audit script; it creates a mode-0600 file and refuses to overwrite an existing path.
-- Automatic approval review rejected the proposed payroll-calculation safeguards because they change payroll processing behavior. They have **not** been applied. Explicit authorization has been requested. The earlier local export/audit commit is also still unpublished.
+- The user subsequently authorized implementation and testing of the payroll safeguards. They are implemented locally and tested; publishing remains separate. No live payroll run or activation was performed.
+
+## Confirmed operational handoff and safeguards
+
+- Payroll processed October 12 covers September 26–October 9 and remains on old terms. The next payroll covers October 10–23 under the applicable executed new agreements. Downloaded reports may contain old dollar amounts; those amounts are not authority to override signed new rates for new service dates.
+- The individual salary transition confirmed by the user is salary through October 10 and new service terms from October 11. Those dates were saved with a private backup. The mixed salary/service period still needs a reviewed split before it can run; the safeguard prevents a residual salary from suppressing service pay. No salary amount or historical salary period was changed.
+- Created high-priority Training PTO reconciliation and ADP tracking-retirement tasks, due October 22 and 23 respectively. ADP retirement is conditional on verification of the opening-balance handoff; history and earned balances must be retained. This assigns the work, not a claim that ADP has already been changed. The two administrative salary questions were deferred by the user.
+- Go activation now locks and validates the selected active employees, matching executed agreements, rate-profile presence, period state and salary overlap. Employee writes, pending-row removal and agency activation commit together. Explicit opt-outs and later individual dates are preserved; inactive staff are not enrolled by the bulk operation.
+- Earlier periods exit the new-pay path before checking the new profile or signatures. New periods stop on missing/mismatched signed terms or profiles, unresolved salary splits, incomplete or invalid dated units, and aggregate shift hours without dated provenance. Prior-date work requires historical-rate review; the current matrix is no longer substituted as its historical profile.
+- A failed new-pay calculation invalidates the run's posting/export gate instead of silently saving a fallback calculation. The period must be successfully recalculated before posting/exporting.
+- Validation: 127 focused Vitest tests and 18 Node tests pass (145 total). These include old-period protection, re-rating old report amounts for new dates, individual cutover dates, missing signatures, atomic activation failures, carryover-unit mismatches and salary-overlap checks. No production payroll rehearsal or payment was performed.
 
 The production findings below describe the original audit snapshot. The start-date and missing-record counts above supersede those original counts; creating a record does not verify its opening balance or classification.
 
@@ -36,10 +46,10 @@ October 24 is the next service-period start, not a verified check date. Payroll 
 
 The detailed employee-level findings are kept in the private local audit output, not this repository.
 
-## Software launch blockers still requiring resolution
+## Original software findings and current disposition
 
-1. **Historical service rates:** `loadUserPaySystemContext` obtains the pre-amendment profile from the current category/level matrix, not necessarily the employee's actual historical per-code rates. At least three current clinical rates differ from the new matrix. `splitAgreementDatedLines` can therefore use the wrong prior rate for late work. Also, its dated-unit input comes from the latest import and scales to aggregate units; carryovers and overrides need complete dated provenance. Rehearse mixed pre/post-cutover work before activating.
-2. **Activation and failures:** `goPaySystem` enables the agency before applying employee assignments, without an atomic, signed-agreement readiness check. With no effective agreement, enabled staff use the unsigned matrix fallback. The payroll overlay catches some errors and continues under the prior calculation. These paths need explicit validation before the October rollout is switched on.
+1. **Historical service rates:** the unsafe current-matrix fallback and proportional dated-unit scaling are removed locally. Older work now stops for historical-rate review, and mismatched dated units stop for reconciliation. Automatic handling of every historical contract/carryover remains unfinished; mixed pre/post-cutover work still needs review before posting.
+2. **Activation and failures:** corrected locally with transactional Go activation, agreement/assignment checks and failure invalidation. These changes still need publishing before the live app benefits from them.
 3. **School benefit year end:** no school-support expiration/reset implementation was found in the accrual, account, approval or rollover paths searched. The calendar-year policy needs a dated implementation and year-boundary test before year end. Do not zero balances during this audit.
 4. **End-to-end reconciliation:** neither period 146 nor 147 has an import yet. Unit tests do not establish that every real employee, carryover, claim, salary exception and leave amount will reconcile to the processor. A non-posting rehearsal on representative data is still required.
 

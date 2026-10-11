@@ -28,3 +28,12 @@ it('accepts database date objects and leaves salaried nonparticipants out of mat
   data.staff.push({ ...data.staff[0], id: 9, category: null, level: null, pay_system_enabled: 0 });
   expect(assessPayrollReadiness(data)).toMatchObject({ configurationChecksPassed: true, counts: { staff: 2, assigned: 1 } });
 });
+it('accepts an individual October 11 start after an October 10 salary end',()=>{
+  const data=input();data.staff[0].effective_start='2026-10-11';data.salaries=[{user_id:7,include_service_pay:0,effective_end:'2026-10-10'}];
+  const codes=assessPayrollReadiness(data).findings.map(row=>row.code);
+  expect(codes).not.toContain('START_DATE_REVIEW');expect(codes).not.toContain('SALARY_OVERRIDES_SERVICE_PAY');
+});
+it('still flags salary extending into the individual new-pay dates',()=>{
+  const data=input();data.staff[0].effective_start='2026-10-11';data.salaries=[{user_id:7,include_service_pay:0,effective_end:'2026-10-11'}];
+  expect(assessPayrollReadiness(data).findings.map(row=>row.code)).toContain('SALARY_OVERRIDES_SERVICE_PAY');
+});
