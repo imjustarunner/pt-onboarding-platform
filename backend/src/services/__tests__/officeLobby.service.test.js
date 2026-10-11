@@ -6,7 +6,7 @@ vi.mock('../../models/ProviderPublicProfile.model.js', () => ({ default: {} }));
 vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: async () => new Map(), listClinicalFacetsForUser: vi.fn() }));
 vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAcceptedInsurancesForDisplay: vi.fn() }));
 vi.mock('../publicCounselingRate.service.js', () => ({ getPublicCounselingHourlyRate: vi.fn() }));
-import { officeToday } from '../officeLobby.service.js';
+import { officeToday, officePeople } from '../officeLobby.service.js';
 
 const location = { id: 1, name: 'Windchime', agency_id: 2, timezone: 'America/Denver' };
 const event = { event_id: 10, start_at: '2026-10-06 21:00:00', end_at: '2026-10-06 22:00:00', assigned_provider_id: 7, booked_provider_id: 7, status: 'BOOKED', slot_state: 'ASSIGNED_BOOKED', room_number: '4' };
@@ -25,6 +25,19 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('app-owned multi-agency kiosk bookings', () => {
+  it('honors agency care settings: NLU clients can check in while ITSCO stays staff-only', async () => {
+    people = people.map(p=>({...p,sees_clients:0,service_details:JSON.stringify({availabilityByAgency:{6:{seesClients:true},2:{seesClients:false}}})}));
+    events.push({...event,event_id:11,session_context_json:'{"agencyId":2}'});
+    expect((await officePeople(location)).people.map(p=>p.agencyId)).toEqual([6]);
+    const {providers}=await officeToday(location);
+    expect(providers.map(p=>[p.agencyId,p.currentSlot.eventId])).toEqual([[6,10]]);
+    expect((await officeToday(location,{view:'today'})).providers.map(p=>p.agencyId)).toEqual([6]);
+    expect(JSON.stringify(providers)).not.toContain('availabilityByAgency');
+  });
+  it('does not let a global care flag reopen a staff-only agency', async () => {
+    people = people.map(p=>({...p,sees_clients:1,service_details:{availabilityByAgency:{6:{seesClients:false}}}}));
+    expect((await officeToday(location)).providers).toEqual([]);
+  });
   it('lists a shared provider under NLU when NLU owns the booking', async () => {
     const { providers } = await officeToday(location);
     expect(providers).toHaveLength(1);

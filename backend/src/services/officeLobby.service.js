@@ -5,6 +5,7 @@ import { officeTodayUtcBounds, utcToZonedMysqlWall, parseUtcDate } from '../util
 import { lobbyHour, lobbySlot } from '../utils/officeLobbyWindow.js';
 import { isDirectoryProvider } from '../utils/providerDirectoryEligibility.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
+import { scopeProviderRow } from '../utils/providerAgencyAvailability.js';
 import { listClinicalFacetsForUsers, listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { listProviderAcceptedInsurancesForDisplay } from './providerAcceptedInsurance.service.js';
 import { getPublicCounselingHourlyRate } from './publicCounselingRate.service.js';
@@ -16,12 +17,12 @@ export async function officeAgencies(location){const [rows]=await pool.execute(`
 export async function officePeople(location){
  const agencies=await officeAgencies(location);if(!agencies.length)return {agencies,people:[]};
  const ids=agencies.map(a=>a.id);
- const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.credential,u.title,u.profile_photo_path,u.role,u.has_provider_access,u.sees_clients,u.service_focus,u.languages_spoken,p.public_blurb,ua.agency_id,
+ const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.credential,u.title,u.profile_photo_path,u.role,u.has_provider_access,u.sees_clients,u.service_focus,u.languages_spoken,p.public_blurb,p.public_details_json service_details,ua.agency_id,
  EXISTS(SELECT 1 FROM office_events e WHERE e.office_location_id=? AND e.booked_provider_id=u.id AND e.status<>'CANCELLED' AND (e.status='BOOKED' OR e.slot_state='ASSIGNED_BOOKED')) office_booked
  FROM users u LEFT JOIN provider_public_profiles p ON p.user_id=u.id JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1
  WHERE ua.agency_id IN (${ids.map(()=>'?').join(',')}) AND u.is_active=1 AND u.status='ACTIVE_EMPLOYEE' AND u.terminated_at IS NULL AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
  ORDER BY (ua.agency_id=?) DESC,u.last_name,u.first_name,ua.agency_id`,[location.id,...ids,location.agency_id]);
- const people=rows.filter(p=>isDirectoryProvider(p,{assigned:!!p.office_booked})).map(p=>{
+ const people=rows.map(p=>scopeProviderRow(p,p.agency_id)).filter(p=>isDirectoryProvider(p,{assigned:!!p.office_booked})).map(p=>{
  const agency=agencies.find(a=>Number(a.id)===Number(p.agency_id));return {id:p.id,firstName:p.first_name,lastName:p.last_name,credential:p.credential,title:p.title,profilePhotoPath:p.profile_photo_path,agencyId:agency.id,agencyName:agency.name,agencySlug:agency.slug,agencyLogoPath:agency.logo,officeBooked:!!p.office_booked,serviceType:/tutor/i.test(p.service_focus||'')&&!/counsel|therap/i.test(p.service_focus||'')?'tutoring':'counseling',searchText:[p.service_focus,p.languages_spoken,p.public_blurb].filter(Boolean).join(' ')};});
  // Use the same reviewed clinical fields as the public provider website.
  const facetsByAgency=new Map(await Promise.all(agencies.map(async agency=>[Number(agency.id),await listClinicalFacetsForUsers(people.filter(p=>Number(p.agencyId)===Number(agency.id)).map(p=>p.id),{agencyId:agency.id})])));

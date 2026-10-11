@@ -24,6 +24,30 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 const checkIn = () => recordOfficeKioskCheckin({ locationId: 3, eventId: 9, providerId: 7 });
 describe('office arrival atomicity and privacy', () => {
+  it('accepts an NLU arrival despite a global staff-only flag and sends its alert under NLU', async () => {
+    event.sees_clients=0;event.session_context_json='{"agencyId":6}';
+    event.service_details={availabilityByAgency:{6:{seesClients:true},2:{seesClients:false}}};
+    const base=mocks.execute.getMockImplementation();
+    mocks.execute.mockImplementation((sql,args)=>sql.includes('SELECT ua.agency_id')?[[{agency_id:2},{agency_id:6}]]:base(sql,args));
+    expect((await checkIn()).notification.inApp).toBe(true);
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1][2]).toBe(6);
+  });
+  it.each([false,true])('rejects an ITSCO staff-only appointment, including retry=%s', async retry => {
+    event.sees_clients=1;event.session_context_json='{"agencyId":2}';
+    event.service_details=JSON.stringify({availabilityByAgency:{6:{seesClients:true},2:{seesClients:false}}});
+    if(retry){existing=[{id:12}];alert=[{id:13,agency_id:2}];}
+    const base=mocks.execute.getMockImplementation();
+    mocks.execute.mockImplementation((sql,args)=>sql.includes('SELECT ua.agency_id')?[[{agency_id:2},{agency_id:6}]]:base(sql,args));
+    await expect(checkIn()).rejects.toHaveProperty('status',409);
+    expect(mocks.execute.mock.calls.some(([sql])=>/^\s*(INSERT|UPDATE)/.test(sql))).toBe(false);
+    expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.commit).not.toHaveBeenCalled();
+  });
+  it('matches the visible eligible agency for older agency-less office allocations', async () => {
+    event.sees_clients=0;event.service_details={availabilityByAgency:{6:{seesClients:true}}};
+    const base=mocks.execute.getMockImplementation();
+    mocks.execute.mockImplementation((sql,args)=>sql.includes('SELECT ua.agency_id')?[[{agency_id:2},{agency_id:6}]]:base(sql,args));
+    await checkIn();expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1][2]).toBe(6);
+  });
   it.each(['session_context_json', 'booking_agency_id', 'appointment_agency_id', 'client_agency_id'])('routes the alert and email fallback to the booked agency using %s', async key => {
     event[key] = key === 'session_context_json' ? '{"agencyId":6}' : 6;
     const base = mocks.execute.getMockImplementation();

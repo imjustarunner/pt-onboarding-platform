@@ -8,7 +8,7 @@ The app manages physical buildings (`office_locations`), their rooms/spaces (`of
 
 Booking ownership comes from the linked appointment/client agency, saved booking context, or recurring assignment agency—in that order. A provider belonging to both ITSCO and NLU appears under the agency that owns each booking. Today’s provider times remain separated by agency, and the same ownership determines new arrival notifications and feedback receipts. Explicit ownership never falls back to an unrelated agency; only older records without ownership use the first active affiliated membership, preferring the building owner.
 
-Only active, non-archived staff who see clients appear in client check-in. A staff-only office reservation is still visible in the directory. Actual appointment windows control check-in when a client/session is linked; unlinked office allocations retain the existing hourly windows. Client names, notes, responses and claim data are never displayed in the public directory.
+Only active, non-archived staff who see clients in the booking's agency appear in client check-in. Agency availability overrides the global `sees_clients` default, so someone can see clients for NLU while remaining staff-only for ITSCO. Both the provider picker and check-in submission enforce the same rule, including repeat arrivals. A staff-only office reservation is still visible in the directory. Actual appointment windows control check-in when a client/session is linked; unlinked office allocations retain the existing hourly windows. Client names, notes, responses and claim data are never displayed in the public directory.
 
 | Physical building | Working bookmark now | Prepared hostname (pending DNS/LB) |
 | --- | --- | --- |
