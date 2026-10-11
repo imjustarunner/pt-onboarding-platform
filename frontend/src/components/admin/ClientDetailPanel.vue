@@ -2782,6 +2782,7 @@ import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientBillingDiagnoses } from '../../composables/useClientBillingDiagnoses.js';
 import { useClientPaperwork } from '../../composables/useClientPaperwork.js';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical';
+import { serviceLocationForOffice } from '../../utils/officeBillingDefaults';
 import { toPlainEnglish } from '../../utils/auditActionRegistry.js';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
@@ -3682,7 +3683,7 @@ async function loadTenantCatalog(agencyId) {
       ...tenantOfficeOptionsByAgency.value,
       [String(aid)]: Array.isArray(offices) ? offices : []
     };
-    const locs = locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
+    const locs = locsRes?.data?.items || locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
     tenantServiceLocationOptionsByAgency.value = {
       ...tenantServiceLocationOptionsByAgency.value,
       [String(aid)]: Array.isArray(locs) ? locs : []
@@ -4735,18 +4736,15 @@ async function suggestDefaultsFromPrimaryProviderForTenant(agencyId) {
       return;
     }
     const office = officeOptionsForTenant(aid).find((o) => Number(o.physical_office_location_id || o.id) === officeId || Number(o.id) === officeId);
+    if (!office) throw new Error('Configure this agency’s billing identity at the provider’s building before suggesting defaults.');
     const billingOfficeId = Number(office?.id || officeId);
     draft.officeId = String(billingOfficeId);
     const pos = String(
       office?.default_place_of_service || office?.defaultPlaceOfService || draft.pos || '11'
     ).trim();
     if (pos) draft.pos = pos;
-    const matchingLoc = serviceLocationOptionsForTenant(aid).find((loc) => {
-      const locPos = String(loc.placeOfService || loc.place_of_service || '');
-      const billingOffice = Number(loc.billing_office_location_id || loc.billingOfficeLocationId || 0);
-      return (billingOffice && billingOffice === billingOfficeId) || (locPos && locPos === pos);
-    });
-    if (matchingLoc?.id) draft.serviceLocationId = String(matchingLoc.id);
+    const matchingLoc = serviceLocationForOffice(serviceLocationOptionsForTenant(aid), billingOfficeId, pos);
+    draft.serviceLocationId = matchingLoc?.id ? String(matchingLoc.id) : '';
     draft.hint = 'Suggested from provider office — click Save defaults to keep.';
     tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
   } catch (e) {
@@ -5836,7 +5834,7 @@ async function loadClientBookingDefaultsOptions() {
     ]);
     clientOfficeOptions.value = Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []);
     if (!Array.isArray(clientOfficeOptions.value)) clientOfficeOptions.value = [];
-    const locs = locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
+    const locs = locsRes?.data?.items || locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
     clientServiceLocationOptions.value = Array.isArray(locs) ? locs : [];
   } catch {
     clientOfficeOptions.value = [];
