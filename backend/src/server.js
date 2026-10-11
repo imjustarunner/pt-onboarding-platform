@@ -205,6 +205,7 @@ import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
 import officeReviewRoutes from './routes/officeReview.routes.js';
 import availabilityRoutes from './routes/availability.routes.js';
 import hiringRoutes from './routes/hiring.routes.js';
+import rehearsalAccessRoutes from './routes/rehearsalAccess.routes.js';
 import contractGeneratorRoutes from './routes/contractGenerator.routes.js';
 import employeeEvaluationRoutes from './routes/employeeEvaluation.routes.js';
 import outreachHubRoutes from './routes/outreachHub.routes.js';
@@ -785,6 +786,8 @@ app.get('/api/app-version', (_req, res) => {
 });
 
 // Health check routes (must be before authentication middleware)
+// Private rehearsal links authenticate with their limited capability, not a staff account.
+app.use('/api/hiring/rehearsal-access', rehearsalAccessRoutes);
 app.use('/api/health-check', healthCheckRoutes);
 app.use('/api/security-evidence', securityEvidenceRoutes);
 app.use('/api/account-security', accountSecurityRoutes);
