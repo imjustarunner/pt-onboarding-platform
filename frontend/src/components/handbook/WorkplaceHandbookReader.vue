@@ -43,6 +43,7 @@
             <span class="part-label">Subject</span>
             <h3>{{ e.subject }}</h3>
           </div>
+          <HandbookUpdateLocations :entry="e" />
           <div class="part">
             <span class="part-label">Rationale</span>
             <p>{{ e.rationale || '—' }}</p>
@@ -80,6 +81,7 @@ import { onMounted, onUpdated, ref, watch } from 'vue';
 import {connectTrainingVideos} from '../../utils/trainingVideo';
 import api from '../../services/api';
 import DraftHtmlEditor from '../admin/DraftHtmlEditor.vue';
+import HandbookUpdateLocations from './HandbookUpdateLocations.vue';
 import {useAuthStore} from '../../store/auth';
 
 const props = defineProps({

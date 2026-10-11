@@ -2,6 +2,7 @@
  * In-app Workplace Handbook — versioned content, view tracking, People Ops Q&A.
  */
 import pool from '../config/database.js';
+import { handbookUpdateLocations } from './handbookUpdateLocations.js';
 import {prepareEncryptedTicketText} from '../utils/supportTicketCrypto.js';
 import {sanitizeTrainingHtml as sanitizeHtml,resolveTrainingHtml} from './updateTrainingMedia.service.js';
 
@@ -288,9 +289,12 @@ export async function getDigest(digestId, agencyId = null) {
     [digest.id]
   );
   const doc = await ensureDocument(digest.agency_id);
+  const [[agency]] = await pool.execute('SELECT slug FROM agencies WHERE id = ? LIMIT 1', [digest.agency_id]);
+  const published = doc.published_version_id ? await getPublishedHandbook(digest.agency_id) : null;
+  const locatedEntries = handbookUpdateLocations(agency, entries || [], published);
   return {
     digest,
-    entries: await Promise.all((entries||[]).map(async e=>({...e,changed_content:await resolveTrainingHtml(e.changed_content,digest.agency_id)}))),
+    entries: await Promise.all(locatedEntries.map(async e=>({...e,changed_content:await resolveTrainingHtml(e.changed_content,digest.agency_id)}))),
     fullHandbookUrl: doc.full_handbook_url || null
   };
 }
