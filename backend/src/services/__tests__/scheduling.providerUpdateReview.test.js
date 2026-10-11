@@ -1,3 +1,5 @@
+vi.mock('../providerUpdateSignIn.service.js',()=>({getProviderUpdateSignIn:vi.fn(async()=>({retainsGoogle:false}))}));
+import {getProviderUpdateSignIn} from '../providerUpdateSignIn.service.js';
 vi.mock('../inboxDigest.service.js',()=>({updateCommunicationPrefs:vi.fn(async()=>({}))}));
 import {updateCommunicationPrefs} from '../inboxDigest.service.js';
 vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.fn(async()=>({supervision:{current:{total:12}}})),saveProviderReviewProfile:vi.fn()}));
@@ -34,7 +36,7 @@ import {officeReviewAction,persistReviewSection,setupQuickView} from '../../cont
 const recipient={id:1,provider_user_id:9,agency_id:6,section_config_json:{office_schedule:true,supervision_hours:true}};
 let req,res,next;
 beforeEach(()=>{
- vi.clearAllMocks();
+ vi.clearAllMocks();getProviderUpdateSignIn.mockResolvedValue({retainsGoogle:false});
  getCredentialStatus.mockResolvedValue({hasPasscode:true,isLocked:false});
  req={params:{token:'personal',assignmentId:'10',action:'move'},body:{agencyId:2,newHour:17,blockHours:8},query:{},user:{id:999,role:'super_admin'}};
  res={json:vi.fn()};next=vi.fn();
@@ -155,4 +157,11 @@ it('acknowledges an already released owned reservation without repeating the rel
 it('releases the whole assignment from the server local today despite a stale client date or scope',async()=>{
  req.params.action='forfeit';req.body.date='2099-01-01';req.body.scope='occurrence';
  await officeReviewAction(req,res,next);expect(next).not.toHaveBeenCalled();expect(forfeitAssignment).toHaveBeenCalledOnce();expect(req.body).toMatchObject({scope:'future',date:undefined,agencyId:6});
+});
+
+it('ignores personal-reminder fields from an old page for staff retaining Google',async()=>{
+ getProviderUpdateSignIn.mockResolvedValue({retainsGoogle:true});saveStaffCommunicationChoices.mockResolvedValue({choices:{},reviewedAt:'now'});
+ const data={emailReminderPreferences:{personalEmailNotify:true,personalEmailDelayMode:'obsolete'}};
+ await persistReviewSection({...recipient,section_config_json:{notification_prefs:true}},'notification_prefs',data,true);
+ expect(saveStaffCommunicationChoices).toHaveBeenCalledOnce();expect(updateCommunicationPrefs).not.toHaveBeenCalled();expect(data.emailReminderPreferences).toBeUndefined();
 });

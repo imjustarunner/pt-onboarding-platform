@@ -178,23 +178,7 @@
 
     <!-- Notification prefs -->
     <div v-else-if="section.key === 'notification_prefs'">
-      <div class="pu-panel"><h3>Personal email after your app-only transition</h3>
-        <p>These choices take effect only when your app-only email access is verified. They do not remove Google or change your sign-in.</p>
-        <p>Messages always arrive in the app. These choices only control your personal inbox.</p>
-        <label class="field"><input type="checkbox" v-model="emailPreference.personalEmailNotify" :disabled="!!recipient?.previewOnly" /> Email me about unread messages</label>
-        <p v-if="!emailPreference.personalEmailNotify">Personal reminders are off. Check the app regularly so you do not miss messages.</p>
-        <fieldset :disabled="!emailPreference.personalEmailNotify || !!recipient?.previewOnly">
-        <label class="field">Send to my saved personal email
-          <select v-model="emailPreference.personalEmailDeliveryMode" :disabled="!!recipient?.previewOnly"><option value="notification">A notification with a secure app link</option><option value="forward_one_to_one">Both — reply to individual emails by email or in the app</option></select>
-        </label>
-        <p v-if="emailPreference.personalEmailDeliveryMode==='forward_one_to_one'">Eligible individual emails may include their message content in your personal mailbox. Shared or restricted conversations stay in the app.</p>
-        <label class="field">When an email is unread
-          <select v-model="emailPreference.personalEmailDelayMode" @change="emailPreference.personalEmailDelayMode==='business_day' &amp;&amp; (emailPreference.personalEmailDelayHours=24)" :disabled="!!recipient?.previewOnly"><option value="business_day">24 business hours after an unread email</option><option value="immediate">Instantly</option></select>
-        </label>
-        <p v-if="!['business_day','immediate'].includes(emailPreference.personalEmailDelayMode)">Your earlier timing setting is saved. To enable these reminders now, choose Instantly or 24 business hours above.</p>
-        <p>Instant email reminders can arrive at any hour. The 24-business-hour option follows your Availability Hours. Group and secure messages always link to the app. Check your personal email under Contact &amp; Address.</p>
-        </fieldset>
-      </div>
+      <ProviderPersonalEmailPreferences v-if="showPersonalEmailPreferences" v-model="emailPreference" :readonly="!!recipient?.previewOnly" :transition-planned="!!recipient?.signIn?.transitionPlanned" />
       <ProviderContactHours :base="reviewBase" :agency-id="agencyId" :readonly="!!recipient?.previewOnly" />
       <p v-if="section.data?.hasSchoolAssignments" class="pu-panel">School visits: reminders do not require families to confirm attendance. Appointment-reply alerts below also cover school absences and scheduling concerns. Review those replies in the app; they do not automatically cancel the visit.</p>
       <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="saveCommunication" />
@@ -311,6 +295,7 @@ import TypicalAvailabilityInput from '../publicServices/TypicalAvailabilityInput
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
 import ProviderUpdateOfficeReview from './ProviderUpdateOfficeReview.vue';
 
+import ProviderPersonalEmailPreferences from './ProviderPersonalEmailPreferences.vue';
 import ProviderUpdateSecuritySetup from './ProviderUpdateSecuritySetup.vue';
 import ProviderContactHours from './ProviderContactHours.vue';
 import ProviderUpdateOfficeSchedule from './ProviderUpdateOfficeSchedule.vue';
@@ -332,8 +317,10 @@ const localError = ref('');
 const hasWorkHours = ref(true);
 const blurb = ref('');
 const specialties=reactive({});
+const showPersonalEmailPreferences=computed(()=>props.recipient?.signIn?.retainsGoogle===false);
 function saveCommunication(data){
- if(emailPreference.value.personalEmailNotify&&!['business_day','immediate'].includes(emailPreference.value.personalEmailDelayMode)){localError.value='Choose Instantly or 24 business hours for personal email reminders.';return;}
+ if(!showPersonalEmailPreferences.value)return markComplete(data);
+ if(emailPreference.value.personalEmailNotify&&!['business_day','immediate'].includes(emailPreference.value.personalEmailDelayMode)){localError.value='Choose Right away or After 24 business hours for personal email reminders.';return;}
  return markComplete({...data,emailReminderPreferences:emailPreference.value});
 }
 const clinicalFocus=ref({top:{},excluded:{}});
@@ -349,7 +336,7 @@ const reviewLoading = ref(false);
 const supervisionReview = reactive({ decision: 'confirmed', requestedHours: null, reason: '', documentId: null, ...(props.section.key === 'supervision_hours' ? props.section.data : {}) });
 const reviewBase = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');
 const contact = reactive({personalEmail:'',phone:'',street:'',line2:'',city:'',state:'',postalCode:'',emergency:''});
-const contactFields=[{key:'personalEmail',label:'Personal email for app-only email reminders',autocomplete:'email'},{key:'phone',label:'Personal mobile phone',autocomplete:'tel'},{key:'street',label:'Street address',autocomplete:'address-line1'},{key:'line2',label:'Address line 2',autocomplete:'address-line2'},{key:'city',label:'City',autocomplete:'address-level2'},{key:'state',label:'State',autocomplete:'address-level1'},{key:'postalCode',label:'ZIP code',autocomplete:'postal-code'},{key:'emergency',label:'Emergency contact',autocomplete:'off'}];
+const contactFields=[{key:'personalEmail',label:'Personal email',autocomplete:'email'},{key:'phone',label:'Personal mobile phone',autocomplete:'tel'},{key:'street',label:'Street address',autocomplete:'address-line1'},{key:'line2',label:'Address line 2',autocomplete:'address-line2'},{key:'city',label:'City',autocomplete:'address-level2'},{key:'state',label:'State',autocomplete:'address-level1'},{key:'postalCode',label:'ZIP code',autocomplete:'postal-code'},{key:'emergency',label:'Emergency contact',autocomplete:'off'}];
 const supervisionRows=computed(()=>Object.entries({baseline:'Starting hours — before app tracking',period:'Imported billing-report hours',app:'App-recorded supervision hours',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
 function formatTime(value){if(!value)return 'Not set';const [h,m='00']=String(value).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;}
 async function openAsset(kind){try{const {data}=await api.get(`${reviewBase.value}/assets/${kind}`,{params:{agencyId:props.agencyId}});if(kind==='photo')photoUrl.value=data.url;else window.open(data.url,'_blank','noopener,noreferrer');}catch(e){localError.value=e.response?.data?.error?.message||'Could not open the saved document.';}}

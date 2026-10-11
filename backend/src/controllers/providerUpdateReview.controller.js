@@ -1,3 +1,4 @@
+import {getProviderUpdateSignIn} from '../services/providerUpdateSignIn.service.js';
 import { validatePersonalMessagePatch } from '../utils/personalMessagePreferences.js';
 import {enabledSectionKeys} from '../constants/providerUpdateSections.js';
 import {getProviderUpdateRecords,saveProviderReviewProfile} from '../services/providerUpdateRecords.service.js';
@@ -134,7 +135,9 @@ export async function persistReviewSection(recipient, key, data, completed) {
   if(key==='pin'&&!completed)throw fail('Complete Quick View setup in your account before confirming this step.');
   if (key === 'notification_prefs') {
     if (!completed) throw fail('Review and sign your phone and text choices before saving this section.');
-    const emailPrefs=data?.emailReminderPreferences;
+    // Ignore stale personal-reminder controls for staff who retain Google.
+    const signIn=await getProviderUpdateSignIn(recipient.provider_user_id,recipient.agency_id);
+    const emailPrefs=signIn.retainsGoogle ? undefined : data?.emailReminderPreferences;
     if(emailPrefs)validatePersonalMessagePatch(emailPrefs);
     const saved=await saveStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id,input:data,source:'provider_update',sendConfirmation:m=>VonageService.sendSms(m)});
     if(emailPrefs){const {updateCommunicationPrefs}=await import('../services/inboxDigest.service.js');await updateCommunicationPrefs(recipient.provider_user_id,{personalEmailNotify:emailPrefs.personalEmailNotify,personalEmailDeliveryMode:emailPrefs.personalEmailDeliveryMode,personalEmailDelayMode:emailPrefs.personalEmailDelayMode,personalEmailDelayHours:emailPrefs.personalEmailDelayHours});}
