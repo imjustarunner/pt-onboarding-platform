@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 
 export function schoolCareBridgeDeployment(env = process.env) {
-  const origin = new URL(env.SCHOOLCAREBRIDGE_PUBLIC_ORIGIN || 'https://schoolcarebridge.com');
-  if (origin.protocol !== 'https:' || !['mh4kidz.org', 'schoolcarebridge.com', 'www.schoolcarebridge.com', 'app.schoolcarebridge.com', 'schoolcarebridge.org', 'www.schoolcarebridge.org'].includes(origin.hostname) || origin.username || origin.password || origin.port || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('Invalid SchoolCareBridge public origin');
+  const origin = new URL(env.SCHOOLCAREBRIDGE_PUBLIC_ORIGIN || 'https://schoolcarebridge.org');
+  if (origin.protocol !== 'https:' || !['mh4kidz.org', 'schoolcarebridge.org', 'www.schoolcarebridge.org', 'app.schoolcarebridge.org'].includes(origin.hostname) || origin.username || origin.password || origin.port || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('Invalid SchoolCareBridge public origin');
   const basePath = origin.hostname === 'mh4kidz.org' ? '/schoolcarebridge' : '';
   return { origin: origin.origin, basePath, legacyRedirectEnabled: env.SCHOOLCAREBRIDGE_LEGACY_REDIRECT_ENABLED === 'true' };
 }

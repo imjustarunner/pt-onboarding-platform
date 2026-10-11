@@ -6,7 +6,7 @@ describe('service-specific terms across tenant hosts',()=>{
  it('shows school terms for school staff on ITSCO without losing ITSCO notices',()=>{
   const context=serviceLegalContext({host:'app.itsco.health',role:'school_staff'});
   expect(context.name).toBe('SchoolCareBridge');
-  expect(context.links.map(x=>x.href)).toContain('https://schoolcarebridge.com/schoolcarebridge/terms');
+  expect(context.links.map(x=>x.href)).toContain('https://schoolcarebridge.org/schoolcarebridge/terms');
   expect(context.links.map(x=>x.href)).toContain('https://www.itsco.health/itsco/terms');
  });
  it.each([{host:'schoolcarebridge.org',organizationSlug:'arbitrary-school'},{host:'app.itsco.health',path:'/schoolcarebridge/app/test'},{host:'app.itsco.health',schoolPortal:true}])('keeps the school service identity in %j',input=>{

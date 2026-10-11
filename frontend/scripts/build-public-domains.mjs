@@ -159,28 +159,6 @@ writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-pub
 
 // Prepared now; DNS, certificate and load-balancer activation are separate rollout steps.
 mkdirSync(`${dist}/_public-sites/schoolcarebridge`, {recursive:true});
-const scbMeta = buildShareMeta({host:'schoolcarebridge.com',path:'/'});
-writeFileSync(`${dist}/_public-sites/schoolcarebridge/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell,scbMeta), 'schoolcarebridge.com'));
-writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + `
-server {
- listen 8080;
- server_name schoolcarebridge.org www.schoolcarebridge.org;
- ${nativeLegalLocations(tenantLegalProfiles.schoolcarebridge)}
- location = /demo/ { absolute_redirect off; return 301 /demo$is_args$args; }
- location = /demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
-    location = /auricwell/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files /auricwell-demo.html =404; }
-    location = /auricwell/demo/ { absolute_redirect off; return 301 /auricwell/demo$is_args$args; }
-    location = /auricwell-demo.html { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files $uri =404; }
- location = /schoolcarebridge/demo/ { absolute_redirect off; return 301 /schoolcarebridge/demo$is_args$args; }
- location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
- root /usr/share/nginx/html;
- add_header X-Content-Type-Options nosniff always;
- location ^~ /api/ { return 404; } # Route /api/* to the existing backend at the load balancer.
- location ^~ /_public-sites/ { return 404; }
- location ~ \\.nginx\\.conf$ { return 404; }
- location ^~ /assets/ { try_files $uri =404; }
- location = /app { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/schoolcarebridge/home.html =404; }
- location ^~ /app/ { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/schoolcarebridge/home.html =404; }
- location / { add_header Cache-Control "no-cache"; try_files $uri /_public-sites/schoolcarebridge/home.html =404; }
-}
-`);
+const scbMeta = buildShareMeta({host:'schoolcarebridge.org',path:'/'});
+writeFileSync(`${dist}/_public-sites/schoolcarebridge/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell,scbMeta), 'schoolcarebridge.org'));
+// Dedicated SchoolCareBridge servers are emitted by build-product-domains.mjs.

@@ -9,7 +9,7 @@ function database(){const records=new Map();let expired=false;return {records,ex
  },async getConnection(){return {...this,beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release:()=>{}};}};}
 test('default uses SchoolCareBridge.com and automatic login hints remain opt-in',async()=>{
  assert.equal(schoolCareBridgeDeployment({}).legacyRedirectEnabled,false);
- assert.equal(routingDestination('ashley',{}),'https://schoolcarebridge.com/app/ashley');
+ assert.equal(routingDestination('ashley',{}),'https://schoolcarebridge.org/app/ashley');
  const db=database();assert.equal(await mintRoutingHint(db,{username:'staff@example.test',slug:'ashley'},{}),null);assert.equal(db.records.size,0);
 });
 test('rejects arbitrary destinations and unsafe school slugs',()=>{

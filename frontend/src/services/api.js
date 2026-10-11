@@ -1,7 +1,7 @@
 import { isFamilyWebsiteHost, isMichaelHost } from '../utils/productDomains';
 import { isFundthredHost } from '../utils/fundthred';
 import { isPlotlineHost } from '../utils/plotline';
-const isProductApiHost = host => isFamilyWebsiteHost(host) || isMichaelHost(host) || isFundthredHost(host) || isPlotlineHost(host) || host === 'auricwell.com' || host === 'qv.app.schoolcarebridge.com';
+const isProductApiHost = host => isFamilyWebsiteHost(host) || isMichaelHost(host) || isFundthredHost(host) || isPlotlineHost(host) || host === 'auricwell.com' || host === 'qv.app.schoolcarebridge.org';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolCareBridge';
 import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';

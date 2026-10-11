@@ -35,16 +35,17 @@ server('plotlinepo.com',Object.keys(plotlinePages).map(key=>location(key==='home
  location = /plotline { return 302 https://plotlinepo.com/$is_args$args; }
  location ~ ^/plott?line/(.*)$ { return 302 https://plotlinepo.com/$1$is_args$args; }`);
 redirect('www.plotlinepo.com','https://plotlinepo.com');
-server('schoolcarebridge.com',`
+server('schoolcarebridge.org',`
  ${location('/', '/_public-sites/schoolcarebridge/home.html')}
+ location = /demo/ { return 302 https://schoolcarebridge.org/demo$is_args$args; }
  location = /demo { add_header Cache-Control no-store; add_header X-Robots-Tag noindex always; try_files /schoolcarebridge-demo.html =404; }
  ${['terms','privacypolicy','platformhipaa','messaging'].map(type=>location('/'+type,'/_public-sites/schoolcarebridge/legal-'+type+'.html')).join('\n')}
- location = /schoolcarebridge { return 302 https://schoolcarebridge.com/$is_args$args; }
- location ~ ^/schoolcarebridge/(.*)$ { return 302 https://schoolcarebridge.com/$1$is_args$args; }`,'/_public-sites/schoolcarebridge/home.html');
-redirect('www.schoolcarebridge.com','https://schoolcarebridge.com');
-redirect('app.schoolcarebridge.com','https://schoolcarebridge.com', 'location = / { return 302 https://schoolcarebridge.com/app$is_args$args; }');
+ location = /schoolcarebridge { return 302 https://schoolcarebridge.org/$is_args$args; }
+ location ~ ^/schoolcarebridge/(.*)$ { return 302 https://schoolcarebridge.org/$1$is_args$args; }`,'/_public-sites/schoolcarebridge/home.html');
+redirect('www.schoolcarebridge.org','https://schoolcarebridge.org');
+redirect('app.schoolcarebridge.org','https://schoolcarebridge.org', 'location = / { return 302 https://schoolcarebridge.org/app$is_args$args; }');
 // QV retains its PIN-only surface and existing authorization, separate from the school app.
-server('qv.app.schoolcarebridge.com','');
+server('qv.app.schoolcarebridge.org','');
 const family=page('family','home',injectPublicFavicon(injectShareMetaIntoHtml(shell,buildShareMeta({host:'familycommandcenterhub.com',path:'/'})), 'familycommandcenterhub.com'));
 server('familycommandcenterhub.com',location('/',family),family);
 

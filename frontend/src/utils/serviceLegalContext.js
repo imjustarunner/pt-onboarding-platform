@@ -2,7 +2,7 @@ import { legalProfileForContext, tenantLegalProfiles, tenantLegalLinks } from '.
 
 export function serviceLegalContext({ host = '', path = '', organizationSlug = '', role = '', schoolPortal = false } = {}) {
   const school = schoolPortal || role === 'school_staff' || /^\/schoolcarebridge(?:\/|$)/.test(path)
-    || /^(?:(?:www|app)\.)?schoolcarebridge\.(?:com|org)$/i.test(host);
+    || /^(?:(?:www|app)\.)?schoolcarebridge\.org$/i.test(host);
   const tenant = legalProfileForContext({ host, path, organizationSlug });
   const service = school ? tenantLegalProfiles.schoolcarebridge : tenantLegalProfiles.auricwell;
   const profiles = [service, ...(tenant && tenant.slug !== service.slug ? [tenant] : [])];

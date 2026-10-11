@@ -2070,7 +2070,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     if (data.schoolCareBridgeRedirect && !isSchoolCareBridge.value) {
       const target = new URL(data.schoolCareBridgeRedirect);
-      if (target.protocol === 'https:' && ['mh4kidz.org', 'schoolcarebridge.com', 'www.schoolcarebridge.com', 'app.schoolcarebridge.com', 'schoolcarebridge.org', 'www.schoolcarebridge.org'].includes(target.hostname)) {
+      if (target.protocol === 'https:' && ['mh4kidz.org', 'schoolcarebridge.org', 'www.schoolcarebridge.org', 'app.schoolcarebridge.org'].includes(target.hostname)) {
         window.location.assign(target.href); return;
       }
     }

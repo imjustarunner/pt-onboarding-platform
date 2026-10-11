@@ -9,7 +9,7 @@
     <form v-if="schoolQuickView && !agencyId" class="form" @submit.prevent="selectSchool">
       <label>School portal name<input v-model="schoolSlug" placeholder="Your school’s portal name" pattern="[a-zA-Z0-9-]+" required /></label>
       <button type="submit" class="btn">Open school Quick View</button>
-      <a href="https://schoolcarebridge.com/app">Open SchoolCareBridge sign-in →</a>
+      <a href="https://schoolcarebridge.org/app">Open SchoolCareBridge sign-in →</a>
     </form>
     <template v-if="isLocked">
       <p>Quick View is locked. Sign in to the portal and reset your 6-digit passcode.</p>
@@ -56,7 +56,7 @@ import { useBrandingStore } from '../store/branding';
 
 const SESSION_KEY = 'plottwist.quickViewSession';
 const apiBase = '/api/quick-view';
-const schoolQuickView = window.location.hostname === 'qv.app.schoolcarebridge.com';
+const schoolQuickView = window.location.hostname === 'qv.app.schoolcarebridge.org';
 const schoolSlug = ref(new URLSearchParams(window.location.search).get('organization') || '');
 async function selectSchool() { try { await resolveTenant(); } catch (e) { error.value = e?.response?.data?.error?.message || 'School Quick View could not be opened.'; } }
 const router = useRouter();
@@ -124,7 +124,7 @@ async function resolveTenant() {
   agencyLogoUrl.value = data.agencyLogoUrl || '';
   agencyPrimaryColor.value = data.agencyPrimaryColor || '';
   colorPalette.value = data.colorPalette || {};
-  loginUrl.value = schoolQuickView ? `https://schoolcarebridge.com/app/${encodeURIComponent(slug)}` : data.loginUrl || '';
+  loginUrl.value = schoolQuickView ? `https://schoolcarebridge.org/app/${encodeURIComponent(slug)}` : data.loginUrl || '';
   ready.value = true;
 
   // Install PWA manifest for this origin root
