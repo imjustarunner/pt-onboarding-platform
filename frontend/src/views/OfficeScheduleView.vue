@@ -86,9 +86,9 @@
         </div>
       </div>
 
-      <div v-if="bulkActionsVisible && bulkActionsExpanded && !showModal" class="bulk-actions card">
+      <div v-if="canManageSchedule && bulkActionsVisible && bulkActionsExpanded && !showModal" class="bulk-actions card" role="dialog" aria-label="Selected hours">
         <div class="bulk-head">
-          <div class="bulk-title">Selected slots: {{ selectedSlots.length }}</div>
+          <div class="bulk-title">{{ selectionSummary }}</div>
           <div class="bulk-head-actions">
             <button class="btn btn-secondary btn-sm" @click="bulkActionsExpanded = false" :disabled="saving">Continue selecting</button>
             <button class="btn btn-secondary btn-sm" @click="clearSelection" :disabled="saving">Clear</button>
@@ -96,12 +96,19 @@
         </div>
         <div class="bulk-grid">
           <div class="bulk-col">
-            <div class="muted">Assign selected open slots</div>
+            <div class="muted">Assign {{ selectedOpenSlots.length }} open hours as Assigned Available</div>
+            <label for="bulk-assignment-agency">Agency / tenant</label>
+            <select id="bulk-assignment-agency" v-model.number="assignmentAgencyId" class="select" :disabled="saving || providersLoading">
+              <option :value="0">Select agency…</option>
+              <option v-for="a in assignmentAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+            <div v-if="providersError" role="alert" class="error-box">{{ providersError }}</div>
             <PersonSearchSelect
               v-model="bulkProviderId"
-              :options="providers"
+              :options="assignmentPeople"
+                  show-photos
               placeholder="Type name to search…"
-              :disabled="saving"
+              :disabled="saving || providersLoading || !assignmentAgencyId"
             />
             <select v-model="bulkAssignRecurrenceFreq" class="select">
               <option v-for="opt in RECURRENCE_OPTIONS" :key="`bulk-assign-${opt.value}`" :value="opt.value">
@@ -296,13 +303,18 @@
       </div>
     </div>
 
+    <div v-if="draggingSelection && selectedSlots.length" class="selection-preview" role="status" aria-live="polite">
+      <strong>{{ selectionSummary }}</strong>
+      <span>Release to open selected hours</span>
+    </div>
+
     <!-- Slot actions modal -->
     <div v-if="showModal" class="modal-overlay" @click="closeModal">
       <div class="modal" @click.stop>
         <h3 style="margin-top: 0;">Slot</h3>
         <div v-if="error" class="error-box" style="margin-bottom: 10px;">{{ error }}</div>
         <div class="muted" style="margin-bottom: 10px;">
-          {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)} — ${modalSlot.state}` : '' }}
+          {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)}–${formatHour(assignEndHour)} · ${assignEndHour - modalSlot.hour} hour${assignEndHour - modalSlot.hour === 1 ? '' : 's'} — ${modalSlot.state}` : '' }}
           <template v-if="officeTimezoneLabel"> · {{ officeTimezoneLabel }}</template>
         </div>
         <div class="recurrence-summary" v-if="modalSlot">
@@ -358,13 +370,23 @@
                 <input v-model="companyHoldTitle" class="input" type="text" maxlength="255" placeholder="Company hold" :disabled="saving" />
               </template>
               <template v-else>
+                <label for="assignment-agency" style="font-weight: 700;">Agency / tenant</label>
+                <select id="assignment-agency" v-model.number="assignmentAgencyId" class="select" :disabled="saving || providersLoading">
+                  <option :value="0">Select agency…</option>
+                  <option v-for="a in assignmentAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+                </select>
                 <label style="font-weight: 700;">Person</label>
                 <PersonSearchSelect
                   v-model="selectedProviderId"
-                  :options="providers"
+                  :options="assignmentPeople"
+                  show-photos
                   placeholder="Type name to search…"
-                  :disabled="saving"
+                  :disabled="saving || providersLoading || !assignmentAgencyId"
                 />
+                <div v-if="providersLoading" role="status" class="muted">Loading people…</div>
+                <div v-else-if="providersError" role="alert" class="error-box">{{ providersError }}</div>
+                <div v-else-if="assignmentAgencyId && !assignmentPeople.length" class="muted">No active staff or providers in this agency at this office.</div>
+                <div class="muted">Assigned Available reserves these hours for the person without booking a client appointment. You can plan a start date up to one year ahead.</div>
               </template>
               <label style="font-weight: 700;">End</label>
               <select v-model.number="assignEndHour" class="select" :disabled="!modalSlot">
@@ -854,6 +876,7 @@ import { useAgencyStore } from '../store/agency';
 import { timezoneLabelFor } from '../utils/timezones.js';
 import { isMedicalBillingEnabled } from '../config/medicalBillingAccess.js';
 import { RECURRENCE_OPTIONS, RECURRING_FREQUENCIES } from '../utils/scheduleRecurrence.js';
+import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
 import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
@@ -937,7 +960,7 @@ const draggingSelection = ref(false);
 const suppressNextClick = ref(false);
 const bulkActionsExpanded = ref(false);
 const bulkActionsVisible = ref(false);
-let bulkActionsDelayTimer = null;
+let suppressClickTimer = null;
 
 const formatDay = (d) => {
   try {
@@ -1163,6 +1186,15 @@ const selectedSlots = computed(() => {
     if (s) out.push(s);
   }
   return out;
+});
+const selectionSummary = computed(() => {
+  const slots = selectedSlots.value;
+  if (!slots.length) return '';
+  const dates = [...new Set(slots.map(s => s.date))].sort();
+  const start = Math.min(...slots.map(s => Number(s.hour)));
+  const end = Math.max(...slots.map(s => Number(s.hour))) + 1;
+  const datesLabel = dates.length === 1 ? dates[0] : `${dates[0]}–${dates.at(-1)} (${dates.length} days)`;
+  return `${slots.length} hour${slots.length === 1 ? '' : 's'} · ${formatHour(start)}–${formatHour(end)} · ${datesLabel}`;
 });
 const selectedOpenSlots = computed(() => selectedSlots.value.filter((s) => String(s?.state || '') === 'open'));
 const selectedAssignedSlots = computed(() => selectedSlots.value.filter((s) => {
@@ -1478,8 +1510,14 @@ const selectedOutcome = ref('');
 const outcomeCancellationReason = ref('');
 
 const providers = ref([]);
+const assignmentAgencies = ref([]);
+const assignmentAgencyId = ref(0);
+const providersLoading = ref(false);
+const providersError = ref('');
+let providerRequestId = 0;
+const assignmentPeople = computed(() => providers.value.filter(p => p.agencyIds?.includes(Number(assignmentAgencyId.value))));
 const selectedProviderId = ref(0);
-const assignMode = ref('company_hold');
+const assignMode = ref('provider');
 const companyHoldTitle = ref('Company hold');
 const learningClients = ref([]);
 const learningServices = ref([]);
@@ -1538,7 +1576,8 @@ const canAssignSubmit = computed(() => {
     }
     return true;
   }
-  if (!selectedProviderId.value) return false;
+  if (!assignmentAgencyId.value || providersLoading.value || providersError.value) return false;
+  if (!assignmentPeople.value.some(p => Number(p.id) === Number(selectedProviderId.value))) return false;
   if (assignRecurrenceFreq.value === 'ONCE') return true;
   return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
 });
@@ -1659,7 +1698,8 @@ const canSubmitOutcome = computed(() => {
 });
 const bulkCanAssign = computed(() => {
   if (!selectedOpenSlots.value.length) return false;
-  if (!bulkProviderId.value) return false;
+  if (!assignmentAgencyId.value || providersLoading.value || providersError.value) return false;
+  if (!assignmentPeople.value.some(p => Number(p.id) === Number(bulkProviderId.value))) return false;
   if (bulkAssignRecurrenceFreq.value === 'ONCE') return true;
   return Array.isArray(bulkAssignWeekdays.value) && bulkAssignWeekdays.value.length > 0;
 });
@@ -1673,26 +1713,45 @@ const assignDisabledReason = computed(() => {
     }
     return '';
   }
-  if (!selectedProviderId.value) return 'Select a provider before assigning.';
+  if (!assignmentAgencyId.value) return 'Select an agency before assigning.';
+  if (!selectedProviderId.value) return 'Select a person before assigning.';
   if (assignRecurrenceFreq.value !== 'ONCE' && (!Array.isArray(assignWeekdays.value) || !assignWeekdays.value.length)) {
     return 'Select at least one weekday for recurring assignment.';
   }
   return '';
 });
 const loadProviders = async () => {
-  if (!canManageSchedule.value) return;
-  if (!officeId.value) {
+  const requestId = ++providerRequestId;
+  if (!canManageSchedule.value || !officeId.value) {
     providers.value = [];
+    assignmentAgencies.value = [];
+    providersLoading.value = false;
     return;
   }
+  providersLoading.value = true;
+  providersError.value = '';
   try {
-    const r = await api.get(`/office-schedule/locations/${officeId.value}/providers`);
-    const rows = Array.isArray(r.data) ? r.data : [];
-    providers.value = rows;
-  } catch {
+    const { data } = await api.get(`/office-schedule/locations/${officeId.value}/assignment-options`);
+    if (requestId !== providerRequestId) return;
+    assignmentAgencies.value = data.agencies || [];
+    providers.value = (data.people || []).map(p => ({ ...p, photoUrl: toUploadsUrl(p.profile_photo_path || p.photoUrl || '') }));
+    if (!assignmentAgencies.value.some(a => a.id === assignmentAgencyId.value)) {
+      assignmentAgencyId.value = assignmentAgencies.value.some(a => a.id === currentAgencyId.value)
+        ? currentAgencyId.value : assignmentAgencies.value.length === 1 ? assignmentAgencies.value[0].id : 0;
+    }
+  } catch (e) {
+    if (requestId !== providerRequestId) return;
     providers.value = [];
+    assignmentAgencies.value = [];
+    providersError.value = e?.response?.data?.error?.message || 'Unable to load people and agencies. Close and reopen to retry.';
+  } finally {
+    if (requestId === providerRequestId) providersLoading.value = false;
   }
 };
+watch(assignmentAgencyId, () => {
+  selectedProviderId.value = 0;
+  bulkProviderId.value = 0;
+});
 
 const loadLearningBillingOptions = async () => {
   const aid = Number(currentAgencyId.value || 0);
@@ -1871,7 +1930,7 @@ const closeModal = () => {
   selectedOutcome.value = '';
   outcomeCancellationReason.value = '';
   selectedProviderId.value = 0;
-  assignMode.value = 'company_hold';
+  assignMode.value = 'provider';
   companyHoldTitle.value = 'Company hold';
   assignEndHour.value = 8;
   assignRecurrenceFreq.value = 'ONCE';
@@ -1992,9 +2051,27 @@ const onSlotMouseEnter = (roomId, date, hour) => {
 
 const onGlobalMouseUp = () => {
   if (!draggingSelection.value) return;
-  suppressNextClick.value = (selectedSlotKeys.value || []).length > 1;
   draggingSelection.value = false;
   dragAnchor.value = null;
+  const slots = [...selectedSlots.value].sort((a, b) => Number(a.hour) - Number(b.hour));
+  if (!slots.length) return;
+  const first = slots[0];
+  const oneOpenBlock = slots.every((s, i) => s.state === 'open' && s.roomId === first.roomId
+    && s.date === first.date && Number(s.hour) === Number(first.hour) + i);
+  if (slots.length === 1 || (canManageSchedule.value && oneOpenBlock)) {
+    suppressNextClick.value = false;
+    onSlotClick(first.roomId, first.date, first.hour);
+    if (oneOpenBlock) assignEndHour.value = Number(slots.at(-1).hour) + 1;
+  } else if (canManageSchedule.value) {
+    bulkActionsVisible.value = true;
+    bulkActionsExpanded.value = true;
+    bulkAssignWeekdays.value = [...new Set(slots.map(s => weekdayFromYmd(s.date)))];
+    void loadProviders();
+  }
+  // The browser emits click after mouseup; don't replace the range with one cell.
+  suppressNextClick.value = true;
+  clearTimeout(suppressClickTimer);
+  suppressClickTimer = setTimeout(() => { suppressNextClick.value = false; }, 0);
 };
 
 const weekdayFromYmd = (ymd) => {
@@ -2037,6 +2114,7 @@ const bulkAssignSelected = async () => {
         hour: s.hour,
         endHour: Number(s.hour) + 1,
         assignedUserId: bulkProviderId.value,
+        agencyId: assignmentAgencyId.value,
         recurrenceFrequency: bulkAssignRecurrenceFreq.value,
         recurringUntilDate: bulkAssignRecurrenceFreq.value === 'ONCE' ? null : bulkAssignUntilDate.value,
         weekdays: bulkAssignRecurrenceFreq.value === 'ONCE' ? [] : bulkAssignWeekdays.value
@@ -2272,6 +2350,7 @@ const assignOpenSlot = async () => {
       hour: modalSlot.value.hour,
       endHour: assignEndHour.value,
       assignedUserId: assignMode.value === 'provider' ? selectedProviderId.value : undefined,
+      agencyId: assignmentAgencyId.value || undefined,
       assignmentMode: assignMode.value === 'company_hold' ? 'COMPANY_HOLD' : 'PROVIDER',
       title: assignMode.value === 'company_hold' ? String(companyHoldTitle.value || '').trim() || 'Company hold' : undefined,
       recurrenceFrequency: assignRecurrenceFreq.value,
@@ -2282,6 +2361,7 @@ const assignOpenSlot = async () => {
     setSuccessToast(assignMode.value === 'company_hold' ? 'Company hold saved.' : 'Slot assigned successfully.');
     await loadGrid();
     closeModal();
+    clearSelection();
   } catch (e) {
     const errPayload = e.response?.data?.error || {};
     if (errPayload.code === 'STANDING_SLOT_CONFLICT' && errPayload.conflict) {
@@ -2780,44 +2860,28 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (successToastTimer) clearTimeout(successToastTimer);
-  if (bulkActionsDelayTimer) clearTimeout(bulkActionsDelayTimer);
+  if (suppressClickTimer) clearTimeout(suppressClickTimer);
   window.removeEventListener('mouseup', onGlobalMouseUp);
 });
 
-watch(
-  [() => selectedSlots.value.length, draggingSelection, showModal],
-  ([count, dragging, modalOpen]) => {
-    if (modalOpen || count <= 1) {
-      bulkActionsVisible.value = false;
-      bulkActionsExpanded.value = false;
-      if (bulkActionsDelayTimer) {
-        clearTimeout(bulkActionsDelayTimer);
-        bulkActionsDelayTimer = null;
-      }
-      return;
-    }
-    if (dragging) {
-      bulkActionsExpanded.value = false;
-      if (bulkActionsDelayTimer) {
-        clearTimeout(bulkActionsDelayTimer);
-        bulkActionsDelayTimer = null;
-      }
-      return;
-    }
-    // Small delay so the tray does not instantly cover click targets while selecting.
-    if (bulkActionsDelayTimer) clearTimeout(bulkActionsDelayTimer);
-    bulkActionsDelayTimer = setTimeout(() => {
-      bulkActionsVisible.value = true;
-      // Open minimized by default to keep selection flow uninterrupted.
-      bulkActionsExpanded.value = false;
-      bulkActionsDelayTimer = null;
-    }, 500);
-  },
-  { immediate: true }
-);
+watch([() => selectedSlots.value.length, draggingSelection, showModal], ([count, dragging, modalOpen]) => {
+  if (modalOpen || dragging || count <= 1) {
+    bulkActionsVisible.value = false;
+    bulkActionsExpanded.value = false;
+  }
+});
+
 </script>
 
 <style scoped>
+.selection-preview {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  z-index: 2000; pointer-events: none; display: grid; gap: 4px;
+  padding: 12px 20px; border-radius: 12px; background: #17374f; color: white;
+  box-shadow: 0 4px 20px #0003; max-width: calc(100vw - 32px);
+}
+.selection-preview span { font-size: 13px; }
+
 .office-schedule {
   --sched-bg-0: #f4f7fb;
   --sched-bg-1: #eef3f9;
@@ -3562,4 +3626,3 @@ select {
   border-color: #dc2626;
 }
 </style>
-

@@ -1,6 +1,8 @@
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
 import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
 import {publishOfficeAvailability} from '../services/publishOfficeAvailability.service.js';
+import { resolveOfficeAssignmentAgency } from '../services/officeAssignmentOptions.service.js';
+import { assertOfficeAssignmentPlanningDate } from '../utils/officeAssignmentPlanning.js';
 import { releaseOfficeReservation } from '../services/officeReservationRelease.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpiry.service.js';
@@ -2774,6 +2776,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const recurringUntilDate = normalizeRecurringUntilDate(date, req.body?.recurringUntilDate);
     const assignmentMode = String(req.body?.assignmentMode || 'PROVIDER').trim().toUpperCase();
     const holdTitle = String(req.body?.title || req.body?.holdTitle || 'Company hold').trim().slice(0, 255) || 'Company hold';
+    if (!['PROVIDER', 'COMPANY_HOLD'].includes(assignmentMode)) {
+      return res.status(400).json({ error: { message: 'Choose a person assignment or company hold.' } });
+    }
 
     if (!roomId) {
       return res.status(400).json({ error: { message: 'roomId is required' } });
@@ -2799,9 +2804,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     }
 
     const officeTz = await resolveOfficeTimezone(officeLocationId);
+    if (assignmentMode === 'PROVIDER') assertOfficeAssignmentPlanningDate(date, officeTz);
     const startHour = Number(hour);
     const finalHour = Number(endHour !== null ? endHour : hour + 1);
-    assertRoomBookingStart(date,officeTz);
+    if (assignmentMode === 'COMPANY_HOLD') assertRoomBookingStart(date,officeTz);
     const startAt = mysqlDateTimeForDateHour(date, hour, officeTz);
     const endAt = mysqlDateTimeForDateHour(date, finalHour, officeTz);
 
@@ -2922,20 +2928,11 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       });
     }
 
-    // Standing assignments are for providers. Staff/admin should use Company hold
-    // (or pass allowStaffHold=true for intentional test holds).
-    const assigneeRole = String(user.role || '').toLowerCase();
-    const isProviderLike = ['provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant'].includes(assigneeRole)
-      || Number(user.has_provider_access || 0) === 1;
-    const allowStaffHold = String(req.body?.allowStaffHold || '').toLowerCase() === 'true'
-      || req.body?.allowStaffHold === true;
-    if (!isProviderLike && !allowStaffHold) {
-      return res.status(400).json({
-        error: {
-          message: `Cannot create a standing office assignment for ${user.first_name} ${user.last_name} (${assigneeRole || 'staff'}). Use Company hold for staff blocks, or assign a provider.`
-        }
-      });
-    }
+    // Room availability can be assigned to active internal staff as well as clinicians.
+    // Resolve the tenant before any write; never inherit an arbitrary membership.
+    const bookingAgencyId = await resolveOfficeAssignmentAgency({
+      actor: req.user, officeLocationId, user, agencyId: req.body?.agencyId
+    });
 
     // Avoid double-booking: check live events; clean up orphan legacy assignment rows if present.
     try {
@@ -3027,6 +3024,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
           if (existingStanding?.id) {
             // Same provider already holds this slot → align it instead of failing/skipping.
             if (Number(existingStanding.provider_id) === Number(assignedUserId)) {
+              if (existingStanding.booking_agency_id && Number(existingStanding.booking_agency_id) !== bookingAgencyId) {
+                return res.status(409).json({ error: { message: 'This room assignment already belongs to another agency. Release or move that assignment first.' } });
+              }
               existingToAlign.set(`${weekday}:${h}`, existingStanding);
               continue;
             }
@@ -3063,6 +3063,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
             // eslint-disable-next-line no-await-in-loop
             const aligned = await OfficeStandingAssignment.update(existing.id, {
               is_active: true,
+              booking_agency_id: bookingAgencyId,
               assigned_frequency: assignedFrequency,
               recurrence_group_id: recurrenceGroupId,
               available_since_date: date,
@@ -3108,6 +3109,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
 
           // eslint-disable-next-line no-await-in-loop
           await OfficeStandingAssignment.update(standingAssignment.id, {
+            booking_agency_id: bookingAgencyId,
             available_since_date: date,
             last_two_week_confirmed_at: new Date(),
             ...(temporaryWeeks > 0
@@ -3205,7 +3207,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       startHour,
       endHour: finalHour,
       createdByUserId: req.user.id,
-      markBooked: false
+      markBooked: false,
+      bookingAgencyId
     });
 
     const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);

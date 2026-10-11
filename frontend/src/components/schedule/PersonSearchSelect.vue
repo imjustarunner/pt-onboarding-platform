@@ -140,34 +140,16 @@ const inputDisplay = computed(() => {
 });
 
 function fuzzyMatch(text, query) {
-  if (!query) return { score: 1, matchedIndices: [] };
-  const t = String(text || '').toLowerCase();
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return { score: 1, matchedIndices: [] };
-
-  const qChars = q.split('').filter(Boolean);
-  if (!qChars.length) return { score: 1, matchedIndices: [] };
-
-  const allPresent = qChars.every((c) => t.includes(c));
-  if (!allPresent) return { score: 0, matchedIndices: [] };
-
+  const t = String(text || '').toLocaleLowerCase();
+  const tokens = String(query || '').trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return { score: 1, matchedIndices: [] };
   const matchedIndices = [];
-  let ti = 0;
-  for (const c of qChars) {
-    const idx = t.indexOf(c, ti);
-    if (idx === -1) {
-      const fallback = t.indexOf(c);
-      if (fallback === -1) return { score: 0, matchedIndices: [] };
-      matchedIndices.push(fallback);
-      ti = fallback + 1;
-    } else {
-      matchedIndices.push(idx);
-      ti = idx + 1;
-    }
+  for (const token of tokens) {
+    const start = t.indexOf(token);
+    if (start < 0) return { score: 0, matchedIndices: [] };
+    for (let i = start; i < start + token.length; i++) matchedIndices.push(i);
   }
-
-  const inOrder = matchedIndices.every((idx, i) => i === 0 || idx > matchedIndices[i - 1]);
-  return { score: inOrder ? 2 : 1, matchedIndices: matchedIndices.sort((a, b) => a - b) };
+  return { score: 2, matchedIndices };
 }
 
 function highlightText(text, matchedIndices) {
@@ -206,7 +188,7 @@ const filteredOptions = computed(() => {
   }
 
   const scored = base.map((p) => {
-    const searchText = `${p.first_name || ''} ${p.last_name || ''} ${p.email || ''}`.toLowerCase();
+    const searchText = `${p.first_name || ''} ${p.last_name || ''}${q.includes('@') ? ` ${p.email || ''}` : ''}`.toLowerCase();
     const displayForMatch = p.displayName.toLowerCase();
     const { score: scoreFull } = fuzzyMatch(searchText, q);
     const { score, matchedIndices } = fuzzyMatch(displayForMatch, q);
@@ -298,7 +280,7 @@ function handleClickOutside(e) {
 }
 
 watch(() => props.modelValue, (val) => {
-  if (!val) searchQuery.value = '';
+  if (!val && !isSearching.value) searchQuery.value = '';
   else isSearching.value = false;
 });
 

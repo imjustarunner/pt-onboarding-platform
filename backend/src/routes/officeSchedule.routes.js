@@ -1,3 +1,4 @@
+import { getOfficeAssignmentOptions } from '../services/officeAssignmentOptions.service.js';
 import { bookOfficeToday } from '../services/officeSameDayBooking.service.js';
 import express from 'express';
 import * as officePolicy from '../controllers/officeSchedulingPolicy.controller.js';
@@ -76,6 +77,7 @@ router.get('/locations', listLocations);
 router.get('/locations/:id', getLocation);
 router.get('/locations/:locationId/rooms', listRooms);
 router.get('/locations/:locationId/providers', listLocationProviders);
+router.get('/locations/:locationId/assignment-options', getOfficeAssignmentOptions);
 router.get('/booking-metadata', getBookingMetadata);
 router.get('/locations/:locationId/availability', getAvailability);
 router.get('/locations/:locationId/weekly-grid', getWeeklyGrid);

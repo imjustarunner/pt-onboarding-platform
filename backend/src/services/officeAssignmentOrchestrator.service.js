@@ -158,6 +158,7 @@ async function assignOneTimeOfficeBlock({
   endHour,
   createdByUserId,
   markBooked = false,
+  bookingAgencyId = null,
   bookedOccurrenceCount = 1,
   eventExtras = null
 }) {
@@ -184,6 +185,7 @@ async function assignOneTimeOfficeBlock({
     });
     // eslint-disable-next-line no-await-in-loop
     standing = await OfficeStandingAssignment.update(standing.id, {
+      ...(bookingAgencyId ? { booking_agency_id: bookingAgencyId } : {}),
       availability_mode: 'TEMPORARY',
       available_since_date: date,
       temporary_until_date: date,
