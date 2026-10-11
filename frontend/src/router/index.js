@@ -4832,6 +4832,12 @@ const routes = [
     meta: { requiresAuth: false, requiresGuest: false }
   },
   {
+    path: '/itsco/hiring-test',
+    name: 'ItscoHiringRehearsalGuest',
+    component: () => import('../views/public/HiringRehearsalGuestView.vue'),
+    meta: { requiresGuest: false, isPublicPortal: true }
+  },
+  {
     path: '/pre-hire/:token',
     name: 'CandidatePreHirePortal',
     component: () => import('../views/CandidatePreHirePortalView.vue'),

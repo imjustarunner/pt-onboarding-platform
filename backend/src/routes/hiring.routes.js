@@ -1,4 +1,6 @@
-import {rehearsalBootstrap,rehearsalI9} from '../controllers/itscoRehearsal.controller.js';
+import {requireRehearsalAccess} from '../services/rehearsalAccess.service.js';
+import {packetPreviewJobFile} from '../controllers/hirePacketPreview.controller.js';
+import {rehearsalBootstrap,rehearsalI9,rehearsalLink} from '../controllers/itscoRehearsal.controller.js';
 import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
 import { getCandidateReferenceWorkspace, postCandidateReferenceContact } from '../controllers/hiring.controller.js';
 import { getInterviewBrief, viewInterviewDocument, previewInterviewInvite, resendInterviewInvite } from '../controllers/interviewHub.controller.js';
@@ -100,6 +102,17 @@ import {
 
 const router = express.Router();
 
+// Private, expiring capability links can read only fictional rehearsal materials.
+// No candidate mutation, communication, credential, or payroll endpoints are mounted here.
+router.use('/rehearsal-access', requireRehearsalAccess);
+router.get('/rehearsal-access/bootstrap', rehearsalBootstrap);
+router.get('/rehearsal-access/i9', rehearsalI9);
+router.get('/rehearsal-access/options', packetPreviewOptions);
+router.get('/rehearsal-access/reference', packetPreviewReference);
+router.get('/rehearsal-access/job-file', packetPreviewJobFile);
+router.post('/rehearsal-access/contract', packetPreviewContract);
+router.all(/^\/rehearsal-access(?:\/.*)?$/, (req,res)=>res.status(404).json({error:{message:'This action is not available in the rehearsal.'}}));
+
 // Assigned interviewers can use only the scoped room endpoints. Management stays capability-gated.
 router.use(authenticate);
 router.get('/interview-hub/by-schedule-event/:eventId', getInterviewByScheduleEvent);
@@ -110,6 +123,8 @@ router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
 router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
 router.post('/interview-hub/interviews/:id/end-guest-access', endInterviewGuestAccess);
 router.use(requireCapability('canManageHiring'));
+router.post('/rehearsal/link', rehearsalLink);
+router.get('/packet-preview/job-file', packetPreviewJobFile);
 router.get('/rehearsal', rehearsalBootstrap);
 router.get('/rehearsal/i9', rehearsalI9);
 router.get('/packet-preview/options', packetPreviewOptions);

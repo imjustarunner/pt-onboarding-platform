@@ -1,0 +1,8 @@
+import {describe,it,expect} from 'vitest';
+import {rehearsalContractTokens,sampleRehearsalContract} from '../hireRehearsalContract.service.js';
+const input={job:{id:4,title:'School facilitator',education_level:'BA',description_text:'Help students practice coping skills.'},defaults:{agency:{name:'ITSCO',address:'437 Windchime Place'},offices:[]},category:1,level:2,now:new Date('2026-10-11T12:00:00Z')};
+describe('complete fictional contract',()=>{
+ it('fills applicant, schedule, supervision, office and dates without inventing configured pay',()=>{const t=rehearsalContractTokens({...input,sourceHtml:'{{STARTDATE}} {{MIN_HOURS}} {{CUSTOM_DATE}} {{CUSTOM_NAME}} {{DIRECT_RATE}}'});expect(t.STARTDATE).toBe('2026-10-25');expect(t.MIN_HOURS).toBe('20');expect(t.SUPERVISOR_NAME).toContain('sample');expect(t.CUSTOM_DATE).toBe('2026-10-25');expect(t.CUSTOM_NAME).toBe('Alex Demo');expect(t.DIRECT_RATE).toBeUndefined();});
+ it('provides a populated, clearly fictional fallback when live setup is incomplete',()=>{const r=sampleRehearsalContract({...input,pay:{direct_rate:34,indirect_rate:20}});expect(r.sampleContract).toBe(true);expect(r.html).toContain('$34.00');expect(r.html).toContain('Alex Demo');expect(r.html).not.toContain('{{');expect(r.html).toContain('not an employment offer');expect(r.unresolvedTokens).toEqual([]);});
+ it('escapes values inserted into a sample agreement',()=>{const r=sampleRehearsalContract({...input,job:{...input.job,title:'<script>alert(1)</script>'}});expect(r.html).not.toContain('<script>');});
+});

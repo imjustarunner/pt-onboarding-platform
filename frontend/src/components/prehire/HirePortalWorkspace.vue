@@ -113,6 +113,7 @@ import SupervisionAgreementCard from '../supervision/SupervisionAgreementCard.vu
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 import { buildFormUrl } from '../../utils/publicIntakeUrl.js';
 const props = defineProps({ data: { type: Object, required: true }, token: { type: String, required: true }, http: { type: Object, required: true } });
+defineExpose({ navigateToSteps: () => navigate('steps') });
 const emit = defineEmits(['phase', 'section', 'reload', 'document', 'complete-task', 'submit', 'media']);
 const candidate = computed(() => props.data.candidate || {});
 const agency = computed(() => props.data.agency || {});

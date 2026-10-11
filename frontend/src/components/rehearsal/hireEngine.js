@@ -43,8 +43,9 @@ const fail = message => { throw Object.assign(new Error(message), { status: 400 
 function createDemo({ company = 'itsco', role = 'facilitator', school = true, phase = 'prehire' } = {}) {
   const agency = companies.find(c => c.slug === company);
   if (!agency || !['facilitator', 'provider', 'intern', 'staff'].includes(role)) fail('Choose a demo agency and role.');
-  const state = { agency, role, school: agency.slug === 'itsco' && !!school, status: phase === 'onboarding' ? 'ONBOARDING' : 'PREHIRE_OPEN', prehireDone: phase === 'onboarding', onboardingDone: false, activated: false, saved: {}, records: [], messages: [], audit: [], analytics: [], seconds: 0, nextId: 1 };
-  state.profile = Object.fromEntries(PREEMPLOYMENT_FIELDS.map(f => [f.key, f.type === 'date' ? '1994-04-12' : f.type === 'email' ? 'alex.demo@example.test' : f.type === 'phone' ? '7195550100' : f.key === 'full_legal_name' ? 'Alex Demo' : 'Sample information — fictional']));
+  const state = { agency, role, school: agency.slug === 'itsco' && !!school, status: phase === 'onboarding' ? 'ONBOARDING' : 'PREHIRE_OPEN', prehireDone: phase === 'onboarding', onboardingDone: false, activated: false, packet: null, packetRevision: 0, saved: {}, records: [], messages: [], audit: [], analytics: [], seconds: 0, nextId: 1 };
+  const seededProfile={personal_email:'alex.demo@example.test',permanent_personal_email:'alex.personal@example.test',full_legal_name:'Alex Demo',prior_names:'None',preferred_name:'Alex',provider_credential:role==='facilitator'?'BA, Psychology':role==='intern'?'Graduate student intern':role==='provider'?'LPC — sample credential':'Administrative staff',date_of_birth:'1994-04-12',state_of_birth:'Colorado',mailing_address:'100 Example Way, Colorado Springs, CO 80919',cell_number:'719-555-0100',previous_addresses:'200 Sample Lane, Denver, CO 80202',education_information:'Example University, BA in Psychology; supervised youth support experience (fictional)'};
+  state.profile = Object.fromEntries(PREEMPLOYMENT_FIELDS.map(f => [f.key,seededProfile[f.key] || 'Not applicable']));
   return state;
 }
 const definitionsFor = s => trainingDefinitionsFor(s.agency);
@@ -52,15 +53,15 @@ const requiredFor = s => requiredTrainingKeys(s.agency, { role: s.role, credenti
 function recordEvent(s, action) { s.audit.unshift({ at: new Date().toISOString(), action }); }
 function snapshot(s) {
   const saved = (phase, key) => s.saved[`${phase}:${key}`];
-  const step = (phase, key, kind, title, extra = {}) => ({ key, kind, title, required: true, complete: phase === 'pre_hire' && s.prehireDone || !!saved(phase, key), ...extra });
+  const step = (phase, key, kind, title, extra = {}) => ({ key, kind, title, required: true, submission: saved(phase,key), complete: phase === 'pre_hire' && s.prehireDone || !!saved(phase, key), ...extra });
   const pre = [step('pre_hire','background','demo-check','Reference release & screening'), step('pre_hire','job-description','demo-check','Your job description'), step('pre_hire','agreement','demo-check','Employment agreement'), step('pre_hire','work-email','work-email','Choose your work email'), step('pre_hire','profile','profile','Pre-employment information'), step('pre_hire','headshot','demo-check','Your professional headshot'), step('pre_hire','handbook','handbook','Workplace handbook · Reference',{ required: false, instructions: 'Read, search and reference your agency handbook. Formal review and acknowledgment are part of onboarding.' })];
   const on = [step('onboarding','account','demo-check','Account setup'), step('onboarding','user-setup','user-setup','Your user setup', { clinical: false, demographicFields: [], values: saved('onboarding','user-setup')?.values || { contact: { phone: '7195550100', street: '100 Example Way', line2: '', city: 'Colorado Springs', state: 'CO', postalCode: '80919', emergency: 'Jordan Demo · 7195550101' }, demographics: {}, languages: ['English'], credential: s.role === 'facilitator' ? 'BA · Facilitator' : s.role, typicalAvailability: [] } }), step('onboarding','communications','demo-check','Communication preferences'), ...(s.role === 'intern' ? [step('onboarding','student-agreement','demo-check','Student training agreement & supervision')] : []), step('onboarding','handbook','handbook','Review the workplace handbook'), ...requiredFor(s).map(key => ({ key: `guide-${key}`, kind: 'guide-training', documentKey: key, title: definitionsFor(s).find(d => d.documentKey === key).title, required: true, complete: s.records.some(r => r.document_key === key && r.purpose === 'onboarding' && r.status === 'completed') })), step('onboarding','orientation','demo-check','Meet your supervisor & next steps')];
   for (const [phase, list] of [['pre_hire',pre],['onboarding',on]]) list.push({ key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? s.prehireDone : s.onboardingDone });
   return {
-    agency: s.agency, candidate: { firstName: 'Alex', lastName: 'Demo', status: s.status, appliedRole: `${s.role === 'facilitator' ? 'Bachelor’s-level facilitator' : s.role === 'intern' ? 'Student intern' : s.role === 'staff' ? 'Administrative staff' : 'Licensed mental health provider'}${s.school ? ' · School assignment' : ' · Office assignment'}`, workEmail: s.status === 'ONBOARDING' ? 'alex.demo@example.test' : null },
+    agency: s.agency, candidate: { firstName: 'Alex', lastName: 'Demo', status: s.status, appliedRole: s.packet?.title || `${s.role === 'facilitator' ? 'Bachelor’s-level facilitator' : s.role === 'intern' ? 'Student intern' : s.role === 'staff' ? 'Administrative staff' : 'Licensed mental health provider'}${s.school ? ' · School assignment' : ' · Office assignment'}`, workEmail: s.status === 'ONBOARDING' ? 'alex.demo@example.test' : null },
     journey: { prehireCompletedAt: s.prehireDone ? '2026-10-10T12:00:00Z' : null, onboardingCompletedAt: s.onboardingDone ? '2026-10-10T13:00:00Z' : null },
     workflow: { config: { tagline: 'Your next chapter starts here.' }, steps: { pre_hire: pre, onboarding: on }, progress: { pre_hire: summarizeSteps(pre), onboarding: summarizeSteps(on) }, profile: s.profile, profileFields: PREEMPLOYMENT_FIELDS, preferredWorkEmail: saved('pre_hire','work-email')?.email || 'alex.demo@example.test', supervisor: { name: 'Taylor Morgan · Demo supervisor' } },
-    demo: { role: s.role, school: s.school, activated: s.activated, seconds: s.seconds, messages: s.messages, audit: s.audit, analytics: s.analytics, library: [{ key: 'workplace-handbook', title: 'Workplace Handbook', description: 'Current company policies, searchable sections and linked updates.' }, ...referenceCatalogFor(s.agency)], required: requiredFor(s), records: s.records.map(({ heartbeat, ...r }) => r) }
+    demo: { packet: s.packet, packetRevision: s.packetRevision, role: s.role, school: s.school, activated: s.activated, seconds: s.seconds, messages: s.messages, audit: s.audit, analytics: s.analytics, library: [{ key: 'workplace-handbook', title: 'Workplace Handbook', description: 'Current company policies, searchable sections and linked updates.' }, ...referenceCatalogFor(s.agency)], required: requiredFor(s), records: s.records.map(({ heartbeat, ...r }) => r) }
   };
 }
 function answerExcerpt(book, question) {
@@ -71,6 +72,14 @@ function answerExcerpt(book, question) {
   return { status: 'answered', message: 'Demo passage lookup · This is a source excerpt, not a generated AI answer. No question is sent to an AI service.', version: { number: 1 }, paragraphs: [{ text: text.slice(0,700) + (text.length > 700 ? '…' : ''), citations: [{ slug: s.slug, title: s.title, path: s.title, quote: text.slice(0,700) }] }] };
 }
 function handleDemo(s, method, path, body = {}, now = Date.now()) {
+  if (path === '/packet' && method === 'POST') {
+    s.packet = body.clear ? null : {jobId:body.jobId,title:body.title,configId:body.configId,category:body.category,level:body.level};
+    s.packetRevision++;
+    for(const key of ['background','job-description','agreement'])delete s.saved[`pre_hire:${key}`];
+    if(s.prehireDone && s.status==='PREHIRE_REVIEW'){s.prehireDone=false;s.status='PREHIRE_OPEN';}
+    recordEvent(s, body.clear ? 'Packet selection cleared' : `Selected actual ITSCO posting: ${body.title}`);
+    return snapshot(s);
+  }
   if (path === '/skip' && method === 'POST') { const phase=s.status==='ONBOARDING'?'onboarding':'pre_hire'; for(const step of snapshot(s).workflow.steps[phase]) { if(step.kind==='guide-training'){const r=startRecord(s,step.documentKey,'onboarding');r.status='completed';}else if(step.kind!=='review')s.saved[`${phase}:${step.key}`]={sample:true}; } recordEvent(s,'Rehearsal shortcut: required steps marked complete, no real credit');return snapshot(s); }
   if (path === '/state') return snapshot(s);
   if (path === '/library') return bookFor(s.agency, body.key || 'workplace-handbook');
@@ -103,6 +112,10 @@ function handleDemo(s, method, path, body = {}, now = Date.now()) {
     if (s.status === 'PREHIRE_REVIEW' || s.onboardingDone) fail('This submitted package is read-only.');
     const step = snapshot(s).workflow.steps[phase].find(x => x.key === key);
     if (!step || step.kind === 'guide-training' || step.kind === 'review') fail('Use the step’s completion flow.');
+    if (['background','job-description','agreement'].includes(key)) {
+      if(!s.packet?.jobId || body.packetRevision !== s.packetRevision)fail('Load the current ITSCO job packet before signing.');
+      if(!body.acknowledged || !body.signatureData || !body.signedAt)fail('Review the document and capture a practice signature.');
+    }
     if (key === 'profile') { if (body.complete !== false) validatePreemployment(body.values, true); s.profile = { ...body.values }; }
     if (key === 'work-email' && !/^[^@]+@example\.test$/.test(body.email || '')) fail('Use a fictional @example.test email in this demo.');
     if (key === 'handbook' && (!body.acknowledged || phase === 'onboarding' && (!body.signatureData || body.handbookVersionId !== bookFor(s.agency,'workplace-handbook').version.id))) fail('Review and sign the displayed handbook edition.');
