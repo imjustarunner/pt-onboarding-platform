@@ -78,6 +78,12 @@ describe('office device credentials', () => {
   });
 });
 describe('office device boundary', () => {
+  it('rejects insecure origins in production even on the same hostname', () => {
+    vi.stubEnv('NODE_ENV','production');
+    const res=response(),next=vi.fn();
+    kioskSameOrigin({get:key=>({Origin:'http://kiosk.auricwell.com',Host:'kiosk.auricwell.com'})[key]},res,next);
+    expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();vi.unstubAllEnvs();
+  });
   it('rejects direct legacy API calls without a device', async () => {
     const res=response(),next=vi.fn(); await requireOfficeDevice({params:{locationId:'1'},cookies:{}},res,next);
     expect(res.status).toHaveBeenCalledWith(401);expect(next).not.toHaveBeenCalled();

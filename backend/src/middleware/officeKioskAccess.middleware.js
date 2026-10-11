@@ -6,7 +6,8 @@ export function kioskSameOrigin(req, res, next) {
   const origin = req.get('Origin');
   if (origin) {
     try {
-      if (new URL(origin).host !== req.get('Host')) return res.status(403).json({ error: { message: 'Open this kiosk directly to continue.' } });
+      const url = new URL(origin);
+      if (url.host !== req.get('Host') || (process.env.NODE_ENV === 'production' && url.protocol !== 'https:')) return res.status(403).json({ error: { message: 'Open this kiosk directly to continue.' } });
     } catch { return res.sendStatus(403); }
   }
   next();
