@@ -4,6 +4,7 @@ export default {
   test: {
     environment: 'node',
     include: [
+      'src/controllers/__tests__/itscoRehearsal.test.js',
       'src/services/__tests__/clinicalNoteAidGuide.test.js',
       'src/services/__tests__/mandatedReporting.test.js',
       'src/services/__tests__/groupPsychotherapySop.test.js',

@@ -40,7 +40,9 @@
 <script setup>
 import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue';
 import {onBeforeRouteLeave,useRoute} from 'vue-router';
-import api from '../../services/api';
+import liveApi from '../../services/api';
+import {inject} from 'vue';
+const api=inject('clinicalFormsHttp',liveApi);
 import NoteAidClientPicker from '../clinical/NoteAidClientPicker.vue';
 import SafetyPlanDocument from './SafetyPlanDocument.vue';
 import ClinicalDocumentCopy from './ClinicalDocumentCopy.vue';

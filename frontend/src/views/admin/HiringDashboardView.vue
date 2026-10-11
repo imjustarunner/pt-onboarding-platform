@@ -7,6 +7,7 @@
       </div>
       <div class="hd-header-actions">
         <router-link class="btn btn-secondary" :to="{path: orgPath('/admin/hiring/preview'), query:{agencyId:effectiveAgencyId}}">Preview hiring packet</router-link>
+        <router-link class="btn btn-secondary" :to="orgPath('/admin/hiring/rehearsal')">Rehearse prehire &amp; onboarding</router-link>
         <HiringHubSwitcher
           active="dashboard"
           :org-prefix="orgSlugPrefix"

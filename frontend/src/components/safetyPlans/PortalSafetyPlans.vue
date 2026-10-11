@@ -2,7 +2,9 @@
     <ClinicalDocumentCopy v-if="!editingUpdate" :document-element="()=>readDocument?.$el" :attendance="plan.template.key==='attendance-verification'" /><SafetyPlanDocument ref="readDocument" :model-value="editingUpdate?updateData:plan.data" :editable="editingUpdate" @update:model-value="updateData=$event" :template="plan.template" :branding="plan.branding" :version="plan.version" :signers="plan.signers" /><SafetyPlanSigning v-if="mySigner&&!mySigner.copyOnly&&!mySigner.signedAt&&!plan.revocation&&plan.version===plan.currentVersion" :key="`${shareId}:${plan.version}`" :plan="plan" :signer="mySigner" :share-id="shareId" :update-data="editingUpdate?updateData:undefined" portal @signed="signed" @cancel="plan=null" /><p v-else-if="mySigner?.signedAt" role="status">Your signature has been saved with this version.</p></template></section></template>
 <script setup>
 import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue';
-import api from '../../services/api';
+import liveApi from '../../services/api';
+import {inject} from 'vue';
+const api=inject('clinicalFormsHttp',liveApi);
 import SafetyPlanDocument from './SafetyPlanDocument.vue';
 import ClinicalDocumentCopy from './ClinicalDocumentCopy.vue';
 import SafetyPlanSigning from './SafetyPlanSigning.vue';

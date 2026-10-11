@@ -1,7 +1,9 @@
 <template><form class="signing" @submit.prevent="submit"><h3>{{ portal?`Sign ${plan.template.title.toLowerCase()}`:`Sign with ${signer.name}` }}</h3><p>Review version {{ plan.version }} above before signing. {{ witnessed?'The signer must be present and enter their own signature on this device.':'' }}</p><label>Signer’s full name<input v-model="name" required maxlength="200" autocomplete="off" /></label><AdaptiveSignatureCapture v-model="signature" :signer-name="name" title="Your signature" legal-notice="Capture your own signature, then confirm below to sign this saved version." /><label class="check"><input v-model="consent" type="checkbox" required />I have reviewed this {{ plan.template.title.toLowerCase() }} and agree to sign this version electronically.</label><label v-if="witnessed" class="check"><input v-model="witness" type="checkbox" required />As the staff witness, I confirm this person is present, their identity and authority have been checked, and they entered their own signature.</label><p v-if="error" role="alert">{{ error }}</p><button :disabled="busy||!signature||!name.trim()||!consent||(witnessed&&!witness)">{{ busy?'Saving signature…':'Sign this version' }}</button><button type="button" :disabled="busy" @click="$emit('cancel')">Cancel</button></form></template>
 <script setup>
 import {computed,ref} from 'vue';
-import api from '../../services/api';
+import liveApi from '../../services/api';
+import {inject} from 'vue';
+const api=inject('clinicalFormsHttp',liveApi);
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 const props=defineProps({plan:{type:Object,required:true},signer:{type:Object,required:true},portal:Boolean,shareId:Number,updateData:Object});
 const emit=defineEmits(['signed','cancel']);

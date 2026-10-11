@@ -3047,6 +3047,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/hiring/rehearsal',
+    name: 'OrganizationItscoRehearsal',
+    component: () => import('../views/admin/ItscoRehearsalView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin','super_admin'], requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/hiring/preview',
     name: 'OrganizationHirePacketPreview',
     component: () => import('../views/admin/HirePacketPreviewView.vue'),

@@ -1,3 +1,4 @@
+import {rehearsalBootstrap,rehearsalI9} from '../controllers/itscoRehearsal.controller.js';
 import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
 import { getCandidateReferenceWorkspace, postCandidateReferenceContact } from '../controllers/hiring.controller.js';
 import { getInterviewBrief, viewInterviewDocument, previewInterviewInvite, resendInterviewInvite } from '../controllers/interviewHub.controller.js';
@@ -109,6 +110,8 @@ router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
 router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
 router.post('/interview-hub/interviews/:id/end-guest-access', endInterviewGuestAccess);
 router.use(requireCapability('canManageHiring'));
+router.get('/rehearsal', rehearsalBootstrap);
+router.get('/rehearsal/i9', rehearsalI9);
 router.get('/packet-preview/options', packetPreviewOptions);
 router.get('/packet-preview/reference', packetPreviewReference);
 router.post('/packet-preview/contract', packetPreviewContract);
