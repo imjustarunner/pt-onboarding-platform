@@ -1,15 +1,36 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
-vi.mock('../../../utils/officeSite',()=>({applyOfficeInstallIdentity:vi.fn()}));
+vi.mock('../../../utils/officeSite',()=>({applyOfficeInstallIdentity:vi.fn(),OFFICE_SITES:[{locationId:1,name:'Windchime'},{locationId:6,name:'Denver'}]}));
+const { route } = vi.hoisted(() => ({ route: { params: {} } }));
+vi.mock('vue-router',()=>({useRoute:()=>route}));
 vi.mock('../../../views/KioskWelcomeView.vue',()=>({default:{props:['locationId'],template:'<div class="office">Office {{locationId}}</div>'}}));
 import api from '../../../services/api';
 import Entry from '../../../views/OfficeKioskEntryView.vue';
 let wrapper;
-beforeEach(()=>{vi.resetAllMocks();api.get.mockRejectedValue({response:{status:401}});});
+beforeEach(()=>{vi.resetAllMocks();route.params={};api.get.mockRejectedValue({response:{status:401}});});
 afterEach(()=>wrapper?.unmount());
 it('asks for the code before showing any office data',async()=>{wrapper=mount(Entry);await flushPromises();expect(wrapper.find('.office').exists()).toBe(false);expect(wrapper.find('#office-code').attributes('inputmode')).toBe('numeric');});
 it('restores the server-selected office without requiring its code again',async()=>{api.get.mockResolvedValue({data:{locationId:6,locationName:'Denver'}});wrapper=mount(Entry);await flushPromises();expect(wrapper.text()).toContain('Office 6');expect(wrapper.find('#office-code').exists()).toBe(false);});
 it('accepts a leading-zero code, clears it, and opens only the returned office',async()=>{api.post.mockResolvedValue({data:{locationId:1}});wrapper=mount(Entry);await flushPromises();await wrapper.find('input').setValue('001234');await wrapper.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/public/office-kiosk/unlock',{code:'001234'},expect.any(Object));expect(wrapper.text()).toContain('Office 1');expect(sessionStorage.getItem('kioskCode')).toBeNull();expect(localStorage.getItem('kioskCode')).toBeNull();});
 it('removes the entire lobby when an administrator revokes access',async()=>{api.get.mockResolvedValue({data:{locationId:6}});wrapper=mount(Entry);await flushPromises();window.dispatchEvent(new CustomEvent('auricwell:kiosk-locked'));await flushPromises();expect(wrapper.find('.office').exists()).toBe(false);expect(wrapper.find('input').element.value).toBe('');});
 it('shows a rate-limit error without retrying guesses automatically',async()=>{api.post.mockRejectedValue({response:{status:429,data:{error:{message:'Too many setup attempts.'}}}});wrapper=mount(Entry);await flushPromises();await wrapper.find('input').setValue('123456');await wrapper.find('form').trigger('submit');await flushPromises();expect(wrapper.text()).toContain('Too many setup attempts.');expect(api.post).toHaveBeenCalledTimes(1);expect(wrapper.find('input').element.value).toBe('');});
+it('requires Windchime authorization when its link is opened on a Denver device',async()=>{
+  route.params={locationId:'1'};
+  api.get.mockResolvedValue({data:{locationId:6,locationName:'Denver'}});
+  wrapper=mount(Entry);await flushPromises();
+  expect(wrapper.find('.office').exists()).toBe(false);
+  expect(wrapper.text()).toContain('This device is connected to Denver. This link is for Windchime.');
+  expect(api.post).not.toHaveBeenCalled();
+  api.post.mockResolvedValue({data:{locationId:1,locationName:'Windchime'}});
+  await wrapper.find('input').setValue('001234');await wrapper.find('form').trigger('submit');await flushPromises();
+  expect(wrapper.text()).toContain('Office 1');
+});
+it('does not silently open a different building when its valid code is entered',async()=>{
+  route.params={locationId:'1'};
+  api.post.mockResolvedValue({data:{locationId:6,locationName:'Denver'}});
+  wrapper=mount(Entry);await flushPromises();
+  await wrapper.find('input').setValue('001234');await wrapper.find('form').trigger('submit');await flushPromises();
+  expect(wrapper.find('.office').exists()).toBe(false);
+  expect(wrapper.text()).toContain('Enter Windchime’s code below');
+});
