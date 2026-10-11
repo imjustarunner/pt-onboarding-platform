@@ -1,3 +1,4 @@
+import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
@@ -335,7 +336,7 @@ export class ProviderAvailabilityService {
           buildingId: Number(r.office_location_id),
           buildingName: String(r.building_name || '').trim() || null,
           roomId: Number(r.room_id),
-          roomLabel: String(r.room_label || r.room_name || r.room_number || '').trim() || null,
+          roomLabel: officeRoomLabel(r),
           slotState: slotState || null,
           status: status || null,
           timeZone: tzEvent,
@@ -579,7 +580,7 @@ export class ProviderAvailabilityService {
             buildingId: Number(r.office_location_id || 0) || null,
             buildingName: String(r.building_name || '').trim() || null,
             roomId: Number(r.room_id || 0) || null,
-            roomLabel: String(r.room_label || r.room_name || r.room_number || '').trim() || null
+            roomLabel: officeRoomLabel(r)
           }
         });
         // Overrides explicitly allow virtual during office reservation windows for the same slot.

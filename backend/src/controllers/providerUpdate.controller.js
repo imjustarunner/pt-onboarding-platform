@@ -324,6 +324,7 @@ export const officeSchedulePublic = async (req, res, next) => {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
     const items = await listOpenForBookingForProvider(recipient.provider_user_id, recipient.agency_id);
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ items, reason: 'ok' });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -334,6 +335,7 @@ export const officeSchedulePublic = async (req, res, next) => {
 export const officeScheduleMine = async (req, res, next) => {
   try {
     const items = await listOpenForBookingForProvider(req.user.id, Number(req.query.agencyId) || null);
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ items, reason: 'ok' });
   } catch (e) {
     next(e);

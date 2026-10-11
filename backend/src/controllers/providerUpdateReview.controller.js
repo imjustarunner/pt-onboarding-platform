@@ -38,9 +38,13 @@ export async function officeReviewAction(req, res, next) {
     if(recipient.previewOnly)throw fail('This preview is read-only.',403);
     requireSection(recipient, req.params.action==='forfeit'?'office_review':'office_schedule');
     const id = Number(req.params.assignmentId);
-    const [[assignment]] = await pool.execute('SELECT * FROM office_standing_assignments WHERE id = ? AND provider_id = ? AND is_active = TRUE', [id, recipient.provider_user_id]);
+    const [[assignment]] = await pool.execute('SELECT * FROM office_standing_assignments WHERE id = ? AND provider_id = ?', [id, recipient.provider_user_id]);
     if (!assignment || Number(assignment.booking_agency_id) !== Number(recipient.agency_id)) throw fail('This assignment is not part of your agency update.', 403);
     const action = req.params.action;
+    if (!assignment.is_active) {
+      if (action === 'forfeit') return res.json({ ok: true, alreadyReleased: true, standingAssignmentId: id });
+      throw fail('This reservation has already been released.', 409);
+    }
     if (action === 'availability') {
       await requireProviderAvailabilityAccess({ actor: { id: Number(recipient.provider_user_id), role: 'provider' }, agencyId: recipient.agency_id, providerId: recipient.provider_user_id });
       return res.json(await setOfficeAssignmentBookingAvailability({ assignmentId: id, providerId: recipient.provider_user_id, agencyId: recipient.agency_id, inPerson: req.body.inPerson, virtual: req.body.virtual }));
@@ -51,7 +55,7 @@ export async function officeReviewAction(req, res, next) {
     // It never inherits administrator approval privileges.
     req.user = req.params.token ? { id: Number(recipient.provider_user_id), role: 'provider', agencyId: recipient.agency_id } : req.user;
     req.params = { officeId: String(assignment.office_location_id), assignmentId: String(id) };
-    req.body = { ...req.body, agencyId: recipient.agency_id, ...(action === 'unbook' ? { to: 'assigned' } : {}), ...(action === 'move' ? { blockHours: 1, sourceStartHour: Number(assignment.hour) } : {}) };
+    req.body = { ...req.body, agencyId: recipient.agency_id, ...(action === 'forfeit' ? { scope: 'future', date: undefined } : {}), ...(action === 'unbook' ? { to: 'assigned' } : {}), ...(action === 'move' ? { blockHours: 1, sourceStartHour: Number(assignment.hour) } : {}) };
     return handler(req, res, next);
   } catch (error) { next(error); }
 }

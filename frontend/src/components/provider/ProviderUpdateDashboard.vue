@@ -146,7 +146,7 @@
           <div><h2 id="submit-ready-title">One final step: submit your update</h2><p>All sections are reviewed. Click below to finish and receive confirmation.</p></div>
           <button type="button" class="pu-submit-button" :disabled="finalizing || savingForLater" @click="finalize">{{finalizing ? 'Submitting your update…' : 'Submit my completed Provider Update →'}}</button>
         </section>
-        <button v-if="recipient.id && !recipient.previewOnly && !recipient.finalizedAt" type="button" class="pu-btn primary" :disabled="savingForLater || finalizing" @click="saveForLater">{{savingForLater?'Saving…':'Save and come back later'}}</button>
+        <button v-if="recipient.id && !recipient.previewOnly && !recipient.finalizedAt" type="button" class="pu-btn ghost" :disabled="savingForLater || finalizing" @click="saveForLater">{{savingForLater?'Saving…':'Save and come back later'}}</button>
         <section v-if="savedForLater" class="pu-return" role="status">
           <h2>Your progress is saved</h2><p>Use the same link in your invitation email to return to this update. You can also copy the link below. Keep it private.</p>
           <label>Your return link<input :value="returnLink" readonly @focus="$event.target.select()" /></label>

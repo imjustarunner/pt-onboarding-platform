@@ -29,7 +29,7 @@ import {updateClientComplianceChecklist} from '../../controllers/client.controll
 import {postConfirmServicesStarted} from '../../controllers/clientLifecycle.controller.js';
 import {uploadUserProfilePhoto} from '../../controllers/userProfilePhoto.controller.js';
 import {validateFallChecklist,saveFallClientAction,uploadReviewPhoto} from '../../controllers/providerUpdateReview.controller.js';
-import {rescheduleStandingAssignment} from '../../controllers/officeSlotActions.controller.js';
+import {forfeitAssignment,rescheduleStandingAssignment} from '../../controllers/officeSlotActions.controller.js';
 import {officeReviewAction,persistReviewSection,setupQuickView} from '../../controllers/providerUpdateReview.controller.js';
 const recipient={id:1,provider_user_id:9,agency_id:6,section_config_json:{office_schedule:true,supervision_hours:true}};
 let req,res,next;
@@ -39,7 +39,7 @@ beforeEach(()=>{
  req={params:{token:'personal',assignmentId:'10',action:'move'},body:{agencyId:2,newHour:17,blockHours:8},query:{},user:{id:999,role:'super_admin'}};
  res={json:vi.fn()};next=vi.fn();
  getRecipientByToken.mockResolvedValue({...recipient});User.getAgencies.mockResolvedValue([{id:6}]);
- pool.execute.mockResolvedValue([[{id:10,provider_id:9,booking_agency_id:6,office_location_id:3,hour:14}]]);
+ pool.execute.mockResolvedValue([[{id:10,provider_id:9,booking_agency_id:6,office_location_id:3,hour:14,is_active:1}]]);
  User.getSupervisors.mockResolvedValue([{id:20}]);SupervisionSession.getHoursSummaryForSupervisee.mockResolvedValue({totalHours:12});
 });
 it('personal updater links never inherit administrator approval privileges',async()=>{
@@ -147,3 +147,12 @@ import {saveForLater} from '../../controllers/providerUpdateReview.controller.js
 import {recordViewEvent} from '../providerUpdate.service.js';
 it('saves a resume position for the invitation owner, never a caller supplied recipient',async()=>{req.body={agencyId:999,recipientId:99,sectionKey:'office_schedule'};await saveForLater(req,res,next);expect(next).not.toHaveBeenCalled();expect(recordViewEvent).toHaveBeenCalledWith(1,'save_for_later','office_schedule');expect(res.json).toHaveBeenCalledWith({saved:true,sectionKey:'office_schedule'});});
 it('rejects resume writes for preview, locked, or unassigned sections',async()=>{getRecipientByToken.mockResolvedValue({...recipient,previewOnly:true});await saveForLater(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));getRecipientByToken.mockResolvedValue({...recipient,locked_at:'now'});await saveForLater(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:410}));getRecipientByToken.mockResolvedValue({...recipient});req.body.sectionKey='not-real';await saveForLater(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));expect(recordViewEvent).not.toHaveBeenCalled();});
+
+it('acknowledges an already released owned reservation without repeating the release',async()=>{
+ req.params.action='forfeit';pool.execute.mockResolvedValue([[{id:10,provider_id:9,booking_agency_id:6,office_location_id:3,is_active:0}]]);
+ await officeReviewAction(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({ok:true,alreadyReleased:true,standingAssignmentId:10});expect(forfeitAssignment).not.toHaveBeenCalled();
+});
+it('releases the whole assignment from the server local today despite a stale client date or scope',async()=>{
+ req.params.action='forfeit';req.body.date='2099-01-01';req.body.scope='occurrence';
+ await officeReviewAction(req,res,next);expect(next).not.toHaveBeenCalled();expect(forfeitAssignment).toHaveBeenCalledOnce();expect(req.body).toMatchObject({scope:'future',date:undefined,agencyId:6});
+});

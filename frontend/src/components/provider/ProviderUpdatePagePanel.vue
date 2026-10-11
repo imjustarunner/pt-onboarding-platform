@@ -21,7 +21,7 @@
       @close="$emit('close')"
     />
 
-    <div v-if="page.alone" class="pu-page-footer"><button v-if="page.completed" type="button" class="pu-btn primary" @click="$emit('advance')">Continue to next section →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
+    <div v-if="page.alone" class="pu-page-footer"><button v-if="allSectionsComplete" type="button" class="pu-btn primary" :disabled="continuing" @click="saveAndContinue">Save and continue →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
 
     <!-- Bundled page: several related sections on one interface -->
     <div v-if="!page.alone" class="pu-page-stack">
@@ -61,21 +61,14 @@
 
       <div class="pu-page-footer">
         <button
-          v-if="page.completed"
+          v-if="allSectionsComplete"
           type="button"
           class="pu-btn primary"
-          @click="$emit('advance')"
+          :disabled="continuing" @click="saveAndContinue"
         >
-          Continue to next section →
+          Save and continue →
         </button>
-        <button
-          v-else
-          type="button"
-          class="pu-btn ghost"
-          @click="$emit('save-later')"
-        >
-          Save and come back later
-        </button>
+        <p v-else class="pu-remaining">Complete the remaining items above to continue, or save and come back later below.</p>
       </div>
     </div>
   </div>
@@ -95,6 +88,14 @@ const props = defineProps({
 const emit = defineEmits(['saved', 'close', 'section', 'advance', 'save-later']);
 const pageRoot = ref(null),sectionEditors=ref(null);
 
+const allSectionsComplete = computed(() => !!props.page.sections?.length && props.page.sections.every(s => s.completed));
+const continuing = ref(false);
+async function saveAndContinue(){
+ if(continuing.value)return;continuing.value=true;
+ try{if(await saveDraft()===false)return;await nextTick();
+ if(allSectionsComplete.value)emit('advance');else {const section=props.page.sections.find(s=>!s.completed);if(section)await focusSection(section.key);}
+ }finally{continuing.value=false;}
+}
 const soleSection = computed(() => props.page.sections?.[0] || null);
 const expandedKey = ref('');
 watch(() => props.page.alone ? soleSection.value?.key : expandedKey.value, key => emit('section',key || 'overview'), { immediate: true });

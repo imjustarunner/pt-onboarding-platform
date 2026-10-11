@@ -1,3 +1,4 @@
+import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import {providerUpdateAuditBcc} from './providerUpdateAuditCopy.js';
 import {resolveProviderUpdateRecipients} from './providerUpdateRecipient.service.js';
 import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
@@ -1049,6 +1050,7 @@ export async function listOpenForBookingForProvider(providerUserId, agencyId = n
               COALESCE(osa.bookable_virtual, EXISTS(SELECT 1 FROM provider_virtual_slot_availability av JOIN office_events ev ON ev.id = av.source_event_id WHERE ev.standing_assignment_id = osa.id AND av.is_active = TRUE AND av.end_at > UTC_TIMESTAMP())) AS bookable_virtual,
               ol.timezone,
               ol.name AS office_name,
+              r.room_number,
               r.name AS room_name,
               r.label AS room_label
        FROM office_standing_assignments osa
@@ -1056,6 +1058,7 @@ export async function listOpenForBookingForProvider(providerUserId, agencyId = n
        JOIN office_rooms r ON r.id = osa.room_id
        WHERE osa.provider_id = ?
          AND osa.is_active = TRUE
+         AND (COALESCE(osa.availability_mode, '') <> 'TEMPORARY' OR osa.temporary_until_date IS NULL OR osa.temporary_until_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', COALESCE(ol.timezone, 'America/Denver'))))
          AND (? IS NULL OR osa.booking_agency_id = ?)
        ORDER BY osa.weekday ASC, osa.hour ASC
 `,
@@ -1071,8 +1074,9 @@ export async function listOpenForBookingForProvider(providerUserId, agencyId = n
         standingAssignmentId: Number(row.standing_assignment_id),
         officeLocationId: Number(row.office_location_id),
         roomId: Number(row.room_id),
-        title: `${String(row.office_name || 'Office').trim()} · ${String(row.room_label || row.room_name || 'Room').trim()}`,
-        when: `${weekdayNames[wd] || `Day ${wd}`} · ${Number(hour)%12||12}:00 ${Number(hour)<12?'AM':'PM'} · ${String(row.assigned_frequency || 'WEEKLY').toUpperCase()==='BIWEEKLY'?'Every other week':'Weekly'}`,
+        roomNumber: row.room_number,
+        title: `${String(row.office_name || 'Office').trim()} · ${officeRoomLabel(row)}`,
+        when: `${weekdayNames[wd] || `Day ${wd}`} · ${Number(hour)%12||12}:00 ${Number(hour)<12?'AM':'PM'} · ${String(row.assigned_frequency || 'WEEKLY').toUpperCase()==='BIWEEKLY'?'Every other week':String(row.assigned_frequency || '').toUpperCase()==='EVERY_4_WEEKS'?'Every four weeks':'Weekly'}`,
         availabilityMode: mode,
         weekday: wd, hour, timeZone: row.timezone || 'America/Denver',
         agencyId: Number(row.booking_agency_id) || null,

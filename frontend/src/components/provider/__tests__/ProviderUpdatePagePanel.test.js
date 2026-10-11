@@ -26,3 +26,7 @@ it('prevents skipping an incomplete specialties editor and leaves it highlighted
  const w=mount(Panel,{props:{page}});await w.get('[data-section-key="directory_photo"] button').trigger('click');await flushPromises();
  expect(w.get('[data-section-key="specialties"] button').attributes('aria-expanded')).toBe('true');expect(w.get('[data-section-key="directory_photo"] button').attributes('aria-expanded')).toBe('false');w.unmount();
 });
+it('offers save and continue when every item is complete even without a redundant page completion flag',async()=>{
+ const w=mount(Panel,{props:{page:{key:'user_updates',sections:sections().map(s=>({...s,completed:true}))}}});
+ expect(w.text()).not.toContain('Save and come back later');const button=w.findAll('button').find(b=>b.text()==='Save and continue →');expect(button).toBeTruthy();await button.trigger('click');await flushPromises();expect(w.emitted('advance')).toHaveLength(1);w.unmount();
+});

@@ -3,7 +3,7 @@ vi.mock('../../config/database.js', () => ({ onTableWrite: () => {}, default: { 
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
-import { assertAgencyAdmin, getRecipientByToken, getMyOpenRecipient, updatePush } from '../providerUpdate.service.js';
+import { listOpenForBookingForProvider, assertAgencyAdmin, getRecipientByToken, getMyOpenRecipient, updatePush } from '../providerUpdate.service.js';
 beforeEach(() => { vi.clearAllMocks(); pool.execute.mockResolvedValue([[]]); User.getAgencies.mockResolvedValue([{ id: 2 }]); });
 it('requires an administrator in the selected agency, not merely membership', async () => {
  await expect(assertAgencyAdmin({ id: 9, role: 'provider' }, 2)).rejects.toMatchObject({ status: 403 });
@@ -25,3 +25,8 @@ it('cannot release a draft through the ordinary save endpoint', async () => {
 
 it('permits an explicitly requested completion receipt but keeps every default token operation locked',async()=>{pool.execute.mockResolvedValue([[{id:1,token:'done',push_status:'sent',status:'finalized',finalized_at:'2026-10-10',locked_at:'2026-10-10',expires_at:'2099-01-01'}]]);await expect(getRecipientByToken('done')).rejects.toMatchObject({status:410});expect((await getRecipientByToken('done',{allowCompletedReceipt:true})).status).toBe('finalized');});
 it('never treats an administrative lock, expiration, or closed campaign as completed access',async()=>{const base={id:1,token:'locked',push_status:'sent',status:'in_progress',locked_at:'2026-10-10'};pool.execute.mockResolvedValue([[base]]);await expect(getRecipientByToken('locked',{allowCompletedReceipt:true})).rejects.toMatchObject({status:410});pool.execute.mockResolvedValue([[{...base,status:'finalized',finalized_at:'2026-10-10',expires_at:'2000-01-01'}]]);await expect(getRecipientByToken('locked',{allowCompletedReceipt:true})).rejects.toMatchObject({status:410});pool.execute.mockResolvedValue([[{...base,push_status:'closed'}]]);expect(await getRecipientByToken('locked',{allowCompletedReceipt:true})).toBeNull();});
+
+it('includes the office number and room label in reservation review and excludes expired assignments',async()=>{
+ pool.query.mockResolvedValue([[{standing_assignment_id:10,office_location_id:1,room_id:2,room_number:204,room_label:'Counseling Office',office_name:'Windchime',weekday:3,hour:14,booking_agency_id:2}]]);
+ const [item]=await listOpenForBookingForProvider(9,2);expect(item.title).toBe('Windchime · Room 204 · Counseling Office');expect(item.roomNumber).toBe(204);expect(pool.query.mock.calls[0][0]).toContain('osa.temporary_until_date >=');
+});
