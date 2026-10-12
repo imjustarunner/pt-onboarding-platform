@@ -4,6 +4,7 @@ import { authenticate, requireCapability } from '../middleware/auth.middleware.j
 import {
   getHome,
   getLibraryPdfContent,
+  getLibraryFileContent,
   saveLibraryPdfFilledCopy,
   listCategories,
   updateCategory,
@@ -106,6 +107,7 @@ router.get('/resources/:id', getResource);
 router.get('/resources/:id/download', downloadResource);
 router.get('/resources/:id/google-preview', previewGoogleResource);
 router.get('/resources/:id/pdf-content', getLibraryPdfContent);
+router.get('/resources/:id/file-content', getLibraryFileContent);
 router.post('/resources/:id/filled-copy', saveLibraryPdfFilledCopy);
 router.get('/resources/:id/pdf', renderBrandedDocPdf);
 router.get('/resources/:id/docx', exportLibraryDocumentWord);

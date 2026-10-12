@@ -81,3 +81,17 @@ describe('library multipart limits', () => {
     expect(error.message).toContain('PDF, Word, Excel'); expect(req.files).toHaveLength(0);
   });
 });
+
+it.each([
+  ['Guide.pdf', 'application/pdf'], ['Photo.jpg', 'image/jpeg'],
+  ['Worksheet.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+])('stores %s under the private library prefix', async (filename, contentType) => {
+  const {default: StorageService} = await import('../storage.service.js');
+  const save = vi.fn().mockResolvedValue(undefined), file = vi.fn(() => ({save}));
+  const bucket = vi.spyOn(StorageService, 'getGCSBucket').mockResolvedValue({file});
+  try {
+    const result = await StorageService.saveLibraryResource({agencyId:2,uploadedByUserId:7,fileBuffer:Buffer.from('test'),filename,contentType});
+    expect(result.path).toMatch(/^phi-documents\/library\/agency_2\//);
+    expect(file).toHaveBeenCalledWith(result.path);expect(save).toHaveBeenCalled();
+  } finally {bucket.mockRestore();}
+});

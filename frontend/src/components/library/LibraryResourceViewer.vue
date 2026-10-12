@@ -35,7 +35,7 @@
           :href="downloadUrl"
           target="_blank"
           rel="noopener noreferrer"
-          :download="isGoogle ? previewFilename : ''"
+          :download="isGoogle ? previewFilename : resource.originalFilename || resource.name"
         >
           Download
         </a>
@@ -45,11 +45,11 @@
 
     <div class="lib-viewer__body">
       <p v-if="isVideo" class="video-link-notice">Video hosted on {{ resource.videoProvider || 'an external service' }}. If playback needs permission, use Open in new tab with the account the video was shared with.</p>
-      <div v-if="isGoogle && previewLoading" class="lib-viewer__fallback" role="status">Opening document…</div>
-      <div v-else-if="isGoogle && previewError" class="lib-viewer__fallback" role="alert">
+      <div v-if="(isGoogle || isPrivateFile) && previewLoading" class="lib-viewer__fallback" role="status">Opening document…</div>
+      <div v-else-if="(isGoogle || isPrivateFile) && previewError" class="lib-viewer__fallback" role="alert">
         <p>{{ previewError }}</p>
         <a v-if="openExternalUrl" class="btn btn-primary" :href="openExternalUrl" target="_blank" rel="noopener noreferrer">Open in Google</a>
-        <p>Use the Google account this resource was shared with. If Google asks you to request access, the owner needs to share it with that account.</p>
+        <p v-if="isGoogle">Use the Google account this resource was shared with. If Google asks you to request access, the owner needs to share it with that account.</p>
         <button type="button" class="btn btn-primary" @click="loadGooglePreview">Try again</button>
       </div>
       <iframe
@@ -60,12 +60,13 @@
         allow="fullscreen; picture-in-picture"
         referrerpolicy="strict-origin-when-cross-origin"
       />
+      <div v-else-if="isAudio && downloadUrl" class="lib-viewer__fallback"><audio controls :src="downloadUrl" :aria-label="resource.name" /><p>Listen here or download the recording.</p></div>
       <div v-else-if="isImage && imageUrl" class="lib-viewer__image-wrap">
         <img :src="imageUrl" :alt="resource?.name || 'Image'" class="lib-viewer__image" />
       </div>
       <div v-else class="lib-viewer__fallback">
         <p v-if="isGoogle">Open this resource in Google in a new tab using the account it was shared with.</p>
-        <p v-else>Preview isn’t available for this resource in the app.</p>
+        <p v-else>Download this file to open it in a compatible app.</p>
         <a
           v-if="openExternalUrl"
           class="btn btn-primary"
@@ -83,7 +84,7 @@
 
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
-import { fetchLibraryGooglePreview } from '../../services/library.js';
+import { fetchLibraryGooglePreview, fetchLibraryFileContent } from '../../services/library.js';
 import DocumentAnalyticsControl from './DocumentAnalyticsControl.vue';
 import { useDocumentAnalytics } from '../../composables/useDocumentAnalytics';
 import LibraryDocumentWorkspace from './LibraryDocumentWorkspace.vue';
@@ -112,6 +113,9 @@ const isBranded = computed(
 
 const isPdf = computed(() => props.resource.resourceType === 'file' && (props.resource.fileType === 'pdf' || String(props.resource.mimeType || '').includes('pdf')));
 
+const isPrivateFile = computed(() => props.resource.resourceType === 'file' && props.resource.privateFile && !isPdf.value);
+const isAudio = computed(() => props.resource.fileType === 'audio' || String(props.resource.mimeType || '').startsWith('audio/'));
+const privateFileUrl = ref('');
 const isVideo = computed(() => props.resource?.fileType === 'video');
 const isGoogle = computed(() => {
   const r = props.resource;
@@ -157,9 +161,9 @@ const isImage = computed(() => {
   return r.fileType === 'image' || String(r.mimeType || '').startsWith('image/');
 });
 
-const imageUrl = computed(() => props.resource?.fileUrl || props.resource?.previewUrl || null);
+const imageUrl = computed(() => privateFileUrl.value || props.resource?.fileUrl || props.resource?.previewUrl || null);
 
-const downloadUrl = computed(() => isGoogle.value ? googlePreviewUrl.value : props.resource?.fileUrl || null);
+const downloadUrl = computed(() => isGoogle.value ? googlePreviewUrl.value : privateFileUrl.value || props.resource?.fileUrl || null);
 
 const openExternalUrl = computed(() => {
   const r = props.resource;
@@ -173,19 +177,23 @@ let previewSequence = 0, previewRequest = null;
 function releasePreview() {
   if (googlePreviewUrl.value) URL.revokeObjectURL(googlePreviewUrl.value);
   googlePreviewUrl.value = '';
+  if (privateFileUrl.value) URL.revokeObjectURL(privateFileUrl.value);
+  privateFileUrl.value = '';
 }
 async function loadGooglePreview() {
   const sequence = ++previewSequence;
   previewRequest?.abort(); releasePreview(); previewError.value = '';
-  previewLoading.value = isGoogle.value && !isGoogleFolder.value;
+  previewLoading.value = isPrivateFile.value || (isGoogle.value && !isGoogleFolder.value);
   if (!previewLoading.value) return;
   previewRequest = new AbortController();
   try {
-    const blob = await fetchLibraryGooglePreview(props.resource.id, props.resource.agencyId, previewRequest.signal);
+    const privateFile = isPrivateFile.value;
+    const blob = await (privateFile ? fetchLibraryFileContent : fetchLibraryGooglePreview)(props.resource.id, props.resource.agencyId, previewRequest.signal);
     if (sequence === previewSequence) {
       const extension = blob.type.startsWith('image/') ? blob.type.split('/')[1] : 'pdf';
       previewFilename.value = `${String(props.resource.name || 'Document').replace(/\.(pdf|png|jpe?g|gif|webp)$/i, '')}.${extension}`;
-      googlePreviewUrl.value = URL.createObjectURL(blob);
+      if (privateFile) privateFileUrl.value = URL.createObjectURL(blob);
+      else googlePreviewUrl.value = URL.createObjectURL(blob);
     }
   } catch (error) {
     if (sequence === previewSequence) previewError.value = error.response?.data?.error?.message || error.message || 'The document could not be opened. Try again or ask the resource owner for a PDF copy.';
@@ -193,7 +201,7 @@ async function loadGooglePreview() {
     if (sequence === previewSequence) previewLoading.value = false;
   }
 }
-watch(() => [props.resource?.id, props.resource?.agencyId, props.resource?.externalUrl, isGoogle.value], loadGooglePreview, { immediate: true });
+watch(() => [props.resource?.id, props.resource?.agencyId, props.resource?.externalUrl, isGoogle.value, isPrivateFile.value], loadGooglePreview, { immediate: true });
 onBeforeUnmount(() => { previewSequence++; previewRequest?.abort(); releasePreview(); });
 </script>
 

@@ -1924,10 +1924,8 @@ class StorageService {
     const aid = agencyId != null ? parseInt(agencyId, 10) : 0;
     const sanitizedFilename = this.sanitizeFilename(filename || `library-${Date.now()}`);
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const privatePdf = contentType === 'application/pdf' || /\.pdf$/i.test(sanitizedFilename);
-    const key = privatePdf
-      ? `phi-documents/library/agency_${aid || 'unknown'}/${unique}-${sanitizedFilename}`
-      : `uploads/library/agency_${aid || 'unknown'}/${unique}-${sanitizedFilename}`;
+    // Every library upload follows resource permissions, including non-PDF files.
+    const key = `phi-documents/library/agency_${aid || 'unknown'}/${unique}-${sanitizedFilename}`;
 
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);

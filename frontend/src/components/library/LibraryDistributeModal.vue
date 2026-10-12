@@ -51,23 +51,23 @@
       <div class="lib-dist-audience">
         <span class="lib-dist-audience__label">Who should receive this?</span>
         <div class="lib-dist-audience__opts">
-          <label class="lib-dist-aud" :class="{ 'is-active': audience === 'providers' }">
+          <label v-if="canManage" class="lib-dist-aud" :class="{ 'is-active': audience === 'providers' }">
             <input v-model="audience" type="radio" value="providers" />
             <span>All Providers</span>
           </label>
-          <label class="lib-dist-aud" :class="{ 'is-active': audience === 'staff' }">
+          <label v-if="canManage" class="lib-dist-aud" :class="{ 'is-active': audience === 'staff' }">
             <input v-model="audience" type="radio" value="staff" />
             <span>All Staff</span>
           </label>
           <label class="lib-dist-aud" :class="{ 'is-active': audience === 'custom' }">
             <input v-model="audience" type="radio" value="custom" />
-            <span>Custom emails</span>
+            <span>Selected coworkers</span>
           </label>
         </div>
       </div>
 
       <label v-if="audience === 'custom'" class="lib-field">
-        <span>Emails (comma-separated)</span>
+        <span>Coworker emails · within your agency (comma-separated)</span>
         <textarea v-model="emails" rows="3" placeholder="alex@agency.org, jordan@agency.org" />
       </label>
 
@@ -85,11 +85,12 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { distributeLibraryResource } from '../../services/library.js';
 
 const props = defineProps({
   resource: { type: Object, required: true },
+  canManage: { type: Boolean, default: false },
   agencyId: { type: [Number, String], default: null },
   initialMode: {
     type: String,
@@ -113,7 +114,8 @@ const defaultMode = () => {
 };
 
 const mode = ref(defaultMode());
-const audience = ref('providers');
+const audience = ref('custom');
+watch(() => props.canManage, allowed => { if (!allowed) audience.value = 'custom'; });
 const emails = ref('');
 const saving = ref(false);
 const error = ref('');
@@ -128,8 +130,9 @@ const ctaLabel = computed(() => {
 async function submit() {
   error.value = '';
   success.value = '';
+  if (!props.canManage) audience.value = 'custom';
   if (audience.value === 'custom' && !String(emails.value || '').trim()) {
-    error.value = 'Enter at least one email, or choose All Providers / All Staff.';
+    error.value = 'Enter at least one coworker email in your agency.';
     return;
   }
   saving.value = true;

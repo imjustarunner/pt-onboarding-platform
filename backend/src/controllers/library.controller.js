@@ -7,6 +7,7 @@ import StorageService from '../services/storage.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { fillLibraryPdf, isPrivateLibraryPdf } from '../services/libraryPdf.service.js';
 import {
   isGoogleWorkspaceUrl,
@@ -97,7 +98,7 @@ function enrichResource(resource, viewerUserId = null) {
   if (out.resourceType === 'branded_doc') out.bodyHtml = sanitizeDocumentHtml(out.bodyHtml);
   if (out.filePath) {
     out.fileUrl = isPrivateLibraryPdf(out.filePath) ? null : publicUploadsUrlFromStoredPath(out.filePath);
-    if (isPrivateLibraryPdf(out.filePath)) { out.privatePdf = true; delete out.filePath; }
+    if (isPrivateLibraryPdf(out.filePath)) { out.privateFile = true; out.privatePdf = out.fileType === 'pdf'; delete out.filePath; }
   }
   if (out.externalUrl && isGoogleWorkspaceUrl(out.externalUrl)) {
     out.previewUrl = googlePreviewUrl(out.externalUrl);
@@ -271,33 +272,9 @@ export const setFolderShares = async (req, res, next) => {
     if (!caps.canManageLibrary && !isOwner) {
       return res.status(403).json({ error: { message: 'Only the folder owner can manage sharing' } });
     }
-    let userIds = Array.isArray(req.body.userIds)
-      ? req.body.userIds
-      : String(req.body.userIds || '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-    // Also accept emails (comma-separated or array) and resolve to agency members
-    const emailsRaw = req.body.emails;
-    const emails = Array.isArray(emailsRaw)
-      ? emailsRaw
-      : String(emailsRaw || '')
-          .split(/[,;\s]+/)
-          .map((s) => s.trim().toLowerCase())
-          .filter(Boolean);
-    if (emails.length) {
-      const placeholders = emails.map(() => '?').join(',');
-      const [rows] = await pool.execute(
-        `SELECT DISTINCT u.id
-         FROM users u
-         JOIN user_agencies ua ON ua.user_id = u.id
-         WHERE ua.agency_id = ?
-           AND (LOWER(u.email) IN (${placeholders}) OR LOWER(COALESCE(u.work_email, '')) IN (${placeholders}))`,
-        [agencyId, ...emails, ...emails]
-      );
-      userIds = [...userIds, ...(rows || []).map((r) => r.id)];
-    }
+    const userIds = await resolveDistributeRecipients(agencyId, {
+      emails: req.body.emails, userIds: req.body.userIds
+    });
 
     const shares = await Library.setFolderShares(
       folder.id,
@@ -898,7 +875,7 @@ export const downloadResource = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'No file available' } });
     }
     if (isPrivateLibraryPdf(resource.filePath)) {
-      return res.json({ kind: 'private_pdf', filename: resource.originalFilename || resource.name, requiresAuthenticatedDownload: true });
+      return res.json({ kind: resource.fileType === 'pdf' ? 'private_pdf' : 'private_file', filename: resource.originalFilename || resource.name, requiresAuthenticatedDownload: true });
     }
     res.json({
       url: publicUploadsUrlFromStoredPath(resource.filePath),
@@ -1089,6 +1066,10 @@ export const distributeResource = async (req, res, next) => {
       });
     }
 
+    if (!caps.canManageLibrary && ['providers', 'staff'].includes(String(req.body.audience || '').toLowerCase())) {
+      return res.status(403).json({ error: { message: 'Only library managers can share with all providers or all staff. Choose coworkers in your agency.' } });
+    }
+
     const mode = String(req.body.mode || '').toLowerCase();
     if (!['view_only', 'collaborate', 'personal_copy'].includes(mode)) {
       return res.status(400).json({
@@ -1112,7 +1093,7 @@ export const distributeResource = async (req, res, next) => {
     });
     if (!recipientIds.length) {
       return res.status(400).json({
-        error: { message: 'No recipients found. Choose All Providers or enter coworker emails.' }
+        error: { message: 'No recipients found. Choose coworkers in your agency.' }
       });
     }
 
@@ -1244,6 +1225,25 @@ export const listMyCopies = async (req, res, next) => {
 };
 
 // All content reads use the same tenant and per-resource grants as the library.
+export const getLibraryFileContent = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource || resource.archivedAt || resource.resourceType !== 'file' || !resource.filePath) {
+      return res.status(404).json({ error: { message: 'File not found' } });
+    }
+    const bucket = await StorageService.getGCSBucket();
+    const file = bucket.file(resource.filePath);
+    const [metadata] = await file.getMetadata();
+    await Library.recordView(req.user.id, resource.id);
+    res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+      'Content-Type': resource.mimeType || 'application/octet-stream', 'Content-Length': String(metadata.size),
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(resource.originalFilename || resource.name)}` });
+    await pipeline(file.createReadStream(), res);
+  } catch (error) { if (!res.headersSent) next(error); else res.destroy(error); }
+};
+
 export const getLibraryPdfContent = async (req, res, next) => {
   try {
     const agencyId = resolveAgencyId(req);

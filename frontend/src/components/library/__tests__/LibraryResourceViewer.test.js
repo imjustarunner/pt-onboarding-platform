@@ -2,8 +2,8 @@ import {mount,flushPromises} from '@vue/test-utils';
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 vi.mock('../LibraryPdfWorkspace.vue', () => ({ default: { name: 'LibraryPdfWorkspace', props: ['resource'], template: '<div class="pdf-workspace-stub">Fill &amp; sign</div>' } }));
 import Viewer from '../LibraryResourceViewer.vue';
-vi.mock('../../../services/library.js',()=>({fetchLibraryGooglePreview:vi.fn()}));
-import {fetchLibraryGooglePreview} from '../../../services/library.js';
+vi.mock('../../../services/library.js',()=>({fetchLibraryGooglePreview:vi.fn(),fetchLibraryFileContent:vi.fn()}));
+import {fetchLibraryGooglePreview,fetchLibraryFileContent} from '../../../services/library.js';
 const resource={id:1,agencyId:2,name:'Clinical Documentation Hub Guide',resourceType:'google_doc',externalUrl:'https://docs.google.com/document/d/doc_123/edit',previewUrl:'https://docs.google.com/document/d/doc_123/preview'};
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();URL.createObjectURL=vi.fn(()=> 'blob:portal-preview');URL.revokeObjectURL=vi.fn();fetchLibraryGooglePreview.mockResolvedValue(new Blob(['%PDF-example'],{type:'application/pdf'}));});
@@ -39,4 +39,17 @@ it('opens shared Drive folders directly and preserves the sharing key',async()=>
  expect(fetchLibraryGooglePreview).not.toHaveBeenCalled();expect(wrapper.find('iframe').exists()).toBe(false);
  const links=wrapper.findAll('a');expect(links.length).toBeGreaterThan(0);
  for(const link of links){expect(link.attributes('href')).toBe(externalUrl);expect(link.attributes('target')).toBe('_blank');expect(link.attributes('rel')).toContain('noopener');}
+});
+
+it('plays private audio from an authenticated request and revokes it on close',async()=>{
+ fetchLibraryFileContent.mockResolvedValue(new Blob(['audio'],{type:'audio/mpeg'}));
+ wrapper=mount(Viewer,{props:{resource:{id:4,agencyId:2,name:'Recording',originalFilename:'Recording.mp3',resourceType:'file',fileType:'audio',privateFile:true}},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();
+ expect(fetchLibraryFileContent).toHaveBeenCalledWith(4,2,expect.any(AbortSignal)); expect(wrapper.get('audio').attributes('src')).toBe('blob:portal-preview');
+ expect(wrapper.get('a[download]').attributes('download')).toBe('Recording.mp3');expect(wrapper.find('iframe').exists()).toBe(false);
+ wrapper.unmount();wrapper=null;expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:portal-preview');
+});
+it('downloads private Office documents without exposing them to an external viewer',async()=>{
+ fetchLibraryFileContent.mockResolvedValue(new Blob(['office'],{type:'application/msword'}));
+ wrapper=mount(Viewer,{props:{resource:{id:5,agencyId:2,name:'Handout',originalFilename:'Handout.doc',resourceType:'file',fileType:'word',privateFile:true}},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();
+ expect(wrapper.find('iframe').exists()).toBe(false);expect(wrapper.get('a[download]').attributes('href')).toBe('blob:portal-preview');expect(wrapper.text()).toContain('compatible app');
 });

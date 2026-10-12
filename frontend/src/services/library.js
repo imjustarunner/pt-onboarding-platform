@@ -175,6 +175,13 @@ export async function exportLibraryDocument(id, format, agencyId) {
   return data;
 }
 
+export async function fetchLibraryFileContent(id, agencyId, signal) {
+  const { data } = await api.get(`${base}/resources/${id}/file-content`, {
+    params: { agencyId }, responseType: 'blob', skipGlobalLoading: true, timeout: 240000, signal
+  });
+  return data;
+}
+
 export async function fetchLibraryGooglePreview(id, agencyId, signal) {
   try {
     const { data } = await api.get(`${base}/resources/${id}/google-preview`, {

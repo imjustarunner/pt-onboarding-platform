@@ -57,6 +57,7 @@ export function inferFileTypeFromMime(mime, filename = '') {
     return 'presentation';
   }
   if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp)$/i.test(f)) return 'image';
+  if (m.startsWith('audio/') || /\.(mp3|m4a|wav|ogg)$/i.test(f)) return 'audio';
   if (m.startsWith('text/') || f.endsWith('.txt')) return 'text';
   return 'file';
 }

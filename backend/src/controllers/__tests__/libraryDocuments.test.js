@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('../../models/Library.model.js', () => ({ default: { findResource: vi.fn(), createResource: vi.fn(), userCanEditResource: vi.fn(), updateResource: vi.fn(), recordView: vi.fn(), findExistingPersonalCopy: vi.fn(), logDistribution: vi.fn(), grantResourcePermission: vi.fn(), listResourceShares: vi.fn(), findFolder: vi.fn(), createFolder: vi.fn(), updateFolder: vi.fn(), findOrCreateFolderPath: vi.fn(), ensureDefaultCategories: vi.fn(), listResources: vi.fn() } }));
+vi.mock('../../models/Library.model.js', () => ({ default: { setFolderShares: vi.fn(), findResource: vi.fn(), createResource: vi.fn(), userCanEditResource: vi.fn(), updateResource: vi.fn(), recordView: vi.fn(), findExistingPersonalCopy: vi.fn(), logDistribution: vi.fn(), grantResourcePermission: vi.fn(), listResourceShares: vi.fn(), findFolder: vi.fn(), createFolder: vi.fn(), updateFolder: vi.fn(), findOrCreateFolderPath: vi.fn(), ensureDefaultCategories: vi.fn(), listResources: vi.fn() } }));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: vi.fn() }));
-vi.mock('../../services/storage.service.js', () => ({ default: { readObject: vi.fn(), writeObject: vi.fn(), deleteObject: vi.fn(), saveLibraryResource: vi.fn() } }));
+vi.mock('../../services/storage.service.js', () => ({ default: { getGCSBucket: vi.fn(), readObject: vi.fn(), writeObject: vi.fn(), deleteObject: vi.fn(), saveLibraryResource: vi.fn() } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ pickDashboardContextAgencyId: () => 2, hasTenantAccess: vi.fn() }));
 vi.mock('../../utils/capabilities.js', () => ({ getUserCapabilities: vi.fn() }));
 vi.mock('../../services/libraryDocument.service.js', () => ({ sanitizeDocumentHtml: value => String(value || ''), validateDocumentBranding: vi.fn(), resolveDocumentLetterhead: vi.fn(), buildDocumentRender: vi.fn(), documentError: (message, status = 400) => Object.assign(new Error(message), { status }) }));
 vi.mock('../../services/libraryGooglePreview.service.js',()=>({loadLibraryGooglePreview:vi.fn()}));
 import {loadLibraryGooglePreview} from '../../services/libraryGooglePreview.service.js';
-import { getLibraryPdfContent, saveLibraryPdfFilledCopy, previewGoogleResource, copyLibraryDocument, distributeResource, getResource, updateResource, updateFolder, createFolder, uploadResource, uploadBatchResources, addLinkResource, listResources } from '../library.controller.js';
+import { getLibraryFileContent, setFolderShares, getLibraryPdfContent, saveLibraryPdfFilledCopy, previewGoogleResource, copyLibraryDocument, distributeResource, getResource, updateResource, updateFolder, createFolder, uploadResource, uploadBatchResources, addLinkResource, listResources } from '../library.controller.js';
 import Library from '../../models/Library.model.js';
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
@@ -284,4 +284,52 @@ describe('moving employee files and folders', () => {
     await updateFolder(req, res, next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 400, message: expect.stringContaining('subfolders') })); expect(Library.updateFolder).not.toHaveBeenCalled();
   });
+});
+
+it.each(['providers', 'staff'])('prevents a provider owner from bulk distributing to %s', async audience => {
+  req.user.id = 1; req.body = { mode: 'view_only', audience };
+  await distributeResource(req, res, next);
+  expect(res.status).toHaveBeenCalledWith(403);
+  expect(pool.execute).not.toHaveBeenCalled();
+  expect(Library.grantResourcePermission).not.toHaveBeenCalled();
+});
+it('allows library managers to distribute to an agency audience', async () => {
+  req.userCapabilities = { canViewLibrary: true, canManageLibrary: true };
+  req.body = { mode: 'view_only', audience: 'providers' };
+  pool.execute.mockResolvedValue([[{ id: 8 }]]);
+  await distributeResource(req, res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(Library.grantResourcePermission).toHaveBeenCalledWith(10, 2, 8, 'view');
+});
+it('filters folder-share IDs through current agency membership', async () => {
+  req.body = { userIds: [8, 999], permission: 'view' };
+  pool.execute.mockResolvedValue([[{ id: 8 }]]);
+  await setFolderShares(req, res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(Library.setFolderShares).toHaveBeenCalledWith(30, 2, [8], 'view');
+});
+it('hides storage paths for private audio files', async () => {
+  Library.findResource.mockResolvedValue({ ...original, resourceType: 'file', fileType: 'audio', filePath: 'phi-documents/library/agency_2/audio.mp3' });
+  await getResource(req, res, next);
+  const output = res.json.mock.calls[0][0];
+  expect(output.privateFile).toBe(true); expect(output.fileUrl).toBeNull(); expect(output.filePath).toBeUndefined(); expect(output.privatePdf).toBe(false);
+});
+it('blocks private file storage reads for inaccessible, archived and other-agency resources', async () => {
+  Library.findResource.mockResolvedValue(null); await getLibraryFileContent(req, res, next); expect(res.status).toHaveBeenCalledWith(404);
+  Library.findResource.mockResolvedValue({ ...original, resourceType: 'file', archivedAt: '2026-01-01', filePath: 'phi-documents/library/agency_2/a.mp3' });
+  await getLibraryFileContent(req, res, next);
+  User.getAgencies.mockResolvedValue([{id:3}]); await getLibraryFileContent(req, res, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403})); expect(StorageService.getGCSBucket).not.toHaveBeenCalled();
+});
+it('streams authorized private audio with download and no-store headers', async () => {
+  const { Writable, Readable } = await import('node:stream');
+  const chunks = [];
+  const response = new Writable({ write(chunk, encoding, callback) { chunks.push(chunk); callback(); } });
+  response.set = vi.fn();
+  Library.findResource.mockResolvedValue({ ...original, resourceType: 'file', mimeType: 'audio/mpeg', originalFilename: 'Recording.mp3', filePath: 'phi-documents/library/agency_2/a.mp3' });
+  const object = { getMetadata: vi.fn().mockResolvedValue([{size:'5'}]), createReadStream: vi.fn(() => Readable.from([Buffer.from('audio')])) };
+  StorageService.getGCSBucket.mockResolvedValue({file: vi.fn(() => object)});
+  await getLibraryFileContent(req, response, next);
+  expect(next).not.toHaveBeenCalled(); expect(Buffer.concat(chunks).toString()).toBe('audio');
+  expect(response.set).toHaveBeenCalledWith(expect.objectContaining({'Cache-Control':'private, no-store','Content-Type':'audio/mpeg','Content-Disposition':"attachment; filename*=UTF-8''Recording.mp3"}));
 });

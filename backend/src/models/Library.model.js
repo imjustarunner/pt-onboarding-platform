@@ -17,7 +17,7 @@ export const DEFAULT_LIBRARY_CATEGORIES = [
   { slug: 'guides_resources', name: 'Guides & Resources', sortOrder: 10 },
   { slug: 'templates', name: 'Templates', sortOrder: 20 },
   { slug: 'forms_assessments', name: 'Forms & Assessments', sortOrder: 30 },
-  { slug: 'care_documents', name: 'Care Documents', sortOrder: 40 },
+  { slug: 'care_documents', name: 'Clinical & Community Resources', sortOrder: 40 },
   { slug: 'policies_procedures', name: 'Policies & Procedures', sortOrder: 50 },
   { slug: 'community_external', name: 'Community & External Resources', sortOrder: 60 }
 ];
