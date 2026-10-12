@@ -17,7 +17,7 @@ const sections = [
   { slug: 'history', title: 'History and background', parent_slug: 'foundations', content_status: 'pending', source_page: 6 }
 ];
 const handbook = { sections, metadata: { organization: 'ITSCO', coverUrl: '/assets/handbooks/itsco-cover.png' }, version: { id: 10, version_number: 1, is_draft: 0 } };
-beforeEach(() => { vi.resetAllMocks(); window.history.replaceState({}, '', '/'); });
+beforeEach(() => { vi.resetAllMocks(); HTMLElement.prototype.scrollIntoView = vi.fn(); window.history.replaceState({}, '', '/'); });
 describe('handbook reader', () => {
   it('renders ISI foundations and cover without importing another company’s founders', async () => {
     const mission = { slug: 'mission', title: 'Mission', content_status: 'ready', body_html: '<p>Compassionate counseling.</p>' };
@@ -101,20 +101,50 @@ describe('handbook reader', () => {
     expect(w.text()).toContain('before acknowledging');
     w.unmount();
   });
-  it('replaces the hire portal external viewer and submits the version actually shown', async () => {
+  it('keeps the pre-hire handbook an optional reference without an acknowledgment', async () => {
     const http = { get: vi.fn().mockResolvedValue({ data: { available: true, handbook } }), post: vi.fn().mockResolvedValue({ data: { ok: true } }), defaults: { baseURL: '/api' } };
     const data = { candidate: { status: 'PREHIRE_OPEN', firstName: 'Test', lastName: 'Person' }, agency: { id: 2, name: 'ITSCO' }, workflow: { config: {}, steps: { pre_hire: [{ key: 'handbook', kind: 'handbook', title: 'Workplace handbook', url: 'https://docs.google.com/document/d/old-handbook/edit' }], onboarding: [] } } };
     const w = mount(HirePortalWorkspace, { props: { data, http, token: 'candidate' } });
-    await w.get('button[aria-label="View Workplace handbook"]').trigger('click');
+    await w.findAll('.hire-nav button').find(b => b.text().includes('Optional reference')).trigger('click');
     await flushPromises();
     expect(w.get('.book-page').text()).toContain('Welcome to our community.');
     expect(w.find('.resource-frame').exists()).toBe(false);
     expect(w.find('a[href^="https://docs.google.com"]').exists()).toBe(false);
-    await w.get('.check-label input').setValue(true);
-    await w.findAll('button').find(b => b.text() === 'Save completion').trigger('click');
+    expect(w.text()).toContain('Optional reference');
+    expect(w.find('.check-label input').exists()).toBe(false);
+    expect(http.post).not.toHaveBeenCalled();
+    w.unmount();
+  });
+  it('submits the onboarding handbook version actually shown with its acknowledgment', async () => {
+    const http = { get: vi.fn().mockResolvedValue({ data: { available: true, handbook } }), post: vi.fn().mockResolvedValue({ data: { ok: true } }), defaults: { baseURL: '/api' } };
+    const data = { candidate: { status: 'ONBOARDING', firstName: 'Test', lastName: 'Person' }, agency: { id: 2, name: 'ITSCO' }, workflow: { config: {}, steps: { pre_hire: [], onboarding: [{ key: 'handbook', kind: 'handbook', title: 'Workplace handbook' }] } } };
+    const w = mount(HirePortalWorkspace, { props: { data, http, token: 'candidate' }, global: { stubs: { AdaptiveSignatureCapture: true } } });
+    await w.get('button[aria-label="View Workplace handbook"]').trigger('click');
     await flushPromises();
-    expect(http.post).toHaveBeenCalledWith('/prehire-portal/candidate/workflow/handbook', expect.objectContaining({ handbookVersionId: 10, acknowledged: true }));
+    await w.get('.check-label input').setValue(true);
+    w.getComponent({ name: 'AdaptiveSignatureCapture' }).vm.$emit('update:modelValue', 'test-signature');
+    await flushPromises();
+    await w.findAll('button').find(b => b.text() === 'Sign acknowledgement').trigger('click');
+    await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/prehire-portal/candidate/workflow/handbook', expect.objectContaining({ handbookVersionId: 10, acknowledged: true, signatureData: 'test-signature' }));
     expect(w.emitted('reload')).toHaveLength(1);
+    w.unmount();
+  });
+  it('keeps navigation outside scrolling content and tracks the current chapter', async () => {
+    const w = mount(Book, { props: { handbook: { ...handbook, sections: [...sections, { slug: 'work', title: 'Our work', content_status: 'ready', body_html: '<p>Work guidance.</p>' }] } } });
+    await w.get('.outline-link[data-section="welcome"]').trigger('click');
+    expect(w.get('.chapter-picker select').element.value).toBe('foundations');
+    expect(w.get('[aria-current="location"]').attributes('data-section')).toBe('welcome');
+    expect(w.get('.page-navigation').element.parentElement.className).toBe('reader-pane');
+    w.get('.book-page').element.scrollTop = 100;
+    const next = w.get('.page-navigation button:last-child');
+    await next.trigger('click'); await flushPromises();
+    expect(w.get('.book-page').element.scrollTop).toBe(0);
+    expect(w.get('[aria-current="location"]').attributes('data-section')).toBe('history');
+    await next.trigger('click'); await flushPromises();
+    expect(w.get('.chapter-picker select').element.value).toBe('work');
+    expect(w.get('.chapter-outline').isVisible()).toBe(false);
+    expect(w.get('.book-page').text()).toContain('Work guidance.');
     w.unmount();
   });
   it('styles current values without hiding later edits or unsafe markup', async () => {

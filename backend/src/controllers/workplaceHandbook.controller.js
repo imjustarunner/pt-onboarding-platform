@@ -22,7 +22,7 @@ import { assertAgencyAdmin, getRecipientByToken, getPush } from '../services/pro
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import { sourceForAgency, stageHandbookSource, linkHandbookUpdate } from '../services/workplaceHandbookWorkflow.service.js';
-import { handbookChanges, parseHandbookMetadata, mapHandbookReviewUpdates } from '../services/workplaceHandbookContent.js';
+import { handbookChanges, handbookMetadata, parseHandbookMetadata, mapHandbookReviewUpdates } from '../services/workplaceHandbookContent.js';
 import { canAccessHandbookOriginal, handbookResponseForReader } from '../services/workplaceHandbookAccess.js';
 import { answerPublishedHandbook } from '../services/workplaceHandbookAnswer.service.js';
 import { companyHandbookReadiness } from '../services/workplaceDocumentTemplates.js';
@@ -102,6 +102,23 @@ export const getPublished = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+// Library reading has an explicit beta fallback. Published/recipient and
+// acknowledgment endpoints keep their existing publication requirements.
+export const getLibraryHandbook = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.query.agencyId);
+    await assertHandbookReader(req.user, agencyId);
+    let handbook = await getPublishedHandbook(agencyId);
+    if (!handbook?.sections?.length) {
+      const source = await sourceForAgency(agencyId);
+      handbook = source ? { beta: true, version: null, revision: source.revision,
+        metadata: { ...handbookMetadata(source), beta: true }, sections: source.sections, updates: [] } : null;
+    }
+    res.set('Cache-Control', 'private, no-store');
+    res.json(handbookResponseForReader({ handbook, mode: 'handbook', digest: null, entries: [] }, req.user));
+  } catch (error) { next(error); }
 };
 
 export const getDraft = async (req, res, next) => {

@@ -7,7 +7,7 @@
     <p v-if="!readerOnly" style="margin-top:16px"><router-link :to="`${orgPrefix}/outcome-measures`">Clinical outcome measures · Browse instruments &amp; reuse sources ↗</router-link></p>
 
     <CompanyReferenceWorkspace v-if="selectedDocument" :key="`${selected}:${agencyId}`" ref="workspace" :agency-id="agencyId" :document-key="selected" :document-title="selectedDocument.title" :beta="!selectedDocument.published && selectedDocument.betaAvailable" closable @close="open('')" @dirty="$emit('dirty', $event)" @published="load" @handbook-link="openHandbook" />
-    <div v-else-if="selected === 'workplace-handbook'" class="reference-reader"><button type="button" @click="open('')">Close handbook</button><WorkplaceHandbookReader :key="agencyId" :agency-id="agencyId" analytics-surface="library" /></div>
+    <div v-else-if="selected === 'workplace-handbook'" class="reference-reader"><WorkplaceHandbookReader :key="agencyId" :agency-id="agencyId" library-mode analytics-surface="library" /></div>
   </section>
 </template>
 <script setup>

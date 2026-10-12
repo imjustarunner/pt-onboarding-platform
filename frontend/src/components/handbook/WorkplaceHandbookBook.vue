@@ -5,7 +5,7 @@
     <DocumentAnalyticsControl v-if="analytics" :agency-id="analytics.agencyId" :document-key="metadata.documentKey || 'workplace-handbook'" :document-title="documentTitle" />
     <p v-if="analytics && analytics.enabled !== false" class="reading-disclosure">Your company administrators can see reading activity, link clicks, helpfulness feedback and questions asked here.</p>
     <CrisisGuideQuickActions v-if="isCrisisGuide" :safety-plan-url="`${documentRoute?.params?.organizationSlug ? '/'+encodeURIComponent(documentRoute.params.organizationSlug) : ''}/clinical-forms?form=safety-plan`" @open="selectSection($event, true)" />
-    <header class="book-cover">
+    <details class="book-introduction"><summary>About this document &amp; cover</summary><header class="book-cover">
       <BrandedHandbookCover v-if="isGuide || ['isi-foundations', 'company-foundations'].includes(metadata.presentation?.theme)" class="cover-art" :organization="metadata.organization" :title-lines="metadata.coverTitle" :presentation="metadata.presentation" :isi="metadata.presentation?.theme === 'isi-foundations'" />
       <img v-else-if="metadata.coverUrl" :src="metadata.coverUrl" :alt="`${metadata.organization || ''} Workplace Handbook cover`" class="cover-art" />
       <div class="cover-copy">
@@ -18,9 +18,9 @@
           <span v-if="handbook.version?.version_number">Version {{ handbook.version.version_number }}</span>
           <span v-if="handbook.version?.is_draft || !handbook.version">Preview</span>
         </div>
-        <button type="button" class="book-primary" :disabled="!sections.length" @click="selectSection(firstReady?.slug || sections[0]?.slug, true)">Start reading <span aria-hidden="true">↗</span></button>
+        <button type="button" class="book-primary" :disabled="!sections.length" @click="startReading">Start reading <span aria-hidden="true">↗</span></button>
       </div>
-    </header>
+    </header></details>
 
     <div v-if="isDocumentationStandards" class="care-orientation-banner"><strong>A clear record of the care you provide.</strong><p>Capture the actual service, the client’s response and what comes next. Review the essentials before you sign.</p><button type="button" @click="selectSection('minimum-note', true)">What every note needs →</button></div>
     <div v-if="isFacilitatorProtocol" class="care-orientation-banner"><strong>From approved service to accurate record.</strong><p>A working companion for bachelor’s-level facilitators. Keep service authorization, claim coding and actual paid work distinct.</p><button type="button" @click="selectSection('before-the-service', true)">Before the service →</button></div>
@@ -32,38 +32,47 @@
     <p v-if="missingTextCount" class="transfer-note"><span aria-hidden="true">◐</span> {{ isGuide ? 'Complete the company setup sections before publishing this guide for your team.' : metadata.template ? 'Company edition in preparation. Complete the company-specific sections before publishing this handbook for your team.' : 'We’re bringing the handbook into the app section by section. Sections marked “Text pending” are still being added; People Operations can help with those policies.' }}<a v-if="sourceUrl" :href="sourceUrl" target="_blank" rel="noopener noreferrer">Admin · Open original ↗</a></p>
 
     <WorkplaceHandbookAssistant v-if="answerQuestion" ref="assistant" :ask="answerQuestion" :version="handbook.version" :preview="assistantPreview" :document-label="documentLabel" :anchor-prefix="anchorPrefix" @open="selectSection($event, true)" @reload="$emit('reload')" />
-    <div class="book-layout">
+    <div ref="readerLayout" class="book-layout">
       <aside class="book-outline" :aria-label="`${documentTitle} contents`">
         <div class="outline-heading"><span class="eyebrow">Inside the {{ isGuide ? 'guide' : 'handbook' }}</span><strong>Contents</strong></div>
         <label class="book-search"><span class="sr-only">Search {{ documentLabel }}</span><span aria-hidden="true">⌕</span><input v-model="query" type="search" placeholder="Find a section or phrase…" /></label>
         <p class="search-count" aria-live="polite">{{ query ? `${filtered.length} matching sections` : `${chapters.length} chapters · ${sections.length} sections` }}</p>
-        <nav class="outline-scroll">
+        <label class="chapter-picker">Chapter<select :value="activeChapter?.slug" @change="selectSection($event.target.value, true)"><option v-for="chapter in chapters" :key="chapter.slug" :value="chapter.slug">{{ chapter.title }}</option></select></label>
+        <nav ref="outlineScroll" class="outline-scroll" aria-label="Chapters and sections">
           <p v-if="!filtered.length" class="no-results">No sections match “{{ query }}”.</p>
-          <a v-for="section in filtered" :key="section.slug" :href="`#${anchorPrefix}-${section.slug}`" :class="['outline-link', { active: selected?.slug === section.slug, child: !!section.parent_slug }]" :aria-current="selected?.slug === section.slug ? 'location' : undefined" @click.prevent="selectSection(section.slug, true)">
-            <span class="outline-title">{{ section.title }}</span>
-            <span class="outline-status">{{ isChapterDivider(section) ? 'Chapter contents' : section.content_status === 'pending' ? 'Text pending' : 'Read section' }}<span v-if="section.source_page"> · p. {{ section.source_page }}</span><span v-if="updatesFor(section.slug).length"> · {{ updatesFor(section.slug).length }} {{ updatesFor(section.slug).some(e => e.status === 'draft') ? 'changes to review' : 'updates' }}</span></span>
-          </a>
+          <template v-for="group in outlineGroups" :key="group.chapter.slug">
+            <a v-if="!query || filtered.includes(group.chapter)" :href="`#${anchorPrefix}-${group.chapter.slug}`" :data-section="group.chapter.slug" :class="['outline-link', 'outline-chapter', { active: selected?.slug === group.chapter.slug, 'current-chapter': activeChapter?.slug === group.chapter.slug }]" :aria-current="selected?.slug === group.chapter.slug ? 'location' : undefined" @click.prevent="selectSection(group.chapter.slug, true)"><span class="outline-title">{{ group.chapter.title }}</span><span class="outline-status">{{ group.children.length ? `${group.children.length} sections` : 'Read section' }}</span></a>
+            <div v-show="query || activeChapter?.slug === group.chapter.slug" class="chapter-outline">
+              <a v-for="section in group.children.filter(item => !query || filtered.includes(item))" :key="section.slug" :data-section="section.slug" :href="`#${anchorPrefix}-${section.slug}`" :class="['outline-link', 'child', { active: selected?.slug === section.slug }]" :aria-current="selected?.slug === section.slug ? 'location' : undefined" @click.prevent="selectSection(section.slug, true)">
+                <span class="outline-title">{{ section.title }}</span>
+                <span class="outline-status">{{ isChapterDivider(section) ? 'Chapter contents' : section.content_status === 'pending' ? 'Text pending' : 'Read section' }}<span v-if="section.source_page"> · p. {{ section.source_page }}</span><span v-if="updatesFor(section.slug).length"> · {{ updatesFor(section.slug).length }} updates</span></span>
+              </a>
+            </div>
+          </template>
         </nav>
       </aside>
 
+      <div class="reader-pane">
       <article v-if="selected" :id="`${anchorPrefix}-${selected.slug}`" ref="article" :class="['book-page', { 'foundation-page': isFoundation }]" tabindex="-1">
         <div class="page-topline"><span>{{ parentTitle || metadata.organization || 'Handbook' }}</span><span v-if="selected.source_page">Original p. {{ selected.source_page }}</span></div>
         <WorkplaceHandbookLandscape :artwork="selectedLandscape" />
         <span class="section-eyebrow">{{ selected.parent_slug ? 'In this chapter' : 'Chapter' }}</span>
         <h3>{{ selected.title }}</h3>
         <div class="page-rule" />
-        <StudentTrainingEvaluationForm v-if="matchesForm(metadata.forms?.studentTrainingEvaluation)" :template="metadata.forms.studentTrainingEvaluation" preview />
+        <p v-if="isChapterDivider(selected)" class="chapter-introduction">Explore the sections in this chapter.</p>
+        <StudentTrainingEvaluationForm v-else-if="matchesForm(metadata.forms?.studentTrainingEvaluation)" :template="metadata.forms.studentTrainingEvaluation" preview />
         <WorkplaceHandbookSelfAssessment v-else-if="selectedSelfAssessment" :form="selectedSelfAssessment" />
         <WorkplaceHandbookFoundations v-else-if="isFoundation && selected.content_status !== 'pending' && selected.body_html" :section="selected" :founders="metadata.presentation?.founders || []" :brand-label="metadata.presentation?.brandLabel || 'ITSCO'" :history-section-slug="metadata.presentation?.historySectionSlug || 'history-and-background-of-itsco'" :story-label="metadata.presentation?.storyLabel || 'Our beginnings · Est. 2022'" :botanical-url="metadata.presentation?.botanicalUrl || ''" @click="followPolicyLink" />
         <div v-else-if="selected.content_status !== 'pending' && selected.body_html" class="handbook-prose" @click="followPolicyLink" v-html="safeHtml(selected.body_html)" />
-        <p v-else-if="isChapterDivider(selected)" class="chapter-introduction">Explore the sections in this chapter.</p>
         <div v-else class="pending-section">
           <span class="pending-tag">Text pending</span>
           <p>{{ (metadata.requiredSections || metadata.template?.requiredSections)?.find(topic => topic.slug === selected.slug)?.prompt || 'This section is in the handbook’s contents. Its full text is still being added here.' }}</p>
           <a v-if="sourceUrl" :href="sourceUrl" target="_blank" rel="noopener noreferrer">Read this section in the original handbook ↗</a>
         </div>
 
-        <div v-if="children.length" class="chapter-sections"><h4>In this chapter</h4><button v-for="child in children" :key="child.slug" type="button" @click="selectSection(child.slug, true)"><span>{{ child.title }}</span><span aria-hidden="true">↗</span></button></div>
+        <div v-if="children.length" class="chapter-sections"><h4>In this chapter</h4><button v-for="child in children" :key="child.slug" type="button" @click="selectSection(child.slug, true)"><span><strong>{{ child.title }}</strong><small v-if="sectionExcerpt(child)">{{ sectionExcerpt(child) }}</small></span><span aria-hidden="true">↗</span></button></div>
+
+        <div v-if="upcomingTopics.length" class="chapter-sections upcoming-topics"><h4>Next in this chapter</h4><button v-for="topic in upcomingTopics" :key="topic.slug" type="button" @click="selectSection(topic.slug, true)"><span><strong>{{ topic.title }}</strong><small>{{ sectionExcerpt(topic) }}</small></span><span aria-hidden="true">→</span></button></div>
 
         <section v-if="sectionUpdates.length" class="section-updates" aria-label="Section updates">
           <span class="eyebrow">Connected changes</span><h4>Updates to this section</h4>
@@ -73,9 +82,12 @@
 
         <div v-if="analytics && analytics.enabled !== false" class="reading-feedback"><span>Was this section helpful?</span><button type="button" @click="rateSection(true)">Yes</button><button type="button" @click="rateSection(false)">Not yet</button><span role="status">{{ feedbackMessage }}</span></div>
         <slot name="section-actions" :section="selected" />
-        <footer class="page-navigation"><button type="button" :disabled="selectedIndex <= 0" @click="selectSection(sections[selectedIndex - 1]?.slug, true)">← Previous section</button><span>{{ selectedIndex + 1 }} / {{ sections.length }}</span><button type="button" :disabled="selectedIndex >= sections.length - 1" @click="selectSection(sections[selectedIndex + 1]?.slug, true)">Next section →</button></footer>
+
       </article>
       <p v-else class="pending-section">This document has not been added yet.</p>
+      <div v-if="$slots['reader-actions']" class="reader-actions"><slot name="reader-actions" :section="selected" /></div>
+      <footer v-if="selected" class="page-navigation" aria-label="Section navigation"><button type="button" :disabled="selectedIndex <= 0" @click="selectSection(sections[selectedIndex - 1]?.slug, true, true)">← Previous section</button><div><span>{{ selectedIndex + 1 }} / {{ sections.length }}</span><small>{{ selected.title }}</small></div><button type="button" :disabled="selectedIndex >= sections.length - 1" @click="selectSection(sections[selectedIndex + 1]?.slug, true, true)">Next section →</button></footer>
+      </div>
     </div>
     <details v-if="metadata.presentation?.landscapes?.length" class="artwork-credits">
       <summary>Photography &amp; illustration</summary>
@@ -89,6 +101,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { routeLocationKey } from 'vue-router';
 import DOMPurify from 'dompurify';
+import { chapterFor, chapterTopics, isChapterOpening, sectionExcerpt } from '../../utils/handbookNavigation';
 import WorkplaceHandbookFoundations from './WorkplaceHandbookFoundations.vue';
 import WorkplaceHandbookLandscape from './WorkplaceHandbookLandscape.vue';
 import WorkplaceHandbookAssistant from './WorkplaceHandbookAssistant.vue';
@@ -108,10 +121,10 @@ async function toggleExpanded() {
   if (!expanded.value) {
     previousFocus = document.activeElement; previousOverflow = document.body.style.overflow;
     expanded.value = true; document.body.style.overflow = 'hidden';
-    await nextTick(); expandButton.value?.focus(); article.value?.scrollIntoView?.({block:'start'});
+    await nextTick(); expandButton.value?.focus(); article.value?.scrollIntoView?.({block:'start'}); await trackSection();
   } else {
     expanded.value = false; document.body.style.overflow = previousOverflow;
-    await nextTick(); previousFocus?.focus?.({preventScroll:true});
+    await nextTick(); previousFocus?.focus?.({preventScroll:true}); await trackSection();
   }
 }
 function readerKeydown(event) {
@@ -131,7 +144,7 @@ const analyticsRoot = ref(null), feedbackMessage = ref('');
 const readingAnalytics = useDocumentAnalytics(() => props.analytics ? { ...props.analytics, documentKey: props.handbook.metadata?.documentKey || 'workplace-handbook', versionId: props.handbook.version?.id, enabled: props.analytics.enabled !== false && !props.handbook.version?.is_draft } : null, { root: analyticsRoot, http: props.analyticsHttp, activeElement: () => article.value });
 watch([selectedSlug, readingAnalytics.status], () => { readingAnalytics.section(selectedSlug.value); feedbackMessage.value = ''; });
 async function rateSection(helpful) { feedbackMessage.value = await readingAnalytics.feedback(helpful) ? 'Thank you. Your feedback was saved.' : 'Feedback could not be saved. Please try again.'; }
-const article = ref(null);
+const article = ref(null), outlineScroll = ref(null), readerLayout = ref(null);
 const sections = computed(() => props.handbook?.sections || []);
 const metadata = computed(() => props.handbook?.metadata || {});
 const isSchoolGuide = computed(() => metadata.value.documentKey === 'school-practice-guide');
@@ -145,9 +158,11 @@ const isGuide = computed(() => !!metadata.value.documentKey && metadata.value.do
 const documentTitle = computed(() => isGuide.value ? metadata.value.title || (isCareGuide.value ? 'Care Approaches & Practice Guide' : isSchoolGuide.value ? 'School Practice Guide' : isSkillsGuide.value ? 'Skill Development & Learning Guide' : 'Provider’s Guide') : 'Workplace handbook');
 const documentLabel = computed(() => metadata.value.documentKey === 'nlu-learning-pilot-guide' ? 'NLU learning pilot guide' : metadata.value.documentKey === 'clinical-note-aid-guide' ? 'clinical note aid guide' : metadata.value.documentKey === 'caseload-management-sop' ? 'caseload management SOP' : metadata.value.documentKey === 'mandated-reporting-sop' ? 'mandated reporting SOP' : metadata.value.documentKey === 'group-psychotherapy-sop' ? 'group psychotherapy SOP' : isDocumentationStandards.value ? 'documentation guide' : isFacilitatorProtocol.value ? 'facilitator protocol' : isCrisisGuide.value ? 'crisis guide' : isFacilitiesGuide.value ? 'facilities guide' : isSkillsGuide.value ? 'skills guide' : isCareGuide.value ? 'care guide' : isSchoolGuide.value ? 'school practice guide' : isGuide.value ? 'provider guide' : 'handbook');
 const anchorPrefix = computed(() => isGuide.value ? metadata.value.documentKey : 'handbook');
-const chapters = computed(() => sections.value.filter(s => !s.parent_slug));
+const chapters = computed(() => sections.value.filter(s => !s.parent_slug || !sections.value.some(parent => parent.slug === s.parent_slug)));
+const activeChapter = computed(() => chapterFor(selected.value, sections.value));
+const outlineGroups = computed(() => chapters.value.map(chapter => ({ chapter, children: sections.value.filter(section => section !== chapter && chapterFor(section, sections.value)?.slug === chapter.slug) })));
 const readyCount = computed(() => sections.value.filter(s => s.content_status !== 'pending' && s.body_html).length);
-const isChapterDivider = section => !section.parent_slug && !section.body_html && metadata.value.presentation?.chapterDividers?.includes(section.slug) && sections.value.some(s => s.parent_slug === section.slug);
+const isChapterDivider = section => isChapterOpening(section, metadata.value);
 const missingTextCount = computed(() => sections.value.filter(s => s.content_status === 'pending' && !isChapterDivider(s)).length);
 const selectedLandscape = computed(() => {
   const presentation = metadata.value.presentation;
@@ -164,7 +179,13 @@ const matchesForm = form => form?.sectionSlug === selected.value?.slug && select
 const selectedSelfAssessment = computed(() => metadata.value.forms?.employeeSelfAssessments?.find(matchesForm));
 const isFoundation = computed(() => ['itsco-foundations', 'nlu-foundations', 'isi-foundations'].includes(metadata.value.presentation?.theme) && [metadata.value.presentation?.historySectionSlug || 'history-and-background-of-itsco', 'mission', 'vision', 'goals', 'values'].includes(selected.value?.slug));
 const parentTitle = computed(() => sections.value.find(s => s.slug === selected.value?.parent_slug)?.title);
-const children = computed(() => sections.value.filter(s => s.parent_slug === selected.value?.slug));
+const children = computed(() => chapterTopics(selected.value, sections.value, metadata.value));
+const upcomingTopics = computed(() => {
+  if (!selected.value?.body_html || selected.value.content_status === 'pending' || children.value.length || matchesForm(metadata.value.forms?.studentTrainingEvaluation) || selectedSelfAssessment.value) return [];
+  const length = String(selected.value.body_html).replace(/<[^>]*>/g, '').length;
+  if (length > 550) return [];
+  return sections.value.slice(selectedIndex.value + 1).filter(topic => chapterFor(topic, sections.value)?.slug === activeChapter.value?.slug).slice(0, 2);
+});
 const updatesFor = slug => props.updates.filter(e => e.handbook_section_slug === slug || e.policy_section_slugs?.includes(slug) || e.related_section_slugs?.includes(slug));
 const sectionUpdates = computed(() => updatesFor(selected.value?.slug));
 const sourceUrl = computed(() => props.canOpenOriginal && /^https?:\/\//i.test(props.fullHandbookUrl) ? props.fullHandbookUrl : '');
@@ -185,17 +206,27 @@ const filtered = computed(() => {
     return `${s.title} ${s.body_html || ''} ${changes}`.replace(/<[^>]*>/g, ' ').toLocaleLowerCase().includes(term);
   });
 });
-async function selectSection(slug, focus = false) {
+async function selectSection(slug, focus = false, keepFocus = false) {
   if (!sections.value.some(s => s.slug === slug)) return;
   selectedSlug.value = slug;
   if (focus) window.history.replaceState(window.history.state, '', `#${anchorPrefix.value}-${slug}`);
   if (focus) {
     await nextTick();
-    article.value?.focus({ preventScroll: true });
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    article.value?.scrollIntoView?.({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    if (!keepFocus) article.value?.focus({ preventScroll: true });
   }
 }
+async function trackSection() {
+  await nextTick();
+  if (article.value) article.value.scrollTop = 0;
+  const nav = outlineScroll.value;
+  const current = nav?.querySelector('[aria-current="location"]');
+  if (!nav || !current) return;
+  const item = current.getBoundingClientRect(), bounds = nav.getBoundingClientRect();
+  if (item.top < bounds.top) nav.scrollTop -= bounds.top - item.top + 8;
+  else if (item.bottom > bounds.bottom) nav.scrollTop += item.bottom - bounds.bottom + 8;
+}
+async function startReading() { await selectSection(firstReady.value?.slug || sections.value[0]?.slug, true); readerLayout.value?.scrollIntoView?.({ block: 'start' }); }
+watch(selectedSlug, trackSection);
 function followPolicyLink(event) {
   const href = event.target.closest?.('a')?.getAttribute('href') || '';
   if (href.startsWith('/workplace-handbook')) { event.preventDefault(); emit('handbook-link', href.split('#')[1] || ''); return; }
@@ -210,9 +241,9 @@ function readHash() {
 }
 watch(sections, () => { if (!sections.value.some(s => s.slug === selectedSlug.value)) selectedSlug.value = firstReady.value?.slug || sections.value[0]?.slug || ''; readHash(); }, { immediate: true });
 watch(selectedSlug, slug => emit('section-change', slug), { immediate: true });
-onMounted(() => window.addEventListener('hashchange', readHash));
-onBeforeUnmount(() => window.removeEventListener('hashchange', readHash));
-defineExpose({ selectSection, showAssistant: () => assistant.value?.show() });
+onMounted(() => { window.addEventListener('hashchange', readHash); window.addEventListener('resize', trackSection); });
+onBeforeUnmount(() => { window.removeEventListener('hashchange', readHash); window.removeEventListener('resize', trackSection); });
+defineExpose({ selectSection, closeExpanded: async () => { if (expanded.value) await toggleExpanded(); }, showAssistant: () => assistant.value?.show() });
 </script>
 
 <style scoped>
@@ -314,4 +345,15 @@ button:focus-visible,a:focus-visible { outline: 2px solid var(--ink); outline-of
 @media (max-width: 450px) { .book-cover { padding: 18px; gap: 16px; }.cover-art { width: 30%; }.cover-copy h2 { font-size: 28px; }.cover-description { font-size: 11px; }.book-primary { font-size: 11px; padding: 10px 12px; gap: 15px; } }
 .handbook-book :is(h1,h2,h3,h4,h5,h6,button,input,select,textarea) { font-family: var(--handbook-font); }
 .handbook-prose :deep(h1), .handbook-prose :deep(h2), .handbook-prose :deep(h3), .handbook-prose :deep(h4), .handbook-prose :deep(h5), .handbook-prose :deep(h6) { font-family: var(--handbook-font); }
+
+.book-introduction>summary{padding:12px 20px;cursor:pointer;font-size:12px;color:var(--ink);border-bottom:1px solid var(--line)}
+.book-layout{height:clamp(440px,78dvh,900px);min-height:0;grid-template-columns:minmax(220px,25%) minmax(0,1fr);scroll-margin-top:12px}
+.book-outline{min-height:0;padding:18px 14px;overflow:hidden}.outline-heading{padding-bottom:10px}.outline-heading strong{font-size:20px}.outline-scroll{min-height:0;contain:none;height:auto;overscroll-behavior:contain;scroll-behavior:auto}
+.chapter-picker{display:grid;gap:5px;font-size:11px;color:var(--muted);margin-bottom:12px}.chapter-picker select{width:100%;min-width:0;padding:9px;border:1px solid var(--line);border-radius:6px;background:white;color:var(--ink);font-size:12px}
+.outline-chapter{margin:3px 0}.outline-chapter.current-chapter{background:#e8eedf;color:var(--ink);border-left-color:var(--ink)}.chapter-outline{border-left:1px solid var(--line);margin-left:10px}.outline-link.active{background:#dbe8d2;box-shadow:inset 3px 0 var(--ink)}.outline-link.child{padding-left:12px}
+.reader-pane{display:grid;grid-template-rows:minmax(0,1fr) auto auto;min-height:0;min-width:0;background:#fffef8}.book-page{overflow-y:auto;overscroll-behavior:contain;padding:clamp(22px,3vw,38px);scroll-behavior:auto}.page-topline{padding-bottom:18px}.book-page h3{font-size:clamp(22px,2vw,30px);margin-bottom:16px}.page-rule{margin-bottom:20px}.handbook-prose{line-height:1.8}.handbook-prose :deep(p){margin-bottom:16px}
+.page-navigation{margin:0;padding:12px 18px;background:#f8faf5;min-height:72px;border-top:1px solid var(--line);gap:10px}.page-navigation button{flex:0 0 140px;border:1px solid #cbd7c5;border-radius:7px;background:white;min-height:42px;padding:9px 12px;font:600 12px var(--handbook-font);white-space:nowrap}.page-navigation button:last-child{background:var(--ink);color:white;border-color:var(--ink)}.page-navigation>div{min-width:0;text-align:center}.page-navigation small{display:block;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted);margin-top:4px}
+.chapter-sections{margin-top:20px}.chapter-sections button{padding:16px;border:1px solid var(--line);border-radius:8px;background:#f5f8ef;margin-bottom:9px;align-items:center}.chapter-sections strong{font-size:14px;font-weight:600}.chapter-sections small{display:block;font-size:12px;line-height:1.7;color:var(--muted);margin-top:6px;font-weight:400}
+.reader-expanded .book-layout{height:calc(100dvh - 155px)}
+@media(max-width:720px){.book-layout{height:auto;display:flex;flex-direction:column}.book-outline{max-height:270px;min-height:210px}.outline-scroll{flex:1;max-height:none;height:auto}.outline-heading,.search-count{display:none}.chapter-picker{margin-top:10px}.reader-pane{height:70dvh;min-height:420px}.book-page{padding:22px}.page-navigation{padding:10px;min-height:72px}.page-navigation button{flex-basis:auto;min-width:108px;padding:8px;font-size:11px}.page-navigation small{display:none}.reader-expanded .book-layout{height:auto}}
 </style>

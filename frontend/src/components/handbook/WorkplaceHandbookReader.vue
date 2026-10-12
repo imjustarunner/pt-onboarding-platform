@@ -1,16 +1,18 @@
 <template>
   <div ref="readerRoot" :class="['hb-digest', { 'handbook-screen-only': !canPrint }]">
     <p class="handbook-print-notice">Read the current Workplace Handbook in the app. Printing and PDF export are not available in this view.</p>
-    <div v-if="loading" class="muted">Loading handbook updates…</div>
+    <div v-if="loading" class="muted">Loading handbook…</div>
     <p v-else-if="error" role="alert" class="reader-error">{{ error }} <button type="button" class="btn" @click="load">Try again</button></p>
     <template v-else>
-      <nav v-if="handbook?.sections?.length" class="reader-tabs" aria-label="Handbook views">
+      <p v-if="handbook?.beta" class="beta-notice">Beta edition · Available to read while company publication is under review.</p>
+      <div v-if="libraryMode && !handbook?.sections?.length" class="empty" role="status">A handbook has not been added for this organization yet. Your company administrator can prepare its edition in Library settings.</div>
+      <nav v-if="!libraryMode && handbook?.sections?.length" class="reader-tabs" aria-label="Handbook views">
         <button type="button" :aria-pressed="activeView === 'updates'" @click="activeView = 'updates'">Latest updates <span v-if="entries.length">{{ entries.length }}</span></button>
         <button type="button" :aria-pressed="activeView === 'handbook'" @click="activeView = 'handbook'">Read handbook</button>
         <button v-if="!previewMode" type="button" @click="showAssistant">Ask the handbook ✦</button>
       </nav>
-      <WorkplaceHandbookBook v-if="activeView === 'handbook' && handbook?.sections?.length" ref="book" :handbook="handbook" :analytics="accessMode !== 'token' && !previewMode ? { agencyId, surface: analyticsSurface } : null" :updates="handbook.updates || []" :full-handbook-url="fullHandbookUrl" :can-open-original="canOpenOriginal" :can-print="canPrint" :answer-question="previewMode ? null : answerQuestion" @reload="load" />
-      <template v-if="activeView === 'updates'">
+      <WorkplaceHandbookBook v-if="activeView === 'handbook' && handbook?.sections?.length" ref="book" :handbook="handbook" :analytics="accessMode !== 'token' && !previewMode && !handbook?.beta ? { agencyId, surface: analyticsSurface } : null" :updates="handbook.updates || []" :full-handbook-url="fullHandbookUrl" :can-open-original="canOpenOriginal" :can-print="canPrint" :answer-question="previewMode || handbook?.beta ? null : answerQuestion" @reload="load" />
+      <template v-if="!libraryMode && activeView === 'updates'">
       <header class="hb-head">
         <div>
           <div class="kicker">Handbook Updates</div>
@@ -84,7 +86,7 @@
         </button>
       </div>
       </template>
-      <div v-if="activeView === 'handbook' && (!digest || !entries.length) && handbook?.version && !previewMode" class="ack-row">
+      <div v-if="!libraryMode && activeView === 'handbook' && (!digest || !entries.length) && handbook?.version && !previewMode" class="ack-row">
         <button type="button" class="btn primary" :disabled="acking" @click="acknowledge">I have reviewed the available handbook sections</button>
       </div>
     </template>
@@ -105,6 +107,7 @@ import WorkplaceHandbookBook from './WorkplaceHandbookBook.vue';
 import WorkplaceHandbookPolicyLinks from './WorkplaceHandbookPolicyLinks.vue';
 
 const props = defineProps({
+  libraryMode: { type: Boolean, default: false },
   analyticsSurface: { type: String, default: 'handbook' },
   accessMode: { type: String, default: 'auth' },
   token: { type: String, default: '' },
@@ -184,7 +187,7 @@ async function load() {
       const res = await api.get(`/public/provider-update/${encodeURIComponent(props.token)}/handbook`);
       data = res.data;
     } else {
-      const res = await api.get('/provider-update/handbook/published', {
+      const res = await api.get(props.libraryMode ? '/provider-update/handbook/library' : '/provider-update/handbook/published', {
         params: {
           agencyId: props.agencyId,
           adminUpdateId: props.adminUpdateId || undefined,
@@ -201,7 +204,7 @@ async function load() {
     access.value = data.access || {};
     handbook.value = data.handbook || null;
     const deepLink = window.location.hash.replace(/^#handbook-/, '');
-    activeView.value = handbook.value?.sections?.some(s => s.slug === deepLink) ? 'handbook' : entries.value.length || !handbook.value?.sections?.length ? 'updates' : 'handbook';
+    activeView.value = props.libraryMode ? 'handbook' : handbook.value?.sections?.some(s => s.slug === deepLink) ? 'handbook' : entries.value.length || !handbook.value?.sections?.length ? 'updates' : 'handbook';
   } catch (e) {
     if (currentRequest === request) { loadError.value = error.value = e?.response?.data?.error?.message || 'The handbook could not be loaded.'; handbook.value = null; entries.value = []; digest.value = null; }
   } finally {
@@ -241,10 +244,11 @@ async function acknowledge() {
   }
 }
 
-watch(() => [props.agencyId, props.token, props.adminUpdateId, props.pushId, props.accessMode], load, { immediate: true });
+watch(() => [props.agencyId, props.token, props.adminUpdateId, props.pushId, props.accessMode, props.libraryMode], load, { immediate: true });
 </script>
 
 <style scoped>
+.beta-notice { margin: 0 0 12px; padding: 10px 14px; border-radius: 7px; background: #f4f1df; color: #645a35; font-size: 12px; }
 .changed :deep(img),.changed :deep(video){max-width:100%;height:auto}
 .changed{overflow-x:auto}.changed :deep(table){width:100%;border-collapse:collapse;margin:16px 0}.changed :deep(th){background:#173e5a;color:#fff;text-align:left}.changed :deep(td),.changed :deep(th){padding:12px;border:1px solid #d4dee5;min-width:100px}.changed :deep(h2){color:#173e5a;border-top:3px solid #c8dce9;padding-top:22px;margin-top:28px}.changed :deep(h3){color:#173e5a;background:#edf3f8;padding:12px;border-radius:8px}.changed :deep(dd){margin:6px 0 18px}.inline-editor{display:grid;gap:12px}.inline-editor label{display:grid;gap:6px}.inline-editor input,.inline-editor textarea{font:inherit;padding:10px;color:#19344e;border:1px solid #849bad;border-radius:6px}.editor-notice{background:#e7f0fb;color:#173e5a;padding:16px;border-radius:10px}
 .handbook-print-notice { display: none; }

@@ -12,3 +12,18 @@ it('opens exact handbook sections alongside each change without leaving the upda
  const detail=w.get('details');detail.element.open=true;await detail.trigger('toggle');expect(detail.element.open).toBe(true);expect(detail.text()).toContain('The actual handbook mileage policy.');expect(detail.text()).toContain('Original page 41');expect(detail.find('script').exists()).toBe(false);expect(w.get('.ack-row button').element.disabled).toBe(false);w.unmount();
 });
 it('explicitly identifies an update whose handbook section has not yet been linked',async()=>{const w=render();await flushPromises();expect(w.text()).toContain('An exact handbook section has not been linked yet');expect(w.find('details').exists()).toBe(false);w.unmount();});
+
+it('opens the supplied library handbook directly without the updates feed or signature action', async () => {
+ api.get.mockResolvedValue({data:{handbook:{beta:true,metadata:{organization:'ITSCO'},sections:[{slug:'welcome',title:'Welcome',body_html:'<p>The company handbook.</p>',content_status:'ready'}]}}});
+ const w=render({accessMode:'authenticated',libraryMode:true}); await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/provider-update/handbook/library',expect.objectContaining({params:{agencyId:2}}));
+ expect(w.get('.book-page').text()).toContain('The company handbook.');
+ expect(w.text()).toContain('Beta edition');
+ expect(w.text()).not.toContain('No handbook updates');
+ expect(w.find('.reader-tabs').exists()).toBe(false); expect(w.find('.ack-row').exists()).toBe(false);
+ expect(api.post).not.toHaveBeenCalled(); w.unmount();
+});
+it('explains when this organization has no handbook instead of showing an empty digest',async()=>{
+ api.get.mockResolvedValue({data:{handbook:null}});const w=render({accessMode:'authenticated',libraryMode:true});await flushPromises();
+ expect(w.text()).toContain('A handbook has not been added for this organization');expect(w.text()).not.toContain('No handbook updates');w.unmount();
+});

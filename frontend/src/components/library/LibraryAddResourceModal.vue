@@ -23,7 +23,8 @@
         <template v-if="mode === 'upload'">
           <label class="lib-field">
             <span>File</span>
-            <input type="file" @change="onFile" />
+            <input type="file" :accept="LIBRARY_ACCEPT" @change="onFile" />
+            <small>Up to 40 MB per file. PDF, Word, Excel, PowerPoint, images, CSV, or text.</small>
           </label>
           <label class="lib-field">
             <span>Resource name</span>
@@ -37,7 +38,7 @@
             <input type="file" webkitdirectory multiple @change="onFolderFiles" />
           </label>
           <p class="lib-hint">
-            Uploads the selected folder as nested subfolders and files under the destination folder below.
+            Up to 50 files and 100 MB per upload; 40 MB per file. Nested folders are preserved under the destination below. Videos can be added with Video link.
             PDFs can be filled and signed in the app, then saved as personal copies.
           </p>
           <p v-if="folderFiles.length" class="lib-hint">
@@ -45,10 +46,10 @@
           </p>
         </template>
 
-        <template v-else-if="mode === 'link'">
+        <template v-else-if="mode === 'link' || mode === 'video'">
           <label class="lib-field">
             <span>Resource name</span>
-            <input v-model="form.name" type="text" placeholder="e.g. Safety Plan Template" />
+            <input v-model="form.name" type="text" :placeholder="mode === 'video' ? 'e.g. Documentation walkthrough' : 'e.g. Safety Plan Template'" />
           </label>
           <label class="lib-field">
             <span>URL</span>
@@ -59,8 +60,8 @@
             />
           </label>
           <p class="lib-hint">
-            Links and Google Docs are view-only in the Library. For editable personal copies or collaboration,
-            use <strong>Create branded document</strong>.
+            <template v-if="mode === 'video'">Paste a YouTube, Vimeo, Loom, Google Drive, or other hosted video link. It appears as a video file in your library and folders. Keep the video’s sharing permissions available to your intended viewers.</template>
+            <template v-else>Save a web resource or Google document in your library. For videos, choose <button type="button" class="video-link-switch" @click="setMode('video')">Video link</button>.</template>
           </p>
           <div v-if="googlePreview" class="lib-live-preview">
             <div class="lib-live-preview__label">In-app preview</div>
@@ -163,6 +164,7 @@
           </div>
         </div>
 
+        <label v-if="mode === 'folder'" class="lib-field"><span>Inside folder</span><select v-model="form.folderId"><option value="">Library root</option><option v-for="folder in destinationFolders" :key="folder.id" :value="String(folder.id)">{{ folder.name }}</option></select></label>
         <template v-if="showsMetadata">
           <div class="lib-ai-row">
             <button
@@ -198,7 +200,7 @@
               <span>Folder</span>
               <select v-model="form.folderId">
                 <option value="">None</option>
-                <option v-for="f in folders" :key="f.id" :value="String(f.id)">
+                <option v-for="f in destinationFolders" :key="f.id" :value="String(f.id)">
                   {{ f.name }}{{ f.scope === 'personal' || f.isMine ? ' (mine)' : '' }}
                 </option>
               </select>
@@ -230,6 +232,9 @@
 </template>
 
 <script setup>
+import { getActivePinia } from 'pinia';
+import { useAuthStore } from '../../store/auth';
+import { libraryFileError, LIBRARY_ACCEPT } from '../../utils/libraryUploads';
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import {
   getGoogleWorkspacePreviewUrl,
@@ -254,12 +259,15 @@ const props = defineProps({
   canManage: { type: Boolean, default: false }
 });
 
+const auth = getActivePinia() ? useAuthStore() : { user: null };
+const destinationFolders = computed(() => props.folders.filter(folder => folder.scope === form.scope && (folder.scope === 'personal' ? folder.isMine || Number(folder.ownerUserId) === Number(auth.user?.id) : props.canManage)));
 const emit = defineEmits(['close', 'created']);
 
 const tabs = [
   { id: 'upload', label: 'Upload file' },
   { id: 'upload_folder', label: 'Upload folder' },
   { id: 'link', label: 'Google Doc / Link' },
+  { id: 'video', label: 'Video link' },
   { id: 'branded', label: 'Create branded document' },
   { id: 'folder', label: 'Create folder' }
 ];
@@ -283,13 +291,14 @@ const form = reactive({
   folderId: props.defaultFolderId ? String(props.defaultFolderId) : '',
   tags: '',
   featured: false,
-  scope: props.canManage ? 'organization' : 'personal',
+  scope: props.canManage ? props.folders.find(folder => Number(folder.id) === Number(props.defaultFolderId))?.scope || 'organization' : 'personal',
   shareMode: 'later',
   bodyHtml: '<p></p>',
   letterheadTemplateId: null,
   brandingMode: 'organization'
 });
 
+watch(() => form.scope, () => { if (form.folderId && !destinationFolders.value.some(folder => Number(folder.id) === Number(form.folderId))) form.folderId = ''; }, { immediate: true });
 const hasUnsavedDocument = computed(() => mode.value === 'branded' && !!(form.name.trim() || String(form.bodyHtml).replace(/<[^>]*>/g, '').trim()));
 function prepareToLeave() {
   return !hasUnsavedDocument.value || window.confirm('Discard this document draft? Use Save document to keep it in your library.');
@@ -347,15 +356,18 @@ function setMode(id) {
 }
 
 function onFile(e) {
+  error.value = libraryFileError(Array.from(e.target?.files || []));
   const f = e.target?.files?.[0] || null;
-  file.value = f;
+  file.value = error.value ? null : f;
   if (f && !form.name) {
     form.name = String(f.name || '').replace(/\.[^.]+$/, '');
   }
 }
 
 function onFolderFiles(e) {
-  folderFiles.value = Array.from(e.target?.files || []);
+  const selected = Array.from(e.target?.files || []);
+  error.value = libraryFileError(selected);
+  folderFiles.value = error.value ? [] : selected;
 }
 
 async function runAiSuggest() {
@@ -434,6 +446,7 @@ async function submit() {
 
     if (mode.value === 'upload_folder') {
       if (!folderFiles.value.length) throw new Error('Choose a folder to upload');
+      const invalid = libraryFileError(folderFiles.value); if (invalid) throw new Error(invalid);
       const fd = new FormData();
       if (props.agencyId) fd.append('agencyId', String(props.agencyId));
       fd.append('scope', form.scope);
@@ -451,6 +464,7 @@ async function submit() {
 
     if (mode.value === 'upload') {
       if (!file.value) throw new Error('Choose a file to upload');
+      const invalid = libraryFileError([file.value]); if (invalid) throw new Error(invalid);
       const fd = new FormData();
       if (props.agencyId) fd.append('agencyId', String(props.agencyId));
       fd.append('file', file.value);
@@ -496,6 +510,7 @@ async function submit() {
       agencyId: props.agencyId || undefined,
       name: form.name.trim(),
       url: form.url.trim(),
+      linkKind: mode.value === 'video' ? 'video' : 'link',
       description: form.description || null,
       categoryId: form.categoryId || null,
       folderId: form.folderId || null,

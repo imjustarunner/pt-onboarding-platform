@@ -93,3 +93,56 @@ it('does not reopen a previous organization’s document after a slow response',
   expect(wrapper.find('[data-document-viewer]').exists()).toBe(false);
   expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({agencyId:99}));
 });
+it('opens My files directly with a personal resource filter and only the employee’s own folders', async () => {
+  const personal = { ...pdf, id: 80, name: 'My worksheet', scope: 'personal', ownerUserId: 8 };
+  service.fetchLibraryHome.mockResolvedValue({ categories: [], folders: [
+    { id: 10, name: 'My folder', scope: 'personal', ownerUserId: 8 },
+    { id: 11, name: 'My nested folder', scope: 'personal', ownerUserId: 8, parentFolderId: 10 },
+    { id: 12, name: 'Colleague folder', scope: 'personal', ownerUserId: 9 },
+    { id: 13, name: 'Company folder I created', scope: 'organization', ownerUserId: 8 }
+  ], recentlyViewed: [], favorites: [] });
+  service.fetchLibraryResources.mockImplementation(async params => params.mine ? [personal] : [pdf, personal]);
+  const router = await render('/itsco/library?section=mine');
+  expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, mine: '1' }));
+  expect(wrapper.findAll('.lib-list__row')).toHaveLength(1);
+  expect(wrapper.findAll('.lib-list__open').map(button => button.text()).join(' ')).toContain('My worksheet');
+  expect(wrapper.get('[aria-label="Subfolders"]').findAll('button').map(button => button.text().replace('▱', '').trim())).toEqual(['My folder']);
+  await clickText('All documents');
+  expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('mine');
+  expect(router.currentRoute.value.query.section).toBe('all');
+});
+it('navigates nested folders with a selected breadcrumb and preserves the agency', async () => {
+  service.fetchLibraryHome.mockResolvedValue({ categories: [], folders: [
+    { id: 10, name: 'Personal resources', scope: 'personal', ownerUserId: 8 },
+    { id: 11, name: 'Session worksheets', scope: 'personal', ownerUserId: 8, parentFolderId: 10 },
+    { id: 12, name: 'Archived examples', scope: 'personal', ownerUserId: 8, parentFolderId: 11 }
+  ], recentlyViewed: [], favorites: [] });
+  await render();
+  await clickText('Personal resources');
+  expect(wrapper.get('[aria-label="Subfolders"]').text()).toContain('Session worksheets');
+  await wrapper.get('[aria-label="Subfolders"] button').trigger('click'); await flushPromises();
+  expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, folderId: 11 }));
+  const breadcrumb = wrapper.get('[aria-label="Folder location"]');
+  expect(breadcrumb.findAll('button').map(button => button.text())).toEqual(['Library', 'Personal resources', 'Session worksheets']);
+  expect(breadcrumb.get('[aria-current="page"]').text()).toBe('Session worksheets');
+  await breadcrumb.findAll('button')[1].trigger('click'); await flushPromises();
+  expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, folderId: 10 }));
+});
+it('opens video-link creation from the document tools and displays videos as files', async () => {
+  service.fetchLibraryResources.mockResolvedValue([{ id: 90, agencyId: 2, name: 'Orientation recording', fileType: 'video', resourceType: 'link', url: 'https://vimeo.com/123456789', videoProvider: 'Vimeo' }]);
+  await render();
+  const row = wrapper.findAll('.lib-list__row').find(row => row.text().includes('Orientation recording'));
+  expect(row.text()).toContain('VIDEO'); expect(row.text()).toContain('Video link');
+  await clickText('Video link');
+  expect(wrapper.getComponent({ name: 'LibraryAddResourceModal' }).props()).toMatchObject({ agencyId: 2, initialMode: 'video' });
+});
+
+it('keeps searches within My files until the employee chooses another view', async () => {
+  await render('/itsco/library?section=mine');
+  await wrapper.get('input[aria-label="Search documents"]').setValue('Worksheet');
+  await wrapper.get('form').trigger('submit'); await flushPromises();
+  expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, mine: '1', q: 'Worksheet' }));
+  await wrapper.get('button[aria-label="Clear search"]').trigger('click'); await flushPromises();
+  expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, mine: '1' }));
+  expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('q');
+});

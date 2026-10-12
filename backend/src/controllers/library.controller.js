@@ -1,5 +1,7 @@
 import { sanitizeDocumentHtml, validateDocumentBranding, resolveDocumentLetterhead, buildDocumentRender, documentError } from '../services/libraryDocument.service.js';
-import multer from 'multer';
+import { uploadLibraryFile } from '../services/libraryUploads.js';
+import { libraryVideo } from '../services/libraryVideo.js';
+export { uploadLibraryFile };
 import Library from '../models/Library.model.js';
 import StorageService from '../services/storage.service.js';
 import pool from '../config/database.js';
@@ -19,36 +21,6 @@ import {
   pickDashboardContextAgencyId,
 } from '../utils/meDashboardTenantScope.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
-
-const FILE_MAX = 40 * 1024 * 1024;
-
-const ALLOWED_MIMES = new Set([
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/csv',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'text/plain'
-]);
-
-export const uploadLibraryFile = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: FILE_MAX },
-  fileFilter: (req, file, cb) => {
-    const name = String(file.originalname || '').toLowerCase();
-    const okExt = /\.(pdf|docx?|xlsx?|csv|pptx?|jpe?g|png|gif|webp|txt)$/i.test(name);
-    if (ALLOWED_MIMES.has(file.mimetype) || okExt) cb(null, true);
-    else cb(new Error('Unsupported file type'), false);
-  }
-});
 
 export const uploadLibraryFiles = uploadLibraryFile;
 
@@ -109,6 +81,16 @@ function resolveScope(req, caps) {
   return caps.canManageLibrary ? 'organization' : 'personal';
 }
 
+async function assertFolderDestination(req, agencyId, caps, folderId, scope) {
+  if (folderId == null || folderId === '') return;
+  const folder = await Library.findFolder(folderId, agencyId, { userId: req.user.id });
+  if (!folder || folder.archivedAt) throw documentError('The destination folder is not available.', 404);
+  const allowed = folder.scope === 'personal' ? Number(folder.ownerUserId) === Number(req.user.id) : caps.canManageLibrary;
+  if (!allowed) throw documentError('Choose a folder you own or manage.', 403);
+  if (folder.scope !== scope) throw documentError('Choose a destination with the same access: personal or organization.');
+  return folder;
+}
+
 function enrichResource(resource, viewerUserId = null) {
   if (!resource) return null;
   const out = { ...resource };
@@ -124,6 +106,8 @@ function enrichResource(resource, viewerUserId = null) {
     out.isGoogleWorkspace = false;
     out.previewUrl = out.fileUrl || null;
   }
+  const video = libraryVideo(out.externalUrl, out.fileType === 'video');
+  if (video) { out.fileType = 'video'; out.videoProvider = video.provider; out.videoEmbedUrl = video.embedUrl; out.isGoogleWorkspace = false; }
   if (out.isMine == null && viewerUserId != null) {
     out.isMine =
       out.scope === 'personal' && Number(out.ownerUserId) === Number(viewerUserId);
@@ -213,6 +197,7 @@ export const createFolder = async (req, res, next) => {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: { message: 'Folder name is required' } });
     const scope = resolveScope(req, caps);
+    await assertFolderDestination(req, agencyId, caps, req.body.parentFolderId, scope);
     const folder = await Library.createFolder({
       agencyId,
       name,
@@ -237,6 +222,15 @@ export const updateFolder = async (req, res, next) => {
     const isOwner = Number(folder.ownerUserId) === Number(req.user.id);
     if (!caps.canManageLibrary && !isOwner) {
       return res.status(403).json({ error: { message: 'You can only edit folders you own' } });
+    }
+    if (req.body.parentFolderId !== undefined) {
+      let parent = await assertFolderDestination(req, agencyId, caps, req.body.parentFolderId, folder.scope);
+      const visited = new Set([Number(folder.id)]);
+      while (parent) {
+        if (visited.has(Number(parent.id))) throw documentError('A folder cannot be moved inside itself or one of its subfolders.');
+        visited.add(Number(parent.id));
+        parent = parent.parentFolderId ? await Library.findFolder(parent.parentFolderId, agencyId, { userId: req.user.id }) : null;
+      }
     }
     const updated = await Library.updateFolder(req.params.id, agencyId, {
       name: req.body.name,
@@ -363,6 +357,7 @@ export const listResources = async (req, res, next) => {
       sort: req.query.sort || 'updated',
       userId: req.user.id,
       favoritesOnly: req.query.favorites === '1',
+      mineOnly: req.query.mine === '1',
       limit: req.query.limit,
       offset: req.query.offset
     });
@@ -395,6 +390,7 @@ export const uploadResource = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'File is required' } });
     }
     const scope = resolveScope(req, caps);
+    await assertFolderDestination(req, agencyId, caps, req.body.folderId, scope);
     const name = String(req.body.name || req.file.originalname || 'Untitled').replace(/\.[^.]+$/, '').trim();
     const saved = await StorageService.saveLibraryResource({
       agencyId,
@@ -451,6 +447,7 @@ export const uploadBatchResources = async (req, res, next) => {
     }
 
     const scope = resolveScope(req, caps);
+    await assertFolderDestination(req, agencyId, caps, req.body.folderId, scope);
     const parentFolderId = req.body.folderId ? Number(req.body.folderId) : null;
     const relativePaths = Array.isArray(req.body.relativePath)
       ? req.body.relativePath
@@ -571,6 +568,7 @@ export const createBrandedDoc = async (req, res, next) => {
     }
 
     const scope = resolveScope(req, caps);
+    await assertFolderDestination(req, agencyId, caps, req.body.folderId, scope);
     const resource = await Library.createResource({
       agencyId,
       name,
@@ -730,7 +728,8 @@ export const addLinkResource = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid URL' } });
     }
 
-    const isGoogle = isGoogleWorkspaceUrl(url);
+    const video = libraryVideo(url, req.body.linkKind === 'video');
+    const isGoogle = !video && isGoogleWorkspaceUrl(url);
     if (isGoogle && !googlePreviewUrl(url)) {
       return res.status(400).json({
         error: {
@@ -741,12 +740,13 @@ export const addLinkResource = async (req, res, next) => {
     }
 
     const scope = resolveScope(req, caps);
+    await assertFolderDestination(req, agencyId, caps, req.body.folderId, scope);
     const resource = await Library.createResource({
       agencyId,
       name,
       description: req.body.description || null,
       resourceType: isGoogle ? 'google_doc' : 'link',
-      fileType: isGoogle ? detectGoogleFileType(url) : 'link',
+      fileType: video ? 'video' : isGoogle ? detectGoogleFileType(url) : 'link',
       externalUrl: url,
       categoryId: req.body.categoryId || null,
       folderId: req.body.folderId || null,
@@ -777,6 +777,7 @@ export const updateResource = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only edit resources you own' } });
     }
 
+    if (req.body.folderId !== undefined) await assertFolderDestination(req, agencyId, caps, req.body.folderId, existing.scope);
     const documentEdit = ['bodyHtml', 'letterheadTemplateId', 'brandingMode', 'name'].some((key) => req.body[key] !== undefined);
     let brandingMode = req.body.brandingMode ?? existing.brandingMode;
     let letterheadTemplateId = req.body.letterheadTemplateId !== undefined ? req.body.letterheadTemplateId : existing.letterheadTemplateId;

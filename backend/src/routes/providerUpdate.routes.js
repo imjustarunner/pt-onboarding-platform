@@ -84,6 +84,7 @@ router.post('/admin-updates', authenticate, ctrl.createAttachedAdminUpdate);
 router.put('/admin-updates/:updateId', authenticate, ctrl.patchAttachedAdminUpdate);
 
 router.get('/handbook/published', authenticate, hb.getPublished);
+router.get('/handbook/library', authenticate, hb.getLibraryHandbook);
 router.post('/handbook/answer', authenticate, handbookAssistantLimit, hb.answerQuestion);
 router.get('/handbook/workspace', authenticate, hb.getWorkspace);
 router.post('/handbook/source/stage', authenticate, hb.stageSource);

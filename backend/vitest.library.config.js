@@ -5,7 +5,9 @@ export default {
     environment: 'node',
     include: [
       'src/controllers/__tests__/libraryDocuments.test.js',
-      'src/services/__tests__/libraryPdf.test.js'
+      'src/services/__tests__/libraryPdf.test.js',
+      'src/services/__tests__/libraryUploads.test.js',
+      'src/services/__tests__/libraryVideo.test.js'
     ],
     restoreMocks: true
   }

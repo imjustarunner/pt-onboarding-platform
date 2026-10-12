@@ -1,3 +1,4 @@
+import { libraryUploadError, LIBRARY_BATCH_FILES } from '../services/libraryUploads.js';
 import express from 'express';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
@@ -72,7 +73,7 @@ router.post('/documents/preview', previewLibraryDocument);
 router.post(
   '/resources/suggest-metadata',
   (req, res, next) => {
-    uploadLibraryFile.single('file')(req, res, () => next());
+    uploadLibraryFile.single('file')(req, res, err => err ? res.status(400).json({ error: { message: libraryUploadError(err) } }) : next());
   },
   suggestResourceMetadata
 );
@@ -81,7 +82,7 @@ router.post(
   (req, res, next) => {
     uploadLibraryFile.single('file')(req, res, (err) => {
       if (err) {
-        return res.status(400).json({ error: { message: err.message || 'Upload failed' } });
+        return res.status(400).json({ error: { message: libraryUploadError(err) } });
       }
       return next();
     });
@@ -91,9 +92,9 @@ router.post(
 router.post(
   '/resources/upload-batch',
   (req, res, next) => {
-    uploadLibraryFile.array('files', 200)(req, res, (err) => {
+    uploadLibraryFile.array('files', LIBRARY_BATCH_FILES)(req, res, (err) => {
       if (err) {
-        return res.status(400).json({ error: { message: err.message || 'Upload failed' } });
+        return res.status(400).json({ error: { message: libraryUploadError(err) } });
       }
       return next();
     });

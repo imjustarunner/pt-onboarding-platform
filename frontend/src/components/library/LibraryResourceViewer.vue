@@ -44,6 +44,7 @@
     </header>
 
     <div class="lib-viewer__body">
+      <p v-if="isVideo" class="video-link-notice">Video hosted on {{ resource.videoProvider || 'an external service' }}. If playback needs permission, use Open in new tab with the account the video was shared with.</p>
       <div v-if="isGoogle && previewLoading" class="lib-viewer__fallback" role="status">Opening document…</div>
       <div v-else-if="isGoogle && previewError" class="lib-viewer__fallback" role="alert">
         <p>{{ previewError }}</p>
@@ -56,7 +57,8 @@
         class="lib-viewer__frame"
         :src="embedUrl"
         :title="resource?.name || 'Preview'"
-        allow="fullscreen"
+        allow="fullscreen; picture-in-picture"
+        referrerpolicy="strict-origin-when-cross-origin"
       />
       <div v-else-if="isImage && imageUrl" class="lib-viewer__image-wrap">
         <img :src="imageUrl" :alt="resource?.name || 'Image'" class="lib-viewer__image" />
@@ -110,9 +112,10 @@ const isBranded = computed(
 
 const isPdf = computed(() => props.resource.resourceType === 'file' && (props.resource.fileType === 'pdf' || String(props.resource.mimeType || '').includes('pdf')));
 
+const isVideo = computed(() => props.resource?.fileType === 'video');
 const isGoogle = computed(() => {
   const r = props.resource;
-  if (!r || isBranded.value) return false;
+  if (!r || isBranded.value || isVideo.value) return false;
   if (r.resourceType === 'google_doc' || r.isGoogleWorkspace) return true;
   return isGoogleWorkspaceUrl(r.externalUrl || r.previewUrl);
 });
@@ -127,6 +130,7 @@ const isGoogleFolder = computed(() => {
 const subtitle = computed(() => {
   const r = props.resource;
   if (!r) return '';
+  if (isVideo.value) return 'Video link';
   if (isBranded.value) return 'Branded document';
   if (isGoogle.value) return detectGoogleResourceLabel(r.externalUrl || '');
   if (r.fileType) return String(r.fileType).toUpperCase();
@@ -137,6 +141,7 @@ const subtitle = computed(() => {
 const embedUrl = computed(() => {
   const r = props.resource;
   if (!r || isBranded.value) return null;
+  if (isVideo.value) return r.videoEmbedUrl || null;
   if (isGoogle.value) {
     return googlePreviewUrl.value || null;
   }
@@ -193,6 +198,7 @@ onBeforeUnmount(() => { previewSequence++; previewRequest?.abort(); releasePrevi
 </script>
 
 <style scoped>
+.video-link-notice{font-size:12px;color:#5a6e62;padding:12px 16px;margin:0;background:#f0f5ed}
 .resource-viewer{height:100%;overflow:auto;background:white;border-radius:12px}
 .reading-notice{font-size:11px;color:#596b60;padding:8px 12px}
 

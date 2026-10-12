@@ -8,11 +8,38 @@ vi.mock('../../services/workplaceHandbookAnswer.service.js', () => ({ answerPubl
 import User from '../../models/User.model.js';
 import { assertAgencyAdmin, getRecipientByToken, getPush } from '../../services/providerUpdate.service.js';
 import { getPublishedDigestForAgency, getPublishedHandbook, getDraftOrCreate, publishDraft, getDigest, setFullHandbookUrl } from '../../services/workplaceHandbook.service.js';
-import { assertHandbookReader, getPublished, publish, publicPublishedByToken, getDigestHandler, saveFullHandbookUrl, answerQuestion, answerQuestionByToken } from '../workplaceHandbook.controller.js';
+import { assertHandbookReader, getPublished, getLibraryHandbook, publish, publicPublishedByToken, getDigestHandler, saveFullHandbookUrl, answerQuestion, answerQuestionByToken } from '../workplaceHandbook.controller.js';
+import { sourceForAgency } from '../../services/workplaceHandbookWorkflow.service.js';
 import { answerPublishedHandbook } from '../../services/workplaceHandbookAnswer.service.js';
 import { handbookResponseForReader } from '../../services/workplaceHandbookAccess.js';
 
 beforeEach(() => vi.resetAllMocks());
+describe('library handbook reading', () => {
+  it('shows the supplied company beta edition when publication is not ready', async () => {
+    User.getAgencies.mockResolvedValue([{ id: 2 }]);
+    getPublishedHandbook.mockResolvedValue({ version: null, sections: [] });
+    sourceForAgency.mockResolvedValue({ organization: 'ITSCO', title: 'Workplace Handbook', revision: 'r1', sections: [{ slug: 'welcome', body_html: '<p>Our handbook</p>' }], reviewUpdates: [{ subject: 'Unpublished draft change' }] });
+    const res = { json: vi.fn(), set: vi.fn() }, next = vi.fn();
+    await getLibraryHandbook({ user: { id: 7, role: 'provider' }, query: { agencyId: 2 } }, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.json.mock.calls[0][0].handbook).toMatchObject({ beta: true, revision: 'r1', metadata: { organization: 'ITSCO' }, sections: [{ slug: 'welcome' }] });
+    expect(JSON.stringify(res.json.mock.calls[0][0])).not.toContain('Unpublished draft change');
+    expect(getDraftOrCreate).not.toHaveBeenCalled();
+    expect(res.set).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+  });
+  it('prefers the published edition and never exposes another organization’s source', async () => {
+    const published = { version: { id: 10 }, sections: [{ slug: 'policy' }] };
+    User.getAgencies.mockResolvedValue([{ id: 2 }]); getPublishedHandbook.mockResolvedValue(published);
+    const res = { json: vi.fn(), set: vi.fn() }, next = vi.fn();
+    await getLibraryHandbook({ user: { id: 7 }, query: { agencyId: 2 } }, res, next);
+    expect(res.json.mock.calls[0][0].handbook).toEqual(published);
+    expect(sourceForAgency).not.toHaveBeenCalled();
+    getPublishedHandbook.mockClear();
+    await getLibraryHandbook({ user: { id: 7 }, query: { agencyId: 99 } }, res, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+    expect(getPublishedHandbook).not.toHaveBeenCalled();
+  });
+});
 describe('handbook answer authorization', () => {
   it('denies a user from another organization before loading policies or using AI', async () => {
     User.getAgencies.mockResolvedValue([{ id: 3 }]);

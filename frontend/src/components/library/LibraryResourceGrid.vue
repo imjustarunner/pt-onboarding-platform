@@ -49,6 +49,7 @@ defineProps({
 defineEmits(['open', 'toggle-favorite', 'menu', 'details']);
 const isGuide = (item) => item.resourceType === 'company_guide';
 function typeKey(item) {
+  if (item.fileType === 'video') return 'video';
   if (isGuide(item)) return 'guide';
   if (item.resourceType === 'branded_doc') return 'document';
   if (item.resourceType === 'google_doc') return 'google';
@@ -56,9 +57,10 @@ function typeKey(item) {
   return item.fileType || 'file';
 }
 function typeShort(item) {
-  return { guide: 'READ', document: 'DOC', google: 'GDOC', link: 'LINK', pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'IMG', text: 'TXT' }[typeKey(item)] || 'FILE';
+  return { video: 'VIDEO', guide: 'READ', document: 'DOC', google: 'GDOC', link: 'LINK', pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'IMG', text: 'TXT' }[typeKey(item)] || 'FILE';
 }
 function typeLabel(item) {
+  if (item.fileType === 'video') return 'Video link';
   if (isGuide(item)) return item.guideKey === 'workplace-handbook' ? 'Handbook' : 'Guide';
   if (item.resourceType === 'branded_doc') return 'Document';
   if (item.resourceType === 'google_doc') return 'Google Doc';

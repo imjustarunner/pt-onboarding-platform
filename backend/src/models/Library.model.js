@@ -451,6 +451,7 @@ class Library {
       sort = 'updated',
       userId = null,
       favoritesOnly = false,
+      mineOnly = false,
       limit = 100,
       offset = 0
     } = opts;
@@ -459,6 +460,7 @@ class Library {
     const params = [Number(agencyId)];
 
     if (!includeArchived) conditions.push('r.archived_at IS NULL');
+    if (mineOnly) { conditions.push("r.scope = 'personal' AND r.owner_user_id = ?"); params.push(Number(userId || 0)); }
     if (categoryId) {
       conditions.push('r.category_id = ?');
       params.push(Number(categoryId));

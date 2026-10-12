@@ -36,6 +36,15 @@ describe('same guide catalog across learning surfaces', () => {
     await button(w, 'Start optional').trigger('click'); await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/provider-update/document-learning/courses/provider-guide/start', expect.objectContaining({ purpose: 'practice', agencyId: 2, expectedVersionId: 14, requestKey: expect.any(String) }));
   });
+  it('explains a skipped practice quiz and keeps that enrollment available to resume', async () => {
+    api.get.mockResolvedValue({ data: { courses: [{ ...course, enrollments: [{ id: 11, purpose: 'practice', status: 'in_progress' }] }] } });
+    const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'on-demand' }, global: { stubs: { Player: true } } });
+    await button(w, 'Continue optional').trigger('click');
+    w.getComponent({ name: 'Player' }).vm.$emit('close', { skippedKnowledgeCheck: true }); await flushPromises();
+    expect(w.text()).toContain('no completion was recorded');
+    expect(button(w, 'Continue optional')).toBeDefined();
+    expect(w.emitted('completed')).toBeUndefined(); expect(api.post).not.toHaveBeenCalled();
+  });
   it('resumes assigned records without creating a new practice or payroll assignment', async () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, enrollments: [{ id: 5, purpose: 'assigned', status: 'in_progress' }] }] } });
     const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'assigned' }, global: { stubs: { Player: true } } });
@@ -56,7 +65,7 @@ describe('same guide catalog across learning surfaces', () => {
     const w = await mounted(Catalog, { props: { agencyId: 2 } }); await w.setProps({ agencyId: 8 }); await flushPromises(); resolve({ data: { courses: [course] } }); await flushPromises(); expect(w.text()).not.toContain('Provider guide training');
   });
 });
-const BookStub = { name: 'WorkplaceHandbookBook', emits: ['section-change'], props: ['handbook', 'answerQuestion'], mounted() { this.$emit('section-change', 'first'); }, methods: { selectSection(slug) { this.$emit('section-change', slug); } }, template: '<div>Readable guide<slot name="section-actions" :section="handbook.sections[0]" /></div>' };
+const BookStub = { name: 'WorkplaceHandbookBook', emits: ['section-change'], props: ['handbook', 'answerQuestion'], mounted() { this.$emit('section-change', 'first'); }, methods: { selectSection(slug) { this.$emit('section-change', slug); } }, template: '<div>Readable guide<slot name="reader-actions" :section="handbook.sections[0]" /></div>' };
 describe('guide reader, questions and completion', () => {
   it('optional practice never sends heartbeat or payroll requests, including completion and closing', async () => {
     let saved = enrollment('practice'); api.get.mockImplementation(async () => ({ data: structuredClone(saved) }));
@@ -66,7 +75,7 @@ describe('guide reader, questions and completion', () => {
       throw new Error('Unexpected request ' + path);
     });
     const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
-    await button(w, 'I have reviewed').trigger('click'); await flushPromises(); await button(w, 'Knowledge check').trigger('click');
+    await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises(); await button(w, 'Knowledge check').trigger('click');
     for (const field of w.findAll('fieldset')) await field.findAll('input')[0].setValue(true);
     await w.get('form').trigger('submit'); await flushPromises(); expect(w.text()).toContain('Completed and saved');
     await button(w, 'Save & close').trigger('click'); await flushPromises(); expect(w.emitted('close')).toHaveLength(1);
@@ -74,12 +83,59 @@ describe('guide reader, questions and completion', () => {
   });
   it('keeps quiz unavailable until reading is acknowledged and shows linked failure feedback', async () => {
     let saved = enrollment('practice'); api.get.mockImplementation(async () => ({ data: structuredClone(saved) }));
-    api.post.mockImplementation(async path => path.endsWith('/reading') ? { data: { readSections: ['first'] } } : { data: { passed: false, score: 67, feedback: [{ id: 'question-1', correct: false, explanation: 'Read the applicable procedure.', sourceSlug: 'first' }] } });
+    api.post.mockImplementation(async path => { if (path.endsWith('/reading')) { saved.readSections = ['first']; return { data: { readSections: ['first'] } }; } return { data: { passed: false, score: 67, feedback: [{ id: 'question-1', correct: false, explanation: 'Read the applicable procedure.', sourceSlug: 'first' }] } }; });
     const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
     await button(w, 'Knowledge check').trigger('click'); expect(button(w, 'Check my answers').attributes('disabled')).toBeDefined();
-    await button(w, 'Read & ask').trigger('click'); await button(w, 'I have reviewed').trigger('click'); await flushPromises(); await button(w, 'Knowledge check').trigger('click');
+    await button(w, 'Read & ask').trigger('click'); await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises(); await button(w, 'Knowledge check').trigger('click');
+    for (const field of w.findAll('fieldset')) await field.findAll('input')[0].setValue(true);
     await w.get('form').trigger('submit'); await flushPromises(); expect(w.text()).toContain('67%'); expect(w.text()).toContain('Read the applicable procedure.');
-    await button(w, 'Read First section').trigger('click'); expect(w.get('.reading-confirmation').text()).toContain('First section'); expect(w.emitted('completed')).toBeUndefined();
+    await button(w, 'Read First section').trigger('click'); expect(w.get('.reading-confirmation').text()).toContain('Reading complete'); expect(w.emitted('completed')).toBeUndefined();
+  });
+  it('opens the questions automatically after the last core acknowledgment and does not complete from reading alone', async () => {
+    api.get.mockResolvedValue({ data: enrollment('practice') });
+    api.post.mockResolvedValue({ data: { readSections: ['first'] } });
+    const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
+    expect(w.find('.knowledge-check').exists()).toBe(false);
+    await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises();
+    expect(w.find('.knowledge-check').isVisible()).toBe(true);
+    expect(w.text()).toContain('Apply what you learned');
+    expect(w.findAll('fieldset')).toHaveLength(3);
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith('/provider-update/document-learning/enrollments/11/reading', { agencyId: 2, slug: 'first' });
+    expect(w.emitted('completed')).toBeUndefined();
+  });
+  it('makes the pending quiz visible on resume and skips only optional practice without a completion or quiz request', async () => {
+    const saved = { ...enrollment('practice'), readSections: ['first'] };
+    api.get.mockResolvedValue({ data: saved });
+    const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
+    expect(w.get('.reading-ready').text()).toContain('Reading complete. Put it into practice.');
+    expect(w.get('.reading-confirmation').text()).toContain('Start knowledge check');
+    await button(w, 'Start knowledge check').trigger('click');
+    await w.get('.quiz-heading').findAll('button')[0].trigger('click');
+    expect(w.emitted('close')).toEqual([[{ skippedKnowledgeCheck: true }]]);
+    expect(w.emitted('completed')).toBeUndefined();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(saved.status).toBe('in_progress');
+  });
+  it.each(['assigned', 'onboarding'])('never offers quiz skipping for %s training', async purpose => {
+    api.get.mockResolvedValue({ data: { ...enrollment(purpose), readSections: ['first'] } });
+    api.post.mockResolvedValue({ data: { tracking: false } });
+    const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
+    expect(button(w, 'Skip knowledge')).toBeUndefined();
+    await button(w, 'Start knowledge check').trigger('click');
+    expect(button(w, 'Skip knowledge')).toBeUndefined();
+    expect(button(w, 'Check my answers').attributes('disabled')).toBeDefined();
+    await w.get('form').trigger('submit'); await flushPromises();
+    expect(api.post.mock.calls.some(([path]) => path.endsWith('/quiz'))).toBe(false);
+    expect(w.emitted('completed')).toBeUndefined();
+  });
+  it('does not advance to questions when a reading save fails', async () => {
+    api.get.mockResolvedValue({ data: enrollment('practice') }); api.post.mockRejectedValue(new Error('Offline'));
+    const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
+    await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises();
+    expect(w.text()).toContain('Reading progress could not be saved.');
+    expect(w.find('.knowledge-check').exists()).toBe(false);
+    expect(w.emitted('completed')).toBeUndefined();
   });
   it('shows paid time on assigned work and retains an actionable message on payroll failure', async () => {
     api.get.mockResolvedValue({ data: enrollment('assigned') }); api.post.mockImplementation(async path => { if (path.endsWith('/heartbeat')) return { data: { tracking: true } }; throw new Error('Offline'); });
