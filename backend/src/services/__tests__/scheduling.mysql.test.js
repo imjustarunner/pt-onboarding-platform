@@ -60,7 +60,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `CREATE TABLE booking_package_ledger (id INT PRIMARY KEY AUTO_INCREMENT, agency_id INT, entitlement_id INT, client_id INT, appointment_id INT, direction VARCHAR(20), quantity INT, reason_code VARCHAR(50), metadata_json JSON, created_by_user_id INT)`
     ];
     mainDdl.push(
-      `CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100))`,
+      `CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), status VARCHAR(40) DEFAULT 'ACTIVE_EMPLOYEE', is_archived BOOLEAN DEFAULT 0)`,
       `CREATE TABLE clients (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100))`,
       `CREATE TABLE appointment_billing (id INT AUTO_INCREMENT PRIMARY KEY, appointment_id INT UNIQUE, payment_status VARCHAR(30), amount_cents INT)`,
       `CREATE TABLE clinical_record_refs (agency_id INT, client_id INT, office_event_id INT, clinical_session_id INT, record_type VARCHAR(30), clinical_record_id INT, updated_at TIMESTAMP NULL, UNIQUE KEY ref_key (record_type, clinical_record_id))`,
@@ -261,7 +261,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     const preview = { appointment: { clientId: 8 }, consequence: { model: fee ? 'fee' : 'package', feeCents: fee ? 2500 : 0 } };
     const facts = { clientId: 8, eventType: 'no_show', waiver: { action: 'recommend', reason: 'family_emergency' } };
     await pool.query(`UPDATE clients SET first_name='Synthetic',last_name='Client' WHERE id=8`);
-    await pool.query(`INSERT INTO users VALUES (9, 'Test', 'Provider')`);
+    await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.execute(`INSERT INTO appointment_change_workflows (appointment_id, agency_id, status, facts_json, preview_json, narrative, signed_by_user_id, updated_by_user_id)
       VALUES (10, 1, 'completed', ?, ?, 'Original signed cancellation note.', 9, 9)`, [JSON.stringify(facts), JSON.stringify(preview)]);
     await queueAppointmentWaiver({ appointmentId: 10, agencyId: 1, facts, actorUserId: 9 });

@@ -378,7 +378,16 @@ class OfficeEvent {
         roomId,
         startAt: normalizedStartAt,
         endAt: normalizedEndAt
-      }, () => this.upsertSlotState({
+      }, async conn => {
+        // Serialize materialization with provider offboarding. A previously read
+        // template must not recreate reservations after its owner is archived.
+        if (standingAssignmentId) {
+          const [[source]] = await conn.execute(`SELECT a.is_active,u.status,u.is_archived
+            FROM office_standing_assignments a JOIN users u ON u.id=a.provider_id WHERE a.id=? FOR UPDATE`, [standingAssignmentId]);
+          if (!source || !Number(source.is_active) || Number(source.is_archived)
+              || ['ARCHIVED','INACTIVE_EMPLOYEE'].includes(String(source.status || '').toUpperCase())) return null;
+        }
+        return this.upsertSlotState({
         officeLocationId,
         roomId,
         startAt: normalizedStartAt,
@@ -394,7 +403,8 @@ class OfficeEvent {
         allowAutomaticReservationDowngrade,
         notes,
         _locked: true
-      }));
+        });
+      });
     }
     // Recheck source rows while holding the room lock. A materializer may have
     // read a plan just before client termination stopped it.

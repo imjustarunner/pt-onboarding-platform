@@ -63,3 +63,39 @@ jobs:
           npm test --
           src/components/admin/opsDashboard/__tests__/PlannedOutModal.test.js
           src/utils/__tests__/plannedOutTimezone.test.js
+
+  provider-offboarding:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      SCHEDULING_TEST_MYSQL_PORT: '3306'
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend --ignore-scripts
+      - name: Provider archive cleanup and scheduling integration
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.scheduling.config.js
+          backend/src/services/__tests__/scheduling.providerOffboarding.mysql.test.js
+          backend/src/services/__tests__/scheduling.mysql.test.js

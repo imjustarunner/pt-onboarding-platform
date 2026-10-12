@@ -2484,6 +2484,16 @@ if (!isBootstrap) {
   };
   void clientTerminationTick();
   setInterval(clientTerminationTick, 60 * 1000).unref();
+  let providerOffboardingRunning = false;
+  const providerOffboardingTick = async () => {
+    if (providerOffboardingRunning) return;
+    providerOffboardingRunning = true;
+    try { await (await import('./services/providerOffboarding.service.js')).processPendingProviderOffboarding(); }
+    catch (error) { console.warn('[provider offboarding] Worker failed', error.code || 'CLEANUP_FAILED'); }
+    finally { providerOffboardingRunning = false; }
+  };
+  void providerOffboardingTick();
+  setInterval(providerOffboardingTick, 60 * 1000).unref();
 
 
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
