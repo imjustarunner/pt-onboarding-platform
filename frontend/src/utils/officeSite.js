@@ -1,3 +1,5 @@
+import { injectShareMetaIntoHtml } from './sharePreview.js';
+
 // Shared entry points serve every building. Retain old aliases for bookmarks;
 // the authenticated device session always selects the actual building.
 export const OFFICE_SITES = [
@@ -33,12 +35,17 @@ export function applyOfficeInstallIdentity(locationId) {
   document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/office/kiosk.webmanifest');
 }
 export function officeHtml(html, site) {
-  const title=site.locationId ? `${site.name} Kiosk · ${OFFICE_APP_NAME}` : OFFICE_APP_NAME, image=site.locationId ? `https://plottwisthq.com/office/${site.locationId===6?'denver':'windchime'}-kiosk-share.jpg` : 'https://plottwisthq.com/office/auricwell-kiosk-512.png';
-  return html.replace(/<title>[^<]*<\/title>/, `<title>${OFFICE_APP_NAME}</title>`)
-    .replace(/(<meta\b[^>]*(?:property|name)="(?:og|twitter):title"[^>]*content=")[^"]*(")/g,`$1${title}$2`)
-    .replace(/(<meta\b[^>]*(?:property|name)="(?:og|twitter):description"[^>]*content=")[^"]*(")/g,'$1A warm welcome with AuricWell. Client check-in, today’s providers, and the office directory.$2')
-    .replace(/(<meta\b[^>]*(?:property|name)="(?:og|twitter):image"[^>]*content=")[^"]*(")/g,`$1${image}$2`)
+  const title = site.locationId ? `${site.name} Kiosk · ${OFFICE_APP_NAME}` : OFFICE_APP_NAME;
+  const origin = `https://${site.host}`;
+  const imagePath = site.locationId ? `/office/${site.locationId === 6 ? 'denver' : 'windchime'}-kiosk-share.jpg` : '/office/auricwell-kiosk-share.png';
+  const meta = {
+    name: OFFICE_APP_NAME, title,
+    description: 'A warm welcome with AuricWell. Client check-in, today’s providers, and the office directory.',
+    image: `${origin}${imagePath}`, url: `${origin}/`
+  };
+  return injectShareMetaIntoHtml(html.replace(/<meta\b[^>]*property=["']og:type["'][^>]*>/gi, ''), meta)
+    .replace(/<title>[^<]*<\/title>/, `<title>${OFFICE_APP_NAME}</title>`)
     .replace(/(<link\b[^>]*id="app-(?:favicon|apple-touch-icon)"[^>]*href=")[^"]*(")/g, `$1${OFFICE_ICON}$2`)
     .replace(/(<link\b[^>]*rel="manifest"[^>]*href=")[^"]*(")/, '$1/office/kiosk.webmanifest$2')
-    .replace('</head>', `<meta name="apple-mobile-web-app-title" content="Kiosk"><meta name="application-name" content="${OFFICE_APP_NAME}"></head>`);
+    .replace('</head>', `<meta property="og:type" content="website">${site.locationId ? '' : '<meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="AuricWell Kiosk — A warm welcome starts here.">'}<meta name="apple-mobile-web-app-title" content="Kiosk"><meta name="application-name" content="${OFFICE_APP_NAME}"></head>`);
 }
