@@ -1,3 +1,4 @@
+import { installEmploymentStarter, starterReviewNotes, EMPLOYMENT_STARTER_VERSION } from '../services/employmentStarter.service.js';
 import {
   listTemplates,
   createTemplate,
@@ -34,6 +35,7 @@ export const getContractLibrary = async (req, res, next) => {
       getAgencyBuilderDefaults(agencyId)
     ]);
     res.json({
+      starter: {version:EMPLOYMENT_STARTER_VERSION,reviewNotes:starterReviewNotes},
       templates,
       clauses,
       configs,
@@ -206,7 +208,8 @@ export const generateContractForCandidate = async (req, res, next) => {
       jobDescClauseKey: req.body?.jobDescClauseKey,
       credentialOverride: req.body?.credential || null,
       officeLocationId: req.body?.officeLocationId ? parseInt(req.body.officeLocationId, 10) : null,
-      taskMetadata: { prehire: true }
+      taskMetadata: { prehire: true },
+      expectedPreviewHash: req.body?.expectedPreviewHash || null
     });
     res.status(201).json(result);
   } catch (e) {
@@ -214,3 +217,5 @@ export const generateContractForCandidate = async (req, res, next) => {
     next(e);
   }
 };
+
+export async function postEmploymentStarter(req,res,next){try{const agencyId=parseAgencyId(req);if(!agencyId)return res.status(400).json({error:{message:"Organization required"}});res.json(await installEmploymentStarter(agencyId,req.user.id));}catch(e){next(e);}}

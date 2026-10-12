@@ -22,6 +22,8 @@
     <div v-else-if="error" class="cg-error">{{ error }}</div>
 
     <template v-else>
+      <p v-if="wizardErr" class="cg-error" role="alert">{{ wizardErr }}</p>
+      <details class="cg-panel"><summary>Plotline employment template for this agency</summary><p>Create an editable agency copy with separate hourly and fee-for-service clause sets. It uses this agency’s branding and compensation settings. Existing agreements and posting defaults are preserved.</p><p>New configurations remain inactive until reviewed. Subscription packaging and pricing are managed separately.</p><button class="cg-btn" :disabled="busy" @click="installStarter">Add agency template library</button></details>
       <!-- Build (spreadsheet-style front page) -->
       <section v-if="tab === 'build'" class="cg-panel">
         <div class="cg-build-toolbar">
@@ -74,7 +76,7 @@
             <span class="cg-label">2 · Configuration</span>
             <select v-model="build.configId" required>
               <option value="">— select —</option>
-              <option v-for="c in configs" :key="c.id" :value="c.id">{{ c.name }}</option>
+              <option v-for="c in configs.filter(c => c.is_active)" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
             <span class="cg-note">Clause chain (hourly, FFS, intern, addendum…)</span>
           </div>
@@ -121,30 +123,29 @@
           </div>
           <div class="cg-sheet-row"><span class="cg-label">Candidate name</span><input v-model="build.tokens.CANDIDATE_NAME" /><span class="cg-note">Legal name</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Job title</span><input v-model="build.tokens.JOB_TITLE" /><span class="cg-note">From applied job / JD</span></div>
-          <div class="cg-sheet-row"><span class="cg-label">Service focus</span><input v-model="build.tokens.SERVICE_FOCUS" /><span class="cg-note">From JD tags or profile</span></div>
-          <div class="cg-sheet-row"><span class="cg-label">Role label</span><input v-model="build.tokens.ROLE_LABEL" /><span class="cg-note">Provider, Student, Facilitator…</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Execution date</span><input v-model="build.tokens.EXECUTION_DATE" type="text" /><span class="cg-note">Date contract is sent</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Start date</span><input v-model="build.tokens.START_DATE" type="text" /><span class="cg-note">Proposed start</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Expiration date</span><input v-model="build.tokens.EXPIRATION_DATE" type="text" /><span class="cg-note">Offer expiry (often +7–14 days)</span></div>
-          <div class="cg-sheet-row"><span class="cg-label">Supervisor</span><input v-model="build.tokens.SUPERVISOR_NAME" /><span class="cg-note" /></div>
-          <div class="cg-sheet-row"><span class="cg-label">Min hours</span><input v-model="build.tokens.MIN_HOURS" /><span class="cg-note">e.g. Ten (10) Hours</span></div>
           <div class="cg-sheet-row"><span class="cg-label">License type</span><input v-model="build.tokens.LICENSE_TYPE" /><span class="cg-note">Credential label + degree</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Licensure deadline</span><input v-model="build.tokens.LICENSURE_DEADLINE" /><span class="cg-note">For contingency configs</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Licensing board</span><input v-model="build.tokens.LICENSING_BOARD" /><span class="cg-note" /></div>
-          <div class="cg-sheet-row"><span class="cg-label">Direct rate</span><input v-model="build.tokens.DIRECT_RATE" /><span class="cg-note">Hourly / from pay level</span></div>
-          <div class="cg-sheet-row"><span class="cg-label">Indirect rate</span><input v-model="build.tokens.INDIRECT_RATE" /><span class="cg-note">Hourly / from pay level</span></div>
+          <div class="cg-sheet-row"><span class="cg-label">Direct rate</span><input v-model="build.tokens.DIRECT_RATE" readonly /><span class="cg-note">Hourly / from pay level</span></div>
+          <div class="cg-sheet-row"><span class="cg-label">Indirect rate</span><input v-model="build.tokens.INDIRECT_RATE" readonly /><span class="cg-note">Hourly / from pay level</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Adjustment reason</span><input v-model="build.tokens.ADJUSTMENT_REASON" /><span class="cg-note">Addendum only</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Original agreement date</span><input v-model="build.tokens.ORIGINAL_AGREEMENT_DATE" /><span class="cg-note">Addendum only</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Internship end</span><input v-model="build.tokens.INTERNSHIP_END_DATE" /><span class="cg-note">Intern addendum</span></div>
           <div class="cg-sheet-row"><span class="cg-label">University</span><input v-model="build.tokens.UNIVERSITY_NAME" /><span class="cg-note">Practicum / intern</span></div>
         </div>
 
+        <ContractExpectationsEditor v-model="individualExpectations" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
+        <button v-if="postingDefaults" type="button" class="cg-btn" @click="individualExpectations = JSON.parse(JSON.stringify(postingDefaults))">Restore this posting’s defaults</button>
         <div class="cg-actions">
           <button type="button" class="cg-btn" :disabled="busy || !canBuild" @click="preview">Preview contract</button>
           <button type="button" class="cg-btn primary" :disabled="busy || !canBuild" @click="generate">Generate &amp; assign for e-sign</button>
         </div>
         <p v-if="wizardMsg" class="cg-ok">{{ wizardMsg }}</p>
-        <p v-if="wizardErr" class="cg-error">{{ wizardErr }}</p>
+
+        <details v-if="clauseManifest.length"><summary>Clauses selected for this agreement</summary><ul><li v-for="clause in clauseManifest" :key="clause.key"><strong>{{ clause.included ? 'Included' : 'Omitted' }} · {{ clause.title }}</strong> — {{ clause.reason }}</li></ul></details>
         <div v-if="previewHtml" class="cg-preview" v-html="previewHtml"></div>
       </section>
 
@@ -159,7 +160,7 @@
         <template v-if="libraryTab === 'configs'">
           <div v-for="c in configs" :key="c.id" class="cg-card">
             <strong>{{ c.name }}</strong>
-            <div class="cg-muted">{{ c.slug }} · {{ c.pay_mode }} · {{ (c.clause_keys || []).length }} clauses</div>
+            <div class="cg-muted">{{ c.slug }} · {{ c.pay_mode }} · {{ (c.clause_keys || []).length }} clauses · {{ c.is_active ? 'Active' : 'Inactive — review required' }}</div><details><summary>Included clauses</summary><ul><li v-for="key in c.clause_keys || []" :key="key">{{ key }}</li></ul></details><button v-if="!c.is_active" class="cg-btn" @click="activateConfig(c)">Activate reviewed configuration</button>
           </div>
         </template>
         <template v-else-if="libraryTab === 'clauses'">
@@ -188,6 +189,7 @@
 </template>
 
 <script setup>
+import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -317,6 +319,10 @@ const canBuild = computed(() => Boolean(build.value.candidateUserId && build.val
 const editingClauseId = ref(null);
 const clauseDraft = ref({ title: '', bodyHtml: '' });
 const previewHtml = ref('');
+const postingDefaults = ref(null);
+const individualExpectations = ref({});
+const clauseManifest = ref([]);
+const previewHash = ref('');
 const wizardMsg = ref('');
 const wizardErr = ref('');
 
@@ -359,12 +365,13 @@ function applyOfficeTokens(officeId) {
 function applyTokensToBuild(tokens = {}) {
   const t = build.value.tokens;
   for (const key of Object.keys(t)) {
-    if (tokens[key] != null && tokens[key] !== '') t[key] = tokens[key];
+    t[key] = tokens[key] ?? '';
   }
   if (tokens.EMPLOYEE_FULL_NAME && !t.CANDIDATE_NAME) t.CANDIDATE_NAME = tokens.EMPLOYEE_FULL_NAME;
   if (tokens.UNIVERSITY && !t.UNIVERSITY_NAME) t.UNIVERSITY_NAME = tokens.UNIVERSITY;
   if (tokens.CREDENTIAL) syncCredentialKeyFromText(tokens.CREDENTIAL);
-  if (tokens.ASSIGNED_OFFICE_ID) build.value.officeLocationId = tokens.ASSIGNED_OFFICE_ID;
+  build.value.officeLocationId = tokens.ASSIGNED_OFFICE_ID || '';
+  if (!tokens.CREDENTIAL) syncCredentialKeyFromText('');
 }
 
 function applyCompensationLevel() {
@@ -429,6 +436,9 @@ function onOfficeChanged() {
 }
 
 async function onCandidateSelected() {
+  previewHtml.value = ''; previewHash.value = ''; clauseManifest.value = [];
+  individualExpectations.value = {}; postingDefaults.value = null;
+  build.value.credential = ''; build.value.credentialKey = ''; build.value.officeLocationId = '';
   if (!build.value.candidateUserId) return;
   await loadCandidateContext();
 }
@@ -457,6 +467,8 @@ async function loadCandidateContext() {
     if (data.suggested?.officeLocationId) build.value.officeLocationId = data.suggested.officeLocationId;
     build.value.compensationLevelKey = `${build.value.compensationCategory}:${build.value.compensationLevel}`;
     applyTokensToBuild(data.tokens || {});
+    postingDefaults.value = data.tokens?.CONTRACT_POSTING_DEFAULTS || {};
+    individualExpectations.value = {...postingDefaults.value,roleLabel:data.tokens?.ROLE_LABEL,serviceFocus:data.tokens?.SERVICE_FOCUS,supervisorName:data.tokens?.SUPERVISOR_NAME,directHours:data.tokens?.MIN_HOURS,schedule:data.tokens?.SCHEDULE,expectedHours:data.tokens?.EXPECTED_HOURS,daysPerWeek:data.tokens?.MIN_DAYS_PER_WEEK};
     applyOfficeTokens(build.value.officeLocationId);
     applyCompensationLevel();
     wizardMsg.value = `Loaded ${data.tokens?.CANDIDATE_NAME || 'candidate'} — job, credential, pay level, and office prefilled.`;
@@ -467,6 +479,8 @@ async function loadCandidateContext() {
   }
 }
 
+async function installStarter(){busy.value=true;try{await api.post('/contracts/library/employment-starter',{agencyId:agencyId.value});await loadLibrary();tab.value='library';libraryTab.value='configs';}catch(e){wizardErr.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
+async function activateConfig(c){try{await api.patch(`/contracts/configs/${c.id}`,{agencyId:agencyId.value,isActive:true});await loadLibrary();}catch(e){wizardErr.value=e.response?.data?.error?.message||e.message;}}
 async function loadLibrary() {
   loading.value = true;
   error.value = '';
@@ -488,7 +502,7 @@ async function loadLibrary() {
       .filter((c) => String(c.clause_key || '').startsWith('JOB_DESC_'))
       .map((c) => ({ key: c.clause_key, title: c.title }));
     if (!build.value.templateId && templates.value[0]) build.value.templateId = templates.value[0].id;
-    if (!build.value.configId && configs.value[0]) build.value.configId = configs.value[0].id;
+    if (!build.value.configId) build.value.configId = configs.value.find(c=>c.is_active)?.id || '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Failed to load';
   } finally {
@@ -500,6 +514,7 @@ function buildPayload() {
   const office = offices.value.find((o) => String(o.id) === String(build.value.officeLocationId));
   return {
     agencyId: agencyId.value,
+    expectedPreviewHash: previewHash.value || undefined,
     configId: Number(build.value.configId),
     templateId: build.value.templateId ? Number(build.value.templateId) : null,
     compensationCategory: build.value.compensationCategory,
@@ -509,6 +524,8 @@ function buildPayload() {
     officeLocationId: build.value.officeLocationId ? Number(build.value.officeLocationId) : null,
     tokens: {
       ...build.value.tokens,
+      CONTRACT_EXPECTATIONS: individualExpectations.value,
+      ...Object.fromEntries(Object.entries({ROLE_LABEL:individualExpectations.value.roleLabel,SERVICE_FOCUS:individualExpectations.value.serviceFocus,MIN_HOURS:individualExpectations.value.directHours,EXPECTED_HOURS:individualExpectations.value.expectedHours,MIN_DAYS_PER_WEEK:individualExpectations.value.daysPerWeek,SCHEDULE:individualExpectations.value.schedule,SUPERVISOR_NAME:individualExpectations.value.supervisorName,INCLUDE_SUPERVISION:individualExpectations.value.includeSupervision===undefined?undefined:individualExpectations.value.includeSupervision?'1':'0'}).filter(([,v])=>v!==undefined)),
       JOB_DESC_CLAUSE_KEY: build.value.jobDescClauseKey,
       ASSIGNED_OFFICE_NAME: office?.name || build.value.tokens.ASSIGNED_OFFICE_NAME,
       ASSIGNED_OFFICE_ADDRESS: office?.address || build.value.tokens.ASSIGNED_OFFICE_ADDRESS
@@ -540,6 +557,8 @@ async function preview() {
       buildPayload()
     );
     previewHtml.value = data.html || '';
+    clauseManifest.value = data.clauseManifest || [];
+    previewHash.value = data.previewHash || '';
     if (data.unresolvedTokens?.length) {
       wizardMsg.value = `Preview ready. Unresolved tokens: ${data.unresolvedTokens.join(', ')}`;
     } else {
@@ -570,7 +589,14 @@ async function generate() {
   }
 }
 
-watch(agencyId, (id) => {
+watch(agencyId, (id, previousId) => {
+  if (previousId && id !== previousId) {
+    build.value.candidateUserId = ''; build.value.configId = ''; build.value.templateId = '';
+    build.value.credential = ''; build.value.credentialKey = ''; build.value.officeLocationId = '';
+    for (const key of Object.keys(build.value.tokens)) build.value.tokens[key] = '';
+    individualExpectations.value = {}; postingDefaults.value = null;
+    previewHtml.value = ''; previewHash.value = ''; clauseManifest.value = [];
+  }
   if (id) {
     loadLibrary().then(() => {
       loadContractCandidates().then(() => {

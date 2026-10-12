@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
   getContractLibrary,
+  postEmploymentStarter,
   getCandidateWizardContextHandler,
   listContractCandidates,
   inferContractCompensation,
@@ -33,6 +34,7 @@ router.use(async (req, res, next) => {
 });
 
 router.get('/library', getContractLibrary);
+router.post('/library/employment-starter', postEmploymentStarter);
 router.get('/candidates', listContractCandidates);
 router.get('/infer-compensation', inferContractCompensation);
 router.get('/candidates/:userId/wizard-context', getCandidateWizardContextHandler);

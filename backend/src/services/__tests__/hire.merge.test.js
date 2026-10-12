@@ -1,3 +1,4 @@
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async () => ({id: 1, name: 'Test Agency'})) } }));
 vi.mock('../../models/PayrollPaySystemRate.model.js', () => ({ default: { listForAgency: vi.fn(async () => []) } }));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const db = vi.hoisted(() => ({ execute: vi.fn() }));
@@ -44,7 +45,7 @@ describe('contract merge validation', () => {
     expect(result.unresolvedTokens).toEqual(expect.arrayContaining(['COMPANYADDRESS', 'MINHOURS', 'UNKNOWNTERM']));
   });
   for (const intakeFallback of [false, true]) it(`fills agency and job-posting fields${intakeFallback ? ' from a legacy application' : ''}`, async () => {
-    const job = { job_description_id: 16, title: 'Community Group Facilitator', role_type: 'Facilitator', description_text: 'Lead groups.', tags_json: ['Community groups'] };
+    const job = { job_description_id: 16, title: 'Community Group Facilitator', role_type: 'Facilitator', description_text: 'Lead groups.', tags_json: ['Community groups'], prehire_config_json: JSON.stringify({contractDefaults:{expectedHours:'24',directHours:'12',schedule:'Weekdays',additionalDuties:[{description:'Case management',payBasis:'custom',customRate:'35'}]}}) };
     db.execute.mockImplementation(async (sql, params) => {
       if (sql.startsWith('SELECT user_id')) return [[{ user_id: 2 }]];
       if (sql.includes('FROM users WHERE')) return [[{ first_name: 'Test', last_name: 'Candidate', title: 'Old title', role: 'provider' }]];
@@ -57,7 +58,7 @@ describe('contract merge validation', () => {
     });
     expect(await autofillTokensForCandidate({ agencyId: 1, candidateUserId: 2 })).toMatchObject({
       COMPANY_NAME: 'Test Agency', COMPANY_ADDRESS: '123 Sample St, Denver, CO 80000',
-      JOB_TITLE: 'Community Group Facilitator', ROLE_LABEL: 'Facilitator', EMPLOYEE_FULL_NAME: 'Test Candidate'
+      JOB_TITLE: 'Community Group Facilitator', ROLE_LABEL: 'Facilitator', EMPLOYEE_FULL_NAME: 'Test Candidate', EXPECTED_HOURS:'24', MIN_HOURS:'12', CONTRACT_EXPECTATIONS: {expectedHours:'24',directHours:'12'}
     });
   });
 });
@@ -84,6 +85,21 @@ describe('hiring QA contract regressions', () => {
     const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { INCLUDE_SUPERVISION: '1', IS_SUPERVISOR: '0', SUPERVISOR_NAME: 'Test Supervisor' } });
     expect(result.html).toContain('Assigned supervisor: Test Supervisor');
     expect(result.html).not.toContain('Provider”_'); expect(result.html).not.toContain('Supervisory services'); expect(result.html).not.toContain('SIG_BLOCK'); expect(result.html).not.toContain('__________');
+    expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({key:'SUPERVISION',included:true}),expect.objectContaining({key:'SUP_COMP',included:false})]));
     expect(result.html).toContain('IN WITNESS WHEREOF'); expect(result.html).toContain('Electronic signatures');
   });
+});
+
+it('renders personal work and duty overrides before signatures without changing posting defaults', async () => {
+ db.execute.mockResolvedValueOnce([[{is_active:1,pay_mode:'none',clause_keys_json:['INTRO','STARTER_V1_SIGNATURE_BLOCK_HOURLY']}]]).mockResolvedValueOnce([[
+ {clause_key:'INTRO',body_html:'<p>{{ROLE_LABEL}} works {{MIN_HOURS}} direct hours.</p>'},
+ {clause_key:'STARTER_V1_SIGNATURE_BLOCK_HOURLY',body_html:'<p>Accepted by the parties.</p>'}
+ ]]);
+ const defaults={expectedHours:'24',directHours:'12',additionalDuties:[]};
+ const result=await renderContractHtml({agencyId:1,configId:1,tokens:{ROLE_LABEL:'Facilitator',MIN_HOURS:'8',EXPECTED_HOURS:'16',CONTRACT_POSTING_DEFAULTS:defaults,CONTRACT_EXPECTATIONS:{...defaults,additionalDuties:[{description:'Case management',payBasis:'custom',customRate:'38',rateUnit:'per_hour'}]}}});
+ expect(result.html).toContain('Facilitator works 8 direct hours.');
+ expect(result.html).toContain('$38.00 per hour');
+ expect(result.html).toContain('week:</strong> 16');
+ expect(result.html.indexOf('Individual work expectations')).toBeLessThan(result.html.indexOf('Electronic signatures'));
+ expect(defaults).toEqual({expectedHours:'24',directHours:'12',additionalDuties:[]});
 });

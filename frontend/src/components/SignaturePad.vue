@@ -13,8 +13,8 @@
         @touchend="stopDrawing"
       ></canvas>
       <div class="signature-controls">
-        <button @click="clearSignature" class="btn btn-secondary">{{ clearText }}</button>
-        <button @click="saveSignature" class="btn btn-primary" :disabled="!hasSignature || saving">
+        <button type="button" @click="clearSignature" class="btn btn-secondary">{{ clearText }}</button>
+        <button type="button" @click="saveSignature" class="btn btn-primary" :disabled="!hasSignature || saving">
           {{ saving ? savingText : saveText }}
         </button>
       </div>
@@ -42,7 +42,7 @@
         <div class="signature-preview">
           <img :src="signatureData" alt="Saved signature" />
         </div>
-        <button @click="resetSignature" class="btn btn-secondary">{{ changeText }}</button>
+        <button type="button" @click="resetSignature" class="btn btn-secondary">{{ changeText }}</button>
       </template>
     </div>
   </div>

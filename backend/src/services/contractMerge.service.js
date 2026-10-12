@@ -1,3 +1,5 @@
+import Agency from '../models/Agency.model.js';
+import { contractRoleLabel, jobContractExpectations, expectationsToTokens, expectationsFromTokens, renderAdditionalExpectations } from '../utils/contractExpectations.js';
 import { formatContractDate, jobLocationOffice } from '../utils/contractPresentation.js';
 import { selectedContractCompensation } from './contractCompensation.service.js';
 /**
@@ -163,24 +165,7 @@ export function formatLicenseTypeDisplay({ credential = '', credentialKey = null
   return parts.join(', ');
 }
 
-function inferRoleLabel({ jobTitle = '', roleType = '', credential = '', role = '' } = {}) {
-  const rt = String(roleType || '').trim();
-  if (rt) {
-    const lower = rt.toLowerCase();
-    if (lower.includes('intern') || lower.includes('student')) return 'Student';
-    if (lower.includes('facilitat')) return 'Facilitator';
-    if (lower.includes('provider')) return 'Provider';
-    return rt.charAt(0).toUpperCase() + rt.slice(1);
-  }
-  const roleLower = String(role || '').trim().toLowerCase();
-  if (roleLower === 'intern' || roleLower === 'intern_plus') return 'Student';
-  const t = String(jobTitle).toLowerCase();
-  if (t.includes('intern') || t.includes('practicum') || t.includes('student')) return 'Student';
-  if (t.includes('facilitat')) return 'Facilitator';
-  const cred = String(credential || '').toUpperCase();
-  if (/\bINTERN\b/.test(cred)) return 'Student';
-  return 'Provider';
-}
+const inferRoleLabel = contractRoleLabel;
 
 function inferServiceFocus({ userServiceFocus = '', jobDescription = null } = {}) {
   const fromUser = String(userServiceFocus || '').trim();
@@ -349,7 +334,7 @@ export async function autofillTokensForCandidate({
     const [hp] = await pool.execute(
       `SELECT hp.applied_role, hp.job_description_id, hp.credential AS applicant_credential,
               jd.title, jd.description_text, jd.job_desc_clause_key, jd.default_contract_config_id,
-              jd.role_type, jd.tags_json, jd.city, jd.state
+              jd.role_type, jd.tags_json, jd.city, jd.state, jd.prehire_config_json, jd.schedule_text
        FROM hiring_profiles hp
        LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ?
        WHERE hp.candidate_user_id = ?
@@ -362,7 +347,7 @@ export async function autofillTokensForCandidate({
       // Older intake applications did not always populate hiring_profiles.
       const [applications] = await pool.execute(
         `SELECT jd.id AS job_description_id, jd.title, jd.description_text,
-                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json, jd.city, jd.state
+                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json, jd.city, jd.state, jd.prehire_config_json, jd.schedule_text
          FROM intake_submissions s
          JOIN intake_links il ON il.id = s.intake_link_id
          JOIN hiring_job_descriptions jd ON jd.id = il.job_description_id AND jd.agency_id = ?
@@ -501,7 +486,10 @@ export async function autofillTokensForCandidate({
     ASSIGNED_OFFICE_NAME: assignedOffice?.name || '',
     ASSIGNED_OFFICE_ADDRESS: assignedOffice?.address || '',
     JOB_DESCRIPTION_ID: jobDescriptionRow?.job_description_id ? String(jobDescriptionRow.job_description_id) : '',
-    ROLE_TYPE: roleType
+    ROLE_TYPE: roleType,
+    ...expectationsToTokens(jobContractExpectations(jobDescriptionRow || {})),
+    CONTRACT_EXPECTATIONS: jobContractExpectations(jobDescriptionRow || {}),
+    CONTRACT_POSTING_DEFAULTS: jobContractExpectations(jobDescriptionRow || {})
   };
 }
 
@@ -524,6 +512,7 @@ export async function renderContractHtml({
   });
   const mergedTokens = {
     ...mergedInput,
+    ROLE_LABEL: mergedInput.ROLE_LABEL || contractRoleLabel({jobTitle:mergedInput.JOB_TITLE,roleType:mergedInput.ROLE_TYPE,credential:mergedInput.CREDENTIAL}),
     RATE_CONFIG_KEY: mergedInput.RATE_CONFIG_KEY || config.rate_config_key || ''
   };
 
@@ -549,12 +538,13 @@ export async function renderContractHtml({
     return includeSupervisor || !isSupervisorClause(c);
   });
 
+  const clauseManifest = clauses.map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:visibleClauses.includes(c),reason:visibleClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'}));
   const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens);
   const bodyParts = visibleClauses.map((c) => {
     let body = replaceTokens(c.body_html, mergedTokens)
       // Imported Markdown occasionally leaves a single emphasis marker after a quoted role.
       .replace(/([”"'])_(?=[).,;:])/g, '$1');
-    if (['SIG_BLOCK', 'SIGNATURE_BLOCK'].includes(String(c.clause_key || '').toUpperCase())) {
+    if (/(?:^|_)(?:SIG_BLOCK|SIGNATURE_BLOCK)(?:_|$)/.test(String(c.clause_key || '').toUpperCase())) {
       body = body.replace(/<div[^>]*class=["']page-break["'][^>]*>\s*<\/div>/gi, '')
         .replace(/<p[^>]*>\s*(?:By|Name|Title|Date|Signature|Employee|Company authorized signer):\s*(?:<[^>]+>|_|\s)*(?:Date:\s*_*)?\s*<\/p>/gi, '');
       return `<section class="contract-signatures"><h2>Electronic signatures</h2>${body}<p>The parties sign electronically through the portal. Signatures and signing dates are recorded with the completed agreement.</p></section>`;
@@ -568,9 +558,21 @@ export async function renderContractHtml({
     bodyParts.push(`<section class="supervisor-duties"><h2>Supervisory responsibilities</h2>${String(mergedTokens.SUPERVISOR_DUTIES).split(/\n+/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`);
   }
 
+  const expectations = {...mergedTokens.CONTRACT_EXPECTATIONS, ...expectationsFromTokens(mergedTokens)};
+  let dutyRates = compensation.rates;
+  if ((expectations.additionalDuties || []).some(d=>d.payBasis==='service_code') && !dutyRates.length) {
+    dutyRates = (await selectedContractCompensation(agencyId, category, level, 'ffs')).rates;
+  }
+  const expectationsHtml = renderAdditionalExpectations(expectations, compensation.row, dutyRates);
+  if (expectationsHtml) {
+    const signatureIndex = bodyParts.findIndex(body=>body.includes('class="contract-signatures"'));
+    bodyParts.splice(signatureIndex < 0 ? bodyParts.length : signatureIndex, 0, expectationsHtml);
+  }
+  mergedTokens.CONTRACT_EXPECTATIONS = expectations;
+
   const { resolvePacketBrandChrome, packetBodyFontCss } = await import('./packetBrandChrome.service.js');
-  const brand = await resolvePacketBrandChrome({ id: agencyId });
-  const font = brand.useItscoChrome ? brand.bodyFontFamily : template?.font_family || brand.bodyFontFamily;
+  const brand = await resolvePacketBrandChrome(await Agency.findById(agencyId) || { id: agencyId });
+  const font = brand.bodyFontFamily;
   const fontCss = packetBodyFontCss(brand);
   const css = template?.css_extras || '';
   const companyName = escapeHtml(mergedTokens.COMPANY_NAME || '');
@@ -596,7 +598,9 @@ export async function renderContractHtml({
       }
     } catch { /* keep company-name header */ }
   }
+  const brandLogo = brand.headerImageDataUrl || brand.headerLogoDataUrl;
   const brandHeader = letterheadHeader
+    || (brandLogo ? `<header class="contract-brand"><img src="${brandLogo}" alt="${companyName}" style="max-width:100%;max-height:110px;object-fit:contain"/><p>${companyAddress}</p></header>` : '')
     || (companyName
       ? `<header class="contract-brand" style="border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:24px;">
   <div style="font-size:1.35rem;font-weight:700;letter-spacing:0.02em;">${companyName}</div>
@@ -622,7 +626,8 @@ ${letterheadFooter || ''}
     tokens: normalizeTokens(mergedTokens),
     unresolvedTokens: [...new Set([...missingFields, ...findUnresolvedTokens(html.replace(/\{\{\s*INSERT_PAY_TABLE\s*\}\}/gi, ''))])],
     config,
-    template
+    template,
+    clauseManifest
   };
 }
 

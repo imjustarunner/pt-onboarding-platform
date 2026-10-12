@@ -286,9 +286,9 @@ export async function getCandidateWizardContext({
     .filter((c) => String(c.clause_key || '').startsWith('JOB_DESC_'))
     .map((c) => ({ key: c.clause_key, title: c.title }));
 
-  const defaultConfigId = tokens.DEFAULT_CONFIG_ID
-    ? Number(tokens.DEFAULT_CONFIG_ID)
-    : (configs[0]?.id || null);
+  const activeConfigs = configs.filter(c => c.is_active === 1 || c.is_active === true);
+  const defaultConfigId = activeConfigs.find(c => Number(c.id) === Number(tokens.DEFAULT_CONFIG_ID))?.id
+    || activeConfigs[0]?.id || null;
 
   const payInference = inferCompensationFromCredential({
     credential: credentialOverride || tokens.CREDENTIAL,

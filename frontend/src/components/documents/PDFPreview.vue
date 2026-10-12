@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, nextTick } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import * as pdfjsLib from 'pdfjs-dist';
 
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -97,10 +97,10 @@ let lastViewportBase = null;
 const fitToWidth = async (page) => {
   if (!containerRef.value) return;
   const viewportAt1 = page.getViewport({ scale: 1.0 });
-  const containerWidth = Math.max(320, containerRef.value.clientWidth);
+  const containerWidth = Math.max(1, containerRef.value.clientWidth - 2);
   const nextScale = containerWidth / viewportAt1.width;
   // Clamp to avoid extreme zoom. Allow more auto-upscale so it snaps to width.
-  scale.value = Math.min(2.2, Math.max(0.5, nextScale));
+  scale.value = Math.min(3, Math.max(0.2, nextScale));
 };
 
 const renderPage = async (pageNum) => {
@@ -123,11 +123,14 @@ const renderPage = async (pageNum) => {
     lastViewport = viewport;
 
     const ctx = canvas.getContext('2d');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = Math.ceil(viewport.width * pixelRatio);
+    canvas.height = Math.ceil(viewport.height * pixelRatio);
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport, transform: [pixelRatio, 0, 0, pixelRatio, 0, 0] }).promise;
     updateMarkerStyles();
     if (containerRef.value) {
       containerRef.value.scrollTop = 0;
@@ -144,8 +147,8 @@ const renderPage = async (pageNum) => {
 const updateMarkerStyles = () => {
   if (!canvasRef.value || !lastViewport) return;
   const canvas = canvasRef.value;
-  const canvasWidth = canvas.width || lastViewport.width;
-  const canvasHeight = canvas.height || lastViewport.height;
+  const canvasWidth = lastViewport.width;
+  const canvasHeight = lastViewport.height;
   const baseViewport = lastViewportBase || lastViewport;
   const baseWidth = baseViewport.width || lastViewport.width;
   const baseHeight = baseViewport.height || lastViewport.height;
@@ -268,19 +271,30 @@ defineExpose({
   goToPreviousPage: previousPage
 });
 
+let resizeObserver;
+const refit = () => {
+  if (!pdfDoc || userZoomed) return;
+  didInitialFit = false;
+  renderPage(currentPage.value);
+};
 onMounted(() => {
-  // Re-fit on resize only if user hasn't manually zoomed.
-  window.addEventListener('resize', () => {
-    if (!pdfDoc) return;
-    if (userZoomed) return;
-    // Allow a refit (but don't mark as user zoom)
-    didInitialFit = false;
-    renderPage(currentPage.value);
-  });
+  resizeObserver = new ResizeObserver(refit);
+  if (containerRef.value) resizeObserver.observe(containerRef.value);
+  window.addEventListener('resize', refit);
 });
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  window.removeEventListener('resize', refit);
+  pdfDoc?.destroy();
+});
+
 </script>
 
 <style scoped>
+.toolbar .btn { border: 1px solid #bbcfc8; border-radius: 8px; background: #fff; color: #174f42; padding: 7px 12px; font: inherit; cursor: pointer; }
+.toolbar .btn:disabled { opacity: .45; cursor: default; }
+.toolbar .btn:focus-visible { outline: 3px solid #83baaa; outline-offset: 2px; }
+
 .pdf-preview {
   display: flex;
   flex-direction: column;

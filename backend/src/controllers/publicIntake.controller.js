@@ -8291,6 +8291,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (releaseSig) {
           const agencyRow = await Agency.findById(agencyId).catch(() => null);
           const pdfBuf = await buildReferenceReleasePdfBuffer({
+            agency: agencyRow,
             agencyName: String(agencyRow?.name || agencyRow?.official_name || 'the organization').trim() || 'the organization',
             applicantName: `${gFirst} ${gLast}`.trim(),
             applicantEmail: gEmail,
@@ -8314,6 +8315,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           if (releaseSig) {
             const agencyRow = await Agency.findById(agencyId).catch(() => null);
             const pdfBuf = await buildReferenceReleasePdfBuffer({
+              agency: agencyRow,
               agencyName: String(agencyRow?.name || agencyRow?.official_name || 'the organization').trim() || 'the organization',
               applicantName: `${gFirst} ${gLast}`.trim(),
               applicantEmail: gEmail,

@@ -404,6 +404,7 @@
           <span class="muted small">Shown on the careers details modal and apply acknowledgement screen.</span>
         </div>
         <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
+        <ContractExpectationsEditor v-model="createForm.prehireConfig.contractDefaults" />
         <JobPrehireDocsEditor v-model="createForm.prehireConfig" :agency-id="effectiveAgencyId" />
       </div>
       <div class="application-page-config">
@@ -652,6 +653,7 @@
               <span class="muted small">Shown on careers details and apply acknowledgement.</span>
             </div>
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
+            <ContractExpectationsEditor v-model="editForm.prehireConfig.contractDefaults" />
             <JobPrehireDocsEditor v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
           <JobEvaluationRubricEditor v-if="editingRow?.id" :key="`${effectiveAgencyId}-${editingRow.id}`" :job-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
@@ -732,6 +734,7 @@
 </template>
 
 <script setup>
+import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

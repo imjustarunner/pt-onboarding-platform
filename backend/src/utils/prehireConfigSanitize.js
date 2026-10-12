@@ -1,3 +1,4 @@
+import { sanitizeContractExpectations } from './contractExpectations.js';
 import { sanitizeWorkflow } from './hirePortalWorkflow.js';
 import { sanitizeDocumentHtml } from '../services/libraryDocument.service.js';
 const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document', 'receipt']);
@@ -50,7 +51,7 @@ export function sanitizePrehireConfig(raw) {
     .map((n) => Number(n))
     .filter((n) => Number.isFinite(n) && n > 0);
 
-  return { documents, signerRoleIds, excludedDocumentIds: (Array.isArray(parsed.excludedDocumentIds) ? parsed.excludedDocumentIds : []).map(id => String(id).slice(0, 80)), ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
+  return { ...(parsed.contractDefaults ? {contractDefaults: sanitizeContractExpectations(parsed.contractDefaults)} : {}), documents, signerRoleIds, excludedDocumentIds: (Array.isArray(parsed.excludedDocumentIds) ? parsed.excludedDocumentIds : []).map(id => String(id).slice(0, 80)), ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
 }
 
 export function mergePrehireDocuments(jobConfig, agencyDefaults) {
