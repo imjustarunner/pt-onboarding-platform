@@ -146,3 +146,14 @@ it('keeps searches within My files until the employee chooses another view', asy
   expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, mine: '1' }));
   expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('q');
 });
+
+it('offers uploads, folders, and links in Add + separately from New document', async () => {
+  await render('/itsco/library?section=mine');
+  const menu = wrapper.get('.document-add-menu');
+  expect(menu.get('summary').text()).toBe('Add +');
+  expect(menu.findAll('button').map(button => button.text())).toEqual(['Upload file','Upload folder','Create folder','Add link / Google Doc','Add video link']);
+  menu.element.open = true;
+  await menu.findAll('button').find(button => button.text() === 'Create folder').trigger('click'); await flushPromises();
+  expect(menu.element.open).toBe(false);
+  expect(wrapper.getComponent({name:'LibraryAddResourceModal'}).props('initialMode')).toBe('folder');
+});

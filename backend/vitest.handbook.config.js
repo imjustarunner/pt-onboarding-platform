@@ -33,6 +33,8 @@ export default {
       'src/services/__tests__/workplaceHandbookAnswer.test.js',
       'src/services/__tests__/handbookGeminiTransport.test.js',
       'src/services/__tests__/handbookPortalRead.test.js',
+      'src/services/__tests__/workplaceHandbookHistory.test.js',
+      'src/services/__tests__/workplaceHandbookDigestContext.test.js',
       'src/controllers/__tests__/workplaceHandbook.controller.test.js',
       'src/controllers/__tests__/workplaceHandbookPortal.test.js'
     ],

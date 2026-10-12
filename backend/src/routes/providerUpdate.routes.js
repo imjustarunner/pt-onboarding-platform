@@ -85,6 +85,8 @@ router.put('/admin-updates/:updateId', authenticate, ctrl.patchAttachedAdminUpda
 
 router.get('/handbook/published', authenticate, hb.getPublished);
 router.get('/handbook/library', authenticate, hb.getLibraryHandbook);
+router.get('/handbook/history', authenticate, hb.getHistory);
+router.get('/handbook/history/:digestId', authenticate, hb.getHistory);
 router.post('/handbook/answer', authenticate, handbookAssistantLimit, hb.answerQuestion);
 router.get('/handbook/workspace', authenticate, hb.getWorkspace);
 router.post('/handbook/source/stage', authenticate, hb.stageSource);

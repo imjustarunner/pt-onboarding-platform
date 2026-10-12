@@ -298,7 +298,8 @@ export async function getPublishedDigestForAgency(agencyId, { adminUpdateId = nu
     );
     row = byAu?.[0] || null;
   }
-  if (!row) {
+  // An older provider update must never silently switch to a newer monthly digest.
+  if (!row && !pushId && !adminUpdateId) {
     const [latest] = await pool.execute(
       `SELECT * FROM workplace_handbook_digests
        WHERE agency_id = ? AND status = 'published'

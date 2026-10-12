@@ -1,3 +1,4 @@
+import { listHandbookHistory, readHandbookHistory } from '../services/workplaceHandbookHistory.service.js';
 import {
   ensureDocument,
   getPublishedHandbook,
@@ -118,6 +119,19 @@ export const getLibraryHandbook = async (req, res, next) => {
     }
     res.set('Cache-Control', 'private, no-store');
     res.json(handbookResponseForReader({ handbook, mode: 'handbook', digest: null, entries: [] }, req.user));
+  } catch (error) { next(error); }
+};
+
+export const getHistory = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.query.agencyId);
+    await assertHandbookReader(req.user, agencyId);
+    const includeDrafts = ['admin', 'support', 'super_admin', 'superadmin'].includes(req.user?.role);
+    const result = req.params.digestId
+      ? await readHandbookHistory(agencyId, req.params.digestId, { includeDrafts })
+      : { months: await listHandbookHistory(agencyId, { includeDrafts }) };
+    res.set('Cache-Control', 'private, no-store');
+    res.json(handbookResponseForReader(result, req.user));
   } catch (error) { next(error); }
 };
 
@@ -377,7 +391,7 @@ export const publicPublishedByToken = async (req, res, next) => {
       adminUpdateId: push?.attached_admin_update_id || null,
       pushId: push?.id || null
     });
-    if(recipient.previewOnly || (!digest?.digest && push?.attached_admin_update_id)){
+    if(recipient.previewOnly || (!digest?.digest && push?.id)){
       const drafts=await listDigests(recipient.agency_id);
       const match=drafts.find(d=>d.status==='draft' && (Number(d.provider_update_push_id)===Number(push?.id) || (push?.attached_admin_update_id && Number(d.admin_update_id)===Number(push.attached_admin_update_id))));
       if(match)digest=await getDigest(match.id,recipient.agency_id);

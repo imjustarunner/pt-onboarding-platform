@@ -3,7 +3,15 @@
     <header class="document-topbar">
       <div class="document-identity"><span class="document-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg></span><div><h1>Document library <span class="beta-label">Beta</span></h1><p>{{ agencyName }}</p></div></div>
       <form class="document-search" role="search" @submit.prevent="runSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input v-model="search" type="search" aria-label="Search documents" placeholder="Search documents, policies, or keywords…" @input="scheduleSearch" /><button v-if="search" type="button" aria-label="Clear search" @click="search = ''; runSearch()">×</button></form>
-      <div class="document-actions"><button class="lib-btn lib-btn--ghost" :disabled="!agencyId" @click="openAdd('upload')"><span aria-hidden="true">↑</span> Upload</button><button class="lib-btn lib-btn--primary" :disabled="!agencyId" @click="openAdd('branded')"><span aria-hidden="true">＋</span> New document</button></div>
+      <div class="document-actions">
+        <details ref="addMenu" class="document-add-menu" @keydown.esc.prevent="closeAddMenu(true)" @focusout="onAddFocusOut">
+          <summary class="lib-btn lib-btn--ghost" :aria-disabled="!agencyId" @click="!agencyId && $event.preventDefault()">Add +</summary>
+          <div class="document-add-options" aria-label="Add to library">
+            <button v-for="action in addActions" :key="action.mode" type="button" @click="openAdd(action.mode)">{{ action.label }}</button>
+          </div>
+        </details>
+        <button class="lib-btn lib-btn--primary" :disabled="!agencyId" @click="openAdd('branded')"><span aria-hidden="true">＋</span> New document</button>
+      </div>
     </header>
     <div class="document-layout">
       <aside class="document-sidebar" :class="{ 'sidebar-expanded': showNavigation }" aria-label="Library navigation">
@@ -376,7 +384,23 @@ function loadSorted() { refresh(); }
 function scheduleSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); }
 function closeReference() { const query = { ...route.query }; delete query.companyDocument; router.replace({ query, hash: '' }); }
 
+const addMenu = ref(null);
+const addActions = [
+  { mode: 'upload', label: 'Upload file' },
+  { mode: 'upload_folder', label: 'Upload folder' },
+  { mode: 'folder', label: 'Create folder' },
+  { mode: 'link', label: 'Add link / Google Doc' },
+  { mode: 'video', label: 'Add video link' }
+];
+function closeAddMenu(restoreFocus = false) {
+  if (addMenu.value) addMenu.value.open = false;
+  if (restoreFocus) addMenu.value?.querySelector('summary')?.focus();
+}
+function onAddFocusOut(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) closeAddMenu();
+}
 function openAdd(mode) {
+  closeAddMenu();
   if (!agencyId.value) { error.value = 'Select an organization before creating a document.'; return; }
   addModePref.value = mode || 'link';
   showAdd.value = true;
@@ -589,7 +613,8 @@ async function onCreated(payload = {}) {
   }
 }
 
-function onDocClick() {
+function onDocClick(event) {
+  if (!addMenu.value?.contains(event.target)) closeAddMenu();
   menuItem.value = null;
 }
 
@@ -633,6 +658,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.document-add-menu{position:relative}.document-add-menu summary{list-style:none}.document-add-menu summary::-webkit-details-marker{display:none}.document-add-options{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:210px;padding:6px;border:1px solid #dce3de;border-radius:10px;background:#fff;box-shadow:0 12px 32px #203c2926}.document-add-options button{display:block;width:100%;border:0;border-radius:6px;background:transparent;text-align:left;padding:12px;font:inherit;font-size:13px;color:#294c3e;cursor:pointer}.document-add-options button:hover,.document-add-options button:focus-visible{background:#edf3ef}
+
 .folder-breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;font-size:12px}.folder-breadcrumbs button{font:inherit;border:0;background:none;color:#365c49;cursor:pointer}.folder-breadcrumbs button[aria-current]{font-weight:600}.library-subfolders{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}.library-subfolders button{display:flex;gap:10px;align-items:center;border:1px solid #dbe4dd;border-radius:8px;padding:12px 16px;background:#fff;color:#31513f;font:500 13px inherit;cursor:pointer}
 .mobile-navigation-toggle{display:none}
 

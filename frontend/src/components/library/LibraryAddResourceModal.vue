@@ -6,9 +6,9 @@
         <button type="button" class="lib-modal__x" aria-label="Close" @click="requestClose">×</button>
       </header>
 
-      <div class="lib-modal__tabs">
+      <div v-if="initialMode !== 'branded'" class="lib-modal__tabs">
         <button
-          v-for="t in tabs"
+          v-for="t in tabs.filter(tab => tab.id !== 'branded')"
           :key="t.id"
           type="button"
           class="lib-modal__tab"

@@ -4,6 +4,9 @@
     <div v-if="loading" class="muted">Loading handbook…</div>
     <p v-else-if="error" role="alert" class="reader-error">{{ error }} <button type="button" class="btn" @click="load">Try again</button></p>
     <template v-else>
+      <div v-if="accessMode !== 'token' && !previewMode && !showHistory" class="history-action"><button type="button" class="btn" @click="showHistory = true">Handbook updates · Monthly tracker</button></div>
+      <WorkplaceHandbookHistory v-if="showHistory" :agency-id="agencyId" :sections="handbook?.sections || []" @close="showHistory = false" @open-section="openHistorySection" />
+      <div v-show="!showHistory" class="reader-content">
       <p v-if="handbook?.beta" class="beta-notice">Beta edition · Available to read while company publication is under review.</p>
       <div v-if="libraryMode && !handbook?.sections?.length" class="empty" role="status">A handbook has not been added for this organization yet. Your company administrator can prepare its edition in Library settings.</div>
       <nav v-if="!libraryMode && handbook?.sections?.length" class="reader-tabs" aria-label="Handbook views">
@@ -89,6 +92,7 @@
       <div v-if="!libraryMode && activeView === 'handbook' && (!digest || !entries.length) && handbook?.version && !previewMode" class="ack-row">
         <button type="button" class="btn primary" :disabled="acking" @click="acknowledge">I have reviewed the available handbook sections</button>
       </div>
+      </div>
     </template>
   </div>
 </template>
@@ -104,6 +108,7 @@ import HandbookUpdateLocations from './HandbookUpdateLocations.vue';
 import {useAuthStore} from '../../store/auth';
 import { computed, nextTick } from 'vue';
 import WorkplaceHandbookBook from './WorkplaceHandbookBook.vue';
+import WorkplaceHandbookHistory from './WorkplaceHandbookHistory.vue';
 import WorkplaceHandbookPolicyLinks from './WorkplaceHandbookPolicyLinks.vue';
 
 const props = defineProps({
@@ -148,6 +153,8 @@ const error = ref('');
 const handbook = ref(null);
 const book = ref(null);
 const activeView = ref('updates');
+const showHistory = ref(false);
+async function openHistorySection(slug) { showHistory.value = false; await openSection(slug); }
 const sourceUrl = computed(() => canOpenOriginal.value && /^https?:\/\//i.test(fullHandbookUrl.value) ? fullHandbookUrl.value : '');
 let request = 0;
 
@@ -177,6 +184,7 @@ function followPolicyLink(event) {
 }
 
 async function load() {
+  showHistory.value = false;
   loading.value = true; loadError.value = '';
   error.value = '';
   const currentRequest = ++request;
@@ -248,6 +256,7 @@ watch(() => [props.agencyId, props.token, props.adminUpdateId, props.pushId, pro
 </script>
 
 <style scoped>
+.reader-content{display:grid;gap:.85rem}.history-action{display:flex;justify-content:flex-end}.history-action .btn{font-size:13px;background:white;border:1px solid #ccd9c6;border-radius:7px;padding:10px 14px;color:#12583f;cursor:pointer}
 .beta-notice { margin: 0 0 12px; padding: 10px 14px; border-radius: 7px; background: #f4f1df; color: #645a35; font-size: 12px; }
 .changed :deep(img),.changed :deep(video){max-width:100%;height:auto}
 .changed{overflow-x:auto}.changed :deep(table){width:100%;border-collapse:collapse;margin:16px 0}.changed :deep(th){background:#173e5a;color:#fff;text-align:left}.changed :deep(td),.changed :deep(th){padding:12px;border:1px solid #d4dee5;min-width:100px}.changed :deep(h2){color:#173e5a;border-top:3px solid #c8dce9;padding-top:22px;margin-top:28px}.changed :deep(h3){color:#173e5a;background:#edf3f8;padding:12px;border-radius:8px}.changed :deep(dd){margin:6px 0 18px}.inline-editor{display:grid;gap:12px}.inline-editor label{display:grid;gap:6px}.inline-editor input,.inline-editor textarea{font:inherit;padding:10px;color:#19344e;border:1px solid #849bad;border-radius:6px}.editor-notice{background:#e7f0fb;color:#173e5a;padding:16px;border-radius:10px}

@@ -128,3 +128,11 @@ it('resets the folder when a manager changes from organization to personal scope
   expect(wrapper.get('select').element.value).toBe('');
   expect(wrapper.get('select').findAll('option').map(option => option.text())).toEqual(['Library root', 'My documents']);
 });
+
+it('opens a dedicated document editor without upload, folder, or link tabs', () => {
+  expect(wrapper.get('h2').text()).toBe('New document');
+  expect(wrapper.find('.lib-modal__tabs').exists()).toBe(false);
+  expect(wrapper.find('textarea[aria-label="Document body"]').exists()).toBe(true);
+  renderModal({ initialMode: 'link' });
+  expect(wrapper.findAll('.lib-modal__tab').map(button => button.text())).not.toContain('Create branded document');
+});

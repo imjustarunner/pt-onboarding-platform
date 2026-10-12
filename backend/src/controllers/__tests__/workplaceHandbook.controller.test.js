@@ -1,14 +1,16 @@
+vi.mock('../../services/workplaceHandbookHistory.service.js', () => ({ listHandbookHistory: vi.fn(), readHandbookHistory: vi.fn() }));
+import { listHandbookHistory, readHandbookHistory } from '../../services/workplaceHandbookHistory.service.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../services/providerUpdate.service.js', () => ({ assertAgencyAdmin: vi.fn(), getRecipientByToken: vi.fn(), getPush: vi.fn() }));
-vi.mock('../../services/workplaceHandbook.service.js', () => ({ ensureDocument: vi.fn(), getPublishedHandbook: vi.fn(), getPublishedDigestForAgency: vi.fn(), getDraftOrCreate: vi.fn(), publishDraft: vi.fn(), getDigest: vi.fn(), setFullHandbookUrl: vi.fn() }));
+vi.mock('../../services/workplaceHandbook.service.js', () => ({ listDigests: vi.fn(), ensureDocument: vi.fn(), getPublishedHandbook: vi.fn(), getPublishedDigestForAgency: vi.fn(), getDraftOrCreate: vi.fn(), publishDraft: vi.fn(), getDigest: vi.fn(), setFullHandbookUrl: vi.fn() }));
 vi.mock('../../services/workplaceHandbookWorkflow.service.js', () => ({ sourceForAgency: vi.fn(), stageHandbookSource: vi.fn(), linkHandbookUpdate: vi.fn() }));
 vi.mock('../../services/workplaceHandbookAnswer.service.js', () => ({ answerPublishedHandbook: vi.fn() }));
 import User from '../../models/User.model.js';
 import { assertAgencyAdmin, getRecipientByToken, getPush } from '../../services/providerUpdate.service.js';
-import { getPublishedDigestForAgency, getPublishedHandbook, getDraftOrCreate, publishDraft, getDigest, setFullHandbookUrl } from '../../services/workplaceHandbook.service.js';
-import { assertHandbookReader, getPublished, getLibraryHandbook, publish, publicPublishedByToken, getDigestHandler, saveFullHandbookUrl, answerQuestion, answerQuestionByToken } from '../workplaceHandbook.controller.js';
+import { listDigests, getPublishedDigestForAgency, getPublishedHandbook, getDraftOrCreate, publishDraft, getDigest, setFullHandbookUrl } from '../../services/workplaceHandbook.service.js';
+import { getHistory, assertHandbookReader, getPublished, getLibraryHandbook, publish, publicPublishedByToken, getDigestHandler, saveFullHandbookUrl, answerQuestion, answerQuestionByToken } from '../workplaceHandbook.controller.js';
 import { sourceForAgency } from '../../services/workplaceHandbookWorkflow.service.js';
 import { answerPublishedHandbook } from '../../services/workplaceHandbookAnswer.service.js';
 import { handbookResponseForReader } from '../../services/workplaceHandbookAccess.js';
@@ -171,5 +173,34 @@ describe('original handbook access', () => {
     expect(result.handbookLinks.acknowledgementUrl).toBe(receipt);
     expect(result.workflow.steps.onboarding[0].submission.receiptPath).toBe(receipt);
     expect(payload.handbookLinks.fullUrl).toBe(original);
+  });
+});
+
+describe('monthly history access', () => {
+  it.each(['provider', 'staff'])('keeps future drafts hidden for %s even when requested in the URL', async role => {
+    User.getAgencies.mockResolvedValue([{ id: 2 }]); listHandbookHistory.mockResolvedValue([]);
+    const res = { json: vi.fn(), set: vi.fn() }, next = vi.fn();
+    await getHistory({ user: { id: 7, role }, query: { agencyId: 2, includeDrafts: true }, params: {} }, res, next);
+    expect(listHandbookHistory).toHaveBeenCalledWith(2, { includeDrafts: false }); expect(next).not.toHaveBeenCalled();
+  });
+  it('allows an administrator to review November but rejects another agency before looking up an ID', async () => {
+    User.getAgencies.mockResolvedValue([{ id: 2 }]); readHandbookHistory.mockResolvedValue({ digest: { id: 4 } });
+    const res = { json: vi.fn(), set: vi.fn() }, next = vi.fn();
+    await getHistory({ user: { id: 7, role: 'admin' }, query: { agencyId: 2 }, params: { digestId: '4' } }, res, next);
+    expect(readHandbookHistory).toHaveBeenCalledWith(2, '4', { includeDrafts: true });
+    readHandbookHistory.mockClear();
+    await getHistory({ user: { id: 7, role: 'admin' }, query: { agencyId: 3 }, params: { digestId: '4' } }, res, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })); expect(readHandbookHistory).not.toHaveBeenCalled();
+  });
+  it('keeps the October draft linked to its original provider update even with a newer digest in the list', async () => {
+    getRecipientByToken.mockResolvedValue({ id: 1, agency_id: 2, push_id: 12 }); getPush.mockResolvedValue({ id: 12, attached_admin_update_id: 7 });
+    getPublishedDigestForAgency.mockResolvedValue({ digest: null, entries: [] });
+    listDigests.mockResolvedValue([{ id: 50, status: 'draft', period_label: 'November 2026' }, { id: 40, status: 'draft', admin_update_id: 7 }]);
+    getDigest.mockResolvedValue({ digest: { id: 40, title: 'October' }, entries: [{ changed_content: 'Original October wording' }] });
+    getPublishedHandbook.mockResolvedValue({ sections: [] });
+    const res = { json: vi.fn() }, next = vi.fn();
+    await publicPublishedByToken({ params: { token: 'october-token' } }, res, next);
+    expect(getDigest).toHaveBeenCalledWith(40, 2); expect(next).not.toHaveBeenCalled();
+    expect(res.json.mock.calls[0][0].digest.id).toBe(40);
   });
 });
