@@ -4,6 +4,7 @@
       <div><p class="eyebrow">YOUR WORKSPACE</p><h1>Meetings</h1><p>Your attended meetings, shared records, and personal notes in one place.</p></div>
       <RouterLink class="schedule-link" :to="`${prefix}/my-schedule`"><CalendarDays :size="18" /> My schedule</RouterLink>
     </header>
+    <ManualMeetingLog :agency-id="agencyId" @saved="load(false)" />
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <template v-if="!selected">
       <section class="category-grid" aria-label="Meeting categories">
@@ -61,13 +62,14 @@
         </section>
         <section v-else-if="tab === 'My notes'"><h3>My private notes</h3><p class="muted">Only you can see these notes.</p><label class="note-label">Personal meeting notes<textarea v-model="note" rows="12" @input="noteDirty = true" /></label><div class="note-actions"><button class="primary" :disabled="saving || !noteDirty" @click="saveNote">{{ saving ? 'Saving…' : 'Save my notes' }}</button><span v-if="noteDirty">Unsaved changes</span><span v-if="noteSaved" role="status">Saved</span></div></section>
         <section v-else-if="tab === 'Transcript'"><h3>Shared transcript</h3><pre>{{ detail.transcript || 'No transcript was captured for this meeting.' }}</pre></section>
-        <section v-else><h3>{{ tab }}</h3><p v-if="['queued','generating'].includes(detail.summaryStatus)" role="status">Summary still generating… You can return later.</p><p v-else-if="detail.summaryStatus === 'failed'">Summary generation failed. Your transcript is still available.</p><button v-if="detail.transcript && !['queued','generating'].includes(detail.summaryStatus) && (!detail.summary || detail.summaryStatus === 'failed')" @click="retrySummary">Generate summary</button><p v-if="detail.summary" class="summary-notice">Auto-generated from the saved transcript. Review for accuracy; suggestions are separate from agreed tasks.</p><div class="summary-content" v-html="summaryHtml"></div><p v-if="!detail.summary && !['queued','generating'].includes(detail.summaryStatus)">No summary available yet.</p></section>
+        <section v-else><h3>{{ tab }}</h3><p v-if="['queued','generating'].includes(detail.summaryStatus)" role="status">Summary still generating… You can return later.</p><p v-else-if="detail.summaryStatus === 'failed'">Summary generation failed. Your transcript is still available.</p><button v-if="detail.transcript && !['queued','generating'].includes(detail.summaryStatus) && (!detail.summary || detail.summaryStatus === 'failed')" @click="retrySummary">Generate summary</button><p v-if="detail.summary" class="summary-notice">{{ detail.summarySource === 'manual' ? 'Includes a staff-submitted meeting summary.' : 'Auto-generated from the saved transcript. Review for accuracy; suggestions are separate from agreed tasks.' }}</p><div class="summary-content" v-html="summaryHtml"></div><p v-if="!detail.summary && !['queued','generating'].includes(detail.summaryStatus)">No summary available yet.</p></section>
       </template>
     </article>
   </main>
 </template>
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import ManualMeetingLog from '../components/meetings/ManualMeetingLog.vue';
 import { Users, UserRound, Building2, Landmark, MessagesSquare, ClipboardList, ArrowLeft, ArrowRight, CalendarDays, Search } from '@lucide/vue';
 const props = defineProps({ embedded: Boolean });
 import { useRoute, useRouter } from 'vue-router';

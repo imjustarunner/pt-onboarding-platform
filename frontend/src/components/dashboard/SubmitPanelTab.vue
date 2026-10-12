@@ -4,6 +4,7 @@
     :visible-action-count="visibleRootActionCount"
     @back="$emit('update:view', 'root')"
   >
+    <ManualMeetingLog v-if="view === 'root' || view === 'time'" :agency-id="agencyId" @saved="refreshHistory" />
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
       <p v-if="compensationError" role="alert">{{ compensationError }} <button type="button" @click="loadSubmissionOptions">Try again</button></p>
@@ -168,6 +169,7 @@
 </template>
 
 <script setup>
+import ManualMeetingLog from '../meetings/ManualMeetingLog.vue';
 import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, toRef, ref, watch } from 'vue';
 import api from '../../services/api';

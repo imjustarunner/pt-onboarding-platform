@@ -2431,6 +2431,11 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
       });
     }
 
+    let manualAttendance = [];
+    try {
+      [manualAttendance] = await pool.execute(`SELECT a.user_id,a.claim_policy,a.covered_claim_id FROM manual_meeting_log_attendees a
+        JOIN manual_meeting_logs l ON l.id=a.log_id WHERE l.event_id=?`,[eventId]);
+    } catch(error) { if(error.code!=='ER_NO_SUCH_TABLE') throw error; }
     const kind = String(event.kind || '').toUpperCase();
     const hostId = Number(event.provider_id || 0);
     const rows = (attendance?.participants || []).map((p) => {
@@ -2443,6 +2448,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
         isHost: !!p.isHost,
         attendanceMinutes: p.totalMinutes,
         attendanceSeconds: p.totalSeconds,
+        manualPolicy: manualAttendance.find(a=>Number(a.user_id)===Number(p.userId))?.claim_policy || null,
         serviceCode: claim?.serviceCode || defaultCode,
         claimId: claim?.claimId || null,
         status: claim?.status || null,

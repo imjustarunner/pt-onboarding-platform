@@ -59,3 +59,16 @@ it('retains an administrator’s time adjustment when attendance refreshes',asyn
  await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
  expect(m.resubmit).toHaveBeenCalledWith(expect.objectContaining({payload:expect.objectContaining({totalMinutes:45,editedByUserId:501})}));
 });
+
+it('excludes covered and overlapping manual time on every later automatic sync',async()=>{
+ m.attendees.mockResolvedValue([2,3]);m.rollups.mockResolvedValue([1,2,3].map(user_id=>({user_id,total_seconds:1800})));
+ m.execute.mockImplementation(async(sql)=>sql.includes('FROM manual_meeting_logs')?[[{id:90,platform:'phone'}]]:sql.includes('FROM manual_meeting_log_attendees')?[[{user_id:1,claim_policy:'covered'},{user_id:2,claim_policy:'review'},{user_id:3,claim_policy:'submit'}]]:sql.includes('SELECT role')?[[{role:'provider'}]]:[[]]);
+ const r=await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
+ expect(m.create).toHaveBeenCalledTimes(1);expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:3,payload:expect.objectContaining({manualMeetingLogId:90,platform:'Phone call',attendanceSource:'manual'})}));expect(r.results.map(p=>p.error).filter(Boolean)).toEqual(['manual_covered','manual_review']);
+});
+it('keeps a fallback host claim visible to payroll even when its assigned rate needs review',async()=>{
+ m.rate.mockResolvedValue(null);
+ m.execute.mockImplementation(async sql=>sql.includes('FROM manual_meeting_logs')?[[{id:90,platform:'in_person'}]]:sql.includes('FROM manual_meeting_log_attendees')?[[{user_id:1,claim_policy:'submit'}]]:sql.includes('SELECT role')?[[{role:'clinical_practice_assistant'}]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,kind:'HUDDLE',meeting_subtype:'cpa'}});
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({status:'submitted',payload:expect.objectContaining({serviceCode:'Admin Time'})}));
+});

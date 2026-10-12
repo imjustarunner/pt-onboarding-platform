@@ -21,7 +21,9 @@
               <div><dt>{{ r.compensation.appliedAmount != null ? 'Approved amount' : 'Estimated pay' }}</dt><dd>{{ money(r.compensation.appliedAmount ?? r.compensation.estimatedAmount) }}</dd></div>
             </template>
           </dl>
-          <p v-if="!r.claimId" class="muted">{{ r.attendanceMinutes >= 0.5 ? 'No claim yet. Salary status and compensation eligibility may apply.' : 'Awaiting recorded attendance.' }}</p>
+          <p v-if="r.manualPolicy && r.manualPolicy!=='submit'" class="mtcp__note">{{ {existing:'An existing time claim covers this meeting.',covered:'Time was marked already covered; attendance only.',review:'A same-day time claim may already cover this meeting. Payroll review is needed.'}[r.manualPolicy] }}</p>
+          <form v-if="canManageCompensation && r.manualPolicy==='review'" class="mtcp__form" @submit.prevent="resolveOverlap(r)"><label>Review outcome<select v-model="overlapReviews[r.userId].action"><option value="covered">Existing pay covers this time</option><option value="submit">This is separate, unpaid time — request missing claim</option></select></label><label>Review note<textarea v-model="overlapReviews[r.userId].note" required minlength="5" maxlength="500" /></label><button class="btn btn-primary" :disabled="saving">Save review</button></form>
+          <p v-else-if="!r.claimId && (!r.manualPolicy || r.manualPolicy==='submit')" class="muted">{{ r.attendanceMinutes >= 0.5 ? 'No claim yet. Salary status and compensation eligibility may apply.' : 'Awaiting recorded attendance.' }}</p>
           <p v-if="r.compensation?.reason" class="mtcp__note"><strong>Adjustment:</strong> {{ r.compensation.reason }}</p>
           <div v-if="canEdit && r.claimId && canEditClaim(r)" class="mtcp__actions">
             <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="startEdit(r)">Edit time</button>
@@ -53,6 +55,8 @@ const props = defineProps({ eventId: { type: [Number, String], required: true } 
 const loading = ref(false), saving = ref(false), error = ref(''), success = ref('');
 const rows = ref([]), canEdit = ref(false), canManageCompensation = ref(false), eligible = ref(true);
 const editingId = ref(0), editMinutes = ref(0), rateEditingId = ref(0), rateType = ref('default'), customRate = ref(null), rateReason = ref('');
+const overlapReviews=ref({});
+async function resolveOverlap(row){saving.value=true;error.value='';try{await api.post(`/team-meetings/${props.eventId}/manual-log/${row.userId}/resolve`,overlapReviews.value[row.userId]);overlapReviews.value[row.userId]={action:'covered',note:''};success.value='Review saved. Missing time, if requested, still requires payroll approval.';await load();}catch(e){error.value=e?.response?.data?.error?.message || 'Could not save review.';}finally{saving.value=false;}}
 let requestId = 0;
 const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value));
 const formatMins = value => Number.isFinite(Number(value)) ? String(Math.round(Number(value) * 100) / 100) : '0';
@@ -71,6 +75,7 @@ async function load() {
     canEdit.value = !!data?.canEdit;
     canManageCompensation.value = !!data?.canManageCompensation;
     rows.value = Array.isArray(data?.rows) ? data.rows : [];
+    for(const row of rows.value) if(row.manualPolicy==='review' && !overlapReviews.value[row.userId]) overlapReviews.value[row.userId]={action:'covered',note:''};
   } catch (e) {
     if (id === requestId) error.value = e?.response?.data?.error?.message || 'Could not load time claims. Try Refresh.';
   } finally { if (id === requestId) loading.value = false; }

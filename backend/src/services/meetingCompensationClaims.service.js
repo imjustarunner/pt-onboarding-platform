@@ -349,9 +349,20 @@ async function syncCompensationClaimsUnlocked({
       return { ok: true, skipped: true, error: 'waiting_for_attendance_or_end', results: [] };
     }
 
+    // Fallback attendance uses the same claim identity as automatic attendance. Covered time stays excluded on later syncs.
+    let manualLog = null, manualAttendees = [];
+    try {
+      const [logs] = await pool.execute('SELECT id,platform,reason FROM manual_meeting_logs WHERE event_id=?',[eid]);
+      manualLog = logs[0] || null;
+      if (manualLog) [manualAttendees] = await pool.execute('SELECT user_id,claim_policy,covered_claim_id FROM manual_meeting_log_attendees WHERE log_id=?',[manualLog.id]);
+    } catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') throw error; }
     const meetingSubtype = normalizeMeetingSubtype(row.meeting_subtype ?? row.meetingSubtype);
     const results = [];
     for (const uid of participantIds) {
+      const manualPerson = manualAttendees.find(p=>Number(p.user_id)===uid);
+      if (manualPerson && manualPerson.claim_policy !== 'submit') {
+        results.push({userId:uid,ok:true,skipped:true,error:`manual_${manualPerson.claim_policy}`}); continue;
+      }
       const isHost = uid === hostId;
       let serviceCode = MEETING_SERVICE_CODE;
       let payRateSource = 'meeting';
@@ -387,7 +398,7 @@ async function syncCompensationClaimsUnlocked({
         continue;
       }
 
-      if (!(kind === 'TEAM_MEETING' && meetingSubtype === 'admin') && !unpaidIndirect && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
+      if (!manualPerson && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin') && !unpaidIndirect && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
         results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
         continue;
       }
@@ -401,6 +412,9 @@ async function syncCompensationClaimsUnlocked({
         categoryLabel,
         compensationNote
       });
+      if (manualPerson) Object.assign(payload, { manualMeetingLogId:manualLog.id, attendanceSource:'manual',
+        platform:({in_person:'In person',phone:'Phone call',google_meet:'Google Meet',app_issue:'App meeting — attendance issue',other:'Other'})[manualLog.platform],
+        compensationNote:[payload.compensationNote,'Manually recorded attendance; submitted for payroll review.'].filter(Boolean).join(' ') });
       if (unpaidIndirect) Object.assign(payload,{unpaidIndirect:true,amount:0,bucket:'indirect',categoryLabel:`${meetingType} · unpaid indirect time`});
       // eslint-disable-next-line no-await-in-loop
       const res = await upsertClaim({

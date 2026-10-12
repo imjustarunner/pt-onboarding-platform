@@ -1,3 +1,4 @@
+import { getManualMeetingOptions, previewManualMeetingLog, createManualMeetingLog, resolveManualMeetingLog } from '../controllers/manualMeetingLog.controller.js';
 import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary, getMyMeetingActivity } from '../controllers/myMeetings.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
 import { authenticateTeamMeeting, authenticateTeamMeetingOptional } from '../middleware/teamMeetingInvitationAccess.middleware.js';
@@ -57,6 +58,10 @@ router.get('/:eventId/interview-chat', getInterviewSharedChat);
 router.post('/:eventId/interview-chat', postInterviewSharedChat);
 
 // Static paths before /:eventId
+router.get('/manual-log/options', getManualMeetingOptions);
+router.post('/manual-log/preview', previewManualMeetingLog);
+router.post('/manual-log', createManualMeetingLog);
+router.post('/:eventId/manual-log/:userId/resolve', resolveManualMeetingLog);
 router.get('/my-meetings', listMyMeetings);
 router.get('/my-meetings/:type/:id', getMyMeeting);
 router.get('/my-meetings/:type/:id/activity', getMyMeetingActivity);

@@ -134,7 +134,7 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
       text: message.text, authorName: message.authorName, at: message.at
     })),
     agenda:agenda.map(mapMeetingAgendaItem),attendance,presence,attendanceLog,personalNote,transcript:artifact?.transcript_text || '',summary:artifact?.summary_text || interviewArtifact?.transcript_summary || '',
-    summaryStatus,workspace:type === 'team' ? TeamArtifact.toWorkspaceDto(artifact) : { focusTitle: artifact?.focusTitle || '', goals: artifact?.goals || [], actionItems: artifact?.actionItems || [] } };
+    summarySource:artifact?.summary_model === 'manual'?'manual':'generated',summaryStatus,workspace:type === 'team' ? TeamArtifact.toWorkspaceDto(artifact) : { focusTitle: artifact?.focusTitle || '', goals: artifact?.goals || [], actionItems: artifact?.actionItems || [] } };
 }
 export async function saveMyMeetingNote(type,id,userId,text,actor = { id: userId }) {
   await requireAttendedMeeting(type,id,userId,actor);
