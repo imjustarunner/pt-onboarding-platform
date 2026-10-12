@@ -4074,67 +4074,50 @@
                   <input
                     v-model="scheduleHoldReasonDraft"
                     class="input"
-                    type="text"
-                    list="hold-reason-suggestions"
-                    placeholder="Type a reason or pick one…"
+                    type="search"
+                    aria-label="Search or add a block reason"
+                    placeholder="Search or type your own reason…"
                     maxlength="120"
+                    @input="holdReasonSearch = $event.target.value; onHoldReasonDraftChange()"
+                    @focus="holdReasonSearch = ''"
                     @keydown.enter.prevent="commitHoldReasonDraft"
-                    @change="onHoldReasonDraftChange"
-                    @blur="onHoldReasonDraftChange"
                   />
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="!canSaveHoldReasonDraft"
-                    title="Save this reason for yourself"
-                    @click="commitHoldReasonDraft"
-                  >
-                    Save
-                  </button>
-                  <button
-                    v-if="canSaveHoldReasonToAgency"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    :disabled="!String(scheduleHoldReasonDraft || '').trim()"
-                    title="Save and add to agency catalog"
-                    @click="saveHoldReasonToAgency"
-                  >
-                    Save &amp; add to agency
+                  <button type="button" class="btn btn-secondary btn-sm"
+                    :disabled="!canSaveHoldReasonDraft" @click="commitHoldReasonDraft">
+                    Add for me
                   </button>
                 </div>
-                <datalist id="hold-reason-suggestions">
-                  <option
-                    v-for="opt in scheduleHoldReasonOptions"
-                    :key="`hold-dl-${opt.code}`"
-                    :value="opt.label"
-                  />
-                </datalist>
-                <div class="hold-reason-chips">
-                  <button
-                    v-for="opt in scheduleHoldReasonOptions"
-                    :key="`hold-chip-${opt.code}`"
-                    type="button"
-                    class="hold-reason-chip"
-                    :class="{ on: isHoldReasonSelected(opt) }"
-                    @click="selectHoldReasonOption(opt)"
-                  >
-                    <span>{{ opt.label }}</span>
-                    <span
-                      v-if="opt.custom"
-                      class="hold-reason-x"
-                      title="Remove saved reason"
-                      @click.stop="removeCustomHoldReason(opt.code)"
-                    >×</span>
-                  </button>
+                <div class="hold-reason-chips" aria-label="Saved block reasons">
+                  <div v-for="opt in filteredHoldReasonOptions" :key="opt.code" class="hold-reason-choice">
+                    <button type="button" class="hold-reason-chip"
+                      :class="{ on: isHoldReasonSelected(opt) }" :aria-pressed="isHoldReasonSelected(opt)"
+                      @click="selectHoldReasonOption(opt)">{{ opt.label }}</button>
+                    <button type="button" class="hold-reason-x"
+                      :aria-label="`Remove ${opt.label} from my reasons`"
+                      title="Remove from my list" @click="removeCustomHoldReason(opt.code)">×</button>
+                  </div>
                 </div>
-                <div class="muted nr-help" style="margin-top: 4px;">
-                  Type a new reason and hit Save to keep it. Use × to remove a reason you don’t want to see.
-                </div>
+                <p v-if="!filteredHoldReasonOptions.length" class="muted nr-help">No saved reasons match. Use “Add for me” to save your own.</p>
+                <p class="muted nr-help">Adding or removing reasons changes only your list. Existing blocks keep their reason and notes.</p>
+                <button v-if="hiddenHoldReasonCodes.length" type="button" class="btn btn-secondary btn-sm"
+                  @click="restoreHiddenHoldReasons">Restore removed default reasons ({{ hiddenHoldReasonCodes.length }})</button>
               </div>
               <label class="sched-toggle" style="margin-top: 12px;">
                 <input v-model="scheduleHoldFocusSession" type="checkbox" />
                 <span>Enable Focus Session for this block</span>
               </label>
+              <RecurrenceControls style="margin-top: 12px;"
+                v-model:frequency="scheduleEventRecurrence"
+                v-model:end-mode="scheduleEventRecurrenceEndMode"
+                v-model:occurrence-count="scheduleEventOccurrenceCount"
+                v-model:until-date="editorRecurrenceUntilDate"
+                v-model:weekdays="editorRecurrenceWeekdays"
+                :occurrence-label="editorRecurrenceOccurrenceLabel"
+                :disabled="submitting"
+              />
+              <p v-if="scheduleEventRecurrence !== 'ONCE' && scheduleEventRecurrenceEndMode === 'indefinite'" class="muted nr-help">
+                Blocks repeat at the same time on each selected day. The next year is reserved and extended automatically until you cancel the series.
+              </p>
             </div>
 
             <label
@@ -5856,6 +5839,7 @@ import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import SupervisionPresenterCasePanel from './SupervisionPresenterCasePanel.vue';
 import { availabilityOccursOn } from '../../utils/availabilityRecurrence.js';
 import AvailabilityPublicationEdit from '../availability/AvailabilityPublicationEdit.vue';
+import RecurrenceControls from './RecurrenceControls.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
@@ -6015,11 +5999,10 @@ const loadMyScheduleColors = async () => {
     const colors = parseJsonMaybe(resp.data?.schedule_color_overrides);
     scheduleColors.value = { ...defaultScheduleColors(), ...(colors || {}) };
     const display = parseJsonMaybe(resp.data?.schedule_display_prefs);
+    loadCustomHoldReasonsFromPrefs(display);
     if (display && props.mode === 'self') {
       applyDisplayPrefs(display);
       saveDisplayPrefsLocal();
-    } else {
-      loadCustomHoldReasonsFromPrefs(null);
     }
   } catch {
     // best effort; fall back to defaults
@@ -6521,6 +6504,7 @@ const normalizeRowHeightMode = (raw) => {
 
 // Declared with display prefs so collectDisplayPrefs / applyDisplayPrefs never hit a TDZ binding.
 const customHoldReasons = ref([]); // [{ code, label }]
+const hiddenHoldReasonCodes = ref([]);
 /** Opt-in "Office at this time" peek panel (More tools). Off by default — never auto-opens. */
 const showOfficeQuickGlance = ref(false);
 
@@ -6550,6 +6534,7 @@ const collectDisplayPrefs = () => ({
   hideWeekend: !!hideWeekend.value,
   showAllHours: !!showAllHours.value,
   showOfficeQuickGlance: !!showOfficeQuickGlance.value,
+  hiddenHoldReasonCodes: [...hiddenHoldReasonCodes.value],
   holdReasons: (customHoldReasons.value || [])
     .map((r) => ({
       code: String(r?.code || '').toUpperCase(),
@@ -12217,10 +12202,7 @@ const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
 const scheduleHoldReasonDraft = ref('Documentation');
 const scheduleHoldFocusSession = ref(false);
-const canSaveHoldReasonToAgency = computed(() => {
-  const r = String(authStore.user?.role || '').toLowerCase();
-  return ['admin', 'super_admin', 'support'].includes(r);
-});
+const holdReasonSearch = ref('');
 const personalEventTypeCode = ref('PERSONAL');
 const personalEventTitleTouched = ref(false);
 const normalizeCodeValue = (value) => String(value || '')
@@ -12364,7 +12346,7 @@ const modalTimeRangeLabel = computed(() => {
   }
   return `${hourLabel(modalHour.value)}-${hourLabel(modalEndHour.value)}`;
 });
-const scheduleHoldReasonOptions = computed(() => {
+const allHoldReasonOptions = computed(() => {
   const seen = new Set();
   const out = [];
   for (const opt of BUILTIN_HOLD_REASON_OPTIONS) {
@@ -12381,6 +12363,13 @@ const scheduleHoldReasonOptions = computed(() => {
     out.push({ code, label, custom: true });
   }
   return out;
+});
+const scheduleHoldReasonOptions = computed(() => allHoldReasonOptions.value.filter(
+  opt => !hiddenHoldReasonCodes.value.includes(opt.code)
+));
+const filteredHoldReasonOptions = computed(() => {
+  const words = holdReasonSearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return scheduleHoldReasonOptions.value.filter(opt => words.every(word => opt.label.toLowerCase().includes(word)));
 });
 const canSaveHoldReasonDraft = computed(() => {
   const label = String(scheduleHoldReasonDraft.value || '').trim();
@@ -12406,6 +12395,7 @@ function selectHoldReasonOption(opt) {
   // Schedule hold title is always the block reason (no separate event title).
   scheduleEventTitle.value = label || code;
   scheduleHoldReasonDraft.value = label || code;
+  holdReasonSearch.value = '';
   if (opt?.custom) {
     scheduleHoldReasonCode.value = 'CUSTOM';
     scheduleHoldCustomReason.value = label;
@@ -12418,63 +12408,61 @@ function selectHoldReasonOption(opt) {
 
 function onHoldReasonDraftChange() {
   const label = String(scheduleHoldReasonDraft.value || '').trim();
-  if (!label) return;
+  if (!label) {
+    scheduleHoldReasonCode.value = 'CUSTOM';
+    scheduleHoldCustomReason.value = '';
+    scheduleEventTitle.value = '';
+    return;
+  }
   const existing = scheduleHoldReasonOptions.value.find(
     (o) => o.code === holdReasonLabelToCode(label) || o.label.toLowerCase() === label.toLowerCase()
   );
-  if (existing) selectHoldReasonOption(existing);
-  else {
+  if (existing) {
+    scheduleHoldReasonCode.value = existing.custom ? 'CUSTOM' : existing.code;
+    scheduleHoldCustomReason.value = existing.custom ? existing.label : '';
+    scheduleEventTitle.value = existing.label;
+  } else {
     scheduleHoldReasonCode.value = 'CUSTOM';
     scheduleHoldCustomReason.value = label;
     scheduleEventTitle.value = label;
   }
 }
 
-async function saveHoldReasonToAgency() {
-  const label = String(scheduleHoldReasonDraft.value || '').trim();
-  if (!label || !canSaveHoldReasonToAgency.value) return;
-  const agencyId = Number(effectiveAgencyId.value || scheduleEventAgencyScope.value || 0);
-  if (!agencyId) {
-    window.alert('Select an organization before saving a reason to the agency catalog.');
-    return;
-  }
-  try {
-    await api.post('/schedule-hold-reasons/agency', { agencyId, label }, { skipGlobalLoading: true });
-    commitHoldReasonDraft();
-  } catch (e) {
-    console.error(e);
-    window.alert(e?.response?.data?.error?.message || 'Could not save reason to agency');
-  }
-}
-
 function commitHoldReasonDraft() {
-  const label = String(scheduleHoldReasonDraft.value || '').trim();
+  const label = String(scheduleHoldReasonDraft.value || '').trim().slice(0, 120);
   if (!label) return;
   const code = holdReasonLabelToCode(label);
-  if (!code) return;
-  const existing = scheduleHoldReasonOptions.value.find(
-    (o) => o.code === code || o.label.toLowerCase() === label.toLowerCase()
-  );
+  const existing = allHoldReasonOptions.value.find(o => o.code === code || o.label.toLowerCase() === label.toLowerCase());
   if (existing) {
+    hiddenHoldReasonCodes.value = hiddenHoldReasonCodes.value.filter(c => c !== existing.code);
     selectHoldReasonOption(existing);
-    return;
+  } else {
+    if (customHoldReasons.value.length >= 40) {
+      window.alert('You can save up to 40 personal reasons. Remove one before adding another.');
+      return;
+    }
+    customHoldReasons.value = [...customHoldReasons.value, { code, label }];
+    selectHoldReasonOption({ code, label, custom: true });
   }
-  const next = [...(customHoldReasons.value || []), { code, label }];
-  customHoldReasons.value = next;
   persistCustomHoldReasons();
-  scheduleHoldReasonCode.value = 'CUSTOM';
-  scheduleHoldCustomReason.value = label;
-  scheduleHoldReasonDraft.value = label;
 }
 
 function removeCustomHoldReason(codeRaw) {
   const code = String(codeRaw || '').toUpperCase();
   if (!code) return;
-  customHoldReasons.value = (customHoldReasons.value || []).filter((r) => String(r.code || '').toUpperCase() !== code);
-  persistCustomHoldReasons();
-  if (isHoldReasonSelected({ code, label: scheduleHoldReasonDraft.value, custom: true })) {
-    selectHoldReasonOption(BUILTIN_HOLD_REASON_OPTIONS[0]);
+  if (BUILTIN_HOLD_REASON_OPTIONS.some(opt => opt.code === code)) {
+    hiddenHoldReasonCodes.value = [...new Set([...hiddenHoldReasonCodes.value, code])];
+  } else {
+    customHoldReasons.value = customHoldReasons.value.filter(r => r.code !== code);
   }
+  // Removing a saved option never changes the block currently being composed.
+  persistCustomHoldReasons();
+}
+
+function restoreHiddenHoldReasons() {
+  hiddenHoldReasonCodes.value = [];
+  holdReasonSearch.value = '';
+  persistCustomHoldReasons();
 }
 
 function persistCustomHoldReasons() {
@@ -12487,13 +12475,28 @@ function persistCustomHoldReasons() {
     .filter((r) => r.code && r.label)
     .slice(0, 40);
   try {
-    if (uid) window?.localStorage?.setItem?.(`schedule.holdReasons.v1:${uid}`, JSON.stringify(payload));
+    if (uid) {
+      window?.localStorage?.setItem?.(`schedule.holdReasons.v1:${uid}`, JSON.stringify(payload));
+      window?.localStorage?.setItem?.(`schedule.hiddenHoldReasons.v1:${uid}`, JSON.stringify(hiddenHoldReasonCodes.value));
+    }
   } catch { /* ignore */ }
-  saveDisplayPrefs();
+  if (props.mode === 'self') saveDisplayPrefs();
+  else if (uid) {
+    // Merge into this person's display preferences without replacing their self-view settings.
+    const hidden = [...hiddenHoldReasonCodes.value];
+    void api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true }).then(resp => api.put(`/users/${uid}/preferences`, {
+      schedule_display_prefs: { ...(parseJsonMaybe(resp.data?.schedule_display_prefs) || {}), holdReasons: payload, hiddenHoldReasonCodes: hidden }
+    }, { skipGlobalLoading: true })).catch(() => {});
+  }
 }
 
 function loadCustomHoldReasonsFromPrefs(prefs = null) {
   const uid = Number(authStore.user?.id || props.userId || 0);
+  let hidden = prefs?.hiddenHoldReasonCodes;
+  if (!Array.isArray(hidden)) {
+    try { hidden = JSON.parse(window?.localStorage?.getItem?.(`schedule.hiddenHoldReasons.v1:${uid}`) || '[]'); } catch { hidden = []; }
+  }
+  hiddenHoldReasonCodes.value = Array.isArray(hidden) ? hidden.filter(code => BUILTIN_HOLD_REASON_OPTIONS.some(opt => opt.code === code)) : [];
   let rows = Array.isArray(prefs?.holdReasons) ? prefs.holdReasons : null;
   if (!rows && uid) {
     try {
@@ -18514,6 +18517,8 @@ const openSlotActionModal = async ({
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'indefinite';
   scheduleEventOccurrenceCount.value = 7;
+  editorRecurrenceWeekdays.value = [String(modalDay.value || '').slice(0, 3)].filter(Boolean);
+  editorRecurrenceUntilDate.value = '';
   supervisionRecurrence.value = 'ONCE';
   supervisionRecurrenceEndMode.value = 'indefinite';
   supervisionOccurrenceCount.value = 6;
@@ -20624,6 +20629,8 @@ const closeModal = () => {
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'indefinite';
   scheduleEventOccurrenceCount.value = 7;
+  editorRecurrenceWeekdays.value = [String(modalDay.value || '').slice(0, 3)].filter(Boolean);
+  editorRecurrenceUntilDate.value = '';
   supervisionRecurrence.value = 'ONCE';
   supervisionRecurrenceEndMode.value = 'indefinite';
   supervisionOccurrenceCount.value = 6;
@@ -20928,7 +20935,7 @@ const scheduleEventOccurrenceDates = (baseDateYmd, recurrence, occurrenceCount) 
       : scheduleEventRecurrenceEndMode.value) || 'count'
   );
   const weekdays = Array.isArray(editorRecurrenceWeekdays.value) ? editorRecurrenceWeekdays.value : [];
-  if (weekdays.length > 1 || endMode === 'until' || editorRecurrenceUntilDate.value || endMode === 'indefinite') {
+  if (weekdays.length > 0 || endMode === 'until' || editorRecurrenceUntilDate.value || endMode === 'indefinite') {
     return expandRecurrenceDates({
       startYmd: base,
       frequency: normalized,
@@ -21347,6 +21354,7 @@ const submitRequest = async () => {
         : (eventKind === 'PERSONAL_EVENT' ? effectivePersonalEventTypeCode() : null);
       let title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       if (eventKind === 'SCHEDULE_HOLD') {
+        if (!String(scheduleHoldReasonDraft.value || '').trim()) throw new Error('Choose or type a block reason.');
         const reasonLabel = String(scheduleHoldReasonDraft.value || scheduleHoldCustomReason.value || '').trim()
           || scheduleHoldReasonOptions.value.find((o) => o.code === String(reasonCode || '').toUpperCase())?.label
           || 'Schedule block';
@@ -21358,21 +21366,40 @@ const submitRequest = async () => {
         ? teamMeetingTimeZone()
         : null;
       const isMeetingAction = normalizedAction === 'agency_meeting' || normalizedAction === 'huddle';
-      const recurrence = isMeetingAction
+      const isRecurringAction = isMeetingAction || eventKind === 'SCHEDULE_HOLD';
+      const recurrence = isRecurringAction
         ? String(scheduleEventRecurrence.value || 'ONCE').trim().toUpperCase()
         : 'ONCE';
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
-      const recurrenceEndMode = isMeetingAction ? String(scheduleEventRecurrenceEndMode.value || 'count') : 'count';
+      const recurrenceEndMode = isRecurringAction ? String(scheduleEventRecurrenceEndMode.value || 'count') : 'count';
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? recurringMeetingOccurrenceCount(recurrence, recurrenceEndMode, scheduleEventOccurrenceCount.value)
         : 1;
-      const recurrenceSeriesId = (isMeetingAction && recurringRecurrences.includes(recurrence))
+      const recurrenceSeriesId = (isRecurringAction && recurringRecurrences.includes(recurrence))
         ? generateRecurrenceSeriesId()
         : null;
-      const recurrencePolicy = (isMeetingAction && recurringRecurrences.includes(recurrence))
+      const recurrencePolicy = (isRecurringAction && recurringRecurrences.includes(recurrence))
         ? (recurrenceEndMode === 'indefinite' ? 'INDEFINITE' : 'FINITE')
         : null;
       let recurrenceIndex = 0;
+      const recurrenceFields = () => isRecurringAction ? ({
+        recurrenceSeriesId,
+        recurrenceFrequency: recurrenceSeriesId ? recurrence : null,
+        recurrencePolicy,
+        recurrenceIndex: recurrenceSeriesId ? recurrenceIndex : null,
+        timeZone: meetingTimeZone || scheduleMeetingTimeZone()
+      }) : {};
+      if (recurrenceSeriesId && recurrenceEndMode === 'until' && (!editorRecurrenceUntilDate.value || editorRecurrenceUntilDate.value < editorDateYmd.value)) {
+        throw new Error('Choose an end date on or after the first date.');
+      }
+      if (eventKind === 'SCHEDULE_HOLD' && recurrenceSeriesId) {
+        if (recurrence !== 'MONTHLY' && !editorRecurrenceWeekdays.value.length) {
+          throw new Error('Select at least one day for this recurring block.');
+        }
+        if (!scheduleEventOccurrenceDates(editorDateYmd.value, recurrence, occurrenceCount).length) {
+          throw new Error('No block dates fall in this range. Choose days and dates within the next year.');
+        }
+      }
       const createPlatformVideoLink = isMeetingAction
         && scheduleVideoConfigured.value
         && !!linkMeetingPlatformVideo.value;
@@ -21400,7 +21427,9 @@ const submitRequest = async () => {
           endHour: endH,
           useModalRange: true
         });
-        const baseDates = Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
+        const baseDates = eventKind === 'SCHEDULE_HOLD' && recurrenceSeriesId
+          ? [editorDateYmd.value]
+          : Array.from(new Set(ranges.map((x) => String(x.dateYmd || '').slice(0, 10)).filter(Boolean)));
         const recurringDates = Array.from(
           new Set(baseDates.flatMap((dateYmd) => scheduleEventOccurrenceDates(dateYmd, recurrence, occurrenceCount)))
         );
@@ -21418,6 +21447,7 @@ const submitRequest = async () => {
             endDate,
             reasonCode,
             isPrivate,
+            ...recurrenceFields(),
             focusSessionEnabled: eventKind === 'SCHEDULE_HOLD' ? !!scheduleHoldFocusSession.value : undefined,
             ...(isMeetingAction
               ? {
@@ -21434,15 +21464,11 @@ const submitRequest = async () => {
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   meetingSubtype: meetingSubtypeForCreate,
                   ...evaluationCreateFields,
-                  recurrenceSeriesId,
-                  recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
-                  recurrencePolicy,
-                  recurrenceIndex: recurringRecurrences.includes(recurrence) ? recurrenceIndex : null,
                   ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                 }
               : {})
           });
-          if (isMeetingAction && recurringRecurrences.includes(recurrence)) recurrenceIndex += 1;
+          if (recurrenceSeriesId) recurrenceIndex += 1;
           const created = resp?.data?.event || null;
           if (created) createdScheduleEvents.push(created);
           if (isMeetingAction && resp?.data?.googleCalendarWarning) {
@@ -21457,7 +21483,9 @@ const submitRequest = async () => {
           endHour: endH,
           useModalRange: true
         });
-        for (const row of ranges) {
+        const blockRanges = eventKind === 'SCHEDULE_HOLD' && recurrenceSeriesId
+          ? [{ dateYmd: editorDateYmd.value, startHour: h, endHour: endH }] : ranges;
+        for (const row of blockRanges) {
           const dates = scheduleEventOccurrenceDates(String(row.dateYmd).slice(0, 10), recurrence, occurrenceCount);
           for (const dateYmd of dates) {
             const startAt = `${String(dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:${pad2(startMinute)}:00`;
@@ -21473,6 +21501,7 @@ const submitRequest = async () => {
               endAt,
               reasonCode,
               isPrivate,
+              ...recurrenceFields(),
               focusSessionEnabled: eventKind === 'SCHEDULE_HOLD' ? !!scheduleHoldFocusSession.value : undefined,
               ...(isMeetingAction
                 ? {
@@ -21489,15 +21518,11 @@ const submitRequest = async () => {
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     meetingSubtype: meetingSubtypeForCreate,
                     ...evaluationCreateFields,
-                    recurrenceSeriesId,
-                    recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
-                    recurrencePolicy,
-                    recurrenceIndex: recurringRecurrences.includes(recurrence) ? recurrenceIndex : null,
                     ...(meetingTimeZone ? { timeZone: meetingTimeZone } : {})
                   }
                 : {})
             });
-            if (isMeetingAction && recurringRecurrences.includes(recurrence)) recurrenceIndex += 1;
+            if (recurrenceSeriesId) recurrenceIndex += 1;
             const created = resp?.data?.event || null;
             if (created) createdScheduleEvents.push(created);
             if (isMeetingAction && resp?.data?.googleCalendarWarning) {
@@ -22547,7 +22572,7 @@ watch(requestType, (t) => {
     if (t === 'schedule_hold' || t === 'schedule_hold_all_day') {
       selectHoldReasonOption(
         scheduleHoldReasonOptions.value.find((o) => o.code === String(scheduleHoldReasonCode.value || '').toUpperCase())
-        || BUILTIN_HOLD_REASON_OPTIONS[0]
+        || scheduleHoldReasonOptions.value[0]
       );
     }
     if (['personal_event', 'schedule_hold', 'schedule_hold_all_day'].includes(String(t || ''))) {
@@ -31625,6 +31650,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .hold-reason-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
@@ -31633,10 +31659,13 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   min-width: 0;
 }
 .hold-reason-chips {
+  max-height: 160px;
+  overflow-y: auto;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+.hold-reason-choice { display: inline-flex; align-items: center; gap: 4px; }
 .hold-reason-chip {
   appearance: none;
   display: inline-flex;
@@ -31660,8 +31689,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  cursor: pointer;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.08);
   color: #475569;

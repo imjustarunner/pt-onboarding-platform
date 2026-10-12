@@ -6385,7 +6385,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         endDate: allDay ? endDateExclusive : null,
         // Persist the zone the wall-clock was entered in — re-editing must anchor to this,
         // never to whichever office/tenant happens to be selected in the UI at edit time.
-        eventTimezone: storesUtc ? timeZone : null,
+        eventTimezone: timeZone,
         recurrenceSeriesId,
         recurrenceFrequency,
         recurrencePolicy,
@@ -7248,7 +7248,7 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
     const isMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(String(target.kind).toUpperCase());
     let rowsToCancel;
     let cancelledCount;
-    if (isMeeting) {
+    if (isMeeting || target.kind === 'SCHEDULE_HOLD') {
       const canceled = await cancelMeetingOccurrences({ kind: 'meeting', eventId, scope, actorUserId });
       rowsToCancel = canceled.rows;
       cancelledCount = canceled.cancelledCount;

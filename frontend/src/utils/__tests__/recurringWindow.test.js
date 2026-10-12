@@ -16,3 +16,8 @@ it('keeps a January 31 monthly anchor after February',()=>{
  vi.useFakeTimers();vi.setSystemTime(new Date('2026-01-01T18:00:00Z'));
  expect(expandRecurrenceDates({startYmd:'2026-01-31',frequency:'MONTHLY',occurrenceCount:3})).toEqual(['2026-01-31','2026-02-28','2026-03-31']);
 });
+it('keeps biweekly weekdays in the same calendar week and counts dates chronologically',()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-08T18:00:00Z'));
+ expect(expandRecurrenceDates({startYmd:'2026-10-15',frequency:'BIWEEKLY',occurrenceCount:4,weekdays:['Thu','Tue']})).toEqual(['2026-10-15','2026-10-27','2026-10-29','2026-11-10']);
+ expect(expandRecurrenceDates({startYmd:'2026-10-13',frequency:'WEEKLY',occurrenceCount:1,weekdays:['Thu','Tue','Tue']})).toEqual(['2026-10-13']);
+});

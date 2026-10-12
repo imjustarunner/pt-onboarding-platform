@@ -423,14 +423,14 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     [rows]=await pool.query('SELECT status,recurrence_stopped,recurrence_horizon_held FROM supervision_sessions ORDER BY id');
     expect(rows.map(r=>r.status)).toEqual(['SCHEDULED','CANCELLED','CANCELLED']);expect(rows.every(r=>r.recurrence_stopped===1 && r.recurrence_horizon_held===0)).toBe(true);
   });
-  it('serializes future cancellation with an in-flight silent extension', async () => {
-    await pool.query("UPDATE provider_schedule_events SET agency_id=1,kind='TEAM_MEETING',recurrence_series_id='m' WHERE id=40");
+  it.each(['TEAM_MEETING','SCHEDULE_HOLD'])('serializes %s future cancellation with an in-flight silent extension', async kind => {
+    await pool.query("UPDATE provider_schedule_events SET agency_id=NULL,kind=?,client_id=NULL,recurrence_series_id='m' WHERE id=40",[kind]);
     let signal,finish;
     const ready=new Promise(resolve=>signal=resolve), gate=new Promise(resolve=>finish=resolve);
     const renewing=withRecurringScheduleEdit(async db=>{
       signal();await gate;
       await db.query(`INSERT INTO provider_schedule_events (id,agency_id,provider_id,kind,status,recurrence_series_id,start_at,end_at)
-        VALUES (41,1,9,'TEAM_MEETING','ACTIVE','m','2099-01-12 17:00:00','2099-01-12 18:00:00')`);
+        VALUES (41,NULL,9,?,'ACTIVE','m','2099-01-12 17:00:00','2099-01-12 18:00:00')`,[kind]);
     });
     await ready;
     const cancel=cancelMeetingOccurrences({kind:'meeting',eventId:40,scope:'future',actorUserId:9});

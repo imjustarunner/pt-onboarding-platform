@@ -65,6 +65,7 @@ jobs:
           backend/src/services/__tests__/scheduling.googleCalendarAdvisory.test.js
           backend/src/services/__tests__/scheduling.calendarBusy.test.js
           backend/src/services/__tests__/scheduling.lifecycleRecurrence.test.js
+          backend/src/services/__tests__/scheduling.blockRecurrence.test.js
           backend/src/services/__tests__/scheduling.publicAvailability.test.js
           backend/src/services/__tests__/scheduleSummaryPrivacy.service.test.js
       - name: Scheduling form and display regressions
@@ -72,6 +73,8 @@ jobs:
         run: >-
           npm test --
           src/components/schedule/__tests__/supervisionScheduler.test.js
+          src/components/schedule/__tests__/scheduleBlocks.test.js
+          src/utils/__tests__/recurringWindow.test.js
           src/views/__tests__/OfficeScheduleView.test.js
           src/components/admin/opsDashboard/__tests__/PlannedOutModal.test.js
           src/utils/__tests__/plannedOutTimezone.test.js

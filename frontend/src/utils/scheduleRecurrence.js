@@ -167,29 +167,19 @@ export function expandRecurrenceDates({
   const days = Array.isArray(weekdays) && weekdays.length
     ? weekdays.map(String)
     : [weekdayShortFromYmd(start)].filter(Boolean);
-  const order = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const dayIndexes = [...new Set(days.map(day => order.indexOf(day)).filter(index => index >= 0))].sort((a,b) => a-b);
+  const weekStart = addDaysYmd(start, -order.indexOf(weekdayShortFromYmd(start)));
   const out = [];
-  let weekOffset = 0;
-  while (out.length < occurrenceCap && weekOffset < 600) {
-    let hitPastUntil = false;
-    for (const day of days) {
-      const base = addDaysYmd(start, weekOffset * 7);
-      const baseDow = weekdayShortFromYmd(base);
-      const baseIdx = order.indexOf(baseDow);
-      const wantIdx = order.indexOf(day);
-      if (baseIdx < 0 || wantIdx < 0) continue;
-      const delta = (wantIdx - baseIdx + 7) % 7;
-      const candidate = addDaysYmd(base, delta);
-      if (candidate < start) continue;
-      if (until && candidate > until) {
-        hitPastUntil = true;
-        continue;
-      }
-      if (!out.includes(candidate)) out.push(candidate);
+  for (let weekOffset = 0; weekOffset < 600 && out.length < occurrenceCap; weekOffset += stepWeeks) {
+    const base = addDaysYmd(weekStart, weekOffset * 7);
+    if (until && base > until) break;
+    for (const dayIndex of dayIndexes) {
+      const candidate = addDaysYmd(base, dayIndex);
+      if (candidate < start || (until && candidate > until)) continue;
+      out.push(candidate);
       if (out.length >= occurrenceCap) break;
     }
-    if (hitPastUntil && until) break;
-    weekOffset += stepWeeks;
   }
   return withinRecurringYear(out.sort().slice(0, occurrenceCap));
 }

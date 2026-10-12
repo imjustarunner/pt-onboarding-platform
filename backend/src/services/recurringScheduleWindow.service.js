@@ -2,8 +2,9 @@ import { withRecurringScheduleEdit } from './recurringScheduleCancellation.servi
 import pool from '../config/database.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
-import { recurringWindowEnd, nextRecurringWindow } from '../utils/recurringWindow.js';
+import { recurringWindowEnd, nextRecurringWindow, recurringCalendarDate } from '../utils/recurringWindow.js';
 import { utcToZonedMysqlWall, parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { withMeetingWindow } from './meetingWindowConflict.service.js';
 
 // Explicit allowlists: never copy recordings, consent, attendance, live-room
@@ -16,12 +17,15 @@ const definitions = {
   },
   meeting: {
     table: 'provider_schedule_events', active: 'ACTIVE', host: 'provider_id',
-    filter: "recurrence_series_id IS NOT NULL AND kind IN ('TEAM_MEETING','HUDDLE') AND client_id IS NULL AND all_day=0",
-    fields: 'agency_id provider_id kind title description is_private start_at end_at event_timezone recurrence_series_id recurrence_frequency recurrence_index recurrence_policy platform_video_link google_meet_link created_by_user_id waiting_room_enabled meeting_subtype attendance_tracking_enabled notify_participants reminder_minutes meeting_settings_json is_training_pay_eligible'
+    filter: "recurrence_series_id IS NOT NULL AND (kind IN ('TEAM_MEETING','HUDDLE') AND all_day=0 OR kind='SCHEDULE_HOLD') AND client_id IS NULL",
+    fields: 'agency_id provider_id kind title description reason_code is_private focus_session_enabled all_day start_date end_date start_at end_at event_timezone recurrence_series_id recurrence_frequency recurrence_index recurrence_policy platform_video_link google_meet_link created_by_user_id waiting_room_enabled meeting_subtype attendance_tracking_enabled notify_participants reminder_minutes meeting_settings_json is_training_pay_eligible'
   }
 };
-const key = row => `${row.agency_id}:${row.recurrence_series_id}:${row.recurrence_frequency === 'MONTHLY' ? '' : new Date(`${date(row)}T12:00:00Z`).getUTCDay()}`;
-const date = (row, now) => utcToZonedMysqlWall(now || row.start_at, row.event_timezone || 'America/Denver')?.slice(0,10);
+const key = row => `${row.agency_id}:${row.provider_id || row.supervisor_user_id}:${row.recurrence_series_id}:${row.recurrence_frequency === 'MONTHLY' ? '' : new Date(`${date(row)}T12:00:00Z`).getUTCDay()}`;
+const date = (row, now) => !now && Number(row.all_day) === 1 ? recurringCalendarDate(row.start_date)
+  : utcToZonedMysqlWall(now || row.start_at, row.event_timezone || 'America/Denver')?.slice(0,10);
+const advance = (row, window, index) => ({ ...row, start_at: window.startAt, end_at: window.endAt,
+  ...(Number(row.all_day) === 1 ? { start_date: window.startDate, end_date: window.endDate } : {}), recurrence_index: index });
 
 export async function copyRecurringRoster(db, kind, oldId, newId) {
   if (kind === 'supervision') {
@@ -47,7 +51,9 @@ export async function copyRecurringRoster(db, kind, oldId, newId) {
 
 async function withOccurrenceWindow(db, kind, row, window, restoring, work) {
   let userIds;
-  if (kind === 'supervision') {
+  if (row.kind === 'SCHEDULE_HOLD') {
+    userIds = [row.provider_id];
+  } else if (kind === 'supervision') {
     const [required] = await db.execute("SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND is_required=1 AND status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')", [row.id]);
     userIds = [row.supervisor_user_id, row.co_facilitator_user_id, row.supervisee_user_id, ...required.map(a => a.user_id)];
   } else {
@@ -63,17 +69,23 @@ async function appendOccurrence(db, kind, template, window, index) {
   const def = definitions[kind];
   const columns = def.fields.split(' ');
   const values = columns.map(field => {
-    if (field === 'start_at') return window.startAt;
-    if (field === 'end_at') return window.endAt;
+    if (field === 'start_at') return Number(template.all_day) === 1 ? null : window.startAt;
+    if (field === 'end_at') return Number(template.all_day) === 1 ? null : window.endAt;
+    if (field === 'start_date') return window.startDate || null;
+    if (field === 'end_date') return window.endDate || null;
     if (field === 'recurrence_index') return index;
     const value = template[field] ?? null;
     return field.endsWith('_json') && value && typeof value !== 'string' ? JSON.stringify(value) : value;
   });
-  const participant = generateJoinToken();
-  columns.push('join_token','participant_join_token','host_join_token','status','recurrence_calendar_pending');
-  values.push(participant, participant, generateJoinToken(), def.active, 1);
+  if (template.kind !== 'SCHEDULE_HOLD') {
+    const participant = generateJoinToken();
+    columns.push('join_token','participant_join_token','host_join_token');
+    values.push(participant, participant, generateJoinToken());
+  }
+  columns.push('status','recurrence_calendar_pending');
+  values.push(def.active, 1);
   const [result] = await db.execute(`INSERT INTO ${def.table} (${columns.join(',')}) VALUES (${values.map(()=>'?').join(',')})`, values);
-  await copyRecurringRoster(db, kind, template.id, result.insertId);
+  if (template.kind !== 'SCHEDULE_HOLD') await copyRecurringRoster(db, kind, template.id, result.insertId);
   return result.insertId;
 }
 
@@ -93,6 +105,7 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
     for (const [kind, def] of Object.entries(definitions)) {
       // Include cancelled occurrences so individual cancellations remain holes.
       const [rows] = await db.execute(`SELECT * FROM ${def.table} WHERE ${def.filter} ORDER BY start_at,id`);
+      rows.sort((a,b) => String(date(a)).localeCompare(String(date(b))) || String(a.start_at).localeCompare(String(b.start_at)) || a.id-b.id);
       const series = new Map();
       for (const row of rows) {
         if (!series.has(key(row))) series.set(key(row), []);
@@ -109,7 +122,8 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
           && day < boundary && day >= date(row, now)) {
           try {
             const restore=()=>db.execute(`UPDATE ${def.table} SET status=?,recurrence_horizon_held=0,recurrence_calendar_pending=1 WHERE id=? AND recurrence_horizon_held=1 AND recurrence_stopped=0`, [def.active,row.id]);
-            await withOccurrenceWindow(db, kind, row, { startAt: row.start_at, endAt: row.end_at }, true, restore);
+            await withOccurrenceWindow(db, kind, row, { startAt: Number(row.all_day) === 1 ? wallMysqlToUtcMysql(`${recurringCalendarDate(row.start_date)} 00:00:00`, row.event_timezone || 'America/Denver') : row.start_at,
+              endAt: Number(row.all_day) === 1 ? wallMysqlToUtcMysql(`${recurringCalendarDate(row.end_date)} 00:00:00`, row.event_timezone || 'America/Denver') : row.end_at }, true, restore);
             row.status = def.active; row.recurrence_horizon_held = 0; counts.restored++;
           }catch(error){
             counts.deferred=(counts.deferred || 0)+1;
@@ -135,15 +149,15 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
           if (!window || window.day >= boundary) break;
           let index = Number(last.recurrence_index || 0)+1;
           if (window.day < date(template,now)) {
-            last={...last,start_at:window.startAt,end_at:window.endAt,recurrence_index:index};
+            last=advance(last,window,index);
             continue;
           }
           await db.beginTransaction();
           try {
-            const [[stopped]] = await db.execute(`SELECT MAX(recurrence_stopped) AS stopped,COALESCE(MAX(recurrence_index),-1)+1 AS next_index FROM ${def.table} WHERE agency_id=? AND recurrence_series_id=?`, [template.agency_id,template.recurrence_series_id]);
+            const [[stopped]] = await db.execute(`SELECT MAX(recurrence_stopped) AS stopped,COALESCE(MAX(recurrence_index),-1)+1 AS next_index FROM ${def.table} WHERE agency_id <=> ? AND ${def.host}=? AND recurrence_series_id=?`, [template.agency_id,template[def.host],template.recurrence_series_id]);
             if (Number(stopped?.stopped)) { await db.rollback(); break; }
             index=Number(stopped?.next_index ?? index);
-            const [existing] = await db.execute(`SELECT id FROM ${def.table} WHERE agency_id=? AND recurrence_series_id=? AND start_at=? LIMIT 1`, [template.agency_id,template.recurrence_series_id,window.startAt]);
+            const [existing] = await db.execute(`SELECT id FROM ${def.table} WHERE agency_id <=> ? AND ${def.host}=? AND recurrence_series_id=? AND ${Number(template.all_day) === 1 ? 'start_date' : 'start_at'}=? LIMIT 1`, [template.agency_id,template[def.host],template.recurrence_series_id,window.startDate || window.startAt]);
             if (!existing.length) {
               await withOccurrenceWindow(db, kind, template, window, false, async () => {
                 await appendOccurrence(db, kind, template, window, index);
@@ -157,7 +171,7 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
             console.warn('[Recurring schedule] Extension deferred',kind,template.id,error.code || error.status || 'error');
             break;
           }
-          last = { ...last,start_at:window.startAt,end_at:window.endAt,recurrence_index:index };
+          last = advance(last,window,index);
         }
       }
     }
@@ -194,14 +208,18 @@ export async function syncRecurringCalendars() {
               if (!deleted?.ok && !deleted?.skipped) result=deleted;
             }
           } else {
-            const base = await tenantMeetingBase(row.agency_id);
+            const isBlock = row.kind === 'SCHEDULE_HOLD';
+            const base = isBlock ? '' : await tenantMeetingBase(row.agency_id);
             let join = kind === 'supervision' ? joinUrlForSupervision(base,row.participant_join_token || row.join_token || row.id)
               : joinUrlForTeamMeeting(base,row.participant_join_token || row.join_token || row.id);
+            if (isBlock) join = null;
             if (kind === 'supervision' && String(row.modality).toLowerCase()==='in_person') join=null;
-            if (kind === 'meeting' && Number(row.platform_video_link)===0 && row.platform_video_link!=null) join=row.google_meet_link || null;
+            if (!isBlock && kind === 'meeting' && Number(row.platform_video_link)===0 && row.platform_video_link!=null) join=row.google_meet_link || null;
             result = await Google.upsertProviderPrimaryCalendarEvent({subjectEmail:row.google_host_email || row.host_email,
               existingGoogleEventId:row.google_event_id, stableInsertId:`rec${kind === 'supervision' ? 'a' : 'b'}${row.id.toString(16)}d${Number(row.recurrence_calendar_generation || 0).toString(16)}`,
-              summary:row.title || 'Supervision', description:[row.description || row.notes,join ? `Join: ${join}` : row.location_text].filter(Boolean).join('\n\n'),
+              summary:isBlock && Number(row.is_private) ? 'Busy' : row.title || 'Supervision',
+              description:isBlock && Number(row.is_private) ? null : [row.description || row.notes,join ? `Join: ${join}` : row.location_text].filter(Boolean).join('\n\n'),
+              allDay:Number(row.all_day) === 1,startDate:recurringCalendarDate(row.start_date),endDate:recurringCalendarDate(row.end_date),
               startAt:utcToZonedMysqlWall(row.start_at,row.event_timezone || 'America/Denver'),endAt:utcToZonedMysqlWall(row.end_at,row.event_timezone || 'America/Denver'),
               timeZone:row.event_timezone || 'America/Denver',sendUpdates:'none',disableReminders:true});
           }

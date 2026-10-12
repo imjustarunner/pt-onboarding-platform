@@ -29,7 +29,7 @@ export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single'
       const [[anchor]] = await db.execute(`SELECT * FROM ${table} WHERE id=? FOR UPDATE`, [eventId]);
       if (!anchor) throw Object.assign(new Error('Meeting not found'), { status: 404 });
       if (scope !== 'single' && !anchor.recurrence_series_id) throw Object.assign(new Error('This meeting is not part of a recurring series.'), { status: 400 });
-      if (kind === 'meeting' && !['TEAM_MEETING', 'HUDDLE'].includes(anchor.kind)) throw Object.assign(new Error('Use the appointment cancellation workflow for client sessions.'), { status: 409 });
+      if (kind === 'meeting' && (!['TEAM_MEETING', 'HUDDLE', 'SCHEDULE_HOLD'].includes(anchor.kind) || anchor.client_id)) throw Object.assign(new Error('Use the appointment cancellation workflow for client sessions.'), { status: 409 });
       let rows;
       if (scope === 'single') rows = [anchor];
       else {
