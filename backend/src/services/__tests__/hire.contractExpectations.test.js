@@ -40,3 +40,8 @@ describe('posting defaults and individual terms',()=>{
   expect(employmentStarterClauses('ffs').find(c=>c.clause_key.endsWith('COMPENSATION')).body_html).toContain('fee-for-service');
  });
 });
+
+it('does not mislabel the current clinical credit rate as hourly pay for an added duty',()=>{
+ const html=renderAdditionalExpectations({additionalDuties:[{description:'Approved clinical services',payBasis:'direct'}]},{direct_rate:55,paySystem:{creditRate:55}});
+ expect(html).toContain('$55.00 per credit');expect(html).not.toContain('$55.00 per hour');
+});

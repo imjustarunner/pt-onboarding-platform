@@ -47,6 +47,7 @@ export function renderAdditionalExpectations(raw, row={}, serviceRates=[]) {
    const value=d.payBasis==='custom'?Number(d.customRate):({direct:row.direct_rate,indirect:row.indirect_rate,support:p.supportActivityRate,hcode:p.hcodeRate})[d.payBasis];
    if(value==null||!Number.isFinite(Number(value))||Number(value)<=0)throw Object.assign(new Error(`Configure a positive ${d.payBasis} rate for the additional duty.`),{status:400});
    if(d.payBasis==='custom')unit=d.rateUnit.replaceAll('_',' ');
+   if(d.payBasis==='direct' && row.paySystem)unit='per credit';
    rate=`$${Number(value).toFixed(2)} ${unit}`;
   }
   return `<tr><td>${escape(d.description)}</td><td>${escape(d.payBasis==='service_code'?d.serviceCode:d.payBasis==='hcode'?'H-code hourly rate':d.payBasis==='custom'?'Individually agreed rate':d.payBasis)}</td><td>${escape(rate)}</td></tr>`;

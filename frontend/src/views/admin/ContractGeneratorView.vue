@@ -119,8 +119,13 @@
           <div class="cg-sheet-row"><span class="cg-label">License type</span><input v-model="build.tokens.LICENSE_TYPE" /><span class="cg-note">Credential label + degree</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Licensure deadline</span><input v-model="build.tokens.LICENSURE_DEADLINE" /><span class="cg-note">For contingency configs</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Licensing board</span><input v-model="build.tokens.LICENSING_BOARD" /><span class="cg-note" /></div>
-          <div class="cg-sheet-row"><span class="cg-label">Direct rate</span><input v-model="build.tokens.DIRECT_RATE" readonly /><span class="cg-note">Hourly / from pay level</span></div>
-          <div class="cg-sheet-row"><span class="cg-label">Indirect rate</span><input v-model="build.tokens.INDIRECT_RATE" readonly /><span class="cg-note">Hourly / from pay level</span></div>
+          <template v-if="selectedPayProfile">
+            <div v-for="rate in selectedPayRows" :key="rate.label" class="cg-sheet-row cg-sheet-row--readonly"><span class="cg-label">{{rate.label}}</span><span class="cg-readonly">{{formatRate(rate.amount)}}</span><span class="cg-note">{{rate.unit}}</span></div>
+          </template>
+          <template v-else>
+            <div class="cg-sheet-row"><span class="cg-label">Legacy direct rate</span><input v-model="build.tokens.DIRECT_RATE" readonly /><span class="cg-note">Current category/level configuration takes precedence</span></div>
+            <div class="cg-sheet-row"><span class="cg-label">Legacy indirect rate</span><input v-model="build.tokens.INDIRECT_RATE" readonly /><span class="cg-note">Confirm current pay configuration</span></div>
+          </template>
           <div class="cg-sheet-row"><span class="cg-label">Adjustment reason</span><input v-model="build.tokens.ADJUSTMENT_REASON" /><span class="cg-note">Addendum only</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Original agreement date</span><input v-model="build.tokens.ORIGINAL_AGREEMENT_DATE" /><span class="cg-note">Addendum only</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Internship end</span><input v-model="build.tokens.INTERNSHIP_END_DATE" /><span class="cg-note">Intern addendum</span></div>
@@ -343,6 +348,14 @@ function applyTokensToBuild(tokens = {}) {
   build.value.officeLocationId = tokens.ASSIGNED_OFFICE_ID || '';
   if (!tokens.CREDENTIAL) syncCredentialKeyFromText('');
 }
+
+const selectedPayProfile = computed(() => compensationLevels.value.find(r => Number(r.category)===Number(build.value.compensationCategory) && Number(r.level)===Number(build.value.compensationLevel))?.paySystem);
+const selectedPayRows = computed(() => {const p=selectedPayProfile.value||{};return [
+ {label:'Clinical Session Rate',amount:p.creditRate,unit:'Per credit · authorized clinical services'},
+ {label:'Direct Care Rate',amount:p.hcodeRate,unit:'Per direct-hour equivalent'},
+ {label:'Indirect pay',amount:p.indirectRate,unit:'Per hour'},
+ {label:'Support activity pay',amount:p.supportActivityRate,unit:'Per hour'}].filter(r => r.label!=='Clinical Session Rate' || String(individualExpectations.value?.roleLabel || build.value.tokens.ROLE_LABEL).toLowerCase()!=='facilitator');});
+function formatRate(value){return value!=null && Number(value)>0 ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(value)) : 'Not configured';}
 
 function applyCompensationLevel() {
   const [cat, lvl] = String(build.value.compensationLevelKey || '').split(':').map((n) => Number(n));
