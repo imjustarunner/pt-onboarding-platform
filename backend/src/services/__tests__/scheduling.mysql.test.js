@@ -60,7 +60,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `CREATE TABLE booking_package_ledger (id INT PRIMARY KEY AUTO_INCREMENT, agency_id INT, entitlement_id INT, client_id INT, appointment_id INT, direction VARCHAR(20), quantity INT, reason_code VARCHAR(50), metadata_json JSON, created_by_user_id INT)`
     ];
     mainDdl.push(
-      `CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), status VARCHAR(40) DEFAULT 'ACTIVE_EMPLOYEE', is_archived BOOLEAN DEFAULT 0)`,
+      `CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), status VARCHAR(40) DEFAULT 'ACTIVE_EMPLOYEE', is_archived BOOLEAN DEFAULT 0, is_active BOOLEAN DEFAULT 1)`,
       `CREATE TABLE clients (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100))`,
       `CREATE TABLE appointment_billing (id INT AUTO_INCREMENT PRIMARY KEY, appointment_id INT UNIQUE, payment_status VARCHAR(30), amount_cents INT)`,
       `CREATE TABLE clinical_record_refs (agency_id INT, client_id INT, office_event_id INT, clinical_session_id INT, record_type VARCHAR(30), clinical_record_id INT, updated_at TIMESTAMP NULL, UNIQUE KEY ref_key (record_type, clinical_record_id))`,
@@ -108,6 +108,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   beforeEach(async () => {
     for (const table of ['self_pay_service_rates', 'agency_self_pay_settings', 'appointment_change_waivers', 'appointment_billing', 'clinical_record_refs', 'clients', 'users', 'practitioner_session_credit_ledger', 'practitioner_client_package_entitlements', 'practitioner_session_packages', 'appointment_change_workflows', 'office_events', 'appointments', 'provider_schedule_events', 'office_booking_plans', 'office_standing_assignments', 'booking_packages', 'booking_package_entitlements', 'booking_package_ledger']) await pool.query(`DELETE FROM ${table}`);
     for (const table of ['client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
+    await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.query('DELETE FROM office_rooms');
     await pool.query('INSERT INTO office_rooms VALUES (4), (5)');
     await clinicalPool.query('DELETE FROM clinical_claims');
@@ -261,7 +262,6 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     const preview = { appointment: { clientId: 8 }, consequence: { model: fee ? 'fee' : 'package', feeCents: fee ? 2500 : 0 } };
     const facts = { clientId: 8, eventType: 'no_show', waiver: { action: 'recommend', reason: 'family_emergency' } };
     await pool.query(`UPDATE clients SET first_name='Synthetic',last_name='Client' WHERE id=8`);
-    await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.execute(`INSERT INTO appointment_change_workflows (appointment_id, agency_id, status, facts_json, preview_json, narrative, signed_by_user_id, updated_by_user_id)
       VALUES (10, 1, 'completed', ?, ?, 'Original signed cancellation note.', 9, 9)`, [JSON.stringify(facts), JSON.stringify(preview)]);
     await queueAppointmentWaiver({ appointmentId: 10, agencyId: 1, facts, actorUserId: 9 });
@@ -370,6 +370,18 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     const [[available]]=await pool.query("SELECT COUNT(*) n FROM office_events WHERE slot_state='ASSIGNED_AVAILABLE'");expect(available.n).toBe(1);
 
   });
+  it.each([0,1])('client termination never reopens an archived provider room (assignment active=%i)', async active => {
+    await pool.query("UPDATE users SET status='ARCHIVED',is_archived=1 WHERE id=9");
+    await pool.execute('UPDATE office_standing_assignments SET is_active=? WHERE id=7',[active]);
+    await Client.update(8,{client_status_id:2,terminated_at:new Date()},9,{hydrate:false});
+    const [events]=await pool.query('SELECT id,status,slot_state FROM office_events');
+    expect(events).toEqual([{id:20,status:'CANCELLED',slot_state:null}]);
+    const [[job]]=await pool.query('SELECT id FROM client_schedule_termination_jobs');
+    await processClientScheduleTermination(job.id);
+    const [[count]]=await pool.query("SELECT COUNT(*) n FROM office_events WHERE status<>'CANCELLED'");
+    expect(count.n).toBe(0);
+  });
+
   it('retries clinical database failures without restoring the booking or losing the durable job', async () => {
     const execute = clinicalPool.execute.bind(clinicalPool);
     const spy=vi.spyOn(clinicalPool,'execute').mockImplementationOnce(async()=>{throw Object.assign(new Error('test outage'),{code:'TEST_OUTAGE'});}).mockImplementation(execute);

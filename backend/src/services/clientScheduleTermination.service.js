@@ -41,6 +41,11 @@ export async function restoreTerminatedClientRoom(eventId, clientId, actorUserId
     }
     const provider = assignment?.provider_id || current.assigned_provider_id || current.booked_provider_id;
     if (!provider) return true;
+    // Client termination normally reopens the provider's room. Serialize with
+    // provider offboarding so an archived account cannot regain assigned time.
+    const [[owner]] = await db.execute('SELECT status,is_archived,is_active FROM users WHERE id=? FOR UPDATE', [provider]);
+    if (!owner || Number(owner.is_archived) === 1 || Number(owner.is_active) === 0
+        || ['ARCHIVED','INACTIVE_EMPLOYEE'].includes(String(owner.status || '').toUpperCase())) return true;
     // Keep the cancelled, linked row as history. A distinct unlinked row is safe
     // to reopen for another client, and retries see that row instead of cloning it.
     const [active] = await db.execute(`SELECT id FROM office_events WHERE room_id=? AND start_at<? AND end_at>?
