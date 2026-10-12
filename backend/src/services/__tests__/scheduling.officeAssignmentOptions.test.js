@@ -61,3 +61,11 @@ it('uses the office date at midnight boundaries and clamps leap anniversaries', 
   expect(() => assertOfficeAssignmentPlanningDate('2025-02-28', 'America/Denver', new Date('2024-02-29T19:00:00Z'))).not.toThrow();
   expect(() => assertOfficeAssignmentPlanningDate('2025-03-01', 'America/Denver', new Date('2024-02-29T19:00:00Z'))).toThrow('one year');
 });
+
+it('permits room reservations for staff without clinical provider access in either shared agency', async () => {
+  User.getAgencies.mockResolvedValue([{ id: 6 }, { id: 8 }]);
+  const staff = { ...user, role: 'admin', has_provider_access: 0 };
+  for (const agencyId of [6, 8]) {
+    await expect(resolveOfficeAssignmentAgency({ actor, officeLocationId: 4, user: staff, agencyId })).resolves.toBe(agencyId);
+  }
+});

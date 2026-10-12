@@ -317,11 +317,19 @@
           {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)}–${formatHour(assignEndHour)} · ${assignEndHour - modalSlot.hour} hour${assignEndHour - modalSlot.hour === 1 ? '' : 's'} — ${modalSlot.state}` : '' }}
           <template v-if="officeTimezoneLabel"> · {{ officeTimezoneLabel }}</template>
         </div>
-        <div class="recurrence-summary" v-if="modalSlot">
-          <div><strong>Recurrence:</strong> {{ modalSlot.frequencyLabel || 'One-time' }}</div>
-          <div v-if="modalSlot.bookingStartDate"><strong>Starts:</strong> {{ modalSlot.bookingStartDate }}</div>
-          <div v-if="modalSlot.bookingActiveUntilDate"><strong>Until:</strong> {{ modalSlot.bookingActiveUntilDate }}</div>
-          <div v-if="modalSlot.bookingOccurrenceCount"><strong>Booked occurrences:</strong> {{ modalSlot.bookingOccurrenceCount }}</div>
+        <div class="recurrence-summary" v-if="modalSlot" aria-live="polite">
+          <template v-if="isAssignmentDraft">
+            <div><strong>Recurrence:</strong> {{ assignmentRecurrenceLabel }}</div>
+            <div v-if="assignRecurrenceFreq !== 'ONCE'"><strong>Days:</strong> {{ assignmentDaysLabel || 'Select days below' }}</div>
+            <div v-if="assignMode === 'provider' && assignmentAgencyName"><strong>Agency / tenant:</strong> {{ assignmentAgencyName }}</div>
+            <div v-if="assignMode === 'provider' && assignmentPersonName"><strong>Assigned to:</strong> {{ assignmentPersonName }}</div>
+          </template>
+          <template v-else>
+            <div><strong>Recurrence:</strong> {{ modalSlot.frequencyLabel || 'One-time' }}</div>
+            <div v-if="modalSlot.bookingStartDate"><strong>Starts:</strong> {{ modalSlot.bookingStartDate }}</div>
+            <div v-if="modalSlot.bookingActiveUntilDate"><strong>Until:</strong> {{ modalSlot.bookingActiveUntilDate }}</div>
+            <div v-if="modalSlot.bookingOccurrenceCount"><strong>Booked occurrences:</strong> {{ modalSlot.bookingOccurrenceCount }}</div>
+          </template>
         </div>
         <div class="slot-details" v-if="modalSlot && modalSlot.state === 'company_hold'">
           <div><strong>Company hold:</strong> {{ modalSlot.holdTitle || 'Company hold' }}</div>
@@ -1544,6 +1552,15 @@ const weekdayOptions = [
   { value: 5, label: 'Fri' },
   { value: 6, label: 'Sat' }
 ];
+const isAssignmentDraft = computed(() => modalSlot.value?.state === 'open' && canManageSchedule.value);
+const assignmentRecurrenceLabel = computed(() => assignRecurrenceFreq.value === 'ONCE'
+  ? 'One-time' : RECURRENCE_OPTIONS.find(o => o.value === assignRecurrenceFreq.value)?.label || 'One-time');
+const assignmentDaysLabel = computed(() => weekdayOptions.filter(d => assignWeekdays.value.includes(d.value)).map(d => d.label).join(', '));
+const assignmentAgencyName = computed(() => assignmentAgencies.value.find(a => Number(a.id) === Number(assignmentAgencyId.value))?.name || '');
+const assignmentPersonName = computed(() => {
+  const person = assignmentPeople.value.find(p => Number(p.id) === Number(selectedProviderId.value));
+  return person ? `${person.first_name || ''} ${person.last_name || ''}`.trim() : '';
+});
 const bulkProviderId = ref(0);
 const bulkAssignRecurrenceFreq = ref('ONCE');
 const bulkAssignUntilDate = ref(addDaysYmd(new Date().toISOString().slice(0, 10), 364));
@@ -1748,9 +1765,12 @@ const loadProviders = async () => {
     if (requestId === providerRequestId) providersLoading.value = false;
   }
 };
-watch(assignmentAgencyId, () => {
-  selectedProviderId.value = 0;
-  bulkProviderId.value = 0;
+watch(assignmentPeople, (people) => {
+  // A staff member can reserve rooms for any of their eligible tenants, even
+  // without a clinical caseload there. Keep the person when switching tenants.
+  const eligible = new Set(people.map(p => Number(p.id)));
+  if (!eligible.has(Number(selectedProviderId.value))) selectedProviderId.value = 0;
+  if (!eligible.has(Number(bulkProviderId.value))) bulkProviderId.value = 0;
 });
 
 const loadLearningBillingOptions = async () => {
@@ -3592,6 +3612,7 @@ select {
 .check { display: inline-flex; gap: 10px; align-items: flex-start; }
 .check span { color: var(--sched-text-muted); font-size: 13px; line-height: 1.35; }
 .modal .row {
+  display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;

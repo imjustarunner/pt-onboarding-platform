@@ -16,10 +16,14 @@ const people = [
   { id: 2, first_name: 'Michael', last_name: 'Mendez', role: 'super_admin', agencyIds: [6, 8] }
 ];
 let wrapper;
+let directoryPeople;
+let responseGrid;
 beforeEach(() => {
   vi.clearAllMocks();
-  api.get.mockImplementation(async url => ({ data: url.endsWith('weekly-grid') ? grid : url.endsWith('assignment-options')
-    ? { agencies: [{ id: 6, name: 'One' }, { id: 8, name: 'Two' }], people } : [] }));
+  directoryPeople = people.map(p => ({ ...p, agencyIds: [...p.agencyIds] }));
+  responseGrid = grid;
+  api.get.mockImplementation(async url => ({ data: url.endsWith('weekly-grid') ? responseGrid : url.endsWith('assignment-options')
+    ? { agencies: [{ id: 6, name: 'One' }, { id: 8, name: 'Two' }], people: directoryPeople } : [] }));
   api.post.mockResolvedValue({ data: { ok: true } });
 });
 afterEach(() => wrapper?.unmount());
@@ -80,4 +84,48 @@ it('opens actions immediately for a selection spanning multiple days', async () 
   await flushPromises();
   expect(wrapper.get('[aria-label="Selected hours"]').text()).toContain('4 hours');
   expect(wrapper.find('.modal').exists()).toBe(false);
+});
+
+it('updates the draft summary as recurrence, days, tenant, person and end time change', async () => {
+  await setup(); await drag();
+  expect(wrapper.get('.recurrence-summary').text()).toContain('One-time');
+  await wrapper.get('.modal .person-search-select input').setValue('melissa');
+  await wrapper.get('.modal [role="option"]').trigger('click');
+  expect(wrapper.get('.recurrence-summary').text()).toContain('Melissa Mendez');
+  expect(wrapper.get('.recurrence-summary').text()).toContain('Agency / tenant: One');
+  const recurrence = wrapper.findAll('.modal select').find(s => s.find('option[value="BIWEEKLY"]').exists());
+  for (const [value, label] of [['WEEKLY', 'Weekly'], ['BIWEEKLY', 'Every 2 weeks'], ['EVERY_4_WEEKS', 'Every 4 weeks']]) {
+    await recurrence.setValue(value);
+    expect(wrapper.get('.recurrence-summary').text()).toContain(label);
+    expect(wrapper.get('.recurrence-summary').text()).not.toContain('One-time');
+  }
+  await wrapper.get('.weekday-check input').setValue(true);
+  expect(wrapper.get('.recurrence-summary').text()).toContain('Days: Sun, Mon');
+  const end = wrapper.findAll('.modal select').find(s => s.find('option[value="18"]').exists());
+  await end.setValue('18');
+  expect(wrapper.get('.modal').text()).toMatch(/1\s?PM–6\s?PM · 5 hours/);
+  await recurrence.setValue('ONCE');
+  expect(wrapper.get('.recurrence-summary').text()).toContain('One-time');
+  expect(wrapper.get('.recurrence-summary').text()).not.toContain('Days:');
+});
+it('keeps Melissa selected when switching between eligible tenants without clinical access', async () => {
+  directoryPeople[0].agencyIds.push(8);
+  directoryPeople[0].has_provider_access = 0;
+  await setup(); await drag();
+  await wrapper.get('.modal .person-search-select input').setValue('melissa');
+  await wrapper.get('.modal [role="option"]').trigger('click');
+  await wrapper.get('#assignment-agency').setValue('8');
+  expect(wrapper.get('.recurrence-summary').text()).toContain('Melissa Mendez');
+  expect(wrapper.get('.recurrence-summary').text()).toContain('Agency / tenant: Two');
+  const assign = wrapper.findAll('.modal button').find(b => b.text() === 'Assign');
+  expect(assign.attributes('disabled')).toBeUndefined();
+  await assign.trigger('click'); await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/office-slots/1/open-slots/assign', expect.objectContaining({ assignedUserId: 1, agencyId: 8, assignmentMode: 'PROVIDER' }));
+});
+it('keeps the saved recurrence visible when inspecting an existing reservation', async () => {
+  responseGrid = { ...grid, slots: grid.slots.map(s => ({ ...s, state: 'assigned_available', frequencyLabel: 'Every 4 weeks', assignedFrequency: 'EVERY_4_WEEKS' })) };
+  await setup();
+  await wrapper.get('.cell.slot').trigger('click'); await flushPromises();
+  expect(wrapper.get('.recurrence-summary').text()).toContain('Every 4 weeks');
+  expect(wrapper.get('.recurrence-summary').text()).not.toContain('One-time');
 });
