@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination } from '../loginHandoff';
+import { describe, expect, it, vi } from 'vitest';
+import { consumeSsoHandoff, getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination } from '../loginHandoff';
 describe('branded SSO arrival', () => {
   it('keeps super admins on the original tenant login while loading the platform workspace', () => {
     expect(getSsoArrivalRoute({ path: '/admin', query: { sso: '1', ssoOrg: 'itsco' } }, 'itsco')).toEqual({ path: '/login', query: { sso: '1', ssoOrg: 'itsco', redirect: '/admin' }, replace: true });
@@ -26,4 +26,19 @@ describe('branded SSO arrival', () => {
     expect(isSessionEntryRoute({name:'GuardianPortal'})).toBe(false);
   });
   it.each(['//outside.test', '/\\outside.test', 'https://outside.test'])('rejects unsafe post-login destination %s', value => expect(safeLoginDestination(value)).toBeNull());
+});
+
+it('consumes the SSO flag once while keeping library folder, category, search, and document location', async () => {
+  const bootstrap = vi.fn().mockResolvedValue(true);
+  const to = { path: '/itsco/library/resources/263', query: { sso:'1', ssoOrg:'itsco', section:'all', folder:'36', category:'4', q:'Starwars' }, hash:'#page-2' };
+  const clean = await consumeSsoHandoff(to, bootstrap);
+  expect(clean).toEqual({path:to.path, query:{section:'all',folder:'36',category:'4',q:'Starwars'},hash:'#page-2',replace:true});
+  for (const path of ['/itsco/library', '/itsco/library/resources/264', '/itsco/my-learning']) {
+    expect(await consumeSsoHandoff({...clean,path}, bootstrap)).toBeNull();
+  }
+  expect(bootstrap).toHaveBeenCalledTimes(1);
+  expect(to.query.sso).toBe('1');
+});
+it('leaves a failed handoff available for normal sign-in recovery', async () => {
+  expect(await consumeSsoHandoff({path:'/itsco/library',query:{sso:'1'}}, async()=>false)).toBeNull();
 });

@@ -23,7 +23,7 @@
         <nav aria-label="Document categories"><button v-for="c in categoryCards" :key="c.id" :aria-current="Number(activeCategoryId) === Number(c.id) ? 'page' : undefined" @click="selectCategory(c)"><span class="category-icon" :style="c.themeStyle" v-html="c.iconSvg"/><span>{{ c.name }}</span></button></nav>
         <div class="sidebar-heading"><span>Folders</span><button aria-label="Create folder" title="Create folder" @click="openAdd('folder')">＋</button></div>
         <div v-if="!folders.length" class="sidebar-hint">Organize documents your way.</div>
-        <div v-for="f in folders" :key="f.id" class="folder-row"><button :aria-current="Number(folderId) === Number(f.id) ? 'page' : undefined" @click="selectFolder(f.id)"><span aria-hidden="true">▱</span><span>{{ f.name }}</span></button><button v-if="canShareFolder(f)" class="folder-share" :aria-label="`Share ${f.name}`" title="Share folder" @click="openShareFolder(f)">↗</button></div>
+        <div v-for="f in rootFolders" :key="f.id" class="folder-row"><button :aria-current="Number(folderId) === Number(f.id) ? 'page' : undefined" @click="selectFolder(f.id, true)"><span aria-hidden="true">▱</span><span>{{ f.name }}</span></button><button v-if="canShareFolder(f)" class="folder-share" :aria-label="`Share ${f.name}`" title="Share folder" @click="openShareFolder(f)">↗</button></div>
         <div class="sidebar-heading">Create &amp; organize</div>
         <nav aria-label="Document tools"><router-link :to="`${orgPrefix}/clinical-forms`"><span class="nav-symbol" aria-hidden="true">✚</span>Clinical forms</router-link><button @click="openAdd('link')"><span class="nav-symbol" aria-hidden="true">↗</span>Save a link</button><button @click="openAdd('video')"><span class="nav-symbol" aria-hidden="true">▷</span>Video link</button><button @click="openAdd('upload_folder')"><span class="nav-symbol" aria-hidden="true">↑</span>Upload a folder</button><router-link v-if="canManage" :to="settingsPath"><span class="nav-symbol" aria-hidden="true">⚙</span>Library settings</router-link></nav>
         <div class="sidebar-footer"><router-link :to="`${orgPrefix}/my-learning`">Go to Training <span aria-hidden="true">↗</span></router-link></div>
@@ -36,17 +36,22 @@
         <template v-else>
           <div class="document-section-heading"><div><h2>{{ sectionTitle }}</h2><p>{{ sectionDescription }}</p></div><div class="heading-tools"><router-link v-if="referenceCanManage" :to="`${orgPrefix}/admin/document-library?company=${referenceAgencyId}`">Manage company guides ↗</router-link><button v-if="canViewStatistics" class="lib-btn lib-btn--ghost lib-btn--sm" @click="showStatistics = !showStatistics">{{ showStatistics ? 'Hide statistics' : 'Statistics' }}</button></div></div>
           <DocumentAnalyticsControl v-if="showStatistics" :agency-id="referenceAgencyId" initially-open />
-          <nav v-if="folderId !== undefined" class="folder-breadcrumbs" aria-label="Folder location"><button @click="setTab('all')">Library</button><template v-for="folder in folderTrail" :key="folder.id"><span aria-hidden="true">/</span><button :aria-current="Number(folderId) === Number(folder.id) ? 'page' : undefined" @click="selectFolder(folder.id)">{{ folder.name }}</button></template></nav>
-          <div v-if="childFolders.length" class="library-subfolders" aria-label="Subfolders"><button v-for="folder in childFolders" :key="folder.id" @click="selectFolder(folder.id)"><span aria-hidden="true">▱</span>{{ folder.name }}</button></div>
+          <nav v-if="folderId !== undefined" class="folder-breadcrumbs" aria-label="Folder location"><button @click="goToFolderRoot">{{ activeCategoryId ? categories.find(c => Number(c.id) === Number(activeCategoryId))?.name : 'Library' }}</button><template v-for="folder in folderTrail" :key="folder.id"><span aria-hidden="true">/</span><button :aria-current="Number(folderId) === Number(folder.id) ? 'page' : undefined" @click="selectFolder(folder.id)">{{ folder.name }}</button></template></nav>
+          <div v-if="['all', 'files', 'mine'].includes(activeTab)" class="folder-view-controls" role="group" aria-label="Browse mode">
+            <button class="lib-btn lib-btn--sm" :aria-pressed="!showAll" @click="setBrowseMode(false)">Folders</button>
+            <button class="lib-btn lib-btn--sm" :aria-pressed="showAll" @click="setBrowseMode(true)">Show all</button>
+            <span>{{ searchActive ? 'Search results across folders' : showAll ? 'All documents in this view' : 'Browse folders, then open a document' }}</span>
+          </div>
+          <div v-if="childFolders.length" class="library-subfolders" aria-label="Subfolders"><button v-for="folder in childFolders" :key="folder.id" @click="selectFolder(folder.id)"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z"/></svg><span>{{ folder.name }}</span><span class="folder-arrow" aria-hidden="true">→</span></button></div>
           <div class="document-filterbar"><div class="filter-left"><label>Type<select v-model="typeFilter"><option value="">All types</option><option value="company_guide">Handbooks &amp; guides</option><option value="pdf">PDFs</option><option value="branded_doc">Editable documents</option><option value="image">Images</option><option value="video">Video links</option><option value="link">Links &amp; Google files</option></select></label><label>Sort<select v-model="sortBy" @change="loadSorted"><option value="updated">Recently updated</option><option value="name">Name A–Z</option></select></label><button v-if="activeCategoryId || searchActive || folderId !== undefined || typeFilter" class="clear-filter" @click="clearFilters">Clear filters</button></div><div class="library-view-toggle" role="group" aria-label="Document view"><button :aria-pressed="viewMode === 'list'" aria-label="List view" @click="viewMode = 'list'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg></button><button :aria-pressed="viewMode === 'grid'" aria-label="Grid view" @click="viewMode = 'grid'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button></div></div>
           <p v-if="filterLabel" class="document-filter-label">{{ filterLabel }}</p>
           <div v-if="error || referenceError" class="document-error" role="alert">{{ error || referenceError }} <button @click="refresh">Retry</button></div>
           <div class="document-results-layout" :class="{ 'has-details': detailItem }">
             <section class="document-results" aria-label="Documents">
-              <div class="document-result-count" role="status">{{ loading ? 'Loading documents…' : `${displayItems.length} document${displayItems.length === 1 ? '' : 's'} shown` }}</div>
+              <div class="document-result-count" role="status">{{ loading ? 'Loading documents…' : childFolders.length && !displayItems.length ? `${childFolders.length} folders · Open a folder to view its documents` : `${displayItems.length} document${displayItems.length === 1 ? '' : 's'} shown` }}</div>
               <div v-if="loading" class="document-empty" role="status"><span class="loading-lines"></span>Getting your documents…</div>
-              <div v-else-if="!displayItems.length" class="document-empty"><span class="empty-document" aria-hidden="true">▤</span><h3>{{ searchActive ? 'No matching documents' : 'No documents here yet' }}</h3><p>{{ searchActive ? 'Try another title or keyword, or clear your filters.' : activeTab === 'favorites' ? 'Star a file or document to keep it close at hand.' : 'Upload a file or create a document to get started.' }}</p><button class="lib-btn lib-btn--ghost" @click="searchActive ? clearFilters() : openAdd('upload')">{{ searchActive ? 'Clear filters' : 'Upload a document' }}</button></div>
-              <component :is="viewMode === 'grid' ? LibraryResourceGrid : LibraryResourceList" v-else :items="displayItems" :can-manage="canManage" :show-owner-menu="true" :show-details="true" :selected-id="detailItem?.id" @open="openResource" @toggle-favorite="toggleFavorite" @menu="openMenu" @details="detailItem = $event" />
+              <div v-else-if="!displayItems.length && !childFolders.length" class="document-empty"><span class="empty-document" aria-hidden="true">▤</span><h3>{{ searchActive ? 'No matching documents' : 'No documents here yet' }}</h3><p>{{ searchActive ? 'Try another title or keyword, or clear your filters.' : activeTab === 'favorites' ? 'Star a file or document to keep it close at hand.' : 'Upload a file or create a document to get started.' }}</p><button class="lib-btn lib-btn--ghost" @click="searchActive ? clearFilters() : openAdd('upload')">{{ searchActive ? 'Clear filters' : 'Upload a document' }}</button></div>
+              <component :is="viewMode === 'grid' ? LibraryResourceGrid : LibraryResourceList" v-else-if="displayItems.length" :items="displayItems" :can-manage="canManage" :show-owner-menu="true" :show-details="true" :selected-id="detailItem?.id" @open="openResource" @toggle-favorite="toggleFavorite" @menu="openMenu" @details="detailItem = $event" />
               <button v-if="hasMore && activeTab !== 'guides' && activeTab !== 'recent'" class="document-load-more lib-btn lib-btn--ghost" :disabled="loadingMore" @click="loadMore">{{ loadingMore ? 'Loading…' : 'Load more documents' }}</button>
             </section>
             <aside v-if="detailItem" class="document-detail" aria-label="Document details"><div class="detail-top"><span class="detail-file-icon">{{ shortType(detailItem) }}</span><button aria-label="Close document details" @click="detailItem = null">×</button></div><h3>{{ detailItem.name }}</h3><span class="detail-category">{{ detailItem.categoryName || 'Resource' }}</span><p>{{ detailItem.description || 'Open this document to view its contents.' }}</p><button class="lib-btn lib-btn--primary detail-open" @click="openResource(detailItem)">{{ isPdf(detailItem) ? 'Open, fill & sign' : 'Open document' }} <span aria-hidden="true">↗</span></button><dl><dt>Access</dt><dd>{{ detailItem.scope === 'personal' ? 'Personal document' : 'Organization library' }}</dd><dt v-if="detailItem.updatedAt">Updated</dt><dd v-if="detailItem.updatedAt">{{ formatDate(detailItem.updatedAt) }}</dd><dt v-if="detailItem.updatedByName || detailItem.createdByName">By</dt><dd v-if="detailItem.updatedByName || detailItem.createdByName">{{ detailItem.updatedByName || detailItem.createdByName }}</dd></dl><p v-if="isPdf(detailItem)" class="detail-tip">Add text, checkmarks, and your signature directly on the PDF. Save your own completed copy.</p><DocumentAnalyticsControl v-if="detailItem.scope === 'organization' && !detailItem.guideKey" :agency-id="agencyId" :document-key="`resource:${detailItem.id}`" :document-title="detailItem.name" /></aside>
@@ -207,8 +212,8 @@ const loading = ref(true);
 const error = ref('');
 const home = ref(null);
 const resources = ref([]);
-const search = ref('');
-const searchActive = ref(false);
+const search = ref(String(route.query.q || ''));
+const searchActive = ref(!!search.value.trim());
 const tabFromSection = (section) => section === 'resources' ? 'files' : ['all', 'mine', 'guides', 'files', 'favorites', 'recent'].includes(section) ? section : 'all';
 const activeTab = ref(tabFromSection(route.query.section));
 const showNavigation = ref(false);
@@ -216,8 +221,10 @@ const detailItem = ref(null), typeFilter = ref(''), sortBy = ref('updated'), sho
 const referenceDocuments = ref([]), referenceCanManage = ref(false), referenceError = ref('');
 const hasMore = ref(false), loadingMore = ref(false);
 let requestSequence = 0, viewerRequestSequence = 0, shareRequestSequence = 0, searchTimer;
-const activeCategoryId = ref(null);
-const folderId = ref(undefined);
+const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : undefined;
+const activeCategoryId = ref(positiveId(route.query.category) || null);
+const folderId = ref(positiveId(route.query.folder));
+const showAll = ref(route.query.browse === 'all');
 const viewMode = ref('list');
 const showAdd = ref(false);
 const addModePref = ref('link');
@@ -269,7 +276,35 @@ const folderTrail = computed(() => {
   while (folder && !seen.has(folder.id)) { result.unshift(folder); seen.add(folder.id); folder = folders.value.find(item => Number(item.id) === Number(folder.parentFolderId)); }
   return result;
 });
-const childFolders = computed(() => folderId.value !== undefined ? folders.value.filter(folder => Number(folder.parentFolderId) === Number(folderId.value)) : activeTab.value === 'mine' ? folders.value.filter(folder => folder.scope === 'personal' && Number(folder.ownerUserId) === Number(authStore.user?.id) && !folder.parentFolderId) : []);
+const rootFolders = computed(() => folders.value.filter(folder => !folder.parentFolderId || !folders.value.some(parent => Number(parent.id) === Number(folder.parentFolderId))));
+const folderCategoryIds = computed(() => {
+  const byId = new Map(folders.value.map(folder => [Number(folder.id), new Set(folder.categoryIds || [])]));
+  for (const folder of folders.value) {
+    let parentId = Number(folder.parentFolderId);
+    const seen = new Set([Number(folder.id)]);
+    while (byId.has(parentId) && !seen.has(parentId)) {
+      seen.add(parentId);
+      for (const category of folder.categoryIds || []) byId.get(parentId).add(Number(category));
+      parentId = Number(folders.value.find(item => Number(item.id) === parentId)?.parentFolderId);
+    }
+  }
+  return byId;
+});
+const childFolders = computed(() => {
+  if (showAll.value || searchActive.value || !['all', 'files', 'mine'].includes(activeTab.value)) return [];
+  const matches = folder => (!activeCategoryId.value || folderCategoryIds.value.get(Number(folder.id))?.has(Number(activeCategoryId.value))) &&
+    (activeTab.value !== 'mine' || (folder.scope === 'personal' && Number(folder.ownerUserId) === Number(authStore.user?.id)));
+  let result = (folderId.value !== undefined ? folders.value.filter(folder => Number(folder.parentFolderId) === Number(folderId.value)) : rootFolders.value).filter(matches);
+  // A category's single empty wrapper need not hide its broad topic folders.
+  const seen = new Set();
+  while (activeCategoryId.value && folderId.value === undefined && result.length === 1 && result[0].documentCount === 0 && !seen.has(result[0].id)) {
+    seen.add(result[0].id);
+    const children = folders.value.filter(folder => Number(folder.parentFolderId) === Number(result[0].id)).filter(matches);
+    if (!children.length) break;
+    result = children;
+  }
+  return result;
+});
 const categoryCards = computed(() => {
   return categories.value.map((c) => {
     const meta = CATEGORY_META[c.slug] || {
@@ -341,7 +376,7 @@ function resourceParams(offset = 0) {
   const params = { agencyId: agencyId.value, sort: sortBy.value, limit: 100, offset };
   if (search.value.trim()) params.q = search.value.trim();
   if (activeCategoryId.value) params.categoryId = activeCategoryId.value;
-  if (folderId.value !== undefined) params.folderId = folderId.value == null ? 'all' : folderId.value;
+  if (!showAll.value && !search.value.trim() && ['all', 'files', 'mine'].includes(activeTab.value)) params.folderId = folderId.value ?? 'root';
   if (activeTab.value === 'favorites') params.favorites = '1';
   if (activeTab.value === 'mine') params.mine = '1';
   return params;
@@ -453,54 +488,40 @@ async function saveShareFolder() {
   }
 }
 
+function syncBrowseLocation() {
+  const query = { ...route.query, section: activeTab.value === 'files' ? 'resources' : activeTab.value };
+  delete query.companyDocument;
+  for (const key of ['folder', 'category', 'browse', 'q']) delete query[key];
+  if (folderId.value !== undefined) query.folder = String(folderId.value);
+  if (activeCategoryId.value) query.category = String(activeCategoryId.value);
+  if (showAll.value) query.browse = 'all';
+  if (search.value.trim()) query.q = search.value.trim();
+  router.push({ path: `${orgPrefix.value}/library`, query, hash: '' });
+  refresh();
+}
+function resetSearch() { clearTimeout(searchTimer); search.value = ''; searchActive.value = false; }
 function setTab(id) {
-  activeTab.value = id; activeCategoryId.value = null; folderId.value = undefined; detailItem.value = null; typeFilter.value = '';
-  const query = { ...route.query }; delete query.companyDocument; query.section = id === 'guides' ? 'guides' : id === 'files' ? 'resources' : id;
-  router.replace({ path: `${orgPrefix.value}/library`, query, hash: '' });
-  refresh();
+  activeTab.value = id; activeCategoryId.value = null; folderId.value = undefined; detailItem.value = null; typeFilter.value = ''; showAll.value = false;
+  resetSearch(); syncBrowseLocation();
 }
-
 function selectCategory(c) {
-  if (selectedReference.value) closeReference();
-  activeCategoryId.value = c.id;
-  folderId.value = undefined;
-  activeTab.value = 'all';
-  refresh();
+  activeCategoryId.value = c.id; folderId.value = undefined; activeTab.value = 'all'; showAll.value = false;
+  resetSearch(); syncBrowseLocation();
 }
-
-function selectFolder(id) {
-  if (selectedReference.value) closeReference();
-  folderId.value = id;
-  activeCategoryId.value = null;
-  activeTab.value = 'all';
-  refresh();
+function selectFolder(id, fromSidebar = false) {
+  folderId.value = id; showAll.value = false;
+  if (fromSidebar) { activeCategoryId.value = null; activeTab.value = 'all'; }
+  resetSearch(); syncBrowseLocation();
 }
-
-function clearFilters() {
-  if (selectedReference.value) closeReference();
-  activeCategoryId.value = null;
-  folderId.value = undefined;
-  search.value = '';
-  searchActive.value = false;
-  activeTab.value = 'all'; typeFilter.value = '';
-  refresh();
-}
-
-function backToLibrary() {
-  folderId.value = undefined;
-  activeCategoryId.value = null;
-  search.value = '';
-  searchActive.value = false;
-  activeTab.value = 'all';
-  refresh();
-}
-
+function goToFolderRoot() { folderId.value = undefined; resetSearch(); syncBrowseLocation(); }
+function setBrowseMode(all) { showAll.value = all; if (all) folderId.value = undefined; syncBrowseLocation(); }
+function clearFilters() { setTab('all'); }
+function backToLibrary() { setTab('all'); }
 function runSearch() {
   clearTimeout(searchTimer);
-  if (selectedReference.value) closeReference();
   searchActive.value = !!search.value.trim();
   if (activeTab.value !== 'mine') activeTab.value = 'all';
-  refresh();
+  syncBrowseLocation();
 }
 
 async function openResource(item) {
@@ -619,21 +640,24 @@ function onDocClick(event) {
   menuItem.value = null;
 }
 
-watch(() => route.query.section, value => {
-  const tab = tabFromSection(value);
-  if (tab !== activeTab.value) { activeTab.value = tab; activeCategoryId.value = null; folderId.value = undefined; refresh(); }
+watch(() => [route.query.section, route.query.folder, route.query.category, route.query.browse, route.query.q], () => {
+  const next = [tabFromSection(route.query.section), positiveId(route.query.folder), positiveId(route.query.category) || null, route.query.browse === 'all', String(route.query.q || '')];
+  const current = [activeTab.value, folderId.value, activeCategoryId.value, showAll.value, search.value.trim()];
+  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  [activeTab.value, folderId.value, activeCategoryId.value, showAll.value, search.value] = next;
+  searchActive.value = !!search.value.trim(); refresh();
 });
-watch(() => [route.params.organizationSlug, agencyId.value], () => {
+watch([() => route.params.organizationSlug, () => agencyId.value], () => {
   viewerRequestSequence++; shareRequestSequence++; clearTimeout(searchTimer);
   home.value = null; resources.value = []; referenceDocuments.value = []; referenceCanManage.value = false;
   viewerResource.value = null; detailItem.value = null; menuItem.value = null;
   shareFolder.value = null; shareList.value = []; shareEmails.value = ''; shareError.value = ''; shareSaving.value = false;
   showAdd.value = false; distributeItem.value = null; showStatistics.value = false;
-  activeCategoryId.value = null; folderId.value = undefined; search.value = ''; searchActive.value = false; typeFilter.value = '';
+  activeCategoryId.value = null; folderId.value = undefined; search.value = ''; searchActive.value = false; typeFilter.value = ''; showAll.value = false;
   loadingMore.value = false; hasMore.value = false;
   refresh();
 });
-watch(() => [route.params.resourceId, agencyId.value], async ([id, currentAgencyId]) => {
+watch([() => route.params.resourceId, () => agencyId.value], async ([id, currentAgencyId]) => {
   const sequence = ++viewerRequestSequence;
   if (!id || !currentAgencyId) { viewerResource.value = null; return; }
   if (String(viewerResource.value?.id) === String(id) && Number(viewerResource.value?.agencyId) === Number(currentAgencyId)) return;
@@ -661,7 +685,8 @@ onUnmounted(() => {
 <style scoped>
 .document-add-menu{position:relative}.document-add-menu summary{list-style:none}.document-add-menu summary::-webkit-details-marker{display:none}.document-add-options{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:210px;padding:6px;border:1px solid #dce3de;border-radius:10px;background:#fff;box-shadow:0 12px 32px #203c2926}.document-add-options button{display:block;width:100%;border:0;border-radius:6px;background:transparent;text-align:left;padding:12px;font:inherit;font-size:13px;color:#294c3e;cursor:pointer}.document-add-options button:hover,.document-add-options button:focus-visible{background:#edf3ef}
 
-.folder-breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;font-size:12px}.folder-breadcrumbs button{font:inherit;border:0;background:none;color:#365c49;cursor:pointer}.folder-breadcrumbs button[aria-current]{font-weight:600}.library-subfolders{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}.library-subfolders button{display:flex;gap:10px;align-items:center;border:1px solid #dbe4dd;border-radius:8px;padding:12px 16px;background:#fff;color:#31513f;font:500 13px inherit;cursor:pointer}
+.folder-breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;font-size:12px}.folder-breadcrumbs button{font:inherit;border:0;background:none;color:#365c49;cursor:pointer}.folder-breadcrumbs button[aria-current]{font-weight:600}.folder-view-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px}.folder-view-controls button{border:1px solid #dbe4dd;background:white;color:#31513f}.folder-view-controls [aria-pressed=true]{background:#244d42;color:white;border-color:#244d42}.folder-view-controls>span{font-size:12px;color:#718077;margin-left:6px}.library-subfolders{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;margin-bottom:24px}.library-subfolders button{display:flex;gap:14px;align-items:center;min-height:88px;border:1px solid #dbe4dd;border-radius:12px;padding:18px;background:linear-gradient(135deg,#f2f6ee,#fff);color:#31513f;font-family:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer}.library-subfolders button:hover{border-color:#72927e;background:#eef4ee}.library-subfolders svg{width:32px;height:32px;flex-shrink:0;color:#64876e}.folder-arrow{margin-left:auto;font-size:18px;font-weight:400}
+
 .mobile-navigation-toggle{display:none}
 
 .library-page{--lib-green:#244d42;--lib-green-soft:#edf3ef;color:#25332f;background:#fbfcfb;width:100%;min-height:calc(100dvh - 70px);font-family:var(--font-body,Arial),sans-serif;font-size:14px;padding:0;box-sizing:border-box}.library-page *{box-sizing:border-box}.document-topbar{display:flex;align-items:center;gap:24px;padding:18px 24px;background:white;border-bottom:1px solid #e3e8e5}.document-identity{display:flex;gap:12px;align-items:center;min-width:230px}.document-mark{width:38px;height:42px;border-radius:9px;background:#edf3ef;color:#3c6554;padding:8px}.document-mark svg{width:100%;height:100%}.document-identity h1{margin:0;font-size:19px;font-weight:650;line-height:1.4;color:#1d3029}.document-identity p{margin:2px 0 0;color:#718077;font-size:12px}.beta-label{vertical-align:middle;font-size:10px;font-weight:600;border:1px solid #d7dfd9;border-radius:20px;padding:3px 7px;margin-left:5px;color:#5e7266}.document-search{display:flex;align-items:center;gap:10px;flex:1;max-width:660px;min-width:150px;border:1px solid #e0e5e1;border-radius:9px;padding:0 12px;background:#fcfdfc}.document-search svg{width:18px;flex-shrink:0;color:#65746b}.document-search input{font:inherit;font-size:13px;background:transparent;border:0;padding:12px 0;min-width:0;width:100%;outline:none}.document-search:focus-within{border-color:#648975;box-shadow:0 0 0 3px #eaf2ed}.document-search button{border:0;background:transparent;font-size:22px;color:#64746a;cursor:pointer}.document-actions{display:flex;gap:8px;margin-left:auto}.lib-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid transparent;border-radius:8px;min-height:38px;padding:8px 14px;font:inherit;font-size:13px;font-weight:550;text-decoration:none;cursor:pointer;white-space:nowrap}.lib-btn--primary{background:var(--lib-green);border-color:var(--lib-green);color:white}.lib-btn--primary:hover{background:#193e34}.lib-btn--ghost{background:white;border-color:#dce3de;color:#36574a}.lib-btn--ghost:hover{background:#f0f5f1}.lib-btn:disabled{opacity:.5;cursor:default}.lib-btn--sm{min-height:34px;padding:6px 10px;font-size:12px}.document-layout{display:grid;grid-template-columns:216px minmax(0,1fr);min-height:calc(100dvh - 154px)}.document-sidebar{background:#fff;border-right:1px solid #e3e8e5;padding:20px 12px;display:flex;flex-direction:column;gap:5px}.sidebar-home{font-size:12px;color:#65796c;text-decoration:none;margin:0 12px 17px}.document-sidebar nav{display:grid;gap:3px}.document-sidebar nav a,.document-sidebar nav>button,.folder-row>button:first-child{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;min-height:39px;border:0;border-radius:7px;background:transparent;color:#45564d;text-decoration:none;font:inherit;font-size:12px;line-height:1.5;cursor:pointer}.document-sidebar nav>button:hover,.document-sidebar nav a:hover,.folder-row>button:hover{background:#f4f7f4}.document-sidebar [aria-current=page]{background:#eaf1e8!important;color:#254d3a!important;font-weight:650}.nav-symbol{width:18px;font-size:18px;text-align:center;color:#647c6c;flex-shrink:0}.sidebar-heading{display:flex;align-items:center;justify-content:space-between;text-transform:uppercase;letter-spacing:.075em;font-size:10px;font-weight:600;color:#849087;margin:24px 12px 7px}.sidebar-heading button{border:0;background:transparent;font-size:20px;cursor:pointer;color:#57715f}.category-icon{width:24px;height:25px;display:flex;align-items:center;justify-content:center;border-radius:5px;background:var(--cat-bg);color:var(--cat-accent);flex-shrink:0}.category-icon :deep(svg){width:15px;height:15px}.sidebar-hint{font-size:11px;color:#8a948e;padding:0 12px;line-height:1.5}.folder-row{display:flex;align-items:center}.folder-row>button:first-child{min-width:0;flex:1}.folder-row>button:first-child span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.folder-share{border:0;background:transparent;color:#75887c;padding:9px;cursor:pointer;border-radius:7px}.sidebar-footer{border-top:1px solid #e8ece9;margin:28px 10px 0;padding-top:17px}.sidebar-footer a{display:flex;justify-content:space-between;text-decoration:none;color:#587163;font-size:12px}.document-main{padding:25px 28px 48px;min-width:0}.document-section-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:24px}.document-section-heading h2{font-size:23px;font-weight:650;margin:0;color:#21352b;line-height:1.4}.document-section-heading p{font-size:13px;color:#78877e;margin:4px 0 0}.heading-tools{display:flex;align-items:center;gap:16px}.heading-tools a{font-size:12px;text-decoration:none;color:#577563}.document-filterbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:15px}.filter-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.filter-left label{display:flex;align-items:center;gap:9px;font-size:11px;color:#839087;border:1px solid #e0e6e1;padding:0 10px;background:white;border-radius:7px}.filter-left select{max-width:180px;min-height:35px;background:transparent;font:inherit;font-size:12px;color:#425b4c;border:0;outline:none}.clear-filter{font:inherit;font-size:12px;color:#557564;background:transparent;border:0;cursor:pointer;text-decoration:underline}.library-view-toggle{display:flex;border:1px solid #dfe5df;border-radius:7px;background:white;padding:3px;gap:2px}.library-view-toggle button{border:0;border-radius:5px;background:transparent;padding:6px 8px;color:#6a7c71;cursor:pointer;display:flex}.library-view-toggle svg{width:17px;height:17px}.library-view-toggle [aria-pressed=true]{background:#e9f0e7;color:#284f3b}.document-filter-label{font-size:12px;color:#657c6c}.document-results-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}.document-results-layout.has-details{grid-template-columns:minmax(0,1fr) 272px}.document-results{min-width:0}.document-result-count{font-size:11px;color:#89958c;margin:0 0 9px 4px}.document-results :deep(.lib-list){border:1px solid #e4e9e5;border-radius:10px;overflow:hidden;background:white}.document-results :deep(.lib-list__head){background:#f6f8f6;font-size:10px;padding:12px 16px;color:#7b8b80}.document-results :deep(.lib-list__row){padding:14px 16px;min-height:68px}.document-results :deep(.lib-list__title){font-size:13px;font-weight:550;color:#293c30}.document-results :deep(.lib-list__cell){font-size:12px}.document-results :deep(.lib-list__by){font-size:10px}.document-results :deep(.lib-card__title){font-size:14px}.document-detail{position:sticky;top:16px;min-width:0;background:white;border:1px solid #e1e7e2;border-radius:10px;padding:18px}.detail-top{display:flex;justify-content:space-between;align-items:flex-start}.detail-file-icon{display:grid;place-items:center;width:64px;height:78px;border:1px solid #d9e2da;border-radius:4px;background:linear-gradient(135deg,#f3f6ef,#e5ede6);font-size:11px;color:#48704f;box-shadow:3px 3px 0 #f0f3ef}.detail-top button{border:0;background:transparent;color:#758679;font-size:22px;cursor:pointer}.document-detail h3{font-size:16px;line-height:1.5;margin:16px 0 7px}.detail-category{font-size:10px;color:#5a775e;background:#edf3e9;border-radius:4px;padding:4px 6px}.document-detail p{font-size:12px;line-height:1.7;color:#76877b;margin:16px 0}.detail-open{width:100%;justify-content:space-between}.document-detail dl{display:grid;grid-template-columns:55px 1fr;gap:14px 12px;font-size:11px;margin:22px 0;color:#657b6b}.document-detail dd{margin:0;color:#3b5746;overflow-wrap:anywhere}.document-detail .detail-tip{border-top:1px solid #e7ece8;padding-top:16px;font-size:11px}.document-empty{border:1px dashed #dce5df;border-radius:10px;background:white;display:flex;align-items:center;flex-direction:column;gap:12px;padding:60px 20px;text-align:center;color:#789080;font-size:13px}.document-empty h3{font-size:16px;color:#3b5a46;margin:0}.document-empty p{margin:0;max-width:380px;line-height:1.7}.empty-document{font-size:38px;color:#94af9a}.document-error{background:#fff3ed;border:1px solid #ecd3c7;border-radius:7px;padding:12px 16px;color:#91513c;font-size:12px;margin-bottom:15px}.document-error button{font:inherit;background:white;border:1px solid #d2a993;border-radius:4px;padding:4px 8px;cursor:pointer}.document-load-more{margin-top:18px}.document-back{margin-bottom:16px}.library-viewer-overlay{position:fixed;inset:0;z-index:90;background:rgba(25,40,32,.4);display:flex;padding:8px}.library-viewer-shell{width:100%;height:calc(100dvh - 16px);min-width:0}.library-menu{position:fixed;z-index:100;background:white;border:1px solid #dfe5e0;border-radius:9px;box-shadow:0 10px 30px #1f39231a;display:flex;flex-direction:column;min-width:160px;padding:5px}.library-menu button{border:0;background:white;text-align:left;padding:10px 14px;cursor:pointer;border-radius:5px;font:inherit;font-size:12px}.library-menu button:hover{background:#eff4ef}.library-menu .is-danger{color:#9e4742}.lib-modal-backdrop{position:fixed;inset:0;z-index:95;background:#14251a70;display:flex;align-items:center;justify-content:center;padding:16px}.lib-share-modal{width:min(460px,100%);background:white;border-radius:12px;padding:24px}.lib-share-modal__head{display:flex;justify-content:space-between;gap:16px}.lib-share-modal h2{font-size:18px;margin:0}.lib-modal__x{border:0;background:transparent;font-size:24px;cursor:pointer}.lib-share-modal__hint{font-size:13px;color:#768477;line-height:1.6}.lib-field{display:grid;gap:8px;font-size:12px}.lib-field textarea{font:inherit;padding:10px;border:1px solid #dbe3db;border-radius:7px;resize:vertical}.lib-share-modal__list{font-size:12px;padding-left:20px;color:#6d7e6e}.lib-share-modal__foot{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}.lib-error{color:#a74638;font-size:12px}.library-page :focus-visible{outline:2px solid #588972;outline-offset:3px}.document-search input:focus-visible{outline:0}.library-page button{touch-action:manipulation}

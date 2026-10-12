@@ -1,6 +1,8 @@
+import { Writable, Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../models/Library.model.js', () => ({ default: { setFolderShares: vi.fn(), findResource: vi.fn(), createResource: vi.fn(), userCanEditResource: vi.fn(), updateResource: vi.fn(), recordView: vi.fn(), findExistingPersonalCopy: vi.fn(), logDistribution: vi.fn(), grantResourcePermission: vi.fn(), listResourceShares: vi.fn(), findFolder: vi.fn(), createFolder: vi.fn(), updateFolder: vi.fn(), findOrCreateFolderPath: vi.fn(), ensureDefaultCategories: vi.fn(), listResources: vi.fn() } }));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: vi.fn() }));
+vi.mock('../../services/activityProtection.service.js', () => ({ protectStorageResource: vi.fn() }));
 vi.mock('../../services/storage.service.js', () => ({ default: { getGCSBucket: vi.fn(), readObject: vi.fn(), writeObject: vi.fn(), deleteObject: vi.fn(), saveLibraryResource: vi.fn() } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ pickDashboardContextAgencyId: () => 2, hasTenantAccess: vi.fn() }));
@@ -113,18 +115,27 @@ describe('private PDF library workspace', () => {
   it.each(['admin', 'support', 'provider'])('blocks %s from another agency before reading the file', async role => {
     req.user.role = role; User.getAgencies.mockResolvedValue([{ id: 3 }]);
     await getLibraryPdfContent(req, res, next);
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })); expect(StorageService.readObject).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })); expect(StorageService.readObject).not.toHaveBeenCalled(); expect(StorageService.getGCSBucket).not.toHaveBeenCalled();
   });
   it('allows platform superadmin only through the explicit resource access check', async () => {
     req.user.role = 'super_admin'; Library.findResource.mockResolvedValue(null);
     await getLibraryPdfContent(req, res, next);
-    expect(res.status).toHaveBeenCalledWith(404); expect(StorageService.readObject).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(404); expect(StorageService.readObject).not.toHaveBeenCalled(); expect(StorageService.getGCSBucket).not.toHaveBeenCalled();
   });
-  it('returns PDF bytes with private no-store headers after checking per-resource visibility', async () => {
-    await getLibraryPdfContent(req, res, next);
+  it('streams a large PDF without a buffered response or Content-Length after resource authorization', async () => {
+    let bytes = 0;
+    const response = new Writable({write(chunk, encoding, callback) { bytes += chunk.length; callback(); }});
+    response.set = vi.fn();
+    const chunk = Buffer.alloc(1024 * 1024);
+    const file = {getMetadata:vi.fn().mockResolvedValue([{size:46 * chunk.length}]), createReadStream:vi.fn(()=>Readable.from(Array(46).fill(chunk)))};
+    StorageService.getGCSBucket.mockResolvedValue({file:vi.fn(()=>file)});
+    await getLibraryPdfContent(req, response, next);
+    expect(next).not.toHaveBeenCalled();
     expect(Library.findResource).toHaveBeenCalledWith('10', 2, { userId: 7 });
-    expect(res.set).toHaveBeenCalledWith(expect.objectContaining({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }));
-    expect(res.send).toHaveBeenCalledWith(expect.any(Buffer));
+    expect(response.set).toHaveBeenCalledWith(expect.objectContaining({ 'Cache-Control': 'private, no-store', 'Content-Type':'application/pdf' }));
+    expect(response.set.mock.calls[0][0]).not.toHaveProperty('Content-Length');
+    expect(bytes).toBe(46 * chunk.length);
+    expect(StorageService.readObject).not.toHaveBeenCalled();
   });
   it('saves a new personal copy under a blocked public prefix, without changing the source or exposing its storage key', async () => {
     req.body = { name: 'My filled form', expectedVersion: 4, entries: [{ kind: 'text', page: 1, x: 40, y: 40, width: 200, height: 30, fontSize: 12, text: 'Sample answer' }], scope: 'organization', ownerUserId: 999 };
@@ -331,5 +342,6 @@ it('streams authorized private audio with download and no-store headers', async 
   StorageService.getGCSBucket.mockResolvedValue({file: vi.fn(() => object)});
   await getLibraryFileContent(req, response, next);
   expect(next).not.toHaveBeenCalled(); expect(Buffer.concat(chunks).toString()).toBe('audio');
+  expect(response.set.mock.calls[0][0]).not.toHaveProperty('Content-Length');
   expect(response.set).toHaveBeenCalledWith(expect.objectContaining({'Cache-Control':'private, no-store','Content-Type':'audio/mpeg','Content-Disposition':"attachment; filename*=UTF-8''Recording.mp3"}));
 });

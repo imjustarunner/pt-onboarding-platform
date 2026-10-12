@@ -65,7 +65,9 @@ function mapFolder(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ownerName: row.owner_name || null,
-    shareCount: row.share_count != null ? Number(row.share_count) : undefined
+    shareCount: row.share_count != null ? Number(row.share_count) : undefined,
+    categoryIds: [...new Set((parseJson(row.resource_categories, []) || []).filter(id => id != null).map(Number))],
+    documentCount: (parseJson(row.resource_categories, []) || []).length
   };
 }
 
@@ -191,6 +193,14 @@ class Library {
   }
 
   static async listFolders(agencyId, { parentFolderId = undefined, includeArchived = false, userId = null } = {}) {
+    // Folder summaries must use the same resource visibility rules as browsing.
+    const uid = Number(userId) || 0;
+    const resourceVisibility = uid ? `AND (
+      COALESCE(r.scope, 'organization') = 'organization' OR r.owner_user_id = ${uid}
+      OR EXISTS (SELECT 1 FROM library_permissions rp WHERE rp.agency_id = r.agency_id
+        AND rp.resource_id = r.id AND rp.grantee_type = 'user' AND rp.grantee_value = '${uid}')
+      OR EXISTS (SELECT 1 FROM shared_folders sf WHERE sf.agency_id = r.agency_id AND sf.id = r.folder_id)
+    )` : '';
     const params = [Number(agencyId)];
     let sql = `
       SELECT f.*,
@@ -198,7 +208,10 @@ class Library {
         (
           SELECT COUNT(*) FROM library_permissions p
           WHERE p.folder_id = f.id AND p.grantee_type = 'user'
-        ) AS share_count
+        ) AS share_count,
+        (SELECT JSON_ARRAYAGG(r.category_id) FROM library_resources r
+         WHERE r.agency_id = f.agency_id AND r.folder_id = f.id AND r.archived_at IS NULL
+         ${resourceVisibility}) AS resource_categories
       FROM library_folders f
       LEFT JOIN users ou ON ou.id = f.owner_user_id
       WHERE f.agency_id = ?

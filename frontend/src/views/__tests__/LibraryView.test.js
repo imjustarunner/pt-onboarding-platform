@@ -81,7 +81,7 @@ it('restores favorites from a direct link and closes the viewer when its URL is 
 it('switches between folder and category without leaving the previous filter applied', async () => {
   await render();
   await clickText('Shared forms'); expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({folderId:9}));
-  await clickText('Templates'); expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('folderId'); expect(service.fetchLibraryResources.mock.lastCall[0].categoryId).toBe(3);
+  await clickText('Templates'); expect(service.fetchLibraryResources.mock.lastCall[0].folderId).toBe('root'); expect(service.fetchLibraryResources.mock.lastCall[0].categoryId).toBe(3);
   await clickText('Shared forms'); expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('categoryId');
 });
 it('does not reopen a previous organization’s document after a slow response', async () => {
@@ -106,7 +106,7 @@ it('opens My files directly with a personal resource filter and only the employe
   expect(service.fetchLibraryResources).toHaveBeenLastCalledWith(expect.objectContaining({ agencyId: 2, mine: '1' }));
   expect(wrapper.findAll('.lib-list__row')).toHaveLength(1);
   expect(wrapper.findAll('.lib-list__open').map(button => button.text()).join(' ')).toContain('My worksheet');
-  expect(wrapper.get('[aria-label="Subfolders"]').findAll('button').map(button => button.text().replace('▱', '').trim())).toEqual(['My folder']);
+  expect(wrapper.get('[aria-label="Subfolders"]').findAll('button').map(button => button.text().replace('→', '').trim())).toEqual(['My folder']);
   await clickText('All documents');
   expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('mine');
   expect(router.currentRoute.value.query.section).toBe('all');
@@ -156,4 +156,37 @@ it('offers uploads, folders, and links in Add + separately from New document', a
   await menu.findAll('button').find(button => button.text() === 'Create folder').trigger('click'); await flushPromises();
   expect(menu.element.open).toBe(false);
   expect(wrapper.getComponent({name:'LibraryAddResourceModal'}).props('initialMode')).toBe('folder');
+});
+
+it('shows broad category folders, supports Show all and cross-folder search, and retains location through document routes', async () => {
+  const folders = [
+    {id:2,name:'Clinical resource hub',scope:'organization',categoryIds:[],documentCount:0},
+    {id:3,name:'Articles & references',parentFolderId:2,categoryIds:[3],documentCount:1},
+    {id:4,name:'Community resources',parentFolderId:2,categoryIds:[3],documentCount:1},
+    {id:5,name:'Worksheets & handouts',parentFolderId:2,categoryIds:[],documentCount:0},
+    {id:6,name:'Coloring books',parentFolderId:5,categoryIds:[3],documentCount:1},
+    {id:7,name:'Other category',categoryIds:[4],documentCount:1}
+  ];
+  service.fetchLibraryHome.mockResolvedValue({categories:[{id:3,name:'Clinical & Community Resources',slug:'care_documents'}],folders});
+  service.fetchLibraryResources.mockImplementation(async params => params.folderId === 'root' ? [] : [{...pdf,folderId:6}]);
+  const router = await render('/itsco/library?category=3');
+  expect(wrapper.get('[aria-label="Subfolders"]').findAll('button').map(b=>b.text().replace('→','').trim())).toEqual(['Articles & references','Community resources','Worksheets & handouts']);
+  expect(wrapper.get('main').text()).not.toContain('Other category');
+  expect(wrapper.text()).not.toContain('No documents here yet');
+  await clickText('Show all');
+  expect(service.fetchLibraryResources.mock.lastCall[0]).toMatchObject({categoryId:3});
+  expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('folderId');
+  expect(wrapper.findAll('.lib-list__row')).toHaveLength(1);
+  await wrapper.get('[aria-label="Browse mode"] button').trigger('click'); await flushPromises();
+  await wrapper.get('input[aria-label="Search documents"]').setValue('Team'); await wrapper.get('form').trigger('submit'); await flushPromises();
+  expect(service.fetchLibraryResources.mock.lastCall[0]).toMatchObject({categoryId:3,q:'Team'});
+  expect(service.fetchLibraryResources.mock.lastCall[0]).not.toHaveProperty('folderId');
+  await wrapper.get('button[aria-label="Clear search"]').trigger('click'); await flushPromises();
+  await wrapper.get('[aria-label="Subfolders"]').findAll('button')[2].trigger('click'); await flushPromises();
+  await wrapper.get('[aria-label="Subfolders"] button').trigger('click'); await flushPromises();
+  expect(router.currentRoute.value.query).toMatchObject({folder:'6',category:'3'});
+  await wrapper.get('.lib-list__open').trigger('click'); await flushPromises();
+  expect(router.currentRoute.value.query).toMatchObject({folder:'6',category:'3'});
+  await router.push('/itsco/library?category=3&folder=5'); await flushPromises();
+  expect(wrapper.get('[aria-label="Subfolders"]').text()).toContain('Coloring books');
 });

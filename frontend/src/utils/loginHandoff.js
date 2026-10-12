@@ -30,3 +30,11 @@ export function getSsoArrivalRoute(to, hostSlug = '') {
     replace: true
   };
 }
+
+// Consume successful cookie handoffs before entering any workspace. Keeping sso
+// in the URL makes ordinary query navigation look like another fresh login.
+export async function consumeSsoHandoff(to, bootstrap) {
+  if (String(to.query?.sso || '') !== '1' || !await bootstrap()) return null;
+  const { sso, ssoOrg, ...query } = to.query;
+  return { path: to.path, query, hash: to.hash, replace: true };
+}

@@ -1,4 +1,4 @@
-import { isTokenAuthenticationRoute } from '../utils/loginHandoff';
+import { consumeSsoHandoff, isTokenAuthenticationRoute } from '../utils/loginHandoff';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
 import { isPlotlineHost } from '../utils/plotline';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
@@ -5042,6 +5042,15 @@ router.beforeEach(async (to, from, next) => {
       return false;
     }
   };
+
+  // SSO is a one-time login handoff, not a persistent navigation filter.
+  // Consume it before any early-return surface; otherwise copied query strings
+  // re-bootstrap auth and reopen the login briefing on every click.
+  const ssoArrival = await consumeSsoHandoff(to, tryBootstrapAuthFromCookie);
+  if (ssoArrival) {
+    next(ssoArrival);
+    return;
+  }
 
   if (isFundthredHost(window.location.hostname) && to.name === 'Login' && to.query.product !== 'fundthred') {
     next({ ...fundthredLoginLocation(to.query.redirect), replace: true }); return;

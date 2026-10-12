@@ -8,6 +8,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
+import { protectStorageResource } from '../services/activityProtection.service.js';
 import { fillLibraryPdf, isPrivateLibraryPdf } from '../services/libraryPdf.service.js';
 import {
   isGoogleWorkspaceUrl,
@@ -1235,10 +1236,10 @@ export const getLibraryFileContent = async (req, res, next) => {
     }
     const bucket = await StorageService.getGCSBucket();
     const file = bucket.file(resource.filePath);
-    const [metadata] = await file.getMetadata();
+    await file.getMetadata();
     await Library.recordView(req.user.id, resource.id);
     res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
-      'Content-Type': resource.mimeType || 'application/octet-stream', 'Content-Length': String(metadata.size),
+      'Content-Type': resource.mimeType || 'application/octet-stream',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(resource.originalFilename || resource.name)}` });
     await pipeline(file.createReadStream(), res);
   } catch (error) { if (!res.headersSent) next(error); else res.destroy(error); }
@@ -1252,12 +1253,18 @@ export const getLibraryPdfContent = async (req, res, next) => {
     if (!resource || resource.archivedAt || resource.resourceType !== 'file' || resource.fileType !== 'pdf' || !resource.filePath) {
       return res.status(404).json({ error: { message: 'PDF not found' } });
     }
-    const buffer = await StorageService.readObject(resource.filePath);
+    await protectStorageResource(resource.filePath);
+    const bucket = await StorageService.getGCSBucket();
+    const file = bucket.file(resource.filePath);
+    await file.getMetadata();
     await Library.recordView(req.user.id, resource.id);
+    // Stream without Content-Length: buffered responses above 32 MiB are
+    // rejected by Cloud Run even when the application successfully reads GCS.
     res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(resource.originalFilename || `${resource.name}.pdf`)}` });
-    res.type('application/pdf').send(buffer);
-  } catch (error) { next(error); }
+    await pipeline(file.createReadStream(), res);
+  } catch (error) { if (!res.headersSent) next(error); else res.destroy(error); }
 };
 
 export const saveLibraryPdfFilledCopy = async (req, res, next) => {
