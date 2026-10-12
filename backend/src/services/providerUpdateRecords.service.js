@@ -1,10 +1,10 @@
+import {saveProviderClinicalFocus} from './providerClinicalFocus.service.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
-import {FOCUS_GROUPS,validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
+import {FOCUS_GROUPS} from '../../../frontend/src/navigation/providerFocus.js';
 import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
-import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import pool from '../config/database.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
@@ -76,19 +76,6 @@ export async function saveProviderReviewProfile(recipient,key,data){
  }
  if(key==='specialties'){
   const records=await getProviderUpdateRecords(uid,aid);
-  const focus=validateFocus(data.clinicalFocus,records.focusGroups,{requireThree:true});
-  const pending=[];
-  for(const group of records.focusGroups){
-   const existing=records.specialtyGroups.find(g=>g.key===group.field)?.selected||[];
-   const chosen=[...new Set([...existing,...focus.top[group.key]])].filter(v=>!focus.excluded[group.key].includes(v));
-   const [[def]]=await pool.execute('SELECT id FROM user_info_field_definitions WHERE field_key=? AND parent_field_id IS NULL AND (agency_id IS NULL OR agency_id=?) ORDER BY (agency_id IS NOT NULL) DESC,id DESC LIMIT 1',[group.field,aid]);
-   if(!def)throw Object.assign(new Error('Clinical profile fields are not configured.'),{status:409});
-   pending.push([def.id,JSON.stringify(chosen)]);
-  }
-  const current=await ProviderPublicProfile.getForProvider({providerUserId:uid});
-  await ProviderPublicProfile.upsertForProvider({providerUserId:uid,...current});
-  for(const [id,value]of pending)await UserInfoValue.createOrUpdate(uid,id,value);
-  await pool.execute("UPDATE provider_public_profiles SET public_details_json=JSON_SET(COALESCE(public_details_json,JSON_OBJECT()),'$.clinicalFocus',CAST(? AS JSON)),updated_at=CURRENT_TIMESTAMP WHERE user_id=?",[JSON.stringify({...focus,reviewedAt:new Date().toISOString()}),uid]);
-  await ProviderSearchIndex.upsertForUserInAgency({userId:uid,agencyId:aid,fieldKeys:records.focusGroups.map(g=>g.field)});
+  await saveProviderClinicalFocus(uid,aid,data.clinicalFocus,records.focusGroups);
  }
 }

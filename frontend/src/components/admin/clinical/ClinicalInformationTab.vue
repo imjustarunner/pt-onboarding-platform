@@ -15,6 +15,7 @@
     <div v-if="loading" class="loading">Loading clinical profile…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else>
+      <ProviderClinicalFocusSettings v-if="unifiedFocus" :user-id="userId" title="Clinical profile & matching" @saved="refresh" />
       <nav class="ci-subtabs" aria-label="Clinical information sections">
         <button
           v-for="tab in visibleSubTabs"
@@ -31,6 +32,7 @@
         <div class="ci-overview-main">
           <ClinicalOverviewView
             :fields="clinicalFields"
+            :hide-focus="unifiedFocus"
             :can-edit="canEdit"
             @edit-section="onEditSection"
           />
@@ -80,12 +82,13 @@
           :panel-title="activeSubTabLabel"
           :panel-hint="activePanelHint"
           :clinical-filter="true"
+          :hide-clinical-focus="unifiedFocus"
         />
       </div>
 
       <div v-if="activeSubTab !== 'all_fields'" class="ci-footer-note">
         <span class="muted">
-          Fields can be edited here directly — no form assignment required. Blank multi-selects mean open to all clients for matching.
+          Use Clinical profile & matching above to manage matching choices and profile highlights. Other profile details can be edited below.
           See also
           <button type="button" class="link-btn" @click="activeSubTab = 'all_fields'">All Profile Fields</button>.
         </span>
@@ -113,6 +116,7 @@ import {
   panelHintForSubTab
 } from '../../../constants/clinicalProfileLayout.js';
 import { formatSnapshotValue } from '../../../utils/clinicalFieldDisplay.js';
+import ProviderClinicalFocusSettings from '../../provider/ProviderClinicalFocusSettings.vue';
 import ClinicalOverviewView from './ClinicalOverviewView.vue';
 import ClinicalLicensePanel from './ClinicalLicensePanel.vue';
 import ClinicalSupervisionPanel from './ClinicalSupervisionPanel.vue';
@@ -138,6 +142,7 @@ const canEdit = computed(() => {
   return ['admin', 'super_admin', 'support', 'staff'].includes(role);
 });
 
+const unifiedFocus = computed(() => canEdit.value || Number(authStore.user?.id) === props.userId);
 const loading = ref(true);
 const error = ref('');
 const allFields = ref([]);
@@ -174,7 +179,7 @@ const fieldByKey = computed(() => {
 });
 
 const snapshotItems = computed(() =>
-  CLINICAL_SNAPSHOT_SPECS.map((spec) => ({
+  CLINICAL_SNAPSHOT_SPECS.filter(spec => !unifiedFocus.value || !['population_focus','age_range','primary_modality'].includes(spec.id)).map((spec) => ({
     id: spec.id,
     label: spec.label,
     value: formatSnapshotValue(fieldByKey.value, spec)

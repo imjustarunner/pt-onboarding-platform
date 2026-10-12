@@ -52,3 +52,12 @@ export function publishedFocus(group,focus,affirmed=[]){
  const more=[...new Set([...definition.options,...affirmed])].filter(v=>!top.includes(v)&&!(focus.excluded?.[group]||[]).includes(v));
  return {top,more,reviewed:true};
 }
+
+// Legacy editors must not offer a second, conflicting editor for these same answers.
+const focusFieldKeys = new Set([
+ ...FOCUS_GROUPS.map(g=>g.field), 'provider_marketing_specialties', 'provider_counseling_specialties', 'pt_specialties_max25',
+ 'provider_specialties', 'provider_age_specialty', 'provider_marketing_age_specialty', 'provider_marketing_groups',
+ 'provider_marketing_focus', 'provider_client_focus', 'provider_marketing_treatment_modalities', 'provider_modality',
+ 'treatment_prefs_max15', 'top3_specialties_general', 'top3_specialties_clinical', 'pt_top3_specialties', 'provider_top_three_specialties'
+]);
+export function isProviderFocusField(field) { return focusFieldKeys.has(typeof field==='string'?field:field?.field_key); }

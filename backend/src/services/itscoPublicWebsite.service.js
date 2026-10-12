@@ -1,3 +1,4 @@
+import {publicClinicalFocus} from '../utils/itscoPublicWebsite.js';
 import { readPublicSnapshot } from './publicReadSnapshot.service.js';
 import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
 import { providerClickCounts } from './publicWebsiteAnalytics.service.js';
@@ -101,12 +102,14 @@ async function buildItscoWebsiteData({agency,page,settings,baseUrl}) {
         listClinicalFacetsForUser(Number(row.id), { agencyId: agency.id }),
         listProviderAcceptedInsurancesForDisplay({ userId: row.id, agencyId: agency.id })
       ]);
+      const focusHighlights=publicClinicalFocus(profile?.details?.clinicalFocus,facets);
+      for(const [key,display] of Object.entries(focusHighlights))facets[key]=[...display.top,...display.more];
       let insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
       // Public labels come from credentialing/agency acceptance, never free-text profile tags.
       insurances = restrictPublicInsurances(insurances,row);
       const office = profile?.details?.inPersonEnabled === false ? false : profile?.details?.inPersonEnabled === true || Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
       const schoolOpenings=agencyFormatAllowed(policy,'SCHOOL')&&assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
-      providers.push({ ...person, officeLocations:(officeLocations.get(Number(row.id))||[]).filter(o=>agencyOfficeAllowed(policy,o.id)), specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
+      providers.push({ ...person, details:{...person.details,focusHighlights}, officeLocations:(officeLocations.get(Number(row.id))||[]).filter(o=>agencyOfficeAllowed(policy,o.id)), specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
         officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:office}),
         schoolAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.schoolAvailability,assigned:assignedSchools.length>0,hasOpenings:schoolOpenings}),
         modalities: facets.modalities || [], populations: facets.populations || [], insurances,

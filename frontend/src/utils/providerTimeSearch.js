@@ -12,8 +12,8 @@ export function slotMatchesTime(slot, filters={}, timeZone='America/Denver') {
 }
 export function matchingProviderTags(provider, search='', specialty='', limit=3) {
  const focus=provider.details?.clinicalFocus||provider.profile?.details?.clinicalFocus;
- if(focus?.reviewed){
-  const groups=FOCUS_GROUPS.map(g=>publishedFocus(g.key,focus,provider[g.key]||[]));
+ if(focus?.reviewed || provider.details?.focusHighlights){
+  const groups=FOCUS_GROUPS.map(g=>provider.details?.focusHighlights?.[g.key] || publishedFocus(g.key,focus,provider[g.key]||[]));
   const all=[...new Set(groups.flatMap(g=>[...g.top,...g.more]))],q=search.trim().toLowerCase();
   const matches=all.filter(tag=>tag===specialty||(q&&tag.toLowerCase().includes(q)));
   return [...new Set([...matches,...groups[0].top])].slice(0,3);

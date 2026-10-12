@@ -1,3 +1,4 @@
+import {getProviderClinicalFocus,saveProviderClinicalFocus} from '../services/providerClinicalFocus.service.js';
 import { listProviderAcceptedInsurancesForDisplay } from '../services/providerAcceptedInsurance.service.js';
 import User from '../models/User.model.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
@@ -172,3 +173,22 @@ export const upsertAgencyProviderPortalSettings = async (req, res, next) => {
     next(e);
   }
 };
+
+async function clinicalFocusAccess(req, res) {
+  const userId = parseIntSafe(req.params.id);
+  const agencyId = parseIntSafe(req.body?.agencyId || req.query?.agencyId);
+  if (!userId || !agencyId) { res.status(400).json({error:{message:'Valid user and agency IDs are required'}}); return null; }
+  if (Number(req.user?.id) !== userId && !canManageProfile(req.user?.role)) { res.status(403).json({error:{message:'Access denied'}}); return null; }
+  if (!(await requireAgencyMembership(req, res, agencyId))) return null;
+  const agencies = await User.getAgencies(userId);
+  if (!agencies.some(a => Number(a.id) === agencyId)) { res.status(404).json({error:{message:'Provider not found in this agency'}}); return null; }
+  return {userId, agencyId};
+}
+export async function getUserClinicalFocus(req, res, next) {
+  try { const access=await clinicalFocusAccess(req,res); if(access)res.json(await getProviderClinicalFocus(access.userId,access.agencyId)); }
+  catch(error){next(error);}
+}
+export async function putUserClinicalFocus(req, res, next) {
+  try { const access=await clinicalFocusAccess(req,res); if(access)res.json(await saveProviderClinicalFocus(access.userId,access.agencyId,req.body?.clinicalFocus)); }
+  catch(error){next(error);}
+}

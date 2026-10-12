@@ -68,6 +68,7 @@ import {
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },
+  hideFocus: Boolean,
   canEdit: { type: Boolean, default: false }
 });
 
@@ -95,7 +96,7 @@ const buildProse = (fields) => {
 };
 
 const cards = computed(() => {
-  return CLINICAL_OVERVIEW_CARDS.map((card) => {
+  return CLINICAL_OVERVIEW_CARDS.filter(card => !props.hideFocus || !['specialties','client_ages','populations','approaches'].includes(card.id)).map((card) => {
     const matched = findAllFieldsByKeys(fieldByKey.value, card.fieldKeys || []).filter((f) => {
       const v = formatClinicalFieldValue(f);
       return Array.isArray(v) ? v.length > 0 : !!v;

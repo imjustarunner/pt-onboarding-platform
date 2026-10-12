@@ -25,6 +25,8 @@ import {
 } from '../controllers/userPhotos.controller.js';
 import { getUserTrainingFocuses, getTrainingFocusPath } from '../controllers/track.controller.js';
 import {
+  getUserClinicalFocus,
+  putUserClinicalFocus,
   getUserProviderPublicProfile,
   upsertUserProviderPublicProfile,
   getAgencyProviderPortalSettings,
@@ -129,6 +131,8 @@ router.patch('/:id/google-events/:eventId', authenticate, patchUserGoogleEvent);
 router.delete('/:id/google-events/:eventId', authenticate, deleteUserGoogleEvent);
 router.get('/:id/office-assignments', authenticate, requireBackofficeAdmin, getUserOfficeAssignments);
 router.put('/:id/office-assignments', authenticate, requireBackofficeAdmin, upsertUserOfficeAssignments);
+router.get('/:id/provider-clinical-focus', authenticate, getUserClinicalFocus);
+router.put('/:id/provider-clinical-focus', authenticate, putUserClinicalFocus);
 router.get('/:id/provider-public-profile', authenticate, getUserProviderPublicProfile);
 router.put('/:id/provider-public-profile', authenticate, upsertUserProviderPublicProfile);
 router.get('/:userId/agencies/:agencyId/practice-categories', authenticate, getUserAgencyPracticeCategories);

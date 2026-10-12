@@ -801,6 +801,8 @@
         </div>
       </div>
 
+      <ProviderClinicalFocusSettings v-if="!isClubContext && hasClinicalProfile" :user-id="Number(userId)" :agency-id="Number(agencyStore.currentAgency?.id) || undefined" @saved="fetchMyUserInfo" />
+
       <!-- Profile Information (filled via assigned onboarding/profile modules) – hidden for clubs -->
       <div v-if="!isClubContext" class="info-section">
         <div class="section-header">
@@ -819,7 +821,7 @@
           </div>
         </div>
         <div class="hint" style="margin-top: 6px;">
-          This is your editable profile data (saved to the database). You can update it throughout the year; forms/modules just provide a structured way to collect it.
+          Review your other account details below. Use “My clinical profile & matching” above for client matching and public profile highlights.
         </div>
 
         <div v-if="userInfoLoading" class="loading" style="margin-top: 12px;">Loading profile fields…</div>
@@ -842,8 +844,8 @@
           </div>
 
           <div v-else class="fields-grid" style="margin-top: 12px;">
-            <div v-for="field in myRenderableFields" :key="field.id" :id="`my-profile-field-${field.id}`" class="field-item">
-              <label :for="`my-field-${field.id}`">
+            <div v-for="field in myRenderableFields" :key="field.id" :id="`my-profile-field-${field.id}`" class="field-item" :class="{'wide-profile-field':field.field_type==='multi_select'}">
+              <label v-if="field.field_type !== 'multi_select'" :for="`my-field-${field.id}`">
                 {{ field.field_label }}
                 <span v-if="field.is_required" class="required-asterisk">*</span>
               </label>
@@ -906,17 +908,7 @@
                 <option v-for="opt in (field.options || [])" :key="opt" :value="opt">{{ opt }}</option>
               </select>
 
-              <div v-else-if="field.field_type === 'multi_select'" class="multi-select-options">
-                <label v-for="opt in (field.options || [])" :key="opt" class="checkbox-option">
-                  <input
-                    type="checkbox"
-                    :checked="normalizeMultiSelectValue(myUserInfoValues[field.id]).includes(opt)"
-                    @change="toggleMyMultiSelect(field.id, opt)"
-                    :disabled="isFieldReadOnlyForCurrentUser(field)"
-                  />
-                  {{ opt }}
-                </label>
-              </div>
+              <ClinicalMultiSelect v-else-if="field.field_type === 'multi_select'" :label="field.field_label" :model-value="normalizeMultiSelectValue(myUserInfoValues[field.id])" :options="field.options || []" :disabled="isFieldReadOnlyForCurrentUser(field)" @update:model-value="myUserInfoValues[field.id] = $event" />
 
               <select
                 v-else-if="field.field_type === 'boolean'"
@@ -1165,6 +1157,9 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
+import ProviderClinicalFocusSettings from '../components/provider/ProviderClinicalFocusSettings.vue';
+import ClinicalMultiSelect from '../components/profile/ClinicalMultiSelect.vue';
+import {isProviderFocusField} from '../navigation/providerFocus.js';
 import QuickViewPrivacyPanel from '../components/account/QuickViewPrivacyPanel.vue';
 import StaffBusinessCardsButton from '../components/admin/StaffBusinessCardsButton.vue';
 import {
@@ -1919,6 +1914,8 @@ const isProviderLike = computed(() => {
   );
 });
 
+const hasClinicalProfile = computed(() => isProviderLike.value || myUserInfoFields.value.some(isProviderFocusField));
+
 const normalizeMultiSelectValue = (raw) => {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === 'string' && raw.trim()) {
@@ -1951,7 +1948,7 @@ const fileValueUrl = (raw) => {
 // irrelevant fields. So the UI should render whatever it receives, even if categories haven't
 // been synced yet (category_key may be null).
 const myVisibleFields = computed(() => {
-  const all = myUserInfoFields.value || [];
+  const all = (myUserInfoFields.value || []).filter(f => !isProviderFocusField(f));
   if (showEmptyMyFields.value) return all;
   return all.filter((f) => f?.hasValue);
 });
@@ -2102,7 +2099,7 @@ const saveMyUserInfo = async () => {
     savingUserInfo.value = true;
     userInfoError.value = '';
 
-    const values = Object.keys(myUserInfoValues.value).map((fieldId) => ({
+    const values = Object.keys(myUserInfoValues.value).filter(id => !isProviderFocusField(myUserInfoFields.value.find(f => Number(f.id) === Number(id)))).map((fieldId) => ({
       fieldDefinitionId: parseInt(fieldId),
       value: Array.isArray(myUserInfoValues.value[fieldId]) ? JSON.stringify(myUserInfoValues.value[fieldId]) : (myUserInfoValues.value[fieldId] || null)
     }));
@@ -3294,4 +3291,8 @@ onMounted(() => {
   gap: 10px;
   margin-top: 12px;
 }
+</style>
+
+<style scoped>
+.fields-grid .wide-profile-field{grid-column:1/-1;min-width:0}
 </style>

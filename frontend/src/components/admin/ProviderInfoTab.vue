@@ -70,7 +70,8 @@
 
     <div v-else>
       <div v-if="visibleProviderFields.length === 0" class="empty-state">
-        <p v-if="missingClinicalFieldKeys.length" style="margin: 0;">
+        <p v-if="hideClinicalFocus" style="margin:0;">Manage client matching and top-three highlights in Clinical profile &amp; matching above.</p>
+        <p v-else-if="missingClinicalFieldKeys.length" style="margin: 0;">
           Field definitions not found for:
           <code>{{ missingClinicalFieldKeys.join(', ') }}</code>.
         </p>
@@ -363,6 +364,7 @@
 
 <script setup>
 import { consolidateBirthdateFields, isBirthdateField } from '../../utils/profileDemographics.js';
+import {isProviderFocusField} from '../../navigation/providerFocus.js';
 import {SPECIALTIES, POPULATIONS, CLIENT_AGES, THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
@@ -379,6 +381,7 @@ import {
 
 const props = defineProps({
   userId: { type: Number, required: true },
+  hideClinicalFocus: Boolean,
   embedded: { type: Boolean, default: false },
   fieldKeys: { type: Array, default: null },
   fieldGroups: { type: Array, default: null },
@@ -544,6 +547,7 @@ const targetAgency = computed(() => {
 
 const providerFields = computed(() => {
   let list = consolidateBirthdateFields(allFields.value || []);
+  if (props.hideClinicalFocus) list = list.filter(f => !isProviderFocusField(f));
   const showsDemographics = !props.embedded || props.fieldKeys?.some(isBirthdateField);
   if (!showsDemographics) list = list.filter((f) => !isBirthdateField(f.field_key));
   if (props.clinicalFilter) {

@@ -98,3 +98,9 @@ it('renders a provider’s saved automatic highlights on the compact directory c
  const {wrapper}=await render('/p/itsco/providers',{providers:[p]});
  expect(wrapper.findAll('.its-card-top .its-tags span').map(s=>s.text())).toEqual(automaticTop.specialties);wrapper.unmount();
 });
+
+it('shows public highlights first and expands every enabled matching area',async()=>{
+ const focusHighlights={specialties:{top:['Anxiety','Stress','Depression'],more:['ADHD'],reviewed:true},ageGroups:{top:['Adults (18+)'],more:['Seniors (65+)'],reviewed:true},populations:{top:['Individuals'],more:['Couples'],reviewed:true},modalities:{top:['CBT'],more:['EMDR'],reviewed:true}};
+ const {wrapper}=await render('/p/itsco/providers?provider=1',{providers:[{...providers[0],details:{...providers[0].details,focusHighlights},specialties:['ADHD','Anxiety','Stress','Depression']}]});
+ const section=wrapper.get('[data-focus-summary="specialties"]');expect(section.findAll(':scope > .focus-tags li').map(v=>v.text())).toEqual(['Anxiety','Stress','Depression']);expect(section.get('summary').text()).toBe('Show all matching areas (4)');expect(section.get('details .focus-tags').text()).toContain('ADHD');expect(wrapper.findAll('[data-focus-summary]')).toHaveLength(4);wrapper.unmount();
+});

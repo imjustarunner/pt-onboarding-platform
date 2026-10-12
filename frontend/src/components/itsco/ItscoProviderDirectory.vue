@@ -9,7 +9,7 @@
      <PublicProviderProfileEditor :provider="selected" :agency-id="agencyId" @saved="$emit('refresh')"/>
     </div>
     <aside class="its-profile-availability"><PublicProviderAvailabilityPanel :provider="selected" agency-slug="itsco" :office-id="officeId" @loaded="profileSchedule=$event"/></aside>
-    <div class="its-profile-description"><article class="its-card"><h3>About {{selected.firstName}}</h3><p class="its-full-bio">{{selected.bio||'Our team can tell you more about this provider and help you find the right support.'}}</p></article><div class="its-two"><article v-for="[label,values] in profileFacets" :key="label" class="its-card"><h3>{{label}}</h3><div v-if="values.length" class="its-tags"><span v-for="v in values" :key="v">{{v}}</span></div><p v-else>Contact our team for details.</p></article></div></div>
+    <div class="its-profile-description"><article class="its-card"><h3>About {{selected.firstName}}</h3><p class="its-full-bio">{{selected.bio||'Our team can tell you more about this provider and help you find the right support.'}}</p></article><ProviderFocusSummary :focus="selected.details?.clinicalFocus" :highlights="selected.details?.focusHighlights" :facets="selected"/><div class="its-two"><article v-for="[label,values] in profileFacets" :key="label" class="its-card"><h3>{{label}}</h3><div v-if="values.length" class="its-tags"><span v-for="v in values" :key="v">{{v}}</span></div><p v-else>Contact our team for details.</p></article></div></div>
    </div>
   </template>
   <template v-else>
@@ -52,6 +52,7 @@
  </section>
 </template>
 <script setup>
+import ProviderFocusSummary from '../provider/ProviderFocusSummary.vue';
 import {sessionLanguageLabels} from '../../navigation/providerLanguages';
 import {mentalRangeSearchUrl,providerOpeningGroups,networkSearchKeys} from '../../utils/networkProviderSearch';
 import Icon from '../rise/RiseIcon.vue';
@@ -119,7 +120,7 @@ const filtered=computed(()=>props.providers.filter(p=>
  ).sort((a,b)=>(sort.value==='popular'?(a.popularityRank??999999)-(b.popularityRank??999999):0)||({accepting:0,waitlist:1,unavailable:2}[currentStatus(a)]-{accepting:0,waitlist:1,unavailable:2}[currentStatus(b)])||
  (['recommended','soonest'].includes(sort.value)?String(nextOpening(a)||'9999').localeCompare(String(nextOpening(b)||'9999')):0)||a.displayName.localeCompare(b.displayName)));
 const providerGroups=computed(()=>providerOpeningGroups(filtered.value,hasOpenings,{loading:props.availabilityLoading,error:props.availabilityError}));
-const profileFacets=computed(()=>selected.value?[['Specialties',selected.value.specialties],['Client ages',sortClientAges(selected.value.ageGroups)],['Populations served',selected.value.populations],['Therapy approaches',selected.value.modalities],['Session languages (self-reported)',sessionLanguageLabels(selected.value.details)],['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
+const profileFacets=computed(()=>selected.value?[['Session languages (self-reported)',sessionLanguageLabels(selected.value.details)],['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
 function nextOpening(p){if(care.value||hasTimePreference(desiredTime.value))return openingSlots(p)[0]?.startAt;const a=availability(p);return mode.value==='office'?a.inPerson?.nextAvailableAt:mode.value==='virtual'?a.virtual?.nextAvailableAt:[a.inPerson?.nextAvailableAt,a.virtual?.nextAvailableAt].filter(Boolean).sort()[0];}
 function availabilityText(p){const at=nextOpening(p);if(at)return `Next opening: ${new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'})}`;if(props.availabilityLoading)return 'Checking appointment times…';if(props.availabilityError)return 'Appointment availability could not be checked';return currentStatus(p)==='waitlist'?'Join this provider’s waitlist':currentStatus(p)==='unavailable'?'Closed to new clients · inquire with our team':'Accepting new clients · we’ll work with you directly to find a time';}
 function clear(){officeId.value='';router.replace({query:{}});mode.value='all';school.value='';search.value='';age.value='';specialty.value='';insurance.value='';accepting.value='';openings.value='';gender.value='';language.value='';care.value='';city.value='';state.value='';desiredTime.value={};limit.value=12;}

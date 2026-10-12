@@ -1,0 +1,16 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
+vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{}}));
+vi.mock('../../services/providerAcceptedInsurance.service.js',()=>({listProviderAcceptedInsurancesForDisplay:vi.fn()}));
+vi.mock('../../services/providerIntakePublication.service.js',()=>({withdrawProviderIntakeOpenings:vi.fn()}));
+vi.mock('../../services/providerClinicalFocus.service.js',()=>({getProviderClinicalFocus:vi.fn(async()=>({clinicalFocus:{top:{}}})),saveProviderClinicalFocus:vi.fn(async()=>({ok:true}))}));
+import User from '../../models/User.model.js';
+import {getProviderClinicalFocus,saveProviderClinicalFocus} from '../../services/providerClinicalFocus.service.js';
+import {getUserClinicalFocus,putUserClinicalFocus} from '../providerPublicProfile.controller.js';
+let res,next;
+beforeEach(()=>{vi.clearAllMocks();User.getAgencies.mockResolvedValue([{id:2}]);res={status:vi.fn().mockReturnThis(),json:vi.fn()};next=vi.fn();});
+it('lets a provider read and save only their own agency profile',async()=>{const req={params:{id:'7'},query:{agencyId:'2'},user:{id:7,role:'provider'},body:{agencyId:2,clinicalFocus:{top:{}}}};await getUserClinicalFocus(req,res,next);expect(getProviderClinicalFocus).toHaveBeenCalledWith(7,2);await putUserClinicalFocus(req,res,next);expect(saveProviderClinicalFocus).toHaveBeenCalledWith(7,2,req.body.clinicalFocus);expect(next).not.toHaveBeenCalled();});
+it('blocks another provider before reading or writing their profile',async()=>{await putUserClinicalFocus({params:{id:'8'},user:{id:7,role:'provider'},body:{agencyId:2,clinicalFocus:{}}},res,next);expect(res.status).toHaveBeenCalledWith(403);expect(saveProviderClinicalFocus).not.toHaveBeenCalled();});
+it('blocks a target outside the selected agency even for an administrator',async()=>{User.getAgencies.mockResolvedValue([{id:3}]);await getUserClinicalFocus({params:{id:'8'},user:{id:1,role:'super_admin'},query:{agencyId:2}},res,next);expect(res.status).toHaveBeenCalledWith(404);expect(getProviderClinicalFocus).not.toHaveBeenCalled();});
+it('blocks an administrator without membership in the selected agency',async()=>{User.getAgencies.mockResolvedValue([{id:3}]);await putUserClinicalFocus({params:{id:'8'},user:{id:1,role:'admin'},body:{agencyId:2}},res,next);expect(res.status).toHaveBeenCalledWith(403);expect(saveProviderClinicalFocus).not.toHaveBeenCalled();});
