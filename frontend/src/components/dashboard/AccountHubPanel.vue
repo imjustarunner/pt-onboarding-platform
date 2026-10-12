@@ -1,5 +1,5 @@
 <template>
-  <div class="acct-hub" :class="{ 'acct-hub--focused': financeFocus }">
+  <div class="acct-hub" :class="{ 'acct-hub--focused': !menuExpanded, 'acct-hub--overview': showOverview }">
     <header class="acct-hub__header">
       <div class="acct-hub__header-left">
         <div class="acct-hub__title-row">
@@ -11,7 +11,7 @@
           </span>
           <h2 class="acct-hub__title">My Account</h2>
         </div>
-        <p class="acct-hub__subtitle">{{ activeMeta.description }}</p>
+        <p class="acct-hub__subtitle">{{ showOverview ? 'Choose an account section below.' : activeMeta.description }}</p>
         <div v-if="userDisplayName" class="acct-hub__user">
           <span class="acct-hub__user-avatar" aria-hidden="true">{{ userInitials }}</span>
           <span class="acct-hub__user-name">{{ userDisplayName }}</span>
@@ -22,27 +22,6 @@
         </div>
       </div>
     </header>
-
-    <div v-if="!financeFocus" class="acct-hub__stats">
-      <button
-        v-for="section in sections"
-        :key="section.id"
-        type="button"
-        class="acct-hub__stat"
-        :class="{ 'acct-hub__stat--active': section.id === activeSection }"
-        :aria-current="section.id === activeSection ? 'true' : undefined"
-        @click="$emit('select-section', section.id)"
-      >
-        <div class="acct-hub__stat-icon" :style="{ background: section.theme.iconBg, color: section.theme.icon }">
-          <span v-html="sectionIcon(section.icon)" />
-        </div>
-        <div class="acct-hub__stat-text">
-          <div class="acct-hub__stat-value">{{ section.statLabel }}</div>
-          <div class="acct-hub__stat-label">{{ section.navLabel }}</div>
-          <div class="acct-hub__stat-hint">{{ section.statHint }}</div>
-        </div>
-      </button>
-    </div>
 
     <div v-if="showInfoBanner" class="acct-hub__banner">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -55,9 +34,14 @@
       <button type="button" class="acct-hub__banner-close" aria-label="Dismiss" @click="showInfoBanner = false">×</button>
     </div>
 
-    <button v-if="financeFocus" class="acct-back" type="button" @click="$emit('select-section', 'account')">← Back to My Account</button>
+    <div v-if="!showOverview" class="acct-hub__navigation-actions">
+      <button class="acct-back" type="button" @click="backToAccount">← Back to My Account</button>
+      <button class="acct-back" type="button" :aria-expanded="menuExpanded" aria-controls="account-section-menu" @click="menuExpanded = !menuExpanded">
+        {{ menuExpanded ? 'Collapse account menu' : 'Expand account menu' }}
+      </button>
+    </div>
     <div class="acct-hub__body">
-      <nav v-if="!financeFocus" class="acct-hub__nav" data-tour="dash-my-subnav" aria-label="My Account sections">
+      <nav v-if="menuExpanded" id="account-section-menu" class="acct-hub__nav" data-tour="dash-my-subnav" aria-label="My Account sections">
         <button
           v-for="section in sections"
           :key="section.id"
@@ -65,7 +49,7 @@
           class="acct-hub__nav-item"
           :class="{ 'acct-hub__nav-item--active': section.id === activeSection }"
           :style="section.id === activeSection ? getAccountSectionThemeStyle(section.id) : undefined"
-          @click="$emit('select-section', section.id)"
+          @click="selectSection(section.id)"
         >
           <span class="acct-hub__nav-icon" v-html="sectionIcon(section.icon)" />
           <span class="acct-hub__nav-text">
@@ -75,7 +59,7 @@
         </button>
       </nav>
 
-      <div class="acct-hub__main">
+      <div v-show="!showOverview" class="acct-hub__main">
         <header class="acct-hub__main-head" :style="getAccountSectionThemeStyle(activeSection)">
           <span class="acct-hub__main-icon" v-html="sectionIcon(activeMeta.icon)" />
           <div>
@@ -95,7 +79,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { getAccountSectionMeta, getAccountSectionThemeStyle } from '../../config/accountDisplaySections';
 
 const props = defineProps({
@@ -106,10 +90,25 @@ const props = defineProps({
   userRoleLabel: { type: String, default: '' },
 });
 
-defineEmits(['select-section']);
+const emit = defineEmits(['select-section']);
 
 const showInfoBanner = ref(true);
-const financeFocus = computed(() => ['payroll', 'compensation'].includes(props.activeSection));
+const showOverview = ref(props.activeSection === 'account');
+const menuExpanded = ref(showOverview.value);
+function selectSection(section) {
+  showOverview.value = false;
+  menuExpanded.value = false;
+  emit('select-section', section);
+}
+function backToAccount() {
+  showOverview.value = true;
+  menuExpanded.value = true;
+}
+// A deep link or another dashboard action also opens its section at full width.
+watch(() => props.activeSection, () => {
+  showOverview.value = false;
+  menuExpanded.value = false;
+});
 
 const activeMeta = computed(() => getAccountSectionMeta(props.activeSection));
 
@@ -131,7 +130,11 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 </script>
 
 <style scoped>
-.acct-hub--focused .acct-hub__body { grid-template-columns: minmax(0, 1fr); }
+.acct-hub--focused .acct-hub__body,
+.acct-hub--overview .acct-hub__body { grid-template-columns: minmax(0, 1fr); }
+.acct-hub--overview .acct-hub__nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; }
+.acct-hub__navigation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.acct-hub__main { min-width: 0; }
 .acct-back { padding: 10px 16px; margin-bottom: 16px; border: 1px solid #cbdadf; border-radius: 12px; background: white; color: #087d76; font: inherit; cursor: pointer; }
 
 .acct-hub {
