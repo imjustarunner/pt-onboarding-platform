@@ -31,6 +31,7 @@ import {
   getTeamMeetingAttendance,
   getTeamMeetingTimeClaims,
   patchTeamMeetingTimeClaim,
+  patchTeamMeetingClaimRate,
   getTeamMeetingNotes,
   postTeamMeetingTranscriptControl,
   enableTeamMeetingAttendanceTracking,
@@ -87,6 +88,7 @@ router.post('/:eventId/complete', completeTeamMeetingSession);
 router.get('/:eventId/attendance', getTeamMeetingAttendance);
 router.get('/:eventId/time-claims', getTeamMeetingTimeClaims);
 router.patch('/:eventId/time-claims/:claimId', patchTeamMeetingTimeClaim);
+router.patch('/:eventId/time-claims/:claimId/rate', patchTeamMeetingClaimRate);
 router.get('/:eventId/notes', getTeamMeetingNotes);
 
 export default router;

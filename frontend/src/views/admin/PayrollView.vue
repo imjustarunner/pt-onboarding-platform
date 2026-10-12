@@ -6410,7 +6410,8 @@
             </div>
             <button class="btn btn-secondary btn-sm" @click="showTimeClaimReviewModal = false">Close</button>
           </div>
-          <div v-if="reviewedTimeClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="nameForUserId(reviewedTimeClaim.user_id)" :period-label="timeClaimPeriodLabel(reviewedTimeClaim.suggested_payroll_period_id)" />
+          <div v-else-if="reviewedTimeClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
 
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
               <div class="field"><label>Claim ID</label><div>{{ reviewedTimeClaim.id || '—' }}</div></div>
@@ -6648,6 +6649,7 @@
 </template>
 
 <script setup>
+import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

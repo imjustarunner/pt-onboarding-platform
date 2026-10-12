@@ -584,7 +584,8 @@
             </div>
             <button type="button" class="btn btn-secondary btn-sm" @click="closeTimeClaimView">Close</button>
           </div>
-          <div v-if="reviewedTimeClaim" class="pps-modal-body">
+          <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="claimName(reviewedTimeClaim)" :period-label="periodLabelForId(reviewedTimeClaim.suggested_payroll_period_id)" />
+          <div v-else-if="reviewedTimeClaim" class="pps-modal-body">
             <div class="pps-detail-grid">
               <div class="field"><label>Claim ID</label><div>{{ reviewedTimeClaim.id || '—' }}</div></div>
               <div class="field"><label>Status</label><div>{{ String(reviewedTimeClaim.status || '—').toUpperCase() }}</div></div>
@@ -858,6 +859,7 @@
 </template>
 
 <script setup>
+import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';

@@ -16,3 +16,9 @@ it('retains the saved admin rate before activation and never substitutes an unre
 it('pays support activities at their own rate',async()=>{expect(await computeDefaultAppliedAmountForTimeClaim({claim:claim('support_activity','MEETING'),rateCard:{indirect_rate:30}})).toBe(6);});
 
 it('holds excess-only claims for review when the automatic allowance is not active',async()=>{loadUserPaySystemContext.mockResolvedValue({enabled:false});const c=claim('indirect_service');c.payload.excessIndirect={code:'H0004',units:20,actualMinutes:70};expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,rateCard:{indirect_rate:22}})).toBeNull();});
+
+it('applies the meeting-specific hourly rate in the actual payroll amount calculation',async()=>{
+ const {default:pool}=await import('../../config/database.js');pool.execute.mockResolvedValue([[{rate_type:'custom',hourly_rate:32}]]);
+ const c={...claim('support_activity','MEETING'),id:611,claim_type:'meeting_training',payload:{source:'meeting_compensation_auto',serviceCode:'MEETING',totalMinutes:45}};
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c})).toBe(24);
+});

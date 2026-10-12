@@ -1,3 +1,4 @@
+import {meetingClaimHourlyRate} from './meetingClaimRate.service.js';
 import { huddleTitle, huddleHostServiceCode } from './huddlePolicy.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -8,11 +9,10 @@ import { parseMeetingSettings } from './meetingSettingsPolicy.js';
  * - CPA host → Admin Time; mentorship host → Individual Meeting
  * - Huddle attendees → MEETING; interns → unpaid indirect time
  * - Admin Meeting / Town Hall participants (host + attendees) → MEETING
- * - Supervisors on leadership/admin/supervisor meetings → 50% of individual supervision
- * - Administrators and staff salaried on the meeting date receive no extra meeting pay
+ * - Supervisors on leadership/supervisor meetings → 50% of individual supervision
+ * - Staff salaried on the meeting date receive no extra meeting pay; non-salaried admins can claim admin meetings
  */
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
-import PayrollRate from '../models/PayrollRate.model.js';
 import AgencyMeetingAttendanceRollup from '../models/AgencyMeetingAttendanceRollup.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
 import { computeSubmissionWindow } from '../utils/payrollSubmissionWindow.js';
@@ -153,20 +153,6 @@ async function loadUserIsSupervisor(userId) {
   return String(u.role || '').trim().toLowerCase() === 'supervisor';
 }
 
-async function hasUsableRate({ agencyId, userId, serviceCode, asOf }) {
-  try {
-    const best = await PayrollRate.findBestRate({
-      agencyId: Number(agencyId),
-      userId: Number(userId),
-      serviceCode: String(serviceCode || '').trim(),
-      asOf: asOf || null
-    });
-    return Number(best?.rate_amount ?? best?.rate ?? 0) > 0;
-  } catch {
-    return false;
-  }
-}
-
 export async function findSubmittedCompensationClaim({
   agencyId,
   userId,
@@ -184,7 +170,7 @@ export async function findSubmittedCompensationClaim({
      WHERE agency_id = ?
        AND user_id = ?
        AND claim_type = 'meeting_training'
-       AND status IN ('submitted','approved','paid','deferred','needs_changes','rejected')
+       AND status IN ('submitted','approved','paid','deferred','needs_changes','rejected','withdrawn')
        AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.scheduleEventId')) AS UNSIGNED) = ?
        AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.source')) = ?
      ORDER BY id DESC
@@ -255,7 +241,7 @@ async function upsertClaim({
     await PayrollTimeClaim.resubmit({
       id: existing.id,
       claimDate,
-      payload
+      payload: existing.payload?.editedByUserId ? {...payload,...existing.payload} : payload
     });
     return { ok: true, claimId: Number(existing.id), updated: true, userId };
   }
@@ -378,12 +364,12 @@ async function syncCompensationClaimsUnlocked({
         payRateSource = serviceCode === 'Admin Time' ? 'admin_time' : 'individual_meeting';
       }
       if (unpaidIndirect) { serviceCode='Unpaid Indirect'; payRateSource='unpaid'; }
-      if (ADMIN_SALARY_ROLES.has(role)) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
+      if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin')) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
       const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
       if (Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
 
       // Supervisor meeting time uses half the effective individual-supervision rate.
-      if (kind === 'TEAM_MEETING' && ['admin','leadership_circle','supervisors_meeting'].includes(meetingSubtype)) {
+      if (kind === 'TEAM_MEETING' && ['leadership_circle','supervisors_meeting'].includes(meetingSubtype)) {
         const isSupervisor = await loadUserIsSupervisor(uid);
         if (isSupervisor) {
           serviceCode = 'Supervisor meeting';
@@ -401,7 +387,7 @@ async function syncCompensationClaimsUnlocked({
         continue;
       }
 
-      if (!unpaidIndirect && !(await hasUsableRate({agencyId,userId:uid,serviceCode,asOf:claimDate}))) {
+      if (!(kind === 'TEAM_MEETING' && meetingSubtype === 'admin') && !unpaidIndirect && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
         results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
         continue;
       }

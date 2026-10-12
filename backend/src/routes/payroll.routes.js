@@ -1,3 +1,4 @@
+import { getTimeClaimMeetingAttendance } from '../controllers/payroll.controller.js';
 import { listRecurringPayments, saveRecurringPayment, stopRecurringPayment } from '../controllers/payroll.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -445,6 +446,7 @@ router.get('/expenses', listExpenses);
 router.get('/expenses/export.csv', downloadExpensesCsv);
 router.post('/expenses/:type/:id/drive', uploadExpenseReceiptToDrive);
 router.get('/time-claims', listTimeClaims);
+router.get('/time-claims/:id/meeting-attendance', getTimeClaimMeetingAttendance);
 router.get('/event-time-submissions', listEventTimeSubmissions);
 router.patch('/event-time-submissions/:punchInId', patchEventTimeSubmission);
 router.patch('/time-claims/:id', patchTimeClaim);

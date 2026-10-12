@@ -1,3 +1,4 @@
+import {meetingClaimHourlyRate, getMeetingClaimRateOverride, MEETING_RATE_TYPES} from '../services/meetingClaimRate.service.js';
 import {validateSupplementalTime} from '../services/payrollSubmissionContext.service.js';
 import { materializeRecurring, normalizeRecurring, day as recurringDay } from '../services/recurringPayroll.service.js';
 import { appliedLeaveExportHours } from '../utils/payrollLeaveExport.js';
@@ -18930,6 +18931,30 @@ function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {}, ext
   return rates;
 }
 
+export const getTimeClaimMeetingAttendance = async (req, res, next) => {
+  try {
+    const claim = await PayrollTimeClaim.findById(Number(req.params.id));
+    if (!claim) return res.status(404).json({error:{message:'Time claim not found'}});
+    if (Number(claim.user_id) === Number(req.user?.id)) {
+      if (!(await userHasAgencyAccess({ userId: req.user.id, agencyId: claim.agency_id }))) return res.status(403).json({error:{message:'Access denied'}});
+    } else if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
+    const eventId = Number(claim.payload?.scheduleEventId);
+    if (claim.payload?.source !== 'meeting_compensation_auto' || !eventId) return res.json({attendees:[]});
+    const [rows] = await pool.execute(
+      `SELECT r.user_id, r.total_seconds, u.first_name, u.last_name, e.provider_id, e.event_timezone
+       FROM agency_meeting_attendance_rollups r
+       JOIN provider_schedule_events e ON e.id = r.event_id AND e.agency_id = ?
+       JOIN users u ON u.id = r.user_id
+       WHERE r.event_id = ? AND r.total_seconds > 0
+       ORDER BY u.first_name, u.last_name`, [claim.agency_id, eventId]);
+    const override = await getMeetingClaimRateOverride(claim);
+    res.json({rateLabel:MEETING_RATE_TYPES[override?.rate_type] || null, timeZone:rows[0]?.event_timezone || null, attendees:rows.map(r=>({
+      userId:Number(r.user_id), name:[r.first_name,r.last_name].filter(Boolean).join(' ') || 'Staff member',
+      isHost:Number(r.user_id)===Number(r.provider_id)
+    }))});
+  } catch (e) { next(e); }
+};
+
 export const listTimeClaims = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -19005,6 +19030,10 @@ export const listTimeClaims = async (req, res, next) => {
           rateLabel = 'Direct rate';
         } else if (bucketHint === 'other_1') {
           rateLabel = `${otherTitles.title1} rate`;
+        }
+        if (payload.source === 'meeting_compensation_auto') {
+          const override = await getMeetingClaimRateOverride(row);
+          rateLabel = MEETING_RATE_TYPES[override?.rate_type] || rateLabel;
         }
         const extraRates = [];
         try {
@@ -19284,6 +19313,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
       if (Number.isFinite(mins) && mins > 0) hrs = mins / 60;
     }
     if (!(Number.isFinite(hrs) && hrs > 0)) return null;
+
+    if (type === 'meeting_training' && payload.source === 'meeting_compensation_auto') {
+      const hourlyRate = await meetingClaimHourlyRate(claim);
+      return hourlyRate == null ? null : Math.round(hrs * hourlyRate * 100) / 100;
+    }
 
     const claimBucket = normalizeTimeClaimBucket(
       approveBucket || claim?.bucket || payload?.bucket || 'indirect'

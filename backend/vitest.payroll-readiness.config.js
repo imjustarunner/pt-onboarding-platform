@@ -13,6 +13,8 @@ export default {
       'src/services/__tests__/roleCompensation.test.js',
       'src/services/__tests__/supplementalLeave*.test.js',
       'src/services/__tests__/meetingCompensationPolicy.test.js',
+      'src/services/__tests__/meetingClaimRate.test.js',
+      'src/controllers/__tests__/meetingCompensationAccess.test.js',
       'src/controllers/__tests__/activityProtection.payroll.test.js',
       'src/services/__tests__/payrollReadiness.test.js',
       'src/services/__tests__/payrollTransition.test.js',

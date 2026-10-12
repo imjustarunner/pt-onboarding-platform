@@ -1,3 +1,4 @@
+import { canManageMeetingCompensation, meetingClaimCompensation, saveMeetingClaimRate } from '../services/meetingClaimRate.service.js';
 import { requireSessionPrivacyConfiguration } from '../services/sessionAiPrivacy.service.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
@@ -2402,12 +2403,13 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
     const [claimRows] = await pool.execute(
       `SELECT *
        FROM payroll_time_claims
-       WHERE claim_type = 'meeting_training'
+       WHERE agency_id = ? AND claim_type = 'meeting_training'
          AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.scheduleEventId')) AS UNSIGNED) = ?
          AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.source')) = 'meeting_compensation_auto'
        ORDER BY user_id ASC, id DESC`,
-      [eventId]
+      [event.agency_id, eventId]
     );
+    const canManageCompensation = canManageMeetingCompensation(req.user);
     const latestByUser = new Map();
     for (const c of claimRows || []) {
       const uid = Number(c.user_id || 0);
@@ -2417,6 +2419,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
         payload = typeof c.payload_json === 'string' ? JSON.parse(c.payload_json) : (c.payload_json || {});
       } catch { payload = {}; }
       latestByUser.set(uid, {
+        ...(canManageCompensation ? { compensation: await meetingClaimCompensation({ ...c, payload }) } : {}),
         claimId: Number(c.id),
         userId: uid,
         status: c.status,
@@ -2444,7 +2447,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
         claimId: claim?.claimId || null,
         status: claim?.status || null,
         totalMinutes: claim?.totalMinutes ?? p.totalMinutes,
-        appliedAmount: claim?.appliedAmount ?? null,
+        ...(canManageCompensation ? { compensation: claim?.compensation || null } : {}),
         claimDate: claim?.claimDate || null
       };
     });
@@ -2454,6 +2457,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
       eventId,
       eligible: true,
       canEdit,
+      canManageCompensation,
       meetingCompletedAt: attendance?.meetingCompletedAt || null,
       ...(await meetingClosureDetails(event)),
       rows: canEdit ? rows : rows.filter(r=>Number(r.userId)===Number(req.user.id))
@@ -2473,13 +2477,13 @@ export const patchTeamMeetingTimeClaim = async (req, res, next) => {
     if (!event || !isCompensationEligibleMeeting(event)) {
       return res.status(404).json({ error: { message: 'Eligible meeting not found' } });
     }
-    if (!(await canEditMeetingTimeClaims(req, event.agency_id))) {
+    if (!(await canAccessTeamMeeting(req, event)) || !(await canEditMeetingTimeClaims(req, event.agency_id))) {
       return res.status(403).json({ error: { message: 'Only admin, super admin, or payroll can edit meeting time claims.' } });
     }
 
     const PayrollTimeClaim = (await import('../models/PayrollTimeClaim.model.js')).default;
     const claim = await PayrollTimeClaim.findById(claimId);
-    if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
+    if (!claim || Number(claim.agency_id) !== Number(event.agency_id)) return res.status(404).json({ error: { message: 'Time claim not found' } });
     const payload = claim.payload || {};
     if (Number(payload.scheduleEventId || 0) !== eventId) {
       return res.status(400).json({ error: { message: 'Claim does not belong to this meeting' } });
@@ -2488,7 +2492,7 @@ export const patchTeamMeetingTimeClaim = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Only auto meeting compensation claims can be edited here' } });
     }
     const status = String(claim.status || '').toLowerCase();
-    if (!['submitted', 'deferred', 'rejected', 'withdrawn'].includes(status)) {
+    if (!['submitted', 'deferred', 'rejected', 'withdrawn', 'needs_changes'].includes(status)) {
       return res.status(400).json({ error: { message: 'Only unapproved claims can be edited' } });
     }
 
@@ -2509,6 +2513,21 @@ export const patchTeamMeetingTimeClaim = async (req, res, next) => {
     });
     res.json({ ok: true, claim: updated });
   } catch (e) {
+    next(e);
+  }
+};
+
+/** PATCH /api/team-meetings/:eventId/time-claims/:claimId/rate */
+export const patchTeamMeetingClaimRate = async (req, res, next) => {
+  try {
+    if (!canManageMeetingCompensation(req.user)) return res.status(403).json({ error: { message: 'Only admins and superadmins can change meeting compensation.' } });
+    const event = await ProviderScheduleEvent.findById(Number(req.params.eventId));
+    if (!event || !isCompensationEligibleMeeting(event)) return res.status(404).json({ error: { message: 'Eligible meeting not found.' } });
+    if (!(await canAccessTeamMeeting(req, event))) return res.status(403).json({ error: { message: 'Access denied.' } });
+    await saveMeetingClaimRate({ actor: req.user, event, claimId: Number(req.params.claimId), rateType: req.body?.rateType, hourlyRate: req.body?.hourlyRate, reason: req.body?.reason });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

@@ -1,3 +1,4 @@
+vi.mock('../paySystem.service.js',()=>({loadUserPaySystemContext:async()=>({enabled:false})}));
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),salary:vi.fn(),rate:vi.fn(),rollups:vi.fn(),attendees:vi.fn(),create:vi.fn(),find:vi.fn(),resubmit:vi.fn(),lock:vi.fn(),release:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.lock,release:m.release})}}));
@@ -32,4 +33,29 @@ it('pays the mentor Individual Meeting and records intern attendance as unpaid i
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'Individual Meeting'})}));
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:2,payload:expect.objectContaining({serviceCode:'Unpaid Indirect',amount:0,unpaidIndirect:true,bucket:'indirect',totalMinutes:45})}));
  expect(m.rate).not.toHaveBeenCalledWith(expect.objectContaining({userId:2}));
+});
+
+it('creates Support Activity claims for non-salaried admin meeting attendees, including supervisors and admins',async()=>{
+ m.attendees.mockResolvedValue([2]); m.rollups.mockResolvedValue([{user_id:1,total_seconds:1800},{user_id:2,total_seconds:1200}]);
+ m.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT role')?[[{role:args[0]===1?'admin':'supervisor'}]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
+ expect(m.create).toHaveBeenCalledTimes(2);
+ for(const [c] of m.create.mock.calls)expect(c.payload.serviceCode).toBe('MEETING');
+});
+it('creates an admin meeting claim for review even if the default rate is missing',async()=>{
+ m.rate.mockResolvedValue(null);
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({payload:expect.objectContaining({serviceCode:'MEETING'})}));
+});
+it('does not regenerate a withdrawn claim',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('FROM payroll_time_claims')?[[{id:10}]]:sql.includes('SELECT role')?[[{role:'provider'}]]:[[]]);
+ m.find.mockResolvedValue({id:10,status:'withdrawn'});
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
+ expect(m.create).not.toHaveBeenCalled();expect(m.resubmit).not.toHaveBeenCalled();
+});
+it('retains an administrator’s time adjustment when attendance refreshes',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('FROM payroll_time_claims')?[[{id:10}]]:sql.includes('SELECT role')?[[{role:'provider'}]]:[[]]);
+ m.find.mockResolvedValue({id:10,status:'submitted',payload:{totalMinutes:45,editedByUserId:501}});
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
+ expect(m.resubmit).toHaveBeenCalledWith(expect.objectContaining({payload:expect.objectContaining({totalMinutes:45,editedByUserId:501})}));
 });

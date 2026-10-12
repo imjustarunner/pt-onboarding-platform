@@ -13928,7 +13928,7 @@ const editorWorkspaceTabs = computed(() => {
         : 'General meetings track attendance only when the host enables transcription & attendance in the live meeting, or schedule a Huddle, Admin Meeting, or Town Hall.'
     });
     if (showComp) {
-      tabs.push({ id: 'time_claims', label: 'Time Claims', icon: '$' });
+      tabs.push({ id: 'time_claims', label: ['admin', 'super_admin', 'superadmin'].includes(authStore.user?.role) ? 'Time & compensation' : 'Time Claims', icon: '$' });
     }
     if (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING') {
       tabs.push({ id: 'meeting_notes', label: 'Notes', icon: '✎' });

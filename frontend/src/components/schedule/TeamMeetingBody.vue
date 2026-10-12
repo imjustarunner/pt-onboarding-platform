@@ -458,7 +458,7 @@ const meetingTypeDescriptions = {
   interview: 'A hiring interview with a candidate and interviewers. Uses the interview workspace and candidate-focused video; agenda, goals, action items, and compensation are off by default.',
   leadership_circle: 'Leadership planning and decisions. Compensation is enabled by default; eligible supervisors use half their individual-supervision rate.',
   supervisors_meeting: 'Coordination among supervisors, rather than a clinical supervision session. Compensation is enabled by default; eligible supervisors use half their individual-supervision rate.',
-  admin: 'Administrative or operational work. Compensation is enabled by default; eligible supervisors use half their individual-supervision rate.',
+  admin: 'Administrative or operational work. Non-salaried attendees receive time claims at their Support Activity rate. Admins can adjust the pay category or hourly rate in the meeting’s Time & compensation tab.',
   town_hall: 'An organization-wide update or discussion. Compensation is enabled by default for eligible attendees at the meeting rate.',
   evaluation: 'A semi-annual employee self-assessment meeting. Invite exactly one employee; eligible attendance uses the Support Activity (MEETING) rate.'
 };

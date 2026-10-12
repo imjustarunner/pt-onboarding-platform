@@ -178,7 +178,8 @@
           </div>
           <button type="button" class="btn btn-secondary btn-sm" @click="closeTimeClaimView">Close</button>
         </div>
-        <div v-if="reviewedTimeClaim" class="pcp-modal-body">
+        <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="providerName(reviewedTimeClaim)" :period-label="periodLabel" />
+          <div v-else-if="reviewedTimeClaim" class="pcp-modal-body">
           <div class="pcp-detail-grid">
             <div><strong>Claim ID</strong><div>{{ reviewedTimeClaim.id }}</div></div>
             <div><strong>Status</strong><div>{{ String(reviewedTimeClaim.status || '').toUpperCase() }}</div></div>
@@ -212,6 +213,7 @@
 </template>
 
 <script setup>
+import MeetingClaimDetails from './MeetingClaimDetails.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import IndirectTimeClaimDetailFields from './IndirectTimeClaimDetailFields.vue';
