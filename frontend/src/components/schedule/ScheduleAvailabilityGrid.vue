@@ -3,7 +3,8 @@
     class="sched-wrap"
     :class="{
       'sched-wrap-quarter': showQuarterDetail,
-      'sched-wrap--dark': darkScheduleTheme
+      'sched-wrap--dark': darkScheduleTheme,
+      'sched-wrap--side-by-side': scheduleSideBySide
     }"
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
@@ -613,6 +614,11 @@
           >
             {{ showAllHours ? 'Day band' : '24h' }}
           </button>
+          <button type="button" class="sched-pill" :class="{ on: scheduleSideBySide }"
+            role="switch" :aria-checked="String(scheduleSideBySide)" :disabled="loading"
+            @click="scheduleSideBySide = !scheduleSideBySide"
+            title="Give overlapping items separate columns. Text adjusts to fit each card."
+            data-testid="schedule-side-by-side-setting">Side by side</button>
           <label class="sched-inline compact sched-row-height" title="Change how tall each hour row is">
             <span>Row height</span>
             <select v-model="rowHeightMode" class="sched-select compact" :disabled="loading">
@@ -1397,26 +1403,37 @@
                 'cell-blocks--multi-pick': cellBlocksNeedPickOnClick(d, slot.hour, slot.minute),
                 'cell-blocks--pick-expanded': isCellPickExpanded(d, slot.hour, slot.minute)
               }"
-              @mouseenter="hoveredPickCellKey = cellPickKey(d, slot.hour, slot.minute)"
+              @mouseenter="openCalendarStack($event, d, slot.hour, slot.minute)"
               @mouseleave="onCalendarStackMouseLeave($event)"
               @keydown.stop
               @keydown.esc="hoveredPickCellKey = ''"
               @focusout="onCalendarStackFocusOut($event)"
             >
               <button
-                v-if="cellBlocksNeedPickOnClick(d, slot.hour, slot.minute)"
+                v-if="cellBlocksNeedPickOnClick(d, slot.hour, slot.minute) || (scheduleSideBySide && cellBlocks(d, slot.hour, slot.minute, true).length)"
                 type="button" @mousedown.stop @pointerdown.stop @click.stop="toggleCalendarStack($event, d, slot.hour, slot.minute)"
                 :aria-expanded="isCellPickExpanded(d, slot.hour, slot.minute)"
                 class="cell-multi-pick-badge"
-                :title="`${cellPickableBlocks(d, slot.hour, slot.minute).length} items overlap — hover to see each`"
-              >{{ cellPickableBlocks(d, slot.hour, slot.minute).length }} items</button>
-              <div v-if="isCellPickExpanded(d, slot.hour, slot.minute)" class="cell-expanded-list" :style="d === visibleDays[visibleDays.length - 1] ? { left: 'auto', right: 0 } : {}" @mousedown.stop @pointerdown.stop @click.stop>
-                <strong>{{ d }} · {{ hourLabel(slot.hour) }} — {{ cellBlocks(d, slot.hour, slot.minute, true).length }} items</strong>
-                <button v-for="item in cellBlocks(d, slot.hour, slot.minute, true)" :key="`expanded-${item.key}`"
-                  type="button" class="cell-expanded-item" @click.stop="onCellBlockClick($event, item, d, slot.hour, slot.minute)">
-                  <strong>{{ cellBlockKindLabel(item) }}</strong>
-                  <span>{{ item.title || item.shortLabel }}</span>
-                </button>
+                :title="scheduleSideBySide ? 'Enlarge schedule items' : 'View overlapping items side by side'"
+              >{{ scheduleSideBySide ? 'Zoom' : `${cellPickableBlocks(d, slot.hour, slot.minute).length} items` }}</button>
+              <div v-if="isCellPickExpanded(d, slot.hour, slot.minute)" class="cell-expanded-list"
+                :style="calendarStackPosition" role="group" :aria-label="scheduleSideBySide ? 'Enlarged schedule items' : 'Overlapping schedule items'"
+                @mousedown.stop @pointerdown.stop @click.stop>
+                <div class="cell-expanded-header">
+                  <strong>{{ calendarStackContext.day }} · {{ hourLabel(calendarStackContext.hour) }} — {{ calendarStackItems.length }} {{ calendarStackItems.length === 1 ? 'item' : 'items' }}</strong>
+                  <button type="button" class="cell-layout-toggle" :aria-pressed="scheduleSideBySide"
+                    @click.stop="scheduleSideBySide = !scheduleSideBySide">
+                    {{ scheduleSideBySide ? 'Turn off side-by-side mode' : 'Keep side by side' }}
+                  </button>
+                </div>
+                <div class="cell-expanded-cards">
+                  <button v-for="item in calendarStackItems" :key="`expanded-${item.key}`"
+                    type="button" class="cell-expanded-item" :class="`cell-block-${item.kind}`" :style="calendarStackItemStyle(item)"
+                    @click.stop="openExpandedCalendarItem($event, item)">
+                    <strong>{{ cellBlockKindLabel(item) }}</strong>
+                    <span>{{ item.title || item.shortLabel }}</span>
+                  </button>
+                </div>
               </div>
               <div
                 v-for="b in cellBlocks(d, slot.hour, slot.minute)"
@@ -1430,6 +1447,7 @@
                   b.isCancelled ? 'cell-block-sevt--cancelled' : '',
                   fallCheckinEventClass(b),
                   {
+                    'cell-block--side-by-side': !!b.sideBySideLane,
                     'cell-block-hovered': isBlockHovered(d, slot.hour, b),
                     'cell-block-peer-interactive': b.peerInteractive,
                     'cell-block-timed': !!b.timedSlice,
@@ -5766,6 +5784,7 @@
 <script setup>
 import CalendarSharing from '../CalendarSharing.vue';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
+import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -6000,6 +6019,7 @@ const loadMyScheduleColors = async () => {
     scheduleColors.value = { ...defaultScheduleColors(), ...(colors || {}) };
     const display = parseJsonMaybe(resp.data?.schedule_display_prefs);
     loadCustomHoldReasonsFromPrefs(display);
+    if (display?.scheduleSideBySide != null) scheduleSideBySide.value = !!display.scheduleSideBySide;
     if (display && props.mode === 'self') {
       applyDisplayPrefs(display);
       saveDisplayPrefsLocal();
@@ -6484,11 +6504,11 @@ const openMobileDayHour = (hour) => {
   });
 };
 const rowHeightMode = ref('normal');
+const scheduleSideBySide = ref(false);
 const initializedOverlayDefaults = ref(false);
 
 const displayPrefsKey = computed(() => {
-  if (props.mode !== 'self') return '';
-  const uid = Number(authStore.user?.id || props.userId || 0);
+  const uid = Number(authStore.user?.id || 0);
   if (!uid) return '';
   return `schedule.displayPrefs.v1:${uid}`;
 });
@@ -6510,6 +6530,7 @@ const showOfficeQuickGlance = ref(false);
 
 const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   if (!prefs || typeof prefs !== 'object') return;
+  if (prefs.scheduleSideBySide != null) scheduleSideBySide.value = !!prefs.scheduleSideBySide;
   if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
   if (prefs.spanMode != null) {
     const next = normalizeSpanMode(prefs.spanMode);
@@ -6528,6 +6549,7 @@ const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
 };
 
 const collectDisplayPrefs = () => ({
+  scheduleSideBySide: scheduleSideBySide.value,
   rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
   spanMode: normalizeSpanMode(scheduleSpanMode.value),
   weekStartsOn: effectiveWeekStartsOn.value === 'sunday' ? 'sunday' : 'monday',
@@ -6587,6 +6609,8 @@ const saveDisplayPrefs = () => {
 
 // Restore display prefs immediately from localStorage (skip day focus until focusableDays exists).
 try {
+  const ownLocal = loadDisplayPrefsLocal();
+  if (ownLocal?.scheduleSideBySide != null) scheduleSideBySide.value = !!ownLocal.scheduleSideBySide;
   if (props.mode === 'self') {
     const local = (() => {
       const uid = Number(authStore.user?.id || props.userId || 0);
@@ -9970,6 +9994,21 @@ watch(showAllHours, () => {
   saveDisplayPrefs();
 });
 
+watch(scheduleSideBySide, async () => {
+  if (props.mode === 'self') { saveDisplayPrefs(); return; }
+  const uid = Number(authStore.user?.id || 0);
+  if (!uid) return;
+  try {
+    const local = loadDisplayPrefsLocal() || {};
+    window.localStorage.setItem(displayPrefsKey.value, JSON.stringify({ ...local, scheduleSideBySide:scheduleSideBySide.value }));
+    const response = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading:true });
+    const prefs = parseJsonMaybe(response.data?.schedule_display_prefs) || {};
+    await api.put(`/users/${uid}/preferences`, {
+      schedule_display_prefs:{ ...prefs, scheduleSideBySide:scheduleSideBySide.value }
+    }, { skipGlobalLoading:true });
+  } catch { /* local choice remains available offline */ }
+});
+
 watch(rowHeightMode, () => {
   if (props.mode !== 'self') return;
   saveDisplayPrefs();
@@ -11274,10 +11313,11 @@ const shortOfficeLabel = (topEvent, fallback) => {
   return fallback;
 };
 
-const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
+const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = false) => {
   const blocks = [];
   const singleDayFocused = visibleDays.value.length === 1;
-  const perTypeInlineLimit = (singleDayFocused || expanded) ? Number.MAX_SAFE_INTEGER : 2;
+  const unlimited = expanded || forLayout || scheduleSideBySide.value;
+  const perTypeInlineLimit = (singleDayFocused || unlimited) ? Number.MAX_SAFE_INTEGER : 2;
 
   // Office assignment blocks: All offices, one building, or Off.
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
@@ -11450,7 +11490,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
   const supvByAgency = new Map();
   for (const ev of supvHits) {
     const aid = Number(ev?.agencyId || ev?._agencyId || 0) || null;
-    const key = aid || 'none';
+    const key = unlimited ? `${aid || 'none'}:${ev.id}` : aid || 'none';
     if (!supvByAgency.has(key)) supvByAgency.set(key, []);
     supvByAgency.get(key).push(ev);
   }
@@ -11483,8 +11523,8 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
     });
   }
 
-  for (const [aid, events] of supvByAgency) {
-    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+  for (const [, events] of supvByAgency) {
+    const agencyId = Number(events[0]?.agencyId || events[0]?._agencyId || 0) || null;
     const sortedEvents = [...events].sort((a, b) => String(a?.startAt || '').localeCompare(String(b?.startAt || '')));
     const first = sortedEvents[0] || null;
     const last = sortedEvents[sortedEvents.length - 1] || null;
@@ -11499,8 +11539,8 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
     blocks.push({
       key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
       kind: isSignupBlock ? 'supv-signup' : 'supv',
-      shortLabel: supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
-      title: supervisionTitle(dayName, hour, minute),
+      shortLabel: unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join('\n') : supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
+      title: unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join(' · ') : supervisionTitle(dayName, hour, minute),
       agencyId,
       segmentClass: 'single',
       hideAgencyDot: false,
@@ -11722,7 +11762,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
   }
 
   // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
-  if (!expanded && !singleDayFocused && displayBlocks.length > 3) {
+  if (!unlimited && !singleDayFocused && displayBlocks.length > 3) {
     const extra = displayBlocks.length - 2;
     return [
       displayBlocks[0],
@@ -11731,7 +11771,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
     ];
   }
   // Day view: stamp lane columns so overlapping timed blocks tile horizontally.
-  if (singleDayFocused) {
+  if (singleDayFocused && !forLayout && !scheduleSideBySide.value) {
     const colTotal = dayViewColumnTotal.value;
     for (const b of displayBlocks) {
       b.dayViewCol = dayViewColumnIndexForKind(b?.kind);
@@ -11747,6 +11787,12 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
           b.laneCols = lane.cols;
         }
       }
+    }
+  }
+  if (scheduleSideBySide.value && !forLayout && !expanded) {
+    const layout = sideBySideDayLayouts.value.get(dayName);
+    for (const block of displayBlocks) {
+      block.sideBySideLane = layout?.get(scheduleBlockPlacementKey(hour, minute, block.key));
     }
   }
   return displayBlocks;
@@ -11774,63 +11820,18 @@ const dayViewColumnIndexForKind = (kind) => {
   return 0;
 };
 
-/**
- * Classic calendar column packing for overlapping timed events.
- * Returns Map(key → { col, cols }) where cols is the cluster width.
- */
-const assignOverlapLanes = (items) => {
-  const out = new Map();
-  if (!Array.isArray(items) || !items.length) return out;
-  const sorted = [...items].sort((a, b) => (
-    a.startMs - b.startMs
-    || a.endMs - b.endMs
-    || String(a.key).localeCompare(String(b.key))
-  ));
-  const colEndMs = [];
-  const colByKey = new Map();
-  for (const item of sorted) {
-    let col = 0;
-    while (col < colEndMs.length && colEndMs[col] > item.startMs) col += 1;
-    if (col === colEndMs.length) colEndMs.push(item.endMs);
-    else colEndMs[col] = item.endMs;
-    colByKey.set(item.key, col);
+const sideBySideDayLayouts = computed(() => {
+  if (!scheduleSideBySide.value) return new Map();
+  const byDay = new Map();
+  for (const day of visibleDays.value) {
+    const cells = displayTimeSlots.value.map(slot => ({
+      hour:slot.hour, minute:slot.minute,
+      blocks:cellBlocks(day, slot.hour, slot.minute, false, true)
+    }));
+    byDay.set(day, layoutScheduleDayBlocks(cells, showQuarterDetail.value ? 15 : 60));
   }
-  const parent = new Map(items.map((i) => [i.key, i.key]));
-  const find = (k) => {
-    let cur = k;
-    while (parent.get(cur) !== cur) {
-      parent.set(cur, parent.get(parent.get(cur)));
-      cur = parent.get(cur);
-    }
-    return cur;
-  };
-  const union = (a, b) => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent.set(ra, rb);
-  };
-  for (let i = 0; i < items.length; i += 1) {
-    for (let j = i + 1; j < items.length; j += 1) {
-      if (items[i].startMs < items[j].endMs && items[j].startMs < items[i].endMs) {
-        union(items[i].key, items[j].key);
-      }
-    }
-  }
-  const clusterMaxCol = new Map();
-  for (const item of items) {
-    const root = find(item.key);
-    const col = colByKey.get(item.key) || 0;
-    clusterMaxCol.set(root, Math.max(clusterMaxCol.get(root) || 0, col));
-  }
-  for (const item of items) {
-    const root = find(item.key);
-    out.set(item.key, {
-      col: colByKey.get(item.key) || 0,
-      cols: (clusterMaxCol.get(root) || 0) + 1
-    });
-  }
-  return out;
-};
+  return byDay;
+});
 
 /** Day-view lane map for the focused day — packs overlapping span events side-by-side. */
 const dayViewLaneLayout = computed(() => {
@@ -11921,9 +11922,47 @@ const isActionCellSelected = (dayName, hour) => {
 const blockKey = (dayName, hour, block) => `${String(dayName || '')}|${Number(hour)}|${String(block?.key || '')}`;
 const isBlockHovered = (dayName, hour, block) => hoveredBlockKey.value === blockKey(dayName, hour, block);
 const hoveredPickCellKey = ref('');
+const calendarStackPosition = ref({});
+const calendarStackContext = ref(null);
+const calendarStackItems = computed(() => {
+  const context = calendarStackContext.value;
+  return context ? cellBlocks(context.day, context.hour, context.minute, true) : [];
+});
+function openCalendarStack(event, day, hour, minute) {
+  const container = event.currentTarget;
+  // A long event is rendered in its starting row. Use the row under the pointer
+  // so hovering its later hours also reveals the events overlapping there.
+  const rows = container.closest?.('.sched-wrap')?.querySelectorAll('.sched-cell[data-day]') || [];
+  const row = Number(event.clientY) > 0 && Array.from(rows).find(el => {
+    if (el.dataset.day !== day) return false;
+    const rect = el.getBoundingClientRect();
+    return event.clientY >= rect.top && event.clientY < rect.bottom;
+  });
+  const context = row
+    ? { day, hour:Number(row.dataset.hour), minute:Number(row.dataset.minute || 0) }
+    : { day, hour, minute };
+  const items = cellBlocks(context.day, context.hour, context.minute, true);
+  if (!items.length || (!scheduleSideBySide.value && items.length < 2)) return;
+  const rect = container.getBoundingClientRect();
+  const width = Math.min(620, window.innerWidth - 24);
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+  const top = Math.max(12, Math.min(Number(event.clientY) || rect.top, window.innerHeight - 240));
+  calendarStackPosition.value = { position:'fixed', left:`${left}px`, top:`${top}px`, width:`${width}px`, maxHeight:`${window.innerHeight-top-12}px` };
+  calendarStackContext.value = context;
+  hoveredPickCellKey.value = cellPickKey(day, hour, minute);
+}
+const calendarStackItemStyle = (item) => {
+  const style = cellBlockStyle(item);
+  return Object.fromEntries(Object.entries(style).filter(([key]) => key.startsWith('--')));
+};
+function openExpandedCalendarItem(event, item) {
+  const { day, hour, minute } = calendarStackContext.value;
+  hoveredPickCellKey.value = '';
+  onCellBlockClick(event, item, day, hour, minute, true);
+}
 async function toggleCalendarStack(event, day, hour, minute) {
   const container = event.currentTarget?.parentElement;
-  hoveredPickCellKey.value = cellPickKey(day, hour, minute);
+  openCalendarStack(event, day, hour, minute);
   await nextTick();
   container?.querySelector('.cell-expanded-item')?.focus();
 }
@@ -11961,7 +12000,7 @@ const cellBlocksNeedPickOnClick = (dayName, hour, minute = 0) => {
 
 const isCellPickExpanded = (dayName, hour, minute) => (
   hoveredPickCellKey.value === cellPickKey(dayName, hour, minute)
-  && cellBlocksNeedPickOnClick(dayName, hour, minute)
+  && calendarStackItems.value.length > 0
 );
 
 const cellBlockKindLabel = (block) => {
@@ -19931,6 +19970,17 @@ const cellBlockStyle = (b) => {
     style.boxSizing = 'border-box';
     style.alignSelf = 'flex-start';
   }
+  if (b?.sideBySideLane) {
+    const {col,cols} = b.sideBySideLane;
+    const reserve = canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0;
+    const slice = b.timedSlice || b.virtualSlice || {topPct:0,heightPct:100};
+    Object.assign(style, {
+      position:'absolute', left:`calc(${100*col/cols}% + ${2-reserve*col/cols}px)`,
+      width:`calc(${100/cols}% - ${reserve/cols+4}px)`, right:'auto',
+      top:`${slice.topPct}%`, height:`calc(${slice.heightPct}% - 2px)`, bottom:'auto',
+      minHeight:'0', maxWidth:'none', flex:'none', zIndex:6, boxSizing:'border-box'
+    });
+  }
   return style;
 };
 
@@ -24785,7 +24835,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   }
 };
 
-const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
+const onCellBlockClick = (e, block, dayName, hour, minute = 0, explicitPick = false) => {
   if (suppressNextAppointmentClick) {
     suppressNextAppointmentClick = false;
     e?.preventDefault?.();
@@ -24806,7 +24856,8 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
   // open it directly — no "Choose item" picker needed.
   const isDistinctBlock = kind !== 'more'
     && (
-      Number(block?.eventId || 0) > 0                                              // specific sevt/supv with a known ID
+      explicitPick || !!block?.sideBySideLane
+      || Number(block?.eventId || 0) > 0                                              // specific sevt/supv with a known ID
       || !!block?.timedSlice                                                        // absolutely positioned with known bounds
       || !!block?.shareRow                                                          // occupies its own half-cell lane
       || Number(block?.laneCol ?? -1) >= 0                                         // occupies a dedicated lane column
@@ -28823,20 +28874,24 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   overflow: visible;
 }
 .cell-blocks--pick-expanded { z-index: 16; }
-.cell-blocks--pick-expanded > .cell-block { visibility: hidden; }
+
 .cell-expanded-list {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 50;
-  width: max(100%, 280px); max-width: calc(100vw - 64px); box-sizing: border-box; max-height: min(440px, 65vh); overflow: auto;
+  position: fixed; z-index: 50;
+  max-width: calc(100vw - 24px); box-sizing: border-box; max-height: min(440px, 65vh); overflow: auto;
   display: flex; flex-direction: column; gap: 8px; padding: 10px;
   background: var(--bg-primary, #fff); color: var(--text-primary, #0f172a);
   border: 1px solid #94a3b8; border-radius: 12px; box-shadow: 0 12px 28px #0f172a33;
   font-size: 12px; line-height: 1.4;
 }
+.cell-expanded-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.cell-layout-toggle { border:1px solid #a5b4fc; border-radius:8px; padding:6px 9px; background:#eef2ff; color:#3730a3; font:inherit; font-weight:700; cursor:pointer; }
+.cell-expanded-cards { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(140px, 1fr); gap:8px; overflow-x:auto; padding:2px; }
 .cell-expanded-item {
   display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
   border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px;
-  background: var(--bg-secondary, #f8fafc); color: inherit;
-  text-align: left; cursor: pointer; font: inherit; white-space: normal; overflow-wrap: anywhere;
+  background: var(--blockFill, var(--bg-secondary, #f8fafc)); color: var(--blockText, inherit);
+  border-color:var(--blockBorder, #cbd5e1);
+  text-align: left; cursor: pointer; font: inherit; white-space: normal; overflow-wrap: anywhere; min-width:0;
 }
 .cell-expanded-item:hover, .cell-expanded-item:focus-visible { outline: 2px solid #6366f1; }
 .sched-wrap--dark .cell-expanded-list { background: #162235; color: #f1f5f9; }
@@ -31703,4 +31758,26 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: #fee2e2;
   color: #b91c1c;
 }
+
+/* Let the event layers span rows without later cell backgrounds covering them.
+   Full row height also keeps multi-hour cards aligned with the time axis. */
+.sched-wrap--side-by-side .sched-cell,
+.sched-wrap--side-by-side .cell-blocks { z-index:auto; overflow:visible; }
+.sched-wrap--side-by-side .cell-blocks { position:absolute; top:0; bottom:-1px; left:5px; right:5px; height:auto; }
+.sched-wrap--side-by-side.sched-wrap-quarter .sched-cell {
+  min-height:max(24px, calc(var(--sched-cell-min-height, 36px) * 0.7));
+  padding-top:0; padding-bottom:0; box-sizing:border-box;
+}
+.sched-wrap--side-by-side.sched-wrap-quarter .sched-hour:not(.sched-overflow-label) { padding-top:2px; padding-bottom:2px; }
+.cell-block--side-by-side { container-type:inline-size; overflow:hidden; padding:3px !important; gap:2px !important; margin:0 !important; }
+.cell-block--side-by-side.cell-block .cell-block-text,
+.cell-block--side-by-side .cell-block-office-status,
+.cell-block--side-by-side .cell-block-signup-range,
+.cell-block--side-by-side .cell-block-signup-headline,
+.cell-block--side-by-side .cell-block-signup-host { font-size:clamp(9px, 16cqi, 12px); line-height:1.15; min-width:0; max-width:100%; overflow:hidden; overflow-wrap:anywhere; }
+.cell-block--side-by-side .cell-block-agency-icon { width:12px; height:12px; flex-basis:12px; margin:0; }
+.cell-block--side-by-side .cell-block-office-body { min-width:0; overflow:hidden; }
+.sched-wrap--side-by-side .cell-multi-pick-badge { opacity:0; }
+.sched-wrap--side-by-side .cell-blocks:hover .cell-multi-pick-badge,
+.sched-wrap--side-by-side .cell-blocks:focus-within .cell-multi-pick-badge { opacity:1; }
 </style>
