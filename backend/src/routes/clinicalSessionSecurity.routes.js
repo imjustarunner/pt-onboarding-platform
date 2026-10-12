@@ -1,11 +1,11 @@
 import express from 'express';
 import pool from '../config/database.js';
 import { authenticate,requireAgencyAdmin } from '../middleware/auth.middleware.js';
-import { requireClinicalStaffSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
+import { requireClinicalRetentionSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
 import { validateClinicalRetention } from '../services/clinicalSessionRetention.service.js';
 import { clinicalAudit } from '../services/clinicalSessionAudit.service.js';
 const router=express.Router();
-router.use(authenticate,requireClinicalStaffSecurity);
+router.use(authenticate,requireClinicalRetentionSecurity);
 router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
 router.get('/:agencyId/retention',requireAgencyAdmin,async(req,res,next)=>{
  try {const [[policy]]=await pool.execute('SELECT artifact_days AS artifactDays FROM clinical_session_retention WHERE agency_id=?',[req.params.agencyId]);res.json(policy||{artifactDays:null});}catch(e){next(e);}
