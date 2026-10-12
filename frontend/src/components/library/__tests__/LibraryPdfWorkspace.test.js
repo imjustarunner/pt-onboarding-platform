@@ -1,6 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-vi.mock('../../documents/PDFDocumentFillEditor.vue', () => ({ default: { name: 'PDFDocumentFillEditor', props: ['modelValue', 'fieldValues'], emits: ['update:modelValue', 'update:fieldValues', 'fields-detected', 'ready'], template: '<div class="editor-stub">On-page PDF</div>' } }));
+vi.mock('../../documents/PDFDocumentFillEditor.vue', () => ({ default: { name: 'PDFDocumentFillEditor', props: ['modelValue', 'fieldValues'], emits: ['update:modelValue', 'update:fieldValues', 'fields-detected', 'ready', 'document-loaded'], template: '<div class="editor-stub">On-page PDF</div>' } }));
+vi.mock('../../documents/PDFPreview.vue', () => ({ default: { name: 'PDFPreview', props: ['pdfUrl'], template: '<div class="reader-stub">PDF reading view</div>' } }));
 vi.mock('../../../services/library', () => ({ fetchLibraryPdf: vi.fn(), saveLibraryPdfCopy: vi.fn() }));
 import Workspace from '../LibraryPdfWorkspace.vue';
 import { fetchLibraryPdf, saveLibraryPdfCopy } from '../../../services/library';
@@ -36,4 +37,14 @@ it('does not download an unfilled original when there are unsaved answers', asyn
 });
 it('revokes its private blob and aborts the request when closed', async () => {
   await open(); wrapper.unmount(); wrapper = null; expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:private-pdf'); expect(fetchLibraryPdf.mock.calls[0][2].aborted).toBe(true);
+});
+it('switches books over 200 pages into a reading view while retaining download', async () => {
+  const editor = await open();editor.vm.$emit('document-loaded', 400);await flushPromises();
+  expect(wrapper.find('.editor-stub').exists()).toBe(false);expect(wrapper.find('.reader-stub').exists()).toBe(true);
+  expect(wrapper.text()).not.toContain('Save filled copy');expect(wrapper.text()).toContain('Download PDF');
+});
+it('opens PDFs over the fill limit directly in the reading view', async () => {
+  fetchLibraryPdf.mockResolvedValue({size:41*1024*1024});
+  wrapper=mount(Workspace,{props:{resource},global:{stubs:{AdaptiveSignatureCapture:true}}});await flushPromises();
+  expect(wrapper.find('.reader-stub').exists()).toBe(true);expect(wrapper.find('.editor-stub').exists()).toBe(false);
 });

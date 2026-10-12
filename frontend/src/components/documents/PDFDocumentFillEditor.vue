@@ -54,7 +54,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const props = defineProps({ pdfUrl: String, modelValue: { type: Array, default: () => [] }, signatureData: String, fieldDefinitions: { type: Array, default: () => [] }, fieldValues: { type: Object, default: () => ({}) }, autoDetectFields: { type: Boolean, default: false }, initialTool: { type: String, default: 'text' } });
-const emit = defineEmits(['update:modelValue', 'update:fieldValues', 'ready', 'fields-detected']);
+const emit = defineEmits(['update:modelValue', 'update:fieldValues', 'ready', 'fields-detected', 'document-loaded']);
 const canvas = ref(null), page = ref(1), pages = ref(0), busy = ref(true), error = ref('');
 const zoom = ref(1);
 const pageWidth = ref(612), pageHeight = ref(792), tool = ref(props.initialTool), selected = ref(-1);
@@ -178,6 +178,10 @@ async function load() {
     const loaded = await loader.promise;
     if (current !== generation) { loaded.destroy(); return; }
     pdf = loaded; pages.value = pdf.numPages;
+    emit('document-loaded', pdf.numPages);
+    // A library can switch long reference books to its reading view before field scanning.
+    await nextTick();
+    if (current !== generation) return;
     if (props.autoDetectFields) await detectFields(loaded, current);
     if (current !== generation) return;
     await render();
