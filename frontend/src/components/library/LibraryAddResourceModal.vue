@@ -2,7 +2,7 @@
   <div class="lib-modal-backdrop" @click.self="requestClose">
     <div class="lib-modal" :class="{ 'lib-modal--document': mode === 'branded' }" role="dialog" aria-modal="true" aria-labelledby="lib-add-title">
       <header class="lib-modal__head">
-        <h2 id="lib-add-title">Add Resource</h2>
+        <h2 id="lib-add-title">{{ mode === 'branded' ? 'New document' : mode === 'upload' ? 'Upload a document' : 'Add to library' }}</h2>
         <button type="button" class="lib-modal__x" aria-label="Close" @click="requestClose">×</button>
       </header>
 
@@ -38,7 +38,7 @@
           </label>
           <p class="lib-hint">
             Uploads the selected folder as nested subfolders and files under the destination folder below.
-            All files are view-only.
+            PDFs can be filled and signed in the app, then saved as personal copies.
           </p>
           <p v-if="folderFiles.length" class="lib-hint">
             {{ folderFiles.length }} file{{ folderFiles.length === 1 ? '' : 's' }} selected
@@ -118,7 +118,7 @@
               Branded documents can be shared as personal copies, collaboration on the master, or view-only.
             </template>
             <template v-else>
-              Uploaded files and links are view-only (they are not editable in the app).
+              The original stays unchanged. Readers can fill and sign uploaded PDFs in a personal copy.
             </template>
           </p>
           <div class="lib-share-modes__grid">
@@ -284,7 +284,7 @@ const form = reactive({
   tags: '',
   featured: false,
   scope: props.canManage ? 'organization' : 'personal',
-  shareMode: 'view_only',
+  shareMode: 'later',
   bodyHtml: '<p></p>',
   letterheadTemplateId: null,
   brandingMode: 'organization'
@@ -365,11 +365,13 @@ async function runAiSuggest() {
     let suggestion;
     if (mode.value === 'upload' && file.value) {
       const fd = new FormData();
+      if (props.agencyId) fd.append('agencyId', String(props.agencyId));
       fd.append('file', file.value);
       if (form.name) fd.append('name', form.name);
       suggestion = await suggestLibraryMetadata(fd);
     } else {
       suggestion = await suggestLibraryMetadata({
+        agencyId: props.agencyId || undefined,
         name: form.name,
         filename: file.value?.name || '',
         url: form.url || '',
@@ -419,6 +421,7 @@ async function submit() {
     if (mode.value === 'folder') {
       if (!form.name.trim()) throw new Error('Folder name is required');
       const folder = await createLibraryFolder({
+        agencyId: props.agencyId || undefined,
         name: form.name.trim(),
         description: form.description || null,
         parentFolderId: form.folderId || null,
@@ -432,6 +435,7 @@ async function submit() {
     if (mode.value === 'upload_folder') {
       if (!folderFiles.value.length) throw new Error('Choose a folder to upload');
       const fd = new FormData();
+      if (props.agencyId) fd.append('agencyId', String(props.agencyId));
       fd.append('scope', form.scope);
       if (form.folderId) fd.append('folderId', form.folderId);
       if (form.categoryId) fd.append('categoryId', form.categoryId);
@@ -448,6 +452,7 @@ async function submit() {
     if (mode.value === 'upload') {
       if (!file.value) throw new Error('Choose a file to upload');
       const fd = new FormData();
+      if (props.agencyId) fd.append('agencyId', String(props.agencyId));
       fd.append('file', file.value);
       fd.append('name', form.name.trim() || file.value.name);
       fd.append('scope', form.scope);
@@ -457,7 +462,7 @@ async function submit() {
       if (form.tags) fd.append('tags', form.tags);
       if (form.featured && form.scope === 'organization') fd.append('featured', '1');
       const item = await uploadLibraryResource(fd);
-      emit('created', { kind: 'resource', item, shareMode: shareMode === 'view_only' ? shareMode : 'view_only' });
+      emit('created', { kind: 'resource', item, shareMode: form.shareMode === 'later' ? null : 'view_only' });
       emit('close');
       return;
     }
@@ -488,6 +493,7 @@ async function submit() {
     if (!form.name.trim()) throw new Error('Resource name is required');
     if (!form.url.trim()) throw new Error('URL is required');
     const item = await addLibraryLink({
+      agencyId: props.agencyId || undefined,
       name: form.name.trim(),
       url: form.url.trim(),
       description: form.description || null,
@@ -500,7 +506,7 @@ async function submit() {
         .filter(Boolean),
       featured: form.scope === 'organization' && form.featured
     });
-    emit('created', { kind: 'resource', item, shareMode: 'view_only' });
+    emit('created', { kind: 'resource', item, shareMode: form.shareMode === 'later' ? null : 'view_only' });
     emit('close');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Could not save';

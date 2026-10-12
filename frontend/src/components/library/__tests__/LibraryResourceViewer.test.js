@@ -1,5 +1,6 @@
 import {mount,flushPromises} from '@vue/test-utils';
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
+vi.mock('../LibraryPdfWorkspace.vue', () => ({ default: { name: 'LibraryPdfWorkspace', props: ['resource'], template: '<div class="pdf-workspace-stub">Fill &amp; sign</div>' } }));
 import Viewer from '../LibraryResourceViewer.vue';
 vi.mock('../../../services/library.js',()=>({fetchLibraryGooglePreview:vi.fn()}));
 import {fetchLibraryGooglePreview} from '../../../services/library.js';
@@ -27,9 +28,9 @@ it('does not reuse a prior resource’s document when a slower request resolves 
  await wrapper.setProps({resource:{...resource,id:2}});await flushPromises();resolveOld(new Blob(['old']));await flushPromises();
  expect(URL.createObjectURL).toHaveBeenCalledTimes(1);expect(fetchLibraryGooglePreview.mock.calls[0][2].aborted).toBe(true);
 });
-it('keeps normal uploaded PDF previews without calling Google',async()=>{
- wrapper=mount(Viewer,{props:{resource:{id:3,name:'Uploaded guide',resourceType:'file',fileType:'pdf',fileUrl:'/uploads/guide.pdf'}},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();
- expect(fetchLibraryGooglePreview).not.toHaveBeenCalled();expect(wrapper.get('iframe').attributes('src')).toBe('/uploads/guide.pdf');expect(wrapper.findAll('a').find(a=>a.text()==='Download').attributes('download')).toBe('');
+it('opens uploaded PDFs in the private fill-and-sign workspace without calling Google',async()=>{
+ wrapper=mount(Viewer,{props:{resource:{id:3,agencyId:2,name:'Uploaded guide',resourceType:'file',fileType:'pdf',privatePdf:true}},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();
+ expect(fetchLibraryGooglePreview).not.toHaveBeenCalled(); expect(wrapper.get('.pdf-workspace-stub').text()).toContain('Fill & sign'); expect(wrapper.find('iframe').exists()).toBe(false);
 });
 
 it('opens shared Drive folders directly and preserves the sharing key',async()=>{

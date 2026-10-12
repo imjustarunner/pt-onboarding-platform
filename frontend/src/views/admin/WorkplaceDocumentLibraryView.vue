@@ -1,6 +1,6 @@
 <template>
   <main class="document-library-page">
-    <LearningLibraryHeader active="guides" />
+    <header class="document-management-header"><div><p>Document library · Beta</p><h1>Manage company documents</h1></div><router-link :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/library`">← Back to library</router-link></header>
     <p v-if="loading" role="status">Loading company documents…</p>
     <p v-if="error" role="alert" class="library-error">{{ error }} <button type="button" @click="load">Retry</button></p>
     <p v-if="notice" role="status">{{ notice }}</p>
@@ -17,7 +17,6 @@
   </main>
 </template>
 <script setup>
-import LearningLibraryHeader from '../../components/library/LearningLibraryHeader.vue';
 import { onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import api from '../../services/api';
@@ -62,6 +61,8 @@ watch(selectedId, () => { documentTab.value = 'handbook'; });
 onMounted(load);
 </script>
 <style scoped>
+.document-management-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}.document-management-header p{font-size:12px;color:#788579;margin:0 0 5px}.document-management-header h1{font-size:24px;margin:0;color:#284333}.document-management-header a{color:#496e58;font-size:13px;text-decoration:none}
+
 .document-library-page{padding:clamp(12px,3vw,40px);background:#f8faf6;min-height:100vh}.library-error{color:#9b3126;padding:16px;background:#fff0ed;border-radius:8px;font-size:13px}
 .company-document-tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}.company-document-tabs button{font:inherit;font-size:13px;border:1px solid #cdd9cf;border-radius:6px;background:white;color:#294935;padding:12px 16px;cursor:pointer}.company-document-tabs [aria-pressed=true]{background:#294935;color:white}
 </style>

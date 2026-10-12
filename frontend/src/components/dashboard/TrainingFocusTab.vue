@@ -31,7 +31,7 @@
       </div>
       
       <div v-if="sortedFocuses.length === 0 && scopedIndividualModules.length === 0" class="empty-state">
-        <p>No training focuses or modules assigned.</p>
+        <p>{{ search.trim() ? 'No assigned training matches your search.' : 'No training focuses or modules assigned.' }}</p>
       </div>
       
       <div v-if="sortedFocuses.length > 0">
@@ -131,6 +131,8 @@ import { useAgencyStore } from '../../store/agency';
 import { formatDate } from '../../utils/formatDate';
 
 const emit = defineEmits(['update-count']);
+const props = defineProps({ search: { type: String, default: '' } });
+const matchesSearch = item => `${item.title || item.name || ''} ${item.description || ''}`.toLowerCase().includes(props.search.trim().toLowerCase());
 
 const router = useRouter();
 const route = useRoute();
@@ -144,7 +146,7 @@ const activeAgencyId = computed(() => {
   const slug = route.params.organizationSlug;
   return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)))?.id;
 });
-const scopedIndividualModules = computed(() => individualModules.value.filter(m => !m.agency_id || Number(m.agency_id) === Number(activeAgencyId.value)));
+const scopedIndividualModules = computed(() => individualModules.value.filter(m => (!m.agency_id || Number(m.agency_id) === Number(activeAgencyId.value)) && matchesSearch(m)));
 const sortOption = ref('unfinished');
 const downloadingCertificates = ref(new Set());
 const certificates = ref({}); // Store certificates by module/training focus ID
@@ -152,7 +154,7 @@ const certificates = ref({}); // Store certificates by module/training focus ID
 // Computed property to filter focuses by current agency
 const focuses = computed(() => {
   if (!activeAgencyId.value) return [];
-  return allFocuses.value.filter(focus => Number(focus.agencyId || focus.agency_id) === Number(activeAgencyId.value));
+  return allFocuses.value.filter(focus => Number(focus.agencyId || focus.agency_id) === Number(activeAgencyId.value) && (matchesSearch(focus) || (focus.modules || []).some(matchesSearch)));
 });
 
 const sortedFocuses = computed(() => {

@@ -3,6 +3,7 @@
   <DocumentAnalyticsControl v-if="resource.scope === 'organization'" :agency-id="resource.agencyId" :document-key="`resource:${resource.id}`" :document-title="resource.name" />
   <p v-if="resource.scope === 'organization'" class="reading-notice">Company administrators can see resource opens and app activity. Activity inside external sites or embedded files is not measured.</p>
   <LibraryDocumentWorkspace v-if="isBranded" ref="workspace" :key="resource.id" :resource="resource" :can-distribute="canDistribute" @close="$emit('close')" @saved="$emit('saved', $event)" @copied="$emit('copied', $event)" @distribute="$emit('distribute')" />
+  <LibraryPdfWorkspace v-else-if="isPdf" ref="workspace" :key="resource.id" :resource="resource" :can-distribute="canDistribute" @close="$emit('close')" @copied="$emit('copied', $event)" @distribute="$emit('distribute')" />
   <div v-else class="lib-viewer" role="dialog" aria-modal="true" aria-label="Resource viewer">
     <header class="lib-viewer__bar">
       <div class="lib-viewer__titles">
@@ -84,6 +85,7 @@ import { fetchLibraryGooglePreview } from '../../services/library.js';
 import DocumentAnalyticsControl from './DocumentAnalyticsControl.vue';
 import { useDocumentAnalytics } from '../../composables/useDocumentAnalytics';
 import LibraryDocumentWorkspace from './LibraryDocumentWorkspace.vue';
+import LibraryPdfWorkspace from './LibraryPdfWorkspace.vue';
 import {
   isGoogleWorkspaceUrl,
   detectGoogleResourceLabel
@@ -105,6 +107,8 @@ defineExpose({ prepareToLeave: () => workspace.value?.prepareToLeave() ?? true }
 const isBranded = computed(
   () => String(props.resource?.resourceType || '').toLowerCase() === 'branded_doc'
 );
+
+const isPdf = computed(() => props.resource.resourceType === 'file' && (props.resource.fileType === 'pdf' || String(props.resource.mimeType || '').includes('pdf')));
 
 const isGoogle = computed(() => {
   const r = props.resource;

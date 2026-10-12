@@ -4,7 +4,8 @@ export default {
   test: {
     environment: 'node',
     include: [
-      'src/controllers/__tests__/libraryDocuments.test.js'
+      'src/controllers/__tests__/libraryDocuments.test.js',
+      'src/services/__tests__/libraryPdf.test.js'
     ],
     restoreMocks: true
   }

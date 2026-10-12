@@ -1,46 +1,40 @@
 <template>
   <div class="lib-grid">
-    <button
+    <article
       v-for="item in items"
       :key="item.id"
-      type="button"
       class="lib-card"
-      :class="{ 'is-mine': item.isMine || item.scope === 'personal' }"
+      :class="{ 'is-selected': String(selectedId) === String(item.id) }"
       @click="$emit('open', item)"
     >
       <div class="lib-card__top">
-        <span class="lib-card__icon" :data-type="typeKey(item)">{{ typeIcon(item) }}</span>
-        <div class="lib-card__top-right">
-          <span v-if="item.isMine || item.scope === 'personal'" class="lib-mine-tag">Mine</span>
-          <button
-            type="button"
-            class="lib-card__fav"
-            :aria-pressed="!!item.isFavorite"
-            :title="item.isFavorite ? 'Unfavorite' : 'Favorite'"
-            @click.stop="$emit('toggle-favorite', item)"
-          >
-            {{ item.isFavorite ? '★' : '☆' }}
-          </button>
-        </div>
+        <span class="lib-card__icon" :data-type="typeKey(item)" aria-hidden="true">
+          <svg viewBox="0 0 32 40"><path d="M5 1h14l8 8v30H5z" /><path d="M19 1v9h8M10 18h12M10 23h12M10 28h8" /></svg>
+          <small>{{ typeShort(item) }}</small>
+        </span>
+        <span v-if="item.isMine" class="lib-mine-tag">Mine</span>
       </div>
-      <h3 class="lib-card__title">{{ item.name }}</h3>
+      <h3 class="lib-card__title"><button type="button" @click.stop="$emit('open', item)">{{ item.name }}</button></h3>
       <p v-if="item.description" class="lib-card__desc">{{ item.description }}</p>
       <div class="lib-card__meta">
         <span v-if="item.categoryName" class="lib-pill">{{ item.categoryName }}</span>
         <span class="lib-pill lib-pill--muted">{{ typeLabel(item) }}</span>
       </div>
       <div class="lib-card__foot">
-        <span>{{ formatDate(item.updatedAt) }}</span>
-        <button
-          v-if="canManage || (showOwnerMenu && item.isMine)"
-          type="button"
-          class="lib-card__more"
-          @click.stop="$emit('menu', item, $event)"
-        >
-          ⋯
-        </button>
+        <span class="lib-card__date">{{ formatDate(item.updatedAt) }}</span>
+        <div class="lib-card__actions">
+          <button v-if="!isGuide(item)" type="button" class="lib-card__action lib-card__fav" :aria-label="`${item.isFavorite ? 'Remove from' : 'Add to'} favorites: ${item.name}`" :aria-pressed="!!item.isFavorite" @click.stop="$emit('toggle-favorite', item)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z" /></svg>
+          </button>
+          <button v-if="showDetails" type="button" class="lib-card__action" :aria-label="`Details for ${item.name}`" @click.stop="$emit('details', item)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></svg>
+          </button>
+          <button v-if="!isGuide(item) && (canManage || (showOwnerMenu && item.isMine))" type="button" class="lib-card__action" :aria-label="`More actions for ${item.name}`" @click.stop="$emit('menu', item, $event)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+          </button>
+        </div>
       </div>
-    </button>
+    </article>
   </div>
 </template>
 
@@ -48,183 +42,63 @@
 defineProps({
   items: { type: Array, default: () => [] },
   canManage: { type: Boolean, default: false },
-  showOwnerMenu: { type: Boolean, default: false }
+  showOwnerMenu: { type: Boolean, default: false },
+  selectedId: { type: [Number, String], default: null },
+  showDetails: { type: Boolean, default: false }
 });
-
-defineEmits(['open', 'toggle-favorite', 'menu']);
-
+defineEmits(['open', 'toggle-favorite', 'menu', 'details']);
+const isGuide = (item) => item.resourceType === 'company_guide';
 function typeKey(item) {
+  if (isGuide(item)) return 'guide';
+  if (item.resourceType === 'branded_doc') return 'document';
   if (item.resourceType === 'google_doc') return 'google';
   if (item.resourceType === 'link') return 'link';
   return item.fileType || 'file';
 }
-
-function typeIcon(item) {
-  const k = typeKey(item);
-  if (k === 'google') return 'G';
-  if (k === 'link') return '↗';
-  if (k === 'pdf') return 'PDF';
-  if (k === 'image') return 'IMG';
-  if (k === 'word') return 'W';
-  if (k === 'spreadsheet') return 'X';
-  if (k === 'presentation') return 'P';
-  return 'DOC';
+function typeShort(item) {
+  return { guide: 'READ', document: 'DOC', google: 'GDOC', link: 'LINK', pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'IMG', text: 'TXT' }[typeKey(item)] || 'FILE';
 }
-
 function typeLabel(item) {
-  if (item.resourceType === 'google_doc') return 'Google';
+  if (isGuide(item)) return item.guideKey === 'workplace-handbook' ? 'Handbook' : 'Guide';
+  if (item.resourceType === 'branded_doc') return 'Document';
+  if (item.resourceType === 'google_doc') return 'Google Doc';
   if (item.resourceType === 'link') return 'Link';
-  return (item.fileType || 'File').toUpperCase();
+  return { pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'Image', text: 'Text' }[item.fileType] || 'File';
 }
-
-function formatDate(d) {
-  if (!d) return '';
-  try {
-    return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return '';
-  }
+function formatDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 </script>
 
 <style scoped>
-.lib-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.85rem;
-}
-
-.lib-card {
-  text-align: left;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
-  padding: 0.9rem;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.lib-card:hover {
-  border-color: #86efac;
-  box-shadow: 0 6px 18px rgba(22, 101, 52, 0.08);
-}
-
-.lib-card.is-mine {
-  border-color: #fbbf24;
-  background: linear-gradient(180deg, #fffbeb 0%, #fff 40%);
-}
-
-.lib-card__top-right {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.lib-mine-tag {
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  padding: 0.15rem 0.4rem;
-  border-radius: 999px;
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.lib-card__top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.lib-card__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.25rem;
-  height: 2.25rem;
-  padding: 0 0.4rem;
-  border-radius: 8px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  background: #ecfdf5;
-  color: #166534;
-}
-
-.lib-card__icon[data-type='google'] {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.lib-card__icon[data-type='link'] {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.lib-card__fav {
-  border: 0;
-  background: transparent;
-  font-size: 1.1rem;
-  cursor: pointer;
-  color: #d97706;
-}
-
-.lib-card__title {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 650;
-  color: #0f172a;
-  line-height: 1.3;
-}
-
-.lib-card__desc {
-  margin: 0;
-  font-size: 0.8rem;
-  color: #64748b;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.lib-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.lib-pill {
-  font-size: 0.7rem;
-  padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  background: #ecfdf5;
-  color: #166534;
-}
-
-.lib-pill--muted {
-  background: #f1f5f9;
-  color: #475569;
-}
-
-.lib-card__foot {
-  margin-top: auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.75rem;
-  color: #94a3b8;
-  padding-top: 0.25rem;
-}
-
-.lib-card__more {
-  border: 0;
-  background: #f1f5f9;
-  border-radius: 6px;
-  width: 1.75rem;
-  height: 1.75rem;
-  cursor: pointer;
-}
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 225px), 1fr)); gap: 15px; }
+.lib-card { display: flex; flex-direction: column; min-width: 0; gap: 11px; padding: 20px 18px 12px; text-align: left; border: 1px solid #e4e9e4; border-radius: 12px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.lib-card:hover { border-color: #b7cbbb; box-shadow: 0 3px 14px #27463109; }
+.lib-card.is-selected { border-color: #477057; box-shadow: 0 0 0 1px #477057; background: #fbfdfb; }
+.lib-card__top { display: flex; justify-content: space-between; align-items: flex-start; }
+.lib-card__icon { position: relative; display: flex; align-items: center; justify-content: center; width: 58px; height: 67px; border-radius: 8px; background: #f2f6ef; color: #597250; }
+.lib-card__icon > svg { width: 29px; height: 39px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.lib-card__icon small { position: absolute; bottom: 9px; left: 25px; font-size: 8px; font-weight: 700; border: 1px solid currentColor; border-radius: 3px; padding: 2px 3px; background: #fff; }
+.lib-card__icon[data-type='pdf'] { background: #fff3ec; color: #a66844; }
+.lib-card__icon[data-type='google'], .lib-card__icon[data-type='word'] { background: #f0f4fc; color: #587da7; }
+.lib-card__icon[data-type='link'], .lib-card__icon[data-type='image'] { background: #f4f0f8; color: #887098; }
+.lib-mine-tag { font-size: 10px; padding: 4px 6px; border-radius: 5px; background: #f6f0e1; color: #8d7340; }
+.lib-card__title { margin: 0; font-size: 14px; font-weight: 600; color: #22392e; line-height: 1.45; }
+.lib-card__title button { display: block; width: 100%; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.lib-card__desc { margin: 0; font-size: 12px; line-height: 1.55; color: #788179; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lib-card__meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.lib-pill { font-size: 10px; line-height: 1.4; padding: 4px 6px; border-radius: 5px; background: #edf3eb; color: #597053; }
+.lib-pill--muted { background: #f1f3f5; color: #6b7580; }
+.lib-card__foot { margin-top: auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; padding-top: 12px; }
+.lib-card__date { font-size: 10px; color: #859087; }
+.lib-card__actions { display: flex; align-items: center; margin-left: auto; }
+.lib-card__action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 34px; width: 34px; height: 34px; border: 0; border-radius: 7px; color: #6d7c72; background: transparent; cursor: pointer; }
+.lib-card__action:hover { background: #edf2eb; color: #315c41; }
+.lib-card__action svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+.lib-card__fav[aria-pressed='true'] { color: #b99547; }
+.lib-card__fav[aria-pressed='true'] svg { fill: currentColor; }
+button:focus-visible { outline: 2px solid #46765b; outline-offset: 3px; }
+@media (max-width: 640px) { .lib-card__action { width: 40px; height: 40px; flex-basis: 40px; } }
 </style>

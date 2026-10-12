@@ -65,8 +65,8 @@ export async function updateLibraryResource(id, payload) {
   return data;
 }
 
-export async function archiveLibraryResource(id) {
-  const { data } = await api.post(`${base}/resources/${id}/archive`);
+export async function archiveLibraryResource(id, agencyId) {
+  const { data } = await api.post(`${base}/resources/${id}/archive`, { agencyId });
   return data;
 }
 
@@ -115,13 +115,13 @@ export async function fetchLibraryFavorites(params = {}) {
   return data;
 }
 
-export async function addLibraryFavorite(resourceId) {
-  const { data } = await api.post(`${base}/favorites/${resourceId}`);
+export async function addLibraryFavorite(resourceId, agencyId) {
+  const { data } = await api.post(`${base}/favorites/${resourceId}`, { agencyId });
   return data;
 }
 
-export async function removeLibraryFavorite(resourceId) {
-  const { data } = await api.delete(`${base}/favorites/${resourceId}`);
+export async function removeLibraryFavorite(resourceId, agencyId) {
+  const { data } = await api.delete(`${base}/favorites/${resourceId}`, { params: { agencyId } });
   return data;
 }
 
@@ -130,8 +130,8 @@ export async function fetchLibraryRecent(params = {}) {
   return data;
 }
 
-export async function fetchFolderShares(folderId) {
-  const { data } = await api.get(`${base}/folders/${folderId}/shares`);
+export async function fetchFolderShares(folderId, agencyId) {
+  const { data } = await api.get(`${base}/folders/${folderId}/shares`, { params: { agencyId } });
   return data;
 }
 
@@ -190,4 +190,23 @@ export async function fetchLibraryGooglePreview(id, agencyId, signal) {
     }
     throw error;
   }
+}
+
+export async function fetchLibraryPdf(id, agencyId, signal) {
+  try {
+    const { data } = await api.get(`${base}/resources/${id}/pdf-content`, {
+      params: { agencyId }, responseType: 'blob', skipGlobalLoading: true, signal
+    });
+    return data;
+  } catch (error) {
+    if (typeof error.response?.data?.text === 'function') {
+      try { error.message = JSON.parse(await error.response.data.text()).error?.message || error.message; } catch { /* Keep request error. */ }
+    }
+    throw error;
+  }
+}
+
+export async function saveLibraryPdfCopy(id, payload) {
+  const { data } = await api.post(`${base}/resources/${id}/filled-copy`, payload, { skipGlobalLoading: true });
+  return data;
 }

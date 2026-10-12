@@ -897,7 +897,7 @@ onMounted(load);
 </script>
 
 <style scoped>
-.plotline-player-brand{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:18px 24px;background:#f8f6f0;color:#294b3f;font:14px var(--font-ptco)}.plotline-player-brand button{margin-left:auto}.training-player{font-family:var(--font-ptco);--primary:#294f40;--font-header:var(--font-ptco)}
+.plotline-player-brand{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 24px;background:#fafbf9;border-bottom:1px solid #dce4df;color:#476455;font:12px 'Plotline Inter',var(--font-ptco)}.plotline-player-brand button{margin-left:auto;font-size:12px;padding:9px 12px}.plotline-player-brand :deep(.plotline-brand){min-width:104px;width:104px;padding-top:11px}.plotline-player-brand :deep(.plotline-brand-name){font-size:31px;letter-spacing:-2.3px}.plotline-player-brand :deep(.plotline-brand-trail){height:23px}.plotline-player-brand :deep(.plotline-brand-by){font-size:6px;letter-spacing:2.2px;margin-top:3px}.training-player{font-family:'Plotline Inter',var(--font-ptco);--primary:#294f40;--font-header:'Plotline Sora',var(--font-ptco)}
 .portal-embedded{min-height:0!important;padding:0!important;background:white!important}
 .portal-embedded .prehire-banner,.portal-embedded .player-top,.portal-embedded .lesson-aside{display:none!important}
 .portal-embedded .player-layout{padding:0!important;min-height:0!important}

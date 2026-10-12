@@ -1,248 +1,48 @@
 <template>
   <div class="library-page">
-    <div class="library-page__inner">
-      <LearningLibraryHeader :active="librarySection" />
-      <div class="library-utilities"><ToolsResourcesHubSwitcher :org-prefix="orgPrefix" active="library" :show-referral-directory="showReferralDirectoryNav" /><DocumentAnalyticsControl :agency-id="referenceAgencyId" /></div>
-      <CompanyReferenceLibrary v-if="referenceAgencyId && librarySection === 'guides'" :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" />
-      <template v-if="librarySection === 'resources'">
-      <div class="library-search-row">
-        <div class="library-search">
-          <span class="library-search__icon" aria-hidden="true">⌕</span>
-          <input
-            v-model="search"
-            type="search"
-            placeholder="Search resources, guides, templates, links…"
-            aria-label="Search Tools and Resources"
-            @keydown.enter="runSearch"
-          />
-        </div>
-        <button type="button" class="lib-btn lib-btn--ghost" @click="runSearch">
-          <span aria-hidden="true">⚙</span> Filters
-        </button>
-      </div>
-
-      <section v-if="!activeCategoryId && !searchActive" class="library-cats">
-        <h2 class="library-section-title">Browse by Category</h2>
-        <div class="library-cats__grid">
-          <button
-            v-for="c in categoryCards"
-            :key="c.id"
-            type="button"
-            class="library-cat"
-            :style="c.themeStyle"
-            @click="selectCategory(c)"
-          >
-            <span class="library-cat__icon" v-html="c.iconSvg" />
-            <span class="library-cat__body">
-              <span class="library-cat__name">{{ c.name }}</span>
-              <span class="library-cat__desc">{{ c.description }}</span>
-              <span class="library-cat__count">{{ c.countLabel }}</span>
-            </span>
-            <span class="library-cat__arrow" aria-hidden="true">→</span>
-          </button>
-        </div>
-      </section>
-
-      <div class="library-layout">
-        <main class="library-main">
-          <div class="library-panel">
-            <div class="library-toolbar">
-              <div class="library-tabs">
-                <button
-                  v-for="t in mainTabs"
-                  :key="t.id"
-                  type="button"
-                  class="library-tabs__btn"
-                  :class="{ 'is-active': activeTab === t.id }"
-                  @click="setTab(t.id)"
-                >
-                  {{ t.label }}
-                </button>
-              </div>
-              <div class="library-toolbar__right">
-                <button
-                  v-if="activeCategoryId || searchActive || folderId !== undefined"
-                  type="button"
-                  class="lib-btn lib-btn--ghost lib-btn--sm"
-                  @click="clearFilters"
-                >
-                  Clear filters
-                </button>
-                <div class="library-view-toggle" role="group" aria-label="View mode">
-                  <button
-                    type="button"
-                    :class="{ 'is-active': viewMode === 'list' }"
-                    title="List view"
-                    @click="viewMode = 'list'"
-                  >
-                    ☰
-                  </button>
-                  <button
-                    type="button"
-                    :class="{ 'is-active': viewMode === 'grid' }"
-                    title="Grid view"
-                    @click="viewMode = 'grid'"
-                  >
-                    ▦
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <p v-if="filterLabel" class="library-filter-label">
-              <button
-                v-if="folderId != null && folderId !== undefined"
-                type="button"
-                class="lib-btn lib-btn--ghost lib-btn--sm library-back-lib"
-                @click="backToLibrary"
-              >
-                ← Back to Library
-              </button>
-              <span>{{ filterLabel }}</span>
-            </p>
-
-            <div v-if="loading" class="library-empty">Loading…</div>
-            <div v-else-if="error" class="library-empty library-empty--error">{{ error }}</div>
-            <div v-else-if="!displayItems.length" class="library-empty">
-              <button
-                v-if="folderId != null && folderId !== undefined"
-                type="button"
-                class="lib-btn lib-btn--ghost lib-btn--sm"
-                style="margin-bottom: 0.75rem"
-                @click="backToLibrary"
-              >
-                ← Back to Library
-              </button>
-              <div>
-                No resources yet.
-                Use <strong>+ Add Resource</strong> to upload a file, upload a folder, create a branded document,
-                or paste a link.
-                Admins can share with everyone; personal items stay yours until you share a folder.
-              </div>
-            </div>
-            <LibraryResourceGrid
-              v-else-if="viewMode === 'grid'"
-              :items="displayItems"
-              :can-manage="canManage"
-              :show-owner-menu="true"
-              @open="openResource"
-              @toggle-favorite="toggleFavorite"
-              @menu="openMenu"
-            />
-            <LibraryResourceList
-              v-else
-              :items="displayItems"
-              :can-manage="canManage"
-              :show-owner-menu="true"
-              @open="openResource"
-              @toggle-favorite="toggleFavorite"
-              @menu="openMenu"
-            />
-
-            <button
-              v-if="activeTab === 'recent' && displayItems.length"
-              type="button"
-              class="library-view-all"
-              @click="setTab('all')"
-            >
-              View all resources →
-            </button>
+    <header class="document-topbar">
+      <div class="document-identity"><span class="document-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg></span><div><h1>Document library <span class="beta-label">Beta</span></h1><p>{{ agencyName }}</p></div></div>
+      <form class="document-search" role="search" @submit.prevent="runSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input v-model="search" type="search" aria-label="Search documents" placeholder="Search documents, policies, or keywords…" @input="scheduleSearch" /><button v-if="search" type="button" aria-label="Clear search" @click="search = ''; runSearch()">×</button></form>
+      <div class="document-actions"><button class="lib-btn lib-btn--ghost" :disabled="!agencyId" @click="openAdd('upload')"><span aria-hidden="true">↑</span> Upload</button><button class="lib-btn lib-btn--primary" :disabled="!agencyId" @click="openAdd('branded')"><span aria-hidden="true">＋</span> New document</button></div>
+    </header>
+    <div class="document-layout">
+      <aside class="document-sidebar" :class="{ 'sidebar-expanded': showNavigation }" aria-label="Library navigation">
+        <router-link class="sidebar-home" :to="`${orgPrefix}/dashboard`">← My dashboard</router-link>
+        <nav aria-label="Browse documents">
+          <button v-for="tab in documentTabs" :key="tab.id" :aria-current="activeTab === tab.id && !activeCategoryId && folderId === undefined ? 'page' : undefined" @click="setTab(tab.id)"><span class="nav-symbol" aria-hidden="true">{{ tab.icon }}</span>{{ tab.label }}</button>
+        </nav>
+        <button class="mobile-navigation-toggle" :aria-expanded="showNavigation" @click="showNavigation = !showNavigation">Folders &amp; tools {{ showNavigation ? '−' : '+' }}</button><div class="sidebar-heading">Categories</div>
+        <nav aria-label="Document categories"><button v-for="c in categoryCards" :key="c.id" :aria-current="Number(activeCategoryId) === Number(c.id) ? 'page' : undefined" @click="selectCategory(c)"><span class="category-icon" :style="c.themeStyle" v-html="c.iconSvg"/><span>{{ c.name }}</span></button></nav>
+        <div class="sidebar-heading"><span>Folders</span><button aria-label="Create folder" title="Create folder" @click="openAdd('folder')">＋</button></div>
+        <div v-if="!folders.length" class="sidebar-hint">Organize documents your way.</div>
+        <div v-for="f in folders" :key="f.id" class="folder-row"><button :aria-current="Number(folderId) === Number(f.id) ? 'page' : undefined" @click="selectFolder(f.id)"><span aria-hidden="true">▱</span><span>{{ f.name }}</span></button><button v-if="canShareFolder(f)" class="folder-share" :aria-label="`Share ${f.name}`" title="Share folder" @click="openShareFolder(f)">↗</button></div>
+        <div class="sidebar-heading">Create &amp; organize</div>
+        <nav aria-label="Document tools"><router-link :to="`${orgPrefix}/clinical-forms`"><span class="nav-symbol" aria-hidden="true">✚</span>Clinical forms</router-link><button @click="openAdd('link')"><span class="nav-symbol" aria-hidden="true">↗</span>Save a link</button><button @click="openAdd('upload_folder')"><span class="nav-symbol" aria-hidden="true">↑</span>Upload a folder</button><router-link v-if="canManage" :to="settingsPath"><span class="nav-symbol" aria-hidden="true">⚙</span>Library settings</router-link></nav>
+        <div class="sidebar-footer"><router-link :to="`${orgPrefix}/my-learning`">Go to Training <span aria-hidden="true">↗</span></router-link></div>
+      </aside>
+      <main class="document-main">
+        <template v-if="selectedReference && referenceAgencyId">
+          <button class="lib-btn lib-btn--ghost lib-btn--sm document-back" @click="closeReference">← Back to documents</button>
+          <CompanyReferenceLibrary :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" reader-only />
+        </template>
+        <template v-else>
+          <div class="document-section-heading"><div><h2>{{ sectionTitle }}</h2><p>{{ sectionDescription }}</p></div><div class="heading-tools"><router-link v-if="referenceCanManage" :to="`${orgPrefix}/admin/document-library?company=${referenceAgencyId}`">Manage company guides ↗</router-link><button v-if="canViewStatistics" class="lib-btn lib-btn--ghost lib-btn--sm" @click="showStatistics = !showStatistics">{{ showStatistics ? 'Hide statistics' : 'Statistics' }}</button></div></div>
+          <DocumentAnalyticsControl v-if="showStatistics" :agency-id="referenceAgencyId" initially-open />
+          <div class="document-filterbar"><div class="filter-left"><label>Type<select v-model="typeFilter"><option value="">All types</option><option value="company_guide">Handbooks &amp; guides</option><option value="pdf">PDFs</option><option value="branded_doc">Editable documents</option><option value="image">Images</option><option value="link">Links &amp; Google files</option></select></label><label>Sort<select v-model="sortBy" @change="loadSorted"><option value="updated">Recently updated</option><option value="name">Name A–Z</option></select></label><button v-if="activeCategoryId || searchActive || folderId !== undefined || typeFilter" class="clear-filter" @click="clearFilters">Clear filters</button></div><div class="library-view-toggle" role="group" aria-label="Document view"><button :aria-pressed="viewMode === 'list'" aria-label="List view" @click="viewMode = 'list'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg></button><button :aria-pressed="viewMode === 'grid'" aria-label="Grid view" @click="viewMode = 'grid'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button></div></div>
+          <p v-if="filterLabel" class="document-filter-label">{{ filterLabel }}</p>
+          <div v-if="error || referenceError" class="document-error" role="alert">{{ error || referenceError }} <button @click="refresh">Retry</button></div>
+          <div class="document-results-layout" :class="{ 'has-details': detailItem }">
+            <section class="document-results" aria-label="Documents">
+              <div class="document-result-count" role="status">{{ loading ? 'Loading documents…' : `${displayItems.length} document${displayItems.length === 1 ? '' : 's'} shown` }}</div>
+              <div v-if="loading" class="document-empty" role="status"><span class="loading-lines"></span>Getting your documents…</div>
+              <div v-else-if="!displayItems.length" class="document-empty"><span class="empty-document" aria-hidden="true">▤</span><h3>{{ searchActive ? 'No matching documents' : 'No documents here yet' }}</h3><p>{{ searchActive ? 'Try another title or keyword, or clear your filters.' : activeTab === 'favorites' ? 'Star a file or document to keep it close at hand.' : 'Upload a file or create a document to get started.' }}</p><button class="lib-btn lib-btn--ghost" @click="searchActive ? clearFilters() : openAdd('upload')">{{ searchActive ? 'Clear filters' : 'Upload a document' }}</button></div>
+              <component :is="viewMode === 'grid' ? LibraryResourceGrid : LibraryResourceList" v-else :items="displayItems" :can-manage="canManage" :show-owner-menu="true" :show-details="true" :selected-id="detailItem?.id" @open="openResource" @toggle-favorite="toggleFavorite" @menu="openMenu" @details="detailItem = $event" />
+              <button v-if="hasMore && activeTab !== 'guides' && activeTab !== 'recent'" class="document-load-more lib-btn lib-btn--ghost" :disabled="loadingMore" @click="loadMore">{{ loadingMore ? 'Loading…' : 'Load more documents' }}</button>
+            </section>
+            <aside v-if="detailItem" class="document-detail" aria-label="Document details"><div class="detail-top"><span class="detail-file-icon">{{ shortType(detailItem) }}</span><button aria-label="Close document details" @click="detailItem = null">×</button></div><h3>{{ detailItem.name }}</h3><span class="detail-category">{{ detailItem.categoryName || 'Resource' }}</span><p>{{ detailItem.description || 'Open this document to view its contents.' }}</p><button class="lib-btn lib-btn--primary detail-open" @click="openResource(detailItem)">{{ isPdf(detailItem) ? 'Open, fill & sign' : 'Open document' }} <span aria-hidden="true">↗</span></button><dl><dt>Access</dt><dd>{{ detailItem.scope === 'personal' ? 'Personal document' : 'Organization library' }}</dd><dt v-if="detailItem.updatedAt">Updated</dt><dd v-if="detailItem.updatedAt">{{ formatDate(detailItem.updatedAt) }}</dd><dt v-if="detailItem.updatedByName || detailItem.createdByName">By</dt><dd v-if="detailItem.updatedByName || detailItem.createdByName">{{ detailItem.updatedByName || detailItem.createdByName }}</dd></dl><p v-if="isPdf(detailItem)" class="detail-tip">Add text, checkmarks, and your signature directly on the PDF. Save your own completed copy.</p><DocumentAnalyticsControl v-if="detailItem.scope === 'organization' && !detailItem.guideKey" :agency-id="agencyId" :document-key="`resource:${detailItem.id}`" :document-title="detailItem.name" /></aside>
           </div>
-        </main>
-
-        <aside class="library-side">
-          <section class="library-side__card">
-            <h3>Quick Access</h3>
-            <div class="library-qa">
-              <button type="button" class="library-qa__btn" @click="openAdd('upload')">
-                <span class="library-qa__ico" aria-hidden="true">☁</span>
-                Upload New Resource
-              </button>
-              <button type="button" class="library-qa__btn" @click="openAdd('upload_folder')">
-                <span class="library-qa__ico" aria-hidden="true">📂</span>
-                Upload Folder
-              </button>
-              <button type="button" class="library-qa__btn" @click="openAdd('branded')">
-                <span class="library-qa__ico" aria-hidden="true">✎</span>
-                Create Branded Document
-              </button>
-              <button type="button" class="library-qa__btn" @click="openAdd('link')">
-                <span class="library-qa__ico" aria-hidden="true">🔗</span>
-                Save New Link
-              </button>
-              <button type="button" class="library-qa__btn" @click="openAdd('folder')">
-                <span class="library-qa__ico" aria-hidden="true">📁</span>
-                Create New Folder
-              </button>
-              <router-link
-                v-if="canManage"
-                class="library-qa__btn"
-                :to="settingsPath"
-              >
-                <span class="library-qa__ico" aria-hidden="true">⚙</span>
-                Library Settings
-              </router-link>
-            </div>
-          </section>
-
-          <section v-if="folders.length" class="library-side__card">
-            <h3>Folders</h3>
-            <ul class="library-folders">
-              <li>
-                <button type="button" :class="{ 'is-active': folderId === undefined }" @click="selectFolder(undefined)">
-                  All folders
-                </button>
-              </li>
-              <li v-for="f in folders" :key="f.id">
-                <div class="library-folders__row" :class="{ 'is-mine': f.scope === 'personal' || f.isMine }">
-                  <button
-                    type="button"
-                    :class="{ 'is-active': Number(folderId) === Number(f.id) }"
-                    @click="selectFolder(f.id)"
-                  >
-                    {{ f.name }}
-                    <span v-if="f.scope === 'personal' || f.isMine" class="library-mine-pill">Mine</span>
-                  </button>
-                  <button
-                    v-if="f.scope === 'personal' || f.isMine || canManage"
-                    type="button"
-                    class="library-folders__share"
-                    title="Share folder"
-                    @click="openShareFolder(f)"
-                  >
-                    Share
-                  </button>
-                </div>
-              </li>
-            </ul>
-          </section>
-
-          <section class="library-side__card">
-            <h3>Recently Updated</h3>
-            <ul v-if="home?.recentlyUpdated?.length" class="library-mini">
-              <li v-for="r in home.recentlyUpdated.slice(0, 5)" :key="r.id">
-                <button type="button" class="library-mini__row" @click="openResource(r)">
-                  <span class="library-mini__type">{{ shortType(r) }}</span>
-                  <span class="library-mini__text">
-                    <span class="library-mini__name">{{ r.name }}</span>
-                    <span class="library-mini__date">{{ formatDate(r.updatedAt) }}</span>
-                  </span>
-                </button>
-              </li>
-            </ul>
-            <p v-else class="library-side__muted">Nothing updated yet.</p>
-            <button
-              v-if="home?.recentlyUpdated?.length"
-              type="button"
-              class="library-view-all"
-              @click="setTab('all')"
-            >
-              View all updates →
-            </button>
-          </section>
-        </aside>
-      </div>
-      </template>
+        </template>
+      </main>
     </div>
 
     <LibraryAddResourceModal ref="addResourceModal" :agency-id="agencyId"
@@ -323,26 +123,19 @@
 </template>
 
 <script setup>
-import LearningLibraryHeader from '../components/library/LearningLibraryHeader.vue';
 import DocumentAnalyticsControl from '../components/library/DocumentAnalyticsControl.vue';
 import CompanyReferenceLibrary from '../components/library/CompanyReferenceLibrary.vue';
-import HireJourneyLibrary from '../components/prehire/HireJourneyLibrary.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
-import { useBrandingStore } from '../store/branding';
 import LibraryResourceGrid from '../components/library/LibraryResourceGrid.vue';
 import LibraryResourceList from '../components/library/LibraryResourceList.vue';
 import LibraryAddResourceModal from '../components/library/LibraryAddResourceModal.vue';
 import LibraryResourceViewer from '../components/library/LibraryResourceViewer.vue';
 import LibraryDistributeModal from '../components/library/LibraryDistributeModal.vue';
-import ToolsResourcesHubSwitcher from '../components/library/ToolsResourcesHubSwitcher.vue';
-import {
-  buildHubSwitcherLinks,
-  workspaceNavContextFromStores
-} from '../utils/workspaceNavAccess.js';
+import api from '../services/api';
 import {
   fetchLibraryHome,
   fetchLibraryResources,
@@ -395,7 +188,7 @@ const CATEGORY_META = {
 };
 
 const route = useRoute();
-const librarySection = computed(() => (route.query.section === 'resources' || route.params.resourceId) && !route.query.companyDocument ? 'resources' : 'guides');
+const selectedReference = computed(() => route.query.companyDocument || '');
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -403,10 +196,15 @@ const loading = ref(true);
 const error = ref('');
 const home = ref(null);
 const resources = ref([]);
-const allForCounts = ref([]);
 const search = ref('');
 const searchActive = ref(false);
-const activeTab = ref('recent');
+const tabFromSection = (section) => section === 'resources' ? 'files' : ['all', 'guides', 'files', 'favorites', 'recent'].includes(section) ? section : 'all';
+const activeTab = ref(tabFromSection(route.query.section));
+const showNavigation = ref(false);
+const detailItem = ref(null), typeFilter = ref(''), sortBy = ref('updated'), showStatistics = ref(false);
+const referenceDocuments = ref([]), referenceCanManage = ref(false), referenceError = ref('');
+const hasMore = ref(false), loadingMore = ref(false);
+let requestSequence = 0, viewerRequestSequence = 0, shareRequestSequence = 0, searchTimer;
 const activeCategoryId = ref(null);
 const folderId = ref(undefined);
 const viewMode = ref('list');
@@ -425,57 +223,35 @@ const distributeInitialMode = ref('personal_copy');
 
 const caps = computed(() => authStore.user?.capabilities || {});
 const canManage = computed(() => !!caps.value.canManageLibrary);
-const agencyId = computed(() => {
+const canViewStatistics = computed(() => ['admin', 'super_admin', 'superadmin'].includes(authStore.user?.effectiveRole || authStore.user?.role));
+const agencyStore = useAgencyStore();
+const selectedAgency = computed(() => {
   const slug = route.params.organizationSlug;
-  const match = [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)));
-  return match?.id || home.value?.agencyId || (!slug ? authStore.user?.agency_id || authStore.user?.agencyId : null);
+  return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)));
 });
-
+const agencyId = computed(() => selectedAgency.value?.id || (!route.params.organizationSlug ? authStore.user?.agency_id || authStore.user?.agencyId : null));
+const referenceAgencyId = agencyId;
+const agencyName = computed(() => selectedAgency.value?.name || route.params.organizationSlug || 'Your organization');
 const categories = computed(() => home.value?.categories || []);
 const folders = computed(() => home.value?.folders || []);
-
-const agencyStore = useAgencyStore();
-const referenceAgencyId = computed(() => {
-  const slug = route.params.organizationSlug;
-  if (slug) return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && [a.slug, a.portal_url].includes(slug))?.id || home.value?.agencyId;
-  return home.value?.agencyId || agencyStore.currentAgency?.id || agencyId.value;
-});
-const brandingStore = useBrandingStore();
 const orgSlug = computed(() => route.params.organizationSlug || '');
 const orgPrefix = computed(() => (orgSlug.value ? `/${orgSlug.value}` : ''));
-const showReferralDirectoryNav = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'].includes(role);
-});
-const hubSwitcherLinks = computed(() => {
-  const ctx = workspaceNavContextFromStores({
-    role: authStore.user?.role,
-    slug: orgSlug.value,
-    agency: agencyStore.currentAgency,
-    branding: brandingStore,
-    user: authStore.user,
-    isAffiliationContext:
-      String(agencyStore.currentAgency?.organization_type || '').toLowerCase() === 'affiliation'
-  });
-  return buildHubSwitcherLinks({ ...ctx, currentSurface: null });
-});
 const settingsPath = computed(() =>
   orgSlug.value ? `/${orgSlug.value}/admin/library-settings` : '/admin/library-settings'
 );
 
-const mainTabs = [
-  { id: 'recent', label: 'Recent' },
-  { id: 'all', label: 'All Resources' },
-  { id: 'favorites', label: 'Favorites' }
+const documentTabs = [
+  { id: 'all', label: 'All documents', icon: '▤' },
+  { id: 'favorites', label: 'Favorites', icon: '☆' },
+  { id: 'recent', label: 'Recent', icon: '◷' },
+  { id: 'guides', label: 'Handbooks & guides', icon: '▥' },
+  { id: 'files', label: 'Files & resources', icon: '▱' }
 ];
-
+const sectionTitle = computed(() => folderId.value !== undefined ? folders.value.find(f => Number(f.id) === Number(folderId.value))?.name || 'Folder' : activeCategoryId.value ? categories.value.find(c => Number(c.id) === Number(activeCategoryId.value))?.name || 'Documents' : documentTabs.find(t => t.id === activeTab.value)?.label || 'All documents');
+const sectionDescription = computed(() => activeTab.value === 'guides' ? 'Your organization’s policies, handbooks, and practice guides.' : activeTab.value === 'favorites' ? 'The documents you keep close at hand.' : 'Find, create, and work with your organization’s documents.');
+const guideItems = computed(() => referenceDocuments.value.filter(d => d.key === 'workplace-handbook' || d.published || d.betaAvailable).map(d => ({ ...d, id: `guide:${d.key}`, guideKey: d.key, name: d.title, updatedAt: d.published?.published_at || null, resourceType: 'company_guide', fileType: d.key === 'workplace-handbook' ? 'handbook' : 'guide', categoryName: 'Policies & procedures', categorySlug: 'policies_procedures', scope: 'organization', agencyId: agencyId.value })));
+const isPdf = item => item.fileType === 'pdf' || item.mimeType === 'application/pdf';
 const categoryCards = computed(() => {
-  const counts = {};
-  for (const r of allForCounts.value || []) {
-    const id = r.categoryId;
-    if (id == null) continue;
-    counts[id] = (counts[id] || 0) + 1;
-  }
   return categories.value.map((c) => {
     const meta = CATEGORY_META[c.slug] || {
       description: c.description || 'Browse resources in this category',
@@ -483,13 +259,10 @@ const categoryCards = computed(() => {
       bg: '#ecfdf5',
       icon: CATEGORY_META.guides_resources.icon
     };
-    const n = counts[c.id] || 0;
-    const isLinkCat = c.slug === 'community_external';
     return {
       ...c,
       description: meta.description,
       iconSvg: meta.icon,
-      countLabel: isLinkCat ? `${n} link${n === 1 ? '' : 's'}` : `${n} item${n === 1 ? '' : 's'}`,
       themeStyle: {
         '--cat-accent': meta.accent,
         '--cat-bg': meta.bg
@@ -513,24 +286,22 @@ const filterLabel = computed(() => {
 });
 
 const displayItems = computed(() => {
-  if (activeTab.value === 'favorites' && !searchActive.value && !activeCategoryId.value) {
-    return home.value?.favorites || resources.value;
-  }
-  if (
-    activeTab.value === 'recent' &&
-    !searchActive.value &&
-    !activeCategoryId.value &&
-    folderId.value === undefined
-  ) {
-    const viewed = home.value?.recentlyViewed || [];
-    const updated = home.value?.recentlyUpdated || [];
-    if (viewed.length) return viewed;
-    return updated;
-  }
-  return resources.value;
+  let files = activeTab.value === 'recent' ? home.value?.recentlyViewed || [] : resources.value;
+  if (activeTab.value === 'guides') files = [];
+  const includeGuides = ['all', 'guides'].includes(activeTab.value) && folderId.value === undefined;
+  let guides = includeGuides ? guideItems.value : [];
+  if (activeCategoryId.value && categories.value.find(c => Number(c.id) === Number(activeCategoryId.value))?.slug !== 'policies_procedures') guides = [];
+  const query = search.value.trim().toLowerCase();
+  if (query) guides = guides.filter(g => `${g.name} ${g.description || ''}`.toLowerCase().includes(query));
+  let result = [...guides, ...files];
+  if (typeFilter.value) result = result.filter(item => typeFilter.value === 'link' ? ['link', 'google_doc'].includes(item.resourceType) : [item.fileType, item.resourceType].includes(typeFilter.value));
+  if (sortBy.value === 'name') result.sort((a, b) => a.name.localeCompare(b.name));
+  else if (activeTab.value !== 'recent') result.sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
+  return result;
 });
 
 function shortType(r) {
+  if (r.guideKey) return r.fileType === 'handbook' ? 'BOOK' : 'GUIDE';
   if (r.resourceType === 'branded_doc') return 'DOC';
   if (r.resourceType === 'google_doc') return 'GDOC';
   if (r.resourceType === 'link') return 'LINK';
@@ -546,119 +317,135 @@ function formatDate(d) {
   }
 }
 
-async function loadHome() {
-  home.value = await fetchLibraryHome({ agencyId: agencyId.value });
-}
-
-async function loadResources() {
-  const params = {
-    agencyId: agencyId.value,
-    sort: 'updated',
-    limit: 100
-  };
-  if (searchActive.value && search.value.trim()) params.q = search.value.trim();
+function resourceParams(offset = 0) {
+  const params = { agencyId: agencyId.value, sort: sortBy.value, limit: 100, offset };
+  if (search.value.trim()) params.q = search.value.trim();
   if (activeCategoryId.value) params.categoryId = activeCategoryId.value;
-  if (folderId.value !== undefined) {
-    params.folderId = folderId.value == null ? 'all' : folderId.value;
-  }
+  if (folderId.value !== undefined) params.folderId = folderId.value == null ? 'all' : folderId.value;
   if (activeTab.value === 'favorites') params.favorites = '1';
-  resources.value = await fetchLibraryResources(params);
+  return params;
 }
-
-async function loadCounts() {
-  try {
-    allForCounts.value = await fetchLibraryResources({ agencyId: agencyId.value, sort: 'updated', limit: 500 });
-  } catch {
-    allForCounts.value = [];
-  }
+async function loadHome() {
+  const currentAgencyId = agencyId.value;
+  const sequence = requestSequence;
+  const result = await fetchLibraryHome({ agencyId: currentAgencyId });
+  if (sequence === requestSequence && currentAgencyId === agencyId.value) home.value = result;
 }
-
 async function refresh() {
-  loading.value = true;
-  error.value = '';
-  try {
-    await loadHome();
-    await loadCounts();
-    if (
-      activeTab.value === 'all' ||
-      searchActive.value ||
-      activeCategoryId.value ||
-      folderId.value !== undefined ||
-      activeTab.value === 'favorites'
-    ) {
-      await loadResources();
-    } else {
-      resources.value = [];
-    }
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load Library';
-  } finally {
-    loading.value = false;
-  }
+  const sequence = ++requestSequence;
+  if (!agencyId.value) { loading.value = false; error.value = 'Select an organization to open its document library.'; return; }
+  loading.value = true; loadingMore.value = false; error.value = ''; referenceError.value = ''; detailItem.value = null;
+  const params = resourceParams();
+  const results = await Promise.allSettled([
+    fetchLibraryHome({ agencyId: params.agencyId }),
+    fetchLibraryResources(params),
+    api.get('/provider-update/company-documents', { params: { agencyId: params.agencyId } })
+  ]);
+  if (sequence !== requestSequence) return;
+  if (results[0].status === 'fulfilled') home.value = results[0].value;
+  else { home.value = null; error.value = 'The library could not be loaded. Please retry.'; }
+  if (results[1].status === 'fulfilled') { resources.value = results[1].value; hasMore.value = resources.value.length === 100; }
+  else { resources.value = []; hasMore.value = false; error.value = results[1].reason?.response?.data?.error?.message || 'Documents could not be loaded.'; }
+  if (results[2].status === 'fulfilled') {
+    const data = results[2].value.data;
+    referenceCanManage.value = data.canManage === true;
+    referenceDocuments.value = [{ key: 'workplace-handbook', title: 'Workplace handbook', description: 'Company policies, expectations, and updates.' }, ...(data.documents || [])];
+  } else { referenceDocuments.value = []; referenceCanManage.value = false; referenceError.value = 'Company guides could not be loaded.'; }
+  loading.value = false;
 }
+async function loadMore() {
+  if (loadingMore.value) return;
+  const sequence = requestSequence; loadingMore.value = true;
+  try { const next = await fetchLibraryResources(resourceParams(resources.value.length)); if (sequence === requestSequence) { resources.value.push(...next); hasMore.value = next.length === 100; } }
+  catch { if (sequence === requestSequence) error.value = 'More documents could not be loaded.'; }
+  finally { if (sequence === requestSequence) loadingMore.value = false; }
+}
+function loadSorted() { refresh(); }
+function scheduleSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); }
+function closeReference() { const query = { ...route.query }; delete query.companyDocument; router.replace({ query, hash: '' }); }
 
 function openAdd(mode) {
+  if (!agencyId.value) { error.value = 'Select an organization before creating a document.'; return; }
   addModePref.value = mode || 'link';
   showAdd.value = true;
 }
 
+function canShareFolder(folder) { return canManage.value || Number(folder.ownerUserId) === Number(authStore.user?.id); }
 async function openShareFolder(folder) {
+  if (!agencyId.value || !canShareFolder(folder)) return;
+  const currentAgencyId = agencyId.value;
+  const sequence = ++shareRequestSequence;
   shareFolder.value = folder;
   shareError.value = '';
   shareEmails.value = '';
   shareList.value = [];
   try {
-    shareList.value = await fetchFolderShares(folder.id);
+    const shares = await fetchFolderShares(folder.id, currentAgencyId);
+    if (sequence !== shareRequestSequence || currentAgencyId !== agencyId.value || shareFolder.value?.id !== folder.id) return;
+    shareList.value = shares;
     shareEmails.value = (shareList.value || [])
       .map((s) => s.userEmail)
       .filter(Boolean)
       .join(', ');
   } catch {
-    shareList.value = [];
+    if (sequence === shareRequestSequence && currentAgencyId === agencyId.value) shareList.value = [];
   }
 }
 
 async function saveShareFolder() {
   if (!shareFolder.value) return;
+  const currentAgencyId = agencyId.value;
+  const folder = shareFolder.value;
+  const sequence = shareRequestSequence;
   shareSaving.value = true;
   shareError.value = '';
   try {
-    shareList.value = await setFolderShares(shareFolder.value.id, {
+    const shares = await setFolderShares(folder.id, {
+      agencyId: currentAgencyId,
       emails: shareEmails.value,
       permission: 'view'
     });
+    if (sequence !== shareRequestSequence || currentAgencyId !== agencyId.value || shareFolder.value?.id !== folder.id) return;
+    shareList.value = shares;
     shareFolder.value = null;
     await refresh();
   } catch (e) {
-    shareError.value = e?.response?.data?.error?.message || e?.message || 'Could not save sharing';
+    if (sequence === shareRequestSequence && currentAgencyId === agencyId.value) shareError.value = e?.response?.data?.error?.message || e?.message || 'Could not save sharing';
   } finally {
-    shareSaving.value = false;
+    if (sequence === shareRequestSequence && currentAgencyId === agencyId.value) shareSaving.value = false;
   }
 }
 
 function setTab(id) {
-  activeTab.value = id;
+  activeTab.value = id; activeCategoryId.value = null; folderId.value = undefined; detailItem.value = null; typeFilter.value = '';
+  const query = { ...route.query }; delete query.companyDocument; query.section = id === 'guides' ? 'guides' : id === 'files' ? 'resources' : id;
+  router.replace({ path: `${orgPrefix.value}/library`, query, hash: '' });
   refresh();
 }
 
 function selectCategory(c) {
+  if (selectedReference.value) closeReference();
   activeCategoryId.value = c.id;
+  folderId.value = undefined;
   activeTab.value = 'all';
   refresh();
 }
 
 function selectFolder(id) {
+  if (selectedReference.value) closeReference();
   folderId.value = id;
+  activeCategoryId.value = null;
   activeTab.value = 'all';
   refresh();
 }
 
 function clearFilters() {
+  if (selectedReference.value) closeReference();
   activeCategoryId.value = null;
   folderId.value = undefined;
   search.value = '';
   searchActive.value = false;
-  activeTab.value = 'recent';
+  activeTab.value = 'all'; typeFilter.value = '';
   refresh();
 }
 
@@ -672,26 +459,33 @@ function backToLibrary() {
 }
 
 function runSearch() {
+  clearTimeout(searchTimer);
+  if (selectedReference.value) closeReference();
   searchActive.value = !!search.value.trim();
   activeTab.value = 'all';
   refresh();
 }
 
 async function openResource(item) {
-  if ((await resourceViewer.value?.prepareToLeave()) === false) return;
+  if (!agencyId.value) return;
+  if (item.guideKey) { router.replace({ path: `${orgPrefix.value}/library`, query: { ...route.query, companyDocument: item.guideKey }, hash: '' }); return; }
+  const currentAgencyId = agencyId.value;
+  if ((await resourceViewer.value?.prepareToLeave()) === false || currentAgencyId !== agencyId.value) return;
+  const sequence = ++viewerRequestSequence;
   try {
-    const full = await fetchLibraryResource(item.id, { agencyId: agencyId.value });
+    const full = await fetchLibraryResource(item.id, { agencyId: currentAgencyId });
+    if (sequence !== viewerRequestSequence || currentAgencyId !== agencyId.value) return;
     viewerResource.value = full;
-    if (route.params.resourceId !== String(item.id) && orgSlug.value) {
+    if (String(route.params.resourceId || '') !== String(item.id) && orgSlug.value) {
       router
         .replace({
           name: 'OrganizationLibraryResource',
-          params: { organizationSlug: orgSlug.value, resourceId: String(item.id) }
+          params: { organizationSlug: orgSlug.value, resourceId: String(item.id) }, query: { ...route.query, companyDocument: undefined }
         })
         .catch(() => {});
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not open resource';
+    if (sequence === viewerRequestSequence && currentAgencyId === agencyId.value) error.value = e?.response?.data?.error?.message || 'Could not open resource';
   }
 }
 
@@ -709,21 +503,21 @@ async function onDocumentCopied(item) { await openResource(item); await refresh(
 
 async function closeViewer() {
   if ((await resourceViewer.value?.prepareToLeave()) === false) return;
+  viewerRequestSequence++;
   viewerResource.value = null;
   if (route.name === 'OrganizationLibraryResource' && orgSlug.value) {
-    router.replace({ name: 'OrganizationLibrary', params: { organizationSlug: orgSlug.value } }).catch(() => {});
+    router.replace({ name: 'OrganizationLibrary', params: { organizationSlug: orgSlug.value }, query: { ...route.query } }).catch(() => {});
   }
 }
 
 async function toggleFavorite(item) {
   try {
-    if (item.isFavorite) await removeLibraryFavorite(item.id);
-    else await addLibraryFavorite(item.id);
+    if (item.isFavorite) await removeLibraryFavorite(item.id, agencyId.value);
+    else await addLibraryFavorite(item.id, agencyId.value);
     item.isFavorite = !item.isFavorite;
+    if (activeTab.value === 'favorites') resources.value = resources.value.filter(r => r.id !== item.id || item.isFavorite);
     await loadHome();
-  } catch {
-    /* ignore */
-  }
+  } catch { error.value = 'Your favorite could not be saved. Please retry.'; }
 }
 
 function openMenu(item, evt) {
@@ -754,7 +548,7 @@ function onDistributed() {
 
 async function toggleFeatured(item) {
   try {
-    await updateLibraryResource(item.id, { featured: !item.featured });
+    await updateLibraryResource(item.id, { agencyId: agencyId.value, featured: !item.featured });
     menuItem.value = null;
     await refresh();
   } catch (e) {
@@ -764,7 +558,7 @@ async function toggleFeatured(item) {
 
 async function archiveItem(item) {
   try {
-    await archiveLibraryResource(item.id);
+    await archiveLibraryResource(item.id, agencyId.value);
     menuItem.value = null;
     if (viewerResource.value?.id === item.id) closeViewer();
     await refresh();
@@ -777,7 +571,7 @@ async function onCreated(payload = {}) {
   await refresh();
   const item = payload?.item;
   const shareMode = payload?.shareMode;
-  if (item?.resourceType === 'branded_doc') await openResource(item);
+  if (item?.resourceType === 'branded_doc' || isPdf(item || {})) await openResource(item);
   if (payload?.kind === 'resource' && item && shareMode && canDistribute(item)) {
     openDistribute(item, shareMode);
   }
@@ -787,747 +581,52 @@ function onDocClick() {
   menuItem.value = null;
 }
 
-watch(
-  () => route.params.resourceId,
-  async (id) => {
-    if (id) {
-      try {
-        viewerResource.value = await fetchLibraryResource(id);
-      } catch {
-        viewerResource.value = null;
-      }
+watch(() => route.query.section, value => {
+  const tab = tabFromSection(value);
+  if (tab !== activeTab.value) { activeTab.value = tab; activeCategoryId.value = null; folderId.value = undefined; refresh(); }
+});
+watch(() => [route.params.organizationSlug, agencyId.value], () => {
+  viewerRequestSequence++; shareRequestSequence++; clearTimeout(searchTimer);
+  home.value = null; resources.value = []; referenceDocuments.value = []; referenceCanManage.value = false;
+  viewerResource.value = null; detailItem.value = null; menuItem.value = null;
+  shareFolder.value = null; shareList.value = []; shareEmails.value = ''; shareError.value = ''; shareSaving.value = false;
+  showAdd.value = false; distributeItem.value = null; showStatistics.value = false;
+  activeCategoryId.value = null; folderId.value = undefined; search.value = ''; searchActive.value = false; typeFilter.value = '';
+  loadingMore.value = false; hasMore.value = false;
+  refresh();
+});
+watch(() => [route.params.resourceId, agencyId.value], async ([id, currentAgencyId]) => {
+  const sequence = ++viewerRequestSequence;
+  if (!id || !currentAgencyId) { viewerResource.value = null; return; }
+  if (String(viewerResource.value?.id) === String(id) && Number(viewerResource.value?.agencyId) === Number(currentAgencyId)) return;
+  viewerResource.value = null;
+  try {
+    const resource = await fetchLibraryResource(id, { agencyId: currentAgencyId });
+    if (sequence === viewerRequestSequence && currentAgencyId === agencyId.value) viewerResource.value = resource;
+  } catch (e) {
+    if (sequence === viewerRequestSequence && currentAgencyId === agencyId.value) {
+      error.value = e?.response?.data?.error?.message || 'Could not open resource';
     }
   }
-);
-
-watch(() => route.params.organizationSlug, () => { home.value = null; resources.value = []; viewerResource.value = null; refresh(); });
+}, { immediate: true });
 onMounted(async () => {
   document.addEventListener('click', onDocClick);
   await refresh();
-  if (route.params.resourceId) {
-    try {
-      viewerResource.value = await fetchLibraryResource(route.params.resourceId);
-    } catch {
-      /* ignore */
-    }
-  }
 });
 
 onUnmounted(() => {
+  requestSequence++; viewerRequestSequence++; shareRequestSequence++; clearTimeout(searchTimer);
   document.removeEventListener('click', onDocClick);
 });
 </script>
 
 <style scoped>
-.library-utilities{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-.library-page {
-  --lib-green: #166534;
-  --lib-green-soft: #dcfce7;
-  width: 100%;
-  min-height: calc(100vh - 120px);
-  background: #f3f4f6;
-  padding: 1.25rem 1.5rem 3rem;
-  box-sizing: border-box;
-}
+.mobile-navigation-toggle{display:none}
 
-.library-page__inner {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-}
+.library-page{--lib-green:#244d42;--lib-green-soft:#edf3ef;color:#25332f;background:#fbfcfb;width:100%;min-height:calc(100dvh - 70px);font-family:var(--font-body,Arial),sans-serif;font-size:14px;padding:0;box-sizing:border-box}.library-page *{box-sizing:border-box}.document-topbar{display:flex;align-items:center;gap:24px;padding:18px 24px;background:white;border-bottom:1px solid #e3e8e5}.document-identity{display:flex;gap:12px;align-items:center;min-width:230px}.document-mark{width:38px;height:42px;border-radius:9px;background:#edf3ef;color:#3c6554;padding:8px}.document-mark svg{width:100%;height:100%}.document-identity h1{margin:0;font-size:19px;font-weight:650;line-height:1.4;color:#1d3029}.document-identity p{margin:2px 0 0;color:#718077;font-size:12px}.beta-label{vertical-align:middle;font-size:10px;font-weight:600;border:1px solid #d7dfd9;border-radius:20px;padding:3px 7px;margin-left:5px;color:#5e7266}.document-search{display:flex;align-items:center;gap:10px;flex:1;max-width:660px;min-width:150px;border:1px solid #e0e5e1;border-radius:9px;padding:0 12px;background:#fcfdfc}.document-search svg{width:18px;flex-shrink:0;color:#65746b}.document-search input{font:inherit;font-size:13px;background:transparent;border:0;padding:12px 0;min-width:0;width:100%;outline:none}.document-search:focus-within{border-color:#648975;box-shadow:0 0 0 3px #eaf2ed}.document-search button{border:0;background:transparent;font-size:22px;color:#64746a;cursor:pointer}.document-actions{display:flex;gap:8px;margin-left:auto}.lib-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid transparent;border-radius:8px;min-height:38px;padding:8px 14px;font:inherit;font-size:13px;font-weight:550;text-decoration:none;cursor:pointer;white-space:nowrap}.lib-btn--primary{background:var(--lib-green);border-color:var(--lib-green);color:white}.lib-btn--primary:hover{background:#193e34}.lib-btn--ghost{background:white;border-color:#dce3de;color:#36574a}.lib-btn--ghost:hover{background:#f0f5f1}.lib-btn:disabled{opacity:.5;cursor:default}.lib-btn--sm{min-height:34px;padding:6px 10px;font-size:12px}.document-layout{display:grid;grid-template-columns:216px minmax(0,1fr);min-height:calc(100dvh - 154px)}.document-sidebar{background:#fff;border-right:1px solid #e3e8e5;padding:20px 12px;display:flex;flex-direction:column;gap:5px}.sidebar-home{font-size:12px;color:#65796c;text-decoration:none;margin:0 12px 17px}.document-sidebar nav{display:grid;gap:3px}.document-sidebar nav a,.document-sidebar nav>button,.folder-row>button:first-child{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;min-height:39px;border:0;border-radius:7px;background:transparent;color:#45564d;text-decoration:none;font:inherit;font-size:12px;line-height:1.5;cursor:pointer}.document-sidebar nav>button:hover,.document-sidebar nav a:hover,.folder-row>button:hover{background:#f4f7f4}.document-sidebar [aria-current=page]{background:#eaf1e8!important;color:#254d3a!important;font-weight:650}.nav-symbol{width:18px;font-size:18px;text-align:center;color:#647c6c;flex-shrink:0}.sidebar-heading{display:flex;align-items:center;justify-content:space-between;text-transform:uppercase;letter-spacing:.075em;font-size:10px;font-weight:600;color:#849087;margin:24px 12px 7px}.sidebar-heading button{border:0;background:transparent;font-size:20px;cursor:pointer;color:#57715f}.category-icon{width:24px;height:25px;display:flex;align-items:center;justify-content:center;border-radius:5px;background:var(--cat-bg);color:var(--cat-accent);flex-shrink:0}.category-icon :deep(svg){width:15px;height:15px}.sidebar-hint{font-size:11px;color:#8a948e;padding:0 12px;line-height:1.5}.folder-row{display:flex;align-items:center}.folder-row>button:first-child{min-width:0;flex:1}.folder-row>button:first-child span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.folder-share{border:0;background:transparent;color:#75887c;padding:9px;cursor:pointer;border-radius:7px}.sidebar-footer{border-top:1px solid #e8ece9;margin:28px 10px 0;padding-top:17px}.sidebar-footer a{display:flex;justify-content:space-between;text-decoration:none;color:#587163;font-size:12px}.document-main{padding:25px 28px 48px;min-width:0}.document-section-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:24px}.document-section-heading h2{font-size:23px;font-weight:650;margin:0;color:#21352b;line-height:1.4}.document-section-heading p{font-size:13px;color:#78877e;margin:4px 0 0}.heading-tools{display:flex;align-items:center;gap:16px}.heading-tools a{font-size:12px;text-decoration:none;color:#577563}.document-filterbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:15px}.filter-left{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.filter-left label{display:flex;align-items:center;gap:9px;font-size:11px;color:#839087;border:1px solid #e0e6e1;padding:0 10px;background:white;border-radius:7px}.filter-left select{max-width:180px;min-height:35px;background:transparent;font:inherit;font-size:12px;color:#425b4c;border:0;outline:none}.clear-filter{font:inherit;font-size:12px;color:#557564;background:transparent;border:0;cursor:pointer;text-decoration:underline}.library-view-toggle{display:flex;border:1px solid #dfe5df;border-radius:7px;background:white;padding:3px;gap:2px}.library-view-toggle button{border:0;border-radius:5px;background:transparent;padding:6px 8px;color:#6a7c71;cursor:pointer;display:flex}.library-view-toggle svg{width:17px;height:17px}.library-view-toggle [aria-pressed=true]{background:#e9f0e7;color:#284f3b}.document-filter-label{font-size:12px;color:#657c6c}.document-results-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}.document-results-layout.has-details{grid-template-columns:minmax(0,1fr) 272px}.document-results{min-width:0}.document-result-count{font-size:11px;color:#89958c;margin:0 0 9px 4px}.document-results :deep(.lib-list){border:1px solid #e4e9e5;border-radius:10px;overflow:hidden;background:white}.document-results :deep(.lib-list__head){background:#f6f8f6;font-size:10px;padding:12px 16px;color:#7b8b80}.document-results :deep(.lib-list__row){padding:14px 16px;min-height:68px}.document-results :deep(.lib-list__title){font-size:13px;font-weight:550;color:#293c30}.document-results :deep(.lib-list__cell){font-size:12px}.document-results :deep(.lib-list__by){font-size:10px}.document-results :deep(.lib-card__title){font-size:14px}.document-detail{position:sticky;top:16px;min-width:0;background:white;border:1px solid #e1e7e2;border-radius:10px;padding:18px}.detail-top{display:flex;justify-content:space-between;align-items:flex-start}.detail-file-icon{display:grid;place-items:center;width:64px;height:78px;border:1px solid #d9e2da;border-radius:4px;background:linear-gradient(135deg,#f3f6ef,#e5ede6);font-size:11px;color:#48704f;box-shadow:3px 3px 0 #f0f3ef}.detail-top button{border:0;background:transparent;color:#758679;font-size:22px;cursor:pointer}.document-detail h3{font-size:16px;line-height:1.5;margin:16px 0 7px}.detail-category{font-size:10px;color:#5a775e;background:#edf3e9;border-radius:4px;padding:4px 6px}.document-detail p{font-size:12px;line-height:1.7;color:#76877b;margin:16px 0}.detail-open{width:100%;justify-content:space-between}.document-detail dl{display:grid;grid-template-columns:55px 1fr;gap:14px 12px;font-size:11px;margin:22px 0;color:#657b6b}.document-detail dd{margin:0;color:#3b5746;overflow-wrap:anywhere}.document-detail .detail-tip{border-top:1px solid #e7ece8;padding-top:16px;font-size:11px}.document-empty{border:1px dashed #dce5df;border-radius:10px;background:white;display:flex;align-items:center;flex-direction:column;gap:12px;padding:60px 20px;text-align:center;color:#789080;font-size:13px}.document-empty h3{font-size:16px;color:#3b5a46;margin:0}.document-empty p{margin:0;max-width:380px;line-height:1.7}.empty-document{font-size:38px;color:#94af9a}.document-error{background:#fff3ed;border:1px solid #ecd3c7;border-radius:7px;padding:12px 16px;color:#91513c;font-size:12px;margin-bottom:15px}.document-error button{font:inherit;background:white;border:1px solid #d2a993;border-radius:4px;padding:4px 8px;cursor:pointer}.document-load-more{margin-top:18px}.document-back{margin-bottom:16px}.library-viewer-overlay{position:fixed;inset:0;z-index:90;background:rgba(25,40,32,.4);display:flex;padding:8px}.library-viewer-shell{width:100%;height:calc(100dvh - 16px);min-width:0}.library-menu{position:fixed;z-index:100;background:white;border:1px solid #dfe5e0;border-radius:9px;box-shadow:0 10px 30px #1f39231a;display:flex;flex-direction:column;min-width:160px;padding:5px}.library-menu button{border:0;background:white;text-align:left;padding:10px 14px;cursor:pointer;border-radius:5px;font:inherit;font-size:12px}.library-menu button:hover{background:#eff4ef}.library-menu .is-danger{color:#9e4742}.lib-modal-backdrop{position:fixed;inset:0;z-index:95;background:#14251a70;display:flex;align-items:center;justify-content:center;padding:16px}.lib-share-modal{width:min(460px,100%);background:white;border-radius:12px;padding:24px}.lib-share-modal__head{display:flex;justify-content:space-between;gap:16px}.lib-share-modal h2{font-size:18px;margin:0}.lib-modal__x{border:0;background:transparent;font-size:24px;cursor:pointer}.lib-share-modal__hint{font-size:13px;color:#768477;line-height:1.6}.lib-field{display:grid;gap:8px;font-size:12px}.lib-field textarea{font:inherit;padding:10px;border:1px solid #dbe3db;border-radius:7px;resize:vertical}.lib-share-modal__list{font-size:12px;padding-left:20px;color:#6d7e6e}.lib-share-modal__foot{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}.lib-error{color:#a74638;font-size:12px}.library-page :focus-visible{outline:2px solid #588972;outline-offset:3px}.document-search input:focus-visible{outline:0}.library-page button{touch-action:manipulation}
+@media(min-width:1700px){.document-layout{grid-template-columns:240px minmax(0,1fr)}.document-main{padding:30px 36px}.document-results-layout.has-details{grid-template-columns:minmax(0,1fr) 310px}}
+@media(max-width:1150px){.document-topbar{gap:16px;padding:14px 18px;flex-wrap:wrap}.document-search{order:3;max-width:none;flex-basis:100%}.document-layout{grid-template-columns:190px minmax(0,1fr)}.document-main{padding:22px 20px}.heading-tools a{display:none}.document-results-layout.has-details{grid-template-columns:minmax(0,1fr)}.document-detail{position:fixed;right:16px;top:100px;bottom:16px;width:min(330px,calc(100vw - 32px));overflow:auto;box-shadow:0 12px 60px #17351d26;z-index:80}}
+@media(max-width:720px){.document-topbar{padding:14px;gap:12px}.document-identity{min-width:0;flex:1}.document-identity h1{font-size:17px}.document-mark{display:none}.document-actions{gap:6px}.document-actions .lib-btn{font-size:11px;padding:7px 9px;min-height:36px}.document-actions .lib-btn span{display:none}.document-layout{display:block}.document-sidebar{padding:10px 12px;border-right:0;border-bottom:1px solid #e3e8e5;display:block}.sidebar-home,.sidebar-heading,.sidebar-hint,.folder-row,.sidebar-footer,.document-sidebar nav:not(:first-of-type){display:none}.document-sidebar nav:first-of-type{display:flex;overflow-x:auto;gap:4px;padding-bottom:2px}.document-sidebar nav:first-of-type button{width:auto;white-space:nowrap;padding:8px 10px;font-size:11px;min-height:36px}.nav-symbol{display:none}.document-main{padding:20px 12px 36px}.document-section-heading{gap:8px;margin-bottom:18px}.document-section-heading h2{font-size:20px}.document-section-heading p{font-size:12px;max-width:270px}.heading-tools .lib-btn{font-size:10px;padding:4px 7px}.document-filterbar{align-items:flex-start;gap:7px}.filter-left{gap:6px}.filter-left label{padding:0 6px;font-size:10px}.filter-left select{max-width:122px;font-size:11px}.library-view-toggle button{padding:6px}.document-results :deep(.lib-list__row){padding:12px 10px}.document-results :deep(.lib-list__title){white-space:normal;line-height:1.5}.library-viewer-overlay{padding:0}.library-viewer-shell{height:100dvh}.beta-label{font-size:8px;padding:2px 5px;margin-left:2px}}
 
-.library-page__header {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.85rem;
-  margin-bottom: 1.15rem;
-}
-
-.library-page__header-main {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.library-page__header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.library-page__tools-switcher {
-  align-self: flex-start;
-}
-
-.hub-switcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 3px;
-  flex-wrap: wrap;
-}
-
-.hub-switcher-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: 7px 13px;
-  border-radius: 9px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #64748b;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
-  border: none;
-  background: transparent;
-}
-
-.hub-switcher-btn:hover {
-  background: #fff;
-  color: #1e293b;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.hub-switcher-btn.is-active {
-  background: #fff;
-  color: var(--primary, #1f6b4a);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.library-page__header h1 {
-  margin: 0;
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.library-page__sub {
-  margin: 0.35rem 0 0;
-  color: #64748b;
-  max-width: 40rem;
-  line-height: 1.45;
-  font-size: 0.95rem;
-}
-
-.lib-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  padding: 0.6rem 1rem;
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.lib-btn--primary {
-  background: var(--lib-green);
-  color: #fff;
-}
-
-.lib-btn--primary:hover {
-  background: #14532d;
-}
-
-.lib-btn--ghost {
-  background: #fff;
-  border-color: #e5e7eb;
-  color: #334155;
-}
-
-.lib-btn--sm {
-  padding: 0.4rem 0.7rem;
-  font-size: 0.8rem;
-}
-
-.library-search-row {
-  display: flex;
-  gap: 0.65rem;
-  margin-bottom: 1.35rem;
-  align-items: stretch;
-}
-
-.library-search {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 0 1rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.library-search__icon {
-  color: #94a3b8;
-  font-size: 1.1rem;
-}
-
-.library-search input {
-  flex: 1;
-  border: 0;
-  outline: none;
-  padding: 0.85rem 0;
-  font-size: 1rem;
-  background: transparent;
-}
-
-.library-section-title {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-  font-weight: 650;
-  color: #334155;
-}
-
-.library-cats {
-  margin-bottom: 1.35rem;
-}
-
-.library-cats__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 0.75rem;
-}
-
-.library-cat {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
-  align-items: start;
-  text-align: left;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  border-radius: 14px;
-  padding: 1rem;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.library-cat:hover {
-  border-color: var(--cat-accent, #86efac);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
-}
-
-.library-cat__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 10px;
-  background: var(--cat-bg, #ecfdf5);
-  color: var(--cat-accent, #166534);
-  flex-shrink: 0;
-}
-
-.library-cat__name {
-  display: block;
-  font-weight: 700;
-  color: #0f172a;
-  font-size: 0.92rem;
-  margin-bottom: 0.2rem;
-}
-
-.library-cat__desc {
-  display: block;
-  font-size: 0.78rem;
-  color: #64748b;
-  line-height: 1.35;
-  margin-bottom: 0.45rem;
-}
-
-.library-cat__count {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 650;
-  color: var(--cat-accent, #166534);
-  background: var(--cat-bg, #ecfdf5);
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-}
-
-.library-cat__arrow {
-  color: #cbd5e1;
-  font-size: 1.1rem;
-  margin-top: 0.35rem;
-}
-
-.library-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 1.15rem;
-  align-items: start;
-}
-
-.library-panel {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 0.85rem 1rem 1rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.library-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-  border-bottom: 1px solid #f1f5f9;
-  padding-bottom: 0.65rem;
-}
-
-.library-tabs {
-  display: flex;
-  gap: 0.15rem;
-}
-
-.library-tabs__btn {
-  border: 0;
-  background: transparent;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #64748b;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -0.65rem;
-}
-
-.library-tabs__btn.is-active {
-  color: var(--lib-green);
-  border-bottom-color: var(--lib-green);
-}
-
-.library-toolbar__right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.library-view-toggle {
-  display: inline-flex;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.library-view-toggle button {
-  border: 0;
-  background: #fff;
-  padding: 0.4rem 0.65rem;
-  font-size: 0.95rem;
-  cursor: pointer;
-  color: #94a3b8;
-}
-
-.library-view-toggle button.is-active {
-  background: var(--lib-green-soft);
-  color: var(--lib-green);
-}
-
-.library-filter-label {
-  margin: 0 0 0.75rem;
-  font-size: 0.85rem;
-  color: #64748b;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.library-back-lib {
-  flex-shrink: 0;
-}
-
-.library-empty {
-  padding: 2.5rem 1rem;
-  text-align: center;
-  color: #64748b;
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  background: #fafafa;
-}
-
-.library-empty--error {
-  color: #b91c1c;
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-
-.library-view-all {
-  display: inline-block;
-  margin-top: 0.85rem;
-  border: 0;
-  background: transparent;
-  color: #0d9488;
-  font-weight: 650;
-  font-size: 0.875rem;
-  cursor: pointer;
-  padding: 0;
-}
-
-.library-side__card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 1rem;
-  margin-bottom: 0.85rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.library-side__card h3 {
-  margin: 0 0 0.75rem;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.library-side__muted {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #94a3b8;
-}
-
-.library-qa {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.library-qa__btn {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0.55rem 0.4rem;
-  border-radius: 8px;
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 550;
-  color: #334155;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.library-qa__btn:hover {
-  background: #f0fdf4;
-  color: var(--lib-green);
-}
-
-.library-qa__ico {
-  width: 1.5rem;
-  text-align: center;
-  opacity: 0.85;
-}
-
-.library-folders,
-.library-mini {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.library-folders li {
-  margin: 0;
-}
-
-.library-folders__row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  border-radius: 8px;
-  padding: 0.1rem;
-}
-
-.library-folders__row.is-mine {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-}
-
-.library-folders button {
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0.4rem 0.35rem;
-  font-size: 0.85rem;
-  color: #334155;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.library-folders__row > button:first-child {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-
-.library-folders button:hover,
-.library-folders button.is-active {
-  background: #ecfdf5;
-  color: var(--lib-green);
-  font-weight: 600;
-}
-
-.library-folders__row.is-mine button:hover,
-.library-folders__row.is-mine button.is-active {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.library-folders__share {
-  flex: 0 0 auto;
-  width: auto !important;
-  font-size: 0.7rem !important;
-  font-weight: 700;
-  color: #b45309 !important;
-  padding: 0.25rem 0.45rem !important;
-  white-space: nowrap;
-}
-
-.library-mine-pill {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  padding: 0.12rem 0.35rem;
-  border-radius: 999px;
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.lib-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 95;
-  background: rgba(15, 23, 42, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
-
-.lib-share-modal {
-  width: min(420px, 100%);
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
-  padding: 1.1rem 1.2rem 1.15rem;
-}
-
-.lib-share-modal__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
-}
-
-.lib-share-modal__head h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: #0f172a;
-}
-
-.lib-modal__x {
-  border: 0;
-  background: transparent;
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-  color: #64748b;
-}
-
-.lib-share-modal__hint {
-  margin: 0 0 0.85rem;
-  font-size: 0.85rem;
-  color: #64748b;
-  line-height: 1.4;
-}
-
-.lib-share-modal .lib-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-bottom: 0.75rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #334155;
-}
-
-.lib-share-modal textarea {
-  font: inherit;
-  font-weight: 400;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.55rem 0.65rem;
-  resize: vertical;
-}
-
-.lib-share-modal__list {
-  list-style: none;
-  margin: 0 0 0.75rem;
-  padding: 0;
-  font-size: 0.85rem;
-  color: #475569;
-}
-
-.lib-share-modal__list li {
-  padding: 0.25rem 0;
-}
-
-.lib-share-modal__foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.lib-error {
-  color: #b91c1c;
-  font-size: 0.85rem;
-  margin: 0 0 0.5rem;
-}
-
-.library-mini__row {
-  display: flex;
-  gap: 0.55rem;
-  align-items: flex-start;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 0.45rem 0.2rem;
-  cursor: pointer;
-  text-align: left;
-  border-radius: 8px;
-}
-
-.library-mini__row:hover {
-  background: #f8fafc;
-}
-
-.library-mini__type {
-  flex-shrink: 0;
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #166534;
-  background: #ecfdf5;
-  padding: 0.25rem 0.35rem;
-  border-radius: 6px;
-}
-
-.library-mini__name {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.library-mini__date {
-  display: block;
-  font-size: 0.72rem;
-  color: #94a3b8;
-  margin-top: 0.1rem;
-}
-
-.library-viewer-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  background: rgba(15, 23, 42, 0.5);
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  padding: 1rem;
-}
-
-.library-viewer-shell {
-  width: min(1100px, 100%);
-  height: calc(100vh - 2rem);
-}
-
-.library-menu {
-  position: fixed;
-  z-index: 100;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  overflow: hidden;
-}
-
-.library-menu button {
-  border: 0;
-  background: #fff;
-  text-align: left;
-  padding: 0.55rem 0.85rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
-.library-menu button:hover {
-  background: #f8fafc;
-}
-
-.library-menu .is-danger {
-  color: #b91c1c;
-}
-
-@media (max-width: 980px) {
-  .library-layout {
-    grid-template-columns: 1fr;
-  }
-  .library-side {
-    order: -1;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.75rem;
-  }
-  .library-side__card {
-    margin-bottom: 0;
-  }
-}
-
-@media (max-width: 640px) {
-  .library-page {
-    padding: 1rem 0.85rem 2.5rem;
-  }
-  .library-page__header {
-    flex-direction: column;
-  }
-  .library-search-row {
-    flex-direction: column;
-  }
-  .library-cats__grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
-
-<style scoped>
-.library-utilities{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-.clinical-form-card{border:1px solid #d3e1d9;border-radius:14px;background:#f2f6ef;padding:24px;margin:20px 0;color:#244638}.clinical-form-card>p{max-width:850px;line-height:1.7}.clinical-form-card>p:first-child{font-size:12px;letter-spacing:.1em;text-transform:uppercase}.clinical-form-card a{color:#175b48;font-weight:600}
+@media(max-width:720px){.mobile-navigation-toggle{display:block;background:transparent;border:0;color:#617969;font:inherit;font-size:11px;padding:9px 10px;cursor:pointer}.sidebar-expanded .sidebar-heading{display:flex;margin-top:12px}.sidebar-expanded .sidebar-hint,.sidebar-expanded .folder-row,.sidebar-expanded .sidebar-footer{display:flex}.sidebar-expanded nav:not(:first-of-type){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.sidebar-expanded .sidebar-footer{margin-top:14px;padding-bottom:10px}}
 </style>

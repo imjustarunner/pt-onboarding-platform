@@ -4,9 +4,9 @@ export const canFillOnDocument = field => field?.type === 'radio'
   ? !!field.options?.length && field.options.every(positioned)
   : positioned(field);
 export function pdfFieldWidgets(fields, pageCount) {
-  return fields.filter(canFillOnDocument).flatMap(field => {
+  return fields.filter(canFillOnDocument).flatMap((field, fieldIndex) => {
     const shapes = field.type === 'radio' ? field.options : [field];
-    return shapes.map((shape,index) => ({ ...field, ...shape, fieldId:field.id, widgetId:`${field.id}-${index}`, type:field.type, label:shape.label || field.label || 'Document field', option:field.type === 'radio' ? shape.value ?? shape.label : undefined, page:Number(shape.page || field.page || pageCount), width:Number(shape.width || field.width || (field.type === 'checkbox' || field.type === 'radio' ? 20 : 120)), height:Number(shape.height || field.height || (field.type === 'checkbox' || field.type === 'radio' ? 20 : 24)), x:Number(shape.x), y:Number(shape.y) }));
+    return shapes.map((shape,index) => ({ ...field, ...shape, fieldId:field.id, widgetId:`${field.id}-${fieldIndex}-${index}`, type:field.type, label:shape.label || field.label || 'Document field', option:field.type === 'radio' ? shape.value ?? shape.label : undefined, page:Number(shape.page || field.page || pageCount), width:Number(shape.width || field.width || (field.type === 'checkbox' || field.type === 'radio' ? 20 : 120)), height:Number(shape.height || field.height || (field.type === 'checkbox' || field.type === 'radio' ? 20 : 24)), x:Number(shape.x), y:Number(shape.y) }));
   });
 }
 export function pdfFieldStyle(field, width, height) {

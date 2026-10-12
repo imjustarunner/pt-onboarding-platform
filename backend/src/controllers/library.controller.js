@@ -3,6 +3,9 @@ import multer from 'multer';
 import Library from '../models/Library.model.js';
 import StorageService from '../services/storage.service.js';
 import pool from '../config/database.js';
+import User from '../models/User.model.js';
+import crypto from 'node:crypto';
+import { fillLibraryPdf, isPrivateLibraryPdf } from '../services/libraryPdf.service.js';
 import {
   isGoogleWorkspaceUrl,
   detectGoogleFileType,
@@ -14,7 +17,6 @@ import {
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
   pickDashboardContextAgencyId,
-  hasTenantAccess
 } from '../utils/meDashboardTenantScope.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 
@@ -68,7 +70,9 @@ async function assertLibraryAccess(req, agencyId, { manage = false } = {}) {
     err.status = 400;
     throw err;
   }
-  const ok = await hasTenantAccess(req, agencyId);
+  const isPlatformAdmin = String(req.user?.role || '').toLowerCase() === 'super_admin';
+  const memberships = isPlatformAdmin ? [] : await User.getAgencies(req.user.id);
+  const ok = isPlatformAdmin || memberships.some(agency => Number(agency.id) === Number(agencyId));
   if (!ok) {
     const err = new Error('You do not have access to this organization');
     err.status = 403;
@@ -110,7 +114,8 @@ function enrichResource(resource, viewerUserId = null) {
   const out = { ...resource };
   if (out.resourceType === 'branded_doc') out.bodyHtml = sanitizeDocumentHtml(out.bodyHtml);
   if (out.filePath) {
-    out.fileUrl = publicUploadsUrlFromStoredPath(out.filePath);
+    out.fileUrl = isPrivateLibraryPdf(out.filePath) ? null : publicUploadsUrlFromStoredPath(out.filePath);
+    if (isPrivateLibraryPdf(out.filePath)) { out.privatePdf = true; delete out.filePath; }
   }
   if (out.externalUrl && isGoogleWorkspaceUrl(out.externalUrl)) {
     out.previewUrl = googlePreviewUrl(out.externalUrl);
@@ -891,6 +896,9 @@ export const downloadResource = async (req, res, next) => {
     if (!resource.filePath) {
       return res.status(404).json({ error: { message: 'No file available' } });
     }
+    if (isPrivateLibraryPdf(resource.filePath)) {
+      return res.json({ kind: 'private_pdf', filename: resource.originalFilename || resource.name, requiresAuthenticatedDownload: true });
+    }
     res.json({
       url: publicUploadsUrlFromStoredPath(resource.filePath),
       kind: 'file',
@@ -1230,6 +1238,53 @@ export const listMyCopies = async (req, res, next) => {
     });
     res.json(copies.map((r) => enrichResource(r, req.user.id)));
   } catch (error) {
+    next(error);
+  }
+};
+
+// All content reads use the same tenant and per-resource grants as the library.
+export const getLibraryPdfContent = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource || resource.archivedAt || resource.resourceType !== 'file' || resource.fileType !== 'pdf' || !resource.filePath) {
+      return res.status(404).json({ error: { message: 'PDF not found' } });
+    }
+    const buffer = await StorageService.readObject(resource.filePath);
+    await Library.recordView(req.user.id, resource.id);
+    res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(resource.originalFilename || `${resource.name}.pdf`)}` });
+    res.type('application/pdf').send(buffer);
+  } catch (error) { next(error); }
+};
+
+export const saveLibraryPdfFilledCopy = async (req, res, next) => {
+  let storageKey = null;
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const source = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!source || source.archivedAt || source.resourceType !== 'file' || source.fileType !== 'pdf' || !source.filePath) {
+      return res.status(404).json({ error: { message: 'PDF not found' } });
+    }
+    const name = String(req.body.name || `${source.name} — filled copy`).trim();
+    if (!name || name.length > 255) throw documentError('Use a document name between 1 and 255 characters.');
+    if (Number(req.body.expectedVersion) !== Number(source.version || 1)) throw documentError('This source document changed. Reopen it before saving a copy.', 409);
+    const buffer = await fillLibraryPdf(await StorageService.readObject(source.filePath), req.body, { actorUserId: req.user.id, sourceResourceId: source.id });
+    // This prefix is explicitly blocked by both public upload handlers.
+    storageKey = `phi-documents/library/agency_${agencyId}/user_${req.user.id}/${crypto.randomUUID()}.pdf`;
+    await StorageService.writeObject(storageKey, buffer, 'application/pdf', { agencyId: String(agencyId), ownerUserId: String(req.user.id) });
+    const copy = await Library.createResource({
+      agencyId, name, resourceType: 'file', fileType: 'pdf', mimeType: 'application/pdf',
+      originalFilename: `${name.replace(/[\/\\]/g, '-')}.pdf`, filePath: storageKey, fileSizeBytes: buffer.length,
+      categoryId: source.categoryId, folderId: null, sourceResourceId: source.id,
+      ownerUserId: req.user.id, createdBy: req.user.id, scope: 'personal', visibility: 'internal', clientShareable: false
+    });
+    storageKey = null;
+    res.status(201).json(enrichResource(copy, req.user.id));
+  } catch (error) {
+    if (storageKey) { try { await StorageService.deleteObject(storageKey); } catch { /* Preserve the save error. */ } }
     next(error);
   }
 };

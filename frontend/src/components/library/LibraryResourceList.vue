@@ -1,61 +1,50 @@
 <template>
-  <div class="lib-list">
-    <div class="lib-list__head">
-      <span>Name</span>
-      <span>Type</span>
-      <span>Category</span>
-      <span>Last Updated</span>
-      <span></span>
+  <div class="lib-list" role="table" aria-label="Documents">
+    <div class="lib-list__head" role="row">
+      <span role="columnheader">Name</span>
+      <span role="columnheader">Type</span>
+      <span role="columnheader">Category</span>
+      <span role="columnheader">Updated</span>
+      <span role="columnheader" class="lib-list__actions-label">Actions</span>
     </div>
-    <button
+    <div
       v-for="item in items"
       :key="item.id"
-      type="button"
+      role="row"
       class="lib-list__row"
-      :class="{ 'is-mine': item.isMine || item.scope === 'personal' }"
+      :class="{ 'is-mine': item.isMine, 'is-selected': String(selectedId) === String(item.id) }"
       @click="$emit('open', item)"
     >
-      <span class="lib-list__name">
-        <button
-          type="button"
-          class="lib-list__fav"
-          :aria-label="item.isFavorite ? 'Unfavorite' : 'Favorite'"
-          @click.stop="$emit('toggle-favorite', item)"
-        >
-          {{ item.isFavorite ? '★' : '☆' }}
-        </button>
-        <span v-if="item.isMine || item.scope === 'personal'" class="lib-mine-tag">Mine</span>
-        <span class="lib-list__type-badge" :data-type="typeKey(item)">{{ typeShort(item) }}</span>
-        <span class="lib-list__title-wrap">
+      <div class="lib-list__name" role="cell">
+        <span class="lib-list__type-badge" :data-type="typeKey(item)" aria-hidden="true">{{ typeShort(item) }}</span>
+        <button type="button" class="lib-list__open" @click.stop="$emit('open', item)">
           <span class="lib-list__title">{{ item.name }}</span>
-          <span v-if="item.resourceType === 'link' || item.resourceType === 'google_doc'" class="lib-list__url">
-            {{ displayUrl(item) }}
-          </span>
-        </span>
-      </span>
-      <span class="lib-list__cell">{{ typeLabel(item) }}</span>
-      <span class="lib-list__cell">
+          <span v-if="item.description" class="lib-list__subtitle">{{ item.description }}</span>
+          <span v-else-if="item.resourceType === 'link' || item.resourceType === 'google_doc'" class="lib-list__subtitle">{{ displayUrl(item) }}</span>
+        </button>
+        <span v-if="item.isMine" class="lib-mine-tag">Mine</span>
+      </div>
+      <span role="cell" class="lib-list__cell lib-list__type">{{ typeLabel(item) }}</span>
+      <span role="cell" class="lib-list__cell lib-list__category">
         <span v-if="item.categoryName" class="lib-cat-pill" :data-slug="item.categorySlug">{{ item.categoryName }}</span>
         <span v-else>—</span>
       </span>
-      <span class="lib-list__cell lib-list__updated">
+      <span role="cell" class="lib-list__cell lib-list__updated">
         <span>{{ formatDate(item.updatedAt) }}</span>
-        <span v-if="item.updatedByName || item.createdByName" class="lib-list__by">
-          by {{ item.updatedByName || item.createdByName }}
-        </span>
+        <span v-if="item.updatedByName || item.createdByName" class="lib-list__by">{{ item.updatedByName || item.createdByName }}</span>
       </span>
-      <span class="lib-list__cell">
-        <button
-          v-if="canManage || (showOwnerMenu && item.isMine)"
-          type="button"
-          class="lib-list__more"
-          aria-label="More actions"
-          @click.stop="$emit('menu', item, $event)"
-        >
-          ⋯
+      <div role="cell" class="lib-list__actions">
+        <button v-if="!isGuide(item)" type="button" class="lib-list__action lib-list__fav" :aria-label="`${item.isFavorite ? 'Remove from' : 'Add to'} favorites: ${item.name}`" :aria-pressed="!!item.isFavorite" @click.stop="$emit('toggle-favorite', item)">
+          <svg viewBox="0 0 24 24" aria-hidden="true" :fill="item.isFavorite ? 'currentColor' : 'none'"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z" /></svg>
         </button>
-      </span>
-    </button>
+        <button v-if="showDetails" type="button" class="lib-list__action" :aria-label="`Details for ${item.name}`" @click.stop="$emit('details', item)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></svg>
+        </button>
+        <button v-if="!isGuide(item) && (canManage || (showOwnerMenu && item.isMine))" type="button" class="lib-list__action" :aria-label="`More actions for ${item.name}`" @click.stop="$emit('menu', item, $event)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -63,264 +52,75 @@
 defineProps({
   items: { type: Array, default: () => [] },
   canManage: { type: Boolean, default: false },
-  showOwnerMenu: { type: Boolean, default: false }
+  showOwnerMenu: { type: Boolean, default: false },
+  selectedId: { type: [String, Number], default: null },
+  showDetails: { type: Boolean, default: false }
 });
-
-defineEmits(['open', 'toggle-favorite', 'menu']);
-
+defineEmits(['open', 'toggle-favorite', 'menu', 'details']);
+const isGuide = (item) => item.resourceType === 'company_guide';
+const isHandbook = (item) => isGuide(item) && item.guideKey === 'workplace-handbook';
 function typeKey(item) {
+  if (isGuide(item)) return 'guide';
+  if (item.resourceType === 'branded_doc') return 'document';
   if (item.resourceType === 'google_doc') return 'google';
   if (item.resourceType === 'link') return 'link';
   return item.fileType || 'file';
 }
-
 function typeShort(item) {
-  const k = typeKey(item);
-  if (k === 'google') return 'GDOC';
-  if (k === 'link') return 'LINK';
-  if (k === 'pdf') return 'PDF';
-  if (k === 'word') return 'DOCX';
-  if (k === 'spreadsheet') return 'XLSX';
-  if (k === 'presentation') return 'PPTX';
-  if (k === 'image') return 'IMG';
-  return 'FILE';
+  return { guide: 'READ', document: 'DOC', google: 'GDOC', link: 'LINK', pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'IMG', text: 'TXT' }[typeKey(item)] || 'FILE';
 }
-
 function typeLabel(item) {
+  if (isGuide(item)) return isHandbook(item) ? 'Handbook' : 'Guide';
+  if (item.resourceType === 'branded_doc') return 'Document';
   if (item.resourceType === 'google_doc') return 'Google Doc';
   if (item.resourceType === 'link') return 'Link';
-  const map = {
-    pdf: 'PDF',
-    word: 'DOCX',
-    spreadsheet: 'XLSX',
-    presentation: 'PPTX',
-    image: 'Image',
-    text: 'Text'
-  };
-  return map[item.fileType] || (item.fileType || 'File').toUpperCase();
+  return { pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'Image', text: 'Text' }[item.fileType] || 'File';
 }
-
 function displayUrl(item) {
-  const u = String(item.externalUrl || '').trim();
-  if (!u) return '';
-  try {
-    const parsed = new URL(u);
-    return parsed.hostname + (parsed.pathname.length > 1 ? parsed.pathname.slice(0, 28) : '');
-  } catch {
-    return u.slice(0, 40);
-  }
+  const value = String(item.externalUrl || '').trim();
+  try { const url = new URL(value); return url.hostname + (url.pathname.length > 1 ? url.pathname.slice(0, 28) : ''); }
+  catch { return value.slice(0, 40); }
 }
-
-function formatDate(d) {
-  if (!d) return '—';
-  try {
-    return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return '—';
-  }
+function formatDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 </script>
 
 <style scoped>
-.lib-list {
-  border: 0;
-  border-radius: 0;
-  overflow: visible;
-  background: transparent;
-}
-
-.lib-list__head,
-.lib-list__row {
-  display: grid;
-  grid-template-columns: minmax(0, 2.4fr) 0.7fr 1fr 1.1fr 0.35fr;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.75rem 0.35rem;
-  text-align: left;
-}
-
-.lib-list__head {
-  font-size: 0.72rem;
-  font-weight: 650;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.lib-list__row {
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid #f1f5f9;
-  background: #fff;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-
-.lib-list__row.is-mine {
-  background: linear-gradient(90deg, #fffbeb 0, #fffbeb 4px, #fffef7 4px, #fff 28px);
-  border-left: 3px solid #d97706;
-}
-
-.lib-list__row:hover {
-  background: #f8fafc;
-}
-
-.lib-list__row.is-mine:hover {
-  background: #fff7ed;
-}
-
-.lib-mine-tag {
-  flex-shrink: 0;
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  padding: 0.2rem 0.4rem;
-  border-radius: 999px;
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.lib-list__name {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.lib-list__fav {
-  border: 0;
-  background: transparent;
-  color: #d97706;
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.lib-list__type-badge {
-  flex-shrink: 0;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  padding: 0.28rem 0.4rem;
-  border-radius: 6px;
-  background: #ecfdf5;
-  color: #166534;
-}
-
-.lib-list__type-badge[data-type='google'] {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.lib-list__type-badge[data-type='link'] {
-  background: #f0fdfa;
-  color: #0f766e;
-}
-
-.lib-list__type-badge[data-type='pdf'] {
-  background: #fef2f2;
-  color: #b91c1c;
-}
-
-.lib-list__title-wrap {
-  min-width: 0;
-}
-
-.lib-list__title {
-  display: block;
-  font-weight: 650;
-  color: #0f172a;
-  font-size: 0.9rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lib-list__url {
-  display: block;
-  font-size: 0.72rem;
-  color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lib-list__cell {
-  font-size: 0.85rem;
-  color: #64748b;
-}
-
-.lib-list__updated {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  font-size: 0.8rem;
-}
-
-.lib-list__by {
-  color: #94a3b8;
-  font-size: 0.72rem;
-}
-
-.lib-cat-pill {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 650;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  background: #ecfdf5;
-  color: #166534;
-}
-
-.lib-cat-pill[data-slug='templates'] {
-  background: #f5f3ff;
-  color: #6d28d9;
-}
-
-.lib-cat-pill[data-slug='forms_assessments'] {
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.lib-cat-pill[data-slug='care_documents'] {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.lib-cat-pill[data-slug='policies_procedures'] {
-  background: #eef2ff;
-  color: #4338ca;
-}
-
-.lib-cat-pill[data-slug='community_external'] {
-  background: #f0fdfa;
-  color: #0f766e;
-}
-
-.lib-list__more {
-  border: 0;
-  background: #f1f5f9;
-  border-radius: 6px;
-  width: 1.75rem;
-  height: 1.75rem;
-  cursor: pointer;
-}
-
-@media (max-width: 720px) {
-  .lib-list__head {
-    display: none;
-  }
-  .lib-list__row {
-    grid-template-columns: 1fr auto;
-  }
-  .lib-list__cell:nth-child(2),
-  .lib-list__cell:nth-child(3),
-  .lib-list__cell:nth-child(4) {
-    display: none;
-  }
-}
+.lib-list { min-width: 0; background: #fff; }
+.lib-list__head, .lib-list__row { display: grid; grid-template-columns: minmax(160px, 2.7fr) minmax(65px, .65fr) minmax(100px, 1fr) minmax(90px, .9fr) 112px; gap: 14px; align-items: center; padding: 13px 16px; text-align: left; }
+.lib-list__head { background: #f8f9f8; color: #64716a; font-size: 11px; font-weight: 600; border-bottom: 1px solid #e7ece8; }
+.lib-list__row { min-height: 70px; border-bottom: 1px solid #edf0ed; cursor: pointer; color: #506057; transition: background .12s; }
+.lib-list__row:last-child { border-bottom: 0; }
+.lib-list__row:hover { background: #f8fbf8; }
+.lib-list__row.is-selected { background: #eff5ef; box-shadow: inset 3px 0 #38614d; }
+.lib-list__name { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.lib-list__type-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 37px; height: 42px; border: 1px solid #dce6df; border-radius: 7px; background: #f3f8f3; color: #355d45; font-size: 9px; font-weight: 700; letter-spacing: .02em; }
+.lib-list__type-badge[data-type='pdf'] { background: #fff4f1; color: #b14c33; border-color: #f1dbd4; }
+.lib-list__type-badge[data-type='google'], .lib-list__type-badge[data-type='word'] { background: #f0f5fd; color: #3b6694; border-color: #dce5f3; }
+.lib-list__type-badge[data-type='image'], .lib-list__type-badge[data-type='link'] { background: #f6f2fa; color: #73598b; border-color: #e8dff1; }
+.lib-list__open { min-width: 0; flex: 1; padding: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.lib-list__title { display: block; color: #1e3029; font-size: 13px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.lib-list__subtitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; font-size: 11px; color: #77817b; }
+.lib-mine-tag { flex-shrink: 0; font-size: 9px; border-radius: 5px; padding: 3px 5px; background: #f5efdf; color: #8b6b28; }
+.lib-list__cell { font-size: 11px; min-width: 0; }
+.lib-list__updated { display: flex; flex-direction: column; gap: 3px; line-height: 1.4; }
+.lib-list__by { color: #87918a; font-size: 10px; }
+.lib-cat-pill { display: inline-block; border-radius: 6px; padding: 4px 7px; background: #edf4ec; color: #4d684b; font-size: 10px; line-height: 1.4; }
+.lib-cat-pill[data-slug='templates'] { background: #f3edf8; color: #765b90; }
+.lib-cat-pill[data-slug='forms_assessments'] { background: #fcf0e8; color: #9a6546; }
+.lib-cat-pill[data-slug='care_documents'] { background: #ecf3fb; color: #557293; }
+.lib-cat-pill[data-slug='policies_procedures'] { background: #f1eef8; color: #706087; }
+.lib-list__actions { display: flex; justify-content: flex-end; align-items: center; gap: 2px; }
+.lib-list__actions-label { text-align: right; }
+.lib-list__action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 35px; width: 35px; height: 35px; border: 0; border-radius: 7px; background: transparent; color: #69786f; cursor: pointer; }
+.lib-list__action:hover { color: #204c37; background: #eaf0e9; }
+.lib-list__fav[aria-pressed='true'] { color: #b28b34; }
+.lib-list__action svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.lib-list__fav[aria-pressed='true'] svg { fill: currentColor; }
+button:focus-visible { outline: 2px solid #46765b; outline-offset: 3px; }
+@media (max-width: 1000px) { .lib-list__head, .lib-list__row { grid-template-columns: minmax(160px, 2fr) 65px minmax(80px, 1fr) 112px; gap: 10px; } .lib-list__head > :nth-child(3), .lib-list__category { display: none; } }
+@media (max-width: 640px) { .lib-list__head { display: none; } .lib-list__row { grid-template-columns: minmax(0, 1fr); gap: 7px; padding: 13px; } .lib-list__type, .lib-list__updated { display: none; } .lib-list__actions { padding-left: 49px; justify-content: flex-start; } .lib-list__action { width: 40px; height: 40px; flex-basis: 40px; } .lib-list__subtitle { font-size: 10px; } }
 </style>

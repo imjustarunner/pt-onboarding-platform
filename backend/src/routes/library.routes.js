@@ -2,6 +2,8 @@ import express from 'express';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
   getHome,
+  getLibraryPdfContent,
+  saveLibraryPdfFilledCopy,
   listCategories,
   updateCategory,
   listFolders,
@@ -102,6 +104,8 @@ router.post('/resources/link', addLinkResource);
 router.get('/resources/:id', getResource);
 router.get('/resources/:id/download', downloadResource);
 router.get('/resources/:id/google-preview', previewGoogleResource);
+router.get('/resources/:id/pdf-content', getLibraryPdfContent);
+router.post('/resources/:id/filled-copy', saveLibraryPdfFilledCopy);
 router.get('/resources/:id/pdf', renderBrandedDocPdf);
 router.get('/resources/:id/docx', exportLibraryDocumentWord);
 router.post('/resources/:id/copy', copyLibraryDocument);
