@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
+import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
 
 export async function enqueueMeetingSummary(type, id) {
   if (!['team','supervision'].includes(type) || !Number(id)) throw new Error('Invalid meeting');
@@ -9,8 +10,15 @@ export async function enqueueMeetingSummary(type, id) {
     status=IF(status='generating','generating','queued')`, [type,Number(id)]);
   return { ok: true, status: 'queued' };
 }
-export async function meetingSummaryStatus(type, id) {
+export async function meetingSummaryStatus(type, id, artifact = null) {
   const [rows] = await pool.execute('SELECT status,updated_at FROM meeting_summary_jobs WHERE meeting_type=? AND meeting_id=?', [type,Number(id)]);
+  if (artifact?.transcript_text && hasUnresolvedMeetingReferences(artifact.summary_text) && (!rows[0] || rows[0].status === 'ready')) {
+    // Concurrent readers must not restart a running repair or exhaust its retries.
+    await pool.execute(`INSERT INTO meeting_summary_jobs (meeting_type,meeting_id) VALUES (?,?)
+      ON DUPLICATE KEY UPDATE attempts=IF(status='ready',0,attempts),
+      available_at=IF(status='ready',UTC_TIMESTAMP(),available_at),status=IF(status='ready','queued',status)`, [type,Number(id)]);
+    return meetingSummaryStatus(type, id);
+  }
   return rows[0]?.status || null;
 }
 let running = false;

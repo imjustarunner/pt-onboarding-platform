@@ -2,7 +2,7 @@ import multer from 'multer';
 import pool from '../config/database.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import { assertLastMeetingHost } from '../services/meetingEndPermission.service.js';
-import { isGroupSupervision, hasGroupTranscriptionConsent, acceptGroupTranscriptionConsent } from '../services/groupSupervisionConsent.service.js';
+import { isGroupSupervision, acceptGroupTranscriptionConsent } from '../services/groupSupervisionConsent.service.js';
 import {canJoinSupervision} from '../services/meetingJoinPolicy.service.js';
 import {clientRecordingContext} from './counselingRecordingConsent.controller.js';
 import {transcriptionState,controlTranscription,appendMeetingAudio} from '../services/meetingTranscription.service.js';
@@ -24,10 +24,8 @@ export async function meetingTranscriptionContext(req) {
 }
 async function participantTranscriptionState(context) {
   const state = await transcriptionState(context);
-  const consentRequired = context.type === 'supervision' && isGroupSupervision(context.session)
-    && !await hasGroupTranscriptionConsent(context.session.id, context.userId);
-  return { ...state, consentRequired, allowed: state.allowed && !consentRequired,
-    reason: consentRequired ? 'Please agree to group transcription or leave the session.' : state.reason };
+  // Keep this field for older clients without requiring a per-session checkbox.
+  return { ...state, consentRequired: false };
 }
 export async function getMeetingTranscription(req,res,next){try{
   const context=await meetingTranscriptionContext(req);
@@ -49,6 +47,5 @@ export async function setMeetingTranscription(req,res,next){try{
 }catch(e){next(e);}}
 export async function saveMeetingAudio(req,res,next){try{
   const context = await meetingTranscriptionContext(req);
-  if (context.type === 'supervision' && isGroupSupervision(context.session) && !await hasGroupTranscriptionConsent(context.session.id,context.userId)) fail('Agree to group transcription before sending audio.');
   res.json(await appendMeetingAudio(context,{buffer:req.file?.buffer,mimeType:req.file?.mimetype,revision:req.body.revision,chunkKey:req.body.chunkKey}));
 }catch(e){next(e);}}

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
-import { isGroupSupervision, groupTranscriptionConsent } from './groupSupervisionConsent.service.js';
 import { SUPERVISION_AGREEMENT_TEXT, SUPERVISION_AGREEMENT_VERSION } from '../content/supervisionAgreement.en.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
@@ -61,6 +60,7 @@ export async function signSupervisionAgreement({ agreementId, userId, input, ip,
     const a = rows[0]; if (!a || a.revoked_at) fail('Agreement is unavailable.', 404);
     const role = Number(a.supervisor_user_id) === Number(userId) ? 'supervisor' : Number(a.supervisee_user_id) === Number(userId) ? 'supervisee' : null;
     if (!role || (portal && role !== 'supervisee')) fail('Only the named signer can sign this agreement.');
+    if (Number(a.version) !== SUPERVISION_AGREEMENT_VERSION) fail('Open the updated supervision agreement before signing.', 409);
     if (!await hasActiveMeetingMembership(a.agency_id, userId)) fail('An active agency membership is required.');
     const [current] = await db.execute('SELECT id FROM supervisor_assignments WHERE id=? AND supervisor_id=? AND supervisee_id=? AND agency_id=?', [a.assignment_id,a.supervisor_user_id,a.supervisee_user_id,a.agency_id]);
     if (!current.length) fail('The supervisor assignment changed. Open the current agreement.', 409);
@@ -86,24 +86,8 @@ export async function signSupervisionAgreement({ agreementId, userId, input, ip,
 }
 export async function supervisionRecordingConsent(session, db = pool) {
   if (!await isMentalHealthAgency(session.agency_id, db)) return { allowed: false, reason: 'Supervision recording is available for mental health agencies only.' };
-  if (isGroupSupervision(session)) return groupTranscriptionConsent(session, db);
-  const [participants] = await db.execute(`SELECT ? AS user_id UNION SELECT ? UNION
-    SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')`,
-    [session.supervisee_user_id,session.co_facilitator_user_id,session.id]);
-  const supervisees = [...new Set(participants.map(p=>Number(p.user_id)).filter(id=>id && id!==Number(session.supervisor_user_id) && id!==Number(session.co_facilitator_user_id)))];
-  if (!supervisees.length) return { allowed:false,reason:'Add the supervisees before recording.' };
-  for (const uid of supervisees) {
-    const [signed] = await db.execute(`SELECT a.id FROM supervision_agreements a JOIN supervisor_assignments sa ON sa.id=a.assignment_id
-      AND sa.supervisor_id=a.supervisor_user_id AND sa.supervisee_id=a.supervisee_user_id AND sa.agency_id=a.agency_id
-      WHERE a.agency_id=? AND a.supervisee_user_id=? AND a.supervisor_signed_at IS NOT NULL AND a.supervisee_signed_at IS NOT NULL
-        AND a.revoked_at IS NULL AND a.version=? LIMIT 1`,[session.agency_id,uid,SUPERVISION_AGREEMENT_VERSION]);
-    if (!signed.length) return {allowed:false,reason:'Each supervisee and their assigned supervisor must sign the supervision agreement before transcription.'};
-  }
-  // The facilitator must also have signed an agreement as a supervisor in this agency.
-  for (const uid of [session.supervisor_user_id,session.co_facilitator_user_id].filter(Boolean)) {
-    const [signed] = await db.execute(`SELECT id FROM supervision_agreements WHERE agency_id=? AND supervisor_user_id=? AND supervisor_signed_at IS NOT NULL AND revoked_at IS NULL AND version=? LIMIT 1`,[session.agency_id,uid,SUPERVISION_AGREEMENT_VERSION]);
-    if (!signed.length) return {allowed:false,reason:'The supervisor must sign a supervision agreement before transcription.'};
-  }
+  // Agreement completion is tracked separately. Pending supervisee signatures,
+  // supervisor countersignatures and session acknowledgments do not gate capture.
   return {allowed:true};
 }
 

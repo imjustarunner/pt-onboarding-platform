@@ -9,7 +9,7 @@ import { createServer } from '../frontend/node_modules/vite/dist/node/index.js';
 import { parse, compileStyle } from '../frontend/node_modules/@vue/compiler-sfc/dist/compiler-sfc.esm-browser.js';
 
 const root=fileURLToPath(new URL('../frontend/',import.meta.url));
-const styles=['src/views/teamMeeting/JoinTeamMeetingView.vue','src/components/supervision/GroupSupervisionLiveRoom.vue'].map(file=>{
+const styles=['src/views/teamMeeting/JoinTeamMeetingView.vue','src/components/supervision/GroupSupervisionLiveRoom.vue','src/components/supervision/SupervisionVideoRoom.vue'].map(file=>{
   const {descriptor}=parse(fs.readFileSync(`${root}/${file}`,'utf8'));
   return descriptor.styles.map(s=>compileStyle({source:s.content,filename:file,id:'data-v-layout',scoped:true}).code).join('\n');
 }).join('\n');
@@ -29,9 +29,12 @@ createApp({setup(){return()=>kind.value==='group'
      h('aside',{class:'gsl__workspace',...scope},'Agenda and attendance')]),
    h('div',{class:'gsl__presentation-band',...scope},[h('div',{class:'gsl__stage',...scope},'Case presentation')]),
    h(Chat,{eventId:999,startOpen:true,belowVideo:true})])
- : h('div',{class:'join-video',...scope,style:{width:'100%',height:focus.value==='collapsed'?'auto':'560px',minHeight:'0'}},[
-   h('div',{class:['join-video__stage',{'join-video__stage--collapsed':focus.value==='collapsed'}],...scope,style:{height:focus.value==='collapsed'?'auto':'430px',flex:'none'}},[video()]),
-   h(Chat,{eventId:999,startOpen:true,belowVideo:true})]);}}).use(createPinia()).mount('#fixture');
+ : h('main',{class:'join-team-meeting-view',...scope},[
+   h('header',{class:'join-header',...scope,style:{height:'64px'}},'Meeting room'),
+   h('div',{class:'join-session-layout join-session-layout--chat-only',...scope},[
+     h('div',{class:'join-video',...scope},[
+       h('div',{class:['join-video__stage',{'join-video__stage--collapsed':focus.value==='collapsed'}],...scope},[video()]),
+       h('section',{class:'join-live-activity',...scope},[h(Chat,{eventId:999,startOpen:true,belowVideo:true})])])])]);}}).use(createPinia()).mount('#fixture');
 await nextTick();
 room.value.remotes.push(...['Alice','Bob','Carol'].map((name,i)=>({name,streamId:'peer'+i,connectionId:'c'+i,hasVideo:true,hasAudio:true})));
 window.fixture={set:async(mode,layout='team')=>{focus.value=mode;kind.value=layout;full.value=mode==='fullscreen';if(full.value)focus.value='equal';await nextTick();if(!room.value.remotes.length)room.value.remotes.push(...['Alice','Bob','Carol'].map((name,i)=>({name,streamId:'peer'+i,connectionId:'c'+i,hasVideo:true,hasAudio:true})));await nextTick();},ready:true};
@@ -50,8 +53,8 @@ try {
   const pageErrors=[];
   page.on('pageerror',error=>pageErrors.push(error.message));
   page.setDefaultTimeout(15000);
-  for(const width of [375,768,1440]){
-    await page.setViewportSize({width,height:900});
+  for(const [width,height] of [[375,667],[768,600],[1440,900],[1440,600]]){
+    await page.setViewportSize({width,height});
     await page.goto(`http://127.0.0.1:${port}/__meeting_layout_test__`);
     await page.waitForFunction(()=>window.fixture?.ready);
     for(const parent of ['team','group']){
@@ -70,19 +73,28 @@ try {
       const expanded=await page.locator('.vsr__stage').boundingBox();
       assert(expanded.height>strip.height+20,`${width}/${parent}: expanded stage remains collapsed (${expanded.height}px)`);
     }
-    await page.evaluate(()=>window.fixture.set('collapsed'));
-    await page.locator('.mlap__form--rich input[type="text"]').fill('Small-screen chat works');
-    const geometry=await page.locator('.mlap__form--rich input[type="text"]').evaluate(el=>{
-      const a=el.getBoundingClientRect(),p=el.closest('.mlap__panel').getBoundingClientRect();
-      return {left:a.left,right:a.right,bottom:a.bottom,panelBottom:p.bottom,width:a.width};
-    });
-    assert(geometry.width>=130 && geometry.left>=0 && geometry.right<=width,`${width}: input squeezed/offscreen`);
-    assert(geometry.bottom<=geometry.panelBottom+1,`${width}: input clipped below panel`);
+    for (const size of ['S','M','L']) {
+      await page.evaluate(()=>window.fixture.set('equal'));
+      await page.getByRole('group',{name:'Chat panel size'}).getByRole('button',{name:size,exact:true}).click();
+      const input=page.getByRole('textbox',{name:'Chat message'});
+      await input.fill('Small-screen chat works');
+      await input.scrollIntoViewIfNeeded();
+      const geometry=await input.evaluate(el=>{
+        const a=el.getBoundingClientRect(),p=el.closest('.mlap__panel').getBoundingClientRect();
+        const visible=document.elementFromPoint(a.x+a.width/2,a.bottom-2)===el;
+        return {left:a.left,right:a.right,bottom:a.bottom,panelBottom:p.bottom,width:a.width,visible};
+      });
+      assert(geometry.width>=130 && geometry.left>=0 && geometry.right<=width,`${width}x${height}/${size}: input squeezed/offscreen`);
+      assert(geometry.bottom<=geometry.panelBottom+1 && geometry.visible,`${width}x${height}/${size}: input clipped by an ancestor`);
+      const sent=page.waitForRequest(r=>r.method()==='POST' && r.url().includes('/activity'));
+      await page.locator('.mlap__form--rich button[type="submit"]').click();
+      assert.equal((await sent).postDataJSON().payload.text,'Small-screen chat works');
+    }
     await page.evaluate(()=>window.fixture.set('fullscreen'));
     assert(await page.locator('.vsr__fs-leave').isVisible());
     await page.locator('.vsr__fs-leave').click();
     assert.equal(await page.locator('.vsr--fullscreen').count(),0);
-    console.log(`PASS meeting layout and chat geometry: ${width}px`);
+    console.log(`PASS meeting layout and chat geometry: ${width}x${height}`);
   }
   assert.deepEqual(pageErrors,[], 'Browser fixture raised JavaScript errors');
 } finally { await browser?.close(); await server.close(); }

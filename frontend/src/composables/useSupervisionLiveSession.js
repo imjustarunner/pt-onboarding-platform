@@ -206,22 +206,8 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   async function flushLiveTranscript() { await speechCapture?.flush(); }
 
   const transcriptPaused = ref(false);
-  const groupConsentRequired = ref(enablePresentation);
   const transcriptRequested = ref(false);
   const transcriptAllowed = ref(false);
-  const transcriptConsentBusy = ref(false);
-  async function acceptGroupTranscriptConsent() {
-    if (transcriptConsentBusy.value) return;
-    transcriptConsentBusy.value = true;
-    try {
-      const { data } = await api.post(`/supervision/sessions/${numericSessionId.value}/transcription/control`,
-        { action: 'accept-group-consent', accepted: true }, { skipGlobalLoading: true, skipAuthRedirect: true });
-      groupConsentRequired.value = !!data.consentRequired;
-      transcriptHint.value = data.reason || 'Group transcription consent saved.';
-    } catch (error) {
-      transcriptHint.value = error.response?.data?.error?.message || 'Consent could not be saved. Please retry.';
-    } finally { transcriptConsentBusy.value = false; }
-  }
   const transcriptRoomStopped = ref(false);
   const transcriptStopMeta = ref(null);
 
@@ -248,7 +234,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       isHost: props.isSupervisor,
       onState: state => {
         transcriptPaused.value=state.paused; transcriptRoomStopped.value=state.stopped;
-        groupConsentRequired.value=!!state.consentRequired; transcriptRequested.value=!!state.requested;
+        transcriptRequested.value=!!state.requested;
         transcriptAllowed.value=!!state.allowed;
       },
       onHint: (text) => {
@@ -634,15 +620,12 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     topics,
     chatMessages,
     transcriptHint,
-    groupConsentRequired,
     transcriptRequested,
     transcriptAllowed,
     availablePresentations,
     canHandoffPresentation,
     handoffPresentation,
     presentationError,
-    transcriptConsentBusy,
-    acceptGroupTranscriptConsent,
     transcriptCapturing,
     transcriptPaused,
     transcriptRoomStopped,

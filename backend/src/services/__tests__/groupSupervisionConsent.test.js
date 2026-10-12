@@ -13,12 +13,10 @@ describe('group supervision acknowledgement', () => {
     await acceptGroupTranscriptionConsent(101, 7, db);
     expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('ON DUPLICATE KEY'), [101, 7, '2026-10-06']);
   });
-  it('holds transcription for unconsented live admitted users and excludes departed/waiting users', async () => {
-    const db = { execute: vi.fn().mockResolvedValueOnce([[{join_identity:'user-7'}]]).mockResolvedValueOnce([[]]) };
-    expect((await groupTranscriptionConsent({ id: 101 }, db)).allowed).toBe(false);
+  it('does not gate transcription on per-session acknowledgments', async () => {
+    const db = { execute: vi.fn() };
     expect((await groupTranscriptionConsent({ id: 101 }, db)).allowed).toBe(true);
-    expect(db.execute.mock.calls[0][0]).toContain('JOIN supervision_session_video_admissions');
-    expect(db.execute.mock.calls[0][0]).toContain('p.left_at IS NULL');
+    expect(db.execute).not.toHaveBeenCalled();
     expect(isGroupSupervision({ session_type: 'individual' })).toBe(false);
   });
 });

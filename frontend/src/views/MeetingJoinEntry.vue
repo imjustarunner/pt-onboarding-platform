@@ -7,6 +7,7 @@
  <main v-else class="calendar-guest"><h1>{{ title || 'Join meeting' }}</h1><p v-if="error" role="alert">{{ error }}</p>
   <p v-if="loading">Checking meeting access…</p>
   <template v-else><p>You are joining as a guest. To register attendance as yourself, use your private email link or <RouterLink :to="{path:'/login',query:{redirect:route.fullPath}}">sign in</RouterLink>.</p>
+   <p v-if="type === 'supervision'" role="status">This supervision session uses audio transcription and summaries for authorized participants. Joining as a guest does not pause transcription. Your current supervision agreement still requires your signature and your assigned supervisor’s countersignature.</p>
    <VideoSessionRoom v-if="video" v-bind="video" @leave-request="leave" @disconnected="leave" @meeting-ended="leave" />
    <p v-else-if="visit && !ended" role="status">Waiting for the host to admit {{ displayName }} (Guest)…</p>
    <p v-else-if="ended">You have left the meeting. Reopen the calendar link to request admission again.</p>

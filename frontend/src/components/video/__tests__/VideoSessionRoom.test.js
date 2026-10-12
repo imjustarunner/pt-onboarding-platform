@@ -7,6 +7,7 @@ import { acquireNativeAudioSource } from '../nativeAudioCapture.js';
 const videoSdk = vi.hoisted(() => ({
   session: null,
   connectCallback: null,
+  unblockAudio: vi.fn(),
   initPublisher: vi.fn()
 }));
 
@@ -29,6 +30,7 @@ vi.mock('@vonage/client-sdk-video', () => ({
       return videoSdk.session;
     }),
     initPublisher: videoSdk.initPublisher,
+    unblockAudio: videoSdk.unblockAudio,
     hasMediaProcessorSupport: vi.fn(() => false)
   }
 }));
@@ -461,4 +463,28 @@ describe('alone-room disconnect and arrivals', () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(wrapper.emitted('disconnected').at(-1)).toEqual([{reason:'alone-timeout'}]);
   });
+});
+
+
+describe('meeting speaker playback recovery',()=>{
+ it('shows a recovery button when the browser blocks a subscriber and enables sound from a click',async()=>{
+  const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'sound-test',token:'eyJ.test.token',playJoinTone:false}});
+  await flushPromises();await vi.dynamicImportSettled();
+  const handlers={};let blocked=true;
+  const sub={on:vi.fn((name,handler)=>{(handlers[name] ||= []).push(handler);}),isAudioBlocked:()=>blocked,subscribeToAudio:vi.fn(),setAudioVolume:vi.fn()};
+  videoSdk.session.subscribe=vi.fn((_stream,target)=>({...sub,element:target}));
+  videoSdk.session._handlers.streamCreated({stream:{streamId:'sound-person',hasVideo:true,hasAudio:true,connection:{connectionId:'peer'}}});
+  await flushPromises();
+  expect(wrapper.text()).toContain('Your browser has paused meeting sound.');
+  videoSdk.unblockAudio.mockImplementation(async()=>{blocked=false;for(const h of handlers.audioUnblocked)h();});
+  await wrapper.get('.vsr__audio-problem button').trigger('click');await flushPromises();
+  expect(videoSdk.unblockAudio).toHaveBeenCalled();
+  expect(sub.subscribeToAudio).toHaveBeenCalledWith(true);expect(sub.setAudioVolume).toHaveBeenCalledWith(100);
+  expect(wrapper.text()).not.toContain('Your browser has paused meeting sound.');
+  blocked=true;for(const h of handlers.audioBlocked)h();await flushPromises();
+  videoSdk.unblockAudio.mockRejectedValueOnce(new Error('Autoplay denied'));
+  await wrapper.get('.vsr__audio-problem button').trigger('click');await flushPromises();
+  expect(wrapper.text()).toContain('Meeting sound could not start');
+  wrapper.unmount();
+ });
 });

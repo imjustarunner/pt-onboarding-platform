@@ -2,6 +2,7 @@
   <section class="agreement-card">
     <header><div><span class="eyebrow">{{ agreement.document.agencyName }}</span><h3>Supervision agreement</h3><p>{{ agreement.document.parties.map(p => p.name).join(' · ') }}</p></div><span class="status">{{ agreement.complete ? 'Both signatures saved' : 'Signature needed' }}</span></header>
     <p>Supervisor: {{ agreement.supervisorSignedAt ? 'Signed' : 'Awaiting signature' }} · Supervisee: {{ agreement.superviseeSignedAt ? 'Signed' : 'Awaiting signature' }}</p>
+    <p>Sign the current in-app agreement even if you previously signed a paper copy. Both your signature and your assigned supervisor’s countersignature are required. Supervision transcription can proceed while signatures are pending.</p>
     <details :open="!mySigned"><summary>Review the agreement and signatures</summary><iframe :srcdoc="agreement.html" sandbox="" title="Supervision agreement" /></details>
     <form v-if="agreement.myRole && !mySigned" @submit.prevent="sign">
       <label class="check"><input v-model="accepted" type="checkbox">I have read and agree to this document and consent to an electronic signature.</label>

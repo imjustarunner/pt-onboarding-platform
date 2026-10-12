@@ -84,14 +84,10 @@
     />
 
     <section v-if="!isInLobby" class="gsl__consent" role="status">
-      <p>This group session uses speech transcription and summaries for authorized participants. A signed individual supervision agreement is not required for group transcription.</p>
-      <a href="/supervision/agreements" target="_blank" rel="noopener noreferrer">Review or sign your individual supervision agreements (new tab)</a>
-      <template v-if="groupConsentRequired">
-        <p>Choose “I agree” to consent for this session, or leave. Transcription waits until everyone in the room has agreed.</p>
-        <button type="button" class="btn btn-primary" :disabled="transcriptConsentBusy" @click="acceptGroupTranscriptConsent">{{ transcriptConsentBusy ? 'Saving…' : 'I agree to transcription' }}</button>
-        <button type="button" class="btn btn-secondary" @click="onLeaveClick">Leave session</button>
-      </template>
-      <p v-else>{{ transcriptRequested && transcriptAllowed && !transcriptPaused ? 'Transcription is on.' : 'Your consent is saved. Transcription is waiting or paused.' }}</p>
+      <p>This session uses audio transcription and summaries for authorized participants. Transcription starts automatically when the facilitator joins and can be paused using the session controls.</p>
+      <p>Your current supervision agreement still needs your signature and your assigned supervisor’s countersignature. Pending signatures do not block transcription.</p>
+      <a href="/supervision/agreements" target="_blank" rel="noopener noreferrer">Review or sign your supervision agreement (new tab)</a>
+      <p>{{ transcriptHint || (transcriptRequested && transcriptAllowed && !transcriptPaused ? 'Transcription is on.' : 'Preparing transcription…') }}</p>
     </section>
 
     <div
@@ -474,15 +470,12 @@ const {
   onSelfStageClick,
   viewAsAttendee,
   transcriptHint,
-  groupConsentRequired,
     transcriptRequested,
     transcriptAllowed,
     availablePresentations,
     canHandoffPresentation,
     handoffPresentation,
     presentationError,
-  transcriptConsentBusy,
-  acceptGroupTranscriptConsent,
   transcriptCapturing,
   transcriptPaused,
   pauseLiveTranscript,

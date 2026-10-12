@@ -3,6 +3,7 @@ import { requireSessionPrivacyConfiguration } from '../services/sessionAiPrivacy
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
 import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
+import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
 import { canJoinTeamMeeting, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { huddleHostServiceCode } from '../services/huddlePolicy.js';
 import { eventMeetingSettings } from '../services/meetingSettings.service.js';
@@ -2554,8 +2555,8 @@ export const getTeamMeetingNotes = async (req, res, next) => {
     res.json({
       eventId,
       transcript: artifact?.transcript_text || '',
-      summary: artifact?.summary_text || '',
-      summaryStatus: await meetingSummaryStatus('team', eventId),
+      summary: hasUnresolvedMeetingReferences(artifact?.summary_text) ? '' : artifact?.summary_text || '',
+      summaryStatus: await meetingSummaryStatus('team', eventId, artifact),
       meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase(),
       kind: String(event.kind || '').toUpperCase(),
       transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),

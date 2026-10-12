@@ -30,3 +30,16 @@ describe('complete meeting summaries',()=>{
     await expect(generateMeetingSummaryContent('evidence','CPA')).rejects.toThrow('no content');
   });
 });
+
+it('restores bracketless model output before publishing a meeting summary',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(_url,options)=>{
+  const bytes=Buffer.from(JSON.parse(options.body).item.value),name=Buffer.from('Aunya'),start=bytes.indexOf(name);
+  return {ok:true,json:async()=>({result:{findings:start<0?[]:[{location:{byteRange:{start,end:start+name.length}}}]}})};
+ }));
+ mocks.call.mockImplementation(async({prompt})=>({text:`## Overview\n${prompt.match(/PRIVATE_[a-z]+_\d+/)[0]} described the onboarding process.`,finishReason:'STOP'}));
+ expect((await generateMeetingSummaryContent('[Aunya] Here is the onboarding process.','CPA')).text).toBe('## Overview\nAunya described the onboarding process.');
+});
+it('rejects an unresolvable token instead of saving code-like participant names',async()=>{
+ mocks.call.mockResolvedValue({text:'PRIVATE_unknown_1 agreed.',finishReason:'STOP'});
+ await expect(generateMeetingSummaryContent('[Ryn] I agree.','CPA')).rejects.toThrow('unresolved participant references');
+});

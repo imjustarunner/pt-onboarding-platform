@@ -2491,7 +2491,7 @@ onUnmounted(() => {
   /* Floor so a tall chat panel below can never squeeze the video area smaller
      than it needs to render its controls without wrapping/clipping them —
      .join-video scrolls (see below) instead of fighting for the same space. */
-  min-height: min(46vh, 480px);
+  min-height: clamp(420px, 46dvh, 560px);
 }
 .join-video__stage--pip {
   position: absolute;
@@ -2544,7 +2544,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 360px;
+  min-height: 0;
   flex: 0 0 auto;
 }
 .join-live-activity--collapsed,

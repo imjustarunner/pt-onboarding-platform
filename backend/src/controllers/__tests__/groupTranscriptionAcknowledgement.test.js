@@ -9,16 +9,16 @@ vi.mock('../../services/meetingTranscription.service.js',()=>({transcriptionStat
 import {getMeetingTranscription,setMeetingTranscription,saveMeetingAudio} from '../meetingTranscription.controller.js';
 beforeEach(()=>{vi.clearAllMocks();m.has.mockResolvedValue(false);});
 function context(body={}){return {req:{params:{id:101},query:{},user:{id:7},body},res:{set:vi.fn().mockReturnThis(),json:vi.fn()},next:vi.fn()};}
-it('shows consent required on the participant’s screen even if other people agreed',async()=>{
+it('allows transcription while acknowledgments remain unsigned',async()=>{
  const {req,res,next}=context();await getMeetingTranscription(req,res,next);
- expect(res.json).toHaveBeenCalledWith(expect.objectContaining({consentRequired:true,allowed:false}));expect(next).not.toHaveBeenCalled();
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({consentRequired:false,allowed:true}));expect(next).not.toHaveBeenCalled();
 });
 it('records only the authenticated person’s explicit agreement, including personal-link users',async()=>{
  const {req,res,next}=context({action:'accept-group-consent',accepted:true,userId:999});
  m.accept.mockImplementation(async()=>m.has.mockResolvedValue(true));await setMeetingTranscription(req,res,next);
  expect(m.accept).toHaveBeenCalledWith(101,7);expect(res.json).toHaveBeenCalledWith(expect.objectContaining({consentRequired:false}));expect(m.control).not.toHaveBeenCalled();
 });
-it('rejects implicit agreement and does not process audio before agreement',async()=>{
+it('does not fabricate an acknowledgment and allows audio independently',async()=>{
  let c=context({action:'accept-group-consent'});await setMeetingTranscription(c.req,c.res,c.next);expect(c.next).toHaveBeenCalledWith(expect.objectContaining({status:400}));expect(m.accept).not.toHaveBeenCalled();
- c=context();await saveMeetingAudio(c.req,c.res,c.next);expect(c.next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.append).not.toHaveBeenCalled();
+ c=context();await saveMeetingAudio(c.req,c.res,c.next);expect(c.next).not.toHaveBeenCalled();expect(m.append).toHaveBeenCalled();
 });

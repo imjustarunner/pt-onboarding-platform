@@ -26,3 +26,17 @@ describe('consent-controlled microphone capture',()=>{
  it('flushes the final segment before acknowledging a session finish',async()=>{start();await settle();state.finishing=true;await vi.advanceTimersByTimeAsync(1500);const urls=m.post.mock.calls.map(([u])=>u);expect(urls.findIndex(u=>u.endsWith('/audio'))).toBeLessThan(urls.findIndex(u=>u.endsWith('/control')));expect(m.post).toHaveBeenCalledWith('/counseling/sessions/9/transcription/control',{action:'drained'},expect.any(Object));expect(recorders).toHaveLength(1);});
  it('allows either participant to request a pause without an app login',async()=>{start(false);await settle();await capture.control('pause');expect(m.post).toHaveBeenCalledWith('/counseling/sessions/9/transcription/control',{action:'pause'},expect.any(Object));expect(m.post.mock.calls.some(([u])=>u.endsWith('/audio'))).toBe(false);});
 });
+
+
+it('automatically starts eligible supervision when the facilitator joins',async()=>{
+ state={allowed:true,requested:false,paused:true,stopped:false,revision:0};
+ m.post.mockImplementation(async(_url,body)=>{
+  if(body.action==='start')state={...state,requested:true,paused:false,revision:1};
+  return {data:{...state}};
+ });
+ const track={readyState:'live',enabled:true,clone:()=>({stop:vi.fn()})};
+ capture=createConsentedAudioCapture({baseUrl:'/supervision/sessions/9',getStream:()=>({getAudioTracks:()=>[track]}),isHost:true});
+ capture.start();await settle();
+ expect(m.post).toHaveBeenCalledWith('/supervision/sessions/9/transcription/control',{action:'start'},expect.any(Object));
+ expect(recorders).toHaveLength(1);
+});

@@ -1,4 +1,5 @@
 import { callPrivateSessionText, createSessionPrivacyContext } from './sessionAiPrivacy.service.js';
+import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
 
 export function splitMeetingTranscript(text, size = 24000) {
   const input = String(text || '').trim();
@@ -42,7 +43,11 @@ export async function generateMeetingSummaryContent(transcript, meetingType) {
     if (!String(result?.text || '').trim()) throw new Error('Summary generation returned no content');
     return result;
   };
-  const finish = result => ({...result,text:privacyContext.restore(result.text)});
+  const finish = result => {
+    const text = privacyContext.restore(result.text);
+    if (hasUnresolvedMeetingReferences(text)) throw new Error('Summary contains unresolved participant references');
+    return {...result,text};
+  };
   if (chunks.length === 1) return finish(await call(chunks[0], false));
   // Summarize every section, then combine without discarding the end of long meetings.
   let sections = [];

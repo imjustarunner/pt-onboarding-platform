@@ -120,9 +120,11 @@ export function createSessionPrivacyContext({ contentType = 'session', identifie
       } catch { throw fail(); } // Never propagate a provider error containing request content.
     },
     restore(text) {
-      // Exact tokens only, single pass; generated prose is never used as an identity lookup.
-      const byToken = new Map([...replacements.values()].map(item => [item.token,item.value]));
-      return String(text || '').replace(placeholder, token => byToken.get(token) || token);
+      // Models sometimes omit brackets or escape Markdown underscores. Match
+      // only tokens issued by this context; never infer identity from prose.
+      const byToken = new Map([...replacements.values()].map(item => [item.token.slice(1,-1),item.value]));
+      const outputToken = new RegExp(`(?<![\\w])(?:\\\\?\\[)?PRIVATE(?:\\\\?_){1}${namespace}\\\\?_\\d+(?:\\\\?\\])?(?![\\w])`, 'g');
+      return String(text || '').replace(outputToken, token => byToken.get(token.replace(/\\/g,'').replace(/^\[|\]$/g,'')) || token);
     }
   };
 }

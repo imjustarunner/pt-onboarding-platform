@@ -73,6 +73,12 @@
       theme="dark"
     />
 
+    <section v-if="!isInLobby" class="isl__transcript-banner" role="status">
+      <p>This session uses audio transcription and summaries for authorized participants. Transcription starts automatically when the facilitator joins and can be paused using the session controls. Your agreement still needs your signature and your assigned supervisor’s countersignature; pending signatures do not block transcription.
+        <a href="/supervision/agreements" target="_blank" rel="noopener noreferrer">Review or sign your supervision agreement (new tab)</a>
+      </p>
+    </section>
+
     <!-- Waiting room takeover -->
     <div v-if="showWaitingRoomStage" class="isl__lobby-stage">
       <SupervisionWaitingRoomStage

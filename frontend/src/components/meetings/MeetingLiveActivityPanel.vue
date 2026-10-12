@@ -91,6 +91,7 @@
             v-model="chatInput"
             type="text"
             class="mlap__input"
+            aria-label="Chat message"
             :placeholder="t('Type a message…', lang)"
             maxlength="2000"
             :disabled="sending"
@@ -1016,7 +1017,8 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
-  min-height: 360px;
+  min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
 }
@@ -1028,23 +1030,21 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   overflow: visible;
 }
 .mlap--below-video .mlap__panel {
-  min-height: 340px;
-  max-height: min(52vh, 560px);
-  flex: 1;
+  min-height: 0;
+  max-height: none;
+  height: clamp(240px, 42dvh, 560px);
+  flex: 0 0 auto;
 }
 /* Size presets for the full-width below-video bar — bigger sizes push the rest
    of the page down (or make it scroll) rather than squeezing chat into a sliver. */
 .mlap--below-video.mlap--size-s .mlap__panel {
-  min-height: 200px;
-  max-height: min(26vh, 280px);
+  height: clamp(200px, 26dvh, 280px);
 }
 .mlap--below-video.mlap--size-m .mlap__panel {
-  min-height: 340px;
-  max-height: min(52vh, 560px);
+  height: clamp(240px, 42dvh, 560px);
 }
 .mlap--below-video.mlap--size-l .mlap__panel {
-  min-height: 480px;
-  max-height: min(78vh, 840px);
+  height: clamp(280px, 65dvh, 840px);
 }
 .mlap__size-group {
   display: inline-flex;

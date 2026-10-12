@@ -1,3 +1,4 @@
+import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { setMeetingTranscription } from './meetingTranscription.controller.js';
@@ -3330,7 +3331,12 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
       }
       : null;
 
-    res.json({ ok: true, sessionId: id, artifact: payload, summaryStatus: await meetingSummaryStatus('supervision', id) });
+    const summaryStatus = await meetingSummaryStatus('supervision', id, artifact);
+    if (payload && hasUnresolvedMeetingReferences(payload.summary_text)) {
+      payload.summary_text = '';
+      payload.summaryText = '';
+    }
+    res.json({ ok: true, sessionId: id, artifact: payload, summaryStatus });
   } catch (e) {
     next(e);
   }

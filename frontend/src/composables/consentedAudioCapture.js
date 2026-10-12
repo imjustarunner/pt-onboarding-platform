@@ -24,7 +24,7 @@ export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHi
       if(!dropped&&blob.size){const body=new FormData();body.append('revision',String(revision));body.append('chunkKey',chunkKey);
         queued++;pending=pending.then(async()=>{try{body.append('audio',await meetingAudioWav(blob),'segment.wav');await api.post(`${baseUrl}/transcription/audio`,body,options);}catch(e){onHint?.(e.response?.data?.error?.message||'Audio could not be saved. Transcription is paused; retry when connected.');
           if(e.response?.status===409){
-            // A new attendee awaiting consent or a host pause invalidates the
+            // A change in session eligibility or a host pause invalidates the
             // segment, not the state poll. Resume only when the server allows.
             currentState={...currentState,allowed:false};stopSegment(true);
           }else stop({drop:true});
@@ -49,7 +49,7 @@ export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHi
         const available=await getStream?.();if(!available?.getAudioTracks?.().some(t=>t.readyState==='live'&&t.enabled))stopSegment(true);
         else if(!recorder)void beginSegment().catch(()=>{stream?.getTracks().forEach(t=>t.stop());stream=null;recorder=null;onCapturing?.(false);onHint?.('Unable to record this microphone. Check its permissions and try again.');});
       }
-    }catch(e){stopSegment(true);onHint?.(e.response?.data?.error?.message||'Waiting for consent and a connection before transcribing.');}
+    }catch(e){stopSegment(true);onHint?.(e.response?.data?.error?.message||'Waiting for a connection before transcribing.');}
     finally{polling=false;}
   }
   function start(){if(typeof MediaRecorder==='undefined'){onHint?.('Audio recording is not supported by this browser.');return false;}wanted=true;if(!timer)timer=setInterval(poll,1500);void poll();return true;}

@@ -334,6 +334,10 @@
       </div>
 
       <div v-if="audioProblem" class="vsr__audio-problem" role="alert">{{ audioProblem }} Open Microphone settings to reconnect or choose another input.</div>
+      <div v-if="blockedAudioCount || playbackError" class="vsr__audio-problem" role="alert">
+        {{ playbackError || 'Your browser has paused meeting sound.' }}
+        <button type="button" class="vsr__ctrl" :disabled="playbackBusy" @click="enableMeetingAudio">Enable meeting sound</button>
+      </div>
       <details v-if="!hideControls && !lobbyMode" class="vsr__audio-settings" @toggle="refreshMicrophones">
         <summary>Microphone settings</summary>
         <label>Microphone
@@ -345,6 +349,8 @@
         <label>Input level <meter aria-label="Microphone input level" min="0" max="1" :value="localMicLevel" /></label>
         <p>Speak and check that the level moves. If it stays flat, check your headset mute switch or choose another microphone.</p>
         <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">{{ audioDeviceBusy ? 'Reconnecting…' : 'Reconnect microphone' }}</button>
+        <p>If you cannot hear other participants, enable meeting sound and check your computer’s speaker or headphone output.</p>
+        <button type="button" class="vsr__ctrl" :disabled="playbackBusy || !sessionReady" @click="enableMeetingAudio">Enable meeting sound</button>
       </details>
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
@@ -1746,6 +1752,45 @@ let publisherAudioTrack = null;
 const intentionallyDisconnectedSessions = new WeakSet();
 let OTApi = null;
 const subscribers = new Map();
+const blockedSubscribers = new Set();
+const blockedAudioCount = ref(0);
+const playbackError = ref('');
+const playbackBusy = ref(false);
+
+function monitorMeetingAudio(sub, owner) {
+  const update = (blocked) => {
+    if (session !== owner) return;
+    if (blocked) blockedSubscribers.add(sub);
+    else blockedSubscribers.delete(sub);
+    blockedAudioCount.value = blockedSubscribers.size;
+    if (!blockedAudioCount.value) playbackError.value = '';
+  };
+  sub.on?.('audioBlocked', () => update(true));
+  sub.on?.('audioUnblocked', () => update(false));
+  sub.on?.('destroyed', () => update(false));
+  update(sub.isAudioBlocked?.() === true);
+}
+
+async function enableMeetingAudio() {
+  playbackBusy.value = true;
+  playbackError.value = '';
+  try {
+    // Must run directly from the click, before any await, for Safari autoplay.
+    const playback = OTApi?.unblockAudio?.();
+    for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
+      sub.subscribeToAudio?.(true);
+      sub.setAudioVolume?.(100);
+    }
+    await playback;
+    for (const sub of blockedSubscribers) {
+      if (!sub.isAudioBlocked?.()) blockedSubscribers.delete(sub);
+    }
+    blockedAudioCount.value = blockedSubscribers.size;
+    if (blockedAudioCount.value) playbackError.value = 'Meeting sound is still paused. Try enabling it again.';
+  } catch {
+    playbackError.value = 'Meeting sound could not start. Check your speaker output and try again.';
+  } finally { playbackBusy.value = false; }
+}
 const pendingSubscriptions = new Map();
 const availableStreams = new Map();
 const subscriptionRetries = new Map();
@@ -1899,6 +1944,7 @@ async function subscribeStreamOnce(stream, owner) {
         }
       );
       screenSubscriber = sub;
+      monitorMeetingAudio(sub, owner);
     };
     doScreenSubscribe();
     hasScreenShare.value = true;
@@ -2003,6 +2049,7 @@ async function subscribeStreamOnce(stream, owner) {
   );
 
   subscribers.set(streamId, sub);
+  monitorMeetingAudio(sub, owner);
   attachSubscriberAudioLevel(sub, streamId);
   // Authoritative snapshot after subscribe — don't wait for a later property event.
   setRemoteAudioState({
@@ -2701,6 +2748,9 @@ async function toggleScreenShare() {
 }
 
 function disconnect(emitEvent = true) {
+  blockedSubscribers.clear();
+  blockedAudioCount.value = 0;
+  playbackError.value = '';
   transportConnected.value = false;
   clearInterval(waitTimer);
   roomConnections.clear();

@@ -10,6 +10,7 @@ import SupervisionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import SupervisionPersonalNote from '../models/SupervisionSessionPersonalNote.model.js';
 import { encryptPersonalNoteText, resolvePersonalNotePlaintext } from './supervisionPersonalNoteEncryption.service.js';
 import { enqueueMeetingSummary, meetingSummaryStatus } from './meetingSummaryJobs.service.js';
+import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
 
 const deny = () => { throw Object.assign(new Error('Meeting not found or you did not attend it'), { status: 403 }); };
 const sources = {
@@ -119,7 +120,7 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
         a.event_at AS at,a.event_type AS eventType
         FROM supervision_session_attendance_events a LEFT JOIN users u ON u.id=a.user_id
         WHERE a.session_id=? ORDER BY a.event_at,a.id`,[Number(id)]);
-  let summaryStatus = await meetingSummaryStatus(type,id);
+  let summaryStatus = await meetingSummaryStatus(type,id,artifact);
   if (!summaryStatus && artifact?.transcript_text && !artifact?.summary_text && (meeting.meeting_completed_at || meeting.live_ended_at || String(meeting.status).toUpperCase() === 'FINALIZED')) {
     await enqueueMeetingSummary(type,id); summaryStatus = 'queued';
   }
@@ -133,7 +134,7 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
     interviewTeamChat: (Array.isArray(interviewArtifact?.team_chat_json) ? interviewArtifact.team_chat_json : []).map(message => ({
       text: message.text, authorName: message.authorName, at: message.at
     })),
-    agenda:agenda.map(mapMeetingAgendaItem),attendance,presence,attendanceLog,personalNote,transcript:artifact?.transcript_text || '',summary:artifact?.summary_text || interviewArtifact?.transcript_summary || '',
+    agenda:agenda.map(mapMeetingAgendaItem),attendance,presence,attendanceLog,personalNote,transcript:artifact?.transcript_text || '',summary:hasUnresolvedMeetingReferences(artifact?.summary_text) ? '' : artifact?.summary_text || interviewArtifact?.transcript_summary || '',
     summarySource:artifact?.summary_model === 'manual'?'manual':'generated',summaryStatus,workspace:type === 'team' ? TeamArtifact.toWorkspaceDto(artifact) : { focusTitle: artifact?.focusTitle || '', goals: artifact?.goals || [], actionItems: artifact?.actionItems || [] } };
 }
 export async function saveMyMeetingNote(type,id,userId,text,actor = { id: userId }) {

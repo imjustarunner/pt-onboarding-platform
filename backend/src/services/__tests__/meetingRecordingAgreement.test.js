@@ -1,13 +1,14 @@
-import {beforeEach,describe,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),save:vi.fn(),pdf:vi.fn(),encrypt:vi.fn(),member:vi.fn()}));
-vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
+import {afterEach,beforeEach,describe,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),save:vi.fn(),pdf:vi.fn(),encrypt:vi.fn(),member:vi.fn(),commit:vi.fn(),rollback:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,beginTransaction:async()=>{},commit:m.commit,rollback:m.rollback,release:()=>{}})},onTableWrite:vi.fn()}));
 vi.mock('../documentSigning.service.js',()=>({default:{convertHTMLToPDF:m.pdf}}));
 vi.mock('../storage.service.js',()=>({default:{saveAdminDoc:m.save}}));
 vi.mock('../meetingJoinPolicy.service.js',()=>({hasActiveMeetingMembership:m.member}));
 vi.mock('../../controllers/supervisionSessions.controller.js',()=>({finalizeSupervisionSession:vi.fn()}));
 import {hashDob} from '../../models/SessionRecordingConsent.model.js';
 import {documentHash,validateAgreementSignature,renderRecordingAgreement} from '../recordingAgreementDocument.service.js';
-import {ensureSupervisionAgreement,assertOnboardingSupervisionAgreements} from '../supervisionAgreement.service.js';
+import {ensureSupervisionAgreement,assertOnboardingSupervisionAgreements,supervisionRecordingConsent,signSupervisionAgreement} from '../supervisionAgreement.service.js';
+import {SUPERVISION_AGREEMENT_VERSION,SUPERVISION_AGREEMENT_TEXT} from '../../content/supervisionAgreement.en.js';
 import {validateManualSupervision} from '../../controllers/supervisionManual.controller.js';
 beforeEach(()=>vi.clearAllMocks());
 describe('agreement signature evidence',()=>{
@@ -24,4 +25,44 @@ describe('manual supervision validation',()=>{
  it('requires a reason even for in-person supervision',()=>{expect(()=>validateManualSupervision({...input(),reason:''})).toThrow(/Explain/);});
  it('rejects reversed, excessive, and future hours',()=>{expect(()=>validateManualSupervision({...input(),endAt:'2026-01-01T14:00:00Z'})).toThrow(/valid/);expect(()=>validateManualSupervision({...input(),endAt:'2026-01-02T16:00:00Z'})).toThrow(/eight/);expect(()=>validateManualSupervision({...input(),startAt:'2099-01-01T15:00:00Z',endAt:'2099-01-01T16:00:00Z'})).toThrow(/already/);});
  it('accepts an explained historical log without requiring it to have been recorded',()=>{expect(validateManualSupervision(input())).toMatchObject({modality:'IN_PERSON',sessionType:'individual'});});
+});
+
+
+describe('supervision transcription independent of signatures',()=>{
+ it.each(['individual','group'])('allows %s supervision before signing without querying signature records',async session_type=>{
+  m.execute.mockResolvedValue([[{id:1}]]);
+  expect(await supervisionRecordingConsent({id:8,agency_id:2,session_type})).toEqual({allowed:true});
+  expect(m.execute.mock.calls.some(([sql])=>sql.includes('supervision_agreements') || sql.includes('transcription_consents'))).toBe(false);
+ });
+});
+
+
+describe('current in-app agreement signatures',()=>{
+ let row;
+ beforeEach(()=>{
+  vi.stubEnv('GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
+  const document={title:'Supervision Agreement',agencyName:'Test agency',version:SUPERVISION_AGREEMENT_VERSION,text:SUPERVISION_AGREEMENT_TEXT,parties:[{role:'Supervisor',name:'Brittany'},{role:'Supervisee',name:'Destiny'}]};
+  row={id:10,assignment_id:5,agency_id:2,supervisor_user_id:7,supervisee_user_id:8,version:document.version,document_json:JSON.stringify(document),document_hash:documentHash(document)};
+  m.member.mockResolvedValue(true);m.pdf.mockResolvedValue(Buffer.from('test-pdf'));m.save.mockResolvedValue({relativePath:'test/signed.pdf'});
+  m.execute.mockImplementation(async sql=>{
+   if(sql.includes('SELECT * FROM supervision_agreements'))return [[row]];
+   if(sql.includes('SELECT id FROM supervisor_assignments'))return [[{id:5}]];
+   return [{insertId:12,affectedRows:1}];
+  });
+ });
+ afterEach(()=>vi.unstubAllEnvs());
+ const sign=userId=>signSupervisionAgreement({agreementId:10,userId,input:{accepted:true,typedName:userId===7?'Brittany':'Destiny',documentHash:row.document_hash}});
+ it('remains pending after the supervisee signs and completes only after the supervisor countersigns',async()=>{
+  const first=await sign(8);expect(first.complete).toBe(false);expect(first.superviseeSignedAt).toBeTruthy();expect(first.supervisorSignedAt).toBeUndefined();
+  expect(m.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO signed_documents'))).toBe(false);
+  const second=await sign(7);expect(second.complete).toBe(true);
+  expect(m.execute.mock.calls.filter(([sql])=>sql.includes('INSERT INTO signed_documents'))).toHaveLength(2);
+  expect(second.html).toContain('pending signatures do not prevent supervision transcription');
+ });
+ it('requires the current version and the named signer',async()=>{
+  row.version=SUPERVISION_AGREEMENT_VERSION-1;
+  await expect(sign(8)).rejects.toMatchObject({status:409});
+  await expect(sign(999)).rejects.toMatchObject({status:403});
+  expect(m.pdf).not.toHaveBeenCalled();
+ });
 });

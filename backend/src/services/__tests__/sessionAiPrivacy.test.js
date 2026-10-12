@@ -59,3 +59,18 @@ describe('session AI privacy boundary',()=>{
   await expect(callPrivateSessionText({prompt:'private'})).rejects.toThrow('Secure session generation failed');
  });
 });
+
+describe('meeting placeholder restoration',()=>{
+ it('restores issued tokens with missing brackets or Markdown escapes without guessing other identities',async()=>{
+  const context=createSessionPrivacyContext({contentType:'meeting',identifiers:['Aunya','Ryn'],fetchImpl:async()=>ok([]),tokenProvider:async()=> 'test'});
+  const redacted=await context.redact('[Aunya] Ryn agreed.');
+  const tokens=redacted.match(/\[PRIVATE_[a-z]+_\d+\]/g);
+  const [aunya,ryn]=tokens;
+  expect(context.restore(`${aunya.slice(1,-1)} said hello to ${ryn}.`)).toBe('Aunya said hello to Ryn.');
+  expect(context.restore(aunya.replace(/_/g,'\\_'))).toBe('Aunya');
+  expect(context.restore(aunya.replace(/[\[\]_]/g,c=>'\\'+c))).toBe('Aunya');
+  const foreign='PRIVATE_unissued_1';
+  expect(context.restore(foreign)).toBe(foreign);
+  expect(context.restore(aunya.slice(1,-1)+'0')).toBe(aunya.slice(1,-1)+'0');
+ });
+});

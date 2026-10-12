@@ -45,7 +45,6 @@ export async function calendarGuestStatus(type,ref,id,credential,{leave=false,vi
  if(!leave&&guest.status==='waiting'&&row.twilio_room_sid&&[0,false,'0','false'].includes(row.waiting_room_enabled)){
   await pool.execute("UPDATE meeting_calendar_guests SET status='admitted' WHERE id=? AND status='waiting'",[id]);
   guest.status='admitted';
-  if(type==='supervision')await pool.execute("UPDATE meeting_transcription_controls SET paused=1,revision=revision+1 WHERE meeting_type='supervision' AND meeting_id=?",[row.id]);
  }
 
  await pool.execute(`UPDATE meeting_calendar_guests SET last_seen_at=UTC_TIMESTAMP(),status=? WHERE id=?`,[leave?'left':guest.status,id]);
@@ -65,6 +64,5 @@ export async function admitCalendarGuest(type,ref,userId,id){
  if(!row.twilio_room_sid)throw fail(409,'Open the meeting video before admitting guests.');
  const [result]=await pool.execute(`UPDATE meeting_calendar_guests SET status='admitted' WHERE id=? AND meeting_type=? AND meeting_id=? AND status='waiting' AND expires_at>UTC_TIMESTAMP()`,[id,type,row.id]);
  if(!result.affectedRows)throw fail(409,'Guest is no longer waiting.');
- if(type==='supervision')await pool.execute("UPDATE meeting_transcription_controls SET paused=1,revision=revision+1 WHERE meeting_type='supervision' AND meeting_id=?",[row.id]);
  return {ok:true};
 }
