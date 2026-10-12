@@ -57,10 +57,21 @@ jobs:
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
           --config backend/vitest.recurring-reservations.config.js
+      - name: Calendar conflicts and Google overlays
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.scheduling.config.js
+          backend/src/services/__tests__/scheduling.conflictExplanation.test.js
+          backend/src/services/__tests__/scheduling.googleCalendarAdvisory.test.js
+          backend/src/services/__tests__/scheduling.calendarBusy.test.js
+          backend/src/services/__tests__/scheduling.lifecycleRecurrence.test.js
+          backend/src/services/__tests__/scheduling.publicAvailability.test.js
+          backend/src/services/__tests__/scheduleSummaryPrivacy.service.test.js
       - name: Scheduling form and display regressions
         working-directory: frontend
         run: >-
           npm test --
+          src/components/schedule/__tests__/supervisionScheduler.test.js
           src/views/__tests__/OfficeScheduleView.test.js
           src/components/admin/opsDashboard/__tests__/PlannedOutModal.test.js
           src/utils/__tests__/plannedOutTimezone.test.js

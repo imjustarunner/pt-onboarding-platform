@@ -1,5 +1,4 @@
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
-import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -9,7 +8,6 @@ import { availabilityOccursOn, availabilityPurpose } from '../utils/availability
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { availabilityDiagnostics } from './availabilityDiagnostics.js';
-import GoogleCalendarService from './googleCalendar.service.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import { mergeIntervals, subtractInterval, subtractIntervals, slotizeIntervals } from '../utils/intervals.js';
@@ -174,7 +172,6 @@ export class ProviderAvailabilityService {
     agencyId,
     providerId,
     weekStartYmd,
-    includeGoogleBusy = true,
     includeExternalBusy = true,
     externalCalendarIds = [],
     slotMinutes = 60,
@@ -593,28 +590,9 @@ export class ProviderAvailabilityService {
     const calendarWarnings = [];
     const externalBusyIntervals = [];
 
-    // 5) Google busy blocks both modalities (optional)
-    let googleBusyIntervals = [];
-    // Only SSO accounts read Google; all accounts use app appointments for conflicts.
-    if (includeGoogleBusy && await usesGoogleSchedule(provider)) {
-      try {
-        const providerEmail = String(provider?.email || '').trim().toLowerCase();
-        const r = await GoogleCalendarService.freeBusy({
-          subjectEmail: providerEmail,
-          timeMin: timeMinIso,
-          timeMax: timeMaxIso,
-          calendarId: 'primary'
-        });
-        if (!r?.ok) calendarWarnings.push('Google Calendar could not be checked. Confirm conflicts before booking.');
-        const busy = r?.ok ? (r.busy || []) : [];
-        googleBusyIntervals = (busy || [])
-          .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
-          .filter((i) => i.start instanceof Date && i.end instanceof Date && i.end > i.start && !Number.isNaN(i.start.getTime()) && !Number.isNaN(i.end.getTime()));
-      } catch {
-        calendarWarnings.push('Google Calendar could not be checked. Confirm conflicts before booking.');
-        googleBusyIntervals = [];
-      }
-    }
+    // Google calendars are informational overlays, never booking constraints.
+    // Read them through schedule-summary; even legacy includeGoogleBusy callers
+    // must use only app-managed commitments when calculating openings.
 
     // Pending intake holds protect the same local weekly time across DST changes.
     const publicHolds = await readActiveHolds(pool, pid);
@@ -649,8 +627,7 @@ export class ProviderAvailabilityService {
       ...selectionBusy,
       ...requestBusy,
       ...schoolBusy,
-      ...externalBusyIntervals,
-      ...googleBusyIntervals
+      ...externalBusyIntervals
     ]);
     const officeReservedBusyForVirtual = subtractIntervals(
       officeReservedBusy,
@@ -710,7 +687,7 @@ export class ProviderAvailabilityService {
       bases: [...combinedVirtualBase.map(b => ({...b,format:'VIRTUAL'})), ...officePublishedCandidates.map(b => ({...b,format:'IN_PERSON'}))],
       blockers: [['Personal event, meeting or schedule hold', appCalendarBusy], ['Client appointment', appointmentBusy], ['Appointment linked to an office reservation', officeBookedBusy],
         ['Pending time selection', selectionBusy], ['Pending appointment request', requestBusy],
-        ['School commitment', schoolBusy], ['External calendar busy time', externalBusyIntervals], ['Google Calendar busy time', googleBusyIntervals]],
+        ['School commitment', schoolBusy], ['External calendar busy time', externalBusyIntervals]],
       policy, formatAllowed: agencyFormatAllowed, officeAllowed: agencyOfficeAllowed, slotMinutes
     }) : undefined;
     return {
@@ -719,7 +696,7 @@ export class ProviderAvailabilityService {
       ...(includePrivateCalendar ? { officeReservations, busyBlocks: [
         ['Booked appointment', mergeIntervals([...appointmentBusy, ...officeBookedBusy])],
         ['Meeting or personal commitment', appCalendarBusy], ['Pending appointment', mergeIntervals([...selectionBusy, ...requestBusy])],
-        ['School commitment', schoolBusy], ['Calendar busy time', mergeIntervals([...externalBusyIntervals, ...googleBusyIntervals])]
+        ['School commitment', schoolBusy], ['Calendar busy time', externalBusyIntervals]
       ].flatMap(([label, intervals]) => intervals.map(({start, end}) => ({label, startAt:start.toISOString(), endAt:end.toISOString()}))) } : {}),
       ...(includeDiagnostics ? {diagnostics, scheduleAgencyId:scheduleAid} : {}),
       ok: true,

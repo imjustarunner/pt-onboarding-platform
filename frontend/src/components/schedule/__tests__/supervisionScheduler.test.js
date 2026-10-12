@@ -42,3 +42,20 @@ describe('My Schedule supervision controls',()=>{
  });
 
 });
+
+it('ignores Google-only overlaps but keeps simultaneous app conflicts',async()=>{
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+ const s=wrapper.vm.$.setupState;
+ const interval={startAt:'2026-10-13T19:00:00Z',endAt:'2026-10-13T20:00:00Z'};
+ const ranges=[{start:new Date(interval.startAt),end:new Date(interval.endAt)}];
+ expect(s.getBusyConflictFromSummary({googleBusy:[interval],googleEvents:[interval]},ranges).busy).toBe(false);
+ const google={...interval,source:'external',activityType:'external',blocksScheduling:false,displayStatus:'BUSY'};
+ expect(s.getBusyConflictFromSummary({busyBlocks:[google]},ranges).busy).toBe(false);
+ for(const kind of ['TEAM_MEETING','SCHEDULE_HOLD','PERSONAL_EVENT']) {
+  const app={...interval,eventKind:kind,title:'App conflict',displayStatus:'BUSY',googleEventId:'synced-copy'};
+  expect(s.getBusyConflictFromSummary({busyBlocks:[google,app]},ranges)).toEqual({busy:true,label:'App conflict'});
+ }
+ m.get.mockClear();
+ await s.fetchMeetingBusyEntries([8],ranges);
+ expect(m.get).toHaveBeenCalledWith('/users/8/schedule-summary',expect.objectContaining({params:expect.objectContaining({includeGoogleBusy:'false',includeGoogleEvents:'false'})}));
+});

@@ -171,13 +171,15 @@ function pushTyped(out, {
   agencyId = null,
   eventId = null,
   buildingId = null,
-  roomId = null
+  roomId = null,
+  blocksScheduling = true
 }) {
   if (!startAt || !endAt) return;
   out.push({
     startAt,
     endAt,
     source: source || 'busy',
+    ...(blocksScheduling === false ? { blocksScheduling: false } : {}),
     activityType: activityType || 'busy',
     title: title || 'Busy',
     displayStatus: activityType === 'opening' ? 'AVAILABLE' : (activityType === 'session' ? 'BOOKED' : 'BUSY'),
@@ -195,12 +197,13 @@ function pushTyped(out, {
   });
 }
 
-function pushBusy(out, startAt, endAt, source) {
+function pushBusy(out, startAt, endAt, source, blocksScheduling = true) {
   if (!startAt || !endAt) return;
   out.push({
     startAt,
     endAt,
     source: source || 'busy',
+    ...(blocksScheduling === false ? { blocksScheduling: false } : {}),
     activityType: 'busy',
     title: 'Busy',
     displayStatus: 'BUSY'
@@ -290,7 +293,7 @@ export function toTypedPeerScheduleSummary(payload = {}) {
   for (const row of payload.googleBusy || []) {
     const iv = intervalFromRow(row, ['start', 'startAt'], ['end', 'endAt']);
     if (!iv) continue;
-    pushTyped(busyBlocks, { ...iv, source: 'external', activityType: 'external', title: 'External busy' });
+    pushTyped(busyBlocks, { ...iv, source: 'external', blocksScheduling: false, activityType: 'external', title: 'External busy' });
   }
   for (const row of payload.googleEvents || []) {
     const startAt = row?.start?.dateTime || row?.start?.date || row?.start || row?.startAt;
@@ -299,7 +302,7 @@ export function toTypedPeerScheduleSummary(payload = {}) {
     pushTyped(busyBlocks, {
       startAt,
       endAt,
-      source: 'external',
+      source: 'external', blocksScheduling: false,
       activityType: 'external',
       title: 'External busy'
     });
@@ -440,12 +443,12 @@ export function toBusyOnlyScheduleSummary(payload = {}) {
   }
   for (const row of payload.googleBusy || []) {
     const iv = intervalFromRow(row, ['start', 'startAt'], ['end', 'endAt']);
-    if (iv) pushBusy(busyBlocks, iv.startAt, iv.endAt, 'external');
+    if (iv) pushBusy(busyBlocks, iv.startAt, iv.endAt, 'external', false);
   }
   for (const row of payload.googleEvents || []) {
     const startAt = row?.start?.dateTime || row?.start?.date || row?.start || row?.startAt;
     const endAt = row?.end?.dateTime || row?.end?.date || row?.end || row?.endAt;
-    if (startAt && endAt) pushBusy(busyBlocks, startAt, endAt, 'external');
+    if (startAt && endAt) pushBusy(busyBlocks, startAt, endAt, 'external', false);
   }
   for (const row of payload.externalBusy || []) {
     const iv = intervalFromRow(row, ['start', 'startAt'], ['end', 'endAt']);

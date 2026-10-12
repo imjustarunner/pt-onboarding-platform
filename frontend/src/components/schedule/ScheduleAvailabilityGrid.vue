@@ -11444,7 +11444,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
       kind: 'portal',
       shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt)}`,
       virtualSlice: virtualAvailabilityCellSlice(st, et, hour, minute, showQuarterDetail.value ? 15 : 60),
-      title: `Published weekly hours${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public page excludes appointment, school, and external calendar conflicts.`,
+      title: `Published weekly hours${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public page excludes appointments and conflicts saved in the app.`,
       agencyId,
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
@@ -17907,7 +17907,7 @@ const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
   for (const block of busyBlocks) {
     const status = String(block?.displayStatus || '').toUpperCase();
     const activity = String(block?.activityType || '').toLowerCase();
-    if (status === 'AVAILABLE' || activity === 'opening') continue;
+    if (block?.blocksScheduling === false || status === 'AVAILABLE' || activity === 'opening') continue;
     if (!overlaps(block?.startAt, block?.endAt)) continue;
     return { busy: true, label: labelFromRow(block) };
   }
@@ -17917,7 +17917,6 @@ const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
     Array.isArray(summaryPayload?.officeEvents) ? summaryPayload.officeEvents : [],
     Array.isArray(summaryPayload?.scheduleEvents) ? summaryPayload.scheduleEvents : [],
     Array.isArray(summaryPayload?.supervisionSessions) ? summaryPayload.supervisionSessions : [],
-    Array.isArray(summaryPayload?.googleBusy) ? summaryPayload.googleBusy : [],
     Array.isArray(summaryPayload?.externalBusy) ? summaryPayload.externalBusy : []
   ];
   for (const rows of collections) {
@@ -17938,8 +17937,7 @@ const meetingBusySlotKeyForCurrent = () => ([
   String(modalEndHour.value || ''),
   String(canUseQuarterHourInput.value ? modalStartMinute.value : 0),
   String(canUseQuarterHourInput.value ? modalEndMinute.value : 0),
-  meetingUsingAllAgencies.value ? 'all' : String(effectiveAgencyId.value || 0),
-  props.hideOfficeAndCalendarIntegration ? 'g0' : (showGoogleBusy.value ? 'g1' : 'g0')
+  meetingUsingAllAgencies.value ? 'all' : String(effectiveAgencyId.value || 0)
 ].join('|'));
 
 const applyMeetingBusyEntries = (entries = []) => {
@@ -17972,7 +17970,9 @@ const fetchMeetingBusyEntries = async (ids, ranges) => {
           weekStartsOn: effectiveWeekStartsOn.value,
           // Typed returns activity titles (Team meeting, Supervision, etc.) without client PII.
           detailLevel: 'typed',
-          includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false')
+          // Display preferences must not turn Google overlays into conflicts.
+          includeGoogleBusy: 'false',
+          includeGoogleEvents: 'false'
         };
         if (meetingUsingAllAgencies.value || !(Number(effectiveAgencyId.value || 0) > 0)) {
           params.includeAllAgencies = 'true';

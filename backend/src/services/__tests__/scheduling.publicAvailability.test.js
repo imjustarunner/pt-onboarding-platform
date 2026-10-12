@@ -106,3 +106,13 @@ it('ignores saved TherapyNotes feeds and Google preferences for password account
  expect(Google.freeBusy).not.toHaveBeenCalled();expect(result.calendarWarnings).toEqual([]);
  expect(result.inPersonSlots).toHaveLength(1);
 });
+
+it('keeps published openings available when Google reports an overlapping event', async () => {
+ User.findById.mockResolvedValueOnce({id:9,email:'provider@example.test',sso_required:1});
+ Google.freeBusy.mockResolvedValueOnce({ok:true,busy:[{startAt:'2030-01-07T17:00:00Z',endAt:'2030-01-07T18:00:00Z'}]});
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+ const result=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:true,includeDiagnostics:true,materializeOfficeEvents:false});
+ expect(result.virtualSlots).toHaveLength(1);expect(result.inPersonSlots).toHaveLength(1);
+ expect(Google.freeBusy).not.toHaveBeenCalled();expect(result.calendarWarnings).toEqual([]);
+ expect(JSON.stringify(result.diagnostics)).not.toContain('Google Calendar');
+});
