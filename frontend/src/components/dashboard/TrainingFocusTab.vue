@@ -5,11 +5,11 @@
     
     <div v-else>
       <!-- Individual Module Tasks (not part of a training focus) -->
-      <div v-if="individualModules.length > 0" class="individual-modules-section">
+      <div v-if="scopedIndividualModules.length > 0" class="individual-modules-section">
         <h2 style="margin-bottom: 16px; font-size: 18px; font-weight: 600;">Assigned Modules</h2>
         <div class="modules-list">
           <div
-            v-for="moduleTask in individualModules"
+            v-for="moduleTask in scopedIndividualModules"
             :key="moduleTask.id"
             class="module-item"
             :class="{ completed: moduleTask.status === 'completed' }"
@@ -30,7 +30,7 @@
         <hr style="margin: 24px 0; border: none; border-top: 2px solid var(--border);" />
       </div>
       
-      <div v-if="sortedFocuses.length === 0 && individualModules.length === 0" class="empty-state">
+      <div v-if="sortedFocuses.length === 0 && scopedIndividualModules.length === 0" class="empty-state">
         <p>No training focuses or modules assigned.</p>
       </div>
       
@@ -124,7 +124,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -133,20 +133,26 @@ import { formatDate } from '../../utils/formatDate';
 const emit = defineEmits(['update-count']);
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const loading = ref(true);
 const error = ref('');
 const allFocuses = ref([]);
 const individualModules = ref([]);
+const activeAgencyId = computed(() => {
+  const slug = route.params.organizationSlug;
+  return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)))?.id;
+});
+const scopedIndividualModules = computed(() => individualModules.value.filter(m => !m.agency_id || Number(m.agency_id) === Number(activeAgencyId.value)));
 const sortOption = ref('unfinished');
 const downloadingCertificates = ref(new Set());
 const certificates = ref({}); // Store certificates by module/training focus ID
 
 // Computed property to filter focuses by current agency
 const focuses = computed(() => {
-  if (!agencyStore.currentAgency) return [];
-  return allFocuses.value.filter(focus => focus.agencyId === agencyStore.currentAgency.id);
+  if (!activeAgencyId.value) return [];
+  return allFocuses.value.filter(focus => Number(focus.agencyId || focus.agency_id) === Number(activeAgencyId.value));
 });
 
 const sortedFocuses = computed(() => {
@@ -203,7 +209,7 @@ const updateFilteredFocuses = () => {
   }, 0);
   
   // Add incomplete individual module tasks
-  const incompleteIndividual = individualModules.value.filter(m => m.status !== 'completed' && m.status !== 'overridden').length;
+  const incompleteIndividual = scopedIndividualModules.value.filter(m => m.status !== 'completed' && m.status !== 'overridden').length;
   
   emit('update-count', incompleteCount + incompleteIndividual);
 };
@@ -306,6 +312,7 @@ const fetchTrainingFocuses = async () => {
             
             individualModuleTasks.push({
               id: task.id,
+              agency_id: task.agency_id || task.agencyId || null,
               reference_id: task.reference_id,
               title: task.title || module.title,
               description: task.description || module.description,
@@ -412,7 +419,7 @@ const completeChecklistStep = async (focus, step) => {
 };
 
 const goToModule = (moduleId) => {
-  router.push(`/module/${moduleId}`);
+  router.push(`${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/module/${moduleId}`);
 };
 
 const getStatusLabel = (status) => {

@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import { recordDocumentQuestion } from './documentAnalytics.service.js';
-import { referenceAllowed } from './companyReferenceContent.js';
+import { referenceAllowed, referenceSource, referenceMetadata } from './companyReferenceContent.js';
 import { answerFromHandbook } from './workplaceHandbookAssistant.service.js';
 import { recordOnboardingActivity } from './hireJourney.service.js';
 import { trainingDefinitionsFor, requiredTrainingKeys, expectedSchoolWork, validateTrainingDefinition, trainingMatchesEdition, trainingTemplateForEdition, learnerDefinition, trainingHash, gradeDocumentQuiz, validateTrainingHeartbeat, trainingCreditSeconds } from './documentTrainingContent.js';
@@ -44,7 +44,16 @@ export async function documentTrainingCourse(agency, key, db = pool) {
   const [[row]] = await db.execute(`SELECT v.* FROM company_reference_documents d JOIN company_reference_versions v
     ON v.id = d.published_version_id AND v.document_id = d.id AND v.is_draft = 0 WHERE d.agency_id = ? AND d.document_key = ?`, [agency.id, key]);
   const book = bookFromRow(row);
-  if (!book) return { key, title: template.title, status: 'unpublished', definition: template, book: null };
+  if (!book) {
+    const source = referenceSource(agency, key);
+    if (!source) return { key, title: template.title, status: 'unpublished', definition: template, book: null };
+    // Version 0 denotes a supplied beta snapshot stored with the learning record.
+    // It never points at or publishes a mutable company draft.
+    const betaBook = { metadata: { ...referenceMetadata(source), beta: true }, sections: source.sections, version: { id: 0, version_number: 0, beta: true } };
+    const definition = trainingTemplateForEdition(template, betaBook);
+    if (!trainingMatchesEdition(definition, betaBook)) return { key, title: template.title, status: 'needs_review', definition, book: null };
+    return { key, title: definition.title, status: 'beta', definition, book: betaBook, revision: trainingHash({ definition, betaBook }) };
+  }
   const [[review]] = await db.execute('SELECT * FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ?', [agency.id, key, row.id]);
   const [[previousReview]] = !review ? await db.execute('SELECT definition_json FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? ORDER BY reviewed_at DESC, version_id DESC LIMIT 1', [agency.id, key]) : [[]];
   const definition = review ? json(review.definition_json) : previousReview ? json(previousReview.definition_json) : trainingTemplateForEdition(template, book);
@@ -88,7 +97,7 @@ export async function guideLearningCatalog(agencyId, userId) {
   for (const template of definitions) {
     const course = await documentTrainingCourse(context.agency, template.documentKey);
     const records = enrollments.filter(e => e.document_key === template.documentKey);
-    courses.push({ key: template.documentKey, title: course.title, description: template.description, status: course.status, version: course.book?.version || null,
+    courses.push({ key: template.documentKey, title: course.title, description: template.description, status: course.status, betaRevision: course.status === 'beta' ? course.revision : null, version: course.book?.version || null,
       questionCount: course.definition.questions.length, readingCount: course.definition.requiredSections.length,
       onboardingDefault: context.requiredKeys.includes(template.documentKey),
       onboardingRequired: context.user.status === 'ONBOARDING' && !!journey && !journey.onboarding_completed_at && context.requiredKeys.includes(template.documentKey),
@@ -122,14 +131,17 @@ export async function startGuideLearning(agencyId, userId, key, input, actorId =
     const [[existing]] = await db.execute('SELECT id FROM company_document_learning WHERE agency_id = ? AND user_id = ? AND document_key = ? AND assignment_key = ?', [agencyId, userId, key, assignmentKey]);
     if (existing) return { id: existing.id };
     const course = await documentTrainingCourse(context.agency, key, db);
-    if (course.status !== 'ready') fail(course.status === 'unpublished' ? 'Publish the guide before assigning its training.' : 'Review the questions against the current guide before assigning this training.', 409);
+    const beta = course.status === 'beta';
+    if (beta && purpose !== 'practice') fail('Beta guides are available for optional testing. Publish the reviewed edition before assigning required training.', 409);
+    if (beta && input.expectedBetaRevision !== course.revision) fail('The beta edition changed. Reload before starting.', 409);
+    if (!beta && course.status !== 'ready') fail(course.status === 'unpublished' ? 'Publish the guide before assigning its training.' : 'Review the questions against the current guide before assigning this training.', 409);
     if (Number(input.expectedVersionId) !== Number(course.book.version.id)) fail('The guide edition changed. Reload before starting.', 409);
     if (purpose === 'assigned') {
       const [[open]] = await db.execute("SELECT id FROM company_document_learning WHERE agency_id = ? AND user_id = ? AND document_key = ? AND purpose = 'assigned' AND status = 'in_progress' AND version_id = ?", [agencyId, userId, key, course.book.version.id]);
       if (open) return { id: open.id };
     }
     const [result] = await db.execute(`INSERT INTO company_document_learning (agency_id, user_id, document_key, version_id, course_revision, definition_json, assignment_key, purpose, read_sections_json, assigned_by_user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?)`, [agencyId, userId, key, course.book.version.id, course.revision, JSON.stringify(course.definition), assignmentKey, purpose, actorId]);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?)`, [agencyId, userId, key, course.book.version.id, course.revision, JSON.stringify(beta ? { ...course.definition, betaBook: course.book } : course.definition), assignmentKey, purpose, actorId]);
     return { id: result.insertId };
   });
 }
@@ -139,6 +151,8 @@ async function ownedLearning(agencyId, userId, id, db = pool) {
   const [[row]] = await db.execute('SELECT * FROM company_document_learning WHERE id = ? AND agency_id = ? AND user_id = ?', [id, agencyId, userId]);
   if (!row || !referenceAllowed(context.agency, row.document_key)) fail('Training not found.', 404);
   registered(context.agency, row.document_key);
+  const definition = json(row.definition_json);
+  if (Number(row.version_id) === 0 && definition.betaBook && row.purpose === 'practice') return { row, book: definition.betaBook, definition, context };
   const [[version]] = await db.execute(`SELECT v.* FROM company_reference_versions v JOIN company_reference_documents d ON d.id = v.document_id
     WHERE v.id = ? AND d.agency_id = ? AND d.document_key = ? AND v.is_draft = 0`, [row.version_id, agencyId, row.document_key]);
   if (!version) fail('Assigned guide edition not found.', 404);
@@ -192,7 +206,7 @@ export async function answerGuideLearning(agencyId, userId, id, input) {
   if (Number(input.expectedVersionId) !== Number(book.version.id)) fail('Reload the assigned edition before asking.', 409);
   let answer;
   try { answer = await answerFromHandbook({ handbook: book, question: input.question, history: input.history || [] }); return answer; }
-  finally { await recordDocumentQuestion({ agencyId, userId, documentKey: row.document_key, versionId: book.version.id, question: input.question, status: answer?.status || 'error', surface: row.purpose === 'practice' ? 'on-demand' : row.purpose === 'onboarding' ? 'onboarding' : 'assigned-training' }); }
+  finally { if (!book.metadata?.beta) await recordDocumentQuestion({ agencyId, userId, documentKey: row.document_key, versionId: book.version.id, question: input.question, status: answer?.status || 'error', surface: row.purpose === 'practice' ? 'on-demand' : row.purpose === 'onboarding' ? 'onboarding' : 'assigned-training' }); }
 }
 export async function heartbeatGuideLearning(agencyId, userId, id, raw) {
   const input = validateTrainingHeartbeat(raw);

@@ -1,286 +1,101 @@
 <template>
-  <div class="my-learning">
-    <header class="ml-top">
-      <div class="search-wrap">
-        <input
-          v-model="searchQuery"
-          type="search"
-          placeholder="Search for courses, topics or skills…"
-          class="search-input"
-        />
-      </div>
-    </header>
-
-    <div class="ml-layout">
-      <main class="ml-main">
-        <div class="ml-heading">
-          <div>
-            <h1>My Learning</h1>
-            <p class="muted">Continue education, on-demand courses, and your progress at a glance.</p>
-          </div>
-          <div class="metric-cards">
-            <div class="metric">
-              <div class="metric-value">{{ overallPct }}%</div>
-              <div class="metric-label">Overall progress</div>
-              <div class="mini-bar"><div :style="{ width: overallPct + '%' }" /></div>
-              <div class="muted tiny">{{ completedCount }} / {{ totalCount }} completed</div>
-            </div>
-            <div class="metric">
-              <div class="metric-value cert">{{ certificateCount }}</div>
-              <div class="metric-label">Certificates earned</div>
-              <button type="button" class="linkish" @click="activeTab = 'completed'">View all</button>
-            </div>
-            <div v-if="overdueCourses.length" class="metric alert">
-              <div class="metric-value">{{ overdueCourses.length }}</div>
-              <div class="metric-label">Overdue</div>
-              <button type="button" class="linkish" @click="activeTab = 'overdue'">Review now</button>
-            </div>
-          </div>
-        </div>
-
-        <DocumentLearningCatalog :search="searchQuery" @progress="guideProgress = $event" />
-        <div class="toolbar">
-          <div class="tabs">
-            <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              type="button"
-              :class="{ active: activeTab === tab.id }"
-              @click="activeTab = tab.id"
-            >
-              {{ tab.label }}
-              <span v-if="tab.id === 'overdue' && overdueCourses.length" class="tab-count">{{ overdueCourses.length }}</span>
-            </button>
-          </div>
-          <div class="filters">
-            <select v-model="categoryFilter">
-              <option value="">All categories</option>
-              <option value="on_demand">On-demand</option>
-              <option value="assigned">Assigned</option>
-              <option value="agency_focus">Learning paths</option>
-            </select>
-            <select v-model="typeFilter">
-              <option value="">All types</option>
-              <option value="module">Lessons</option>
-              <option value="focus">Courses</option>
-            </select>
-            <select v-model="sortBy">
-              <option value="recent">Recently accessed</option>
-              <option value="title">Title A–Z</option>
-              <option value="progress">Progress</option>
-            </select>
-            <div class="view-toggle" role="group" aria-label="View mode">
-              <button type="button" :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'">Grid</button>
-              <button type="button" :class="{ active: viewMode === 'list' }" @click="viewMode = 'list'">List</button>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="loading" class="state">Loading your learning library…</div>
-        <div v-else-if="error" class="state error">{{ error }}</div>
-
-        <template v-else>
-          <section v-if="showSection('overdue') && overdueCourses.length" class="section">
-            <h2>Overdue</h2>
-            <div :class="['course-grid', viewMode === 'list' ? 'wide' : '']">
-              <article
-                v-for="course in filteredSorted(overdueCourses)"
-                :key="course.key"
-                :class="['course-card', viewMode === 'list' ? 'horizontal' : 'vertical']"
-              >
-                <div class="thumb" :style="thumbStyle(course)" />
-                <div class="body">
-                  <span class="badge danger">Overdue</span>
-                  <h3>{{ course.title }}</h3>
-                  <p class="muted">Due {{ formatDate(course.dueDate) }}</p>
-                  <div class="card-actions">
-                    <button type="button" class="btn btn-primary btn-sm" @click="openCourse(course)">Resume</button>
-                    <button type="button" class="btn btn-secondary btn-sm" @click="toggleSave(course)">
-                      {{ isSaved(course) ? 'Saved' : 'Save' }}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section v-if="showSection('in_progress') && inProgressCourses.length" class="section">
-            <h2>In Progress</h2>
-            <div :class="['course-grid', viewMode === 'list' || activeTab === 'all' ? 'wide' : '']">
-              <article
-                v-for="course in filteredSorted(inProgressCourses)"
-                :key="course.key"
-                class="course-card horizontal"
-              >
-                <div class="thumb" :style="thumbStyle(course)" />
-                <div class="body">
-                  <span class="badge">In progress</span>
-                  <h3>{{ course.title }}</h3>
-                  <p class="muted">{{ course.description || 'Continue where you left off' }}</p>
-                  <div class="progress-row">
-                    <div class="mini-bar"><div :style="{ width: (course.progress || 0) + '%' }" /></div>
-                    <span>{{ course.progress || 0 }}%</span>
-                  </div>
-                  <div class="meta muted">
-                    <span v-if="course.lessonsTotal">{{ course.lessonsDone || 0 }} of {{ course.lessonsTotal }} lessons</span>
-                    <span v-if="course.minutesLeft">{{ course.minutesLeft }} min left</span>
-                  </div>
-                  <div class="card-actions">
-                    <button type="button" class="btn btn-primary btn-sm" @click="openCourse(course)">Resume</button>
-                    <button type="button" class="ghost-save" @click="toggleSave(course)">
-                      {{ isSaved(course) ? '★ Saved' : '☆ Save' }}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section v-if="showSection('continue') && continueCourses.length" class="section">
-            <div class="section-head">
-              <h2>Continue Learning</h2>
-            </div>
-            <div class="course-rail">
-              <article v-for="course in filteredSorted(continueCourses)" :key="course.key" class="course-card vertical compact-card">
-                <div class="icon-badge">{{ (course.title || '?').slice(0, 1) }}</div>
-                <h3>{{ course.title }}</h3>
-                <p class="muted clamp">{{ course.description || 'Ready when you are' }}</p>
-                <div class="meta muted">
-                  <span>{{ course.lessonsTotal || 0 }} lessons</span>
-                  <span>Not started</span>
-                </div>
-                <button type="button" class="btn btn-secondary btn-sm" @click="openCourse(course)">Start Course</button>
-              </article>
-            </div>
-          </section>
-
-          <section v-if="showSection('recommended') && recommendedCourses.length" class="section">
-            <h2>Recommended for You</h2>
-            <div class="course-grid compact">
-              <article v-for="course in filteredSorted(recommendedCourses)" :key="course.key" class="course-card compact-row">
-                <div class="thumb small" :style="thumbStyle(course)" />
-                <div class="body grow">
-                  <h3>{{ course.title }}</h3>
-                  <p class="muted tiny">Course · {{ course.estimatedMinutes || '—' }} min</p>
-                </div>
-                <button type="button" class="btn btn-primary btn-sm" @click="openCourse(course)">Start Course</button>
-              </article>
-            </div>
-          </section>
-
-          <section v-if="activeTab === 'completed' && completedCourses.length" class="section">
-            <h2>Completed</h2>
-            <div class="course-grid">
-              <article v-for="course in filteredSorted(completedCourses)" :key="course.key" class="course-card vertical">
-                <span class="badge success">Completed</span>
-                <h3>{{ course.title }}</h3>
-                <button type="button" class="btn btn-secondary btn-sm" @click="openCourse(course)">Review</button>
-              </article>
-            </div>
-          </section>
-
-          <section v-if="activeTab === 'saved'" class="section">
-            <h2>Saved</h2>
-            <div v-if="!savedCourses.length" class="empty-inline">
-              <p class="muted">Save courses you’re interested in for later.</p>
-            </div>
-            <div v-else class="course-grid">
-              <article v-for="course in filteredSorted(savedCourses)" :key="course.key" class="course-card vertical">
-                <h3>{{ course.title }}</h3>
-                <div class="meta muted">
-                  <span>{{ course.status.replace('_', ' ') }}</span>
-                  <span v-if="course.estimatedMinutes">{{ course.estimatedMinutes }} min</span>
-                </div>
-                <div class="card-actions">
-                  <button type="button" class="btn btn-primary btn-sm" @click="openCourse(course)">Open</button>
-                  <button type="button" class="btn btn-secondary btn-sm" @click="toggleSave(course)">Remove</button>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <div v-if="!visibleAny" class="empty">
-            <h3>No courses match your filters</h3>
-            <p class="muted">Try another tab or clear your search.</p>
-            <router-link class="btn btn-secondary" :to="assignedTrainingLink">Go to assigned training</router-link>
-          </div>
-        </template>
-      </main>
-
-      <aside class="ml-aside">
-        <div class="aside-card highlight">
-          <h3>Assigned training</h3>
-          <p class="muted">Onboarding and required paths live on your dashboard Training tab.</p>
-          <router-link class="btn btn-primary btn-sm" :to="assignedTrainingLink">Open assigned training</router-link>
-        </div>
-
-        <div class="aside-card">
-          <h3>Certificates</h3>
-          <p class="muted">{{ certificateCount }} earned</p>
-          <button type="button" class="linkish" @click="activeTab = 'completed'">Browse completed</button>
-        </div>
-
-        <div v-if="recentAchievements.length" class="aside-card">
-          <h3>Recent achievements</h3>
-          <ul class="achievements">
-            <li v-for="a in recentAchievements" :key="a.id">
-              <span class="ach-dot" :style="{ background: a.color }" />
-              <div>
-                <strong>{{ a.title }}</strong>
-                <p class="muted tiny">{{ a.subtitle }}</p>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </aside>
-    </div>
-  </div>
+  <main class="my-learning">
+    <LearningLibraryHeader active="training" />
+    <nav class="learning-tabs" aria-label="Your learning sections">
+      <button v-for="item in tabs.filter(t => t.id !== 'onboarding')" :key="item.id" :aria-pressed="activeTab === item.id" @click="activeTab = item.id">{{ item.label }}</button>
+    </nav>
+    <section class="learning-content" :aria-label="tabs.find(t => t.id === activeTab)?.label">
+      <header class="section-heading"><div><h2>{{ tabs.find(t => t.id === activeTab)?.label }} <span>Beta</span></h2><p>{{ sectionDescriptions[activeTab] }}</p></div>
+        <label class="search-wrap"><span class="sr-only">Search training</span><input v-model="searchQuery" type="search" placeholder="Search training and guides…" /></label>
+      </header>
+      <p v-if="loading" role="status">Loading your learning…</p><p v-if="error" role="alert">{{ error }} <button @click="load">Retry</button></p>
+      <div v-if="activeTab === 'assigned'" class="learning-summary"><p><strong>{{ completedCount }}</strong> completed training activities</p><button @click="activeTab = 'completed'">View all completed training →</button></div>
+      <OnboardingChecklistView v-if="activeTab === 'onboarding'" />
+      <template v-if="activeTab === 'assigned'">
+        <button class="onboarding-link" @click="activeTab = 'onboarding'">My Onboarding Package →</button>
+        <TrainingFocusTab :key="agencyId" />
+      </template>
+      <DocumentLearningCatalog :key="activeTab" :hide-empty="activeTab === 'assigned'" :search="searchQuery" :mode="activeTab" @progress="guideProgress = $event" @catalog="guideCourses = $event" />
+      <template v-if="activeTab === 'assigned'">
+        <section v-if="recentCompletions.length" class="recent-completions"><h3>Recently completed</h3><button v-for="item in recentCompletions" :key="item.key" @click="activeTab = 'completed'">✓ {{ item.title }}</button></section>
+        <section v-if="suggestions.length" class="on-demand-preview" aria-label="Explore on-demand training"><header class="section-heading"><div><h3>Explore on-demand</h3><p>A few things you can learn next.</p></div><div><button @click="rotateSuggestions(-1)" aria-label="Previous training suggestions">←</button><button @click="rotateSuggestions(1)" aria-label="Next training suggestions">→</button><button @click="searchQuery = ''; activeTab = 'on-demand'">Browse all →</button></div></header><div class="course-grid"><article v-for="item in featuredSuggestions" :key="item.key" class="course-card"><span class="course-status">{{ item.beta ? 'Beta guide' : 'On-demand' }}</span><h3>{{ item.title }}</h3><p>{{ item.description }}</p><button @click="previewSuggestion(item)">Explore training</button></article></div></section>
+      </template>
+      <template v-if="activeTab === 'on-demand' || activeTab === 'completed'">
+        <h3>{{ activeTab === 'completed' ? 'Completed courses' : 'Courses & learning paths' }}</h3>
+        <div class="course-grid"><article v-for="course in visibleCourses" :key="course.key" class="course-card">
+          <span class="course-status">{{ course.status.replace('_', ' ') }}</span><h3>{{ course.title }}</h3><p>{{ course.description }}</p>
+          <progress :value="course.progress" max="100" :aria-label="`${course.title} progress`"/><p>{{ course.progress }}% complete</p>
+          <button @click="openCourse(course)">{{ course.status === 'completed' ? 'Review' : course.progress ? 'Continue' : 'Start course' }}</button>
+        </article></div>
+        <p v-if="!loading && !visibleCourses.length">{{ activeTab === 'completed' ? 'Your completed courses will appear here.' : 'No additional courses match your search. You can practice with the guides above.' }}</p>
+        <section v-if="activeTab === 'completed' && certificates.length" class="certificates"><h3>Certificates earned</h3><p v-for="certificate in certificates" :key="certificate.id">{{ certificate.module_title || certificate.moduleTitle || certificate.title || certificate.training_focus_name || 'Training certificate' }} · {{ formatDate(certificate.issued_at || certificate.created_at) }}</p></section>
+      </template>
+    </section>
+  </main>
 </template>
-
 <script setup>
+import LearningLibraryHeader from '../components/library/LearningLibraryHeader.vue';
+import OnboardingChecklistView from './OnboardingChecklistView.vue';
+import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentLearningCatalog from '../components/training/DocumentLearningCatalog.vue';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
+import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
-import { getDashboardRoute } from '../utils/router';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const agencyId = computed(() => {
+  const slug = route.params.organizationSlug;
+  return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)))?.id;
+});
+const scoped = item => !agencyId.value || !(item.agencyId || item.agency_id) || Number(item.agencyId || item.agency_id) === Number(agencyId.value);
 
 const guideProgress = ref({ total: 0, completed: 0 });
+const guideCourses = ref([]), suggestionOffset = ref(0);
+const suggestions = computed(() => [
+  ...guideCourses.value.filter(c => ['ready', 'beta'].includes(c.status)).map(c => ({ ...c, beta: c.status === 'beta', guide: true })),
+  ...allCourses.value.filter(c => c.source !== 'assigned')
+]);
+const featuredSuggestions = computed(() => Array.from({ length: Math.min(3, suggestions.value.length) }, (_, i) => suggestions.value[(suggestionOffset.value + i) % suggestions.value.length]));
+function rotateSuggestions(direction) { if (suggestions.value.length) suggestionOffset.value = (suggestionOffset.value + direction * 3 + suggestions.value.length) % suggestions.value.length; }
+function previewSuggestion(item) { if (item.guide) { searchQuery.value = item.title; activeTab.value = 'on-demand'; } else openCourse(item); }
+const recentCompletions = computed(() => [
+  ...guideCourses.value.flatMap(c => c.enrollments.filter(e => e.status === 'completed').map(e => ({ key: `guide-${e.id}`, title: c.title, completedAt: e.completed_at }))),
+  ...completedCourses.value
+].sort((a, b) => (Date.parse(b.completedAt) || 0) - (Date.parse(a.completedAt) || 0)).slice(0, 3));
 const loading = ref(true);
 const error = ref('');
 const searchQuery = ref('');
-const activeTab = ref('all');
+const sectionIds = ['assigned', 'onboarding', 'on-demand', 'completed'];
+const activeTab = computed({ get: () => sectionIds.includes(route.query.learning) ? route.query.learning : 'assigned', set: value => router.replace({ query: { ...route.query, learning: value } }) });
 const sortBy = ref('recent');
 const categoryFilter = ref('');
 const typeFilter = ref('');
-const viewMode = ref('grid');
 const modules = ref([]);
 const agencyFocuses = ref([]);
 const assignedFocuses = ref([]);
 const progressRows = ref([]);
 const certificates = ref([]);
 const trainingTasks = ref([]);
-const savedItems = ref([]);
 
 const tabs = [
-  { id: 'all', label: 'All Courses' },
-  { id: 'in_progress', label: 'In Progress' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'overdue', label: 'Overdue' },
-  { id: 'saved', label: 'Saved' }
+  { id: 'assigned', label: 'My Training' },
+  { id: 'onboarding', label: 'My Onboarding Package' },
+  { id: 'on-demand', label: 'On-Demand' },
+  { id: 'completed', label: 'Completed' }
 ];
-
-const assignedTrainingLink = computed(() => {
-  const org = route.params.organizationSlug;
-  const base = org ? `/${org}/dashboard` : getDashboardRoute();
-  const sep = String(base).includes('?') ? '&' : '?';
-  return `${base}${sep}tab=training`;
-});
-
+const sectionDescriptions = {
+  assigned: 'An overview of your assigned work and learning history, including onboarding training.',
+  onboarding: 'Your onboarding checklist, documents and required learning.',
+  'on-demand': 'Explore available courses and practice with your company guides.',
+  completed: 'Review your completed courses, guide training and certificates.'
+};
+const visibleCourses = computed(() => filteredSorted(allCourses.value.filter(c => activeTab.value === 'completed' ? c.status === 'completed' : activeTab.value === 'on-demand' && c.source !== 'assigned')));
+const rows = (value, key) => Array.isArray(value) ? value : Array.isArray(value?.[key]) ? value[key] : [];
 const progressMap = computed(() => {
   const map = new Map();
   for (const p of progressRows.value) {
@@ -304,14 +119,6 @@ const dueByModule = computed(() => {
     });
   }
   return map;
-});
-
-const savedSet = computed(() => {
-  const set = new Set();
-  for (const s of savedItems.value) {
-    set.add(`${s.itemType}:${s.itemId}`);
-  }
-  return set;
 });
 
 function moduleProgress(moduleId) {
@@ -351,8 +158,8 @@ function normalizeFocus(f, source = 'agency_focus') {
   const modulesIn = f.modules || [];
   const done = modulesIn.filter((mod) => moduleProgress(mod.id || mod.module_id) >= 100).length;
   const total = modulesIn.length || f.module_count || 0;
-  const progress = f.progress_percentage != null
-    ? Number(f.progress_percentage)
+  const progress = (f.progress_percentage ?? f.completionPercent) != null
+    ? Number(f.progress_percentage ?? f.completionPercent)
     : (total ? Math.round((done / total) * 100) : 0);
   const dueDates = modulesIn
     .map((mod) => dueByModule.value.get(Number(mod.id || mod.module_id)))
@@ -377,8 +184,9 @@ function normalizeFocus(f, source = 'agency_focus') {
 
 const allCourses = computed(() => {
   const list = [];
-  for (const f of agencyFocuses.value) list.push(normalizeFocus(f, 'agency_focus'));
   for (const f of assignedFocuses.value) list.push(normalizeFocus(f, 'assigned'));
+  for (const t of trainingTasks.value.filter(t => t.reference_id && (!t.reference_type || t.reference_type === 'module'))) list.push(normalizeModule({ id: t.reference_id, title: t.title, description: t.description }, 'assigned'));
+  for (const f of agencyFocuses.value) list.push(normalizeFocus(f, 'agency_focus'));
   for (const m of modules.value) list.push(normalizeModule(m));
   const seen = new Set();
   return list.filter((c) => {
@@ -389,55 +197,12 @@ const allCourses = computed(() => {
   });
 });
 
-const inProgressCourses = computed(() => allCourses.value.filter((c) => c.status === 'in_progress'));
 const completedCourses = computed(() => allCourses.value.filter((c) => c.status === 'completed'));
-const overdueCourses = computed(() => allCourses.value.filter((c) => c.isOverdue));
-const continueCourses = computed(() =>
-  allCourses.value.filter((c) => c.status === 'not_started' && c.source !== 'assigned').slice(0, 8)
-);
-const recommendedCourses = computed(() =>
-  allCourses.value.filter((c) => c.status === 'not_started').slice(0, 6)
-);
-const savedCourses = computed(() =>
-  allCourses.value.filter((c) => savedSet.value.has(`${c.type === 'focus' ? 'focus' : 'module'}:${c.id}`))
-);
-
-const totalCount = computed(() => allCourses.value.length + guideProgress.value.total);
 const completedCount = computed(() => completedCourses.value.length + guideProgress.value.completed);
-const overallPct = computed(() =>
-  totalCount.value ? Math.round((completedCount.value / totalCount.value) * 100) : 0
-);
-const certificateCount = computed(() => certificates.value.length || completedCourses.value.length);
-
-const recentAchievements = computed(() =>
-  completedCourses.value.slice(0, 5).map((c, i) => ({
-    id: c.key,
-    title: c.title,
-    subtitle: 'Course completed',
-    color: ['var(--primary)', 'var(--success)', 'var(--accent)'][i % 3]
-  }))
-);
-
-function showSection(name) {
-  if (activeTab.value === 'all') return name !== 'overdue' || overdueCourses.value.length > 0;
-  if (activeTab.value === 'in_progress') return name === 'in_progress';
-  if (activeTab.value === 'completed') return false;
-  if (activeTab.value === 'overdue') return name === 'overdue';
-  if (activeTab.value === 'saved') return false;
-  return true;
-}
-
-const visibleAny = computed(() => {
-  if (activeTab.value === 'completed') return completedCourses.value.length > 0;
-  if (activeTab.value === 'in_progress') return inProgressCourses.value.length > 0;
-  if (activeTab.value === 'overdue') return overdueCourses.value.length > 0;
-  if (activeTab.value === 'saved') return savedCourses.value.length > 0;
-  return allCourses.value.length > 0;
-});
-
 function matchesFilters(course) {
   const q = searchQuery.value.trim().toLowerCase();
   if (q && !`${course.title} ${course.description || ''}`.toLowerCase().includes(q)) return false;
+  if (activeTab.value === 'on-demand' && course.source === 'assigned') return false;
   if (categoryFilter.value && course.source !== categoryFilter.value) return false;
   if (typeFilter.value && course.type !== typeFilter.value) return false;
   return true;
@@ -453,43 +218,12 @@ function filteredSorted(list) {
   return rows;
 }
 
-function thumbStyle(course) {
-  const hue = (Number(course.id) * 47) % 360;
-  return {
-    background: `linear-gradient(145deg, hsl(${hue} 42% 46%), hsl(${(hue + 48) % 360} 34% 26%))`
-  };
-}
-
 function formatDate(value) {
   if (!value) return '';
   try {
     return new Date(value).toLocaleDateString();
   } catch {
     return String(value);
-  }
-}
-
-function isSaved(course) {
-  return savedSet.value.has(`${course.type === 'focus' ? 'focus' : 'module'}:${course.id}`);
-}
-
-async function toggleSave(course) {
-  const itemType = course.type === 'focus' ? 'focus' : 'module';
-  try {
-    if (isSaved(course)) {
-      await api.delete(`/training-saved/${itemType}/${course.id}`);
-      savedItems.value = savedItems.value.filter(
-        (s) => !(s.itemType === itemType && Number(s.itemId) === Number(course.id))
-      );
-    } else {
-      const res = await api.post('/training-saved', { itemType, itemId: course.id });
-      savedItems.value = res.data?.items || [
-        ...savedItems.value,
-        { itemType, itemId: course.id }
-      ];
-    }
-  } catch (err) {
-    alert(err?.response?.data?.error?.message || 'Could not update saved courses');
   }
 }
 
@@ -539,261 +273,45 @@ async function openCourse(course) {
   router.push(org ? `/${org}/on-demand-training/modules/${mid}` : `/on-demand-training/modules/${mid}`);
 }
 
+let loadSequence = 0;
 async function load() {
+  const request = ++loadSequence;
   loading.value = true;
   error.value = '';
   try {
     const userId = authStore.user?.id;
     const tasks = [
-      api.get('/on-demand-training/modules').catch(() => ({ data: [] })),
-      api.get('/on-demand-training/training-focuses').catch(() => ({ data: [] })),
-      api.get('/progress').catch(() => ({ data: [] })),
-      api.get('/certificates').catch(() => ({ data: [] })),
-      api.get('/tasks', { params: { taskType: 'training' } }).catch(() => ({ data: [] })),
-      api.get('/training-saved').catch(() => ({ data: [] }))
+      api.get('/on-demand-training/modules', { params: { agencyId: agencyId.value } }).catch(() => ({ data: [], failed: true })),
+      api.get('/on-demand-training/training-focuses', { params: { agencyId: agencyId.value } }).catch(() => ({ data: [], failed: true })),
+      api.get('/progress').catch(() => ({ data: [], failed: true })),
+      api.get('/certificates').catch(() => ({ data: [], failed: true })),
+      api.get('/tasks', { params: { taskType: 'training' } }).catch(() => ({ data: [], failed: true })),
     ];
     if (userId) {
-      tasks.push(api.get(`/users/${userId}/training-focuses`).catch(() => ({ data: [] })));
+      tasks.push(api.get(`/users/${userId}/training-focuses`).catch(() => ({ data: [], failed: true })));
     }
-    const [modRes, focusRes, progRes, certRes, taskRes, savedRes, assignedRes] = await Promise.all(tasks);
-    modules.value = modRes.data || [];
-    agencyFocuses.value = focusRes.data || [];
-    progressRows.value = progRes.data || [];
+    const [modRes, focusRes, progRes, certRes, taskRes, assignedRes] = await Promise.all(tasks);
+    if (request !== loadSequence) return;
+    if ([modRes, focusRes, progRes, certRes, taskRes, assignedRes].some(result => result?.failed)) error.value = 'Some training could not be loaded. Retry to refresh your records.';
+    modules.value = rows(modRes.data, 'modules');
+    agencyFocuses.value = rows(focusRes.data, 'focuses');
+    progressRows.value = rows(progRes.data, 'progress');
     certificates.value = Array.isArray(certRes.data) ? certRes.data : (certRes.data?.certificates || []);
-    trainingTasks.value = Array.isArray(taskRes.data) ? taskRes.data : [];
-    savedItems.value = Array.isArray(savedRes.data) ? savedRes.data : [];
-    assignedFocuses.value = assignedRes?.data || [];
+    trainingTasks.value = rows(taskRes.data, 'tasks').filter(scoped);
+    assignedFocuses.value = rows(assignedRes?.data, 'focuses').filter(scoped);
   } catch (err) {
-    error.value = err?.response?.data?.error?.message || 'Failed to load learning library';
+    if (request === loadSequence) error.value = err?.response?.data?.error?.message || 'Failed to load learning library';
   } finally {
-    loading.value = false;
+    if (request === loadSequence) loading.value = false;
   }
 }
 
 onMounted(load);
+watch(() => route.params.organizationSlug, () => { modules.value = []; assignedFocuses.value = []; agencyFocuses.value = []; trainingTasks.value = []; guideCourses.value = []; load(); });
+onBeforeUnmount(() => { loadSequence++; });
 </script>
 
 <style scoped>
-.my-learning {
-  min-height: calc(100vh - 64px);
-  background:
-    radial-gradient(1200px 420px at 10% -10%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 60%),
-    linear-gradient(180deg, var(--bg-alt), var(--bg) 320px);
-  padding-bottom: 48px;
-}
-.ml-top {
-  padding: 22px 24px 10px;
-  display: flex;
-  justify-content: center;
-}
-.search-wrap { width: min(720px, 100%); }
-.search-input {
-  width: 100%;
-  padding: 13px 18px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
-  font: inherit;
-  box-shadow: var(--shadow);
-}
-.ml-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 24px;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 8px 24px 24px;
-}
-.ml-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  align-items: flex-start;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.ml-heading h1 { margin: 0 0 6px; font-family: var(--font-header); font-size: clamp(1.7rem, 2.4vw, 2.2rem); }
-.metric-cards { display: flex; gap: 12px; flex-wrap: wrap; }
-.metric {
-  min-width: 148px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px 16px;
-  box-shadow: var(--shadow);
-}
-.metric.alert {
-  border-color: color-mix(in srgb, var(--danger, #c0392b) 40%, var(--border));
-  background: color-mix(in srgb, var(--danger, #c0392b) 6%, var(--app-surface, white));
-}
-.metric-value { font-size: 1.7rem; font-weight: 700; color: var(--secondary); line-height: 1.1; }
-.metric-value.cert { color: var(--success); }
-.metric-label { font-size: 12px; color: var(--text-secondary); margin: 4px 0 6px; }
-.mini-bar {
-  height: 6px;
-  background: var(--bg-alt);
-  border-radius: 999px;
-  overflow: hidden;
-  margin: 6px 0;
-}
-.mini-bar > div { height: 100%; background: var(--primary); }
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 22px;
-  flex-wrap: wrap;
-}
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.tabs button {
-  border: none;
-  background: transparent;
-  padding: 8px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.tabs button.active {
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--secondary);
-}
-.tab-count {
-  background: var(--danger, #c0392b);
-  color: #fff;
-  border-radius: 999px;
-  padding: 0 6px;
-  font-size: 11px;
-}
-.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.filters select {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  font: inherit;
-}
-.view-toggle {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.view-toggle button {
-  border: none;
-  background: var(--bg);
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-.view-toggle button.active {
-  background: color-mix(in srgb, var(--primary) 16%, transparent);
-  color: var(--secondary);
-}
-.section { margin-bottom: 30px; }
-.section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
-.section h2 { margin: 0 0 12px; font-size: 1.15rem; font-family: var(--font-header); }
-.course-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
-}
-.course-grid.wide { grid-template-columns: 1fr; }
-.course-grid.compact { grid-template-columns: 1fr; gap: 10px; }
-.course-rail {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(200px, 240px);
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-}
-.course-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 14px;
-  box-shadow: var(--shadow);
-}
-.course-card.horizontal { display: grid; grid-template-columns: 168px 1fr; gap: 14px; padding: 0; overflow: hidden; }
-.course-card.horizontal .body { padding: 16px 16px 16px 0; }
-.course-card.compact-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.course-card h3 { margin: 6px 0; font-size: 1.02rem; }
-.thumb { min-height: 128px; }
-.thumb.small { width: 68px; height: 52px; border-radius: 10px; flex-shrink: 0; min-height: 52px; }
-.badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--secondary);
-}
-.badge.success { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
-.badge.danger { background: color-mix(in srgb, var(--danger, #c0392b) 16%, transparent); color: var(--danger, #c0392b); }
-.progress-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.progress-row .mini-bar { flex: 1; }
-.meta { display: flex; gap: 12px; font-size: 12px; margin: 8px 0 12px; flex-wrap: wrap; }
-.card-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.ghost-save {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-}
-.icon-badge {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
-}
-.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.6em; }
-.grow { flex: 1; min-width: 0; }
-.ml-aside { display: flex; flex-direction: column; gap: 12px; }
-.aside-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: var(--shadow);
-}
-.aside-card.highlight {
-  background: color-mix(in srgb, var(--primary) 8%, var(--app-surface, white));
-  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
-}
-.aside-card h3 { margin: 0 0 8px; font-size: 0.95rem; }
-.achievements { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
-.achievements li { display: flex; gap: 10px; align-items: flex-start; }
-.ach-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
-.muted { color: var(--text-secondary); }
-.tiny { font-size: 12px; }
-.linkish { border: none; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; font-weight: 600; }
-.state, .empty { text-align: center; padding: 40px 16px; }
-.empty-inline { padding: 12px 0; }
-.state.error { color: var(--error); }
-@media (max-width: 960px) {
-  .ml-layout { grid-template-columns: 1fr; }
-  .course-card.horizontal { grid-template-columns: 1fr; }
-  .course-card.horizontal .body { padding: 14px; }
-  .thumb { min-height: 100px; }
-}
+.my-learning{width:100%;min-width:0;box-sizing:border-box;padding:clamp(12px,2vw,28px);font-family:var(--font-ptco),sans-serif;color:#253e35;background:#f7f8f4;--primary:#294f40}.onboarding-link,.on-demand-preview header button,.recent-completions button{font:inherit;border:1px solid #b8cabf;background:#f8faf6;color:#294f40;border-radius:10px;padding:12px 16px;cursor:pointer;margin:0 8px 16px 0}.on-demand-preview,.recent-completions{border-top:1px solid #dce3d9;margin-top:28px;padding-top:24px}.learning-summary{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px;background:#eef3eb;border-radius:12px;margin-bottom:22px}.learning-summary button{font:inherit;border:0;background:transparent;color:#294f40;cursor:pointer}.learning-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}.learning-tabs button,.course-card button{font:inherit;cursor:pointer;border:1px solid #b9cbbf;border-radius:10px;padding:13px 20px;background:white;color:#294f40;min-height:46px}.learning-tabs [aria-pressed=true],.course-card button{background:#294f40;color:white}.learning-content{background:white;border:1px solid #dbe2d9;border-radius:16px;padding:clamp(16px,2vw,28px);min-width:0}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:20px}.section-heading h2{font:600 24px/1.4 var(--font-ptco);color:#253e35;margin:0}.section-heading h2 span{font-size:11px;vertical-align:middle;border-radius:12px;background:#f4e3d7;padding:5px 9px;color:#77432e}.section-heading p,.course-card p{font-size:14px;line-height:1.7}.search-wrap{flex:0 1 400px}.search-wrap input{box-sizing:border-box;width:100%;border:1px solid #bfcfc2;border-radius:10px;padding:14px;font:inherit}.course-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:18px}.course-card{border:1px solid #d8e2d8;border-radius:12px;padding:24px;background:#fafaf7;min-width:0}.course-card h3{font-size:19px;line-height:1.5}.course-status{text-transform:capitalize;font-size:12px;color:#566b5c}.course-card progress{width:100%;accent-color:#294f40}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.my-learning :deep(.container){max-width:none;width:100%;padding:0}.my-learning :deep(.guide-catalog){margin:16px 0;padding:0;background:transparent;border:0}.my-learning :deep(.training-focus-tab){font-family:var(--font-ptco)}button:focus-visible,input:focus-visible{outline:3px solid #b87961;outline-offset:3px}
+.my-learning :deep(.training-focus-tab .empty-state){padding:18px 0;text-align:left}.on-demand-preview .course-grid{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:800px){.on-demand-preview .course-grid{grid-template-columns:1fr}}
 </style>

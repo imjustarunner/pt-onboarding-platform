@@ -43,7 +43,7 @@ describe('same guide catalog across learning surfaces', () => {
   });
   it('offers onboarding only when required and hides optional practice in the portal', async () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, onboardingRequired: true }] } }); api.post.mockResolvedValue({ data: { id: 11 } });
-    const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'assigned', apiBase: '/prehire-portal/test/document-learning' }, global: { stubs: { Player: true } } });
+    const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'onboarding', apiBase: '/prehire-portal/test/document-learning' }, global: { stubs: { Player: true } } });
     await button(w, 'Start required').trigger('click'); await flushPromises();
     expect(api.post.mock.calls[0][1].purpose).toBe('onboarding'); expect(button(w, 'Start optional')).toBeUndefined();
   });
@@ -105,5 +105,22 @@ describe('training administration', () => {
     const w = await mounted(Staff, { props: { agencyId: 2, userId: 7 } });
     await w.get('input[type=checkbox]').setValue(false); await button(w, 'Save school-work').trigger('click'); await flushPromises(); expect(api.put.mock.calls[0][1].expectedSchoolWork).toBe(false);
     await button(w, 'Assign paid refresher').trigger('click'); await flushPromises(); expect(api.post).toHaveBeenCalledWith('/provider-update/document-learning/staff/7/school-practice-guide/assign', expect.objectContaining({ agencyId: 2, expectedVersionId: 14 }));
+  });
+});
+
+describe('beta practice and separate learning sections', () => {
+  it('starts beta practice with its source revision and keeps required training unavailable', async () => {
+    api.get.mockResolvedValue({ data: { courses: [{ ...course, status: 'beta', betaRevision: 'source-revision', version: { id: 0 }, onboardingRequired: true }] } });
+    api.post.mockResolvedValue({ data: { id: 12 } });
+    const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'on-demand' }, global: { stubs: { Player: true } } });
+    expect(button(w, 'Start required')).toBeUndefined(); expect(button(w, 'Start optional').attributes('disabled')).toBeUndefined();
+    await button(w, 'Start optional').trigger('click'); await flushPromises();
+    expect(api.post).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ purpose: 'practice', expectedBetaRevision: 'source-revision', expectedVersionId: 0 }));
+  });
+  it('includes completed onboarding and practice in history without creating new assignments', async () => {
+    api.get.mockResolvedValue({ data: { courses: [{ ...course, enrollments: [{ id: 1, purpose: 'onboarding', status: 'completed' }, { id: 2, purpose: 'practice', status: 'completed' }, { id: 3, purpose: 'assigned', status: 'in_progress' }] }] } });
+    const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'completed' }, global: { stubs: { Player: true } } });
+    expect(w.findAll('button').filter(b => b.text() === 'Review completion')).toHaveLength(2);
+    expect(button(w, 'Start optional')).toBeUndefined(); expect(button(w, 'Continue assigned')).toBeUndefined();
   });
 });

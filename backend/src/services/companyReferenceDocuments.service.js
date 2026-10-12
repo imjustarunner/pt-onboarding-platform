@@ -47,6 +47,11 @@ export async function publishedReference(agencyId, key) {
     WHERE d.agency_id = ? AND d.document_key = ?`, [Number(agencyId), key]);
   return book(rows[0]);
 }
+export async function betaReference(agencyId, key) {
+  const source = await sourceForReference(agencyId, key);
+  if (!source) fail('No beta guide is available for this company.', 404);
+  return { beta: true, metadata: { ...referenceMetadata(source), beta: true }, sections: source.sections, revision: source.revision };
+}
 export async function referenceWorkspace(agencyId, key) {
   const [source, published] = await Promise.all([sourceForReference(agencyId, key), publishedReference(agencyId, key)]);
   const [drafts] = await pool.execute(`SELECT v.* FROM company_reference_documents d
@@ -151,6 +156,12 @@ export async function publishReference(agencyId, key, userId, input) {
     await conn.execute('UPDATE company_reference_documents SET published_version_id = ?, draft_version_id = NULL WHERE id = ?', [row.id, document.id]);
     return { versionId: row.id, changeCount: changes.length };
   });
+}
+export async function answerBetaReference(agencyId, key, input) {
+  const question = validateHandbookQuestion(input);
+  const document = await betaReference(agencyId, key);
+  if (input.expectedRevision !== document.revision) fail('The beta guide changed. Reload before asking.', 409);
+  return answerFromHandbook({ handbook: document, ...question });
 }
 export async function answerReference(agencyId, key, input, userId = null) {
   const question = validateHandbookQuestion(input);

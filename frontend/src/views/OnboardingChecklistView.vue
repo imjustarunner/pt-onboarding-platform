@@ -73,13 +73,15 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import StaffCommunicationChoices from '../components/communications/StaffCommunicationChoices.vue';
 import { useAuthStore } from '../store/auth';
 import { getDashboardRoute } from '../utils/router';
 
 const router = useRouter();
+const route = useRoute();
+const orgPrefix = computed(() => route.params.organizationSlug ? `/${route.params.organizationSlug}` : '');
 const authStore = useAuthStore();
 const userId = computed(() => authStore.user?.id);
 
@@ -138,17 +140,15 @@ const toggleItem = async (item) => {
 };
 
 const goToTraining = (itemId) => {
-  // Navigate to training focus or module
-  router.push(getDashboardRoute());
+  router.push(`${orgPrefix.value}/module/${itemId}`);
 };
 
 const goToDocument = (itemId) => {
-  // Navigate to document
-  router.push(getDashboardRoute());
+  router.push({ path: `${orgPrefix.value}/dashboard`, query: { tab: 'documents', documentId: itemId } });
 };
 
 const goToAccountInfo = () => {
-  router.push('/account-info');
+  router.push(`${orgPrefix.value}/account-info`);
 };
 
 const formatDate = (dateString) => {

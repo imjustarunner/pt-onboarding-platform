@@ -4,6 +4,7 @@
     <p v-if="error" role="alert" class="training-error">{{ error }} <button @click="load">Reload</button></p>
     <p v-if="!lesson" role="status">Loading your guide and learning record…</p>
     <template v-else>
+      <p v-if="lesson.book?.metadata?.beta" class="time-banner optional">Beta practice edition · Your progress is saved separately from required training.</p>
       <div :class="['time-banner', { optional: !lesson.paid }]">
         <div><strong>{{ lesson.paid ? 'Assigned training · Paid time' : 'Optional review · Your own time' }}</strong><p v-if="lesson.paid">{{ lesson.onboardingTime ? 'Active time joins your onboarding record and is submitted with your onboarding package.' : 'Active reading, questions and quiz retries are recorded for payroll review. You can submit time before finishing.' }}</p><p v-else>This practice attempt does not track paid time or create a payroll claim. Your required completion record stays intact.</p><p v-if="lesson.paid && lesson.status !== 'completed'" role="status">{{ activity.tracking.value ? 'Recording active time' : activity.paused.value ? 'Timer paused' : 'Timer waits while you are away or inactive' }}</p></div>
         <button v-if="lesson.paid && lesson.status !== 'completed'" @click="activity.paused.value = !activity.paused.value">{{ activity.paused.value ? 'Resume timer' : 'Pause timer' }}</button>
@@ -16,7 +17,7 @@
       <nav class="learning-tabs" aria-label="Learning activity"><button :aria-pressed="tab === 'read'" @click="tab = 'read'">1. Read &amp; ask · {{ lesson.readSections.length }}/{{ lesson.definition.requiredSections.length }}</button><button :aria-pressed="tab === 'quiz'" @click="tab = 'quiz'">2. Knowledge check{{ lesson.status === 'completed' ? ' · Complete' : '' }}</button></nav>
       <div v-show="tab === 'read'">
         <div class="reading-plan"><h3>Core reading</h3><p>Review these sections, ask questions as needed, then mark each section reviewed. The full guide remains available below.</p><ol><li v-for="slug in lesson.definition.requiredSections" :key="slug"><button @click="openSection(slug)"><span aria-hidden="true">{{ lesson.readSections.includes(slug) ? '✓' : '○' }}</span> {{ titleFor(slug) }}</button></li></ol></div>
-        <Book ref="book" :handbook="lesson.book" :analytics-http="http" :analytics="{ agencyId, apiBase: apiBase.includes('/prehire-portal/') ? apiBase.replace(/\/document-learning$/, '/document-analytics') : '/document-analytics', surface: lesson.purpose === 'practice' ? 'on-demand' : lesson.purpose === 'onboarding' ? 'onboarding' : 'assigned-training' }" :answer-question="ask" @section-change="selectedSlug = $event" @handbook-link="openHandbook">
+        <Book ref="book" :handbook="lesson.book" :analytics-http="http" :analytics="{ agencyId, enabled: !lesson.book.metadata?.beta, apiBase: apiBase.includes('/prehire-portal/') ? apiBase.replace(/\/document-learning$/, '/document-analytics') : '/document-analytics', surface: lesson.purpose === 'practice' ? 'on-demand' : lesson.purpose === 'onboarding' ? 'onboarding' : 'assigned-training' }" :answer-question="ask" @section-change="selectedSlug = $event" @handbook-link="openHandbook">
           <template #section-actions="{ section }">
             <div v-if="lesson.definition.requiredSections.includes(section.slug)" class="reading-confirmation"><p>{{ titleFor(section.slug) }}</p><button :disabled="busy || lesson.status === 'completed' || lesson.readSections.includes(section.slug)" @click="markRead">{{ lesson.readSections.includes(section.slug) ? '✓ Reviewed' : 'I have reviewed this section' }}</button><button v-if="lesson.readSections.includes(section.slug) && !allRead" @click="openSection(lesson.definition.requiredSections.find(s => !lesson.readSections.includes(s)))">Next core section →</button></div>
           </template>
@@ -51,7 +52,7 @@ const base = computed(() => `${props.apiBase}/enrollments/${props.learningId}`);
 const enabled = computed(() => lesson.value?.paid && lesson.value.status !== 'completed');
 const activity = useGuideTrainingActivity({ enabled, send: async payload => (await props.http.post(`${base.value}/heartbeat`, { ...payload, agencyId: props.agencyId })).data });
 const allRead = computed(() => lesson.value?.definition.requiredSections.every(s => lesson.value.readSections.includes(s)));
-const fontStyle = computed(() => ({ '--learning-font': lesson.value?.book.metadata?.presentation?.theme === 'itsco-foundations' ? 'var(--font-itsco)' : 'var(--font-ptco)' }));
+const fontStyle = { '--learning-font': 'var(--font-ptco)' };
 const titleFor = slug => lesson.value?.book.sections.find(s => s.slug === slug)?.title || slug;
 async function load() {
   const current = ++sequence; error.value = '';

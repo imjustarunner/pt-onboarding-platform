@@ -2116,7 +2116,7 @@ const routes = [
   {
     path: '/:organizationSlug/on-demand-training',
     name: 'OrganizationOnDemandTrainingLibrary',
-    redirect: (to) => `/${to.params.organizationSlug}/my-learning`
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/my-learning`, query: { learning: 'on-demand' } })
   },
   {
     path: '/:organizationSlug/on-demand-training/modules/:id',
@@ -4871,7 +4871,7 @@ const routes = [
   {
     path: '/on-demand-training',
     name: 'OnDemandTrainingLibrary',
-    redirect: '/my-learning'
+    redirect: { path: '/my-learning', query: { learning: 'on-demand' } }
   },
   {
     path: '/on-demand-training/modules/:id',

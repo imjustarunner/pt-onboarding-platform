@@ -5,7 +5,7 @@ vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../hireJourney.service.js', () => ({ recordOnboardingActivity: mocks.activity }));
 vi.mock('../workplaceHandbookAssistant.service.js', () => ({ answerFromHandbook: mocks.answer }));
 import { referenceSource, referenceMetadata } from '../companyReferenceContent.js';
-import { documentTrainingDefinitions } from '../documentTrainingContent.js';
+import { documentTrainingDefinitions, trainingDefinitionsFor } from '../documentTrainingContent.js';
 import { startGuideLearning, guideLearningDetail, markGuideReading, submitGuideQuiz, heartbeatGuideLearning, submitGuideTime, documentTrainingCourse, onboardingGuideSteps, assertOnboardingGuideTraining, reviewDocumentTraining, answerGuideLearning } from '../companyDocumentLearning.service.js';
 const def = documentTrainingDefinitions[0], source = referenceSource({ slug: 'itsco' }, 'provider-guide');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -188,4 +188,39 @@ describe('paid versus own-time learning', () => {
   it('does not treat a missing onboarding journey as an open onboarding assignment', async () => {
     state.user.status = 'ONBOARDING'; state.journey = null; await expect(start('onboarding')).rejects.toThrow('not required');
   });
+});
+
+describe('beta guide practice', () => {
+  it('saves an immutable source edition, supports completion and never permits a payroll claim', async () => {
+    state.published = false;
+    const course = await documentTrainingCourse(state.agency, 'provider-guide');
+    expect(course.status).toBe('beta');
+    const { id } = await startGuideLearning(2, 7, 'provider-guide', { purpose: 'practice', requestKey: 'beta-practice-0001', expectedVersionId: 0, expectedBetaRevision: course.revision });
+    expect(state.enrollments[0].version_id).toBe(0);
+    state.published = true;
+    state.version.sections_json = [{ slug: 'replaced', body_html: 'Different published edition' }];
+    const detail = await guideLearningDetail(2, 7, id);
+    expect(detail.book.metadata.beta).toBe(true); expect(detail.paid).toBe(false);
+    expect(detail.book.sections.some(s => s.slug === def.requiredSections[0])).toBe(true);
+    expect(detail.definition.betaBook).toBeUndefined(); expect(detail.definition.questions[0].correctAnswer).toBeUndefined();
+    await readAll(id);
+    expect((await submitGuideQuiz(2, 7, id, { requestKey: 'beta-quiz-submit-001', answers: def.questions.map(q => q.correctAnswer) })).passed).toBe(true);
+    expect((await heartbeatGuideLearning(2, 7, id, heartbeat())).creditedSeconds).toBe(0);
+    await expect(submitGuideTime(2, 7, id)).rejects.toThrow('own time'); expect(state.claims).toHaveLength(0);
+  });
+  it('rejects stale beta starts and does not turn beta into paid required training', async () => {
+    state.published = false;
+    await expect(startGuideLearning(2, 7, 'provider-guide', { purpose: 'practice', requestKey: 'beta-practice-0001', expectedVersionId: 0, expectedBetaRevision: 'stale' })).rejects.toThrow('beta edition changed');
+    await expect(start()).rejects.toThrow('Publish'); expect(state.enrollments).toHaveLength(0);
+  });
+});
+
+it('offers every supplied ITSCO, NLU and ISI training source as a matching beta edition', async () => {
+  state.published = false;
+  for (const slug of ['itsco', 'next-level-up', 'the-inner-strength-institute']) {
+    const agency = { id: 2, slug };
+    const definitions = trainingDefinitionsFor(agency);
+    expect(definitions.length).toBeGreaterThan(5);
+    for (const definition of definitions) expect((await documentTrainingCourse(agency, definition.documentKey)).status, `${slug}:${definition.documentKey}`).toBe('beta');
+  }
 });

@@ -1,7 +1,7 @@
 import { listCompanyDocuments, assignCompanyDocument } from '../services/workplaceDocumentLibrary.service.js';
 
 export async function listLibrary(req, res, next) {
-  try { res.set('Cache-Control', 'private, no-store'); res.json(await listCompanyDocuments(req.user)); }
+  try { res.set('Cache-Control', 'private, no-store'); res.json(await listCompanyDocuments(req.user, { organizationSlug: req.query.organizationSlug, agencyId: req.query.agencyId })); }
   catch (error) { next(error); }
 }
 export async function assignDocument(req, res, next) {

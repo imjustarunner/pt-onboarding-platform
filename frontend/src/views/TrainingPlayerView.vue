@@ -1,5 +1,6 @@
 <template>
   <div class="training-player" :class="{ 'portal-embedded': isPrehireMode && route.query.embedded === '1' }">
+    <header v-if="!isPrehireMode" class="plotline-player-brand"><PlotlineBrand/><span>Training · Beta</span><button class="btn btn-secondary" @click="exitCourse">My Training →</button></header>
     <div v-if="loading" class="state">Loading training…</div>
     <div v-else-if="error" class="state error">{{ error }}</div>
 
@@ -293,6 +294,7 @@
 </template>
 
 <script setup>
+import PlotlineBrand from '../components/plotline/PlotlineBrand.vue';
 import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
 import { computed, onMounted, ref, watch, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -849,18 +851,8 @@ function exitCourse() {
     router.push(portalReturnPath.value);
     return;
   }
-  if (props.onDemand || route.path.includes('on-demand')) {
-    const org = route.params.organizationSlug;
-    router.push(org ? `/${org}/my-learning` : '/my-learning');
-    return;
-  }
   const org = route.params.organizationSlug;
-  if (org) {
-    router.push(`/${org}/dashboard?tab=training`);
-    return;
-  }
-  const dash = getDashboardRoute() || '/dashboard';
-  router.push({ path: String(dash).split('?')[0], query: { tab: 'training' } });
+  router.push({ path: org ? `/${org}/my-learning` : '/my-learning', query: { learning: props.onDemand ? 'on-demand' : 'assigned' } });
 }
 
 function goLesson(lesson) {
@@ -905,6 +897,7 @@ onMounted(load);
 </script>
 
 <style scoped>
+.plotline-player-brand{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:18px 24px;background:#f8f6f0;color:#294b3f;font:14px var(--font-ptco)}.plotline-player-brand button{margin-left:auto}.training-player{font-family:var(--font-ptco);--primary:#294f40;--font-header:var(--font-ptco)}
 .portal-embedded{min-height:0!important;padding:0!important;background:white!important}
 .portal-embedded .prehire-banner,.portal-embedded .player-top,.portal-embedded .lesson-aside{display:none!important}
 .portal-embedded .player-layout{padding:0!important;min-height:0!important}
@@ -972,7 +965,8 @@ onMounted(load);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 0;
-  max-width: 1280px;
+  max-width: none;
+  width:100%;
   margin: 0 auto;
 }
 .lesson-main { padding: 24px 28px 64px; }

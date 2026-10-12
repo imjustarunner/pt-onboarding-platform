@@ -77,3 +77,10 @@ describe('company section editing', () => {
     expect(required.text()).not.toContain('Delete section…'); required.unmount();
   });
 });
+
+it('opens the selected company workspace without a platform-wide company picker in scoped mode', () => {
+  const w = mount(Library, { props: { catalog, companies, selectedId: 31, scoped: true }, slots: { workspace: '<p>Company document editor</p>' } });
+  expect(w.find('.company-list').exists()).toBe(false);
+  expect(w.text()).toContain('Cedar Studio'); expect(w.text()).not.toContain('Pine Company');
+  expect(w.text()).toContain('Company document editor'); w.unmount();
+});

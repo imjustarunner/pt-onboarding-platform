@@ -155,3 +155,15 @@ describe('section editor conflict protection', () => {
     expect(conn.execute.mock.calls.some(([sql]) => /^(UPDATE|DELETE)/.test(sql))).toBe(false);
   });
 });
+
+describe('agency-scoped document manager', () => {
+  it('scopes superadmin results to the organization slug even if a different company id was supplied', async () => {
+    pool.execute.mockResolvedValueOnce([[{ id: 2 }]]).mockResolvedValueOnce([[]]);
+    await listCompanyDocuments(owner, { organizationSlug: 'itsco', agencyId: 31 });
+    expect(pool.execute.mock.calls[1][0]).toContain('WHERE a.id IN (?)');
+    expect(pool.execute.mock.calls[1][1]).toEqual([2]);
+  });
+  it('rejects a normal administrator trying to scope another company', async () => {
+    await expect(listCompanyDocuments({ id: 8, role: 'admin' }, { agencyId: 99 })).rejects.toThrow('access denied');
+  });
+});

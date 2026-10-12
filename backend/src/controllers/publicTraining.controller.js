@@ -1,6 +1,23 @@
+import User from '../models/User.model.js';
 import Module from '../models/Module.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import AgencyPublicTraining from '../models/AgencyPublicTraining.model.js';
+
+export async function publicTrainingAgency(req, fallback = null) {
+  const supplied = req.query?.agencyId ?? req.headers?.['x-agency-id'];
+  if (supplied == null || supplied === '') return fallback;
+  const id = Number(supplied);
+  if (!Number.isSafeInteger(id) || id <= 0) throw Object.assign(new Error('Select a valid training organization.'), { status: 400 });
+  const platformAdmin = ['super_admin', 'superadmin'].includes(req.user?.role);
+  let memberships = platformAdmin ? [] : await User.getAgencies(req.user.id);
+  if (req.user.type === 'approved_employee') {
+    const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+    const employee = await ApprovedEmployee.findByEmail(req.user.email);
+    memberships = employee?.agency_id ? [{ id: employee.agency_id }] : [];
+  }
+  if (!platformAdmin && !memberships.some(a => Number(a.id) === id)) throw Object.assign(new Error('Training organization access denied.'), { status: 403 });
+  return id;
+}
 
 export const getPublicModules = async (req, res, next) => {
   try {
@@ -26,6 +43,8 @@ export const getPublicModules = async (req, res, next) => {
         agencyId = userAgencies[0].id;
       }
     }
+
+    agencyId = await publicTrainingAgency(req, agencyId);
 
     // Get all modules that are always accessible or public
     const modules = await Module.findPublicModules();
@@ -113,6 +132,7 @@ export const getPublicTrainingFocuses = async (req, res, next) => {
       }
     }
 
+    agencyId = await publicTrainingAgency(req, agencyId);
     if (!agencyId) {
       return res.json([]);
     }
@@ -164,7 +184,21 @@ export const getPublicModule = async (req, res, next) => {
     
     // Check if module is accessible
     if (!module.is_always_accessible && !module.is_public) {
-      return res.status(403).json({ error: { message: 'Module is not publicly accessible' } });
+      const agencyId = await publicTrainingAgency(req);
+      let allowed = false;
+      if (agencyId) {
+        const modules = await AgencyPublicTraining.getPublicModules(agencyId);
+        allowed = modules.some(item => Number(item.module_id) === Number(id));
+        if (!allowed) {
+          const focuses = await AgencyPublicTraining.getPublicTrainingFocuses(agencyId);
+          const TrainingTrack = (await import('../models/TrainingTrack.model.js')).default;
+          for (const focus of focuses) {
+            const lessons = await TrainingTrack.getModules(focus.training_focus_id);
+            if (lessons.some(item => Number(item.module_id || item.id) === Number(id))) { allowed = true; break; }
+          }
+        }
+      }
+      if (!allowed) return res.status(403).json({ error: { message: 'Module is not available in this organization’s on-demand catalog.' } });
     }
     
     // Get module content

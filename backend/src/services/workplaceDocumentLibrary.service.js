@@ -15,9 +15,16 @@ export async function assertDocumentLibraryAccess(user, agencyId = null, { grant
   if (agencyId !== null && !(await User.getAgencies(user.id)).some(a => Number(a.id) === Number(agencyId))) throw fail('Company document access denied.');
 }
 
-export async function listCompanyDocuments(user) {
+export async function listCompanyDocuments(user, scope = {}) {
   await assertDocumentLibraryAccess(user);
-  const ids = isManager(user) ? null : (await User.getAgencies(user.id)).map(a => Number(a.id)).filter(Number.isSafeInteger);
+  let scopedId = scope.agencyId;
+  if (scope.organizationSlug) {
+    const [[agency]] = await pool.execute('SELECT id FROM agencies WHERE slug = ?', [String(scope.organizationSlug)]);
+    if (!agency) throw fail('Company not found.', 404);
+    scopedId = agency.id;
+  }
+  if (scopedId != null) await assertDocumentLibraryAccess(user, scopedId);
+  const ids = scopedId != null ? [Number(scopedId)] : isManager(user) ? null : (await User.getAgencies(user.id)).map(a => Number(a.id)).filter(Number.isSafeInteger);
   if (ids && !ids.length) return { catalog: documentTemplateCatalog(), companies: [], canAssign: false };
   const clause = ids ? `WHERE a.id IN (${ids.map(() => '?').join(',')})` : "WHERE a.organization_type IS NULL OR a.organization_type NOT IN ('school', 'program', 'learning')";
   const [rows] = await pool.execute(`SELECT a.id, a.name, a.slug, a.is_active, a.logo_url, a.color_palette,

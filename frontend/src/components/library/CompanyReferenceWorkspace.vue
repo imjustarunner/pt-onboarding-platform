@@ -1,6 +1,7 @@
 <template>
   <section class="reference-workspace" :style="fontStyle" :aria-label="`${documentTitle} workspace`">
     <header class="reference-heading"><div><p class="eyebrow">Company documents · Mental health practice</p><h2>{{ documentTitle }}</h2><p>{{ documentKey === 'caseload-management-sop' ? 'Reference only · Capacity, scheduling, documentation, engagement and continuity. No onboarding assignment or quiz.' : documentKey === 'mandated-reporting-sop' ? 'Reporting responsibilities, safety, privacy and documentation, with required staff onboarding.' : documentKey === 'group-psychotherapy-sop' ? 'Reference only · Planning, consent, delivery and documentation for approved psychotherapy groups. No onboarding assignment or quiz.' : documentKey === 'service-documentation-standards' ? 'Practical standards for accurate notes, meaningful progress and service-specific records.' : documentKey === 'facilitator-coding-protocol' ? 'Approved services, documentation, coding review and work-time guidance for bachelor’s-level facilitators.' : documentKey === 'crisis-response-guide' ? 'Find preparation, emergency response, Colorado reporting and follow-up procedures. Q&A is a reference, not an emergency service.' : documentKey === 'facilities-guide' ? 'Shared office procedures, room use and approved access for your company.' : documentKey === 'skill-development-guide' ? 'Connection, regulation and learning, with your company’s group rules and supervised practice.' : documentKey === 'counseling-guide' ? 'An introduction to approaches, helping skills and professional scope. Familiarization does not authorize clinical practice.' : documentKey === 'school-practice-guide' ? 'ITSCO school assignments, intake, caseload management and essential protocols.' : 'Clinical expectations, documentation and guidance for your role.' }}</p></div><button v-if="closable" type="button" @click="close">Close guide</button></header>
+    <p v-if="beta" class="reference-actions">Beta edition · Available for testing. Company publication is still under review.</p>
     <p v-if="error" role="alert" class="reference-error">{{ error }} <button type="button" :disabled="busy" @click="load">Retry</button></p>
     <p v-if="loading" role="status">Loading the guide…</p>
     <template v-else-if="manage">
@@ -10,7 +11,7 @@
       <details v-if="mode === 'draft' && state.changes?.length" class="reference-changes"><summary>Review {{ state.changes.length }} section changes</summary><article v-for="change in state.changes" :key="change.slug"><h3>{{ change.title }} · {{ change.kind }}</h3><div class="change-comparison"><div v-if="change.beforeHtml"><strong>Before</strong><div v-html="safe(change.beforeHtml)" /></div><div v-if="change.afterHtml"><strong>After</strong><div v-html="safe(change.afterHtml)" /></div></div></article></details>
     </template>
     <DocumentTrainingReview v-if="manage && isPublished && shown.metadata?.learningPurpose !== 'reference-only'" :key="`${agencyId}:${documentKey}:${shown.version.id}`" :agency-id="agencyId" :document-key="documentKey" :version-id="shown.version.id" @dirty="quizDirty = $event; emit('dirty', dirty || quizDirty)" />
-    <WorkplaceHandbookBook v-if="!loading && shown" :key="`${documentKey}:${mode}:${shown.version?.id || 'source'}`" ref="book" :handbook="shown" :analytics="{ agencyId, surface: 'library', enabled: isPublished }" :answer-question="isPublished ? answer : null" @reload="load" @handbook-link="$emit('handbook-link', $event)" />
+    <WorkplaceHandbookBook v-if="!loading && shown" :key="`${documentKey}:${mode}:${shown.version?.id || 'source'}`" ref="book" :handbook="shown" :analytics="{ agencyId, surface: 'library', enabled: isPublished }" :answer-question="isPublished || beta ? answer : null" @reload="load" @handbook-link="$emit('handbook-link', $event)" />
     <p v-else-if="!loading && !manage">Your company’s {{ documentTitle }} is being prepared. It will appear here when published.</p>
     <details v-if="isPublished && shown?.changes?.length" class="reference-changes"><summary>Changes in this edition</summary><ul><li v-for="change in shown.changes" :key="change.slug">{{ change.kind }} · <button v-if="change.kind !== 'removed'" type="button" @click="book?.selectSection(change.slug, true)">{{ change.title }} ↗</button><span v-else>{{ change.title }}</span></li></ul></details>
   </section>
@@ -22,7 +23,7 @@ import DOMPurify from 'dompurify';
 import api from '../../services/api';
 import WorkplaceHandbookBook from '../handbook/WorkplaceHandbookBook.vue';
 import HandbookSectionEditor from '../handbook/HandbookSectionEditor.vue';
-const props = defineProps({ agencyId: { type: [Number, String], required: true }, manage: Boolean, closable: Boolean, documentKey: { type: String, default: 'provider-guide' }, documentTitle: { type: String, default: 'Provider’s Guide' } });
+const props = defineProps({ agencyId: { type: [Number, String], required: true }, manage: Boolean, beta: Boolean, closable: Boolean, documentKey: { type: String, default: 'provider-guide' }, documentTitle: { type: String, default: 'Provider’s Guide' } });
 const emit = defineEmits(['dirty', 'close', 'handbook-link', 'published']);
 const base = computed(() => `/provider-update/company-documents/${props.documentKey}`);
 const state = ref({}), mode = ref('published'), loading = ref(false), busy = ref(false), error = ref(''), dirty = ref(false), book = ref(null);
@@ -41,9 +42,9 @@ async function load() {
   const current = ++sequence;
   loading.value = true; error.value = '';
   try {
-    const { data } = await api.get(`${base.value}/${props.manage ? 'workspace' : 'published'}`, { params: { agencyId: Number(props.agencyId) } });
+    const { data } = await api.get(`${base.value}/${props.manage ? 'workspace' : props.beta ? 'beta' : 'published'}`, { params: { agencyId: Number(props.agencyId) } });
     if (current !== sequence) return;
-    state.value = props.manage ? data : { published: data };
+    state.value = props.manage ? data : props.beta ? { source: data } : { published: data };
     if (!state.value[mode.value]) mode.value = state.value.draft ? 'draft' : state.value.published ? 'published' : 'source';
   } catch (e) { if (current === sequence) error.value = e?.response?.data?.error?.message || 'The guide could not be loaded.'; }
   finally { if (current === sequence) loading.value = false; }
@@ -61,8 +62,8 @@ async function publish() {
   catch (e) { error.value = e?.response?.data?.error?.message || 'Could not publish this edition.'; }
   finally { busy.value = false; }
 }
-async function answer(payload, options) { const { data } = await api.post(`${base.value}/answer`, { ...payload, agencyId: Number(props.agencyId) }, { ...options, timeout: 240000 }); return data; }
-watch(() => [props.agencyId, props.manage, props.documentKey], () => { state.value = {}; mode.value = 'published'; load(); }, { immediate: true });
+async function answer(payload, options) { const { data } = await api.post(`${base.value}/${props.beta ? 'beta-answer' : 'answer'}`, { ...payload, expectedRevision: shown.value?.revision, agencyId: Number(props.agencyId) }, { ...options, timeout: 240000 }); return data; }
+watch(() => [props.agencyId, props.manage, props.beta, props.documentKey], () => { state.value = {}; mode.value = 'published'; load(); }, { immediate: true });
 onBeforeUnmount(() => { sequence++; });
 defineExpose({ canLeave });
 </script>

@@ -1,54 +1,10 @@
 <template>
   <div class="library-page">
     <div class="library-page__inner">
-      <header class="library-page__header">
-        <div class="library-page__header-main">
-          <div>
-            <h1>Tools and Resources</h1>
-            <p class="library-page__sub">
-              Find guides, resources, templates, care documents, forms, and links available through your
-              organization.
-            </p>
-          </div>
-          <div class="library-page__header-actions">
-            <nav v-if="hubSwitcherLinks.length" class="hub-switcher" aria-label="Switch hub">
-              <template v-for="item in hubSwitcherLinks" :key="item.key">
-                <span
-                  v-if="item.isActive"
-                  class="hub-switcher-btn is-active"
-                  aria-current="page"
-                >{{ item.label }}</span>
-                <router-link v-else class="hub-switcher-btn" :to="item.to">
-                  {{ item.label }}
-                </router-link>
-              </template>
-            </nav>
-            <button type="button" class="lib-btn lib-btn--primary" @click="openAdd('branded')">+ Create document</button>
-            <button
-              type="button"
-              class="lib-btn lib-btn--primary"
-              @click="openAdd('link')"
-            >
-              + Add Resource
-            </button>
-          </div>
-        </div>
-        <ToolsResourcesHubSwitcher
-          class="library-page__tools-switcher"
-          :org-prefix="orgPrefix"
-          active="library"
-          :show-referral-directory="showReferralDirectoryNav"
-        />
-      </header>
-
-      <section class="clinical-form-card" v-if="referenceAgencyId">
-        <p>Clinical forms</p><h2>Forms for client care</h2><p>Safety plans, releases of information, client information updates, and appointment attendance letters. Create an individual, organization-branded document. Save it in the client’s medical record, or start a private draft until the client record is available.</p>
-        <router-link :to="`${orgPrefix}/clinical-forms`">Open clinical forms →</router-link>
-      </section>
-      <DocumentAnalyticsControl :agency-id="referenceAgencyId" />
-      <HireJourneyLibrary />
-      <CompanyReferenceLibrary v-if="referenceAgencyId" :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" />
-
+      <LearningLibraryHeader :active="librarySection" />
+      <div class="library-utilities"><ToolsResourcesHubSwitcher :org-prefix="orgPrefix" active="library" :show-referral-directory="showReferralDirectoryNav" /><DocumentAnalyticsControl :agency-id="referenceAgencyId" /></div>
+      <CompanyReferenceLibrary v-if="referenceAgencyId && librarySection === 'guides'" :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" />
+      <template v-if="librarySection === 'resources'">
       <div class="library-search-row">
         <div class="library-search">
           <span class="library-search__icon" aria-hidden="true">⌕</span>
@@ -286,6 +242,7 @@
           </section>
         </aside>
       </div>
+      </template>
     </div>
 
     <LibraryAddResourceModal ref="addResourceModal" :agency-id="agencyId"
@@ -366,6 +323,7 @@
 </template>
 
 <script setup>
+import LearningLibraryHeader from '../components/library/LearningLibraryHeader.vue';
 import DocumentAnalyticsControl from '../components/library/DocumentAnalyticsControl.vue';
 import CompanyReferenceLibrary from '../components/library/CompanyReferenceLibrary.vue';
 import HireJourneyLibrary from '../components/prehire/HireJourneyLibrary.vue';
@@ -437,6 +395,7 @@ const CATEGORY_META = {
 };
 
 const route = useRoute();
+const librarySection = computed(() => (route.query.section === 'resources' || route.params.resourceId) && !route.query.companyDocument ? 'resources' : 'guides');
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -466,19 +425,21 @@ const distributeInitialMode = ref('personal_copy');
 
 const caps = computed(() => authStore.user?.capabilities || {});
 const canManage = computed(() => !!caps.value.canManageLibrary);
-const agencyId = computed(
-  () =>
-    authStore.user?.agency_id ||
-    authStore.user?.agencyId ||
-    home.value?.agencyId ||
-    null
-);
+const agencyId = computed(() => {
+  const slug = route.params.organizationSlug;
+  const match = [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)));
+  return match?.id || home.value?.agencyId || (!slug ? authStore.user?.agency_id || authStore.user?.agencyId : null);
+});
 
 const categories = computed(() => home.value?.categories || []);
 const folders = computed(() => home.value?.folders || []);
 
 const agencyStore = useAgencyStore();
-const referenceAgencyId = computed(() => home.value?.agencyId || agencyStore.currentAgency?.id || agencyId.value);
+const referenceAgencyId = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (slug) return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && [a.slug, a.portal_url].includes(slug))?.id || home.value?.agencyId;
+  return home.value?.agencyId || agencyStore.currentAgency?.id || agencyId.value;
+});
 const brandingStore = useBrandingStore();
 const orgSlug = computed(() => route.params.organizationSlug || '');
 const orgPrefix = computed(() => (orgSlug.value ? `/${orgSlug.value}` : ''));
@@ -586,11 +547,12 @@ function formatDate(d) {
 }
 
 async function loadHome() {
-  home.value = await fetchLibraryHome();
+  home.value = await fetchLibraryHome({ agencyId: agencyId.value });
 }
 
 async function loadResources() {
   const params = {
+    agencyId: agencyId.value,
     sort: 'updated',
     limit: 100
   };
@@ -605,7 +567,7 @@ async function loadResources() {
 
 async function loadCounts() {
   try {
-    allForCounts.value = await fetchLibraryResources({ sort: 'updated', limit: 500 });
+    allForCounts.value = await fetchLibraryResources({ agencyId: agencyId.value, sort: 'updated', limit: 500 });
   } catch {
     allForCounts.value = [];
   }
@@ -838,6 +800,7 @@ watch(
   }
 );
 
+watch(() => route.params.organizationSlug, () => { home.value = null; resources.value = []; viewerResource.value = null; refresh(); });
 onMounted(async () => {
   document.addEventListener('click', onDocClick);
   await refresh();
@@ -856,6 +819,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.library-utilities{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .library-page {
   --lib-green: #166534;
   --lib-green-soft: #dcfce7;
@@ -1564,5 +1528,6 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
+.library-utilities{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .clinical-form-card{border:1px solid #d3e1d9;border-radius:14px;background:#f2f6ef;padding:24px;margin:20px 0;color:#244638}.clinical-form-card>p{max-width:850px;line-height:1.7}.clinical-form-card>p:first-child{font-size:12px;letter-spacing:.1em;text-transform:uppercase}.clinical-form-card a{color:#175b48;font-weight:600}
 </style>

@@ -68,7 +68,7 @@
                 <p v-if="step.submission?.scheduledAt">Scheduled for {{ new Date(step.submission.scheduledAt).toLocaleString() }}</p><a v-if="step.submission?.receiptPath" :href="fileUrl(phase,step.key)" target="_blank" rel="noopener">View signed acknowledgement</a>
               </template><div v-else class="notice"><Icon name="clock" /><p>People Operations needs to attach this resource. Message the team so they can help you continue.</p></div>
             </div>
-            <DocumentLearningCatalog v-else-if="step.kind === 'guide-training'" :key="step.key" :agency-id="agency.id" :document-key="step.documentKey" mode="assigned" :http="http" :api-base="`/prehire-portal/${token}/document-learning`" @completed="emit('reload')" @handbook-link="openGuideHandbook" />
+            <DocumentLearningCatalog v-else-if="step.kind === 'guide-training'" :key="step.key" :agency-id="agency.id" :document-key="step.documentKey" mode="onboarding" :http="http" :api-base="`/prehire-portal/${token}/document-learning`" @completed="emit('reload')" @handbook-link="openGuideHandbook" />
             <div v-else-if="step.kind === 'school-availability'" class="card"><HireSchoolAvailability :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
             <div v-else-if="step.kind === 'user-setup'" class="card"><HireUserSetup :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
             <div v-else-if="step.kind === 'staff-communications'" class="card"><StaffCommunicationChoices :initial="step.communicationChoices" :agency-id="agency.id" external-save :busy="busy" :readonly="closed" @save="save(step.key,$event)" /><HireStaffEnrollments :http="http" :token="token" /></div>

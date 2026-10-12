@@ -47,12 +47,14 @@ router.post('/document-learning/enrollments/:id/answer', authenticate, handbookA
 router.get('/document-library', authenticate, documentLibrary.listLibrary);
 router.post('/document-library/assign', authenticate, documentLibrary.assignDocument);
 router.get('/company-documents', authenticate, companyDocuments.list);
+router.get('/company-documents/:key/beta', authenticate, companyDocuments.beta);
 router.get('/company-documents/:key/published', authenticate, companyDocuments.published);
 router.get('/company-documents/:key/workspace', authenticate, companyDocuments.workspace);
 router.post('/company-documents/:key/draft', authenticate, companyDocuments.draft);
 router.post('/company-documents/:key/sections', authenticate, companyDocuments.save);
 router.delete('/company-documents/:key/sections/:sectionId', authenticate, companyDocuments.remove);
 router.post('/company-documents/:key/publish', authenticate, companyDocuments.publish);
+router.post('/company-documents/:key/beta-answer', authenticate, handbookAssistantLimit, companyDocuments.betaAnswer);
 router.post('/company-documents/:key/answer', authenticate, handbookAssistantLimit, companyDocuments.answer);
 router.get('/catalog', authenticate, ctrl.getCatalog);
 router.get('/pushes', authenticate, ctrl.listPushesHandler);

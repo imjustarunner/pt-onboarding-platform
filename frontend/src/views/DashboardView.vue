@@ -600,10 +600,7 @@
             </div>
           </div>
 
-          <TrainingFocusTab
-            v-if="!previewMode && activeTab === 'training' && !isPending"
-            @update-count="updateTrainingCount"
-          />
+          <MyLearningView v-if="!previewMode && activeTab === 'training' && !isPending" />
           
           <DocumentsTab
             v-if="!previewMode && activeTab === 'documents'"
@@ -1356,7 +1353,6 @@ import { navigateToJoinLink } from '../utils/appJoinNavigation';
 import {
   setDashboardMobileNavItems
 } from '../navigation/dashboardMobileNav.js';
-import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
@@ -3191,7 +3187,7 @@ const scheduleViewContextLine = computed(() => {
 const tabs = computed(() => {
   const list = [
     { id: 'checklist', label: momentumListEnabled.value ? 'My Work' : 'Checklist', badgeCount: checklistCount.value },
-    { id: 'training', label: 'Training', badgeCount: trainingCount.value }
+    { id: 'training', label: 'Plotline Training · Beta', brandIconUrl: '/assets/plotline/icon.svg', badgeCount: trainingCount.value }
   ];
   // Documents live under My Account once onboarding is complete; keep rail access for pre-hire.
   if (!isOnboardingComplete.value) {
@@ -4464,6 +4460,11 @@ const handleCardClick = (card) => {
     const destination = loc.query?.tab ? { ...loc, query: dashboardTabQuery(loc.query, loc.query.tab) } : loc;
     return leavingOverview ? router.push(destination) : router.replace(destination);
   };
+  if (card.id === 'training') {
+    const org = route.params.organizationSlug;
+    router.push(org ? `/${org}/my-learning` : '/my-learning');
+    return;
+  }
   selectedRailCardId.value = String(card?.id || '');
   if (card.id === 'start_new_season' && isClubContext.value) {
     closeInlineProgramHub();
@@ -4543,7 +4544,7 @@ const handleCardClick = (card) => {
     // Prefer dedicated My Learning route; keep tab as fallback for embed
     const org = route.params.organizationSlug;
     if (!props.previewMode) {
-      router.push(org ? `/${org}/my-learning` : { name: 'MyLearning' });
+      router.push({ path: org ? `/${org}/my-learning` : '/my-learning', query: { learning: 'on-demand' } });
       return;
     }
     activeTab.value = 'on_demand_training';
