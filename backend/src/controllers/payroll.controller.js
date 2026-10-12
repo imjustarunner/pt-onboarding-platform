@@ -22032,10 +22032,15 @@ export const getMyCurrentTier = async (req, res, next) => {
       const payCtx = await loadUserPaySystemContext({
         agencyId,
         userId,
-        periodEnd: latest?.period_end || new Date()
+        periodEnd: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }),
+        benefitTierLevel: tierLevel,
+        displayTierLevel: tierLevel,
+        graceActive
       });
       if (payCtx?.enabled && payCtx.status) {
         paySystem = {
+          asOfDate: payCtx.status.asOfDate,
+          waiveMinimumWorkload: !!payCtx.status.waiveMinimumWorkload,
           inProbation: !!payCtx.status.inProbation,
           isMinimumWorkload: !!payCtx.status.isMinimumWorkload,
           probationEnd: payCtx.status.probationEnd || null,
@@ -22057,7 +22062,7 @@ export const getMyCurrentTier = async (req, res, next) => {
       tierLevel,
       label: paySystem?.inProbation
         ? 'Probation'
-        : (tierLevel ? `Tier ${tierLevel}` : (tier ? 'Out of Compliance' : '')),
+        : (tierLevel ? `Tier ${tierLevel}` : (tier ? 'No Tier' : '')),
       tier,
       paySystem
     });

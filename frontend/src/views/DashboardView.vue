@@ -44,7 +44,14 @@
       <div class="dashboard-header-user__titles">
         <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
         <span v-if="activeTab !== 'overview' && !usePlatformShell" class="badge badge-user">Personal</span>
-        <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
+        <span v-if="tierBadgeText" class="tier-status" @mouseenter="tierHelpHovered = true" @mouseleave="tierHelpHovered = false" @keydown.esc="tierHelpPinned = false; tierHelpHovered = false">
+          <button type="button" class="badge badge-tier" :class="tierBadgeKind"
+            :aria-expanded="tierHelpPinned || tierHelpHovered" aria-controls="dashboard-tier-help"
+            @click="tierHelpPinned = !tierHelpPinned">
+            {{ tierBadgeText }} <span aria-hidden="true">ⓘ</span>
+          </button>
+          <span v-if="tierHelpPinned || tierHelpHovered" id="dashboard-tier-help" class="tier-status-help" role="status">{{ tierBadgeHelp }}</span>
+        </span>
       </div>
       <button
         v-if="showShareClubWithStaffButton"
@@ -1394,6 +1401,8 @@ import { usePlotTwistHqShell } from '../composables/usePlotTwistHqShell';
 import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency.js';
 import FrequentPagesBar from '../components/admin/FrequentPagesBar.vue';
 
+import { workloadTierHelp } from '../utils/workloadTierHelp.js';
+
 const props = defineProps({
   previewMode: {
     type: Boolean,
@@ -1484,6 +1493,9 @@ const downloading = ref(false);
 const isPending = ref(false);
 const pendingCompletionStatus = ref(null);
 const tierBadgeText = ref('');
+const tierBadgeHelp = ref('');
+const tierHelpHovered = ref(false);
+const tierHelpPinned = ref(false);
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const clientsNeedsAttentionCount = ref(0);
@@ -5293,7 +5305,8 @@ const loadCurrentTier = async () => {
     const t = resp.data?.tier || null;
     const grace = resp.data?.graceActive === true || resp.data?.statusKind === 'grace';
     const label = String(resp.data?.label || t?.label || '').trim();
-    tierBadgeText.value = label || '';
+    tierBadgeText.value = /out of compliance/i.test(label) ? 'No Tier' : label;
+    tierBadgeHelp.value = workloadTierHelp(resp.data);
     if (!tierBadgeText.value) {
       tierBadgeKind.value = '';
       return;
@@ -8166,7 +8179,11 @@ h1 {
   font-weight: 750;
 }
 
-.dashboard-header-user--compact .badge-tier {
+.dashboard-header-user--compact .tier-status { position: relative; display: inline-flex; }
+.tier-status .badge-tier { cursor: pointer; }
+.tier-status-help { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: min(340px, calc(100vw - 48px)); padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card, #fff); color: var(--text-primary); box-shadow: var(--shadow); font-size: 14px; font-weight: 400; line-height: 1.5; text-transform: none; letter-spacing: normal; }
+@media (max-width: 600px) { .tier-status-help { position: fixed; top: auto; bottom: 20px; left: 24px; } }
+.badge-tier {
   font-size: 11px;
 }
 
@@ -8241,9 +8258,9 @@ h1 {
   color: #92400e;
 }
 .badge-tier.tier-ooc {
-  background: rgba(239, 68, 68, 0.10);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #991b1b;
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #92400e;
 }
 
 .dash-card:disabled {
