@@ -9,7 +9,7 @@ import router from '../auricwellPreview.routes.js';
 import { listToasts, saveToast, deleteToast } from '../../services/toastAnnouncements.service.js';
 import { previewRouteAllowed } from '../../services/auricwellPreviewPolicy.js';
 const handler = (path, method) => router.stack.find(layer => layer.route?.path === path && layer.route.methods[method]).route.stack[0].handle;
-const response = () => { const res = { json: vi.fn(), status: vi.fn() }; res.status.mockReturnValue(res); return res; };
+const response = () => { const res = { json: vi.fn(), set: vi.fn(), status: vi.fn() }; res.status.mockReturnValue(res); return res; };
 beforeEach(() => { vi.clearAllMocks(); listToasts.mockResolvedValue([]); saveToast.mockResolvedValue({ id: 42 }); deleteToast.mockResolvedValue({ deleted: true }); });
 it('opens only the reviewed toast endpoints through the existing preview boundary', () => {
   for (const path of ['/auricwell-preview/toasts', '/platform/toast-announcements']) {
@@ -44,4 +44,19 @@ it('pins every read and write to the validated practice and includes support not
   await handler('/toasts/:id', 'delete')(req, response(), next);
   expect(deleteToast).toHaveBeenCalledWith({ agencyId: 7, id: '42' });
   expect(next).not.toHaveBeenCalled();
+});
+
+it('gives practice and support notices the same authenticated login dismissal boundary', async () => {
+  listToasts.mockResolvedValue([{ id: 1, delivery_scope: 'agency' }, { id: 2, delivery_scope: 'auricwell_support' }]);
+  const read = async sessionId => {
+    const res = response(), next = vi.fn();
+    await handler('/toasts/active', 'get')({ user: { id: 9 }, authClaims: { sessionId }, auricwellPreview: { agencyId: 7 } }, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.set).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    return res.json.mock.calls[0][0];
+  };
+  const first = await read('cookie-login-a');
+  expect(first[0].login_session_key).toMatch(/^[a-f0-9]{64}$/);
+  expect(first[0].login_session_key).toBe(first[1].login_session_key);
+  expect((await read('cookie-login-b'))[0].login_session_key).not.toBe(first[0].login_session_key);
 });

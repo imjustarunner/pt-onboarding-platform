@@ -1,3 +1,4 @@
+import { withToastLoginSession } from '../utils/toastLoginSession.js';
 import express from 'express';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -30,7 +31,11 @@ const toastAgency = req => {
   return id;
 };
 const run = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res)).catch(next);
-router.get('/toasts/active', run(async (req, res) => res.json(await listToasts({ agencyId: toastAgency(req), active: true, includeSupport: true }))));
+router.get('/toasts/active', run(async (req, res) => {
+  const rows = await listToasts({ agencyId: toastAgency(req), active: true, includeSupport: true });
+  res.set('Cache-Control', 'private, no-store');
+  res.json(withToastLoginSession(rows, req));
+}));
 router.get('/toasts', run(async (req, res) => res.json(await listToasts({ agencyId: toastAgency(req) }))));
 router.post('/toasts', run(async (req, res) => res.status(201).json(await saveToast({ agencyId: toastAgency(req), userId: req.user.id, input: req.body }))));
 router.put('/toasts/:id', run(async (req, res) => res.json(await saveToast({ agencyId: toastAgency(req), userId: req.user.id, id: req.params.id, input: req.body }))));

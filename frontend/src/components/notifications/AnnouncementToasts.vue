@@ -24,7 +24,10 @@ let generation = 0;
 let pendingGeneration = null;
 let poll;
 let expiry;
-const fingerprint = (item) => `${item.id}:${item.updated_at || item.starts_at}:${item.ends_at}`;
+// Legacy sessions without a server key get view-only dismissal. Never reuse a
+// prior login's dismissal, even when the same user signs in on the same browser.
+const viewSessionKey = `view:${Date.now()}:${Math.random()}`;
+const fingerprint = (item) => `${item.login_session_key || viewSessionKey}:${item.id}:${item.updated_at || item.starts_at}:${item.ends_at}`;
 const storageName = () => `announcement-toasts:${props.storageKey}`;
 const visible = computed(() => rows.value.filter((item) =>
   item.display_type === 'toast' && item.publish_status !== 'draft' &&

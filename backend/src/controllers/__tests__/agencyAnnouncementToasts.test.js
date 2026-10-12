@@ -8,7 +8,7 @@ import User from '../../models/User.model.js';
 import { listAgencyToastAnnouncements, listAgencyBannerAnnouncements, createAgencyScheduledAnnouncement, updateAgencyScheduledAnnouncement } from '../agencyAnnouncements.controller.js';
 
 const request = () => ({ params: { id: '7' }, user: { id: 10, role: 'support' } });
-const response = () => { const r = { json: vi.fn(), status: vi.fn() }; r.status.mockReturnValue(r); return r; };
+const response = () => { const r = { json: vi.fn(), set: vi.fn(), status: vi.fn() }; r.status.mockReturnValue(r); return r; };
 beforeEach(() => { vi.clearAllMocks(); User.getAgencies.mockResolvedValue([{ id: 7 }]); });
 it('rejects cross-agency reads before looking up toasts', async () => {
   User.getAgencies.mockResolvedValue([{ id: 99 }]);
@@ -33,4 +33,20 @@ it('preserves toast delivery on create and update', async () => {
   expect(next).not.toHaveBeenCalled(); expect(res.json.mock.calls[0][0].announcement.display_type).toBe('toast');
   await updateAgencyScheduledAnnouncement({ ...req, params: { ...req.params, announcementId: '5' } }, res, next);
   expect(next).not.toHaveBeenCalled(); expect(res.json.mock.calls[1][0].announcement.display_type).toBe('toast');
+});
+
+it('scopes dismissal to the verified login without exposing the session identifier', async () => {
+  pool.execute.mockResolvedValue([[{ id: 1, display_type: 'toast', audience: 'everyone' }]]);
+  const read = async (sessionId, userId = 10) => {
+    const req = request(); req.user.id = userId; req.user.sessionId = sessionId;
+    const res = response(); await listAgencyToastAnnouncements(req, res, vi.fn());
+    expect(res.set).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    return res.json.mock.calls[0][0][0].login_session_key;
+  };
+  const first = await read('verified-login-a');
+  expect(first).toMatch(/^[a-f0-9]{64}$/);
+  expect(first).toBe(await read('verified-login-a'));
+  expect(first).not.toBe(await read('verified-login-b'));
+  expect(first).not.toBe(await read('verified-login-a', 11));
+  expect(await read(null)).toBeNull();
 });

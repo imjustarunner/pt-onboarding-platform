@@ -14,7 +14,7 @@ const mountApp = (props = {}) => mount(App, { props, global: { stubs: { RouterLi
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); mock.route.params = { organizationSlug: 'itsco' };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => context }));
-  mock.get.mockResolvedValue({ data: [{ id: 42, title: 'Administrative office closure', message: 'Provider appointments follow their individual schedules.', display_type: 'toast', starts_at: new Date(Date.now() - 60000).toISOString(), ends_at: new Date(Date.now() + 86400000).toISOString() }] });
+  mock.get.mockResolvedValue({ data: [{ id: 42, login_session_key: 'login-a', title: 'Administrative office closure', message: 'Provider appointments follow their individual schedules.', display_type: 'toast', starts_at: new Date(Date.now() - 60000).toISOString(), ends_at: new Date(Date.now() + 86400000).toISOString() }] });
   mock.request.mockResolvedValue({ data: [] });
 });
 it('shows office toasts throughout the authenticated AuricWell workspace and clears them when the session ends', async () => {
@@ -39,4 +39,13 @@ it('keeps real announcement APIs and editors out of the public fictional demo', 
   expect(fetch).not.toHaveBeenCalled(); expect(mock.get).not.toHaveBeenCalled(); expect(mock.request).not.toHaveBeenCalled();
   expect(w.find('.announcement-toast').exists()).toBe(false);
   expect(w.get('.aw-nav').text()).not.toContain('Announcements'); w.unmount();
+});
+
+it('reminds again after a new AuricWell login while retaining dismissal on a reload', async () => {
+  let w = mountApp(); await flushPromises();
+  await w.get('.announcement-toast button').trigger('click'); w.unmount();
+  w = mountApp(); await flushPromises(); expect(w.find('.announcement-toast').exists()).toBe(false); w.unmount();
+  const data = mock.get.mock.results[0].value;
+  mock.get.mockResolvedValue({ data: (await data).data.map(row => ({ ...row, login_session_key: 'login-b' })) });
+  w = mountApp(); await flushPromises(); expect(w.find('.announcement-toast').exists()).toBe(true); w.unmount();
 });

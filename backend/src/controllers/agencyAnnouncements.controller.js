@@ -1,3 +1,4 @@
+import { withToastLoginSession } from '../utils/toastLoginSession.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
@@ -397,7 +398,8 @@ const listActiveAgencyAnnouncements = async (req, res, next, toastOnly) => {
         created_at: r.created_at,
         updated_at: r.updated_at
       }));
-    res.json(out);
+    if (toastOnly) res.set('Cache-Control', 'private, no-store');
+    res.json(toastOnly ? withToastLoginSession(out, req) : out);
   } catch (e) {
     next(e);
   }
