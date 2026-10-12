@@ -23,16 +23,8 @@
       </div>
     </header>
     <div
-      class="container"
-      :class="{
-            'container-wide':
-              activeTab === 'my_schedule' ||
-              activeTab === 'overview' ||
-              activeTab === 'log_time' ||
-              activeTab === 'chats' ||
-              activeTab === 'communications',
-        'pthq-personal-inner': usePlatformShell,
-      }"
+      class="container container-wide"
+      :class="{ 'pthq-personal-inner': usePlatformShell }"
     >
     <ProviderUpdateAssignedBanner v-if="!previewMode && !isClubContext" :agency-id="currentAgencyId" />
     <!-- Dashboard Header with Logo (shown in preview mode) -->
@@ -293,10 +285,21 @@
             <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
           </label>
         </div>
+        <button
+          type="button"
+          class="rail-expand-btn"
+          :aria-expanded="!railEffectiveCollapsed"
+          aria-controls="dashboard-section-navigation"
+          :aria-label="railExpandPinned ? 'Collapse navigation' : 'Expand navigation to see labels'"
+          @click="railExpandPinned = !railExpandPinned; railHoverExpanded = false"
+        >
+          {{ railExpandPinned ? '‹ Collapse' : 'Expand ›' }}
+        </button>
         <div class="desktop-rail-editor"><DashboardRailEditor v-if="authStore.user?.id && !previewMode" :editing="railOrderEditing"
           :loading="railOrderLoading" :saving="railOrderSaving" :error="railOrderError"
           @start="startRailEdit" @save="saveRailOrder" @cancel="cancelRailEdit" @reset="resetRailOrder" /></div>
         <div
+          id="dashboard-section-navigation"
           data-tour="dash-rail"
           class="dashboard-rail"
           :class="{
@@ -407,26 +410,6 @@
           </div>
         </div>
         </div>
-        <button
-          v-if="railEffectiveCollapsed"
-          type="button"
-          class="rail-expand-btn"
-          title="Expand to see labels"
-          aria-label="Expand navigation to see labels"
-          @click="railExpandPinned = true"
-        >
-          ◀ Expand
-        </button>
-        <button
-          v-else-if="railExpandPinned && railCollapsedMode"
-          type="button"
-          class="rail-expand-btn rail-collapse-btn"
-          title="Collapse to icons only"
-          aria-label="Collapse navigation"
-          @click="railExpandPinned = false"
-        >
-          Collapse ▶
-        </button>
       </div>
 
       <div
@@ -5832,7 +5815,7 @@ function updateRailCollapsedMode() {
 
 // Effective collapsed: auto-collapsed but not when user pinned expand or hovering.
 const railEffectiveCollapsed = computed(() =>
-  (['my', 'payroll', 'submit', 'log_time'].includes(activeTab.value) || (railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value)) && !railOrderEditing.value
+  railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value && !railOrderEditing.value
 );
 
 watch(railExpandPinned, (v) => {
@@ -6028,10 +6011,11 @@ h1 {
   margin-bottom: 16px;
 }
 
-/* My Schedule / Overview: maximize horizontal space */
+/* Every dashboard section uses the available width, including Submit and My Account. */
 .container-wide {
   max-width: none;
   width: 100%;
+  box-sizing: border-box;
   padding-left: 16px;
   padding-right: 16px;
 }
