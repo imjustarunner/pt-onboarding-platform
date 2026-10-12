@@ -285,16 +285,18 @@
             <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
           </label>
         </div>
-        <button
-          type="button"
-          class="rail-expand-btn"
-          :aria-expanded="!railEffectiveCollapsed"
-          aria-controls="dashboard-section-navigation"
-          :aria-label="railExpandPinned ? 'Collapse navigation' : 'Expand navigation to see labels'"
-          @click="railExpandPinned = !railExpandPinned; railHoverExpanded = false"
-        >
-          {{ railExpandPinned ? '‹ Collapse' : 'Expand ›' }}
-        </button>
+        <div class="rail-mode-controls" role="group" aria-label="Navigation behavior">
+          <button
+            v-for="mode in railModes"
+            :key="mode.value"
+            type="button"
+            class="rail-expand-btn"
+            :aria-pressed="railMode === mode.value"
+            :title="mode.description"
+            aria-controls="dashboard-section-navigation"
+            @click="railMode = mode.value"
+          >{{ mode.label }}</button>
+        </div>
         <div class="desktop-rail-editor"><DashboardRailEditor v-if="authStore.user?.id && !previewMode" :editing="railOrderEditing"
           :loading="railOrderLoading" :saving="railOrderSaving" :error="railOrderError"
           @start="startRailEdit" @save="saveRailOrder" @cancel="cancelRailEdit" @reset="resetRailOrder" /></div>
@@ -1584,12 +1586,18 @@ const railCollapsedMode = ref(false);
 const railHoverExpanded = ref(false);
 /** Debounce rail hover collapse so layout reflow doesn't fire mouseleave/enter loops. */
 let railHoverLeaveTimer = null;
-const RAIL_EXPAND_PINNED_KEY = 'dashboard.railExpandPinned.v1';
-const railExpandPinned = ref((() => {
+const RAIL_MODE_KEY = 'dashboard.railMode.v1';
+const railModes = [
+  { value: 'hover', label: 'Hover mode', description: 'Expand on hover; collapse when the pointer leaves' },
+  { value: 'open', label: 'Lock open', description: 'Keep navigation labels visible' },
+  { value: 'collapsed', label: 'Lock collapsed', description: 'Keep icons only, even on hover' }
+];
+const railMode = ref((() => {
   try {
-    return window?.localStorage?.getItem?.(RAIL_EXPAND_PINNED_KEY) === '1';
+    const saved = window.localStorage.getItem(RAIL_MODE_KEY);
+    return railModes.some(mode => mode.value === saved) ? saved : 'hover';
   } catch {
-    return false;
+    return 'hover';
   }
 })());
 const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -5813,14 +5821,15 @@ function updateRailCollapsedMode() {
   railCollapsedMode.value = true;
 }
 
-// Effective collapsed: auto-collapsed but not when user pinned expand or hovering.
+// Editing temporarily reveals labels; otherwise honor the selected navigation mode.
 const railEffectiveCollapsed = computed(() =>
-  railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value && !railOrderEditing.value
+  !railOrderEditing.value && (railMode.value === 'collapsed' ||
+    (railMode.value === 'hover' && railCollapsedMode.value && !railHoverExpanded.value))
 );
 
-watch(railExpandPinned, (v) => {
+watch(railMode, (v) => {
   try {
-    window?.localStorage?.setItem?.(RAIL_EXPAND_PINNED_KEY, v ? '1' : '0');
+    window?.localStorage?.setItem?.(RAIL_MODE_KEY, v);
   } catch { /* ignore */ }
 });
 let railPulseTimer = null;
@@ -6168,6 +6177,21 @@ h1 {
 }
 .rail-dark-mode-toggle.rail-collapsed .rail-dark-mode-text {
   display: none;
+}
+.rail-mode-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rail-mode-controls .rail-expand-btn {
+  width: 100%;
+  white-space: normal;
+  min-height: 32px;
+}
+.rail-mode-controls .rail-expand-btn[aria-pressed="true"] {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
 }
 .rail-expand-btn {
   align-self: flex-start;
@@ -6926,6 +6950,7 @@ h1 {
   .dashboard-rail,
   .rail-dark-mode-toggle,
   .desktop-rail-editor,
+  .rail-mode-controls,
   .rail-expand-btn {
     display: none !important;
   }
