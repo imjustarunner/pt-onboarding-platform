@@ -1,0 +1,79 @@
+{
+  "applied": true,
+  "agency": {
+    "id": 2,
+    "name": "ITSCO"
+  },
+  "recordedAt": "2026-10-12T15:57:37.043Z",
+  "receipt": [
+    {
+      "id": 1944,
+      "key": "celebrations",
+      "created": false
+    },
+    {
+      "id": 1945,
+      "key": "indirect",
+      "created": false
+    },
+    {
+      "id": 1946,
+      "key": "locations",
+      "created": false
+    },
+    {
+      "id": 1947,
+      "key": "pto",
+      "created": false
+    },
+    {
+      "id": 1948,
+      "key": "stipend",
+      "created": false
+    }
+  ],
+  "verified": [
+    {
+      "id": 1944,
+      "title": "URGENT: Arrange Mia and wedding celebrations",
+      "urgency": "high",
+      "due_date_utc": "2026-10-14 05:59:00",
+      "assigned_to_agency_id": 2,
+      "assignees": "Loriana Pincente"
+    },
+    {
+      "id": 1945,
+      "title": "URGENT: Disable indirect submissions in TherapyNotes and assess impact",
+      "urgency": "high",
+      "due_date_utc": "2026-10-14 05:59:00",
+      "assigned_to_agency_id": 2,
+      "assignees": "Haley Inyart, Hannah Inyart"
+    },
+    {
+      "id": 1946,
+      "title": "URGENT: Resolve incorrect locations in TherapyNotes",
+      "urgency": "high",
+      "due_date_utc": "2026-10-14 05:59:00",
+      "assigned_to_agency_id": 2,
+      "assignees": "Hannah Inyart"
+    },
+    {
+      "id": 1947,
+      "title": "URGENT: Finalize training/PTO balances and reconcile app with ADP",
+      "urgency": "high",
+      "due_date_utc": "2026-10-14 05:59:00",
+      "assigned_to_agency_id": 2,
+      "assignees": "Kaitlyn O'Connell, Melissa Mendez"
+    },
+    {
+      "id": 1948,
+      "title": "URGENT: Verify recurring stipend for Aunya and missing recipients",
+      "urgency": "high",
+      "due_date_utc": "2026-10-14 05:59:00",
+      "assigned_to_agency_id": 2,
+      "assignees": "Kaitlyn O'Connell"
+    }
+  ],
+  "notificationsSent": false,
+  "pending": null
+}
