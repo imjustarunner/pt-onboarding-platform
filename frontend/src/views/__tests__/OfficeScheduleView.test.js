@@ -129,3 +129,21 @@ it('keeps the saved recurrence visible when inspecting an existing reservation',
   expect(wrapper.get('.recurrence-summary').text()).toContain('Every 4 weeks');
   expect(wrapper.get('.recurrence-summary').text()).not.toContain('One-time');
 });
+
+it.each(['2027-10-14', ''])('submits a seven-hour weekly assignment with end date %s', async until => {
+  const date='2026-10-15';
+  const hours=Array.from({length:8},(_,i)=>i+7);
+  responseGrid={...grid,days:[date],hours,slots:hours.map(hour=>({roomId:4,date,hour,state:'open'}))};
+  await setup();
+  await wrapper.get('.cell.slot').trigger('click');await flushPromises();
+  await wrapper.get('#assignment-end').setValue('14');
+  await wrapper.get('#assignment-recurrence').setValue('WEEKLY');
+  await wrapper.get('#assignment-until').setValue(until);
+  await wrapper.get('.modal .person-search-select input').setValue('Michael');
+  await wrapper.get('.modal [role="option"]').trigger('click');
+  expect(wrapper.get('.modal').text()).toMatch(/7\s?AM–2\s?PM · 7 hours/);
+  await wrapper.get('.slot-assignment-form .btn-primary').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/office-slots/1/open-slots/assign',expect.objectContaining({
+    hour:7,endHour:14,assignedUserId:2,recurrenceFrequency:'WEEKLY',recurringUntilDate:until
+  }));
+});

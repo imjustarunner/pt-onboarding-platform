@@ -96,8 +96,8 @@ class OfficeEvent {
     }
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute('SELECT * FROM office_events WHERE id = ? LIMIT 1', [id]);
+  static async findById(id, executor = pool) {
+    const [rows] = await executor.execute('SELECT * FROM office_events WHERE id = ? LIMIT 1', [id]);
     return rows?.[0] || null;
   }
 
@@ -124,13 +124,14 @@ class OfficeEvent {
     serviceCode = null,
     modality = null,
     createdByUserId,
-    approvedByUserId = null
+    approvedByUserId = null,
+    executor = pool
   }) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const normalizedEndAt = normalizeMySqlDateTime(endAt);
     let result;
     try {
-      [result] = await pool.execute(
+      [result] = await executor.execute(
         `INSERT INTO office_events
          (office_location_id, room_id, start_at, end_at, status, slot_state, standing_assignment_id, booking_plan_id, assigned_provider_id, booked_provider_id, client_id, clinical_session_id, note_context_id, billing_context_id, source, recurrence_group_id, notes, appointment_type_code, appointment_subtype_code, service_code, modality, created_by_user_id, approved_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -162,7 +163,7 @@ class OfficeEvent {
       );
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      [result] = await pool.execute(
+      [result] = await executor.execute(
         `INSERT INTO office_events
          (office_location_id, room_id, start_at, end_at, status, slot_state, standing_assignment_id, booking_plan_id, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -185,8 +186,8 @@ class OfficeEvent {
         ]
       );
     }
-    if(clientId && String(status).toUpperCase()==='BOOKED') await resolveClientProviderHolds(pool,{clientId,userId:createdByUserId,reason:'PLACED_ON_SCHEDULE'});
-    return this.findById(result.insertId);
+    if(clientId && String(status).toUpperCase()==='BOOKED') await resolveClientProviderHolds(executor,{clientId,userId:createdByUserId,reason:'PLACED_ON_SCHEDULE'});
+    return this.findById(result.insertId, executor);
   }
 
   static async createIfRoomOpen(args) {
@@ -340,9 +341,9 @@ class OfficeEvent {
     return rows || [];
   }
 
-  static async findByRoomAndStart(roomId, startAt) {
+  static async findByRoomAndStart(roomId, startAt, executor = pool) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
-    const [rows] = await pool.execute(
+    const [rows] = await executor.execute(
       `SELECT *
        FROM office_events
        WHERE room_id = ?
@@ -369,7 +370,8 @@ class OfficeEvent {
     replaceCancelled = false,
     allowAutomaticReservationDowngrade = false,
     notes = null,
-    _locked = false
+    _locked = false,
+    executor = pool
   }) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const normalizedEndAt = normalizeMySqlDateTime(endAt);
@@ -402,27 +404,30 @@ class OfficeEvent {
         replaceCancelled,
         allowAutomaticReservationDowngrade,
         notes,
-        _locked: true
+        _locked: true,
+        // All reads and writes must use the transaction holding the source-row
+        // locks; a second connection would block on its foreign-key checks.
+        executor: conn
         });
       });
     }
     // Recheck source rows while holding the room lock. A materializer may have
     // read a plan just before client termination stopped it.
     if (bookingPlanId) {
-      const [[plan]] = await pool.execute('SELECT is_active FROM office_booking_plans WHERE id=?', [bookingPlanId]);
+      const [[plan]] = await executor.execute('SELECT is_active FROM office_booking_plans WHERE id=?', [bookingPlanId]);
       if (!plan || Number(plan.is_active) === 0) return null;
     } else if (standingAssignmentId && slotState === 'ASSIGNED_BOOKED') {
-      const [[assignment]] = await pool.execute('SELECT client_booking_released_at FROM office_standing_assignments WHERE id=?', [standingAssignmentId]);
+      const [[assignment]] = await executor.execute('SELECT client_booking_released_at FROM office_standing_assignments WHERE id=?', [standingAssignmentId]);
       if (assignment?.client_booking_released_at) { slotState='ASSIGNED_AVAILABLE'; bookedProviderId=null; allowAutomaticReservationDowngrade=true; }
     }
-    const [overlaps] = await pool.execute(`SELECT id,assigned_provider_id,booked_provider_id,start_at,end_at FROM office_events
+    const [overlaps] = await executor.execute(`SELECT id,assigned_provider_id,booked_provider_id,start_at,end_at FROM office_events
       WHERE room_id=? AND start_at<? AND end_at>? AND status='BOOKED'`, [roomId,normalizedEndAt,normalizedStartAt]);
     if (overlaps.some(row => Number(row.booked_provider_id || row.assigned_provider_id) !== Number(assignedProviderId)
       || normalizeMySqlDateTime(row.start_at) !== normalizedStartAt || normalizeMySqlDateTime(row.end_at) !== normalizedEndAt)) return null;
     // Keep legacy `status` aligned for older code paths.
     const legacyStatus = (slotState === 'ASSIGNED_BOOKED' || slotState === 'COMPANY_HOLD') ? 'BOOKED' : 'RELEASED';
 
-    const existing = await this.findByRoomAndStart(roomId, normalizedStartAt);
+    const existing = await this.findByRoomAndStart(roomId, normalizedStartAt, executor);
     if (existing?.id) {
       const existingCancelled = String(existing.status || '').toUpperCase() === 'CANCELLED';
       // Explicit cancellations/forfeits are authoritative and must never be resurrected.
@@ -438,11 +443,11 @@ class OfficeEvent {
           || (incomingProviderId && incomingProviderId !== existingProviderId);
 
         if (shouldReactivateCancelledSlot) {
-          const [linkedAppointments] = await pool.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [existing.id]);
+          const [linkedAppointments] = await executor.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [existing.id]);
           if (existing.client_id || existing.clinical_session_id || existing.billing_context_id || existing.note_context_id || linkedAppointments.length) {
             throw Object.assign(new Error('This cancelled occurrence has a client record. Preserve it and schedule through the appointment workflow.'), { status: 409 });
           }
-          await pool.execute(
+          await executor.execute(
             `UPDATE office_events
              SET office_location_id = ?,
                  room_id = ?,
@@ -475,9 +480,9 @@ class OfficeEvent {
               existing.id
             ]
           );
-          return await this.findById(existing.id);
+          return await this.findById(existing.id, executor);
         }
-        return await this.findById(existing.id);
+        return await this.findById(existing.id, executor);
       }
       const existingIsBooked =
         String(existing.status || '').toUpperCase() === 'BOOKED'
@@ -492,7 +497,7 @@ class OfficeEvent {
       if (preserveBooked && allowAutomaticReservationDowngrade && existing.standing_assignment_id
         && (!existingBookedId || existingBookedId === incomingAssignedId)
         && !existing.client_id && !existing.clinical_session_id && !existing.billing_context_id && !existing.note_context_id) {
-        const [linked] = await pool.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [existing.id]);
+        const [linked] = await executor.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [existing.id]);
         if (!linked.length) preserveBooked = false;
       }
       if (
@@ -508,7 +513,7 @@ class OfficeEvent {
       const effectiveBookedProviderId = preserveBooked
         ? (existingBookedId || bookedProviderId || incomingAssignedId || null)
         : bookedProviderId;
-      await pool.execute(
+      await executor.execute(
         `UPDATE office_events
          SET office_location_id = ?,
              room_id = ?,
@@ -538,7 +543,7 @@ class OfficeEvent {
           existing.id
         ]
       );
-      return await this.findById(existing.id);
+      return await this.findById(existing.id, executor);
     }
 
     // Minimal create (source will be refined once workflows are wired)
@@ -557,7 +562,8 @@ class OfficeEvent {
       recurrenceGroupId,
       notes,
       createdByUserId,
-      approvedByUserId: null
+      approvedByUserId: null,
+      executor
     });
   }
 

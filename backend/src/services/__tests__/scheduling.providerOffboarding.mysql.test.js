@@ -27,9 +27,9 @@ const tables = {
  public_appointment_requests:'id INT PRIMARY KEY,provider_id INT,status VARCHAR(30)',
  public_provider_slot_holds:'id INT PRIMARY KEY,provider_id INT,released_at DATETIME(3),resolution VARCHAR(80),resolved_by_user_id INT',
 
- appointments:'id INT PRIMARY KEY,provider_user_id INT,agency_id INT,package_entitlement_id INT,start_at DATETIME,status VARCHAR(40),cancellation_reason TEXT,cancellation_fee_cents INT,canceled_at DATETIME,canceled_by_user_id INT,updated_by_user_id INT',
+ appointments:'id INT PRIMARY KEY,office_event_id INT,provider_user_id INT,agency_id INT,package_entitlement_id INT,start_at DATETIME,status VARCHAR(40),cancellation_reason TEXT,cancellation_fee_cents INT,canceled_at DATETIME,canceled_by_user_id INT,updated_by_user_id INT',
  appointment_reminders:'id INT PRIMARY KEY,appointment_id INT,status VARCHAR(30)',
- office_events:'id INT PRIMARY KEY,office_location_id INT,standing_assignment_id INT,booking_plan_id INT,assigned_provider_id INT,booked_provider_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(30),slot_state VARCHAR(30),cancellation_reason TEXT,google_provider_event_id VARCHAR(80)',
+ office_events:'id INT PRIMARY KEY AUTO_INCREMENT,room_id INT,client_id INT,clinical_session_id INT,note_context_id INT,billing_context_id INT,source VARCHAR(30),recurrence_group_id VARCHAR(64),notes TEXT,appointment_type_code VARCHAR(40),appointment_subtype_code VARCHAR(40),service_code VARCHAR(40),modality VARCHAR(40),created_by_user_id INT,approved_by_user_id INT,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,office_location_id INT,standing_assignment_id INT,booking_plan_id INT,assigned_provider_id INT,booked_provider_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(30),slot_state VARCHAR(30),cancellation_reason TEXT,google_provider_event_id VARCHAR(80),FOREIGN KEY (assigned_provider_id) REFERENCES users(id),FOREIGN KEY (booked_provider_id) REFERENCES users(id),FOREIGN KEY (standing_assignment_id) REFERENCES office_standing_assignments(id)',
  provider_schedule_events:'id INT PRIMARY KEY,provider_id INT,start_at DATETIME,start_date DATE,all_day BOOLEAN DEFAULT 0,status VARCHAR(30),recurrence_series_id VARCHAR(80),recurrence_stopped BOOLEAN DEFAULT 0,recurrence_horizon_held BOOLEAN DEFAULT 0,recurrence_calendar_pending BOOLEAN DEFAULT 0,meeting_completed_at DATETIME,updated_by_user_id INT',
  supervision_sessions:'id INT PRIMARY KEY,supervisor_user_id INT,start_at DATETIME,status VARCHAR(30),recurrence_series_id VARCHAR(80),recurrence_stopped BOOLEAN DEFAULT 0,recurrence_horizon_held BOOLEAN DEFAULT 0,recurrence_calendar_pending BOOLEAN DEFAULT 0,finalized_at DATETIME',
  provider_schedule_event_attendees:'event_id INT,user_id INT',
@@ -145,6 +145,40 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('archived provider clea
   await pool.query("UPDATE users SET status='ACTIVE_EMPLOYEE',is_archived=0,is_active=1 WHERE id=1");
   expect(await processProviderOffboarding(id)).toMatchObject({completed:true,skipped:true});
   expect((await rows('office_standing_assignments'))[0].is_active).toBe(1);
+ });
+ it('creates and retries a seven-hour weekly room assignment with real foreign keys', async () => {
+  await insert('office_standing_assignments',Array.from({length:7},(_,i)=>({id:i+1,provider_id:1,office_location_id:7})));
+  const reserve = (hour,startAt,endAt) => OfficeEvent.upsertSlotState({officeLocationId:7,roomId:4,startAt,endAt,
+    standingAssignmentId:hour-6,assignedProviderId:1,slotState:'ASSIGNED_AVAILABLE',createdByUserId:2,replaceCancelled:true});
+  // Initial clicked block and the following year of weekly occurrences, including
+  // the same upserts a grid refresh or a retry after a failed request performs.
+  for (let week=0;week<53;week++) {
+    const day=new Date(Date.UTC(2026,9,15+week*7)).toISOString().slice(0,10);
+    for(let hour=7;hour<14;hour++) {
+      const startAt=`${day} ${String(hour).padStart(2,'0')}:00:00`;
+      const endAt=`${day} ${String(hour+1).padStart(2,'0')}:00:00`;
+      const event=await reserve(hour,startAt,endAt);
+      expect(event).toMatchObject({assigned_provider_id:1,slot_state:'ASSIGNED_AVAILABLE',status:'RELEASED'});
+      expect((await reserve(hour,startAt,endAt)).id).toBe(event.id);
+    }
+  }
+  expect(await rows('office_events')).toHaveLength(371);
+ },15000);
+ it('reactivates a cancelled room occurrence on the same locked connection', async () => {
+  await insert('office_standing_assignments',[{id:1,provider_id:1,office_location_id:7}]);
+  await insert('office_events',[{id:1,room_id:4,start_at:'2099-01-01 10:00:00',end_at:'2099-01-01 11:00:00',status:'CANCELLED'}]);
+  const event=await OfficeEvent.upsertSlotState({officeLocationId:7,roomId:4,startAt:'2099-01-01 10:00:00',endAt:'2099-01-01 11:00:00',
+    standingAssignmentId:1,assignedProviderId:1,slotState:'ASSIGNED_AVAILABLE',createdByUserId:2,replaceCancelled:true});
+  expect(event).toMatchObject({id:1,status:'RELEASED',standing_assignment_id:1,assigned_provider_id:1});
+ });
+ it('rolls back a reservation if reading the new event fails before commit', async () => {
+  await insert('office_standing_assignments',[{id:1,provider_id:1,office_location_id:7}]);
+  const read=vi.spyOn(OfficeEvent,'findById').mockRejectedValueOnce(new Error('read failure'));
+  try {
+    await expect(OfficeEvent.upsertSlotState({officeLocationId:7,roomId:4,startAt:'2099-01-01 10:00:00',endAt:'2099-01-01 11:00:00',
+      standingAssignmentId:1,assignedProviderId:1,slotState:'ASSIGNED_AVAILABLE',createdByUserId:2})).rejects.toThrow('read failure');
+    expect(await rows('office_events')).toHaveLength(0);
+  } finally {read.mockRestore();}
  });
  it('refuses to materialize a stale room template immediately after archiving', async () => {
   await insert('office_standing_assignments',[{id:1,provider_id:1,office_location_id:7}]);

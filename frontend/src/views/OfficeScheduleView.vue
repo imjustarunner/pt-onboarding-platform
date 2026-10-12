@@ -362,86 +362,81 @@
             </div>
 
             <div class="row" style="margin-bottom: 10px;">
-              <label class="check">
+              <label class="office-slot-choice">
                 <input type="radio" v-model="assignMode" value="company_hold" :disabled="saving" />
                 <span>Company hold</span>
               </label>
-              <label class="check">
+              <label class="office-slot-choice">
                 <input type="radio" v-model="assignMode" value="provider" :disabled="saving" />
                 <span>Assign to person</span>
               </label>
             </div>
 
-            <div class="row">
-              <template v-if="assignMode === 'company_hold'">
-                <label style="font-weight: 700;">Label</label>
-                <input v-model="companyHoldTitle" class="input" type="text" maxlength="255" placeholder="Company hold" :disabled="saving" />
-              </template>
+            <div class="slot-assignment-form">
+              <div v-if="assignMode === 'company_hold'" class="slot-assignment-field slot-assignment-wide">
+                <label for="assignment-title">Label</label>
+                <input id="assignment-title" v-model="companyHoldTitle" class="input" type="text" maxlength="255" placeholder="Company hold" :disabled="saving" />
+              </div>
               <template v-else>
-                <label for="assignment-agency" style="font-weight: 700;">Agency / tenant</label>
-                <select id="assignment-agency" v-model.number="assignmentAgencyId" class="select" :disabled="saving || providersLoading">
-                  <option :value="0">Select agency…</option>
-                  <option v-for="a in assignmentAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
-                </select>
-                <label style="font-weight: 700;">Person</label>
-                <PersonSearchSelect
-                  v-model="selectedProviderId"
-                  :options="assignmentPeople"
-                  show-photos
-                  placeholder="Type name to search…"
-                  :disabled="saving || providersLoading || !assignmentAgencyId"
-                />
-                <div v-if="providersLoading" role="status" class="muted">Loading people…</div>
-                <div v-else-if="providersError" role="alert" class="error-box">{{ providersError }}</div>
-                <div v-else-if="assignmentAgencyId && !assignmentPeople.length" class="muted">No active staff or providers in this agency at this office.</div>
-                <div class="muted">Assigned Available reserves these hours for the person without booking a client appointment. You can plan a start date up to one year ahead.</div>
+                <div class="slot-assignment-field">
+                  <label for="assignment-agency">Agency / tenant</label>
+                  <select id="assignment-agency" v-model.number="assignmentAgencyId" class="select" :disabled="saving || providersLoading">
+                    <option :value="0">Select agency…</option>
+                    <option v-for="a in assignmentAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+                  </select>
+                </div>
+                <div class="slot-assignment-field">
+                  <label>Person</label>
+                  <PersonSearchSelect
+                    v-model="selectedProviderId"
+                    :options="assignmentPeople"
+                    show-photos
+                    placeholder="Type name to search…"
+                    :disabled="saving || providersLoading || !assignmentAgencyId"
+                  />
+                </div>
+                <div v-if="providersLoading" role="status" class="muted slot-assignment-wide">Loading people…</div>
+                <div v-else-if="providersError" role="alert" class="error-box slot-assignment-wide">{{ providersError }}</div>
+                <div v-else-if="assignmentAgencyId && !assignmentPeople.length" class="muted slot-assignment-wide">No active staff or providers in this agency at this office.</div>
+                <div class="muted slot-assignment-wide">Assigned Available reserves these hours for the person without booking a client appointment. You can plan a start date up to one year ahead.</div>
               </template>
-              <label style="font-weight: 700;">End</label>
-              <select v-model.number="assignEndHour" class="select" :disabled="!modalSlot">
-                <option v-for="h in assignEndHourOptions" :key="`end-${h}`" :value="h">
-                  {{ formatHour(h) }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Recurrence</label>
-              <select v-model="assignRecurrenceFreq" class="select" :disabled="!modalSlot">
-                <option v-for="opt in RECURRENCE_OPTIONS" :key="`assign-rec-${opt.value}`" :value="opt.value">
-                  {{ opt.value === 'ONCE' ? 'Single occurrence' : opt.label }}
-                </option>
-              </select>
-              <label class="check" style="align-self: center;" v-if="assignMode === 'provider'">
+              <div class="slot-assignment-field">
+                <label for="assignment-end">End</label>
+                <select id="assignment-end" v-model.number="assignEndHour" class="select" :disabled="!modalSlot">
+                  <option v-for="h in assignEndHourOptions" :key="`end-${h}`" :value="h">{{ formatHour(h) }}</option>
+                </select>
+              </div>
+              <div class="slot-assignment-field">
+                <label for="assignment-recurrence">Recurrence</label>
+                <select id="assignment-recurrence" v-model="assignRecurrenceFreq" class="select" :disabled="!modalSlot">
+                  <option v-for="opt in RECURRENCE_OPTIONS" :key="`assign-rec-${opt.value}`" :value="opt.value">
+                    {{ opt.value === 'ONCE' ? 'Single occurrence' : opt.label }}
+                  </option>
+                </select>
+              </div>
+              <label class="office-slot-choice slot-assignment-wide" v-if="assignMode === 'provider'">
                 <input type="checkbox" v-model="assignTemporary4Weeks" :disabled="assignRecurrenceFreq === 'ONCE'" />
                 <span>Temporary 4-week hold</span>
               </label>
-              <div v-if="assignMode === 'provider' && assignTemporary4Weeks && assignRecurrenceFreq !== 'ONCE'" class="muted" style="max-width: 320px;">
+              <div v-if="assignMode === 'provider' && assignTemporary4Weeks && assignRecurrenceFreq !== 'ONCE'" class="muted slot-assignment-wide">
                 Temporary hold while trying to place a client. If booked during hold, this converts to regular assigned office.
               </div>
-              <label v-if="assignRecurrenceFreq !== 'ONCE'" style="font-weight: 700;">Recurring until</label>
-              <input
-                v-if="assignRecurrenceFreq !== 'ONCE'"
-                v-model="assignRecurringUntilDate"
-                type="date"
-                class="input"
-                :disabled="!modalSlot"
-              />
-              <div v-if="assignRecurrenceFreq !== 'ONCE'" class="weekday-picker">
+              <div v-if="assignRecurrenceFreq !== 'ONCE'" class="slot-assignment-field">
+                <label for="assignment-until">Recurring until</label>
+                <input id="assignment-until" v-model="assignRecurringUntilDate" type="date" class="input" :disabled="!modalSlot" />
+              </div>
+              <div v-if="assignRecurrenceFreq !== 'ONCE'" class="weekday-picker slot-assignment-wide">
                 <label class="weekday-label">Days</label>
                 <label v-for="wd in weekdayOptions" :key="`wd-${wd.value}`" class="weekday-check">
-                  <input
-                    type="checkbox"
-                    :checked="assignWeekdays.includes(wd.value)"
-                    @change="toggleAssignWeekday(wd.value)"
-                  />
+                  <input type="checkbox" :checked="assignWeekdays.includes(wd.value)" @change="toggleAssignWeekday(wd.value)" />
                   <span>{{ wd.label }}</span>
                 </label>
               </div>
-              <button
-                class="btn btn-primary"
-                @click="assignOpenSlot"
-                :disabled="saving || !canAssignSubmit"
-                :title="assignDisabledReason || ''"
-              >
-                {{ assignMode === 'company_hold' ? (saving ? 'Blocking…' : 'Block slot') : (saving ? 'Assigning…' : 'Assign') }}
-              </button>
+              <div class="slot-assignment-wide">
+                <button class="btn btn-primary" @click="assignOpenSlot" :disabled="saving || !canAssignSubmit" :title="assignDisabledReason || ''">
+                  {{ assignMode === 'company_hold' ? (saving ? 'Blocking…' : 'Block slot') : (saving ? 'Assigning…' : 'Assign') }}
+                </button>
+              </div>
             </div>
 
             <div v-if="assignConflict" class="assign-conflict card">
@@ -481,7 +476,7 @@
                   <select v-model.number="rescheduleHour" class="select" :disabled="saving">
                     <option v-for="h in rescheduleHourOptions" :key="`rc-h-${h}`" :value="h">{{ formatHour(h) }}</option>
                   </select>
-                  <label class="check" style="align-self: center;">
+                  <label class="office-slot-choice" style="align-self: center;">
                     <input type="checkbox" v-model="rescheduleNotifyProvider" :disabled="saving" />
                     <span>Notify provider</span>
                   </label>
@@ -694,7 +689,7 @@
                 <option value="occurrence">Forfeit this occurrence only</option>
                 <option value="future" :disabled="!isRecurringSlot">Forfeit this and all future recurring</option>
               </select>
-              <label class="check">
+              <label class="office-slot-choice">
                 <input type="checkbox" v-model="ackForfeit" />
                 <span>I understand this slot's day/time/frequency is forfeit at this time and available to others.</span>
               </label>
@@ -3609,8 +3604,17 @@ select {
   background: rgba(255, 255, 255, 0.9);
   color: var(--sched-text);
 }
-.check { display: inline-flex; gap: 10px; align-items: flex-start; }
-.check span { color: var(--sched-text-muted); font-size: 13px; line-height: 1.35; }
+.office-slot-choice { display: inline-flex; gap: 10px; align-items: flex-start; width: auto; height: auto; min-width: 0; }
+.office-slot-choice span { color: var(--sched-text-muted); font-size: 13px; line-height: 1.35; }
+.office-slot-choice input, .weekday-check input { flex: 0 0 auto; width: auto; margin: 2px 0 0; }
+.slot-assignment-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.slot-assignment-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.slot-assignment-field > label { font-weight: 700; }
+.slot-assignment-field > .input, .slot-assignment-field > .select { width: 100%; min-width: 0; box-sizing: border-box; }
+.slot-assignment-wide { grid-column: 1 / -1; min-width: 0; }
+@media (max-width: 600px) {
+  .slot-assignment-form { grid-template-columns: minmax(0, 1fr); }
+}
 .modal .row {
   display: flex;
   align-items: center;
