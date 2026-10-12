@@ -30,11 +30,16 @@ describe('My Schedule supervision controls',()=>{
   expect(bookings.every(b=>b.supervisorUserId===7&&b.superviseeUserId===8&&b.reminderOffsets.join(',')==='30,5')).toBe(true);
  });
  it('defaults recurring meetings to ongoing and submits explicit single versus future cancellation',async()=>{
+  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,recurrenceSeriesId:'series',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+  // Cancellation refreshes in the background. Every summary read must return
+  // the fixture, including a slower refresh arriving during the second scope.
+  const defaultGet=m.get.getMockImplementation();
+  m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;
   expect(s.supervisionRecurrenceEndMode).toBe('indefinite');expect(s.scheduleEventRecurrenceEndMode).toBe('indefinite');
   for(const scope of ['single','future']) {
-   s.summary={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,recurrenceSeriesId:'series',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+   s.summary=fixture;
    s.supvDayLabel='Monday';s.supvStartHour=10;s.selectedSupvSessionId=10;
    await flushPromises();expect(s.canCancelSelectedSupvSession).toBe(true);await s.confirmCancelSupvSession(scope);
    expect(m.post).toHaveBeenCalledWith('/supervision/sessions/10/cancel',expect.objectContaining({scope}));

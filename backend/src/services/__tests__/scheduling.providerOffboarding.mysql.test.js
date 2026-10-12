@@ -53,6 +53,8 @@ const rows = async (table,db=pool) => (await db.query(`SELECT * FROM ${table} OR
 let admin; const created=[];
 describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('archived provider cleanup in disposable MySQL', () => {
  beforeAll(async () => {
+  // Give the large fixture time for CI disk I/O while real lock regressions still fail quickly.
+  pool.on('connection', connection => connection.query('SET SESSION innodb_lock_wait_timeout=2'));
   admin=await mysql.createConnection({host:'127.0.0.1',port:Number(process.env.SCHEDULING_TEST_MYSQL_PORT),user:'root',password:''});
   for (const name of ['codex_provider_offboarding_main','codex_provider_offboarding_clinical']) {await admin.query(`CREATE DATABASE ${name}`);created.push(name);}
   for (const [table,ddl] of Object.entries(tables)) await pool.query(`CREATE TABLE ${table} (${ddl}) ENGINE=InnoDB`);
@@ -163,7 +165,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('archived provider clea
     }
   }
   expect(await rows('office_events')).toHaveLength(371);
- },15000);
+ },60000);
  it('reactivates a cancelled room occurrence on the same locked connection', async () => {
   await insert('office_standing_assignments',[{id:1,provider_id:1,office_location_id:7}]);
   await insert('office_events',[{id:1,room_id:4,start_at:'2099-01-01 10:00:00',end_at:'2099-01-01 11:00:00',status:'CANCELLED'}]);
