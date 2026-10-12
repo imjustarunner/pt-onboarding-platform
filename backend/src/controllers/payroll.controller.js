@@ -1,3 +1,5 @@
+import {validateSupplementalTime} from '../services/payrollSubmissionContext.service.js';
+import { materializeRecurring, normalizeRecurring, day as recurringDay } from '../services/recurringPayroll.service.js';
 import { appliedLeaveExportHours } from '../utils/payrollLeaveExport.js';
 import {hasSchoolAssignment,confirmTrainingHandoff,validateTrainingHandoff,catchUpTrainingAfterHandoff} from '../services/supplementalLeave.service.js';
 import {LEAVE_BALANCE_COLUMNS,validateLeaveItems} from '../utils/supplementalLeave.js';
@@ -5844,6 +5846,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
 }
 
 async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
+  await materializeRecurring({agencyId,payrollPeriodId});
   const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
   // Percent-of-client-paid pay policy (agency default + feature flag). Best-effort:
   // if it can't load, fall back to disabled so fixed-rate payroll is unaffected.
@@ -18322,6 +18325,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
     if (typeof payload === 'string') {
       try { payload = JSON.parse(payload); } catch { payload = {}; }
     }
+    if(payload.source==='supervision_payroll_correction')return res.status(400).json({error:{message:'Supervision corrections must originate from the verified supervision record.'}});
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
 
     const agencyRow = await Agency.findById(agencyId);
@@ -18438,7 +18442,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         || allocKey === 'supervision';
 
       const requestedCategory = String(payload?.categoryGroup || '').trim().toLowerCase();
-      let categoryGroup = ['indirect_service', 'support_activity', 'supervision_note'].includes(requestedCategory)
+      let categoryGroup = ['indirect_service', 'support_activity', 'supervision_note', 'admin_duties'].includes(requestedCategory)
         ? requestedCategory
         : null;
 
@@ -18449,6 +18453,11 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         if (hint === 'other_1') categoryGroup = 'support_activity';
       }
 
+      payload.categoryGroup = categoryGroup;
+      if(categoryGroup==='admin_duties'||payload.excessIndirect){
+        delete payload.amount;delete payload.amountExplicit;delete payload.payRateAmountOverride;
+      }
+      const supplementalContext = await validateSupplementalTime({agencyId,userId,claimDate,payload});
       const preAllocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
       const preTypeIds = preAllocations
         .map((row) => Number(row?.serviceTypeId || row?.id || 0))
@@ -18461,7 +18470,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         })
         : false;
 
-      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize && !hasAssignedIndirectAccess) {
+      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize && !hasAssignedIndirectAccess && !supplementalContext.effective) {
         return res.status(403).json({
           error: { message: 'Indirect Service Time is for hourly employees only. Use Support Activity Time instead.' }
         });
@@ -18472,16 +18481,19 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         });
       }
 
+      const claimMinutes = payload.excessIndirect ? v => {
+        const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;
+      } : toMinutes;
       const allocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
       const cleaned = [];
       let allocatedSum = 0;
       const typeIds = [];
       for (const row of allocations) {
-        const mins = toMinutes(row?.minutes ?? row?.totalMinutes);
+        const mins = claimMinutes(row?.minutes ?? row?.totalMinutes);
         const label = String(row?.serviceTypeLabel || row?.label || '').trim();
         const typeKey = String(row?.serviceTypeKey || row?.typeKey || '').trim();
         const typeId = Number(row?.serviceTypeId || row?.id || 0);
-        if (!(mins >= 1) || !label) continue;
+        if (!(mins > 0) || !label) continue;
         allocatedSum += mins;
         if (Number.isFinite(typeId) && typeId > 0) typeIds.push(typeId);
         const startTime = row?.startTime != null ? String(row.startTime).trim() : null;
@@ -18536,9 +18548,9 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         }
       }
 
-      let totalMinutes = toMinutes(payload?.totalMinutes);
-      if (!(totalMinutes >= 1)) totalMinutes = allocatedSum;
-      if (allocatedSum !== totalMinutes) {
+      let totalMinutes = claimMinutes(payload?.totalMinutes);
+      if (!(totalMinutes > 0)) totalMinutes = allocatedSum;
+      if (Math.abs(allocatedSum - totalMinutes) > 0.01) {
         return res.status(400).json({
           error: { message: `Allocated minutes (${allocatedSum}) must equal total time (${totalMinutes})` }
         });
@@ -18762,6 +18774,10 @@ export const updateMyTimeClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
 
+    if (typeof req.body?.archived === 'boolean') {
+      await pool.execute('UPDATE payroll_time_claims SET employee_archived_at=? WHERE id=? AND user_id=?',[req.body.archived?new Date():null,id,userId]);
+      return res.json({ok:true});
+    }
     const s = String(claim.status || '').toLowerCase();
     if (!['submitted', 'withdrawn', 'deferred', 'rejected'].includes(s)) {
       return res.status(409).json({
@@ -18783,18 +18799,20 @@ export const updateMyTimeClaim = async (req, res, next) => {
       });
     }
 
+    if(claim.payload?.source==='supervision_payroll_correction'||req.body?.payload?.source==='supervision_payroll_correction')return res.status(409).json({error:{message:'Update the original supervision record; payroll corrections cannot be edited here.'}});
     const payloadIn = req.body?.payload && typeof req.body.payload === 'object'
       ? req.body.payload
       : {};
+    const claimMinutes = (payloadIn.excessIndirect||claim.payload?.excessIndirect) ? v=>{const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;} : toMinutes;
     const allocations = Array.isArray(payloadIn.allocations) ? payloadIn.allocations : [];
     const cleaned = [];
     let allocatedSum = 0;
     for (const row of allocations) {
-      const mins = toMinutes(row?.minutes ?? row?.totalMinutes);
+      const mins = claimMinutes(row?.minutes ?? row?.totalMinutes);
       const label = String(row?.serviceTypeLabel || row?.label || '').trim();
       const typeKey = String(row?.serviceTypeKey || row?.typeKey || '').trim();
       const typeId = Number(row?.serviceTypeId || row?.id || 0);
-      if (!(mins >= 1) || !label) continue;
+      if (!(mins > 0) || !label) continue;
       allocatedSum += mins;
       const noteRaw = String(row?.note || row?.activityNote || '').trim();
       cleaned.push({
@@ -18812,9 +18830,9 @@ export const updateMyTimeClaim = async (req, res, next) => {
     if (!cleaned.length) {
       return res.status(400).json({ error: { message: 'At least one service type allocation with minutes is required' } });
     }
-    let totalMinutes = toMinutes(payloadIn.totalMinutes);
-    if (!(totalMinutes >= 1)) totalMinutes = allocatedSum;
-    if (allocatedSum !== totalMinutes) {
+    let totalMinutes = claimMinutes(payloadIn.totalMinutes);
+    if (!(totalMinutes > 0)) totalMinutes = allocatedSum;
+    if (Math.abs(allocatedSum - totalMinutes)>0.01) {
       return res.status(400).json({
         error: { message: `Allocated minutes (${allocatedSum}) must equal total time (${totalMinutes})` }
       });
@@ -18836,6 +18854,7 @@ export const updateMyTimeClaim = async (req, res, next) => {
     const serviceCode = serviceCodeForCategoryGroup(categoryGroup)
       || String(payloadIn.serviceCode || prevPayload.serviceCode || '').trim()
       || null;
+    await validateSupplementalTime({agencyId:claim.agency_id,userId,claimDate:recurringDay(req.body?.claimDate||claim.claim_date),payload:{...prevPayload,...payloadIn,categoryGroup,totalMinutes}});
     const nextPayload = {
       ...prevPayload,
       ...payloadIn,
@@ -18849,6 +18868,8 @@ export const updateMyTimeClaim = async (req, res, next) => {
       editReason,
       editHistory: history.slice(-20)
     };
+
+    if(categoryGroup==='admin_duties'||nextPayload.excessIndirect){delete nextPayload.amount;delete nextPayload.amountExplicit;delete nextPayload.payRateAmountOverride;}
 
     let claimDate = claim.claim_date;
     if (req.body?.claimDate) {
@@ -19207,7 +19228,7 @@ async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard }) {
   return cardRate;
 }
 
-async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null }) {
+export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null }) {
   const type = String(claim?.claim_type || '').toLowerCase();
   const payload = claim?.payload || {};
   const directRate = Number(rateCard?.direct_rate || 0);
@@ -19282,6 +19303,16 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
     }
 
 
+    if(type==='indirect_time' && ['indirect_service','support_activity'].includes(payload.categoryGroup)) {
+      const ctx=await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
+      if(ctx?.enabled) {
+        const key=payload.categoryGroup==='support_activity'?'supportActivityRate':'indirectRate';
+        const rate=Number(ctx.status?.useReducedRates ? ctx.rateProfile?.[key+'Probation'] ?? ctx.rateProfile?.[key] : ctx.rateProfile?.[key]);
+        return rate>0?Math.round(hrs*rate*100)/100:null;
+      }
+      if(payload.excessIndirect)return null;
+    }
+
     // Per-user Log Time duty rate override (compensation tab).
     if (type === 'indirect_time') {
       const typeId = Number(payload?.allocations?.[0]?.serviceTypeId || 0);
@@ -19346,6 +19377,8 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
       } catch { /* fall through to rate-card */ }
     }
 
+    if(payload.categoryGroup==='admin_duties')return null;
+
     // Indirect_time without a service code: rate-card indirect (or direct already handled).
     if (type === 'indirect_time' && claimBucket === 'direct' && directRate > 0) {
       return Math.round(hrs * directRate * 100) / 100;
@@ -19409,6 +19442,8 @@ export const patchTimeClaim = async (req, res, next) => {
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
 
     if (action === 'approve') {
+      const correction=claim.payload?.source==='supervision_payroll_correction' && Number(claim.payload?.originalClaimId)>0;
+      if(claim.payload?.rateReviewRequired && (body.appliedAmount==null || body.appliedAmount===''))return res.status(409).json({error:{message:'Confirm the correction amount after reviewing the changed supervision rate.'}});
       const targetPayrollPeriodId = Number(body.targetPayrollPeriodId || 0);
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
@@ -19467,7 +19502,7 @@ export const patchTimeClaim = async (req, res, next) => {
         body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
           ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === '' ? null : Number(body.credits_hours))
           : Number(body.creditsHours);
-      if (creditsHoursRaw !== null && (!Number.isFinite(creditsHoursRaw) || creditsHoursRaw < 0)) {
+      if (creditsHoursRaw !== null && (!Number.isFinite(creditsHoursRaw) || (!correction && creditsHoursRaw < 0))) {
         return res.status(400).json({ error: { message: 'creditsHours must be a non-negative number (or blank)' } });
       }
       // Default hours from totalMinutes for meeting / hourly indirect logs when admin leaves blank.
@@ -19475,8 +19510,8 @@ export const patchTimeClaim = async (req, res, next) => {
         const claimTypeKey = String(claim.claim_type || '').toLowerCase();
         if (claimTypeKey === 'indirect_time' || claimTypeKey === 'meeting_training' || claimTypeKey === 'mentor_cpa_meeting') {
           const mins = Number(claim?.payload?.totalMinutes || 0);
-          if (Number.isFinite(mins) && mins > 0) {
-            creditsHoursRaw = Math.round((mins / 60) * 100) / 100;
+          if (Number.isFinite(mins) && (mins > 0 || correction)) {
+            creditsHoursRaw = Math.round((mins / 60) * 1000000) / 1000000;
           }
         }
       }
@@ -19504,10 +19539,11 @@ export const patchTimeClaim = async (req, res, next) => {
           computedDefaultAmount = null;
         }
       }
+      if(!Number.isFinite(override)&&!Number.isFinite(payloadAmountRaw)&&!Number.isFinite(computedDefaultAmount)&&claim.claim_type==='indirect_time'&&!isUnpaidMeetingClaim(claim))return res.status(409).json({error:{message:'Confirm this claim’s assigned rate and agreement before approving payment. No amount could be calculated.'}});
       const appliedAmount = isUnpaidMeetingClaim(claim) ? 0 : Number.isFinite(override)
         ? override
         : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : (Number.isFinite(computedDefaultAmount) ? computedDefaultAmount : 0));
-      if (!Number.isFinite(appliedAmount) || appliedAmount < 0) {
+      if (!Number.isFinite(appliedAmount) || (!correction && appliedAmount < 0)) {
         return res.status(400).json({ error: { message: 'appliedAmount must be a non-negative number' } });
       }
 
@@ -19524,7 +19560,7 @@ export const patchTimeClaim = async (req, res, next) => {
       try {
         const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
         const nextPayload = { ...prevPayload, bucket };
-        if (Number.isFinite(creditsHoursRaw) && creditsHoursRaw >= 0) {
+        if (Number.isFinite(creditsHoursRaw) && (creditsHoursRaw >= 0 || correction)) {
           nextPayload.totalMinutes = Math.round(creditsHoursRaw * 60);
           nextPayload.creditsHours = creditsHoursRaw;
         }
@@ -22930,4 +22966,46 @@ export const getMyTimeCategories = async (req, res, next) => {
     );
     res.json(rows || []);
   } catch (e) { next(e); }
+};
+
+export const listRecurringPayments = async (req,res,next) => {
+ try {
+  const agencyId=Number(req.query.agencyId),userId=Number(req.params.userId||req.user.id);
+  if(!agencyId)return res.status(400).json({error:{message:'agencyId is required'}});
+  if(req.params.userId){if(!(await requirePayrollAccess(req,res,agencyId)))return;}
+  else if(!(await userHasAgencyAccess({agencyId,userId})))return res.status(403).json({error:{message:'Access denied'}});
+  const [rows]=await pool.execute('SELECT * FROM payroll_recurring_payments WHERE agency_id=? AND user_id=? ORDER BY starts_on DESC,id DESC',[agencyId,userId]);
+  res.json(rows);
+ }catch(e){next(e);}
+};
+export const saveRecurringPayment = async (req,res,next) => {
+ try {
+  const agencyId=Number(req.body.agencyId),userId=Number(req.params.userId);
+  if(!(await requirePayrollAccess(req,res,agencyId)))return;
+  if(!(await requireTargetUserInAgency({res,agencyId,targetUserId:userId})))return;
+  const s=normalizeRecurring(req.body);
+  const requestKey=String(req.body.requestKey||'');
+  if(!/^[a-zA-Z0-9_-]{16,80}$/.test(requestKey))return res.status(400).json({error:{message:'A payment request identifier is required. Reload and try again.'}});
+  const [[existing]]=await pool.execute('SELECT id,user_id FROM payroll_recurring_payments WHERE agency_id=? AND request_key=?',[agencyId,requestKey]);
+  if(existing){if(Number(existing.user_id)!==userId)return res.status(409).json({error:{message:'Payment request identifier already used'}});return res.json({id:existing.id});}
+  const [[closed]]=await pool.execute("SELECT id FROM payroll_periods WHERE agency_id=? AND period_end>=? AND status IN ('posted','finalized') LIMIT 1",[agencyId,s.startsOn]);
+  if(closed)return res.status(409).json({error:{message:'Start after the last posted payroll period. Use a reviewed payroll correction for past payments.'}});
+  const [r]=await pool.execute('INSERT INTO payroll_recurring_payments (agency_id,user_id,label,cadence,starts_on,ends_on,amount,minutes,hourly_rate,created_by_user_id,request_key) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)',[agencyId,userId,s.label,s.cadence,s.startsOn,s.endsOn,s.amount,s.minutes,s.hourlyRate,req.user.id,requestKey]);
+  await pool.execute("UPDATE payroll_periods SET status='staged',ran_at=NULL,ran_by_user_id=NULL WHERE agency_id=? AND status='ran' AND period_end>=? AND (? IS NULL OR period_start<=?)",[agencyId,s.startsOn,s.endsOn,s.endsOn]);
+  res.status(201).json({id:r.insertId,...s});
+ }catch(e){next(e);}
+};
+export const stopRecurringPayment = async (req,res,next) => {
+ let db;
+ try {
+  const agencyId=Number(req.body.agencyId),userId=Number(req.params.userId),endsOn=String(req.body.endsOn||'');
+  if(!(await requirePayrollAccess(req,res,agencyId)))return;
+  db=await pool.getConnection();await db.beginTransaction();
+  const [[row]]=await db.execute('SELECT * FROM payroll_recurring_payments WHERE id=? AND agency_id=? AND user_id=? FOR UPDATE',[req.params.id,agencyId,userId]);
+  if(!row){await db.rollback();return res.status(404).json({error:{message:'Payment schedule not found'}});}
+  normalizeRecurring({...row,startsOn:recurringDay(row.starts_on),endsOn,amount:row.amount,minutes:row.minutes,hourlyRate:row.hourly_rate});
+  const [[last]]=await db.execute('SELECT MAX(occurrence_date) AS latest FROM payroll_recurring_occurrences WHERE recurring_payment_id=?',[row.id]);
+  if(!endsOn || (last?.latest && endsOn<recurringDay(last.latest))){await db.rollback();return res.status(409).json({error:{message:'End date must include payments already added to payroll.'}});}
+  await db.execute('UPDATE payroll_recurring_payments SET ends_on=? WHERE id=?',[endsOn,row.id]);await db.commit();res.json({ok:true});
+ }catch(e){if(db)await db.rollback();next(e);}finally{db?.release();}
 };

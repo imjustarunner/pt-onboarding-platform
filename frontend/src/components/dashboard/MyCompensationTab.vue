@@ -9,6 +9,20 @@
     <div v-if="loading" class="muted">Loading compensation…</div>
 
     <div v-else class="card">
+      <section v-if="data?.submission?.schedule" class="rate-transition">
+        <img src="/assets/fundthred/wordmark.svg" alt="FundThred" width="170" />
+        <h3>New compensation · {{ data.submission.startsOn || 'Date awaiting confirmation' }}</h3>
+        <p>{{ data.submission.executed ? 'Signed terms. Payroll activation and service dates determine when these rates apply.' : 'Planned terms. Your completed agreement and payroll activation are required before these rates apply.' }}</p>
+        <div class="rate-pair"><article v-if="data.submission.schedule.clinicalCreditEligible !== false"><h4>Clinical Session Rate</h4><strong>{{ fmtMoney(data.submission.schedule.creditRate) }} / credit</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.creditRateProbation) }} / credit, when applicable.</p></article><article><h4>Direct Care Rate</h4><strong>{{ fmtMoney(data.submission.schedule.hcodeRate) }} / direct hour</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.hcodeRateProbation) }} / hour, when applicable.</p></article></div>
+        <p>Indirect: {{ fmtMoney(data.submission.schedule.indirectRate) }}/hour · Support activities: {{ fmtMoney(data.submission.schedule.supportRate) }}/hour.</p>
+        <p>{{ data.submission.indirectMinutesPerHour }} minutes of indirect pay are included per Direct Care hour. Submit only work above that allowance. Credits measure compensation, not actual hours.</p>
+      </section>
+      <section v-for="group in codeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div><p>Use only services approved for your scope, setting and payer. Any group service requires express written approval under the handbook moratorium.</p></section>
+      <details v-if="restrictedCodes.length"><summary>Restricted or unapproved codes</summary><p v-for="code in restrictedCodes" :key="code.code"><strong>{{ code.code }}</strong> — {{ code.status }}</p></details>
+      <SupplementalTime :agency-id="agencyId" :context="data?.submission" :codes="data?.codeGuide" />
+      <h3 v-if="data?.submission?.startsOn">Prior rate card · through {{ priorEndDate }}</h3>
+      <p v-if="data?.submission?.startsOn">Earlier services retain their prior terms. If signatures or payroll activation are pending, the prior terms continue until the new rates take effect.</p>
+
       <div class="row">
         <strong>Compensation method:</strong>
         <span>{{ compensationMethod }}</span>
@@ -74,6 +88,7 @@
 </template>
 
 <script setup>
+import SupplementalTime from '../payroll/SupplementalTime.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -96,12 +111,16 @@ const agencyId = computed(() => {
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
+const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Direct Care Rate'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length));
+const restrictedCodes=computed(()=>(data.value?.codeGuide||[]).filter(c=>c.restricted));
+const priorEndDate=computed(()=>{const start=data.value?.submission?.startsOn;if(!start)return '';const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);});
+
 const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });
 const benefitsEnrollment = ref(null);
 const currentTierLevel = ref(0);
 
 const rateCard = computed(() => data.value?.rateCard || null);
-const perCodeRates = computed(() => data.value?.perCodeRates || []);
+const perCodeRates = computed(() => data.value?.priorPerCodeRates || data.value?.perCodeRates || []);
 const serviceCodeRules = computed(() => data.value?.serviceCodeRules || []);
 
 const hasRateCard = computed(() => {
@@ -221,6 +240,9 @@ onMounted(load);
 </script>
 
 <style scoped>
+.rate-transition { border:1px solid #d5e4e8;border-radius:18px;padding:22px;margin:16px 0;background:#f7fbfa;color:#0d203d; }
+.rate-pair,.code-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:14px; }.code-grid article,.rate-pair article { padding:16px;border:1px solid #dce6eb;border-radius:12px;background:white; }.rate-pair strong { font-size:22px; }.rate-transition p { line-height:1.6; }.rate-transition h3,.rate-transition h4 { color:#0d203d; }
+
 .subtitle { margin: 6px 0 0; color: var(--text-secondary); }
 .card { margin-top: 10px; background: var(--app-surface, #fff); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
 .row { margin: 0 0 10px; }

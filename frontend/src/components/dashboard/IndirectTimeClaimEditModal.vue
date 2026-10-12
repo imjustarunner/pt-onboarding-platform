@@ -3,10 +3,16 @@
     <div v-if="open" class="itc-overlay" role="dialog" aria-modal="true" aria-labelledby="itc-title">
       <div class="itc-modal">
         <header class="itc-head">
-          <h2 id="itc-title">Edit indirect time</h2>
+          <h2 id="itc-title"><img src="/assets/fundthred/icon.svg" alt="FundThred" width="28" height="28" /> Edit time claim</h2>
           <button type="button" class="itc-close" aria-label="Close" @click="$emit('close')">×</button>
         </header>
 
+        <template v-if="isSupplemental">
+          <p v-if="error" role="alert">{{ error }}</p>
+          <p v-else-if="!compensation">Loading assigned rates…</p>
+          <SupplementalTime v-else :agency-id="agencyId" :claim="claim" :context="compensation.submission" :codes="compensation.codeGuide" @submitted="$emit('saved')" @close="$emit('close')" />
+        </template>
+        <template v-else>
         <p class="itc-lead">
           Update this submission, then resubmit for payroll review.
           A reason for the change is required.
@@ -77,7 +83,7 @@
 
         <label class="itc-attest">
           <input v-model="form.attestation" type="checkbox" />
-          <span>I certify this time is accurate, complete, and in compliance with workplace policies.</span>
+          <span>I certify this time is accurate and complete, follows workplace policies, and excludes time already included automatically or paid elsewhere.</span>
         </label>
 
         <footer class="itc-foot">
@@ -86,6 +92,7 @@
             {{ saving ? 'Resubmitting…' : 'Resubmit for review' }}
           </button>
         </footer>
+        </template>
       </div>
     </div>
   </Teleport>
@@ -94,6 +101,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import SupplementalTime from '../payroll/SupplementalTime.vue';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -101,6 +109,8 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
+const compensation=ref(null);
+const isSupplemental=computed(()=>props.claim?.payload?.categoryGroup==='admin_duties'||!!props.claim?.payload?.excessIndirect);
 const emit = defineEmits(['close', 'saved']);
 
 const form = reactive({
@@ -187,9 +197,12 @@ function hydrateFromClaim(c) {
 
 watch(
   () => [props.open, props.claim?.id],
-  ([isOpen]) => {
-    if (isOpen && props.claim) hydrateFromClaim(props.claim);
-  }
+  async ([isOpen]) => {
+    if (isOpen && props.claim) {
+      hydrateFromClaim(props.claim);compensation.value=null;
+      if(isSupplemental.value)try{compensation.value=(await api.get('/payroll/me/compensation',{params:{agencyId:props.agencyId}})).data;}catch(e){error.value=e.response?.data?.error?.message||'Unable to load your assigned rates.';}
+    }
+  },{immediate:true}
 );
 
 async function save() {
@@ -232,7 +245,8 @@ async function save() {
         totalMinutes: totalMinutes.value,
         allocations,
         sessionId: props.claim?.payload?.sessionId || null,
-        attestation: true
+        attestation: true,
+        excludesAutomaticIndirect: true
       }
     });
     emit('saved', resp.data?.claim || null);
@@ -273,6 +287,7 @@ async function save() {
   margin-bottom: 8px;
 }
 .itc-head h2 {
+  display:flex;align-items:center;gap:10px;
   margin: 0;
   font-size: 1.2rem;
   color: #14532d;
@@ -436,4 +451,5 @@ async function save() {
   border-color: #166534;
   color: #fff;
 }
+@media(max-width:600px){.itc-row2{grid-template-columns:minmax(0,1fr)}.itc-modal{padding:16px;max-height:90dvh}.itc-overlay{padding:10px}}
 </style>

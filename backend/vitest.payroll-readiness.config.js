@@ -4,6 +4,10 @@ export default {
   test: {
     environment: 'node',
     include: [
+      'src/controllers/__tests__/supplementalPayrollRates.test.js',
+      'src/services/__tests__/recurringPayroll.test.js',
+      'src/services/__tests__/payrollSubmissionContext.test.js',
+      'src/services/__tests__/supervisionPayrollCorrection.test.js',
       'src/services/__tests__/compensation*.test.js',
       'src/services/__tests__/serviceCreditPolicy.test.js',
       'src/services/__tests__/roleCompensation.test.js',

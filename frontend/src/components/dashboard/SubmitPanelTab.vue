@@ -6,6 +6,10 @@
   >
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
+      <p v-if="compensationError" role="alert">{{ compensationError }} <button type="button" @click="loadSubmissionOptions">Try again</button></p>
+      <SupplementalTime :agency-id="agencyId" :context="compensation?.submission" :codes="compensation?.codeGuide" @submitted="refreshHistory" />
+      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned support activity hours. Request them from the leave balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
+      <RecurringPayments :agency-id="agencyId" />
       <AccountabilityWorkspace :agency-id="agencyId" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
 
@@ -112,7 +116,7 @@
     <div v-else-if="view === 'in_school'" class="submit-hub__sub">
       <div class="submit-hub__sub-split">
         <div>
-          <p class="submit-hub__sub-hint">In-school mileage and Med Cancel submissions.</p>
+          <p class="submit-hub__sub-hint">School mileage and eligible school benefit requests.</p>
           <div class="submit-hub__grid submit-hub__grid--compact">
             <button
               v-for="action in visibleInSchoolActions"
@@ -164,7 +168,10 @@
 </template>
 
 <script setup>
-import { computed, toRef } from 'vue';
+import RecurringPayments from '../payroll/RecurringPayments.vue';
+import { computed, toRef, ref, watch } from 'vue';
+import api from '../../services/api';
+import SupplementalTime from '../payroll/SupplementalTime.vue';
 import SubmitHubPanel from './SubmitHubPanel.vue';
 import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import SubmitHubSection from './SubmitHubSection.vue';
@@ -208,7 +215,19 @@ const {
   enabled: toRef(props, 'enabled'),
 });
 
+const compensation=ref(null),retiredMedcancel=ref(false),compensationError=ref('');
+async function loadSubmissionOptions(){
+ const id=props.agencyId;compensation.value=null;retiredMedcancel.value=false;compensationError.value='';if(!id)return;
+ const [c,p]=await Promise.allSettled([api.get('/payroll/me/compensation',{params:{agencyId:id}}),api.get('/payroll/me/pto-balances',{params:{agencyId:id}})]);
+ if(c.status==='fulfilled')compensation.value=c.value.data;
+ else compensationError.value='Unable to load your assigned time-submission options.';
+ if(p.status==='fulfilled'){const policy=p.value.data?.policy;retiredMedcancel.value=!!policy?.schoolSupportEnabled&&!!policy.schoolSupportAccrualAfter&&new Date().toISOString().slice(0,10)>policy.schoolSupportAccrualAfter;}
+ else compensationError.value='Unable to check your leave and school submission options.';
+}
+watch(()=>props.agencyId,loadSubmissionOptions,{immediate:true});
 const isVisible = (action) => {
+  if(action.visibleKey==='medcancel'&&retiredMedcancel.value)return false;
+
   const key = action.visibleKey;
   if (!key) return true;
   return Boolean(flags.value[key]);

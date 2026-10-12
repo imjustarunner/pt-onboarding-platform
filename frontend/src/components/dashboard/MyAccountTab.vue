@@ -7,7 +7,7 @@
     :user-role-label="userRoleLabel"
     @select-section="$emit('select-section', $event)"
   >
-    <ProviderOpeningNotice v-if="canManageOwnAvailability" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
+    <ProviderOpeningNotice v-if="canManageOwnAvailability && ['account', 'availability'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <div data-profile-my-section="account" v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
       <ProviderBillingSettings v-if="canSetOwnRates" :agency-id="agencyId" :provider-id="userId" />

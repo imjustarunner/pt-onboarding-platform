@@ -1,3 +1,4 @@
+import {loadUserPaySystemContext} from './paySystem.service.js';
 import {postSupplementalLeave,hasSchoolAssignment} from './supplementalLeave.service.js';
 import {approveLeaveAtomically} from './payrollLeaveApproval.service.js';
 import {currentEligibleSickRate} from './sickLeaveRate.service.js';
@@ -226,6 +227,8 @@ export async function getPtoBalances({ agencyId, userId }) {
   const { policy, defaultPayRate } = await getAgencyPtoPolicy({ agencyId });
   const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId:userId });
   const schoolEligible=!!policy.schoolSupportEnabled&&(Number(acct.school_support_balance_hours)>0||await hasSchoolAssignment({agencyId,userId}));
+  const schoolContext=schoolEligible?await loadUserPaySystemContext({agencyId,userId,periodEnd:todayYmd()}):null;
+  const schoolSupportPayRate=schoolEligible?Number(schoolContext?.enabled?(schoolContext.status?.useReducedRates ? schoolContext.rateProfile?.supportActivityRateProbation ?? schoolContext.rateProfile?.supportActivityRate : schoolContext.rateProfile?.supportActivityRate):policy.schoolSupportHourlyRate)||null:null;
   const effectivePtoPayRate = await currentEligibleSickRate({agencyId,userId,asOfDate:todayYmd(),fallbackRate:acct?.pto_pay_rate??defaultPayRate});
   if (!acct) {
     return {
@@ -291,6 +294,7 @@ export async function getPtoBalances({ agencyId, userId }) {
     policy,
     defaultPayRate,
     effectivePtoPayRate,
+    schoolSupportPayRate,
     account: {...acct,school_support_eligible:schoolEligible},
     balances: {
       sickHours: Number(acct.sick_balance_hours || 0),

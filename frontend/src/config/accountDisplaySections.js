@@ -48,7 +48,7 @@ export const ACCOUNT_SECTIONS = [
   },
   {
     id: 'payroll',
-    title: 'My payroll',
+    title: 'FundThred · My Payroll',
     navLabel: 'My Payroll',
     description: 'Pay stubs, PTO, mileage, and claim history.',
     tag: 'Payroll',

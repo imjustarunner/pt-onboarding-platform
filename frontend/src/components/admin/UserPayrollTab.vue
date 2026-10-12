@@ -14,6 +14,7 @@
         </select>
       </div>
 
+      <RecurringPayments :agency-id="selectedAgencyId" :user-id="userId" editable />
       <div class="table-wrap">
         <table class="table">
           <thead>
@@ -813,6 +814,7 @@
 </template>
 
 <script setup>
+import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';

@@ -1,3 +1,4 @@
+import { listRecurringPayments, saveRecurringPayment, stopRecurringPayment } from '../controllers/payroll.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
@@ -348,6 +349,10 @@ router.put('/me/company-card-expenses/:id', ...updateMyCompanyCardExpense);
 router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
 router.post('/me/time-claims', ...createMyTimeClaim);
 router.post('/users/:userId/time-claims', createUserTimeClaim);
+router.get('/me/recurring-payments', listRecurringPayments);
+router.get('/users/:userId/recurring-payments', listRecurringPayments);
+router.post('/users/:userId/recurring-payments', saveRecurringPayment);
+router.patch('/users/:userId/recurring-payments/:id', stopRecurringPayment);
 router.get('/me/time-claims', listMyTimeClaims);
 
 // Hourly indirect time log (service types + clock session)

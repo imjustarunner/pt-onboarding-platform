@@ -16,6 +16,7 @@
     </header>
 
     <div class="itl-body">
+      <aside class="itl-card"><strong>Already-included time</strong><p>Do not submit indirect time already included with billed services, scheduled stipends, or another time record. Use the Direct Care calculator on Submit to calculate additional indirect minutes.</p><label><input type="checkbox" v-model="excludesAutomaticIndirect" /> My entries exclude automatically included or previously paid time.</label></aside>
       <div class="itl-tabs" role="tablist" aria-label="Time log sections">
         <button
           type="button"
@@ -610,6 +611,7 @@ import {
   registerActivityCodes
 } from '../../utils/logTimeActivityCodes';
 
+const excludesAutomaticIndirect=ref(false);
 const props = defineProps({
   agencyId:      { type: [Number, String], required: true },
   enabled:       { type: Boolean, default: true },
@@ -1664,6 +1666,7 @@ async function postIndirectTimeClaim({
       totalMinutes,
       allocations: tagged,
       categoryGroup: group,
+      excludesAutomaticIndirect: excludesAutomaticIndirect.value,
       categoryLabel: displayLabel,
       activityCode: resolvedCode,
       bucket: props.forceBucket || 'indirect',

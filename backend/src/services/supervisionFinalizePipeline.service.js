@@ -1,3 +1,4 @@
+import {reconcileSupervisorClaim} from './supervisionPayrollCorrection.service.js';
 /**
  * Side effects when a supervision session is finalized:
  * - Credit supervisee individual/group hours (attendance-based)
@@ -758,12 +759,13 @@ export async function createSupervisorSupervisionTimeClaim({
       linkedClaimId: Number(lockedSession.supervisor_time_claim_id || 0)
     });
     if (dupId > 0) {
+      const correction=await reconcileSupervisorClaim(conn,{claimId:dupId,payload,claimDate,suggestedPayrollPeriodId:win.suggestedPayrollPeriodId||null,actorUserId});
       await conn.execute(
         'UPDATE supervision_sessions SET supervisor_time_claim_id = ? WHERE id = ? LIMIT 1',
         [dupId, sid]
       );
       await conn.commit();
-      return { ok: true, skipped: true, claimId: dupId, reason: 'duplicate_found' };
+      return { ok: true, skipped: !correction?.changed, claimId: dupId, correction, reason: correction?.changed?'payroll_review_updated':'duplicate_found' };
     }
 
     const payloadJson = JSON.stringify(payload || {});

@@ -1182,6 +1182,12 @@ export async function finalizeSupervisionSession({
     return { skipped: true, reason: 'not_finalizable', session: row };
   }
   if (status === 'FINALIZED' || status === 'MISSED') {
+    if(status==='FINALIZED' && source==='manual_supervision') {
+      const [rollups]=await pool.execute('SELECT * FROM supervision_session_attendance_rollups WHERE session_id=?',[sid]);
+      const {createSupervisorSupervisionTimeClaim}=await import('../services/supervisionFinalizePipeline.service.js');
+      const claim=await createSupervisorSupervisionTimeClaim({session:row,rollups,actorUserId});
+      return {skipped:false,session:row,pipeline:{claim}};
+    }
     return { skipped: true, reason: 'already_finalized', session: row };
   }
 

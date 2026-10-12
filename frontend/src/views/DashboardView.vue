@@ -339,9 +339,9 @@
             <div class="rail-card-left">
               <div class="rail-card-icon">
                 <img
-                  v-if="card.iconUrl && !failedRailIconIds.has(card.iconUrl)"
+                  v-if="['submit','payroll'].includes(card.id) || (card.iconUrl && !failedRailIconIds.has(card.iconUrl))"
                   :key="card.iconUrl"
-                  :src="card.iconUrl"
+                  :src="['submit','payroll'].includes(card.id) ? '/assets/fundthred/icon.svg' : card.iconUrl"
                   :alt="`${card.label} icon`"
                   class="rail-card-icon-img"
                   @error="(e) => onRailIconError(card, e)"
@@ -455,9 +455,9 @@
               >
                 <span class="dashboard-mobile-drawer__icon">
                   <img
-                    v-if="card.iconUrl && !failedRailIconIds.has(card.iconUrl)"
+                    v-if="['submit','payroll'].includes(card.id) || (card.iconUrl && !failedRailIconIds.has(card.iconUrl))"
                     :key="card.iconUrl"
-                    :src="card.iconUrl"
+                    :src="['submit','payroll'].includes(card.id) ? '/assets/fundthred/icon.svg' : card.iconUrl"
                     alt=""
                   />
                   <span v-else>{{ railIconFallback(card) }}</span>
@@ -5832,7 +5832,7 @@ function updateRailCollapsedMode() {
 
 // Effective collapsed: auto-collapsed but not when user pinned expand or hovering.
 const railEffectiveCollapsed = computed(() =>
-  railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value && !railOrderEditing.value
+  (['my', 'payroll', 'submit', 'log_time'].includes(activeTab.value) || (railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value)) && !railOrderEditing.value
 );
 
 watch(railExpandPinned, (v) => {

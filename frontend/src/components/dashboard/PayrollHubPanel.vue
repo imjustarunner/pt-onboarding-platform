@@ -1,5 +1,5 @@
 <template>
-  <div class="pay-hub">
+  <div class="pay-hub" :class="{ 'pay-hub--wide': !showSidebar }">
     <header class="pay-hub__header">
       <div class="pay-hub__header-left">
         <div class="pay-hub__title-row">
@@ -52,16 +52,7 @@
           <div class="pay-hub__stat-hint">{{ new Date().getFullYear() }} total</div>
         </div>
       </div>
-      <div class="pay-hub__stat">
-        <div class="pay-hub__stat-icon pay-hub__stat-icon--purple">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>
-        </div>
-        <div>
-          <div class="pay-hub__stat-value">{{ fmtNum(stats.ptoHoursTotal) }}</div>
-          <div class="pay-hub__stat-label">PTO Balance</div>
-          <div class="pay-hub__stat-hint">Sick + training hrs</div>
-        </div>
-      </div>
+
     </div>
 
     <slot name="filters" />
@@ -161,7 +152,7 @@ const props = defineProps({
     default: () => ({ ptoSickHours: 0, ptoTrainingHours: 0, ptoTrainingEligible: false }),
   },
   actionItems: { type: Array, default: () => [] },
-  showSidebar: { type: Boolean, default: true },
+  showSidebar: { type: Boolean, default: false },
   showStats: { type: Boolean, default: true },
   infoBannerText: {
     type: String,
@@ -181,6 +172,8 @@ const fmtNum = (n) => {
 </script>
 
 <style scoped>
+.pay-hub--wide .pay-hub__body { grid-template-columns: minmax(0, 1fr); }
+
 .pay-hub {
   --hub-green: #166534;
   --hub-green-dark: #14532d;
@@ -272,7 +265,7 @@ const fmtNum = (n) => {
 
 .pay-hub__stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }

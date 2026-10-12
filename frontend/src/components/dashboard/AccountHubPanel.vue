@@ -1,5 +1,5 @@
 <template>
-  <div class="acct-hub">
+  <div class="acct-hub" :class="{ 'acct-hub--focused': financeFocus }">
     <header class="acct-hub__header">
       <div class="acct-hub__header-left">
         <div class="acct-hub__title-row">
@@ -23,7 +23,7 @@
       </div>
     </header>
 
-    <div class="acct-hub__stats">
+    <div v-if="!financeFocus" class="acct-hub__stats">
       <button
         v-for="section in sections"
         :key="section.id"
@@ -55,8 +55,9 @@
       <button type="button" class="acct-hub__banner-close" aria-label="Dismiss" @click="showInfoBanner = false">×</button>
     </div>
 
+    <button v-if="financeFocus" class="acct-back" type="button" @click="$emit('select-section', 'account')">← Back to My Account</button>
     <div class="acct-hub__body">
-      <nav class="acct-hub__nav" data-tour="dash-my-subnav" aria-label="My Account sections">
+      <nav v-if="!financeFocus" class="acct-hub__nav" data-tour="dash-my-subnav" aria-label="My Account sections">
         <button
           v-for="section in sections"
           :key="section.id"
@@ -108,6 +109,7 @@ const props = defineProps({
 defineEmits(['select-section']);
 
 const showInfoBanner = ref(true);
+const financeFocus = computed(() => ['payroll', 'compensation'].includes(props.activeSection));
 
 const activeMeta = computed(() => getAccountSectionMeta(props.activeSection));
 
@@ -129,6 +131,9 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 </script>
 
 <style scoped>
+.acct-hub--focused .acct-hub__body { grid-template-columns: minmax(0, 1fr); }
+.acct-back { padding: 10px 16px; margin-bottom: 16px; border: 1px solid #cbdadf; border-radius: 12px; background: white; color: #087d76; font: inherit; cursor: pointer; }
+
 .acct-hub {
   --hub-green: #166534;
   --hub-border: var(--app-line, #e5e7eb);

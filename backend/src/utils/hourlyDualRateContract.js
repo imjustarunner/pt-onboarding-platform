@@ -46,6 +46,7 @@ export function categoryGroupFromPayBucket(payBucket) {
 
 export function serviceCodeForCategoryGroup(categoryGroup) {
   const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'admin_duties') return 'Admin Time';
   if (g === 'support_activity') return 'MEETING';
   if (g === 'supervision_note') return 'Admin Time';
   return null;
@@ -53,6 +54,7 @@ export function serviceCodeForCategoryGroup(categoryGroup) {
 
 export function categoryGroupLabel(categoryGroup) {
   const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'admin_duties') return 'Administrative Duties';
   if (g === 'support_activity') return 'Support Activity';
   if (g === 'supervision_note') return 'Supervision Note Time';
   if (g === 'indirect_service') return 'Indirect Service';

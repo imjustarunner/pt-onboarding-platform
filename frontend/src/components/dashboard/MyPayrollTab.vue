@@ -1,6 +1,6 @@
 <template>
   <PayrollHubPanel
-    title="My Payroll"
+    title="FundThred · My Payroll"
     subtitle="Pay history, submissions, and balances for the selected organization."
     :loading="loading"
     :error="error"
@@ -10,7 +10,23 @@
     @refresh="refreshPayrollHub"
     @action-item="onPayrollActionItem"
   >
-    <template #filters>
+    <template #after-filters>
+      <FundthredBalances :agency-id="agencyId" @request="requestLeave" @submit="goToSubmit" />
+
+      <RecurringPayments :agency-id="agencyId" />
+      <AccountabilityWorkspace :agency-id="agencyId" />
+      <div v-if="currentTierBanner" class="pay-tier-banner" :class="`pay-tier-banner--${currentTierBanner.kind}`">
+        <strong>{{ currentTierBanner.label }}</strong>
+        <span>{{ currentTierBanner.detail }}</span>
+      </div>
+      <PayCalculatorCard :agency-id="agencyId" :allow-what-if="true" />
+    </template>
+
+    <div v-if="submitSuccess" class="success" style="margin: 0 0 14px;">
+      {{ submitSuccess }}
+    </div>
+
+    <PayrollHubSection section-id="pay_stubs" :open="true" :item-count="visiblePeriods.length" count-label="periods">
       <div v-if="!loading" class="pay-hub-filters">
         <label class="pay-hub-filters__field">
           <span>Sort pay periods</span>
@@ -26,28 +42,16 @@
         <label class="pay-hub-filters__field">
           <span>Show</span>
           <select v-model="showCount" class="pay-hub-filters__select">
-            <option :value="25">Last 25</option>
+            <option :value="5">Last 5</option>
+            <option :value="0">All periods</option>
             <option :value="50">Last 50</option>
             <option :value="100">Last 100</option>
           </select>
         </label>
       </div>
-    </template>
 
-    <template #after-filters>
-      <AccountabilityWorkspace :agency-id="agencyId" />
-      <div v-if="currentTierBanner" class="pay-tier-banner" :class="`pay-tier-banner--${currentTierBanner.kind}`">
-        <strong>{{ currentTierBanner.label }}</strong>
-        <span>{{ currentTierBanner.detail }}</span>
-      </div>
-      <PayCalculatorCard :agency-id="agencyId" :allow-what-if="true" />
-    </template>
 
-    <div v-if="submitSuccess" class="success" style="margin: 0 0 14px;">
-      {{ submitSuccess }}
-    </div>
 
-    <PayrollHubSection section-id="pay_stubs" :open="true" :item-count="visiblePeriods.length" count-label="periods">
       <div v-if="!loading" class="periods">
         <div class="periods-head">
           <div>Pay Period</div>
@@ -411,16 +415,19 @@
           </div>
 
           <div class="hint" style="margin-top: 10px;">
-            <template v-if="ptoAccount?.employment_type === 'fee_for_service'">
+            <template v-if="ptoPolicy?.sharedLeaveAccrualEnabled">
+              Eligible paid time uses the same accrual basis for sick leave, training, and (when school-assigned) missed-session hours. Training earns {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hours per 30 eligible hours, up to 20 hours. School missed-session time earns 2 support activity hours per 25 eligible hours, up to 20 hours. Clinical credits use the handbook’s equivalent-hours calculation; balances update after payroll is posted.
+            </template>
+            <template v-else-if="ptoAccount?.employment_type === 'fee_for_service'">
               Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickFfsMultiplier ?? 0.04) }} hours per 1 credit/hour of paid time after payroll is posted.
             </template>
             <template v-else-if="ptoAccount?.employment_type === 'salaried'">
               Policy reminders: Personal PTO is per your contract. Training PTO (if eligible) accrues at {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hour per 30 credits after payroll is posted.
             </template>
             <template v-else>
-              Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickHourlyMultiplier ?? 0.034) }} hours per 1 worked hour (direct + indirect + other paid time) after payroll is posted. Hourly staff do not earn Training PTO.
+              Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickHourlyMultiplier ?? 0.034) }} hours per 1 worked hour (direct + indirect + other paid time) after payroll is posted. Training PTO follows your current eligibility and handbook terms.
             </template>
-            <span v-if="ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.employment_type === 'fee_for_service'">
+            <span v-if="!ptoPolicy?.sharedLeaveAccrualEnabled && ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.employment_type === 'fee_for_service'">
               Training PTO accrues at {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hour per 30 credits (if eligible).
             </span>
             PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
@@ -492,6 +499,7 @@
 
       <PayrollHubSection section-id="mileage" :open="true" :item-count="(mileageClaims || []).length" count-label="claims">
         <template #actions>
+          <button type="button" class="btn btn-primary btn-sm" @click.stop="openMileageModal()">Submit</button>
           <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadMileageClaims" :disabled="mileageClaimsLoading">
             {{ mileageClaimsLoading ? 'Loading…' : 'Refresh' }}
           </button>
@@ -682,6 +690,7 @@
 
       <PayrollHubSection section-id="reimbursements" :open="true" :item-count="(reimbursementClaims || []).length" count-label="claims">
         <template #actions>
+          <button type="button" class="btn btn-primary btn-sm" @click.stop="openReimbursementModal()">Submit</button>
           <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadReimbursementClaims" :disabled="reimbursementClaimsLoading">
             {{ reimbursementClaimsLoading ? 'Loading…' : 'Refresh' }}
           </button>
@@ -819,7 +828,8 @@
       </PayrollHubSection>
 
       <PayrollHubSection section-id="time_claims" :open="true" :item-count="(timeClaims || []).length" count-label="claims">
-        <template #actions>
+        <template #actions><button type="button" class="btn btn-secondary btn-sm" @click.stop="showArchivedClaims=!showArchivedClaims">{{ showArchivedClaims ? 'Show current records' : 'Show archived records' }}</button>
+          <button type="button" class="btn btn-primary btn-sm" @click.stop="goToSubmit()">Submit</button>
           <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="openJuryDutyModal">+ Jury Duty</button>
           <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadTimeClaims" :disabled="timeClaimsLoading">
             {{ timeClaimsLoading ? 'Loading…' : 'Refresh' }}
@@ -827,7 +837,7 @@
         </template>
 
         <div v-if="timeClaimsError" class="warn-box" style="margin-top: 10px;">{{ timeClaimsError }}</div>
-        <div v-if="(timeClaims || []).length" class="table-wrap" style="margin-top: 10px;">
+        <div v-if="visibleTimeClaims.length" class="table-wrap" style="margin-top: 10px;">
           <table class="table">
             <thead>
               <tr>
@@ -841,11 +851,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in timeClaims" :key="c.id">
+              <tr v-for="c in visibleTimeClaims" :key="c.id">
                 <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
                 <td>{{ fmtShortDate(c.claim_date) }}</td>
-                <td>{{ timeClaimTypeLabel(c) }}</td>
+                <td>{{ timeClaimTypeLabel(c) }}<details><summary>View details</summary><p>{{ c.payload?.description || c.payload?.summary || c.payload?.eventSummary }}</p><p>{{ c.payload?.purpose }}</p><p v-for="(a,index) in c.payload?.allocations || []" :key="index">{{ a.serviceTypeLabel }}: {{ a.minutes }} minutes. {{ a.note }}</p><p v-if="c.rejection_reason"><strong>Payroll note:</strong> {{ c.rejection_reason }}</p></details></td>
                 <td>
                   <div>{{ employeeTimeStatusLabel(c) }}</div>
                   <div
@@ -888,6 +898,7 @@
                 </td>
               <td class="right">{{ isTimeAppliedToPayroll(c) ? fmtMoney(c.applied_amount) : '—' }}</td>
                 <td class="right">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="archiveTimeClaim(c)">{{ c.employee_archived_at?'Restore':'Archive' }}</button>
                   <button
                     v-if="canEditTimeClaim(c)"
                     class="btn btn-secondary btn-sm"
@@ -919,7 +930,7 @@
           </tbody>
         </table>
       </div>
-        <div v-else class="muted" style="margin-top: 10px;">No time claims yet.</div>
+        <div v-else class="muted" style="margin-top: 10px;">{{ showArchivedClaims ? 'No archived time claims.' : 'No active time claims.' }}</div>
       </PayrollHubSection>
 
       <PayrollHubSection section-id="event_time" :open="false" :item-count="visibleEventTimeSessions.length" count-label="sessions">
@@ -1032,8 +1043,8 @@
 
   <!-- Employee event-time edit modal -->
   <Teleport to="body">
-    <div v-if="showEventTimeEditModal" class="modal-backdrop" @click.self="closeEventTimeEdit">
-      <div class="modal" style="width: min(520px, 100%);">
+    <div v-if="showEventTimeEditModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeEventTimeEdit">
+      <div class="modal fundthred-dialog" style="width: min(520px, 100%);">
         <div class="modal-header">
           <div>
             <div class="modal-title">Edit event time</div>
@@ -1092,8 +1103,8 @@
 
   <!-- Mileage submission modal (Teleport to body so it's always visible) -->
   <Teleport to="body">
-    <div v-if="showMileageModal" class="modal-backdrop" @click.self="closeMileageModal">
-    <div class="modal" style="width: min(720px, 100%);">
+    <div v-if="showMileageModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeMileageModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ mileageForm.claimType === 'school_travel' ? 'Submit Mileage' : 'Submit Mileage Claim' }}</div>
@@ -1400,8 +1411,8 @@
 
   <!-- MedCancel submission modal (Teleport to body so it's visible when opened from hidden Submit-panel tab) -->
   <Teleport to="body">
-  <div v-if="showMedcancelModal" class="modal-backdrop" @click.self="closeMedcancelModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showMedcancelModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeMedcancelModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Submit Med Cancel</div>
@@ -1501,8 +1512,8 @@
 
   <!-- PTO modals (Teleport to body so visible when opened from hidden Submit-panel tab) -->
   <Teleport to="body">
-  <div v-if="showPtoChooser" class="modal-backdrop" @click.self="closePtoChooserModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showPtoChooser" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoChooserModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Request PTO</div>
@@ -1565,8 +1576,8 @@
   </div>
 
   <!-- PTO: Sick Leave request modal -->
-  <div v-if="showPtoSickModal" class="modal-backdrop" @click.self="closePtoSick">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showPtoSickModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoSick">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'Request support activity hours' : 'PTO Request — Sick Leave' }}</div>
@@ -1633,8 +1644,8 @@
   </div>
 
   <!-- PTO: Training PTO request modal -->
-  <div v-if="showPtoTrainingModal" class="modal-backdrop" @click.self="closePtoTraining">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showPtoTrainingModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoTraining">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">PTO Request — Training PTO</div>
@@ -1715,8 +1726,8 @@
 
   <!-- Reimbursement submission modal (Teleport to body so it's visible when opened from hidden Submit-panel tab) -->
   <Teleport to="body">
-  <div v-if="showReimbursementModal" class="modal-backdrop" @click.self="closeReimbursementModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showReimbursementModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeReimbursementModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ editingReimbursementClaimId ? 'Edit + Resubmit Reimbursement' : 'Submit Reimbursement' }}</div>
@@ -1858,8 +1869,8 @@
 
   <!-- Company card expense submission modal (Teleport to body so it's visible when opened from Submit panel) -->
   <Teleport to="body">
-  <div v-if="showCompanyCardExpenseModal" class="modal-backdrop" @click.self="closeCompanyCardExpenseModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showCompanyCardExpenseModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeCompanyCardExpenseModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ editingCompanyCardExpenseId ? 'Edit + Resubmit Expense (Company Card)' : 'Submit Expense (Company Card)' }}</div>
@@ -1981,12 +1992,12 @@
 
   <!-- Time Claim modals (Teleport to body so visible when opened from Submit panel) -->
   <Teleport to="body">
-  <div v-if="showTimeMeetingModal" class="modal-backdrop" @click.self="closeTimeMeetingModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showTimeMeetingModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeMeetingModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Meeting / Training / Outreach</div>
-          <div class="hint">Module 3A: Log attendance for meeting, training, or outreach.</div>
+          <div class="hint">Log attendance for meeting, training, or outreach.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeTimeMeetingModal">Close</button>
       </div>
@@ -2096,8 +2107,8 @@
       </div>
     </div>
   </div>
-  <div v-if="showTimeExcessModal" class="modal-backdrop" @click.self="closeTimeExcessModal">
-    <div class="modal" style="width: min(800px, 100%);">
+  <div v-if="showTimeExcessModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeExcessModal">
+    <div class="modal fundthred-dialog" style="width: min(800px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Excess Time</div>
@@ -2187,8 +2198,8 @@
       </div>
     </div>
   </div>
-  <div v-if="showTimeCorrectionModal" class="modal-backdrop" @click.self="closeTimeCorrectionModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showTimeCorrectionModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeCorrectionModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Service Correction</div>
@@ -2253,8 +2264,8 @@
       </div>
     </div>
   </div>
-  <div v-if="showTimeOvertimeModal" class="modal-backdrop" @click.self="closeTimeOvertimeModal">
-    <div class="modal" style="width: min(720px, 100%);">
+  <div v-if="showTimeOvertimeModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeOvertimeModal">
+    <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Overtime Evaluation</div>
@@ -2372,8 +2383,8 @@
   </div>
 
   <!-- Jury Duty Modal -->
-  <div v-if="showJuryDutyModal" class="modal-backdrop" @click.self="closeJuryDutyModal">
-    <div class="modal" style="width: min(560px, 100%);">
+  <div v-if="showJuryDutyModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeJuryDutyModal">
+    <div class="modal fundthred-dialog" style="width: min(560px, 100%);">
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Jury Duty</div>
@@ -2443,6 +2454,7 @@
 </template>
 
 <script setup>
+import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -2451,6 +2463,7 @@ import { useAuthStore } from '../../store/auth';
 import PayrollHubPanel from './PayrollHubPanel.vue';
 import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
+import FundthredBalances from './FundthredBalances.vue';
 import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
 import PayCalculatorCard from './PayCalculatorCard.vue';
 import { employeeTimeStatusLabel, isTimeAppliedToPayroll } from '../../utils/employeeTimeStatus';
@@ -2484,6 +2497,9 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const goToSubmit = () => router.push({ query: { ...route.query, tab: 'submit' } });
+const requestLeave = async (type) => { await loadPto(); type === 'training' ? openPtoTraining() : openPtoSick(type); };
+
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -2791,6 +2807,10 @@ const editingPtoExistingProofPath = ref(''); // keeps existing proof for trainin
 const submittingTimeClaim = ref(false);
 const submitTimeClaimError = ref('');
 const timeClaims = ref([]);
+const showArchivedClaims=ref(false);
+const visibleTimeClaims=computed(()=>timeClaims.value.filter(c=>showArchivedClaims.value?!!c.employee_archived_at:!c.employee_archived_at));
+async function archiveTimeClaim(c){try{await api.patch(`/payroll/me/time-claims/${c.id}`,{archived:!c.employee_archived_at});await loadTimeClaims();}catch(e){timeClaimsError.value=e.response?.data?.error?.message||'Could not archive record';}}
+
 const timeClaimsLoading = ref(false);
 const timeClaimsError = ref('');
 const eventTimeSessions = ref([]);
@@ -3438,7 +3458,7 @@ const hourlyRateSummary = computed(() => {
 
 const periodShadeClass = (idx) => (Number(idx || 0) % 2 === 0 ? 'shade-a' : 'shade-b');
 const sortOrder = ref('desc');
-const showCount = ref(50);
+const showCount = ref(5);
 const periodSearch = ref('');
 
 const sortedPeriods = computed(() => {
@@ -3497,7 +3517,7 @@ const filteredHistoryPeriods = computed(() => {
   });
 });
 
-const visiblePeriods = computed(() => filteredHistoryPeriods.value.slice(0, Number(showCount.value) || 50));
+const visiblePeriods = computed(() => Number(showCount.value) === 0 ? filteredHistoryPeriods.value : filteredHistoryPeriods.value.slice(0, Number(showCount.value) || 5));
 
 const fmtMoney = (v) => Number(v || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 const fmtNum = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -5689,6 +5709,12 @@ watch(
 </script>
 
 <style scoped>
+.fundthred-dialog { border: 1px solid #cddde5; border-radius: 22px; padding: clamp(18px, 3vw, 32px); color: #0d203d; box-shadow: 0 24px 70px #0d203d35; max-height: 90dvh; overflow-y: auto; }
+.fundthred-dialog::before { content: 'FundThred · Submit'; display: block; color: #087d76; font-size: 13px; font-weight: 750; letter-spacing: .07em; margin-bottom: 14px; }
+.fundthred-dialog input:not([type=checkbox]):not([type=radio]), .fundthred-dialog select, .fundthred-dialog textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border: 1px solid #c9d7e1; border-radius: 10px; padding: 10px 12px; font: inherit; background: #f8fbfd; color: #0d203d; }
+.fundthred-dialog .btn-primary { background: #087d76; color: white; border-radius: 10px; min-height: 44px; }
+@media (max-width: 640px) { .fundthred-modal-backdrop { padding: 10px; } .fundthred-dialog .field-row, .fundthred-dialog .grid2, .fundthred-dialog .grid3 { grid-template-columns: minmax(0, 1fr) !important; } .fundthred-dialog .btn { white-space: normal; } }
+
 .my-payroll .header .subtitle {
   margin: 6px 0 0;
   color: var(--text-secondary);
