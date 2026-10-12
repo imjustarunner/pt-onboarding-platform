@@ -302,8 +302,69 @@
       </div>
     </section>
 
-    <section v-if="showJobs" class="panel create-panel">
-      <h3>Create job posting</h3>
+    <section v-if="showJobs" class="panel jobs-panel">
+      <h3>Existing job postings</h3><p class="muted">Select a job title or Edit job to update its details, contract defaults and application.</p>
+      <div v-if="loading" class="muted">Loading jobs…</div>
+      <table v-else class="table">
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Status</th>
+            <th>Applications</th>
+            <th>Posted</th>
+            <th>Deadline</th>
+            <th>Location</th>
+            <th>Application form</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in jobRows" :key="row.id">
+            <td>
+              <button type="button" class="job-edit-link" @click="openEdit(row)">{{ row.title }}</button>
+              <div class="muted small">{{ row.descriptionText || 'No description yet.' }}</div>
+            </td>
+            <td>
+              <span class="pill" :class="schedulePillClass(row)">
+                {{ scheduleStatusLabel(row) }}
+              </span>
+            </td>
+            <td>
+              <div>{{ row.activeApplicantCount }} active</div>
+              <div class="muted small">{{ row.inactiveApplicantCount }} inactive</div>
+            </td>
+            <td>{{ formatDate(row.postedDate) || '—' }}</td>
+            <td>{{ row.applicationDeadline ? formatDate(row.applicationDeadline) : 'Ongoing' }}</td>
+            <td>{{ [row.city, row.state].filter(Boolean).join(', ') || '—' }}</td>
+            <td>
+              <template v-if="row.applicationUrl">
+                <a :href="row.applicationUrl" target="_blank" rel="noopener noreferrer">Open link</a>
+              </template>
+              <span v-else class="muted">Not created</span>
+            </td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-secondary btn-sm" @click="openEdit(row)">Edit job</button>
+                <button class="btn btn-secondary btn-sm" @click="toggleActive(row)">
+                  {{ row.isActive ? 'Deactivate' : 'Activate' }}
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="openApplicants(row)">View applications</button>
+                <button class="btn btn-secondary btn-sm" @click="openForm(row)">
+                  {{ row.linkId ? 'Form' : 'Create form' }}
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="copyLink(row)" :disabled="!row.applicationUrl">Copy link</button>
+              </div>
+            </td>
+          </tr>
+          <tr v-if="jobRows.length === 0">
+            <td colspan="8" class="muted">No jobs created yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <details v-if="showJobs" class="panel create-panel">
+      <summary>Create a new job posting</summary>
       <div class="form-grid">
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
         <label>Contract role label<input v-model="createForm.roleType" class="input" type="text" placeholder="Provider, Facilitator or Intern" /><small>This label identifies the employee’s role throughout their agreement.</small></label>
@@ -477,68 +538,8 @@
           {{ creating ? 'Creating…' : 'Create job + application' }}
         </button>
       </div>
-    </section>
+    </details>
 
-    <section v-if="showJobs" class="panel jobs-panel">
-      <h3>Job postings</h3>
-      <div v-if="loading" class="muted">Loading jobs…</div>
-      <table v-else class="table">
-        <thead>
-          <tr>
-            <th>Job</th>
-            <th>Status</th>
-            <th>Applications</th>
-            <th>Posted</th>
-            <th>Deadline</th>
-            <th>Location</th>
-            <th>Application form</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in jobRows" :key="row.id">
-            <td>
-              <div class="name">{{ row.title }}</div>
-              <div class="muted small">{{ row.descriptionText || 'No description yet.' }}</div>
-            </td>
-            <td>
-              <span class="pill" :class="schedulePillClass(row)">
-                {{ scheduleStatusLabel(row) }}
-              </span>
-            </td>
-            <td>
-              <div>{{ row.activeApplicantCount }} active</div>
-              <div class="muted small">{{ row.inactiveApplicantCount }} inactive</div>
-            </td>
-            <td>{{ formatDate(row.postedDate) || '—' }}</td>
-            <td>{{ row.applicationDeadline ? formatDate(row.applicationDeadline) : 'Ongoing' }}</td>
-            <td>{{ [row.city, row.state].filter(Boolean).join(', ') || '—' }}</td>
-            <td>
-              <template v-if="row.applicationUrl">
-                <a :href="row.applicationUrl" target="_blank" rel="noopener noreferrer">Open link</a>
-              </template>
-              <span v-else class="muted">Not created</span>
-            </td>
-            <td>
-              <div class="row-actions">
-                <button class="btn btn-secondary btn-sm" @click="openEdit(row)">Edit</button>
-                <button class="btn btn-secondary btn-sm" @click="toggleActive(row)">
-                  {{ row.isActive ? 'Deactivate' : 'Activate' }}
-                </button>
-                <button class="btn btn-secondary btn-sm" @click="openApplicants(row)">View applications</button>
-                <button class="btn btn-secondary btn-sm" @click="openForm(row)">
-                  {{ row.linkId ? 'Form' : 'Create form' }}
-                </button>
-                <button class="btn btn-secondary btn-sm" @click="copyLink(row)" :disabled="!row.applicationUrl">Copy link</button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="jobRows.length === 0">
-            <td colspan="8" class="muted">No jobs created yet.</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
 
     <div v-if="editingRow" class="modal-overlay" @click.self="closeEdit">
       <div class="modal">
@@ -1597,6 +1598,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.create-panel summary{cursor:pointer;font-size:18px;font-weight:700;padding:8px 0}.create-panel[open] summary{margin-bottom:20px}.job-edit-link{border:0;background:none;color:var(--primary,#155846);font:inherit;font-weight:700;text-align:left;cursor:pointer;text-decoration:underline}.jobs-panel{overflow-x:auto}.jobs-panel .small{max-width:340px;max-height:3em;overflow:hidden}
+
 .careers-root { padding-top: 16px; padding-bottom: 36px; }
 .header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .header-actions { display: flex; gap: 8px; align-items: flex-end; }

@@ -1,3 +1,4 @@
+import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
 import { employmentStarterClauses } from './employmentStarter.service.js';
 import { contractRoleLabel, jobContractExpectations, expectationsToTokens, renderAdditionalExpectations } from '../utils/contractExpectations.js';
 // Sample merge values are used only by the administrator's read-only packet preview.
@@ -49,17 +50,21 @@ export function markRehearsalContract(html) {
 }
 
 // A complete test agreement is still available when a posting's live contract
-// configuration is incomplete. Its terms and fallback rates are explicitly examples.
+// configuration is incomplete. Pay still requires configured category/level rates.
 export function sampleRehearsalContract({job,defaults,category,level,pay,now,payMode='hourly',reason='',expectations={}}) {
- const clauses=employmentStarterClauses(payMode);
+ let clauses=employmentStarterClauses(payMode);
  const t=rehearsalContractTokens({job,defaults,category,level,now,sourceHtml:clauses.map(c=>c.body_html).join('\n')});
  Object.assign(t,expectationsToTokens(expectations));
  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const rate=(value,fallback)=>`$${Number(Number.isFinite(Number(value))&&Number(value)>0?value:fallback).toFixed(2)}`;
- const table=payMode==='ffs' ? `<p>Sample fee-for-service schedule: $30.00 per sample direct-service credit; $18.00 per hour of indirect work. Fictional test amounts only; configure actual service-code rates before issuing a real agreement.</p>` : `<table><tr><th>Direct hourly rate</th><td>${rate(pay?.direct_rate,30)}</td></tr><tr><th>Indirect hourly rate</th><td>${rate(pay?.indirect_rate,18)}</td></tr></table><p>Missing configured rates use fictional example amounts for this test only.</p>`;
+ let incomplete='';
+ if(payMode!=='none') {
+  try { clauses=applyEmploymentPayTerms(clauses,employmentCategoryLevelTerms({row:{...pay,category,level},tokens:t,agencyName:defaults.agency?.name})); }
+  catch(e){incomplete=e.message;}
+ }
+ const table=payMode==='none'?'':`<p>Current category/level compensation requires configuration: ${esc(incomplete)}. No legacy or invented rates are substituted.</p>`;
  let extra='';
  try{extra=renderAdditionalExpectations(expectations,pay||{});}catch(e){extra=`<p>Additional-duty compensation needs configuration: ${esc(e.message)}</p>`;}
  const body=clauses.map(c=>`<section><h2>${esc(c.title)}</h2>${c.body_html.replace(/\{\{\s*(\w+)\s*\}\}/g,(_,key)=>key==='INSERT_PAY_TABLE'?table:esc(t[key]??''))}</section>`).join('');
- const html=`<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Comfortaa,Arial,sans-serif;max-width:900px;margin:auto;padding:32px;color:#203b32;line-height:1.8}h1,h2{color:#12583f}h2{margin-top:2em;font-size:20px}table{border-collapse:collapse;width:100%}td,th{padding:12px;border:1px solid #c8d8ce;text-align:left}</style></head><body><h1>${esc(t.COMPANY_NAME)} · Employment agreement</h1><p>Complete starter example · Category ${esc(category)}, Level ${esc(level)} · ${esc(payMode)}</p><p>The selected live agreement could not be rendered: ${esc(reason || 'configuration incomplete')}. This example demonstrates the complete template structure; it is not the selected live agreement.</p>${body}${extra}</body></html>`;
- return {html:markRehearsalContract(html),unresolvedTokens:[],seeded:true,sampleContract:true,sampleReason:reason,clauseManifest:clauses.map(c=>({key:c.clause_key,title:c.title,included:true,reason:'Complete starter example; live configuration incomplete'}))};
+ const html=`<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Comfortaa,Arial,sans-serif;max-width:900px;margin:auto;padding:32px;color:#203b32;font-size:15px;line-height:1.6}h1,h2{color:#12583f}h2{margin-top:2em;font-size:20px}table{border-collapse:collapse;width:100%}td,th{padding:12px;border:1px solid #c8d8ce;text-align:left}</style></head><body><h1>${esc(t.COMPANY_NAME)} · Employment agreement</h1><p>Complete starter example · Category ${esc(category)}, Level ${esc(level)} · ${esc(payMode)}</p><p>The selected live agreement could not be rendered: ${esc(reason || 'configuration incomplete')}. This example demonstrates the complete template structure; it is not the selected live agreement.</p>${body}${extra}</body></html>`;
+ return {html:markRehearsalContract(html),unresolvedTokens:incomplete?['CURRENT_CATEGORY_LEVEL_RATES']:[],seeded:true,sampleContract:true,sampleReason:reason,clauseManifest:clauses.map(c=>({key:c.clause_key,title:c.title,included:true,reason:'Complete starter example; live configuration incomplete'}))};
 }

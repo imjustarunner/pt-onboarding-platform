@@ -103,3 +103,20 @@ it('renders personal work and duty overrides before signatures without changing 
  expect(result.html.indexOf('Individual work expectations')).toBeLessThan(result.html.indexOf('Electronic signatures'));
  expect(defaults).toEqual({expectedHours:'24',directHours:'12',additionalDuties:[]});
 });
+
+it('formats legacy dollar-prefixed tokens with exactly one dollar sign',()=>{
+ expect(applyContractTokens('Direct: ${{DIRECT_RATE}}**; Indirect: ${{INDIRECT_RATE}}',{DIRECT_RATE:'$24.00',INDIRECT_RATE:'$18.00'})).toBe('Direct: $24.00; Indirect: $18.00');
+});
+
+it('renders the current profile in the actual contract instead of a legacy direct-rate clause',async()=>{
+ const {default:Rates}=await import('../../models/PayrollPaySystemRate.model.js');
+ Rates.listForAgency.mockResolvedValueOnce([{id:10,category:2,level:1,creditRate:55,creditRateProbation:45,hcodeRate:32,hcodeRateProbation:28,indirectRate:20,supportActivityRate:19,autoIndirectMinutesPerHour:10}]);
+ db.execute.mockResolvedValueOnce([[{is_active:1,pay_mode:'hourly',clause_keys_json:['INTRO','COMP_HOURLY','BENEFITS']}]]).mockResolvedValueOnce([[
+ {clause_key:'INTRO',body_html:'<p>{{ROLE_LABEL}} works {{MIN_HOURS}} direct hours.</p>'},
+ {clause_key:'COMP_HOURLY',body_html:'<p>Old salary: ${{DIRECT_RATE}}**</p>'},
+ {clause_key:'BENEFITS',body_html:'<p>Old benefits</p>'}
+ ]]);
+ const result=await renderContractHtml({agencyId:1,configId:1,compensationCategory:2,compensationLevel:1,tokens:{ROLE_LABEL:'Provider',MIN_HOURS:'8'}});
+ expect(result.html).toContain('Category 2, Level 1');expect(result.html).toContain('$55.00');expect(result.html).not.toContain('Old salary');expect(result.html).not.toContain('$$');
+ expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({key:'COMP_HOURLY',policyVersion:'category-level-employment-2026-10-11'})]));
+});

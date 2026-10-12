@@ -138,7 +138,7 @@
       <p v-if="section.data?.displayRole?.candidate">Candidate appears on its own line in your email signature and business card.</p>
       <label class="field"><span>Gender on your public profile (optional)</span><select v-model="publicGender" class="input"><option value="">Not shown / prefer not to say</option><option value="male">Male</option><option value="female">Female</option><option value="nonbinary">Nonbinary</option><option v-if="publicGender && !['male','female','nonbinary'].includes(publicGender)" :value="publicGender">{{publicGender}} (current)</option></select><small>This choice is public and helps clients filter for a provider. It is your own selection; no gender is inferred.</small></label>
       <ProviderSessionLanguages v-model="sessionLanguages" :error="languageError" />
-      <label class="field"><span>Display credential</span><input v-model="credential" class="input" /></label>
+      <CredentialPicker v-model="credential" :disabled="saving" />
       <div class="pu-actions">
         <button type="button" class="pu-btn primary" :disabled="saving" @click="saveCredentialDisplay">
           Confirm credential display
@@ -277,6 +277,7 @@
 </template>
 
 <script setup>
+import CredentialPicker from '../CredentialPicker.vue';
 import ProviderUpdateTrainingGuides from './ProviderUpdateTrainingGuides.vue';
 import ProviderSessionLanguages from './ProviderSessionLanguages.vue';
 import {openTrainingVideo} from '../../utils/trainingVideo';

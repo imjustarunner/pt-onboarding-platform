@@ -14,3 +14,11 @@ describe('reference release document',()=>{
   expect(pdf.getPageCount()).toBeGreaterThan(1);expect(pdf.getPages().every(p=>p.getHeight()===792)).toBe(true);
  });
 });
+
+it('fits preview pages to their content while retaining letter paper for signed records',async()=>{
+ const args={agencyName:'ITSCO',applicantName:'Alex Demo',references:[]};
+ const preview=await PDFDocument.load(await buildReferenceReleasePdfBuffer({...args,preview:true}));
+ const record=await PDFDocument.load(await buildReferenceReleasePdfBuffer(args));
+ expect(preview.getPages()[0].getCropBox().height).toBeLessThan(792);
+ expect(record.getPages()[0].getCropBox().height).toBe(792);
+});

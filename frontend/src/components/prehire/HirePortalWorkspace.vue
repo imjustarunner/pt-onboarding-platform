@@ -1,5 +1,5 @@
 <template>
-  <div class="hire-workspace" :style="theme">
+  <div ref="workspaceRoot" class="hire-workspace" :style="theme">
     <aside class="hire-nav">
       <div class="tenant-brand"><img v-if="agency.logoUrl" :src="agency.logoUrl" :alt="agency.name" /><strong v-else>{{ agency.name }}</strong></div>
       <nav aria-label="Your portal">
@@ -7,6 +7,7 @@
         <button v-if="onboarding" :class="{ selected: phase === 'pre_hire' && section === 'steps' }" @click="switchPhase('pre_hire')"><Icon />Pre-Hire <span class="nav-check">✓</span></button>
         <button :class="{ selected: section === 'steps' && phase === currentPhase }" @click="switchPhase(currentPhase)"><Icon :name="onboarding ? 'people' : 'document'" />{{ onboarding ? 'Onboarding' : 'Pre-Hire' }}</button>
         <button v-if="onboarding" :class="{ selected: section === 'access' }" @click="navigate('access')"><Icon name="lock" />Accounts &amp; Access</button>
+        <button v-if="referenceHandbook" :class="{ selected: section === 'handbook' }" @click="navigate('handbook')"><Icon name="book" /><span>Workplace handbook<small>Optional reference</small></span></button>
         <button :class="{ selected: section === 'documents' }" @click="navigate('documents')"><Icon />My Documents</button>
         <button :class="{ selected: section === 'messages' }" @click="navigate('messages')"><Icon name="message" />Messages</button>
         <button :class="{ selected: section === 'help' }" @click="navigate('help')"><Icon name="help" />Help</button>
@@ -21,7 +22,8 @@
         <div><p class="eyebrow">{{ phaseLabel }}</p><h1>{{ pageTitle }}</h1><strong v-if="section === 'steps' && !closed">Step {{ stepIndex + 1 }} of {{ steps.length }}</strong><p>{{ heroDescription }}</p></div>
         <p v-if="config.tagline" class="hero-tagline">{{ config.tagline }}</p>
       </section>
-      <div v-if="section === 'messages'" class="messages-page"><slot name="messages" /></div>
+      <div v-if="section === 'handbook'" class="documents-page handbook-reference"><div class="card"><h2 tabindex="-1" ref="referenceHeading">Workplace handbook · Optional reference</h2><p>Search or read whenever you wish. This reference is separate from your pre-hire steps.</p><WorkplaceHandbookPortal :http="http" :token="token" /><button @click="navigate('steps')">Return to my steps</button></div></div>
+      <div v-else-if="section === 'messages'" class="messages-page"><slot name="messages" /></div>
       <div v-else-if="section === 'access'" class="documents-page"><slot name="access" /></div>
       <div v-else-if="section === 'documents'" class="documents-page">
         <div class="card"><h2>Your hire packages</h2><p>Review your submitted information, signed agreements and uploaded files.</p><div class="package-links"><button @click="switchPhase('pre_hire')"><Icon />{{ prehireClosed ? 'View completed pre-hire' : 'View pre-hire progress' }}</button><button v-if="onboarding" @click="switchPhase('onboarding')"><Icon name="people" />View onboarding</button></div></div>
@@ -44,12 +46,12 @@
             <div class="card"><h2>Your step-by-step checklist</h2><div v-for="item in steps.filter(s => s.kind !== 'review')" :key="item.key" class="checklist-row"><span class="check-circle" :class="{ done: item.complete }"><Icon :name="item.complete ? 'check' : iconFor(item)" /></span><div><strong>{{ item.title }}</strong><small>{{ item.complete ? 'Completed and saved' : item.required === false ? 'Optional' : 'Required' }}</small></div><span class="badge" :class="{ done: item.complete }">{{ item.complete ? 'Complete' : 'To do' }}</span><button :aria-label="`View ${item.title}`" @click="select(item); navigate('steps')">View</button></div></div>
           </template>
           <template v-else-if="step">
-            <div class="card current-heading"><span class="large-icon"><Icon :name="iconFor(step)" /></span><div><h2>{{ step.title }}</h2><p>{{ step.instructions || (closed ? 'Your retained submission' : step.complete ? 'Completed and saved to your hire record.' : 'Complete this item, then continue to your next step.') }}</p></div><span v-if="step.complete" class="badge done">Completed</span></div>
+            <div ref="stepHeading" tabindex="-1" class="card current-heading"><span class="large-icon"><Icon :name="iconFor(step)" /></span><div><h2>{{ step.title }}</h2><p>{{ step.instructions || (closed ? 'Your retained submission' : step.complete ? 'Completed and saved to your hire record.' : 'Complete this item, then continue to your next step.') }}</p></div><span v-if="step.complete" class="badge done">Completed</span></div>
             <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="savedMessage" class="notice success" role="status">{{ savedMessage }}</p>
             <HiringNotificationChoices v-if="step.kind === 'hiring-notifications'" :key="phase" :context="step.communicationChoices" show-save :busy="busy" @save="saveHiringNotifications" />
             <div v-else-if="step.kind === 'profile'" class="card">
               <p>This information is collected for individuals under consideration with {{ agency.name }}. People Operations will review your submission. Submitting does not guarantee employment or finalize an offer.</p>
-              <form @submit.prevent="saveProfile(true)"><fieldset :disabled="closed || busy"><div class="profile-grid"><label v-for="field in workflow.profileFields" :key="field.key" :class="{ wide: field.type === 'textarea' }">{{ field.label }}<span v-if="field.required"> *</span><textarea v-if="field.type === 'textarea'" v-model="profile[field.key]" rows="3" /><input v-else v-model="profile[field.key]" :type="field.type === 'phone' ? 'tel' : field.type" :required="field.required" /></label></div></fieldset><div v-if="!closed" class="form-actions"><button type="button" :disabled="busy" @click="saveProfile(false)">Save for later</button><button class="primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save information' }}</button></div></form>
+              <form @submit.prevent="saveProfile(true)"><fieldset :disabled="closed || busy"><div class="profile-grid"><div class="profile-field" v-for="field in workflow.profileFields" :key="field.key" :class="{ wide: field.type === 'textarea' }"><label :for="`profile-${field.key}`">{{ field.label }}<span v-if="field.required"> *</span></label><CredentialPicker v-if="field.key === 'provider_credential'" v-model="profile[field.key]" :disabled="closed || busy" /><textarea :id="`profile-${field.key}`" v-else-if="field.type === 'textarea'" v-model="profile[field.key]" rows="3" /><input :id="`profile-${field.key}`" v-else v-model="profile[field.key]" :type="field.type === 'phone' ? 'tel' : field.type" :required="field.required" /></div></div></fieldset><div v-if="!closed" class="form-actions"><button type="button" :disabled="busy" @click="saveProfile(false)">Save for later</button><button class="primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save information' }}</button></div></form>
               <div v-if="workflow.resume" class="upload-card"><h3>Your application resume</h3><p>Your resume is already saved with your application.</p><a :href="workflow.resume.documentId ? `${http.defaults.baseURL}/prehire-portal/${token}/submissions/files/${workflow.resume.documentId}` : fileUrl('pre_hire','resume')" target="_blank" rel="noopener">{{ workflow.resume.name || 'View uploaded resume' }}</a></div>
             </div>
             <div v-else-if="step.kind === 'headshot'" class="card"><h3>A face to go with your name</h3><p>Add a professional headshot for your profile and your organization’s team materials. Choose one JPEG, PNG or WebP image, up to 10 MB.</p><img v-if="workflow.headshot" class="headshot-preview" :src="fileUrl('pre_hire','headshot')" alt="Your professional headshot" /><label v-if="!closed" class="upload-card"><Icon name="camera" /><span>{{ workflow.headshot ? 'Replace your headshot' : 'Upload your professional headshot' }}</span><input type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy" @change="upload('headshot', $event)" /></label></div>
@@ -106,6 +108,7 @@ import HireClinicalProfile from './HireClinicalProfile.vue';
 import HireStaffEnrollments from './HireStaffEnrollments.vue';
 import HireUserSetup from './HireUserSetup.vue';
 import HireSchoolAvailability from './HireSchoolAvailability.vue';
+import CredentialPicker from '../CredentialPicker.vue';
 import WorkplaceHandbookPortal from '../handbook/WorkplaceHandbookPortal.vue';
 import HiringNotificationChoices from '../communications/HiringNotificationChoices.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
@@ -126,14 +129,16 @@ const section = ref('home');
 const selectedKey = ref('');
 const prehireClosed = computed(() => !!props.data.journey?.prehireCompletedAt || ['PREHIRE_REVIEW','ONBOARDING'].includes(candidate.value.status));
 const closed = computed(() => phase.value === 'pre_hire' ? prehireClosed.value : !!props.data.journey?.onboardingCompletedAt);
-const steps = computed(() => workflow.value.steps?.[phase.value] || []);
+const workspaceRoot = ref(null), stepHeading = ref(null), referenceHeading = ref(null);
+const referenceHandbook = computed(() => workflow.value.steps?.pre_hire?.find(s => s.kind === 'handbook'));
+const steps = computed(() => (workflow.value.steps?.[phase.value] || []).filter(s => phase.value !== 'pre_hire' || s.kind !== 'handbook'));
 const progress = computed(() => workflow.value.progress?.[phase.value] || { total: 0, completed: 0, percent: 0 });
 const stepIndex = computed(() => Math.max(0, steps.value.findIndex(s => s.key === selectedKey.value)));
 const step = computed(() => steps.value[stepIndex.value]);
 const phaseLabel = computed(() => phase.value === 'pre_hire' ? 'Pre-Hire' : 'Onboarding');
 const name = computed(() => `${candidate.value.firstName || ''} ${candidate.value.lastName || ''}`.trim());
 const initials = computed(() => `${candidate.value.firstName?.[0] || ''}${candidate.value.lastName?.[0] || ''}`);
-const pageTitle = computed(() => section.value === 'steps' ? step.value?.title || phaseLabel.value : ({ access: 'Accounts & Access', documents: 'My Documents', messages: 'Messages', help: 'How can we help?' }[section.value] || (closed.value ? `${phaseLabel.value} complete` : `Welcome, ${candidate.value.firstName}!`)));
+const pageTitle = computed(() => section.value === 'steps' ? step.value?.title || phaseLabel.value : ({ handbook: 'Workplace handbook', access: 'Accounts & Access', documents: 'My Documents', messages: 'Messages', help: 'How can we help?' }[section.value] || (closed.value ? `${phaseLabel.value} complete` : `Welcome, ${candidate.value.firstName}!`)));
 const heroDescription = computed(() => section.value === 'home' ? `Your next steps with ${agency.value.name}. Everything you need, one step at a time.` : section.value === 'steps' ? `Your ${phaseLabel.value.toLowerCase()} information and progress, all in one place.` : 'Stay connected. Get answers. Move forward together.');
 const brandColor = computed(() => /^#[0-9a-f]{3,8}$/i.test(agency.value.primaryColor || '') ? agency.value.primaryColor : '#064c40');
 const theme = computed(() => ({ '--hire-brand': brandColor.value, fontFamily: agency.value.fontFamily || (agency.value.slug === 'itsco' ? 'Comfortaa, Arial, sans-serif' : 'Montserrat, Arial, sans-serif') }));
@@ -157,10 +162,11 @@ const handbookVersionId = ref(null);
 watch(currentPhase, (value) => { phase.value = value; selectedKey.value = ''; });
 watch(() => workflow.value.profile, (value, previous) => { if (!busy.value && JSON.stringify(profile.value) === JSON.stringify(previous || {})) profile.value = { ...value }; });
 watch(() => step.value?.key, () => { emit('media', false); error.value = ''; savedMessage.value = ''; acknowledged.value = false; signature.value = ''; scheduledAt.value = ''; emit('section', section.value, step.value); });
-function navigate(value) { emit('media', false); section.value = value; emit('section', value, step.value); }
-function select(item) { if (!item) return; selectedKey.value = item.key; nextTick(() => { const current = document.querySelector('.steps [aria-current=step]'); if (window.innerWidth < 761) current?.scrollIntoView({ block: 'nearest', inline: 'center' }); }); }
+function focusCurrentContent() { nextTick(() => { const heading = section.value === 'handbook' ? referenceHeading.value : stepHeading.value; const target = heading || workspaceRoot.value?.querySelector('.hire-hero'); target?.scrollIntoView({ block: 'start', behavior: 'instant' }); heading?.focus({preventScroll:true}); }); }
+function navigate(value) { emit('media', false); section.value = value; emit('section', value, step.value); focusCurrentContent(); }
+function select(item) { if (!item) return; selectedKey.value = item.key; focusCurrentContent(); }
 function switchPhase(value) { phase.value = value; selectedKey.value = steps.value.find(s => !s.complete)?.key || steps.value[0]?.key || ''; emit('phase', value); navigate('steps'); }
-function openGuideHandbook(hash) { if (hash) window.history.replaceState(window.history.state, '', '#' + hash); select(steps.value.find(s => s.kind === 'handbook')); }
+function openGuideHandbook(hash) { if (hash) window.history.replaceState(window.history.state, '', '#' + hash); if (phase.value === 'pre_hire') navigate('handbook'); else select(steps.value.find(s => s.kind === 'handbook')); }
 function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', 'school-availability': 'calendar', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
 function fileUrl(p, key) { return `${props.http.defaults.baseURL}/prehire-portal/${encodeURIComponent(props.token)}/workflow/${p}/${encodeURIComponent(key)}/file${key === 'headshot' ? `?v=${encodeURIComponent(workflow.value.headshot?.version || '')}` : ''}`; }
 function intakeUrl(task) { const t = task.metadata?.intakeLinkPublicKey || task.metadata?.intakeToken || task.metadata?.intakeLinkToken; return t ? buildFormUrl(t, task.metadata?.formType || task.metadata?.form_type) : task.metadata?.formUrl || ''; }
@@ -206,6 +212,10 @@ onBeforeUnmount(() => { window.removeEventListener('message', moduleMessage); wi
 </script>
 
 <style scoped>
+.profile-field{display:grid;gap:8px}
+
+.current-heading{scroll-margin-top:20px}.handbook-reference{max-width:none}.hire-workspace :deep(input[type=checkbox]){width:24px;height:24px;min-width:24px;flex:0 0 24px;accent-color:var(--hire-brand);cursor:pointer}.check-label{min-height:48px;align-items:center!important;padding:10px;cursor:pointer}
+
 .hire-plotline-brand { grid-column:1 / -1; background:#f8faf8; border-bottom:1px solid #d8e3dc; }
 
 .hire-workspace{--hire-brand:#064c40;--hire-ink:#15243b;--hire-muted:#55647c;--hire-border:#e1e8ed;--hire-tint:color-mix(in srgb,var(--hire-brand) 7%,white);display:flex;min-height:100vh;background:#fbfcfd;color:var(--hire-ink);font-family:Inter,Arial,sans-serif;font-size:14px;line-height:1.5}

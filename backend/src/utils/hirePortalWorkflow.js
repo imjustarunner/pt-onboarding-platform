@@ -1,10 +1,11 @@
+import {validateCredentials} from './credentialDisplay.js';
 export const PREEMPLOYMENT_FIELDS = [
   ['personal_email', 'Email', 'email', true],
   ['permanent_personal_email', 'Permanent personal email (if different)', 'email'],
   ['full_legal_name', 'Full legal name', 'text', true],
   ['prior_names', 'Prior names', 'textarea'],
   ['preferred_name', 'Preferred name', 'text'],
-  ['provider_credential', 'Credentials', 'text'],
+  ['provider_credential', 'Credentials', 'credentials'],
   ['date_of_birth', 'Date of birth', 'date', true],
   ['state_of_birth', 'State of birth', 'text'],
   ['mailing_address', 'Mailing address', 'textarea'],
@@ -62,6 +63,7 @@ export function validatePreemployment(input, complete = false) {
   const data = {};
   for (const f of PREEMPLOYMENT_FIELDS) {
     data[f.key] = String(input?.[f.key] || '').trim().slice(0, f.type === 'textarea' ? 8000 : 255);
+    if (f.key === 'provider_credential') data[f.key] = validateCredentials(data[f.key]);
     if (complete && f.required && !data[f.key]) throw Object.assign(new Error(`${f.label} is required.`), { status: 400 });
     if (data[f.key] && f.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data[f.key])) throw Object.assign(new Error(`Enter a valid ${f.label.toLowerCase()}.`), { status: 400 });
     if (data[f.key] && f.type === 'date') {

@@ -5,7 +5,12 @@ import { classifyPayType, computeLineAmount } from './paySystem.service.js';
 
 export async function contractCompensationLevels(agencyId) {
   const [levels, profiles, serviceRates] = await Promise.all([PayrollCompensationLevel.listForAgency(agencyId), PayrollPaySystemRate.listForAgency(agencyId), PayrollCompensationLevel.getLevelRatesForAgency(agencyId)]);
-  return levels.map(row => {
+  const selected = new Map(levels.map(row => [`${row.category}:${row.level}`, row]));
+  for (const profile of profiles.filter(p => p.id)) {
+    const key = `${profile.category}:${profile.level}`;
+    if (!selected.has(key)) selected.set(key, { category: profile.category, level: profile.level });
+  }
+  return [...selected.values()].sort((a,b) => a.category-b.category || a.level-b.level).map(row => {
     const profile = profiles.find(p => Number(p.category) === Number(row.category) && Number(p.level) === Number(row.level) && p.id);
     return { ...row, paySystem: profile || null, serviceRates: serviceRates[`${row.category}:${row.level}`] || [],
       direct_rate: profile?.creditRate ?? row.direct_rate ?? null,

@@ -50,17 +50,7 @@
           <div class="cg-sheet-row">
             <span class="cg-label">Credential</span>
             <div class="cg-credential-field">
-              <select v-model="build.credentialKey" @change="onCredentialChanged">
-                <option value="">— select credential —</option>
-                <option v-for="opt in credentialOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-              </select>
-              <input
-                v-if="build.credentialKey === 'CUSTOM'"
-                v-model="build.credential"
-                type="text"
-                placeholder="Custom credential text"
-                @change="onCredentialChanged"
-              />
+              <CredentialPicker v-model="build.credential" @change="onCredentialChanged" />
             </div>
             <span class="cg-note">From profile / resume; drives pay category</span>
           </div>
@@ -189,6 +179,7 @@
 </template>
 
 <script setup>
+import CredentialPicker from '../../components/CredentialPicker.vue';
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -332,29 +323,8 @@ function applyAgencyDefaults(agency = null) {
   build.value.tokens.COMPANY_ADDRESS = agency.address || build.value.tokens.COMPANY_ADDRESS;
 }
 
-function resolveCredentialText() {
-  if (build.value.credentialKey === 'CUSTOM') return String(build.value.credential || '').trim();
-  const opt = credentialOptions.value.find((o) => o.key === build.value.credentialKey);
-  return opt?.label || String(build.value.credential || '').trim();
-}
-
-function syncCredentialKeyFromText(text = '') {
-  const raw = String(text || '').trim();
-  if (!raw) {
-    build.value.credentialKey = '';
-    build.value.credential = '';
-    return;
-  }
-  const upper = raw.toUpperCase();
-  const match = credentialOptions.value.find((o) => upper.includes(o.key));
-  if (match) {
-    build.value.credentialKey = match.key;
-    build.value.credential = match.label;
-    return;
-  }
-  build.value.credentialKey = 'CUSTOM';
-  build.value.credential = raw;
-}
+function resolveCredentialText() { return String(build.value.credential || '').trim(); }
+function syncCredentialKeyFromText(text = '') { build.value.credential = String(text || '').trim(); }
 
 function applyOfficeTokens(officeId) {
   const office = offices.value.find((o) => String(o.id) === String(officeId));

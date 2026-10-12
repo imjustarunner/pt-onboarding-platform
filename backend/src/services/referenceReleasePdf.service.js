@@ -74,11 +74,12 @@ export async function buildReferenceReleasePdfBuffer({
     y = 626;
   };
   decorate();
+  const contentBottom = new Map();
 
   const draw = (text, { size = 11, bold = false, gap = 4, color = rgb(0.12, 0.14, 0.18) } = {}) => {
     const active = bold ? fontBold : font;
     for (const line of wrapText(text, active, size, maxWidth)) {
-      if (y - size < 105) { page = pdfDoc.addPage(pageSize); decorate(); }
+      if (y - size < 105) { contentBottom.set(page, y); page = pdfDoc.addPage(pageSize); decorate(); }
       page.drawText(line, { x: margin, y: y - size, size, font: active, color });
       y -= size + gap;
     }
@@ -122,7 +123,7 @@ export async function buildReferenceReleasePdfBuffer({
         ? await pdfDoc.embedPng(bytes)
         : await pdfDoc.embedJpg(bytes);
       const dims = img.scale(Math.min(240 / img.width, 75 / img.height));
-      if (y - dims.height < 95) { page = pdfDoc.addPage(pageSize); decorate(); }
+      if (y - dims.height < 95) { contentBottom.set(page, y); page = pdfDoc.addPage(pageSize); decorate(); }
       page.drawImage(img, { x: margin, y: Math.max(margin + 40, y - dims.height), width: dims.width, height: dims.height });
       y -= dims.height + 12;
     } catch {
@@ -130,10 +131,13 @@ export async function buildReferenceReleasePdfBuffer({
     }
   }
 
+  contentBottom.set(page, y);
   pdfDoc.getPages().forEach((p, i) => {
-    p.drawLine({start:{x:margin,y:65},end:{x:564,y:65},thickness:1,color:rgb(.8,.87,.82)});
-    p.drawText(preview ? 'Fictional applicant - practice only - no reference requests sent.' : 'Electronically signed reference authorization', {x:margin,y:48,size:8,font,color:rgb(.4,.47,.43)});
-    p.drawText(`Plotline | ${i + 1} / ${pdfDoc.getPageCount()}`, {x:455,y:32,size:8,font,color:rgb(.4,.47,.43)});
+    const bottom = preview ? Math.max(0, (contentBottom.get(p) || 95) - 90) : 0;
+    if (bottom) p.setCropBox(0, bottom, 612, 792 - bottom);
+    p.drawLine({start:{x:margin,y:bottom+65},end:{x:564,y:bottom+65},thickness:1,color:rgb(.8,.87,.82)});
+    p.drawText(preview ? 'Fictional applicant - practice only - no reference requests sent.' : 'Electronically signed reference authorization', {x:margin,y:bottom+48,size:8,font,color:rgb(.4,.47,.43)});
+    p.drawText(`Plotline | ${i + 1} / ${pdfDoc.getPageCount()}`, {x:455,y:bottom+32,size:8,font,color:rgb(.4,.47,.43)});
   });
 
   return Buffer.from(await pdfDoc.save());

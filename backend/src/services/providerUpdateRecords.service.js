@@ -1,3 +1,4 @@
+import {validateCredentials} from '../utils/credentialDisplay.js';
 import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
@@ -61,6 +62,7 @@ export async function saveProviderReviewProfile(recipient,key,data){
   await pool.execute('UPDATE users SET personal_phone=?,home_street_address=?,home_address_line2=?,home_city=?,home_state=?,home_postal_code=?,personal_email=? WHERE id=?',[...fields.map(k=>c[k].trim()),uid]);
  }
  if(key==='credential_display'){
+  const selectedCredentials=validateCredentials(data.credential);
   const role=await getProviderDisplayRole(uid,aid);
   const choice=String(data.displayLabel || role.label || '').trim();
   if(role.fixed ? choice!==role.label : !DISPLAY_ROLE_OPTIONS.includes(choice)&&choice!==role.currentLabel)throw Object.assign(new Error('Choose an available display label.'),{status:400});
@@ -70,7 +72,7 @@ export async function saveProviderReviewProfile(recipient,key,data){
   if(!['','male','female','nonbinary'].includes(publicGender)&&publicGender!==current?.details?.gender)throw Object.assign(new Error('Choose Male, Female, Nonbinary, or Not shown.'),{status:400});
   const sessionLanguages=Object.hasOwn(data,'sessionLanguages')?validateSessionLanguages(data.sessionLanguages):null;
   await ProviderPublicProfile.upsertForProvider({providerUserId:uid,...current,details:{...current?.details,...(sessionLanguages?{languageProficiencies:sessionLanguages,languages:sessionLanguages.map(x=>x.language)}:{}),gender:publicGender,agencyDisplayLabels:{...current?.details?.agencyDisplayLabels,[aid]:choice}}});
-  await pool.execute('UPDATE users SET credential=? WHERE id=?',[String(data.credential||'').trim().slice(0,100),uid]);
+  await pool.execute('UPDATE users SET credential=? WHERE id=?',[selectedCredentials,uid]);
  }
  if(key==='specialties'){
   const records=await getProviderUpdateRecords(uid,aid);

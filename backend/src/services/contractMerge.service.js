@@ -1,7 +1,9 @@
+import {validateCredentials} from '../utils/credentialDisplay.js';
+import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
 import Agency from '../models/Agency.model.js';
 import { contractRoleLabel, jobContractExpectations, expectationsToTokens, expectationsFromTokens, renderAdditionalExpectations } from '../utils/contractExpectations.js';
 import { formatContractDate, jobLocationOffice } from '../utils/contractPresentation.js';
-import { selectedContractCompensation } from './contractCompensation.service.js';
+import { selectedContractCompensation, contractCompensationLevels } from './contractCompensation.service.js';
 /**
  * Employment contract merge + pay table renderer.
  */
@@ -60,7 +62,7 @@ function replaceTokens(html, tokens = {}) {
     const re = new RegExp(`\\{\\{\\s*${safeKey}\\s*\\}\\}`, 'gi');
     out = out.replace(re, () => value == null ? '' : String(value));
   }
-  return out;
+  return out.replace(/\$([\s]*(?:<[^>]+>)*[\s]*)\$(?=\d)/g, '$$$1').replace(/(\$\d+(?:\.\d{2})?)\*\*/g, '$1');
 }
 
 export function applyContractTokens(html, tokens = {}) {
@@ -375,6 +377,7 @@ export async function autofillTokensForCandidate({
   const university = pickUniversityFromResume(resumeSummary);
   const resumeCredentialKey = inferCredentialKeyFromResume(resumeSummary);
 
+  if (credentialOverride != null) credentialOverride = validateCredentials(credentialOverride);
   let credential = String(credentialOverride ?? jobDescriptionRow?.applicant_credential ?? user?.credential ?? '').trim();
   if (!credential && resumeCredentialKey) {
     credential = resolveCredentialLabel(resumeCredentialKey) || resumeCredentialKey;
@@ -504,7 +507,7 @@ export async function renderContractHtml({
 }) {
   const mergedInput = normalizeTokens(tokens);
   const jdKey = jobDescClauseKey || mergedInput.JOB_DESC_CLAUSE_KEY || 'JOB_DESC_LPC';
-  const { config, template, clauses } = await loadContractBundle({
+  const { config, template, clauses: originalClauses } = await loadContractBundle({
     agencyId,
     configId,
     templateId,
@@ -518,27 +521,37 @@ export async function renderContractHtml({
 
   const category = compensationCategory || Number(mergedTokens.COMPENSATION_CATEGORY) || 3;
   const level = compensationLevel || Number(mergedTokens.COMPENSATION_LEVEL) || 1;
-  const compensation = await selectedContractCompensation(agencyId, category, level, config.pay_mode);
+  const agency = await Agency.findById(agencyId) || {id:agencyId};
+  const clinicalRole = ['provider','facilitator','student'].includes(String(mergedTokens.ROLE_LABEL).toLowerCase());
+  const currentLevels = config.pay_mode !== 'none' && clinicalRole ? await contractCompensationLevels(agencyId) : [];
+  const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
+  const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
+  const terms = categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name}) : null;
+  const clauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
+  const compensation = terms ? {row:currentRow,rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
+  if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
+
   mergedTokens.COMPENSATION_CATEGORY = String(category);
   mergedTokens.COMPENSATION_LEVEL = String(level);
   if (config.pay_mode !== 'none') {
     mergedTokens.DIRECT_RATE = compensation.row.direct_rate == null ? '' : `$${Number(compensation.row.direct_rate).toFixed(2)}`;
     mergedTokens.INDIRECT_RATE = compensation.row.indirect_rate == null ? '' : `$${Number(compensation.row.indirect_rate).toFixed(2)}`;
   }
-  mergedTokens.INSERT_PAY_TABLE = await buildPayTableHtml({ ...compensation, payMode: config.pay_mode });
+  mergedTokens.INSERT_PAY_TABLE = terms ? '' : await buildPayTableHtml({ ...compensation, payMode: config.pay_mode });
   const includeSupervisor = includeSupervisorFromTokens(mergedTokens);
   if (!includeSupervisor) {
     mergedTokens.SUPERVISOR_NAME = '';
     mergedTokens.SUPERVISOR = '';
   }
   const visibleClauses = (clauses || []).filter(c => {
+    if(!c.body_html)return false;
     const key = String(c.clause_key || '').toUpperCase();
     const supervisionPay = key === 'SUP_COMP' || /supervision compensation/i.test(c.title || '');
     if (supervisionPay) return ['1', 'true'].includes(String(mergedTokens.IS_SUPERVISOR || '').toLowerCase());
     return includeSupervisor || !isSupervisorClause(c);
   });
 
-  const clauseManifest = clauses.map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:visibleClauses.includes(c),reason:visibleClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'}));
+  const clauseManifest = clauses.map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:visibleClauses.includes(c),reason:c.policyReason || (visibleClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'),policyVersion:c.policyVersion}));
   const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens);
   const bodyParts = visibleClauses.map((c) => {
     let body = replaceTokens(c.body_html, mergedTokens)
@@ -571,7 +584,7 @@ export async function renderContractHtml({
   mergedTokens.CONTRACT_EXPECTATIONS = expectations;
 
   const { resolvePacketBrandChrome, packetBodyFontCss } = await import('./packetBrandChrome.service.js');
-  const brand = await resolvePacketBrandChrome(await Agency.findById(agencyId) || { id: agencyId });
+  const brand = await resolvePacketBrandChrome(agency);
   const font = brand.bodyFontFamily;
   const fontCss = packetBodyFontCss(brand);
   const css = template?.css_extras || '';
@@ -610,9 +623,9 @@ export async function renderContractHtml({
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>
   ${fontCss}
-  body { font-family: ${font}; color: #111; line-height: 1.45; max-width: 800px; margin: 0 auto; padding: 24px; }
+  body { font-family: ${font}; color: #203e34; font-size: 15px; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 24px; }
   h1,h2,h3 { color: #0f172a; }
-  table { width: 100%; }
+  table { width: 100%; border-collapse:collapse; font-size:14px; } th,td{border:1px solid #c8d8ce;padding:10px;text-align:left} h2{font-size:20px}h3{font-size:17px}
   ${css}
   ${letterheadCss}
 </style></head><body>

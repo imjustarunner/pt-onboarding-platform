@@ -5,7 +5,7 @@
     <template v-else>
       <p v-if="step.key === 'agreement'">{{ packet.configName }} · Pay category {{ packet.category || 'not selected' }} · Level {{ packet.level || 'not selected' }}</p>
       <template v-if="step.key === 'background'">
-        <PDFPreview v-if="referenceUrl" :pdf-url="referenceUrl" />
+        <PDFPreview class="reference-preview" v-if="referenceUrl" :pdf-url="referenceUrl" />
         <p v-else role="alert">The ITSCO reference release could not be loaded. Reopen packet setup to retry.</p>
       </template>
       <template v-else-if="step.key === 'job-description'">
@@ -46,5 +46,7 @@ const acknowledgement=computed(()=>({background:'I have reviewed this reference 
 function save(){if(documentAvailable.value && acknowledged.value && signature.value)emit('save',{acknowledged:true,signatureData:signature.value,signedAt:new Date().toISOString()});}
 </script>
 <style scoped>
+.packet-step{font-size:15px}label{padding:12px;min-height:52px;align-items:center!important;border:1px solid #d0ded5;border-radius:8px;cursor:pointer}label input[type=checkbox]{width:24px;height:24px;min-width:24px;accent-color:#12583f;cursor:pointer}.reference-preview :deep(.viewer){height:auto;min-height:0;max-height:75vh}
+
 .packet-step{padding:24px;background:white;border:1px solid #d0ded5;border-radius:12px;min-width:0;display:grid;gap:20px;color:#203e34}.packet-step.expanded{position:fixed;inset:12px;z-index:1100;overflow:auto;box-shadow:0 0 0 20px #172d2b88}.packet-step header{display:flex;justify-content:space-between;align-items:start;gap:16px}.packet-step h2{margin:8px 0;font-size:23px}.packet-step p{line-height:1.8;margin:8px 0}.packet-step small{font-size:12px}button{font:inherit;padding:12px 16px;background:white;border:1px solid #aac5b7;border-radius:7px;color:#12583f;cursor:pointer;justify-self:start}button:disabled{opacity:.5;cursor:default}form{display:grid;gap:20px}form>button{background:#12583f;color:white}label{display:flex;align-items:start;gap:10px;font-size:14px;line-height:1.6}iframe{width:100%;height:75vh;border:1px solid #d0ded5;border-radius:8px}.job-text{white-space:pre-wrap}.receipt{padding:20px;background:#edf5ee;border-radius:8px}.receipt img{max-width:260px;max-height:100px}[role=alert]{color:#8b3027;background:#fff2ed;padding:16px}.packet-step :deep(.jds-grid){grid-template-columns:minmax(0,1fr)}.packet-step :deep(.jds-card){width:100%;max-width:none}.packet-step :deep(.pdf-preview){min-width:0}.packet-step :deep(.viewer){max-width:100%;overflow:auto}@media(max-width:650px){.packet-step{padding:16px}.packet-step header{flex-direction:column}.packet-step.expanded{inset:4px}}
 </style>
