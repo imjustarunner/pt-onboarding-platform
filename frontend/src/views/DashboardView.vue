@@ -485,6 +485,7 @@
             'card-content--sstc-account': isSummitStatsSurface && activeTab === 'my',
             'card-content--account-hub': activeTab === 'my',
             'card-content--documents': activeTab === 'documents',
+            'card-content--meetings': activeTab === 'meetings',
             'card-content--overview': activeTab === 'overview',
             'card-content--log-time': activeTab === 'log_time',
             'card-content--messages-hub': activeTab === 'chats' || activeTab === 'communications'
@@ -611,6 +612,11 @@
             :program-id="route.query?.programId ? parseInt(route.query.programId, 10) : null"
             :agency-id="currentAgencyId"
             @update-count="updateChecklistCount"
+          />
+
+          <MyMeetingsView
+            v-if="!previewMode && isOnboardingComplete && !isClubContext && !isSchoolStaff && activeTab === 'meetings'"
+            embedded
           />
 
           <!-- My Schedule (full-width focus panel) -->
@@ -1367,6 +1373,7 @@ import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyLearningView from './MyLearningView.vue';
+import MyMeetingsView from './MyMeetingsView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import ProviderYearUpdateDashboard from '../components/provider/ProviderYearUpdateDashboard.vue';
@@ -3990,6 +3997,11 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
         description: 'View weekly schedule and request availability from the grid.'
       });
+      if (!isClubContext.value) cards.push({
+        id: 'meetings', label: 'Meetings', kind: 'content', badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('meetings', iconOrg) || brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
+        description: 'Attended meetings, participants, chat, transcripts, and personal notes.'
+      });
       if (!isClubContext.value && portalsNestCard.value) cards.push(portalsNestCard.value);
 
       // Provider-only surfaces: hide these for limited-access non-provider users and club context.
@@ -4271,6 +4283,7 @@ const defaultRailCards = computed(() => {
         overview: -1,
         my: 0,
         my_schedule: 1,
+        meetings: 1.5,
         momentum_nest: 2,
         checklist: 2.1,
         tasks_hub: 2.2,
@@ -4308,6 +4321,7 @@ const defaultRailCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
+      meetings: 3.5,
       skill_builders_provider_hub: 3.7,
       provider_program_portals: 3.8,
       program_shifts: 4,
@@ -7233,6 +7247,13 @@ h1 {
   padding: 32px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+
+.card-content.card-content--meetings {
+  padding: 0;
+  min-width: 0;
+  border: none;
+  box-shadow: none;
 }
 
 .card-content.card-content--documents {

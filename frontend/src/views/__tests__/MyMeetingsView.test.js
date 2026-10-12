@@ -45,7 +45,39 @@ describe('My meetings records',()=>{
   expect(mocks.put).toHaveBeenCalledWith('/team-meetings/my-meetings/team/7/personal-note',{noteText:'Unsaved private note'});
  });
  it('sends category and date filters to the history endpoint',async()=>{
-  await open();await wrapper.get('select').setValue('supervision');await wrapper.get('input[type=date]').setValue('2026-09-01');await wrapper.get('form').trigger('submit');await flushPromises();
+  await open();await wrapper.get('.back-button').trigger('click');await flushPromises();await wrapper.get('select').setValue('supervision');await wrapper.get('input[type=date]').setValue('2026-09-01');await wrapper.get('form').trigger('submit');await flushPromises();
   expect(mocks.get).toHaveBeenLastCalledWith('/team-meetings/my-meetings',expect.objectContaining({params:expect.objectContaining({category:'supervision',from:'2026-09-01',agencyId:2})}));
+ });
+});
+
+describe('Meetings dashboard navigation and activity',()=>{
+ it('keeps the dashboard rail tab while opening and switching record tabs',async()=>{
+  mocks.query={tab:'meetings'};
+  wrapper=mount(MyMeetingsView,{props:{embedded:true},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();
+  await wrapper.get('.meeting-row').trigger('click');await flushPromises();await selectTab('Transcript');await flushPromises();
+  expect(mocks.replace).toHaveBeenLastCalledWith({query:{tab:'meetings',meetingTab:'Transcript',type:'team',meetingId:7}});
+  await wrapper.get('.back-button').trigger('click');await flushPromises();expect(wrapper.findAll('.category-card')).toHaveLength(6);
+  expect(mocks.replace).toHaveBeenLastCalledWith({query:{tab:'meetings'}});
+ });
+ it('opens administrative subcategories and reports actual returned counts',async()=>{
+  mocks.get.mockResolvedValue({data:{meetings:[],hasMore:false,total:3,counts:{cpa:2,huddle:1}}});
+  wrapper=mount(MyMeetingsView,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();
+  const card=wrapper.findAll('.category-card').find(b=>b.text().includes('Administrative meetings'));
+  expect(card.get('.category-count').text()).toBe('3');await card.trigger('click');await flushPromises();
+  await wrapper.findAll('.admin-tabs button').find(b=>b.text()==='CPA').trigger('click');await flushPromises();
+  expect(mocks.get).toHaveBeenLastCalledWith('/team-meetings/my-meetings',expect.objectContaining({params:expect.objectContaining({category:'cpa'})}));
+ });
+ it('loads chat pages on demand, keeps existing messages, and labels stored activity',async()=>{
+  await open();
+  mocks.get.mockResolvedValueOnce({data:{activity:[{id:1,activityType:'chat',payload:{text:'Bring the agenda',authorName:'Sam'},createdAt:'2026-10-01T17:00:00Z'}],hasMore:true}});
+  await selectTab('Chat & activity');await flushPromises();expect(wrapper.text()).toContain('Bring the agenda');
+  mocks.get.mockResolvedValueOnce({data:{activity:[{id:2,activityType:'question',payload:{text:'What is next?',authorName:'Pat'}}],hasMore:false}});
+  await wrapper.findAll('button').find(b=>b.text()==='Load more activity').trigger('click');await flushPromises();
+  expect(mocks.get).toHaveBeenLastCalledWith('/team-meetings/my-meetings/team/7/activity',{params:{offset:1},skipGlobalLoading:true});
+  expect(wrapper.text()).toContain('Bring the agenda');expect(wrapper.text()).toContain('What is next?');expect(wrapper.text()).toContain('Discussion point');
+ });
+ it('keeps unsaved notes on screen when returning to the library',async()=>{
+  await open();await selectTab('My notes');await wrapper.get('textarea').setValue('Keep this draft');await wrapper.get('.back-button').trigger('click');
+  expect(wrapper.get('textarea').element.value).toBe('Keep this draft');expect(wrapper.get('[role=alert]').text()).toContain('Save your personal notes');
  });
 });

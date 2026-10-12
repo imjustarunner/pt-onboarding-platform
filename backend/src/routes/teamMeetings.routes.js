@@ -1,4 +1,4 @@
-import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary } from '../controllers/myMeetings.controller.js';
+import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary, getMyMeetingActivity } from '../controllers/myMeetings.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
 import { authenticateTeamMeeting, authenticateTeamMeetingOptional } from '../middleware/teamMeetingInvitationAccess.middleware.js';
 import express from 'express';
@@ -59,6 +59,7 @@ router.post('/:eventId/interview-chat', postInterviewSharedChat);
 // Static paths before /:eventId
 router.get('/my-meetings', listMyMeetings);
 router.get('/my-meetings/:type/:id', getMyMeeting);
+router.get('/my-meetings/:type/:id/activity', getMyMeetingActivity);
 router.put('/my-meetings/:type/:id/personal-note', saveMyMeetingNote);
 router.post('/my-meetings/:type/:id/summary', retryMyMeetingSummary);
 router.get('/admin-log', listAdminMeetingsLog);

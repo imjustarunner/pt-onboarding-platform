@@ -117,6 +117,12 @@ function buildAppEntries() {
       requires: ['showSchedule']
     },
     {
+      id: 'schedule-meetings', label: 'Meetings', group: 'schedule',
+      description: 'Your attended meetings, shared records, and personal notes.',
+      keywords: ['meeting history','attendance','chat','transcripts','supervision','huddles','interviews'],
+      kind: 'dashboard', tab: 'meetings', requires: ['showSchedule']
+    },
+    {
       id: 'schedule-office-approvals',
       routeName: 'OfficeApprovals',
       label: 'Office Approvals',

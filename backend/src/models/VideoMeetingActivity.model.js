@@ -43,15 +43,16 @@ export default class VideoMeetingActivity {
 
   /**
    * List activity for a session or event (for meeting owner to view later).
-   * @param {{ sessionId?: number, eventId?: number, limit?: number }}
+   * @param {{ sessionId?: number, eventId?: number, limit?: number, offset?: number }}
    */
-  static async list({ sessionId, eventId, limit = 500 }) {
+  static async list({ sessionId, eventId, limit = 500, offset = 0 }) {
     const sid = sessionId ? parseInt(sessionId, 10) : null;
     const eid = eventId ? parseInt(eventId, 10) : null;
     const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000);
 
     if (!sid && !eid) return [];
 
+    const skip = Math.max(0, Math.min(1000000, Math.floor(Number(offset) || 0)));
     const where = sid ? 'session_id = ?' : 'event_id = ?';
     // mysql2 prepared statements reject LIMIT ? on some servers ("Incorrect arguments to mysqld_stmt_execute").
     // lim is already clamped to an integer 1..1000 above.
@@ -60,8 +61,8 @@ export default class VideoMeetingActivity {
               payload_ciphertext, payload_iv, payload_auth_tag, encryption_key_id, created_at
        FROM video_meeting_activity
        WHERE ${where}
-       ORDER BY created_at ASC
-       LIMIT ${lim}`,
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${lim} OFFSET ${skip}`,
       [sid || eid]
     );
 
