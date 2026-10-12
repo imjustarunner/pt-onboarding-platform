@@ -24,7 +24,8 @@ export function constrainPreviewInput(input, agencyId) {
 }
 export function previewRouteAllowed(method, path) {
   if (method === 'GET') return [
-    /^\/auricwell-preview(?:\/context|\/providers)?$/,
+    /^\/auricwell-preview(?:\/context|\/providers|\/toasts(?:\/active)?)?$/,
+    /^\/platform\/toast-announcements$/,
     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,
     /^\/note-aid\/(?:catalog|tools)$/,
     /^\/clinical-notes\/contact-documentation(?:\/(?:email|secure)\/[1-9][0-9]*)?$/,
@@ -37,12 +38,15 @@ export function previewRouteAllowed(method, path) {
     /^\/agencies\/\d+$/,
     /^\/clinical-data\/sessions\/\d+\/artifacts$/
   ].some(pattern => pattern.test(path));
-  // Only reviewed shared documentation writes are enabled in the administrator preview.
+  // Reviewed documentation and toast announcements are enabled in the administrator preview.
   // Live claim transmission and financial setup stay in the existing billing workspace
   // until the complete AuricWell revenue-cycle acceptance is finished.
   return [
     ['POST', /^\/clinical-notes\/(?:drafts|audit|generate|interactive-complexity)$/],
     ['POST', /^\/clinical-notes\/contact-documentation\/(?:email|secure)\/[1-9][0-9]*$/],
-    ['PATCH', /^\/clinical-notes\/drafts\/\d+$/]
+    ['PATCH', /^\/clinical-notes\/drafts\/\d+$/],
+    ['POST', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)$/],
+    ['PUT', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)\/[1-9][0-9]*$/],
+    ['DELETE', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)\/[1-9][0-9]*$/]
   ].some(([verb, pattern]) => verb === method && pattern.test(path));
 }

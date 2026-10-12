@@ -19,7 +19,7 @@ export function useAffiliationClubAnnouncements(announcementClubIdRef, splashBra
   const clubDashboardBannerTexts = computed(() => {
     const scheduled = Array.isArray(clubScheduledBannerItems.value) ? clubScheduledBannerItems.value : [];
     const scheduledTexts = scheduled
-      .filter((a) => String(a?.display_type || 'announcement').trim().toLowerCase() !== 'splash')
+      .filter((a) => String(a?.display_type || 'announcement').trim().toLowerCase() === 'announcement')
       .map((a) => {
         const title = String(a?.title || '').trim();
         const msg = String(a?.message || '').trim();

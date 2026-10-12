@@ -35,6 +35,7 @@ import {
   getAgencyDashboardBanner,
   listAgencyBannerAnnouncements,
   listAgencyScheduledAnnouncements,
+  listAgencyToastAnnouncements,
   createAgencyScheduledAnnouncement,
   updateAgencyScheduledAnnouncement,
   deleteAgencyScheduledAnnouncement,
@@ -626,6 +627,7 @@ router.post('/:id/school-staff/users/:userId/revoke-access', authenticate, revok
 router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgencyAnnouncements);
 router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
 router.get('/:id/announcements/banner', authenticate, listAgencyBannerAnnouncements);
+router.get('/:id/announcements/toasts', authenticate, listAgencyToastAnnouncements);
 router.get('/:id/announcements/list', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAgencyScheduledAnnouncements);
 router.get('/:id/announcements/hub', authenticate, requireBackofficeAdminOrClubManagerForAgency, getAgencyAnnouncementHub);
 router.get('/:id/announcements/automation-queue', authenticate, requireBackofficeAdminOrClubManagerForAgency, getAgencyAnnouncementAutomationQueue);

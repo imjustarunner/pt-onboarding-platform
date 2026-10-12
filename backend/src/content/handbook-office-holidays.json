@@ -1,0 +1,86 @@
+{
+  "capturedAt": "2026-10-12",
+  "scope": "Administrative offices only; provider schedules remain independent.",
+  "weekendObservance": "Listed dates only; handbooks do not specify substitute weekdays.",
+  "sources": [
+    {
+      "tenant": "itsco",
+      "slugs": [
+        "itsco"
+      ],
+      "section": "holiday-scheduling-policy",
+      "sectionSha256": "ec1c0bdd08e9d44252b37c0cda552b00f84932b5f9c722b2cd2a9225e9e460a0",
+      "holidays": [
+        "New Year's Day",
+        "Martin Luther King, Jr. Day",
+        "President's Day",
+        "Memorial Day",
+        "Juneteenth",
+        "4th of July/Independence Day",
+        "Labor Day",
+        "Indigenous People's Day/Columbus Day",
+        "Veteran's Day",
+        "Thanksgiving Day",
+        "Day after Thanksgiving",
+        "Christmas Eve",
+        "Christmas Day",
+        "New Year's Eve"
+      ]
+    },
+    {
+      "tenant": "nlu",
+      "slugs": [
+        "nlu",
+        "nextlevelup",
+        "nextleveluplcc",
+        "next-level-up"
+      ],
+      "section": "holiday-scheduling-policy",
+      "sectionSha256": "4361a2e27e1e669d1c2ea0bfca4d270951f4b4ca18c8edb595a67c4428ac9b23",
+      "holidays": [
+        "New Year's Day",
+        "Martin Luther King, Jr. Day",
+        "President's Day",
+        "Memorial Day",
+        "Juneteenth",
+        "4th of July/Independence Day",
+        "Labor Day",
+        "Indigenous People's Day/Columbus Day",
+        "Veteran's Day",
+        "Thanksgiving Day",
+        "Day after Thanksgiving",
+        "Christmas Eve",
+        "Christmas Day",
+        "New Year's Eve"
+      ]
+    },
+    {
+      "tenant": "isi",
+      "slugs": [
+        "tisi",
+        "innerstrength",
+        "inner-strength",
+        "theinnerstrengthinstitute",
+        "the-inner-strength-institute"
+      ],
+      "section": "holiday-scheduling-policy",
+      "sectionSha256": "7da6af2a2a7dc7dc7755cc25b32719d93a02b9b9be1f0301560d3b3d39c8daf4",
+      "holidays": [
+        "New Year's Day",
+        "Martin Luther King, Jr. Day",
+        "President's Day",
+        "Memorial Day",
+        "Juneteenth",
+        "4th of July/Independence Day",
+        "Labor Day",
+        "Indigenous People's Day/Columbus Day",
+        "Veteran's Day",
+        "Thanksgiving Day",
+        "Day after Thanksgiving",
+        "Christmas Eve",
+        "Christmas Day",
+        "New Year's Eve"
+      ]
+    }
+  ]
+}

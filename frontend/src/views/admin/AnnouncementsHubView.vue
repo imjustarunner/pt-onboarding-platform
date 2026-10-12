@@ -2,10 +2,10 @@
   <div class="ann-hub">
     <header class="ann-hub__header">
       <div>
-        <h1>Splashes &amp; Announcements</h1>
-        <p class="muted">Create in-app banners and splashes, track engagement, and review the birthday / anniversary queue.</p>
+        <h1>Announcements</h1>
+        <p class="muted">{{ agencyId ? 'Create in-app toasts, banners and splashes, track engagement, and review the birthday / anniversary queue.' : 'Post toast notices about AuricWell support availability.' }}</p>
       </div>
-      <div class="ann-hub__actions">
+      <div v-if="agencyId" class="ann-hub__actions">
         <button type="button" class="btn btn-primary" @click="typeChooserOpen = true">+ New Announcement</button>
       </div>
     </header>
@@ -15,6 +15,9 @@
         <h2 id="ann-type-chooser-title">What do you want to create?</h2>
         <p class="muted">Choose a delivery format, then fill in the details.</p>
         <div class="ann-modal__choices">
+          <button type="button" class="ann-modal__choice" @click="chooseComposeType('toast')">
+            <strong>Toast</strong><span>Dismissible office or support notice</span>
+          </button>
           <button type="button" class="ann-modal__choice" @click="chooseComposeType('announcement')">
             <strong>Announcement</strong>
             <span>Scrolling in-app banner</span>
@@ -28,14 +31,15 @@
       </div>
     </div>
 
-    <div v-if="!agencyId" class="error">Select an agency to manage announcements.</div>
+    <ToastAnnouncementManager v-if="!agencyId && isSuperAdmin" :request="toastRequest" base-path="/platform/toast-announcements" support />
+    <div v-else-if="!agencyId" class="error">Select an agency to manage announcements.</div>
     <div v-else-if="loading && !items.length" class="loading">Loading announcements…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
 
-    <template v-else>
+    <template v-else-if="agencyId">
       <section class="ann-quick">
         <div class="ann-quick__head">
-          <h3>Quick Announcement / Splash</h3>
+          <h3>Quick Announcement</h3>
           <button type="button" class="btn btn-primary btn-sm" @click="quickOpen = !quickOpen">
             {{ quickOpen ? 'Collapse' : 'Expand' }}
           </button>
@@ -46,6 +50,7 @@
               <span>Type</span>
               <select v-model="form.displayType" class="filter-select">
                 <option value="announcement">Announcement</option>
+                <option value="toast">Toast</option>
                 <option value="splash">Splash</option>
               </select>
             </label>
@@ -73,7 +78,7 @@
           </div>
           <div class="ann-quick__row">
             <input v-model="form.title" class="filter-input" maxlength="80" placeholder="Title" />
-            <input v-model="form.message" class="filter-input" maxlength="300" placeholder="Message…" />
+            <input v-model="form.message" class="filter-input" maxlength="1200" placeholder="Our administrative offices are closed today. We will return on…" />
             <button type="button" class="btn btn-secondary" :disabled="saving" @click="submitForm('draft')">
               {{ saving ? 'Saving…' : 'Save Draft' }}
             </button>
@@ -167,6 +172,7 @@
             </select>
             <select v-model="typeFilter" class="filter-select">
               <option value="">Type</option>
+              <option value="toast">Toast</option>
               <option value="splash">Splash</option>
               <option value="announcement">Announcement</option>
             </select>
@@ -198,7 +204,7 @@
                   </td>
                   <td>{{ audienceLabel(row) }}</td>
                   <td><span class="ann-status" :class="`is-${row.status}`">{{ statusLabel(row.status) }}</span></td>
-                  <td>{{ row.display_type === 'splash' ? 'Splash' : 'Announcement' }}</td>
+                  <td>{{ row.display_type === 'toast' ? 'Toast' : row.display_type === 'splash' ? 'Splash' : 'Announcement' }}</td>
                   <td>{{ formatDelivery(row) }}</td>
                   <td><span class="ann-priority" :class="`is-${row.priority}`">{{ priorityLabel(row.priority) }}</span></td>
                   <td>{{ row.engagement?.viewedRate || 0 }}% Viewed</td>
@@ -241,14 +247,19 @@
           </div>
 
           <div v-if="sideTab === 'details'" class="ann-side__body">
-            <h3>{{ form.title || (form.displayType === 'splash' ? 'New splash' : 'New announcement') }}</h3>
+            <h3>{{ form.title || (form.displayType === 'toast' ? 'New toast' : form.displayType === 'splash' ? 'New splash' : 'New announcement') }}</h3>
             <label>
               <span>Title <em>{{ (form.title || '').length }}/80</em></span>
               <input v-model="form.title" class="filter-input" maxlength="80" />
             </label>
             <label>
-              <span>Message <em>{{ (form.message || '').length }}/300</em></span>
-              <textarea v-model="form.message" class="filter-input" rows="4" maxlength="300" />
+              <span>Message <em>{{ (form.message || '').length }}/1200</em></span>
+              <textarea v-model="form.message" class="filter-input" rows="4" maxlength="1200" />
+            </label>
+            <label v-if="form.displayType === 'toast'">
+              <span>Return date for closure example</span>
+              <input v-model="closureReturnDate" type="date" class="filter-input" />
+              <button type="button" class="btn btn-secondary" @click="useClosureExample">Use “offices closed today” example</button>
             </label>
             <label>
               <span>Audience</span>
@@ -267,6 +278,7 @@
               <span>Delivery method</span>
               <select v-model="form.displayType" class="filter-select">
                 <option value="announcement">In-app banner</option>
+                <option value="toast">Toast</option>
                 <option value="splash">In-app splash (modal)</option>
               </select>
             </label>
@@ -305,7 +317,12 @@
 
           <div v-else-if="sideTab === 'preview'" class="ann-side__body">
             <div class="ann-phone">
-              <div class="ann-phone__modal">
+              <div v-if="form.displayType === 'toast'" class="ann-phone__toast">
+                <strong>{{ form.title || 'Office announcement' }}</strong>
+                <span aria-hidden="true">×</span>
+                <p>{{ form.message || 'Your message will appear here.' }}</p>
+              </div>
+              <div v-else class="ann-phone__modal">
                 <div class="ann-phone__icon" aria-hidden="true">📣</div>
                 <h4>{{ form.title || 'Announcement' }}</h4>
                 <p>{{ form.message || 'Your message will appear here.' }}</p>
@@ -352,6 +369,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import ToastAnnouncementManager from '../../components/admin/ToastAnnouncementManager.vue';
+import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import {
   ANNOUNCEMENT_AUDIENCE_OPTIONS,
@@ -361,6 +380,9 @@ import {
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const toastRequest = async (path, options = {}) => (await api.request({ url: path, method: options.method || 'GET', data: options.body })).data;
 
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 const orgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
@@ -586,8 +608,22 @@ function chooseComposeType(type) {
   startCompose(type);
 }
 
+const closureReturnDate = ref('');
+function useClosureExample() {
+  const returns = new Date(`${closureReturnDate.value}T00:00:00`);
+  if (!Number.isFinite(returns.getTime()) || returns <= new Date()) {
+    formError.value = 'Choose a future return date.';
+    return;
+  }
+  formError.value = '';
+  form.value.title = 'Administrative offices closed today';
+  form.value.message = `Our administrative offices are closed today and will reopen on ${returns.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. This closure applies to administrative offices only; provider appointments and services follow their individual schedules.`;
+  form.value.startsAt = toLocalInput(new Date());
+  form.value.endsAt = toLocalInput(returns);
+}
+
 function startCompose(type) {
-  form.value = { ...emptyForm(), displayType: type === 'splash' ? 'splash' : 'announcement' };
+  form.value = { ...emptyForm(), displayType: ['splash', 'toast'].includes(type) ? type : 'announcement' };
   selectedId.value = null;
   editorOpen.value = true;
   sideTab.value = 'details';
@@ -605,7 +641,7 @@ function selectRow(row) {
     id: row.id,
     title: row.title || '',
     message: row.message || '',
-    displayType: row.display_type === 'splash' ? 'splash' : 'announcement',
+    displayType: ['splash', 'toast'].includes(row.display_type) ? row.display_type : 'announcement',
     audience: row.audience || 'everyone',
     recipientUserId: recipients[0] ? String(recipients[0]) : '',
     priority: row.priority || 'medium',
@@ -711,6 +747,10 @@ onMounted(() => {
 
 <style scoped>
 .ann-hub { max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; }
+.ann-phone__toast { align-self: start; position: relative; padding: 16px; border: 1px solid #bdd0c8; border-left: 4px solid #356352; border-radius: 10px; background: #f8fcfa; color: #203b32; font-size: 13px; }
+.ann-phone__toast strong { display: block; padding-right: 16px; }
+.ann-phone__toast span { position: absolute; right: 12px; top: 12px; }
+.ann-phone__toast p { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0; }
 .ann-hub__header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
 .ann-hub__header h1 { margin: 0 0 4px; font-size: 1.6rem; }
 .ann-hub__actions { display: flex; gap: 8px; flex-wrap: wrap; }

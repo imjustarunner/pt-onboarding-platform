@@ -2160,6 +2160,12 @@
           >✕</button>
         </div>
       </div>
+      <AnnouncementToasts
+        v-if="isAuthenticated && user?.id && agencyStore.currentAgency?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
+        :storage-key="`staff:${user.id}:agency:${agencyStore.currentAgency.id}`"
+        :load-items="loadOfficeToasts"
+        :record-event="recordOfficeToastEvent"
+      />
       <ActiveMeetingToasts v-if="isAuthenticated && user?.id" :key="user.id" :user-id="user.id" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
@@ -2297,6 +2303,7 @@ import {
   isSessionRecordingEnabledForAgencyFlags
 } from './config/sessionRecordingAccess.js';
 import api from './services/api';
+import AnnouncementToasts from './components/notifications/AnnouncementToasts.vue';
 import ActiveMeetingToasts from './components/meetings/ActiveMeetingToasts.vue';
 import { listActivities } from './services/counselingApi.js';
 import { launchActivity, isStandaloneLaunchable, isToolsCatalogActivity, isEmbeddedSessionActivity, resolveStandaloneUrl } from './services/launchActivity.js';
@@ -6268,6 +6275,15 @@ const playNotificationSound = () => {
     // Autoplay blocked or unsupported; ignore
   }
 };
+
+const loadOfficeToasts = async () => {
+  const response = await api.get(`/agencies/${agencyStore.currentAgency.id}/announcements/toasts`, { skipGlobalLoading: true });
+  return response.data;
+};
+const recordOfficeToastEvent = (item, eventType) => api.post(
+  `/agencies/${agencyStore.currentAgency.id}/announcements/${item.id}/events`,
+  { eventType }, { skipGlobalLoading: true }
+);
 
 // Live toast when new notification arrives (shown to all authenticated users)
 const newNotificationToastVisible = ref(false);

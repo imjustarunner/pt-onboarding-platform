@@ -6,11 +6,16 @@
     <main v-else-if="loading" class="aw-welcome" role="status">Opening AuricWell…</main>
     <main v-else-if="!context" class="aw-welcome"><p class="aw-eyebrow">AURICWELL · PRACTICE PREVIEW</p><h1>Your care workspace.</h1><p>Open an agency’s existing EHR records with your superadmin account.</p><p v-if="actor">Signed in as <strong>{{ actorName }}</strong></p><div class="aw-practices"><a v-for="p in practices" :key="p.id" :href="`${appBase}/${p.slug === 'tisi' ? 'innerstrength' : p.slug}`"><strong>{{ p.name }}</strong><span>Open practice →</span></a></div></main>
     <template v-else>
+      <AnnouncementToasts v-if="!demoContext" :storage-key="`auricwell:${actor.id}:agency:${context.practice.id}`" :load-items="loadOfficeToasts" />
       <div v-if="demoContext" class="aw-identity" role="status"><strong>Interactive demo · Fictional practice</strong><span>Explore the actual EHR screens. Nothing is saved, signed, submitted or sent.</span><button type="button" @click="resetDemo">Reset demo</button></div>
       <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Saved drafts are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
       <nav class="aw-nav" aria-label="Practice navigation"><RouterLink v-for="item in navigation" :key="item.key" :to="`/${slug}/${item.key}`" :aria-current="section === item.key ? 'page' : undefined"><PortalIcon :name="item.icon" />{{ item.label }}</RouterLink><a v-if="!demoContext" :href="`/records-manager?agencyId=${context.practice.id}`">Records requests</a></nav>
       <main class="aw-content">
         <section v-if="section === 'overview'" class="aw-welcome"><p class="aw-eyebrow">{{ context.practice.name }}</p><h1>Care, connected.</h1><p>{{ demoContext ? 'Meet Meadowbrook Therapy, a fictional practice. Explore its schedule, open a client chart, and try the shared Practice Notes workspace.' : 'Your existing charts, Practice Notes and billing records, together in AuricWell.' }}</p><div class="aw-practices"><RouterLink v-for="item in navigation.filter(n => n.key !== 'overview')" :key="item.key" :to="`/${slug}/${item.key}`"><strong class="aw-area-label"><PortalIcon :name="item.icon" />{{ item.label }}</strong><span>Open →</span></RouterLink></div><div v-if="demoContext" class="aw-status"><h2>A guided place to explore</h2><p>Start with Appointments to try the calendar and booking controls. Open Clients for treatment plans and documentation, or Practice Notes for drafts and the documentation workflow. Provider profiles and the billing queue use fictional examples.</p><p>AI generation, recording, signing, payments and message delivery are not connected in this demo. Reloading or resetting clears local changes. Please use fictional information only.</p></div><div v-else class="aw-status"><h2>Preview availability</h2><p>Review clients, appointments, providers and billing. Use Practice Notes to open and save your drafts. Signing, financial changes, patient access, imports and practice contracting are not enabled in this preview.</p><p>Existing practice features and clinical permissions still apply. A superadmin preview does not sign as a provider or change agency enrollment.</p></div></section>
+        <section v-else-if="section === 'announcements' && !demoContext" class="aw-toast-managers">
+          <ToastAnnouncementManager :request="toastRequest" base-path="/auricwell-preview/toasts" />
+          <ToastAnnouncementManager :request="toastRequest" base-path="/platform/toast-announcements" support />
+        </section>
         <section v-else-if="section === 'documentation'"><p class="aw-caption">{{ demoContext ? 'Practice Notes · Open a fictional draft or explore a new note. Editing stays on this screen; saving, AI generation, signing and recording are unavailable in the demo.' : 'Practice Notes · Draft changes update the existing agency records. Signing and audio uploads are not enabled in this preview.' }}</p><ClinicalNoteGeneratorView :key="context.practice.id" /></section>
         <section v-else-if="section === 'billing'"><p class="aw-caption">{{ demoContext ? 'Fictional billing examples · Review the queue and claim details. No clearinghouse, payment or financial changes are connected.' : 'Shared billing records · Financial changes and live transmission remain in the full-suite billing workspace during preview.' }}</p><BillingWorkspaceView :key="context.practice.id" /></section>
         <Chart v-else-if="section === 'clients' && /^\d+$/.test(String(route.query.clientId || ''))" :key="`${context.practice.id}:${route.query.clientId}`" :client-id="String(route.query.clientId)" :agency="context.practice" :slug="slug" />
@@ -22,6 +27,9 @@
   </div>
 </template>
 <script setup>
+import AnnouncementToasts from '../components/notifications/AnnouncementToasts.vue';
+import ToastAnnouncementManager from '../components/admin/ToastAnnouncementManager.vue';
+import api from '../services/api';
 import { AURICWELL_MARK_URL } from '../constants/auricwellBrand';
 import { ref, computed, watch, onBeforeUnmount, defineAsyncComponent } from 'vue';
 import { useRoute } from 'vue-router';
@@ -43,7 +51,9 @@ const section = computed(() => String(route.params.section || 'overview'));
 const actorName = computed(() => [actor.value?.first_name, actor.value?.last_name].filter(Boolean).join(' ') || actor.value?.email || 'Superadmin');
 const isLogin = computed(() => route.name === 'login');
 const loginUrl = computed(() => `/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search)}`);
-const navigation = [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'Appointments',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Practice Notes',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'}];
+const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'Appointments',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Practice Notes',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'}, ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])]);
+const toastRequest = async (path, options = {}) => (await api.request({ url: path, method: options.method || 'GET', data: options.body })).data;
+const loadOfficeToasts = async () => (await api.get('/auricwell-preview/toasts/active')).data;
 let requestId = 0;
 async function load() {
   if (isLogin.value) { loading.value = false; return; }
@@ -77,3 +87,7 @@ window.addEventListener('auricwell-session-ended', endSession);
 onBeforeUnmount(() => { ++requestId; window.removeEventListener('auricwell-session-ended', endSession); });
 watch(slug, (current, previous) => { if (!props.demoContext && previous && current !== previous) window.location.assign(`${appBase}/${encodeURIComponent(current)}`); else load(); }, { immediate:true });
 </script>
+
+<style scoped>
+.aw-toast-managers { display: grid; gap: 24px; }
+</style>

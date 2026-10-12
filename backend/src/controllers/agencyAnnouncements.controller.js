@@ -87,7 +87,7 @@ const renderAnniversaryTemplate = (template, people = []) => {
 
 const parseAnnouncementDisplayType = (raw) => {
   const value = String(raw || 'announcement').trim().toLowerCase();
-  return value === 'splash' ? 'splash' : 'announcement';
+  return ['splash', 'toast'].includes(value) ? value : 'announcement';
 };
 
 /** Optional hero image URL for splash announcements (http(s) URL or uploads path, max 512 chars). */
@@ -344,7 +344,10 @@ export const getAgencyDashboardBanner = async (req, res, next) => {
  * Active banner announcements (scrolling banner).
  * GET /api/agencies/:id/announcements/banner
  */
-export const listAgencyBannerAnnouncements = async (req, res, next) => {
+export const listAgencyBannerAnnouncements = (req, res, next) => listActiveAgencyAnnouncements(req, res, next, false);
+export const listAgencyToastAnnouncements = (req, res, next) => listActiveAgencyAnnouncements(req, res, next, true);
+
+const listActiveAgencyAnnouncements = async (req, res, next, toastOnly) => {
   try {
     const agencyId = parseAgencyId(req.params.id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
@@ -359,12 +362,13 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
     const userRole = String(req.user?.role || '').toLowerCase();
 
     const [rows] = await pool.execute(
-      `SELECT id, title, message, splash_image_url, starts_at, ends_at, created_at, display_type, recipient_user_ids, audience
+      `SELECT id, title, message, splash_image_url, starts_at, ends_at, created_at, updated_at, display_type, recipient_user_ids, audience
        FROM agency_scheduled_announcements
        WHERE agency_id = ?
+         AND display_type ${toastOnly ? "= 'toast'" : "<> 'toast'"}
          AND COALESCE(publish_status, 'published') = 'published'
          AND NOW() >= starts_at
-         AND NOW() <= ends_at
+         AND NOW() < ends_at
        ORDER BY starts_at ASC, id DESC
        LIMIT 50`,
       [agencyId]
@@ -390,7 +394,8 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
         audience: r.audience || 'everyone',
         starts_at: r.starts_at,
         ends_at: r.ends_at,
-        created_at: r.created_at
+        created_at: r.created_at,
+        updated_at: r.updated_at
       }));
     res.json(out);
   } catch (e) {
@@ -512,9 +517,9 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
     }
 
-    const maxStart = Date.now() + 364 * MS_DAY;
+    const maxStart = Date.now() + 730 * MS_DAY;
     if (startsAt.getTime() > maxStart) {
-      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to two years out' } });
     }
 
     const [result] = await pool.execute(
@@ -764,9 +769,9 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
     }
 
-    const maxStart = Date.now() + 364 * MS_DAY;
+    const maxStart = Date.now() + 730 * MS_DAY;
     if (startsAt.getTime() > maxStart) {
-      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to two years out' } });
     }
 
     const [result] = await pool.execute(

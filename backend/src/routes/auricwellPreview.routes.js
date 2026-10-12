@@ -5,6 +5,7 @@ import { authenticate, requireActiveStatus } from '../middleware/auth.middleware
 import { requirePreviewAdmin } from '../middleware/auricwellPreview.middleware.js';
 import { previewAgencySlug, previewError } from '../services/auricwellPreviewPolicy.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import { listToasts, saveToast, deleteToast } from '../services/toastAnnouncements.service.js';
 const router = express.Router();
 router.use(authenticate, requireActiveStatus, requirePreviewAdmin);
 const practice = a => ({ id: a.id, name: a.name, slug: a.slug, organization_type: a.organization_type, feature_flags: a.feature_flags });
@@ -22,6 +23,18 @@ router.get('/context', async (req, res, next) => {
     res.json({ actor: req.previewActor, practice: practice(agency), preview: true });
   } catch (error) { next(error); }
 });
+// The preview boundary resolves and validates the active practice before these handlers.
+const toastAgency = req => {
+  const id = req.auricwellPreview?.agencyId;
+  if (!id) throw previewError(400, 'Select a practice first.');
+  return id;
+};
+const run = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res)).catch(next);
+router.get('/toasts/active', run(async (req, res) => res.json(await listToasts({ agencyId: toastAgency(req), active: true, includeSupport: true }))));
+router.get('/toasts', run(async (req, res) => res.json(await listToasts({ agencyId: toastAgency(req) }))));
+router.post('/toasts', run(async (req, res) => res.status(201).json(await saveToast({ agencyId: toastAgency(req), userId: req.user.id, input: req.body }))));
+router.put('/toasts/:id', run(async (req, res) => res.json(await saveToast({ agencyId: toastAgency(req), userId: req.user.id, id: req.params.id, input: req.body }))));
+router.delete('/toasts/:id', run(async (req, res) => res.json(await deleteToast({ agencyId: toastAgency(req), id: req.params.id }))));
 router.get('/providers', async (req, res, next) => {
   try {
     const agencyId = req.auricwellPreview?.agencyId;

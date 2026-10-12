@@ -2132,6 +2132,7 @@
                     <select v-model="scheduledDraft.displayType" class="filters-input">
                       <option value="announcement">Announcement</option>
                       <option value="splash">Splash</option>
+                      <option value="toast">Toast</option>
                     </select>
                   </div>
                   <div class="filters-group" style="min-width: 200px;">
@@ -2215,7 +2216,7 @@
                   <tbody>
                     <tr v-for="a in scheduledAnnouncements" :key="`ann-${a.id}`">
                       <td>{{ a.title || 'Announcement' }}</td>
-                      <td>{{ String(a.display_type || 'announcement').toLowerCase() === 'splash' ? 'Splash' : 'Banner' }}</td>
+                      <td>{{ a.display_type === 'toast' ? 'Toast' : a.display_type === 'splash' ? 'Splash' : 'Banner' }}</td>
                       <td>
                         {{ scheduledAudienceLabel(a) }}
                       </td>
@@ -5428,7 +5429,7 @@ const saveScheduledAnnouncement = async () => {
     }
     const payload = {
       title: scheduledDraft.value.title?.trim() || null,
-      display_type: String(scheduledDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
+      display_type: ['splash', 'toast'].includes(scheduledDraft.value.displayType) ? scheduledDraft.value.displayType : 'announcement',
       audience,
       recipient_user_ids: recipientIds,
       message: scheduledDraft.value.message.trim(),
@@ -5472,7 +5473,7 @@ const editScheduledAnnouncement = (item) => {
   scheduledDraft.value = {
     id: item?.id || null,
     title: String(item?.title || ''),
-    displayType: String(item?.display_type || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
+    displayType: ['splash', 'toast'].includes(item?.display_type) ? item.display_type : 'announcement',
     audience,
     recipientUserIds: recipientIds,
     message: String(item?.message || ''),
