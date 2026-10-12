@@ -38,3 +38,16 @@ it('does not create another message when restoring a delivery already received',
  expect(await persistInboundEmail({inboxId:3,agencyId:2,deliveryId:'<same@example.org>',bodyHtml:signature})).toMatchObject({duplicate:true,messageId:50});
  expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO communication_messages'))).toBe(false);
 });
+it('enriches an old duplicate with missing HTML without changing unread state or thread activity',async()=>{
+ db.execute.mockImplementation(async sql=>sql.startsWith('SELECT id FROM communication_inboxes')?[[{id:3}]]:sql.startsWith('SELECT message_id FROM communication_email_receipts')?[[{message_id:50}]]:sql.startsWith('UPDATE')?[{affectedRows:1}]:[[{conversation_id:10}]]);
+ await persistInboundEmail({inboxId:3,agencyId:2,deliveryId:'<same@example.org>',bodyHtml:signature});
+ const updates=db.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE'));
+ expect(updates).toHaveLength(1);expect(updates[0][0]).toContain("AND (body_html IS NULL OR body_html = '')");expect(updates[0][0]).toContain("direction = 'inbound'");expect(updates[0][1]).toEqual([signature,50]);
+ expect(db.execute.mock.calls.some(([sql])=>/INSERT INTO communication_messages|UPDATE communication_conversations/.test(sql))).toBe(false);
+});
+it('also restores legacy imports that have no delivery receipt yet',async()=>{
+ db.execute.mockImplementation(async sql=>sql.startsWith('SELECT id FROM communication_inboxes')?[[{id:3}]]:sql.startsWith('SELECT m.id, m.conversation_id')?[[{id:50,conversation_id:10}]]:sql.startsWith('UPDATE')?[{affectedRows:1}]:[[]]);
+ expect(await persistInboundEmail({inboxId:3,agencyId:2,deliveryId:'<old@example.org>',bodyHtml:signature})).toMatchObject({duplicate:true,messageId:50});
+ expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('SET body_html'),[signature,50]);
+ expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO communication_messages'))).toBe(false);
+});

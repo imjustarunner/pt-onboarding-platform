@@ -1,3 +1,5 @@
+import {canImportPersonalMailboxEmail} from '../personalMailboxImportPolicy.service.js';
+vi.mock('../personalMailboxImportPolicy.service.js',()=>({canImportPersonalMailboxEmail:vi.fn(async()=>true)}));
 import {beforeEach,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({user:vi.fn(),recipient:vi.fn(),execute:vi.fn(),prepare:vi.fn(),persist:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
@@ -26,10 +28,17 @@ it('does not create staff inbox copies for an applicant whose personal email is 
  m.recipient.mockResolvedValue(null);expect((await priorityEventEmailRecipient({...args,to:'personal@example.com'})).appOnly).toBe(false);
 });
 it('persists the attachment and inbox message atomically and retries a failed preparation without resending email',async()=>{
- const copy={...args,messageId:'gmail-id',attachments:[{filename:'meeting.ics',contentBase64:'aWNhbA=='}]};
+ const copy={...args,messageId:'gmail-id',html:'<h1>Branded invitation</h1>',attachments:[{filename:'meeting.ics',contentBase64:'aWNhbA=='}]};
  m.prepare.mockRejectedValueOnce(new Error('storage unavailable'));await expect(savePriorityEventInboxCopy(copy)).rejects.toThrow('storage unavailable');
  expect(m.persist).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalledWith(expect.stringContaining('SET completed_at'),expect.anything());
  m.execute.mockResolvedValueOnce([[{payload_json:copy}]]);await retryPriorityEventInboxCopies();
- expect(m.persist).toHaveBeenCalledWith(expect.objectContaining({deliveryId:'event-email:gmail-id',attachments:[{filename:'meeting.ics',storageKey:'stored'}]}));
+ expect(m.persist).toHaveBeenCalledWith(expect.objectContaining({deliveryId:'event-email:gmail-id',bodyHtml:'<h1>Branded invitation</h1>',attachments:[{filename:'meeting.ics',storageKey:'stored'}]}));
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('SET completed_at'),['gmail-id']);
+});
+
+it('does not mirror SSO invitation emails into the personal app inbox',async()=>{
+ canImportPersonalMailboxEmail.mockResolvedValueOnce(false);
+ await savePriorityEventInboxCopy({...args,messageId:'sso-invite'});
+ expect(m.persist).not.toHaveBeenCalled();expect(m.prepare).not.toHaveBeenCalled();
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('SET completed_at'),['sso-invite']);
 });

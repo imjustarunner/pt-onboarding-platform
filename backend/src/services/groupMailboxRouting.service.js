@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
 import { getImpersonatedUser } from './unifiedEmail/gmailClient.js';
+import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 // Explicit Workspace configuration takes precedence over shared fallback senders.
@@ -23,7 +24,7 @@ export function mailboxDomainOwners(senderDomains, configuredDomains) {
 /** Expand only addressed groups, never From/Reply-To. Stop at personal mailboxes:
  * their delegate/owner memberships must not grant those people another inbox's mail.
  */
-export async function expandMailboxRecipients(addresses, mailboxes, listMembers, groupAgencyIds = new Map(), domainAgencyIds = new Map()) {
+export async function expandMailboxRecipients(addresses, mailboxes, listMembers, groupAgencyIds = new Map(), domainAgencyIds = new Map(), canImport = async () => true) {
   const byAddress = new Map();
   for (const box of mailboxes) {
     const aliases = typeof box.inbound_addresses_json === 'string' ? JSON.parse(box.inbound_addresses_json || '[]') : box.inbound_addresses_json || [];
@@ -44,6 +45,9 @@ export async function expandMailboxRecipients(addresses, mailboxes, listMembers,
     if (visited.size >= 500) throw new Error('Group nesting exceeds the safe routing limit');
     visited.add(visitKey);
     let matches = [...(byAddress.get(address)?.values() || [])];
+    // A Workspace user's address is a leaf, even when an app send-history inbox
+    // exists. Do not expand its delegates or import its Gmail into the app.
+    if (matches.length && !await canImport(matches[0])) continue;
     if (agencyId && matches.some(b=>Number(b.agency_id)===Number(agencyId))) matches=matches.filter(b=>Number(b.agency_id)===Number(agencyId));
     if (matches.length > 1 && new Set(matches.map(b=>b.owner_user_id)).size === 1) {
       const tenantBoxes=matches.filter(b=>['agency','life_coach','consultant'].includes(b.organization_type));
@@ -85,7 +89,10 @@ export async function resolvePersonalMailRecipients(addresses, { sentFromEmail =
     const agencies=[...new Set(senders.map(s=>Number(s.agency_id)))];
     if(agencies.length===1) {
       const visible=addresses.filter(a=>!bccAddresses.map(norm).includes(norm(a)));
-      const sentBoxes=boxes.filter(box=>Number(box.agency_id)===agencies[0] && bccAddresses.map(norm).includes(norm(box.from_email)));
+      const sentBoxes=[];
+      for (const box of boxes) {
+        if (Number(box.agency_id)===agencies[0] && bccAddresses.map(norm).includes(norm(box.from_email)) && await canImportPersonalMailboxEmail(box)) sentBoxes.push(box);
+      }
       // Preserve separately addressed ordinary To/Cc recipients as well.
       const other=visible.length?await resolvePersonalMailRecipients(visible):[];
       return [...new Map([...sentBoxes,...other].map(box=>[box.inbox_id,box])).values()];
@@ -123,5 +130,5 @@ export async function resolvePersonalMailRecipients(addresses, { sentFromEmail =
       members.push(...(result.data?.members || [])); pageToken = result.data?.nextPageToken;
     } while (pageToken);
     return members;
-  }, groupAgencyIds, domainAgencyIds);
+  }, groupAgencyIds, domainAgencyIds, canImportPersonalMailboxEmail);
 }

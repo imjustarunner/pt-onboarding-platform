@@ -1,7 +1,9 @@
 import { expect, it, vi } from 'vitest';
+vi.mock('../personalMailboxImportPolicy.service.js',()=>({canImportPersonalMailboxEmail:vi.fn(async()=>true)}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../googleWorkspaceDirectory.service.js',()=>({default:{isConfigured:()=>true,getClient:vi.fn(),getUser:vi.fn()}}));
 vi.mock('../unifiedEmail/gmailClient.js',()=>({getImpersonatedUser:()=> 'ai@itsco.health'}));
+import {canImportPersonalMailboxEmail} from '../personalMailboxImportPolicy.service.js';
 import pool from '../../config/database.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
 import { expandMailboxRecipients, resolvePersonalMailRecipients, mailboxDomainOwners } from '../groupMailboxRouting.service.js';
@@ -75,4 +77,16 @@ it('keeps both agencies for multi-agency providers while routing direct ITSCO an
  const grouped=await expandMailboxRecipients(['staff@nlu.test'],shared,list,groups,domains);
  expect(grouped.map(b=>b.agency_id)).toEqual([6,6]);
  expect(shared).toHaveLength(4);
+});
+
+it('excludes Workspace users before duplicate-tenant resolution and never expands their delegates',async()=>{
+ const shared=[{id:1,from_email:'sso@itsco.health',agency_id:2},{id:2,from_email:'sso@itsco.health',agency_id:6},...boxes];
+ const list=vi.fn(async()=>[]);
+ expect((await expandMailboxRecipients(['sso@itsco.health','eden@itsco.health'],shared,list,new Map(),new Map(),async b=>b.from_email!=='sso@itsco.health')).map(b=>b.id)).toEqual([1]);
+ expect(list).not.toHaveBeenCalled();
+});
+it('also excludes Workspace users from authenticated outbound Bcc fanout',async()=>{
+ pool.execute.mockImplementation(async sql=>[sql.startsWith('SELECT agency_id')?[{agency_id:2}]:[{id:1,inbox_id:10,agency_id:2,from_email:'sso@itsco.health'}]]);
+ canImportPersonalMailboxEmail.mockResolvedValueOnce(false);
+ expect(await resolvePersonalMailRecipients([],{sentFromEmail:'messages@itsco.health',bccAddresses:['sso@itsco.health']})).toEqual([]);
 });

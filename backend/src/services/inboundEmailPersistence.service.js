@@ -2,6 +2,16 @@ import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 
+// Older importers stored only text. Retrying that exact delivery may enrich its
+// representation, but must not recreate it, mark it unread, or change its date.
+export async function restoreMissingInboundHtml(db, messageId, bodyHtml) {
+  if (!bodyHtml) return false;
+  const [result] = await db.execute(`UPDATE communication_messages SET body_html = ?
+    WHERE id = ? AND direction = 'inbound' AND channel = 'email'
+      AND (body_html IS NULL OR body_html = '')`, [bodyHtml, messageId]);
+  return result.affectedRows > 0;
+}
+
 /** Inbox row lock serializes thread creation; receipt+message+attachments commit together. */
 export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conversationId = null, threadId = null, ownerUserId = null, fromEmail, replyToEmail = null, subject, bodyText, bodyHtml = null, to = [], cc = [], inReplyTo = null, referencesHeader = null, receivedAt = new Date(), attachments = [], isGroupEmail = false, internalNote = false }) {
   if (!deliveryId) throw new Error('Inbound email is missing a delivery identifier');
@@ -13,6 +23,7 @@ export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conve
     if (!boxes.length) throw new Error('Inbox not found');
     const [receipt] = await db.execute('SELECT message_id FROM communication_email_receipts WHERE inbox_id = ? AND delivery_hash = ?', [inboxId, hash]);
     if (receipt[0]?.message_id) {
+      await restoreMissingInboundHtml(db, receipt[0].message_id, bodyHtml);
       const [m] = await db.execute('SELECT conversation_id FROM communication_messages WHERE id = ?', [receipt[0].message_id]);
       await db.commit();
       return { ingested: true, duplicate: true, conversationId: m[0]?.conversation_id, messageId: receipt[0].message_id, agencyId, inboxId };
@@ -20,6 +31,7 @@ export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conve
     // Backward compatibility with deliveries ingested before receipts existed.
     const [legacy] = await db.execute(`SELECT m.id, m.conversation_id FROM communication_messages m JOIN communication_conversations c ON c.id = m.conversation_id WHERE c.inbox_id = ? AND m.internet_message_id = ? ORDER BY m.id LIMIT 1`, [inboxId, deliveryId]);
     if (legacy[0]) {
+      await restoreMissingInboundHtml(db, legacy[0].id, bodyHtml);
       await db.execute('INSERT INTO communication_email_receipts (inbox_id, delivery_hash, message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)', [inboxId, hash, legacy[0].id]);
       await db.commit();
       return { ingested: true, duplicate: true, conversationId: legacy[0].conversation_id, messageId: legacy[0].id, agencyId, inboxId };

@@ -2,6 +2,7 @@ import { isDistributionMail } from './personalMessageThreadPolicy.service.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
 import { prepareInboundAttachments } from './communicationAttachments.service.js';
 import { readGmailBodyHtml } from '../utils/gmailMessageParse.shared.js';
+import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
@@ -480,6 +481,11 @@ export async function ingestPersonalMailboxInbound({
   const ownerMatch = /^personal_(\d+)$/.exec(key);
   const ownerUserId = ownerMatch ? Number(ownerMatch[1]) : null;
   if (!aid || !identity?.id) return { ingested: false, reason: 'missing_identity' };
+  // Explicitly routed replies to an existing app thread/reminder remain app
+  // conversations. Ordinary addressed Gmail is imported only for Group inboxes.
+  if (!conversationId && !reminderId && !await canImportPersonalMailboxEmail(identity)) {
+    return { ingested: false, ignored: true, reason: 'workspace_user_mailbox' };
+  }
 
   const CommunicationConversation = (await import('../models/CommunicationConversation.model.js')).default;
 

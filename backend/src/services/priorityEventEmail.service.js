@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { messageReminderRecipient } from './messageReminderRecipient.service.js';
+import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
 
 export const PRIORITY_EVENT_EMAILS = new Set(['meeting_invited', 'meeting_join_reminder', 'meeting_rescheduled', 'meeting_cancelled', 'hiring_interview_invite']);
 const norm = value => String(value || '').trim().toLowerCase();
@@ -35,14 +36,15 @@ export async function savePriorityEventInboxCopy(args) {
   await persistPriorityEventInboxCopy(args);
   await pool.execute('UPDATE priority_event_inbox_copies SET completed_at=UTC_TIMESTAMP() WHERE message_id=?',[messageId]);
 }
-async function persistPriorityEventInboxCopy({ agencyId, userId, templateType, messageId, threadId, fromEmail, replyToEmail, subject, text, attachments = [] }) {
+async function persistPriorityEventInboxCopy({ agencyId, userId, templateType, messageId, threadId, fromEmail, replyToEmail, subject, text, html, attachments = [] }) {
   if (!PRIORITY_EVENT_EMAILS.has(templateType) || !userId || !messageId) return;
   const { ensurePersonalMailbox } = await import('./personalMailbox.service.js');
   const { persistInboundEmail } = await import('./inboundEmailPersistence.service.js');
   const { prepareInboundAttachments } = await import('./communicationAttachments.service.js');
   const box = await ensurePersonalMailbox({ agencyId, userId });
+  if (!await canImportPersonalMailboxEmail(box)) return;
   const prepared = await prepareInboundAttachments({ gmailMessageId: `event-email:${messageId}`, inboxId: box.id, payload: { parts: (attachments || []).map((att, index) => ({ filename: att.filename || att.name, mimeType: att.contentType || 'application/octet-stream', partId: String(index), body: { data: att.contentBase64 || att.content } })) } });
-  const saved = await persistInboundEmail({ attachments: prepared, inboxId: box.id, agencyId, ownerUserId: userId, deliveryId: `event-email:${messageId}`, threadId, fromEmail, replyToEmail, subject, bodyText: text, to: [{ email: box.from_email }] });
+  const saved = await persistInboundEmail({ attachments: prepared, inboxId: box.id, agencyId, ownerUserId: userId, deliveryId: `event-email:${messageId}`, threadId, fromEmail, replyToEmail, subject, bodyText: text, bodyHtml: html, to: [{ email: box.from_email }] });
   return saved;
 }
 

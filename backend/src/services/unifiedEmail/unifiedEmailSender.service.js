@@ -918,7 +918,7 @@ export async function sendNotificationEmail({
   }
 
   if (eventDelivery.appOnly && messageId && !redirected.redirected && PRIORITY_EVENT_EMAILS.has(templateType || triggerKey)) {
-    await savePriorityEventInboxCopy({agencyId,userId,templateType:templateType || triggerKey,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject:effectiveSubject,text:signedContent.text,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
+    await savePriorityEventInboxCopy({agencyId,userId,templateType:templateType || triggerKey,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject:effectiveSubject,text:signedContent.text,html:signedContent.html,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
   }
 
   if (agencyId && to) {
@@ -1371,7 +1371,7 @@ export async function sendEmailFromIdentity({
   }
 
   if (eventDelivery.appOnly && messageId && !redirected.redirected && PRIORITY_EVENT_EMAILS.has(templateType)) {
-    await savePriorityEventInboxCopy({agencyId,userId,templateType,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject,text:signedContent.text,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
+    await savePriorityEventInboxCopy({agencyId,userId,templateType,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject,text:signedContent.text,html:signedContent.html,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
   }
 
   if (agencyId && to) {

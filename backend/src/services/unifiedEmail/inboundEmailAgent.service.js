@@ -1022,6 +1022,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
           to: routed.to, cc: routed.cc, allowAutomation: !automated && !routed.technology, replyToEmail: extractEmails(hdrs.get('reply-to'))[0] || null
         });
+        if (result?.ignored) { results.ignored += 1; continue; }
         if (!result?.ingested) throw new Error('Personal recipient could not be persisted');
         results.inboxDeliveries += 1;
       }
