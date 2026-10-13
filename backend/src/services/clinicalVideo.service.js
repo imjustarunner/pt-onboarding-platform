@@ -81,12 +81,50 @@ export async function finishClinicalEnd(mediaId) {
     (SELECT COUNT(*) FROM clinical_video_connections WHERE media_id=? AND disconnected_at IS NULL) connections,
     (SELECT COUNT(*) FROM clinical_video_grants WHERE media_id=? AND expires_at>UTC_TIMESTAMP(3)) tokens,
     (SELECT MAX(expires_at) FROM clinical_video_grants WHERE media_id=?) last_token_expiry`, [mediaId, mediaId, mediaId]);
-  // API disconnections alone cannot prove an unreported subscriber is gone.
-  // Require a signed sessionDestroyed event after the last token window.
-  // A previous empty confirmation stays valid when no later token was issued.
+  // A signed empty event is sufficient, but may have been lost before callbacks
+  // were configured. Recover through Vonage's connection inventory, NOT streams
+  // or browser heartbeats: a silent subscriber is still a connection.
   const emptyAfter = new Date(pending.last_token_expiry || 0).getTime();
-  const confirmedEmpty = media.empty_confirmed_at && new Date(media.empty_confirmed_at).getTime() >= emptyAfter;
-  if (!failed && confirmedEmpty && !Number(pending.connections) && !Number(pending.tokens)) {
+  let confirmedEmpty = media.empty_confirmed_at && new Date(media.empty_confirmed_at).getTime() >= emptyAfter;
+  if (!confirmedEmpty) {
+    try {
+      let observedAt = new Date();
+      let remote = await Video.listConnections(mediaId);
+      if (remote.count) {
+        for (const connection of remote.items) {
+          // Retain newly discovered connections for retry even if their callback
+          // never arrived. Do not invent a grant or participant identity.
+          await pool.execute(`INSERT INTO clinical_video_connections (media_id,connection_id,connected_at,disconnect_requested)
+            VALUES (?,?,?,TRUE) ON DUPLICATE KEY UPDATE disconnect_requested=IF(disconnected_at IS NULL,TRUE,FALSE)`,
+          [mediaId, connection.connectionId, new Date(Number(connection.createdAt))]);
+          try { await disconnect(mediaId, connection.connectionId); } catch { failed = true; }
+        }
+        // Re-read rather than assuming successful DELETEs cover every connection.
+        observedAt = new Date();
+        remote = await Video.listConnections(mediaId);
+      }
+      if (!failed && remote.count === 0 && !Number(pending.tokens) && observedAt.getTime() >= emptyAfter) {
+        const db = await pool.getConnection();
+        try {
+          await db.beginTransaction();
+          const current = await clinicalMedia(mediaId, db, true);
+          const [[grants]] = await db.execute('SELECT COUNT(*) total FROM clinical_video_grants WHERE media_id=? AND expires_at>?', [mediaId, observedAt]);
+          if (current.state === 'ending' && !Number(grants.total)) {
+            await db.execute('UPDATE clinical_video_sessions SET empty_confirmed_at=? WHERE media_id=?', [observedAt, mediaId]);
+            await db.execute('UPDATE clinical_video_connections SET disconnected_at=COALESCE(disconnected_at,?),disconnect_requested=FALSE WHERE media_id=? AND connected_at<=?', [observedAt, mediaId, observedAt]);
+            await clinicalAudit(scope(media), 'clinical_media_empty_confirmed', { source: 'vonage_connection_api' }, db);
+            confirmedEmpty = true;
+          }
+          await db.commit();
+        } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
+      }
+    } catch (error) {
+      failed = true;
+      console.warn(JSON.stringify({ severity: 'WARNING', component: 'clinical_video_reconciliation',
+        code: error.code || 'VIDEO_CONNECTION_CHECK_FAILED', status: error.response?.status || error.statusCode || error.status || null }));
+    }
+  }
+  if (!failed && confirmedEmpty && !Number(pending.tokens)) {
     const db = await pool.getConnection();
     try {
       await db.beginTransaction();

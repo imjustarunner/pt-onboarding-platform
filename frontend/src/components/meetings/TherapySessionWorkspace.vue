@@ -2,7 +2,7 @@
   <section class="therapy-workspace">
     <header class="therapy-header">
       <OfficeBrand v-if="showBrand" class="therapy-brand" :branding="branding" />
-      <span class="therapy-status" :class="{'status-leading':!showBrand}">● In session</span><span class="therapy-clock">{{ elapsed }}</span>
+      <span class="therapy-status" :class="{'status-leading':!showBrand}">● {{ startedAt === null ? 'Ready for your guest' : 'In session' }}</span><span class="therapy-clock">{{ elapsed }}</span>
       <button class="danger" @click="$emit('leave-request')">{{ isHost ? 'End session' : 'Leave session' }}</button>
     </header>
     <p v-if="error" role="alert">{{ error }} <button @click="refresh">Retry</button></p>
@@ -60,12 +60,12 @@ import {defineAsyncComponent,computed,onMounted,onBeforeUnmount,ref,watch} from 
 import {Mic,Video,ScreenShare,Pencil,MessageCircle,FolderOpen,FileText,Gamepad2,Play,Link,BookOpen,ClipboardList,Heart,ChevronRight} from '@lucide/vue';
 import VideoSessionRoom from '../video/VideoSessionRoom.vue';
 const SharedSessionPdf=defineAsyncComponent(()=>import('./SharedSessionPdf.vue'));
-const props=defineProps({video:{type:Object,default:()=>({})},isHost:Boolean,identified:Boolean,showBrand:{type:Boolean,default:true},branding:Object,productName:{type:String,default:'AuricWell'},request:{type:Function,required:true},videoControl:Function});
+const props=defineProps({video:{type:Object,default:()=>({})},isHost:Boolean,startedAt:{type:[String,Number,Date],default:undefined},identified:Boolean,showBrand:{type:Boolean,default:true},branding:Object,productName:{type:String,default:'AuricWell'},request:{type:Function,required:true},videoControl:Function});
 defineEmits(['connected','disconnected','leave-request','meeting-ended']);
 const videoRef=ref(null),artifacts=ref([]),error=ref(''),saving=ref(false),panel=ref(''),chat=ref(''),draftMode=ref(''),draftTitle=ref(''),draftUrl=ref(''),draftQuestions=ref(''),documentData=ref(''),planId=ref(''),treatmentPlans=ref([]),page=ref(1),answers=ref([]),rating=ref(5),savedMessage=ref(''),ink=ref('#2563eb'),stroke=ref([]),now=ref(Date.now());
 const started=Date.now();let poll,clock,drawing=false,polling=false,cursor=0;
 const controls=()=>props.videoControl?.() || videoRef.value;
-const elapsed=computed(()=>{const s=Math.floor((now.value-started)/1000);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;});
+const elapsed=computed(()=>{const start=props.startedAt===undefined?started:new Date(props.startedAt).getTime();const s=props.startedAt===null||!Number.isFinite(start)?0:Math.max(0,Math.floor((now.value-start)/1000));return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;});
 const feelings=[{emoji:'😊',label:'Happy'},{emoji:'😌',label:'Calm'},{emoji:'😔',label:'Sad'},{emoji:'😠',label:'Angry'},{emoji:'😟',label:'Worried'},{emoji:'🌟',label:'Proud'}];
 const tools=computed(()=>[{mode:'screen',label:'Share screen',hint:'Show your screen',icon:ScreenShare},{mode:'whiteboard',label:'Whiteboard',hint:'Draw and reflect together',icon:Pencil},{mode:'pdf',label:'Handout / PDF',hint:'Share a worksheet or document',icon:FileText},{mode:'activity',label:'Game / Activity',hint:'Explore feelings and coping skills',icon:Gamepad2},{mode:'media',label:'YouTube / Video',hint:'Watch a video together',icon:Play},{mode:'book',label:'Book',hint:'Read and discuss together',icon:BookOpen},{mode:'assessment',label:'Assessment / Questionnaire',hint:'Complete and save responses',icon:ClipboardList},{mode:'resource',label:'Resource link',hint:'Share a helpful website',icon:Link},...(props.identified&&props.isHost?[{mode:'treatment',label:'Treatment plan',hint:'Share goals for client self-rating',icon:Heart}]:[])]);
 const modeLabel=mode=>tools.value.find(t=>t.mode===mode)?.label || mode || '';

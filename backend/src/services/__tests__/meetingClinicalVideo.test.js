@@ -1,25 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
-const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),disconnectClient:vi.fn(),generateToken:vi.fn(),audit:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),disconnectClient:vi.fn(),listConnections:vi.fn(),generateToken:vi.fn(),audit:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:m}));
 vi.mock('../vonageVideo.service.js',()=>({default:m}));
 vi.mock('../clinicalSessionAudit.service.js',()=>({clinicalAudit:m.audit}));
 import { verifyClinicalCallback, processClinicalCallback, finishClinicalEnd, requestClinicalEnd, clinicalVideoToken, requireMonitoredProvider, clinicalAttendance } from '../clinicalVideo.service.js';
 let db,media,connections,grants;
 beforeEach(()=>{
- vi.clearAllMocks();vi.stubEnv('VONAGE_VIDEO_CALLBACK_SECRET','test-secret');vi.stubEnv('VONAGE_APPLICATION_ID','project');
+ vi.clearAllMocks();m.listConnections.mockReset().mockRejectedValue(new Error('synthetic unavailable inventory'));vi.spyOn(console,'warn').mockImplementation(()=>{});vi.stubEnv('VONAGE_VIDEO_CALLBACK_SECRET','test-secret');vi.stubEnv('VONAGE_APPLICATION_ID','project');
  media={media_id:'media',session_kind:'office',session_id:1,generation:2,agency_id:3,state:'active'};connections=[];grants=[];
  db={execute:m.execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};m.getConnection.mockResolvedValue(db);m.disconnectClient.mockResolvedValue(true);m.audit.mockResolvedValue();
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.startsWith('SELECT * FROM clinical_video_sessions'))return [[media]];
   if(sql.startsWith('SELECT * FROM clinical_video_grants'))return [grants.filter(g=>g.id===args[0])];
   if(sql.includes('SELECT connection_id FROM clinical_video_connections'))return [connections.filter(c=>!c.disconnected_at)];
-  if(sql.includes(') connections,'))return [[{connections:connections.filter(c=>!c.disconnected_at).length,tokens:grants.filter(g=>new Date(g.expires_at)>new Date()).length}]];
+  if(sql.includes(') connections,'))return [[{connections:connections.filter(c=>!c.disconnected_at).length,tokens:grants.filter(g=>new Date(g.expires_at)>new Date()).length,last_token_expiry:grants.length?new Date(Math.max(...grants.map(g=>new Date(g.expires_at).getTime()))):null}]];
   if(sql.includes('SELECT COUNT(*) total FROM clinical_video_connections'))return [[{total:connections.filter(c=>!c.disconnected_at).length}]];
+  if(sql.includes('SELECT COUNT(*) total FROM clinical_video_grants'))return [[{total:grants.filter(g=>new Date(g.expires_at)>args[1]).length}]];
+  if(sql.includes('SET empty_confirmed_at=?'))media.empty_confirmed_at=args[0];
   if(sql.includes("SET state='ending'"))media.state='ending';
   if(sql.includes("SET state='ended'"))media.state='ended';
   if(sql.startsWith('UPDATE clinical_video_grants'))grants.forEach(g=>g.revoked_at=new Date());
+  if(sql.includes('WHERE media_id=? AND connected_at<=?')){connections.filter(c=>new Date(c.connected_at)<=args[2]).forEach(c=>c.disconnected_at=args[0]);return [{affectedRows:1}];}
   if(sql.startsWith('UPDATE clinical_video_connections SET disconnected_at')){const c=connections.find(c=>c.connection_id===args[1]);if(c)c.disconnected_at=new Date();}
   return [{affectedRows:1}];
  });
@@ -80,7 +83,29 @@ describe('provider-controlled closure',()=>{
   media.state='ending';media.empty_confirmed_at=new Date();connections=[{connection_id:'gone'}];m.disconnectClient.mockRejectedValue({response:{status:404}});
   expect((await finishClinicalEnd('media')).ok).toBe(true);
  });
- it('waits for signed empty-room confirmation even when all known connections are gone',async()=>{media.state='ending';expect(await finishClinicalEnd('media')).toMatchObject({ok:false,state:'ending'});});
+ it('waits for authoritative empty-room confirmation even when all known connections are gone',async()=>{media.state='ending';expect(await finishClinicalEnd('media')).toMatchObject({ok:false,state:'ending'});});
+ it('recovers a missed closure callback using an authoritative empty inventory after token expiry',async()=>{
+  media.state='ending';grants=[{expires_at:new Date(Date.now()-1000)}];m.listConnections.mockResolvedValue({count:0,items:[]});
+  expect(await finishClinicalEnd('media')).toMatchObject({ok:true,state:'ended'});
+  expect(m.audit).toHaveBeenCalledWith(expect.anything(),'clinical_media_empty_confirmed',{source:'vonage_connection_api'},db);
+ });
+ it('disconnects previously unreported clients and verifies the inventory again',async()=>{
+  media.state='ending';m.listConnections.mockResolvedValueOnce({count:1,items:[{connectionId:'silent-client',createdAt:Date.now()-2000,connectionState:'Connecting'}]}).mockResolvedValueOnce({count:0,items:[]});
+  expect(await finishClinicalEnd('media')).toMatchObject({ok:true,state:'ended'});
+  expect(m.disconnectClient).toHaveBeenCalledWith('media','silent-client');expect(m.listConnections).toHaveBeenCalledTimes(2);
+ });
+ it('never unlocks on a partial or still-occupied inventory',async()=>{
+  media.state='ending';m.listConnections.mockResolvedValue({count:3,items:[{connectionId:'silent-client',createdAt:Date.now()-2000,connectionState:'Connected'}]});
+  expect(await finishClinicalEnd('media')).toMatchObject({ok:false,state:'ending'});
+ });
+ it('does not accept an empty inventory while issued credentials can still connect',async()=>{
+  media.state='ending';grants=[{expires_at:new Date(Date.now()+60000)}];m.listConnections.mockResolvedValue({count:0,items:[]});
+  expect(await finishClinicalEnd('media')).toMatchObject({ok:false,state:'ending'});expect(media.empty_confirmed_at).toBeUndefined();
+ });
+ it('does not turn a forbidden inventory response into proof of disconnection',async()=>{
+  media.state='ending';m.listConnections.mockRejectedValue({response:{status:403}});
+  expect(await finishClinicalEnd('media')).toMatchObject({ok:false,state:'ending'});
+ });
  it('merges overlapping device connections for attendance instead of double-counting',async()=>{
   const at=n=>new Date(n*1000);m.execute.mockResolvedValue([[{visit_id:7,connected_at:at(10),disconnected_at:at(20)},{visit_id:7,connected_at:at(15),disconnected_at:at(30)},{visit_id:7,connected_at:at(40),disconnected_at:at(50)}]]);
   expect((await clinicalAttendance('office',1)).get(7)).toBe(30);

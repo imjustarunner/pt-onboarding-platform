@@ -2,12 +2,12 @@ import {afterAll,beforeAll,beforeEach,describe,expect,it,vi} from 'vitest';
 import mysql from 'mysql2/promise';
 import fs from 'node:fs/promises';
 import {splitSqlStatements,stripSqlLineComments} from '../../../../database/migrationSqlUtils.js';
-const state=vi.hoisted(()=>({db:null,serial:0,disconnect:vi.fn()}));
+const state=vi.hoisted(()=>({db:null,serial:0,disconnect:vi.fn(),inventory:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>state.db.execute(...args),getConnection:()=>state.db.getConnection()}}));
 vi.mock('../meetingJoinPolicy.service.js',()=>({hasActiveMeetingMembership:async()=>true}));
 vi.mock('../meetingAccessPlan.service.js',()=>({getMeetingPlan:async()=>({privateOffice:true,multipleOfficeGuests:true})}));
-vi.mock('../vonageVideo.service.js',()=>({resolveVideoProjectId:()=> 'project',default:{isVideoConfigured:()=>true,createSession:async()=>`media-${++state.serial}`,generateToken:(_id,options)=>options.data,disconnectClient:state.disconnect}}));
-import {officeHostVideo,joinOffice,admitOfficeGuest,officeGuestVideo,officeWorkspaceContext,leaveOffice,endOffice} from '../privateVirtualOffice.service.js';
+vi.mock('../vonageVideo.service.js',()=>({resolveVideoProjectId:()=> 'project',default:{isVideoConfigured:()=>true,createSession:async()=>`media-${++state.serial}`,generateToken:(_id,options)=>options.data,disconnectClient:state.disconnect,listConnections:state.inventory}}));
+import {officeHostVideo,officeLobby,joinOffice,admitOfficeGuest,officeGuestVideo,officeWorkspaceContext,leaveOffice,endOffice} from '../privateVirtualOffice.service.js';
 import {appendWorkspace,readWorkspace} from '../therapyWorkspace.service.js';
 import {processClinicalCallback,finishClinicalEnd} from '../clinicalVideo.service.js';
 import {runClinicalSessionMaintenance} from '../clinicalSessionRetention.service.js';
@@ -15,7 +15,7 @@ import {counselingClinicalToken,endClinicalCounseling} from '../counselingClinic
 import {joinCounselingVisit,admitCounselingVisit} from '../counselingSessionVisit.service.js';
 const socket=process.env.CLINICAL_TEST_SOCKET;
 describe.skipIf(!socket)('isolated clinical encounter database',()=>{
- const room={id:1,userId:5,agencyId:2,isActive:true};
+ const room={id:1,userId:5,agencyId:2,isActive:true,slug:'permanent-office'};
  async function connect(credentials,id){await processClinicalCallback({event:'connectionCreated',sessionId:credentials.sessionId,projectId:'project',timestamp:Date.now(),connection:{id,createdAt:Date.now(),data:credentials.token}});}
  async function confirmEmpty(mediaId){await processClinicalCallback({sessionId:mediaId,event:'sessionDestroyed',timestamp:Date.now()});}
  async function expireTokens(){await state.db.execute('UPDATE clinical_video_grants SET expires_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND)');}
@@ -34,7 +34,7 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
   vi.stubEnv('VONAGE_VIDEO_CALLBACK_SECRET','synthetic');vi.stubEnv('VONAGE_APPLICATION_ID','project');
  });
  beforeEach(async()=>{
-  vi.spyOn(console,'info').mockImplementation(()=>{});state.disconnect.mockReset().mockResolvedValue(true);
+  vi.spyOn(console,'info').mockImplementation(()=>{});state.disconnect.mockReset().mockResolvedValue(true);state.inventory.mockReset().mockRejectedValue(new Error('synthetic unavailable inventory'));vi.spyOn(console,'warn').mockImplementation(()=>{});
   for(const table of ['clinical_video_connections','clinical_video_grants','therapy_session_artifacts','clinical_video_sessions','private_virtual_office_visits','private_virtual_office_sessions','clinical_session_retention','counseling_session_visits','counseling_sessions'])await state.db.query(`DELETE FROM ${table}`);
  });
  afterAll(async()=>{if(state.db){await state.db.query('DROP DATABASE clinical_encounter_test');await state.db.end();}});
@@ -82,6 +82,22 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
   const host=await officeHostVideo(room);await connect(host,'provider');await expireTokens();await confirmEmpty(host.sessionId);
   expect(await endOffice(room)).toMatchObject({ok:true,state:'ended'});
   expect((await officeHostVideo(room)).sessionId).not.toBe(host.sessionId);
+ });
+ it('recovers lost callbacks through maintenance and keeps the permanent office while isolating the next visit',async()=>{
+  const host=await officeHostVideo(room);await connect(host,'provider');
+  const a=await joinOffice(room,{});await admitOfficeGuest(room,a.id);
+  const started=(await officeLobby(room)).encounter.startedAt;expect(started).toBeInstanceOf(Date);
+  await officeHostVideo(room);expect((await officeLobby(room)).encounter.startedAt).toEqual(started);
+  const b=await joinOffice(room,{});await admitOfficeGuest(room,b.id,{sameEncounter:true});expect((await officeLobby(room)).encounter.startedAt).toEqual(started);
+  await appendWorkspace(await officeWorkspaceContext(room,{id:a.id,credential:a.credential}),{type:'chat',payload:{text:'Previous encounter only'}});
+  state.inventory.mockResolvedValue({count:0,items:[]});expect(await endOffice(room)).toMatchObject({state:'ending'});
+  await expireTokens();state.inventory.mockResolvedValueOnce({count:1,items:[{connectionId:'unreported-silent-client',connectionState:'Connecting',createdAt:Date.now()-10000}]}).mockResolvedValue({count:0,items:[]});
+  await runClinicalSessionMaintenance();expect((await officeLobby(room)).encounter.state).toBe('ended');
+  expect(state.disconnect).toHaveBeenCalledWith(host.sessionId,'unreported-silent-client');
+  const next=await officeHostVideo(room);expect(next.sessionId).not.toBe(host.sessionId);expect(room.slug).toBe('permanent-office');
+  expect((await officeLobby(room)).encounter).toMatchObject({startedAt:null,hasParticipants:false});
+  await expect(officeGuestVideo(room,a.id,a.credential)).rejects.toMatchObject({status:403});
+  expect((await readWorkspace(await officeWorkspaceContext(room))).artifacts).toEqual([]);
  });
  it('enforces retention policy and holds while independently expiring transient photos',async()=>{
   const host=await officeHostVideo(room);await connect(host,'provider');const a=await joinOffice(room,{});await admitOfficeGuest(room,a.id);

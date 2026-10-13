@@ -134,6 +134,28 @@ class VonageVideoService {
     return items || [];
   }
 
+  /** Authoritative connections, including clients with both camera and mic off. */
+  static async listConnections(sessionId) {
+    const sid = String(sessionId || '').trim();
+    if (!sid) throw new Error('A video session is required.');
+    const vonage = this.getClient();
+    const applicationId = String(process.env.VONAGE_APPLICATION_ID || '').trim();
+    // The installed SDK does not yet wrap this documented REST endpoint. Use its
+    // authenticated transport, just as getStreamInfo/disconnectClient do.
+    const response = await vonage.video.sendGetRequest(
+      `https://video.api.vonage.com/v2/project/${encodeURIComponent(applicationId)}/session/${encodeURIComponent(sid)}/connection`
+    );
+    const data = response?.data;
+    if (!data || data.applicationId !== applicationId || data.sessionId !== sid ||
+        !Number.isSafeInteger(data.count) || data.count < 0 || !Array.isArray(data.items) ||
+        data.count < data.items.length || (data.count > 0 && !data.items.length) ||
+        data.items.some(item => !item || typeof item.connectionId !== 'string' || !item.connectionId || item.connectionId.length > 100 ||
+          !['Connecting', 'Connected'].includes(item.connectionState) || !Number.isFinite(item.createdAt) || item.createdAt <= 0 || item.createdAt > Date.now() + 60000)) {
+      throw Object.assign(new Error('Invalid video connection inventory.'), { code: 'VIDEO_CONNECTION_INVENTORY_INVALID' });
+    }
+    return { count: data.count, items: data.items };
+  }
+
   /**
    * Force-disconnect a client connection from the session.
    */
