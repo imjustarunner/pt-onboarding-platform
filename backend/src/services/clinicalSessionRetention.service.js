@@ -1,3 +1,4 @@
+import {syncOfficeAttendance} from './virtualOfficeAttendance.service.js';
 import pool from '../config/database.js';
 import { clinicalAudit } from './clinicalSessionAudit.service.js';
 import { retryClinicalDisconnections } from './clinicalVideo.service.js';
@@ -15,6 +16,7 @@ export async function runClinicalSessionMaintenance() {
    WHERE status='waiting' AND (expires_at<=UTC_TIMESTAMP() OR last_seen_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE))`);
  if(photos.affectedRows)await clinicalAudit({},'clinical_transient_photos_removed',{count:photos.affectedRows});
  await retryClinicalDisconnections();
+ await syncOfficeAttendance();
  // Only finalized encounters under an explicit tenant policy are candidates. No default PHI purge.
  const [candidates]=await pool.execute(`SELECT s.media_id FROM clinical_video_sessions s
    JOIN clinical_session_retention p ON p.agency_id=s.agency_id

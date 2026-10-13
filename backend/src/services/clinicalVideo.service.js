@@ -112,7 +112,7 @@ export async function finishClinicalEnd(mediaId) {
           if (current.state === 'ending' && !Number(grants.total)) {
             await db.execute('UPDATE clinical_video_sessions SET empty_confirmed_at=? WHERE media_id=?', [observedAt, mediaId]);
             await db.execute('UPDATE clinical_video_connections SET disconnected_at=COALESCE(disconnected_at,?),disconnect_requested=FALSE WHERE media_id=? AND connected_at<=?', [observedAt, mediaId, observedAt]);
-            await clinicalAudit(scope(media), 'clinical_media_empty_confirmed', { source: 'vonage_connection_api' }, db);
+            await clinicalAudit(scope(media), 'clinical_media_empty_confirmed', { source: 'vonage_connection_api', ...(remote.evidence?{evidence:remote.evidence}:{}) }, db);
             confirmedEmpty = true;
           }
           await db.commit();
@@ -134,6 +134,7 @@ export async function finishClinicalEnd(mediaId) {
       if (current.state === 'ending' && current.empty_confirmed_at && new Date(current.empty_confirmed_at).getTime() >= emptyAfter && !Number(remaining.total)) {
         await db.execute("UPDATE clinical_video_sessions SET state='ended',ended_at=UTC_TIMESTAMP(3) WHERE media_id=?", [mediaId]);
         await clinicalAudit(scope(media), 'clinical_encounter_disconnected', {}, db);
+        if(media.session_kind==='counseling')await db.execute('UPDATE virtual_office_encounters SET attendance_version=attendance_version+1 WHERE counseling_session_id=?',[media.session_id]);
       }
       await db.commit();
     } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
@@ -211,6 +212,7 @@ export async function processClinicalCallback(event) {
     await clinicalAudit({ ...scope(media), actor: grant?.actor, role: grant?.participant_role },
       destroyed ? 'clinical_media_disconnected' : allowed ? 'clinical_media_connected' : 'clinical_media_connection_denied',
       { connectionId: connection.id, visitId: grant?.visit_id || null }, db);
+    if(media.session_kind==='counseling')await db.execute('UPDATE virtual_office_encounters SET attendance_version=attendance_version+1 WHERE counseling_session_id=?',[media.session_id]);
     await db.commit();
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
   if (mustDisconnect) await disconnect(event.sessionId, connection.id);

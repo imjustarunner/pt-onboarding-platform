@@ -12,7 +12,7 @@ async function setup(encounter,admitted=[]){
   if(path==='/me/end'){data.encounter.state='ending';return {ok:false,state:'ending'};}
   return structuredClone(data);
  });
- const wrapper=mount(Office,{props:{request},global:{stubs:{TherapySessionWorkspace:stub}}});await flushPromises();
+ const wrapper=mount(Office,{props:{request},global:{stubs:{TherapySessionWorkspace:stub,OfficeDayList:true,CounselingSessionView:true}}});await flushPromises();
  return {wrapper,request,data};
 }
 const button=(wrapper,text)=>wrapper.findAll('button').find(b=>b.text().includes(text));
@@ -51,4 +51,28 @@ it('does not enable admission until the server confirms the provider connection'
  expect(button(wrapper,'Start session').attributes('disabled')).toBeUndefined();
  await button(wrapper,'Start session').trigger('click');await flushPromises();
  expect(request).toHaveBeenCalledWith('/lobby/7/admit',{method:'POST',body:{sameEncounter:false}});wrapper.unmount();
+});
+
+it('groups shared IP addresses without combining client visits or durations',async()=>{
+ const {wrapper,data}=await setup({state:'idle',hasParticipants:false});
+ data.visits=[{id:1,displayName:'Client A',ipAddress:'192.0.2.1',entryMethod:'invitation',durationSeconds:60},{id:2,displayName:'Client B',ipAddress:'192.0.2.1',entryMethod:'office_link',durationSeconds:120},{id:3,displayName:'Client C',ipAddress:'192.0.2.2',durationSeconds:30}];
+ const details=wrapper.find('details');details.element.open=true;await details.trigger('toggle');await flushPromises();
+ await wrapper.find('.history-grouping select').setValue('ip');
+ expect(wrapper.findAll('tbody')).toHaveLength(2);expect(wrapper.findAll('tbody')[0].findAll('td')).toHaveLength(18);
+ expect(wrapper.findAll('tbody')[0].text()).toContain('Client A');expect(wrapper.findAll('tbody')[0].text()).toContain('Client B');expect(wrapper.findAll('tbody')[0].text()).toContain('1m 0s');expect(wrapper.findAll('tbody')[0].text()).toContain('2m 0s');expect(wrapper.findAll('tbody')[0].text()).toContain('Personal invitation');
+ wrapper.unmount();
+});
+
+it('loads an existing full meeting beside the office waiting room',async()=>{
+ const {wrapper}=await setup({state:'idle',hasParticipants:false});
+ wrapper.findComponent({name:'OfficeDayList'}).vm.$emit('open',{key:'meeting',type:'meeting',title:'Team meeting',url:'https://auricwell.com/join/team-meeting/synthetic'});await flushPromises();
+ expect(wrapper.find('iframe').attributes('src')).toBe('/join/team-meeting/synthetic');expect(wrapper.find('aside').text()).toContain('Second client');
+ await button(wrapper,'Return to office').trigger('click');expect(wrapper.find('iframe').exists()).toBe(false);wrapper.unmount();
+});
+it('requires identity confirmation before assigning an office guest to an appointment',async()=>{
+ const {wrapper,request}=await setup({state:'active',hasParticipants:false,scheduled:{id:9,participants:[{id:10,displayName:'Scheduled client'}]}});
+ await button(wrapper,'Reconnect').trigger('click');await flushPromises();wrapper.findComponent({name:'CounselingSessionView'}).vm.$emit('connected');await flushPromises();
+ await button(wrapper,'Identify and admit').trigger('click');await flushPromises();expect(request.mock.calls.some(([p])=>p.includes('/admit'))).toBe(false);
+ expect(button(wrapper,'Confirm and admit').attributes('disabled')).toBeDefined();await wrapper.find('[role=dialog] select').setValue('10');await button(wrapper,'Confirm and admit').trigger('click');await flushPromises();
+ expect(request).toHaveBeenCalledWith('/lobby/7/admit',{method:'POST',body:{clientId:10,confirmIdentity:true,sameEncounter:false}});wrapper.unmount();
 });

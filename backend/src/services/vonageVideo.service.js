@@ -142,15 +142,31 @@ class VonageVideoService {
     const applicationId = String(process.env.VONAGE_APPLICATION_ID || '').trim();
     // The installed SDK does not yet wrap this documented REST endpoint. Use its
     // authenticated transport, just as getStreamInfo/disconnectClient do.
-    const response = await vonage.video.sendGetRequest(
+    let response;
+    try { response = await vonage.video.sendGetRequest(
       `https://video.api.vonage.com/v2/project/${encodeURIComponent(applicationId)}/session/${encodeURIComponent(sid)}/connection`
-    );
+    ); } catch (error) {
+      // Vonage documents session-not-found for an inactive connection inventory.
+      // Require its structured API response, not a proxy/HTML/unknown 404.
+      let data;
+      if(Number(error.response?.status)===404){
+        try{data=typeof error.response?.json==='function'?await error.response.json():error.response?.data;}catch{/* Unknown response is not proof of an empty session. */}
+      }
+      if(Number(error.response?.status)===404 && data?.message==='Not found. No clients are actively connected to the OpenTok session.') {
+        return {count:0,items:[],evidence:'no_active_clients'};
+      }
+      if(Number(error.response?.status)===404 && Number(data?.code)===404 &&
+          /^session\b.{0,600}\bnot found[.!]?$/i.test(String(data.message||''))) {
+        return {count:0,items:[],evidence:'session_not_found'};
+      }
+      throw error;
+    }
     const data = response?.data;
     if (!data || data.applicationId !== applicationId || data.sessionId !== sid ||
         !Number.isSafeInteger(data.count) || data.count < 0 || !Array.isArray(data.items) ||
         data.count < data.items.length || (data.count > 0 && !data.items.length) ||
         data.items.some(item => !item || typeof item.connectionId !== 'string' || !item.connectionId || item.connectionId.length > 100 ||
-          !['Connecting', 'Connected'].includes(item.connectionState) || !Number.isFinite(item.createdAt) || item.createdAt <= 0 || item.createdAt > Date.now() + 60000)) {
+          !['Connecting', 'Connected'].includes(item.connectionState) || (typeof item.createdAt!=='number'&&!/^\d+$/.test(String(item.createdAt||''))) || !Number.isFinite(Number(item.createdAt)) || Number(item.createdAt)<=0 || Number(item.createdAt)>Date.now()+60000)) {
       throw Object.assign(new Error('Invalid video connection inventory.'), { code: 'VIDEO_CONNECTION_INVENTORY_INVALID' });
     }
     return { count: data.count, items: data.items };

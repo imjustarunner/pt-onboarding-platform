@@ -34,6 +34,9 @@ export async function assertEvidenceStorage() {
     ['clinical_video_grants', '1531', 'id,media_id,actor,expires_at,revoked_at'],
     ['clinical_video_connections', '1531', 'media_id,connection_id,connected_at,disconnected_at'],
     ['clinical_session_retention', '1531', 'agency_id,artifact_days'],
+    ['virtual_office_encounters', '1560', 'room_id,generation,counseling_session_id,attendance_version,synced_version'],
+    ['private_virtual_office_visits', '1560', 'counseling_visit_id'],
+    ['counseling_session_visits', '1560', 'client_id,entry_method,office_visit_id'],
     ['therapy_session_artifacts', '1530', 'session_kind,session_id,generation,agency_id,payload_envelope']
   ];
   for (const [component, requiredMigration, columns] of probes) {

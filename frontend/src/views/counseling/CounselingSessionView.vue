@@ -1,5 +1,5 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="clinicalSessionBranding" immersive :tenant-id="session?.agencyId || session?.agency_id" context-label="Counseling session" :back-disabled="phase !== 'pre' && phase !== 'ended'">
+  <ClinicalWorkspaceFrame :enabled="clinicalSessionBranding && !embedded" immersive :tenant-id="session?.agencyId || session?.agency_id" context-label="Counseling session" :back-disabled="phase !== 'pre' && phase !== 'ended'">
   <div class="cs" :class="{ 'cs--provider': participantRole === 'provider', 'cs--activity': inActivityMode }">
     <header v-if="phase !== 'connected'" class="clinical-brand"><img :src="AURICWELL_MARK_URL" alt="AuricWell" /><div><strong>AuricWell</strong><small>{{ branding?.agencyName || 'Virtual care' }}</small></div></header>
     <ClientRecordingConsentPanel v-if="session && phase !== 'ended'" :base-url="transcriptionBase" :is-provider="participantRole === 'provider'" />
@@ -33,8 +33,8 @@
       <button class="waiting-leave cs__btn" @click="confirmEnd">Leave waiting room</button><p v-if="preError" role="alert">{{ preError }}</p>
     </section>
     <template v-else-if="phase === 'connected'">
-      <section v-if="participantRole==='provider'" class="client-admission"><strong>Waiting room</strong><p v-if="!visits.some(v=>v.status==='waiting')">No clients waiting.</p><div v-for="visit in visits.filter(v=>v.status==='waiting')" :key="visit.id"><span>{{ visit.displayName || 'Client' }} · {{ visit.ipAddress }}</span><button class="cs__btn cs__btn--primary" :disabled="!videoConnected" @click="admitClient(visit.id)">Admit client</button></div><details><summary>Attendance audit</summary><p v-for="visit in visits" :key="visit.id">{{ visit.actor }} · {{ visit.ipAddress }} · {{ visit.status }} · Admitted: {{ visit.durationSeconds == null ? 'In progress' : `${visit.durationSeconds}s` }} · Video: {{ visit.mediaDurationSeconds == null ? 'Not confirmed' : `${visit.mediaDurationSeconds}s` }}</p></details></section>
-      <TherapySessionWorkspace :is-host="participantRole==='provider'" :identified="true" :branding="branding" :request="workspaceRequest" :video-control="()=>videoRoomRef" @leave-request="confirmEnd">
+      <section v-if="participantRole==='provider' && !embedded" class="client-admission"><strong>Waiting room</strong><p v-if="!visits.some(v=>v.status==='waiting')">No clients waiting.</p><div v-for="visit in visits.filter(v=>v.status==='waiting')" :key="visit.id"><span>{{ visit.displayName || 'Client' }} · {{ visit.ipAddress }}</span><button class="cs__btn cs__btn--primary" :disabled="!videoConnected" @click="admitClient(visit.id)">Admit client</button></div><details><summary>Attendance audit</summary><p v-for="visit in visits" :key="visit.id">{{ visit.actor }} · {{ visit.ipAddress }} · {{ visit.status }} · Admitted: {{ visit.durationSeconds == null ? 'In progress' : `${visit.durationSeconds}s` }} · Video: {{ visit.mediaDurationSeconds == null ? 'Not confirmed' : `${visit.mediaDurationSeconds}s` }}</p></details></section>
+      <TherapySessionWorkspace :is-host="participantRole==='provider'" :started-at="session?.startedAt || null" :identified="true" :branding="branding" :request="workspaceRequest" :video-control="()=>videoRoomRef" @leave-request="confirmEnd">
         <template #video>
           <VideoSessionRoom v-if="videoCreds" ref="videoRoomRef" v-bind="videoCreds" :key="`${videoCreds.sessionId}:${String(videoCreds.token || '').slice(-12)}`" :local-name="localName" :hide-controls="true" :server-managed-end="true" :equal-tiles-when-remote="false" :is-host-or-cohost="participantRole==='provider'" :can-recreate-room="false" @connected="videoConnected=true" @disconnected="onClinicalDisconnected" @request-rejoin="rejoinVideo" @request-recreate-room="refreshVideoToken({recreateRoom:true})" @meeting-ended="phase='ended';stopPolling()" @leave-request="confirmEnd" />
           <p v-else class="cs__video">{{ videoRejoinError || 'Connecting video…' }} <button class="cs__btn" @click="rejoinVideo">Retry video</button></p>
@@ -80,21 +80,25 @@ import ClientRecordingConsentPanel from '../../components/video/ClientRecordingC
 import ConsentedTranscriptionPanel from '../../components/video/ConsentedTranscriptionPanel.vue';
 import { launchActivity } from '../../services/launchActivity.js';
 
+const props=defineProps({sessionRef:{type:String,default:''},embedded:Boolean,autoJoin:Boolean});
+const emit=defineEmits(['connected','session-ended']);
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
-const sessionId = computed(() => route.params.sessionId);
+const sessionId = computed(() => props.sessionRef || route.params.sessionId);
 const orgSlug = computed(() => route.params.organizationSlug || null);
 
 const videoRoomRef = ref(null), transcriptionPanel = ref(null), videoConnected = ref(false);
+watch(videoConnected,value=>{if(value)emit('connected');});
 const noteAidId = ref(''), noteMessage = ref(''), noteRetry = ref(false);
 const transcriptionBase = computed(() => `/counseling/sessions/${sessionId.value}`);
 const getTranscriptionStream = () => videoRoomRef.value?.getTranscriptionStream?.();
 const phase = ref('pre');
+watch(phase,value=>{if(value==='ended')emit('session-ended');});
 const branding=ref(null),visits=ref([]);
 const workspaceRequest=(_path,{method='GET',body}={})=>api({url:`/counseling/sessions/${sessionId.value}/workspace${_path}`,method,data:body,skipGlobalLoading:true}).then(r=>r.data);
-async function refreshVisits(){try{const {data}=await api.get(`/counseling/sessions/${sessionId.value}/visits`,{skipGlobalLoading:true});visits.value=data.visits||[];if(data.visit?.status==='ended'&&phase.value==='connected'){stopPolling();phase.value='ended';videoCreds.value=null;}return data.visit;}catch(error){if(participantRole.value==='client'&&[401,403,410].includes(error.response?.status)){stopPolling();phase.value='ended';videoCreds.value=null;}throw error;}}
+async function refreshVisits(){try{const {data}=await api.get(`/counseling/sessions/${sessionId.value}/visits`,{skipGlobalLoading:true});visits.value=data.visits||[];if(session.value)session.value.startedAt=data.startedAt||null;if(data.visit?.status==='ended'&&phase.value==='connected'){stopPolling();phase.value='ended';videoCreds.value=null;}return data.visit;}catch(error){if(participantRole.value==='client'&&[401,403,410].includes(error.response?.status)){stopPolling();phase.value='ended';videoCreds.value=null;}throw error;}}
 async function admitClient(id){try{await api.post(`/counseling/sessions/${sessionId.value}/visits/${id}/admit`);await refreshVisits();}catch(e){noteMessage.value=e.response?.data?.error?.message||e.message;}}
 let admissionTimer;
 function waitForAdmission(){clearInterval(admissionTimer);admissionTimer=setInterval(async()=>{try{const visit=await refreshVisits();if(visit?.status==='admitted'){clearInterval(admissionTimer);await enterConnected();}else if(visit?.status==='ended'){clearInterval(admissionTimer);phase.value='ended';}}catch(e){preError.value=e.response?.data?.error?.message||e.message;if([401,403,410].includes(e.response?.status)){clearInterval(admissionTimer);phase.value='ended';}}},3000);}
@@ -198,7 +202,7 @@ async function loadSessionMeta() {
   // Prefer opaque UUID in the address bar (not sequential DB ids).
   const pub = data.session?.publicId;
   const current = String(sessionId.value || '');
-  if (pub && current !== pub && /^\d+$/.test(current)) {
+  if (!props.embedded && pub && current !== pub && /^\d+$/.test(current)) {
     const path = orgSlug.value
       ? `/${orgSlug.value}/counseling/session/${pub}`
       : `/counseling/session/${pub}`;
@@ -432,7 +436,7 @@ onMounted(async () => {
       if(participantRole.value==='provider')await trackDisconnection();
       return;
     }
-    if (participantRole.value==='client') await doJoin();
+    if (participantRole.value==='client'||props.autoJoin) await doJoin();
     else await startPreview();
   } catch (err) {
     needsMfa.value=err?.response?.data?.error?.code==='MFA_REQUIRED';

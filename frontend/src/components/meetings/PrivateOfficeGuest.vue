@@ -10,8 +10,8 @@
           <div class="waiting-welcome"><OfficeProviderCard :provider="room?.provider" :display-name="roomDisplayName" :agency-name="room?.branding?.agencyName" /><div class="waiting-identity"><img v-if="photoDataUrl" :src="photoDataUrl" alt="Your check-in photo" /><span>Joining as {{ guestDisplayName || 'Guest' }}</span><button class="jmr-btn jmr-btn--secondary" @click="leaveVisit">Leave waiting room</button></div></div>
           <div class="jmr-waiting"><SupervisionWaitingRoomStage :meeting-title="`${roomDisplayName}’s virtual office`" :host-present="hostPresent" host-role-label="Provider" :show-preview-hint="false" /></div>
         </div>
-        <TherapySessionWorkspace v-else-if="phase === 'video'" :video="video" :branding="room?.branding" :product-name="productName" :request="workspaceRequest" @leave-request="leaveVisit" @disconnected="leaveVisit" @meeting-ended="leaveVisit" />
-        <div v-else-if="phase === 'ended'"><h1>Visit ended</h1><p>This office visit has ended. You can request admission again.</p><button class="jmr-btn" @click="startOver">Request a new visit</button></div>
+        <TherapySessionWorkspace v-else-if="phase === 'video'" :video="video" :identified="identified" :branding="room?.branding" :product-name="productName" :request="workspaceRequest" @leave-request="leaveVisit" @disconnected="reconnectVisit" @meeting-ended="leaveVisit" />
+        <div v-else-if="phase === 'ended'"><h1>You have left the visit</h1><p>You can request admission again if your provider has kept this visit open.</p><button v-if="credential" class="jmr-btn" :disabled="submitting" @click="resumeVisit">Rejoin this visit</button><button class="jmr-btn" @click="startOver">Request a new visit</button></div>
         <form v-else class="jmr-form" @submit.prevent="submitJoin">
           <div class="checkin-heading"><p class="eyebrow">VIRTUAL OFFICE VISIT</p><h1>Visit check-in</h1><p>Add a name and photo to help {{ roomDisplayName }} recognize you. Both are optional.</p></div>
           <aside class="checkin-guide"><OfficeProviderCard :provider="room?.provider" :display-name="roomDisplayName" :agency-name="room?.branding?.agencyName" /><h3>You’re almost ready</h3><p>You are not in the waiting room yet.</p><ol><li>Add your name and a photo if you wish.</li><li>Enter the waiting room and enjoy the music.</li><li>Your provider will review your request and let you in.</li></ol><p class="jmr-muted">Your photo is shown only to your provider and removed when your visit ends. A photo helps recognition; it does not verify identity.</p></aside>
@@ -114,12 +114,17 @@ const photoRequiredAck = ref(false);
 const cameraActive = ref(false);
 const cameraError = ref('');
 const lobbyId = ref(null);
-const credential = ref(''), video = ref(null);
+const credential = ref(''), video = ref(null),identified=ref(false);
+const visitStorageKey=()=>`auricwell-office-visit:${slug.value}`;
+function rememberVisit(){try{sessionStorage.setItem(visitStorageKey(),JSON.stringify({id:lobbyId.value,credential:credential.value,displayName:guestDisplayName.value}));}catch{}}
+function forgetVisit(){try{sessionStorage.removeItem(visitStorageKey());}catch{}}
+function reconnectVisit(){video.value=null;if(phase.value==='ended')return;phase.value='waiting';error.value='Reconnecting to your visit…';startStatusPoll();}
 const guestOptions = () => ({...publicOpts,headers:{'X-Office-Visit':credential.value}});
 async function leaveVisit(){if(phase.value==='ended')return;video.value=null;stopStatusPoll();phase.value='ended';if(lobbyId.value)try{await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/leave`,{},guestOptions());}catch(e){error.value=e.response?.data?.error?.message||'Could not confirm departure.';}photoDataUrl.value='';}
 const workspaceRequest=(_path,options)=>props.request(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/workspace${_path}`,{...guestOptions(),...options});
 const hostPresent=ref(false);
-function startOver(){lobbyId.value=null;credential.value='';photoDataUrl.value='';photoRequiredAck.value=false;phase.value='form';error.value='';}
+async function resumeVisit(){submitting.value=true;error.value='';try{await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/resume`,{},guestOptions());phase.value='waiting';startStatusPoll();}catch(e){error.value=e.response?.data?.error?.message||'This visit cannot be rejoined.';}finally{submitting.value=false;}}
+function startOver(){forgetVisit();lobbyId.value=null;credential.value='';photoDataUrl.value='';photoRequiredAck.value=false;phase.value='form';error.value='';}
 const lobbyStatus = ref('waiting');
 const videoRef = ref(null);
 const canvasRef = ref(null);
@@ -218,12 +223,12 @@ function startStatusPoll() {
       );
       const status = String(res?.data?.lobby?.status || '').toLowerCase();
       if (status) lobbyStatus.value = status;
-      hostPresent.value=!!res.data.lobby.hostPresent;
+      hostPresent.value=!!res.data.lobby.hostPresent;identified.value=!!res.data.lobby.identified;
       if (status === 'admitted' && !video.value) {
         video.value=(await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/video-token`,{},guestOptions())).data;
-        phase.value='video';
+        phase.value='video';error.value='';
       }
-      if (status === 'dismissed' || status === 'ended') leaveVisit();
+      if(status==='dismissed'||status==='ended'){video.value=null;phase.value='ended';stopStatusPoll();if(!res.data.lobby.canRejoin){forgetVisit();credential.value='';}}
     } catch (e) {
       error.value=e.response?.data?.error?.message||'Unable to check admission. Please retry.';
       if ([401,403,404].includes(Number(e.response?.status))) leaveVisit();
@@ -247,7 +252,7 @@ async function submitJoin() {
     );
     lobbyId.value = Number(res?.data?.lobby?.id || 0) || null;
     lobbyStatus.value = String(res?.data?.lobby?.status || 'waiting').toLowerCase();
-    credential.value=res.data.lobby.credential;
+    credential.value=res.data.lobby.credential;rememberVisit();
     phase.value = 'waiting';
     stopCamera();
     if (lobbyId.value) startStatusPoll();
@@ -258,14 +263,16 @@ async function submitJoin() {
   }
 }
 
-onMounted(() => {
-  loadRoom();
+onMounted(async () => {
+ await loadRoom();
+ try{const saved=JSON.parse(sessionStorage.getItem(visitStorageKey())||'null');if(saved?.id&&/^[A-Za-z0-9_-]{43}$/.test(saved.credential||'')){lobbyId.value=saved.id;credential.value=saved.credential;guestDisplayName.value=saved.displayName||'';phase.value='waiting';startStatusPoll();}}catch{forgetVisit();}
 });
 
 onUnmounted(() => {
   stopCamera();
   stopStatusPoll();
-  if(lobbyId.value && phase.value!=='ended')void leaveVisit();
+  // Reloads retain the visit credential. Server callbacks measure the actual gap;
+  // only an explicit Leave revokes admission, and provider End closes all access.
 });
 </script>
 

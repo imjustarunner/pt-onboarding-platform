@@ -1,7 +1,7 @@
 import {mount,flushPromises} from '@vue/test-utils';
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import Guest from '../PrivateOfficeGuest.vue';
-afterEach(()=>vi.useRealTimers());
+afterEach(()=>{vi.useRealTimers();sessionStorage.clear();});
 describe('public office check-in',()=>{
  it('opens without credentials, uses tenant branding, and permits a camera-free anonymous check-in',async()=>{
   const request=vi.fn(async(url,opts)=>url.endsWith('/public')?{room:{displayName:'Dr Sample',branding:{agencyName:'Practice A'}}}:opts?.method==='POST'?{lobby:{id:1,credential:'visit-secret',status:'waiting'}}:{lobby:{status:'waiting'}});
@@ -28,4 +28,14 @@ it('shows the agency logo and expandable public provider profile before and afte
   expect(w.find('.provider-profile').text()).toContain('English · Spanish');
  }
  w.unmount();
+});
+
+it('restores the same admitted visit after reload and reconnects without creating a new identity',async()=>{
+ vi.useFakeTimers();sessionStorage.setItem('auricwell-office-visit:sample',JSON.stringify({id:4,credential:'x'.repeat(43),displayName:'Returning guest'}));
+ const request=vi.fn(async url=>url.endsWith('/public')?{room:{displayName:'Provider'}}:url.endsWith('/video-token')?{sessionId:'same-media',token:'synthetic'}:{lobby:{status:'admitted',identified:true}});
+ const video={name:'TherapySessionWorkspace',template:'<div>In the original visit</div>'};
+ const w=mount(Guest,{props:{slug:'sample',request},global:{stubs:{SupervisionWaitingRoomStage:true,TherapySessionWorkspace:video}}});await flushPromises();await vi.advanceTimersByTimeAsync(4000);await flushPromises();expect(w.text()).toContain('In the original visit');
+ w.findComponent(video).vm.$emit('disconnected');await flushPromises();await vi.advanceTimersByTimeAsync(4000);await flushPromises();expect(w.text()).toContain('In the original visit');
+ expect(request.mock.calls.filter(([p])=>p.endsWith('/video-token')).every(([,o])=>o.headers['X-Office-Visit']==='x'.repeat(43))).toBe(true);
+ expect(request.mock.calls.some(([p,o])=>p.endsWith('/lobby')&&o.method==='POST')).toBe(false);w.unmount();expect(request.mock.calls.some(([p])=>p.endsWith('/leave'))).toBe(false);
 });
