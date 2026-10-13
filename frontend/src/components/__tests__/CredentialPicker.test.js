@@ -18,3 +18,13 @@ it('shows an existing unknown credential for correction rather than silently era
  const w=mount(Picker,{props:{modelValue:'Custom-old'}});
  expect(w.text()).toContain('Custom-old');expect(w.text()).toContain('Choose a listed credential');
 });
+it('lets a provider restore LPSC alongside existing degrees and licenses',async()=>{
+ const Host=defineComponent({components:{Picker},setup(){return{value:ref('MA, LPC')}},template:'<Picker v-model="value" />'});
+ const w=mount(Host);
+ await w.get('select').setValue('LPSC');
+ expect(w.vm.value).toBe('MA, LPC, LPSC');
+ expect(w.text()).toContain('Display: MA, LPC, LPSC');
+ expect(w.text()).not.toContain('Choose a listed credential');
+ await w.get('[aria-label="Move LPSC earlier"]').trigger('click');
+ expect(w.vm.value).toBe('MA, LPSC, LPC');
+});

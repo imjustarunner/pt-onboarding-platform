@@ -26,3 +26,12 @@ it('requires language proficiency and a session-capability confirmation before s
  await saveProviderReviewProfile({provider_user_id:7,agency_id:2},'credential_display',{displayLabel:'Counselor',sessionLanguages:[{language:'Spanish',proficiency:'fluent',canConductSessions:true}]});
  expect(Profile.upsertForProvider).toHaveBeenCalledWith(expect.objectContaining({details:expect.objectContaining({languages:['Spanish'],languageProficiencies:[{language:'Spanish',proficiency:'fluent',canConductSessions:true}]})}));
 });
+
+it('keeps LPSC when saving a provider’s existing credential display',async()=>{
+ Profile.getForProvider=vi.fn(async()=>({details:{languages:['English']}}));
+ Profile.upsertForProvider=vi.fn();
+ pool.execute.mockClear();
+ pool.execute.mockResolvedValue([{affectedRows:1}]);
+ await saveProviderReviewProfile({provider_user_id:7,agency_id:2},'credential_display',{credential:'MA, LPC, LPSC',displayLabel:'Counselor'});
+ expect(pool.execute).toHaveBeenCalledWith('UPDATE users SET credential=? WHERE id=?',['MA, LPC, LPSC',7]);
+});
