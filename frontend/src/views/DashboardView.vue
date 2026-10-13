@@ -292,7 +292,8 @@
             <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
           </label>
         </div>
-        <div class="rail-mode-controls" role="group" aria-label="Navigation behavior">
+        <button v-if="railEffectiveCollapsed && railMode === 'collapsed'" type="button" class="rail-expand-btn rail-reopen" aria-label="Expand navigation" title="Expand navigation" @click="railMode = 'open'">›</button>
+        <div v-if="!railEffectiveCollapsed" class="rail-mode-controls" role="group" aria-label="Navigation behavior">
           <button
             v-for="mode in railModes"
             :key="mode.value"
@@ -637,7 +638,37 @@
               :meta-only-header="true"
               @select-view="onScheduleHubSelectView"
             >
+              <template #header-controls>
+              <div
+                v-if="canPickEmployeeSchedule && scheduleViewMode === 'self'"
+                class="schedule-header-view-as"
+              >
+                <span class="schedule-view-as-label">View as</span>
+                <PersonSearchSelect
+                  v-model="myScheduleViewAsUserId"
+                  class="schedule-view-as-picker"
+                  :options="employeeSchedulePickerOptions"
+                  placeholder="Search team member…"
+                  :disabled="employeeSchedulePickerLoading || !currentAgencyId"
+                />
+                <button
+                  v-if="myScheduleViewAsUserId"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="employeeSchedulePickerLoading"
+                  @click="clearMyScheduleViewAs"
+                >
+                  Clear
+                </button>
+                <span v-if="!currentAgencyId" class="hint schedule-view-as-hint">
+                  Choose an organization (top left) to search.
+                </span>
+                <span v-else-if="employeeSchedulePickerLoading" class="muted schedule-view-as-hint">Loading directory…</span>
+              </div>
+              </template>
               <template #header-actions>
+                <RouterLink v-if="!isClubContext" :to="virtualOfficePath" class="btn btn-secondary btn-sm">AuricWell office</RouterLink>
+                <ScheduleCalendarMenu :agency-ids="personalCalendarAgencyIds" />
                 <button type="button" class="btn btn-secondary btn-sm" @click="openTasksHubFromSchedule">
                   Tasks
                 </button>
@@ -856,32 +887,7 @@
                 </template>
               </div>
 
-              <div
-                v-if="canPickEmployeeSchedule && scheduleViewMode === 'self'"
-                class="schedule-supervisor-toolbar schedule-employee-view-as-toolbar"
-              >
-                <span class="schedule-view-as-label">View as</span>
-                <PersonSearchSelect
-                  v-model="myScheduleViewAsUserId"
-                  class="schedule-view-as-picker"
-                  :options="employeeSchedulePickerOptions"
-                  placeholder="Search team member…"
-                  :disabled="employeeSchedulePickerLoading || !currentAgencyId"
-                />
-                <button
-                  v-if="myScheduleViewAsUserId"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="employeeSchedulePickerLoading"
-                  @click="clearMyScheduleViewAs"
-                >
-                  Clear
-                </button>
-                <span v-if="!currentAgencyId" class="hint schedule-view-as-hint">
-                  Choose an organization (top left) to search.
-                </span>
-                <span v-else-if="employeeSchedulePickerLoading" class="muted schedule-view-as-hint">Loading directory…</span>
-              </div>
+
               </template>
 
               <div ref="myScheduleStageRef" class="my-schedule-stage my-schedule-stage--hub">
@@ -926,6 +932,7 @@
                 :show-company-events-calendar-button="!isClubContext"
                 :platform-theme="usePlatformShell"
                 :compact-page-chrome="true"
+                :hide-calendar-subscription="true"
                 :hub-views="scheduleHubViews"
                 :active-hub-view="scheduleViewMode"
                 :schedule-title="scheduleViewHeadline"
@@ -1370,6 +1377,8 @@ import SubmitPanelTab from '../components/dashboard/SubmitPanelTab.vue';
 import ProviderOpeningNotice from '../components/availability/ProviderOpeningNotice.vue';
 import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
+import ScheduleCalendarMenu from '../components/schedule/ScheduleCalendarMenu.vue';
+import { AURICWELL_MARK_URL } from '../constants/auricwellBrand.js';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyLearningView from './MyLearningView.vue';
@@ -2395,6 +2404,12 @@ const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
   tenant: cardIconOrgOverride.value || currentAgency.value,
   auricwell: route.meta?.auricwellPreview === true
 }));
+
+const virtualOfficePath = computed(() => `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`);
+const personalCalendarAgencyIds = computed(() => {
+  const ids = currentAgency.value?.id ? [currentAgency.value.id] : (agencyStore.userAgencies || []).map(a => a.id);
+  return [...new Set(ids.map(Number).filter(id => id > 0))];
+});
 
 const currentAgencyId = computed(() => {
   return currentAgency.value?.id || null;
@@ -4002,6 +4017,11 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('meetings', iconOrg) || brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
         description: 'Attended meetings, participants, chat, transcripts, and personal notes.'
       });
+      if (!isClubContext.value) cards.push({
+        id: 'virtual_office', label: 'AuricWell office', kind: 'link', to: virtualOfficePath.value,
+        badgeCount: 0, brandIconUrl: AURICWELL_MARK_URL, iconUrl: AURICWELL_MARK_URL,
+        description: 'Open your virtual office, copy your guest link, and admit waiting guests.'
+      });
       if (!isClubContext.value && portalsNestCard.value) cards.push(portalsNestCard.value);
 
       // Provider-only surfaces: hide these for limited-access non-provider users and club context.
@@ -4283,6 +4303,7 @@ const defaultRailCards = computed(() => {
         overview: -1,
         my: 0,
         my_schedule: 1,
+        virtual_office: 1.25,
         meetings: 1.5,
         momentum_nest: 2,
         checklist: 2.1,
@@ -4321,6 +4342,7 @@ const defaultRailCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
+      virtual_office: 3.25,
       meetings: 3.5,
       skill_builders_provider_hub: 3.7,
       provider_program_portals: 3.8,
@@ -6207,14 +6229,18 @@ h1 {
 }
 .rail-mode-controls {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  gap: 3px;
 }
 .rail-mode-controls .rail-expand-btn {
-  width: 100%;
-  white-space: normal;
-  min-height: 32px;
+  flex: 1 1 auto;
+  width: auto;
+  white-space: nowrap;
+  min-height: 28px;
+  padding: 4px 5px;
+  font-size: 10px;
 }
+.rail-reopen { align-self: center; font-size: 20px; line-height: 1; }
 .rail-mode-controls .rail-expand-btn[aria-pressed="true"] {
   background: var(--primary);
   color: #fff;
@@ -8572,4 +8598,12 @@ h1 {
   border: 1px solid rgba(167, 139, 250, 0.35);
 }
 
+</style>
+
+<style scoped>
+.schedule-header-view-as { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 240px; }
+.schedule-header-view-as .schedule-view-as-picker { flex: 1 1 180px; min-width: 130px; max-width: 300px; }
+@media (max-width: 1100px) {
+  .schedule-header-view-as { flex-wrap: wrap; flex-basis: 100%; }
+}
 </style>

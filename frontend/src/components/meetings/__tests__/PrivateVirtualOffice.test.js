@@ -16,6 +16,11 @@ async function setup(encounter,admitted=[]){
  return {wrapper,request,data};
 }
 const button=(wrapper,text)=>wrapper.findAll('button').find(b=>b.text().includes(text));
+it('uses the AuricWell guest URL regardless of the provider dashboard hostname',async()=>{
+ const {wrapper}=await setup({state:'idle',hasParticipants:false});
+ expect(wrapper.find('input[readonly]').element.value).toBe('https://auricwell.com/join/my-room/synthetic');
+ wrapper.unmount();
+});
 it('keeps replacement admission locked when the prior client has left',async()=>{
  const {wrapper}=await setup({state:'active',hasParticipants:true},[]);
  await button(wrapper,'Reconnect').trigger('click');await flushPromises();wrapper.findComponent(stub).vm.$emit('connected');await flushPromises();

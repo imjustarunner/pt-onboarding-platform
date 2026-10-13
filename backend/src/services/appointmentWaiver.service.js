@@ -26,7 +26,7 @@ export async function listAppointmentWaivers({ agencyId, user, offset = 0 }) {
   const start = Math.max(0, Math.floor(Number(offset) || 0));
   const [rows] = await pool.execute(
     `SELECT w.*, a.title, a.start_at, a.source_timezone,
-       CONCAT_WS(' ', c.first_name, c.last_name) AS client_name,
+       COALESCE(NULLIF(c.full_name, ''), c.initials) AS client_name,
        CONCAT_WS(' ', u.first_name, u.last_name) AS requested_by_name
      FROM appointment_change_waivers w JOIN appointments a ON a.id = w.appointment_id
      JOIN appointment_change_workflows f ON f.appointment_id = w.appointment_id

@@ -60,11 +60,15 @@
           </p>
         </div>
       </div>
-      <div v-if="$slots['header-actions']" class="sched-hub__header-actions">
+      <div v-if="!metaOnlyHeader && $slots['header-actions']" class="sched-hub__header-actions">
         <slot name="header-actions" />
       </div>
     </header>
 
+    <div v-if="metaOnlyHeader" class="sched-hub__utility-row" :class="{ 'sched-hub__utility-row--single-line': !!$slots['header-controls'] }">
+      <slot name="header-controls" />
+      <div class="sched-hub__header-actions"><slot name="header-actions" /></div>
+    </div>
     <slot name="skill-builders" />
 
     <div ref="stageRef" class="sched-hub__stage">
@@ -363,6 +367,14 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   color: #14532d;
 }
 
+.sched-hub__utility-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; min-width: 0; }
+.sched-hub__utility-row .sched-hub__header-actions { margin-left: auto; align-items: center; gap: 3px; }
+.sched-hub__utility-row--single-line .sched-hub__header-actions { flex-wrap: nowrap; }
+.sched-hub__utility-row .sched-hub__header-actions :deep(.btn) { white-space: nowrap; font-size: 12px; }
+@media (max-width: 1100px) {
+  .sched-hub__utility-row { flex-wrap: wrap; }
+  .sched-hub__utility-row .sched-hub__header-actions { margin-left: 0; flex-wrap: wrap; justify-content: flex-start; }
+}
 .sched-hub__stage {
   min-width: 0;
 }

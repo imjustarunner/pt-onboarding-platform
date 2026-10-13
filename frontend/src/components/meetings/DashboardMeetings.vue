@@ -3,7 +3,7 @@
     <details class="dashboard-shortcut">
       <summary>My virtual office <span class="shortcut-hint">Open your private space</span></summary>
       <div class="shortcut-content">
-    <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" title="Your permanent private office link. Every guest supplies a snapshot and waits for your individual admission. Premium: one guest. Premium Plus: couples and families." @click="notifyNavigation">My virtual office ↗</RouterLink>
+    <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" title="Open your AuricWell virtual office. Guests may add a name and photo, then wait for you to admit them." @click="notifyNavigation">AuricWell virtual office ↗</RouterLink>
       </div>
     </details>
     <details class="dashboard-shortcut">

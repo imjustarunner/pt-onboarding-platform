@@ -9,7 +9,7 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
-    <details v-if="Number(userId) === Number(authStore.user?.id) && effectiveAgencyIds.length" class="sched-subscription" data-tour="my-schedule-subscription" @toggle="subscriptionOpen = $event.target.open">
+    <details v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id) && effectiveAgencyIds.length" class="sched-subscription" data-tour="my-schedule-subscription" @toggle="subscriptionOpen = $event.target.open">
       <summary>Add my schedule to a personal calendar</summary>
       <template v-if="subscriptionOpen">
         <div v-for="id in effectiveAgencyIds" :key="id">
@@ -5783,6 +5783,7 @@
 
 <script setup>
 import CalendarSharing from '../CalendarSharing.vue';
+import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
@@ -5903,6 +5904,7 @@ const props = defineProps({
   showCompanyEventsCalendarButton: { type: Boolean, default: true },
   /** Hide the large duplicate “Schedule” heading when the parent page already has a title. */
   compactPageChrome: { type: Boolean, default: false },
+  hideCalendarSubscription: { type: Boolean, default: false },
   /** Optional hub views for the compact title switcher (My schedule / Supervisees / …). */
   hubViews: { type: Array, default: () => [] },
   activeHubView: { type: String, default: 'self' },
@@ -21219,7 +21221,7 @@ const completePlatformVirtualSessionBooking = async ({
       const roomRes = await api.get('/my-room/me', { params:{agencyId:props.agencyId}, skipGlobalLoading: true });
       const slug = roomRes?.data?.room?.slug || roomRes?.data?.slug;
       if (slug) {
-        virtualSessionShareUrl.value = `${window.location.origin}/join/my-room/${encodeURIComponent(slug)}`;
+        virtualSessionShareUrl.value = virtualOfficeGuestUrl(slug);
         virtualSessionScheduledSessionKey.value = `my-room:${slug}`;
       }
     } catch {

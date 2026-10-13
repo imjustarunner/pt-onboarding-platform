@@ -19,6 +19,13 @@ async function open() {
 }
 const button = (w, label) => w.findAll('button').find((b) => b.text() === label);
 describe('waiver review queue', () => {
+  it('does not report an empty queue when the review request failed', async () => {
+    api.get.mockRejectedValue(new Error('Unavailable'));
+    const wrapper = await open();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('No fee or credit requests awaiting review.');
+    wrapper.unmount();
+  });
   it('keeps the queue and its financial requests hidden from providers without billing access', async () => {
     state.user.billingAgencyIds = [];
     const wrapper = mount(Queue, { props: { agencyIds: [1] } }); await flushPromises();

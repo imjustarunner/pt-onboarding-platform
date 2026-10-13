@@ -32,10 +32,11 @@
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import TherapySessionWorkspace from './TherapySessionWorkspace.vue';
+import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 const props=defineProps({agencyId:{type:Number,default:0},request:{type:Function,required:true},publicOrigin:{type:String,default:''},productName:{type:String,default:'AuricWell'}});
 const call=(path,method='GET',body)=>props.request(path,{method,body});
 const room=ref(null),plan=ref(null),waiting=ref([]),admitted=ref([]),video=ref(null),connected=ref(false),error=ref(''),busy=ref(false),copied=ref(false);
-const joinUrl=computed(()=>`${props.publicOrigin||window.location.origin}/join/my-room/${room.value?.slug}`);
+const joinUrl=computed(()=>virtualOfficeGuestUrl(room.value?.slug, props.publicOrigin));
 const encounter=ref({state:'idle',hasParticipants:false}),sameSessionGuest=ref(null),needsMfa=ref(false);
 const historyGeneration=ref(0);
 const selectedPhoto=ref(null),history=ref([]),historyArtifacts=ref(null);

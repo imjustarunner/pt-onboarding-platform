@@ -1,7 +1,7 @@
 <template>
-  <section v-if="reviewAgencies.length" class="waiver-queue" aria-label="Appointment waiver reviews">
+  <section v-if="reviewAgencies.length" class="waiver-queue" aria-label="Missed-appointment fee & credit reviews">
     <button type="button" class="queue-toggle" :aria-expanded="expanded" @click="expanded = !expanded">
-      Appointment waiver reviews <span v-if="rows.length">({{ rows.length }}{{ hasMore ? '+' : '' }})</span>
+      Missed-appointment fee & credit reviews <span v-if="rows.length">({{ rows.length }}{{ hasMore ? '+' : '' }})</span>
     </button>
     <div v-if="expanded" class="queue-content">
       <div class="queue-controls">
@@ -12,11 +12,11 @@
         </label>
         <button type="button" :disabled="loading || saving" @click="load">Refresh</button>
       </div>
-      <p class="muted">Review provider recommendations. Approval restores the original credit or waives an unpaid fee. Decisions add a signed, nonbillable session addendum.</p>
+      <p class="muted">For billing staff: review provider requests to waive a missed-appointment fee or restore a used session credit. Approval adjusts the fee or credit and saves a signed, nonbillable addendum. This is not a client consent form.</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-if="loading">Loading reviews…</p>
-      <p v-else-if="!rows.length">No waiver requests awaiting review.</p>
-      <ul v-else>
+      <p v-else-if="!error && !rows.length">No fee or credit requests awaiting review.</p>
+      <ul v-else-if="!error">
         <li v-for="row in rows" :key="row.appointment_id">
           <div><strong>{{ row.client_name || row.title || 'Session' }}</strong> · {{ when(row) }}
             <div>{{ row.requested_by_name || 'Provider' }}: {{ row.request_reason.replaceAll('_', ' ') }}</div>

@@ -61,7 +61,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     ];
     mainDdl.push(
       `CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), status VARCHAR(40) DEFAULT 'ACTIVE_EMPLOYEE', is_archived BOOLEAN DEFAULT 0, is_active BOOLEAN DEFAULT 1)`,
-      `CREATE TABLE clients (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100))`,
+      `CREATE TABLE clients (id INT PRIMARY KEY, full_name VARCHAR(200), initials VARCHAR(20))`,
       `CREATE TABLE appointment_billing (id INT AUTO_INCREMENT PRIMARY KEY, appointment_id INT UNIQUE, payment_status VARCHAR(30), amount_cents INT)`,
       `CREATE TABLE clinical_record_refs (agency_id INT, client_id INT, office_event_id INT, clinical_session_id INT, record_type VARCHAR(30), clinical_record_id INT, updated_at TIMESTAMP NULL, UNIQUE KEY ref_key (record_type, clinical_record_id))`,
       `CREATE TABLE practitioner_session_packages (id INT PRIMARY KEY, agency_id INT, name VARCHAR(100), missed_session_policy_json JSON)`,
@@ -261,7 +261,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   async function waiverFixture({ bucket = 'paid', fee = false } = {}) {
     const preview = { appointment: { clientId: 8 }, consequence: { model: fee ? 'fee' : 'package', feeCents: fee ? 2500 : 0 } };
     const facts = { clientId: 8, eventType: 'no_show', waiver: { action: 'recommend', reason: 'family_emergency' } };
-    await pool.query(`UPDATE clients SET first_name='Synthetic',last_name='Client' WHERE id=8`);
+    await pool.query(`UPDATE clients SET full_name='Synthetic Client',initials='SC' WHERE id=8`);
     await pool.execute(`INSERT INTO appointment_change_workflows (appointment_id, agency_id, status, facts_json, preview_json, narrative, signed_by_user_id, updated_by_user_id)
       VALUES (10, 1, 'completed', ?, ?, 'Original signed cancellation note.', 9, 9)`, [JSON.stringify(facts), JSON.stringify(preview)]);
     await queueAppointmentWaiver({ appointmentId: 10, agencyId: 1, facts, actorUserId: 9 });
@@ -300,7 +300,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   });
   it('waives an unpaid fee and excludes resolved requests from the queue', async () => {
     await waiverFixture({ fee: true });
-    expect((await listAppointmentWaivers({ agencyId: 1, user: reviewer })).reviews).toHaveLength(1);
+    expect((await listAppointmentWaivers({ agencyId: 1, user: reviewer })).reviews).toEqual([expect.objectContaining({client_name:'Synthetic Client'})]);
     await decideAppointmentWaiver({ appointmentId: 10, user: reviewer, decision: 'approved', reason: 'Emergency verified' });
     const [[billing]] = await pool.query('SELECT * FROM appointment_billing WHERE appointment_id = 10');
     expect(billing).toMatchObject({ amount_cents: 0, payment_status: 'waived' });
