@@ -315,7 +315,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
         voiceIsolation: true
       },
       video: false
@@ -375,7 +375,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
       kind: 'audio',
       stop,
       applyConstraints,
-      getSettings: () => ({ noiseSuppression: true, echoCancellation: true, autoGainControl: false })
+      getSettings: () => ({ noiseSuppression: true, echoCancellation: true, autoGainControl: true })
     };
     const audioStream = {
       getAudioTracks: () => [audioTrack],
@@ -391,7 +391,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     const expectedAudio = {
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: false,
+      autoGainControl: true,
       voiceIsolation: true
     };
     expect(getUserMedia).toHaveBeenCalledWith({ audio: expectedAudio, video: false });
@@ -490,6 +490,46 @@ describe('alone-room disconnect and arrivals', () => {
 
 
 describe('meeting speaker playback recovery',()=>{
+ it('keeps participant volume independent and retains it through playback recovery and stream replacement',async()=>{
+  const publisher={on:vi.fn(),publishAudio:vi.fn(),publishVideo:vi.fn(),destroy:vi.fn(),getAudioSource:()=>null};
+  videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});
+  videoSdk.unblockAudio.mockResolvedValue(undefined);
+  const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'levels',token:'eyJ.test.token',playJoinTone:false,startMuted:true}});
+  await flushPromises();await vi.dynamicImportSettled();videoSdk.session.publish.mockImplementation((_p,done)=>done(null));videoSdk.connectCallback(null);await flushPromises();
+  const subs=[];
+  videoSdk.session.subscribe=vi.fn((_stream,target)=>{const sub={element:target,on:vi.fn(),subscribeToAudio:vi.fn(),setAudioVolume:vi.fn(),isAudioBlocked:()=>false};subs.push(sub);return sub;});
+  const applicant={streamId:'a1',hasVideo:true,hasAudio:true,connection:{connectionId:'a',data:JSON.stringify({identity:'candidate-1',displayName:'Applicant'})}};
+  const interviewer={streamId:'b1',hasVideo:true,hasAudio:true,connection:{connectionId:'b',data:JSON.stringify({identity:'user-2',displayName:'Interviewer'})}};
+  for(const stream of [applicant,interviewer]){videoSdk.session._handlers.streamCreated({stream});await flushPromises();}
+  await wrapper.get('input[aria-label="Listening volume for Applicant"]').setValue('25');
+  expect(subs[0].setAudioVolume).toHaveBeenLastCalledWith(25);
+  expect(subs[1].setAudioVolume).toHaveBeenLastCalledWith(100);
+  await wrapper.findAll('.vsr__audio-settings button').find(b=>b.text()==='Enable meeting sound').trigger('click');await flushPromises();
+  expect(subs[0].setAudioVolume).toHaveBeenLastCalledWith(25);
+  expect(subs[1].setAudioVolume).toHaveBeenLastCalledWith(100);
+  videoSdk.session._handlers.streamDestroyed({stream:applicant});await flushPromises();
+  videoSdk.session._handlers.streamCreated({stream:{...applicant,streamId:'a2',connection:{...applicant.connection,connectionId:'a-new'}}});await flushPromises();
+  expect(subs[2].setAudioVolume).toHaveBeenLastCalledWith(25);
+  expect(videoSdk.session.subscribe.mock.calls[2][2].audioVolume).toBe(25);
+  wrapper.unmount();
+ });
+ it('enables speech level control for the published microphone and changes it without reconnecting or unmuting',async()=>{
+  let settings={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+  const track={kind:'audio',readyState:'live',getSettings:()=>settings,applyConstraints:vi.fn(async value=>{settings={...settings,...value};})};
+  const publisher={on:vi.fn(),publishAudio:vi.fn(),publishVideo:vi.fn(),destroy:vi.fn(),getAudioSource:()=>track};
+  videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});
+  const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'mic-levels',token:'eyJ.test.token',playJoinTone:false,startMuted:true}});
+  await flushPromises();await vi.dynamicImportSettled();videoSdk.session.publish.mockImplementation((_p,done)=>done(null));videoSdk.connectCallback(null);await flushPromises();
+  expect(videoSdk.initPublisher.mock.calls.at(-1)[1]).toMatchObject({autoGainControl:true,noiseSuppression:true,echoCancellation:true,disableAudioProcessing:false,publishAudio:false});
+  const before=videoSdk.initPublisher.mock.calls.length;
+  await wrapper.get('.vsr__audio-settings input[type="checkbox"]').setValue(false);await flushPromises();
+  expect(track.applyConstraints).toHaveBeenLastCalledWith(expect.objectContaining({autoGainControl:false,noiseSuppression:true,echoCancellation:true}));
+  expect(wrapper.vm.publishAudio).toBe(false);expect(publisher.destroy).not.toHaveBeenCalled();
+  expect(videoSdk.initPublisher.mock.calls).toHaveLength(before);
+  await wrapper.get('.vsr__audio-settings input[type="checkbox"]').setValue(true);await flushPromises();
+  expect(track.applyConstraints).toHaveBeenLastCalledWith(expect.objectContaining({autoGainControl:true}));
+  wrapper.unmount();
+ });
  it('restores sound after a phone interruption without reconnecting or unmuting',async()=>{
   const publisher={on:vi.fn(),publishAudio:vi.fn(),publishVideo:vi.fn(),destroy:vi.fn(),getAudioSource:()=>null};
   videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});

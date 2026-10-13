@@ -335,13 +335,13 @@
         {{ connectionNotice }}
       </div>
 
-      <div v-if="audioProblem" class="vsr__audio-problem" role="alert">{{ audioProblem }} Open Microphone settings to reconnect or choose another input.</div>
+      <div v-if="audioProblem" class="vsr__audio-problem" role="alert">{{ audioProblem }} Open Audio settings to reconnect or choose another input.</div>
       <div v-if="blockedAudioCount || playbackError || audioResumeNeeded" class="vsr__audio-problem" role="alert">
         {{ playbackError || (audioResumeNeeded ? 'Back from another app? Tap to resume meeting sound if it is paused.' : 'Your browser has paused meeting sound.') }}
         <button type="button" class="vsr__ctrl" :disabled="playbackBusy" @click="enableMeetingAudio">{{ audioResumeNeeded ? 'Resume meeting sound' : 'Enable meeting sound' }}</button>
       </div>
       <details v-if="!hideControls && !lobbyMode" class="vsr__audio-settings" @toggle="refreshMicrophones">
-        <summary>Microphone settings</summary>
+        <summary>Audio settings</summary>
         <label>Microphone
           <select aria-label="Microphone input" :value="selectedMicrophoneId" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @change="changeMicrophone($event.target.value)">
             <option value="default">System default microphone</option>
@@ -350,9 +350,23 @@
         </label>
         <label>Input level <meter aria-label="Microphone input level" min="0" max="1" :value="localMicLevel" /></label>
         <p>Speak and check that the level moves. If it stays flat, check your headset mute switch or choose another microphone.</p>
+        <label>
+          <input type="checkbox" :checked="automaticMicLevel" :disabled="audioProcessingBusy || audioDeviceBusy || !sessionReady" @change="changeAutomaticMicLevel($event.target.checked)" />
+          Balance my microphone volume automatically
+        </label>
+        <p>Keep this on for speech. Turn it off if it raises background noise. Echo and noise reduction remain on where supported.</p>
         <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">{{ audioDeviceBusy ? 'Reconnecting…' : 'Reconnect microphone' }}</button>
         <p>If you cannot hear other participants, enable meeting sound and check your computer’s speaker or headphone output.</p>
         <button type="button" class="vsr__ctrl" :disabled="playbackBusy || !sessionReady" @click="enableMeetingAudio">Enable meeting sound</button>
+        <div v-if="remotes.length" class="vsr__listening-volumes">
+          <strong>Participant volume</strong>
+          <p>Adjust what you hear. This does not change anyone’s microphone or what others hear.</p>
+          <label v-for="remote in remotes" :key="remote.streamId">
+            <span>{{ cleanPersonName(remote.name) }}</span>
+            <input type="range" min="0" max="100" step="5" :aria-label="`Listening volume for ${cleanPersonName(remote.name)}`" :value="remoteListeningVolume(remote)" @input="changeListeningVolume(remote, $event.target.value)" />
+            <output>{{ remoteListeningVolume(remote) }}%</output>
+          </label>
+        </div>
       </details>
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
@@ -634,6 +648,9 @@ const needsAudioSourceAttach = ref(false);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
+const automaticMicLevel = ref(true);
+const audioProcessingBusy = ref(false);
+const listeningVolumes = ref(new Map());
 /** @type {import('vue').Ref<Array<{ streamId: string, connectionId: string, name: string, hasVideo: boolean, hasAudio: boolean, profilePhotoUrl: string }>>} */
 const remotes = ref([]);
 const sharingScreen = ref(false);
@@ -999,16 +1016,16 @@ const voiceIsolationLabel = computed(() => {
 });
 const voiceIsolationTitle = computed(() => {
   if (voiceIsolationStatus.value === 'device') {
-    return 'The published microphone track reports Voice Isolation enabled. Native echo cancellation, noise suppression, and automatic gain control were also requested.';
+    return 'The published microphone track reports Voice Isolation enabled. Echo cancellation and noise suppression are requested, with your chosen microphone volume setting.';
   }
   if (voiceIsolationStatus.value === 'on') {
-    return 'Vonage advanced noise suppression is active and automatic gain control is disabled so the mic does not amplify the whole room. This is not Apple Voice Isolation.';
+    return 'Vonage advanced noise suppression is active. Your microphone volume setting applies separately. This is not Apple Voice Isolation.';
   }
   if (voiceIsolationStatus.value === 'processing') {
     return 'Opening and verifying the native-processed microphone track…';
   }
   if (voiceIsolationStatus.value === 'browser') {
-    return 'Browser noise suppression is on and automatic gain control is disabled. Apple Voice Isolation is not enabled on this published track.';
+    return 'The microphone reports browser noise suppression enabled. It may still pick up nearby voices and background sounds. Your microphone volume setting applies separately.';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
     return 'This microphone track did not report noise reduction. Check the browser input and Mac Mic Mode (Voice Isolation).';
@@ -1138,14 +1155,52 @@ async function enhanceLocalPublisherAudio() {
     return null;
   }
   publisherAudioTrack = track;
-  const result = await enhancePublishedAudioTrack(track);
-  // Never block join/mute on the WASM noise model. Apply it in the background
-  // only on desktop Chromium after the publisher is already live.
+  const result = await enhancePublishedAudioTrack(track, navigator.mediaDevices, { autoGainControl: automaticMicLevel.value });
+  // The unstable WASM noise model remains disabled by the capability policy.
   void applyVonageAdvancedNoiseSuppression(publisher).then(() => {
     refreshAudioEnhancementStatus(publisher);
   });
   refreshAudioEnhancementStatus(publisher);
   return result;
+}
+
+async function changeAutomaticMicLevel(enabled) {
+  if (audioProcessingBusy.value) return;
+  automaticMicLevel.value = !!enabled;
+  audioProcessingBusy.value = true;
+  try {
+    const result = await enhanceLocalPublisherAudio();
+    if (!result?.applied || result.settings?.autoGainControl !== automaticMicLevel.value) {
+      showMicHint('Your browser has not confirmed this volume setting. Check your input level while speaking.');
+    }
+  } finally { audioProcessingBusy.value = false; }
+}
+
+function listeningVolumeKey(remote) {
+  return `${props.sessionId}:${remote.participantKey || remote.connectionId || remote.streamId}`;
+}
+function remoteListeningVolume(remote) {
+  return listeningVolumes.value.get(listeningVolumeKey(remote)) ?? 100;
+}
+function changeListeningVolume(remote, value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return;
+  const volume = Math.max(0, Math.min(100, Math.round(number)));
+  try {
+    for (const peer of remotes.value.filter(r => listeningVolumeKey(r) === listeningVolumeKey(remote))) {
+      const subscriber = subscribers.get(peer.streamId);
+      if (typeof subscriber?.setAudioVolume !== 'function') throw new Error('Volume control unavailable');
+      subscriber.setAudioVolume(volume);
+    }
+    listeningVolumes.value.set(listeningVolumeKey(remote), volume);
+  } catch {
+    showMicHint('Your browser could not change this listening volume. Check your speaker or headphone volume.');
+  }
+}
+function restoreListeningVolumes() {
+  for (const remote of remotes.value) {
+    try { subscribers.get(remote.streamId)?.setAudioVolume?.(remoteListeningVolume(remote)); } catch { /* Audio recovery must still continue. */ }
+  }
 }
 
 function playJoinChime() {
@@ -1799,8 +1854,8 @@ async function enableMeetingAudio() {
     const playback = OTApi?.unblockAudio?.();
     for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
       sub.subscribeToAudio?.(true);
-      sub.setAudioVolume?.(100);
     }
+    restoreListeningVolumes();
     const mediaPlayback = [...(stageEl.value?.querySelectorAll('video, audio') || [])]
       .filter(media => media.paused).map(media => media.play());
     await Promise.all([playback, ...mediaPlayback]);
@@ -1885,6 +1940,7 @@ function remoteMetaFromStream(stream) {
   return {
     streamId: String(stream.streamId || ''),
     connectionId: connectionIdFrom(stream?.connection),
+    participantKey: participantIdentity(stream?.connection).key,
     name,
     hasVideo: stream?.hasVideo !== false,
     hasAudio: stream?.hasAudio !== false,
@@ -2045,6 +2101,7 @@ async function subscribeStreamOnce(stream, owner) {
       fitMode: props.preserveVideoAspect ? 'contain' : 'cover',
       subscribeToAudio: true,
       subscribeToVideo: true,
+      audioVolume: remoteListeningVolume(remoteMetaFromStream(stream)),
       style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
     },
     (err) => {
@@ -2067,11 +2124,13 @@ async function subscribeStreamOnce(stream, owner) {
       forceMediaFill(targetEl);
       try {
         if (typeof sub?.subscribeToAudio === 'function') sub.subscribeToAudio(true);
+        sub.setAudioVolume?.(remoteListeningVolume(remoteMetaFromStream(stream)));
       } catch { /* ignore */ }
     }
   );
 
   subscribers.set(streamId, sub);
+  try { sub.setAudioVolume?.(remoteListeningVolume(remoteMetaFromStream(stream))); } catch { /* The SDK still owns playback. */ }
   monitorMeetingAudio(sub, owner);
   attachSubscriberAudioLevel(sub, streamId);
   // Authoritative snapshot after subscribe — don't wait for a later property event.
@@ -2508,7 +2567,7 @@ async function connect() {
 
     const buildPublisherOpts = (withAudio, captureAudio) => {
       const mainRoom = !props.lobbyMode;
-      const audioProcessing = nativeAudioConstraints();
+      const audioProcessing = nativeAudioConstraints(navigator.mediaDevices, { autoGainControl: automaticMicLevel.value });
       const opts = {
         insertMode: 'append',
         width: '100%',
@@ -2520,16 +2579,11 @@ async function connect() {
         name: props.localName,
         mirror: true,
         style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
-        echoCancellation: true,
-        // AGC off: prevents the laptop mic from pumping ambient room noise.
-        autoGainControl: false,
-        noiseSuppression: true,
         disableAudioProcessing: false,
         ...audioProcessing
       };
       // Do not attach Vonage advancedNoiseSuppression at initPublisher — the
       // TfLite WASM model can exceed the SDK publish timeout and crash iPad.
-      // Desktop Chromium may apply it after publish via enhanceLocalPublisherAudio.
       if (!captureAudio) opts.audioSource = null;
       return opts;
     };
@@ -3144,6 +3198,7 @@ function restoreMeetingPlayback() {
     // Restart the receiver after the OS releases phone-call audio focus.
     try { sub.subscribeToAudio?.(false); sub.subscribeToAudio?.(true); } catch { audioResumeNeeded.value = true; }
   }
+  restoreListeningVolumes();
   for (const media of stageEl.value?.querySelectorAll('video, audio') || []) {
     if (media.paused) {
       try { Promise.resolve(media.play()).catch(() => { audioResumeNeeded.value = true; }); } catch { audioResumeNeeded.value = true; }
@@ -4438,11 +4493,17 @@ defineExpose({
   justify-self: center;
   align-self: center;
 }
-.vsr__audio-settings { padding: 8px 12px; background: #1c2230; font-size: .82rem; }
-.vsr__audio-settings summary { cursor: pointer; }
+.vsr__audio-settings { padding: 8px 12px; background: #1c2230; font-size: .82rem; max-height: min(40vh, 320px); overflow-y: auto; flex-shrink: 0; }
+.vsr__audio-settings[open] { position: absolute; top: 12px; right: 12px; z-index: 30; width: min(520px, calc(100% - 24px)); box-sizing: border-box; max-height: min(60dvh, 60%); border: 1px solid #526078; border-radius: 10px; box-shadow: 0 12px 32px #0006; }
+.vsr__audio-settings summary { cursor: pointer; position: sticky; top: 0; background: #1c2230; padding: 4px 0; z-index: 1; }
+.vsr__audio-settings[open] summary::after { content: 'Close'; float: right; color: #b9d5ff; }
 .vsr__audio-settings label { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
 .vsr__audio-settings select { max-width: 100%; padding: 6px; background: #12151c; color: white; }
 .vsr__audio-settings meter { width: 130px; }
+.vsr__listening-volumes { margin-top: 12px; border-top: 1px solid #394356; padding-top: 12px; }
+.vsr__listening-volumes label > span { flex: 1 1 140px; overflow-wrap: anywhere; }
+.vsr__listening-volumes input { flex: 1 1 100px; max-width: 220px; min-width: 70px; }
+.vsr__listening-volumes output { min-width: 3.5em; text-align: right; }
 .vsr__audio-problem { padding: 8px 12px; color: #fef3c7; background: #78350f; }
 .vsr__connection-issue { position:absolute; inset:30% 4px auto; z-index:4; padding:6px; background:#101827dd; font-size:.75rem; border-radius:6px; text-align:center; }
 .vsr__alone-prompt, .vsr__alone-ended { padding: 20px; background: #1a2334; color: #f8fafc; border: 1px solid #eab308; border-radius: 12px; z-index: 20; }

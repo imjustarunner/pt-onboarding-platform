@@ -1,10 +1,10 @@
-export function nativeAudioConstraints(mediaDevices = globalThis?.navigator?.mediaDevices) {
-  // autoGainControl OFF: AGC is what makes laptop mics "amplify the room" in
-  // open-speaker meetings when Apple Voice Isolation is unavailable. Keep AEC/NS.
+export function nativeAudioConstraints(mediaDevices = globalThis?.navigator?.mediaDevices, { autoGainControl = true } = {}) {
+  // Speech calls need level adjustment as well as echo/noise reduction.
+  // Disabling gain control globally leaves quieter microphones inaudible.
   const constraints = {
     echoCancellation: true,
     noiseSuppression: true,
-    autoGainControl: false
+    autoGainControl
   };
   try {
     const supported = mediaDevices?.getSupportedConstraints?.() || {};
@@ -31,11 +31,12 @@ function voiceIsolationEnabled(settings = {}) {
 /**
  * Ask the browser to enable Voice Isolation / AEC / NS on an already-live
  * microphone track (e.g. the one Vonage created). Does not replace the track.
- * Intentionally keeps autoGainControl disabled.
+ * Preserve the chosen level adjustment when switching microphones or unmuting.
  */
 export async function enhancePublishedAudioTrack(
   track,
-  mediaDevices = globalThis?.navigator?.mediaDevices
+  mediaDevices = globalThis?.navigator?.mediaDevices,
+  { autoGainControl = true } = {}
 ) {
   if (!track || typeof track.applyConstraints !== 'function') {
     return {
@@ -46,7 +47,7 @@ export async function enhancePublishedAudioTrack(
     };
   }
 
-  const constraints = nativeAudioConstraints(mediaDevices);
+  const constraints = nativeAudioConstraints(mediaDevices, { autoGainControl });
   const before = readTrackSettings(track);
   // Chrome on macOS often exposes voiceIsolation in getSettings() even when
   // getSupportedConstraints() omits it. Request it whenever the key exists.
@@ -63,7 +64,7 @@ export async function enhancePublishedAudioTrack(
     const fallback = {
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: false
+      autoGainControl
     };
     try {
       await track.applyConstraints(fallback);
@@ -73,13 +74,13 @@ export async function enhancePublishedAudioTrack(
 
   let settings = readTrackSettings(track);
   // Chromium sometimes accepts Voice Isolation only via the advanced form.
-  // Always restate AEC/NS/AGC so an advanced-only call cannot leave AGC on.
+  // Restate all speech processing so the advanced retry preserves the choice.
   if (!voiceIsolationEnabled(settings) && ('voiceIsolation' in constraints || 'voiceIsolation' in before)) {
     try {
       await track.applyConstraints({
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl,
         advanced: [{ voiceIsolation: true }]
       });
       applied = true;

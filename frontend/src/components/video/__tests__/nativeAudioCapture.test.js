@@ -13,24 +13,32 @@ describe('nativeAudioConstraints', () => {
     expect(nativeAudioConstraints(mediaDevices)).toEqual({
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: false,
+      autoGainControl: true,
       voiceIsolation: true
     });
   });
 
-  it('omits voiceIsolation when unsupported and keeps AGC off', () => {
+  it('omits voiceIsolation when unsupported and requests speech level adjustment', () => {
     const mediaDevices = {
       getSupportedConstraints: () => ({})
     };
     expect(nativeAudioConstraints(mediaDevices)).toEqual({
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: false
+      autoGainControl: true
     });
   });
 });
 
 describe('enhancePublishedAudioTrack', () => {
+  it('preserves an explicit level-adjustment opt-out through native fallbacks without dropping noise reduction',async()=>{
+    const track={getSettings:()=>({voiceIsolation:false,autoGainControl:false}),applyConstraints:vi.fn().mockRejectedValueOnce(new Error('unsupported')).mockResolvedValue(undefined)};
+    await enhancePublishedAudioTrack(track,{getSupportedConstraints:()=>({voiceIsolation:true})},{autoGainControl:false});
+    expect(track.applyConstraints).toHaveBeenCalledTimes(3);
+    for(const [constraints] of track.applyConstraints.mock.calls){
+      expect(constraints).toMatchObject({echoCancellation:true,noiseSuppression:true,autoGainControl:false});
+    }
+  });
   it('applies Voice Isolation when settings expose the key but support map omits it', async () => {
     let settings = {
       echoCancellation: true,
@@ -80,7 +88,7 @@ describe('enhancePublishedAudioTrack', () => {
     expect(applyConstraints.mock.calls.some((call) => (
       call[0]?.echoCancellation === true
       && call[0]?.noiseSuppression === true
-      && call[0]?.autoGainControl === false
+      && call[0]?.autoGainControl === true
       && call[0]?.voiceIsolation == null
       && !call[0]?.advanced
     ))).toBe(true);
@@ -109,7 +117,7 @@ describe('acquireNativeAudioSource', () => {
       getSettings: () => ({
         noiseSuppression: true,
         echoCancellation: true,
-        autoGainControl: false,
+        autoGainControl: true,
         voiceIsolation: true
       })
     };
@@ -129,7 +137,7 @@ describe('acquireNativeAudioSource', () => {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
         voiceIsolation: true
       },
       video: false
