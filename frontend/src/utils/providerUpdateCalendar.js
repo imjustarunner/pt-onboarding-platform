@@ -8,17 +8,21 @@ const overlaps=(a,b)=>Date.parse(a.startAt)<Date.parse(b.endAt)&&Date.parse(a.en
 export function calendarDays(calendar) {
  if(!calendar?.weekStart)return [];
  const offices=calendar.officeReservations||[],busy=calendar.busyBlocks||[],weekly=calendar.weekly||[],tz=calendar.timeZone;
+ const isSchool=b=>b.sourceType==='SCHOOL_ASSIGNMENT'||b.label==='School commitment';
+ const schools=calendar.schoolAssignments||busy.filter(isSchool);
  const events=offices.map(o=>{
   const ip=(calendar.inPersonSlots||[]).some(s=>overlaps(s,o)),v=(calendar.virtualSlots||[]).some(s=>overlaps(s,o));
-  const blocked=o.hasAppointment||busy.some(b=>overlaps(b,o))||!o.roomAvailable;
-  return {...o,key:`office-${o.id}`,kind:blocked?'busy':ip||v?'open':'reserved',office:true,
+  const schoolAssignment=schools.find(b=>overlaps(b,o));
+  const blocked=o.hasAppointment||busy.some(b=>overlaps(b,o))||schoolAssignment||!o.roomAvailable;
+  return {...o,schoolAssignment,key:`office-${o.id}`,kind:blocked?'busy':ip||v?'open':'reserved',office:true,
    label:blocked?'Unavailable':ip&&v?'In person or virtual':ip?'In person':v?'Virtual':'Kept private',
    detail:[o.buildingName,o.roomLabel].filter(Boolean).join(' · ')};
  });
- for(const b of busy) events.push({...b,key:`busy-${events.length}`,kind:'busy',detail:'Private commitment'});
- for(const school of calendar.schoolAssignments||[]) events.push({...school,key:`school-${events.length}`,kind:'school',
-  sourceType:'SCHOOL_ASSIGNMENT',label:'School assignment',detail:school.schoolName||'Recurring school hours'});
+ for(const b of busy.filter(b=>!isSchool(b))) events.push({...b,key:`busy-${events.length}`,kind:'busy',detail:'Private commitment'});
+ for(const school of schools) events.push({...school,key:`school-${events.length}`,kind:'school',
+  sourceType:'SCHOOL_ASSIGNMENT',label:'Reserved for school clients',detail:school.schoolName||'Recurring school hours'});
  for(const slot of calendar.virtualSlots||[]){
+  if(schools.some(s=>overlaps(s,slot)))continue;
   if(offices.some(o=>overlaps(o,slot)))continue;
   const local=localParts(slot.startAt,tz),day=new Date(local.date+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'long',timeZone:'UTC'});
   const row=weekly.find(r=>r.dayOfWeek===day&&availabilityOccursOn(r,local.date)&&r.startTime<=`${String(Math.floor(local.minute/60)).padStart(2,'0')}:${String(local.minute%60).padStart(2,'0')}`&&Number(r.endTime.slice(0,2))*60+Number(r.endTime.slice(3))>=localParts(slot.endAt,tz).minute);

@@ -276,12 +276,12 @@ export class ProviderAvailabilityService {
       }
     }
 
-    // 2) School assignments describe where a provider plans to work. They are
-    // context, not appointments, and must allow explicitly published openings.
+    // 2) School hours are reserved for school clients, including virtual visits.
+    // An empty school hour must not become a public office/virtual opening.
     let schoolAssignments = [];
-    if (includePrivateCalendar) try {
+    try {
       const [rows] = await pool.execute(
-        `SELECT psa.day_of_week, psa.start_time, psa.end_time,
+        `SELECT psa.id, psa.day_of_week, psa.start_time, psa.end_time,
                 psa.school_organization_id, school.name AS school_name
          FROM provider_school_assignments psa
          LEFT JOIN agencies school ON school.id = psa.school_organization_id
@@ -290,6 +290,7 @@ export class ProviderAvailabilityService {
         [pid]
       );
       schoolAssignments = (rows || []).map((r) => ({
+        assignmentId: Number(r.id) || null,
         schoolId: Number(r.school_organization_id) || null,
         schoolName: String(r.school_name || '').trim() || null,
         dayOfWeek: r.day_of_week,
@@ -300,12 +301,16 @@ export class ProviderAvailabilityService {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       schoolAssignments = [];
     }
-    const schoolContext = [];
+    const schoolBusy = [];
     for (const r of schoolAssignments || []) {
       const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
       const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
-      if (s && e && e > s) schoolContext.push({ start: s, end: e, schoolId: r.schoolId, schoolName: r.schoolName });
+      if (s && e && e > s) schoolBusy.push({ start: s, end: e, assignmentId: r.assignmentId, schoolId: r.schoolId, schoolName: r.schoolName });
     }
+    const schoolCalendarBlocks = includePrivateCalendar ? schoolBusy.map(({ start, end, assignmentId, schoolId, schoolName }) => ({
+      label: 'Reserved for school clients', sourceType: 'SCHOOL_ASSIGNMENT', assignmentId, schoolId, schoolName,
+      startAt: start.toISOString(), endAt: end.toISOString()
+    })) : [];
 
     // 3) Office events: base availability for in-person + reserved blocks to prevent virtual overlap
     const officeBase = [];
@@ -631,6 +636,7 @@ export class ProviderAvailabilityService {
       ...officeBookedBusy,
       ...selectionBusy,
       ...requestBusy,
+      ...schoolBusy,
       ...externalBusyIntervals
     ]);
     const officeReservedBusyForVirtual = subtractIntervals(
@@ -691,6 +697,7 @@ export class ProviderAvailabilityService {
       bases: [...combinedVirtualBase.map(b => ({...b,format:'VIRTUAL'})), ...officePublishedCandidates.map(b => ({...b,format:'IN_PERSON'}))],
       blockers: [['Personal event, meeting or schedule hold', appCalendarBusy], ['Client appointment', appointmentBusy], ['Appointment linked to an office reservation', officeBookedBusy],
         ['Pending time selection', selectionBusy], ['Pending appointment request', requestBusy],
+        ['Reserved for school clients', schoolBusy],
         ['External calendar busy time', externalBusyIntervals]],
       policy, formatAllowed: agencyFormatAllowed, officeAllowed: agencyOfficeAllowed, slotMinutes
     }) : undefined;
@@ -701,11 +708,8 @@ export class ProviderAvailabilityService {
         ['Booked appointment', mergeIntervals([...appointmentBusy, ...officeBookedBusy])],
         ['Meeting or personal commitment', appCalendarBusy], ['Pending appointment', mergeIntervals([...selectionBusy, ...requestBusy])],
         ['Calendar busy time', externalBusyIntervals]
-      ].flatMap(([label, intervals]) => intervals.map(({start, end}) => ({label, startAt:start.toISOString(), endAt:end.toISOString()}))),
-        schoolAssignments: schoolContext.map(({ start, end, schoolId, schoolName }) => ({
-          label: 'School assignment', sourceType: 'SCHOOL_ASSIGNMENT', schoolId, schoolName,
-          startAt: start.toISOString(), endAt: end.toISOString()
-        }))
+      ].flatMap(([label, intervals]) => intervals.map(({start, end}) => ({label, startAt:start.toISOString(), endAt:end.toISOString()}))).concat(schoolCalendarBlocks),
+        schoolAssignments: schoolCalendarBlocks
       } : {}),
       ...(includeDiagnostics ? {diagnostics, scheduleAgencyId:scheduleAid} : {}),
       ok: true,

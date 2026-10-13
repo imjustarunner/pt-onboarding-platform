@@ -93,7 +93,7 @@ it('blocks Quick View creation for previews and prevents overwriting existing co
 vi.mock('../providerUpdateContactHours.service.js',()=>({getContactHours:vi.fn(async()=>({mode:'default'})),saveContactHours:vi.fn(async()=>({mode:'anytime'}))}));
 vi.mock('../providerYearUpdate.service.js',()=>({loadProviderSchoolSchedule:vi.fn(),loadProviderPendingScheduleAdjustments:vi.fn(async()=>[])}));
 vi.mock('../../controllers/availability.controller.js',()=>({createMySchoolAvailabilityRequest:vi.fn(async(req,res)=>res.json({ok:true}))}));
-import {schoolAdjustment,contactHours,reviewAsset} from '../../controllers/providerUpdateReview.controller.js';
+import {schoolReview,schoolAdjustment,contactHours,reviewAsset} from '../../controllers/providerUpdateReview.controller.js';
 import {loadProviderSchoolSchedule} from '../providerYearUpdate.service.js';
 import {createMySchoolAvailabilityRequest} from '../../controllers/availability.controller.js';
 import {saveContactHours} from '../providerUpdateContactHours.service.js';
@@ -103,6 +103,21 @@ it('scopes school adjustments to the invited person and agency rather than calle
  getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{school_availability:true}});
  User.findById.mockResolvedValue({id:9,role:'provider'});loadProviderSchoolSchedule.mockResolvedValue([{schoolOrganizationId:7,schoolName:'School',days:[{assignmentId:10,dayOfWeek:'Monday',startTime:'09:00',endTime:'15:00',slotsTotal:5,clientCount:3}]}]);req.body={agencyId:999,providerId:999,startTime:'10:00',endTime:'15:00',slotsTotal:4,moveToDay:'Tuesday'};
  await schoolAdjustment(req,res,next);expect(next).not.toHaveBeenCalled();const [scoped]=createMySchoolAvailabilityRequest.mock.calls[0];expect(scoped.user.id).toBe(9);expect(scoped.body.agencyId).toBe(6);expect(scoped.body.preferredSchoolOrgIds).toEqual([7]);expect(scoped.body.notes).toContain('Requested day: Tuesday');expect(scoped.body.requestKind).toBe('schedule_adjustment');
+});
+it('allows an availability-only recipient to review and request their own school-hours adjustment',async()=>{
+ getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{office_schedule:true,school_availability:false}});
+ User.findById.mockResolvedValue({id:9,role:'provider'});loadProviderSchoolSchedule.mockResolvedValue([{schoolOrganizationId:7,schoolName:'School',days:[{assignmentId:10,dayOfWeek:'Monday',startTime:'09:00',endTime:'15:00',slotsTotal:5,clientCount:3}]}]);
+ await schoolReview(req,res,next);expect(loadProviderSchoolSchedule).toHaveBeenCalledWith(9,6);
+ req.body={agencyId:999,providerId:999,startTime:'10:00',endTime:'15:00',slotsTotal:4};
+ await schoolAdjustment(req,res,next);expect(next).not.toHaveBeenCalled();
+ expect(createMySchoolAvailabilityRequest).toHaveBeenCalledWith(expect.objectContaining({body:expect.objectContaining({agencyId:6,requestKind:'schedule_adjustment'}),user:expect.objectContaining({id:9})}),res,next);
+ expect(pool.execute).not.toHaveBeenCalled();
+});
+it('does not grant school review through unrelated updates or allow preview school requests',async()=>{
+ getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{office_schedule:false,school_availability:false,public_profile_review:true}});
+ await schoolReview(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));expect(loadProviderSchoolSchedule).not.toHaveBeenCalled();
+ getRecipientByToken.mockResolvedValue({...recipient,previewOnly:true});await schoolAdjustment(req,res,next);
+ expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));expect(createMySchoolAvailabilityRequest).not.toHaveBeenCalled();
 });
 it('rejects another person’s school assignment and all preview mutations',async()=>{
  getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{school_availability:true}});loadProviderSchoolSchedule.mockResolvedValue([]);await schoolAdjustment(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:404}));expect(createMySchoolAvailabilityRequest).not.toHaveBeenCalled();

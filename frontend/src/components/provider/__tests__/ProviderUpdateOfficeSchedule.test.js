@@ -9,15 +9,23 @@ const calendar={weekStart:'2026-10-12',weekEnd:'2026-10-19',today:'2026-10-07',t
 const button=(w,label)=>w.findAll('button').find(b=>b.text()===label);
 const render=props=>mount(ProviderUpdateOfficeSchedule,{props:{agencyId:2,mode:'token',token:'private-invitation',...props},global:{stubs:{ProviderContactHours:true}}});
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:structuredClone(calendar)});api.post.mockResolvedValue({data:{ok:true}});});
-it('explains school assignments and lets the provider publish an opening during those hours',async()=>{
- api.get.mockResolvedValue({data:{...calendar,officeReservations:[],schoolAssignments:[{sourceType:'SCHOOL_ASSIGNMENT',schoolName:'Example School',label:'School assignment',startAt:'2026-10-12T17:30:00Z',endAt:'2026-10-12T21:15:00Z'}]}});
- const w=render();await flushPromises();const event=w.get('.calendar-event');expect(event.text()).toContain('Example School');expect(event.text()).not.toContain('Private commitment');
- await event.trigger('click');await flushPromises();expect(w.get('.edit-panel').text()).toContain('does not block new openings');
- await button(w,'Add an opening during these hours').trigger('click');await flushPromises();
- await button(w,'Open virtual appointments').trigger('click');await flushPromises();
- expect(w.get('input[type="time"]').element.value).toBe('11:30');
- await button(w,'Publish virtual opening').trigger('click');await flushPromises();
- expect(api.post).toHaveBeenCalledWith(expect.stringContaining('/virtual'),expect.objectContaining({date:'2026-10-12',startTime:'11:30'}),expect.any(Object));w.unmount();
+it('explains school reservations and opens a scoped adjustment request without publishing or changing the assignment',async()=>{
+ const schoolBlock={sourceType:'SCHOOL_ASSIGNMENT',assignmentId:10,schoolId:4,schoolName:'Example School',startAt:'2026-10-12T17:30:00Z',endAt:'2026-10-12T21:15:00Z'};
+ api.get.mockImplementation(async url=>({data:url.endsWith('/school-review')?{schools:[{schoolOrganizationId:4,schoolName:'Example School',days:[{assignmentId:10,dayOfWeek:'Monday',startTime:'11:30',endTime:'15:15',slotsTotal:4,clientCount:2}]}],pending:[]}:{...calendar,officeReservations:[],schoolAssignments:[schoolBlock],busyBlocks:[schoolBlock]}}));
+ const w=render();await flushPromises();const event=w.get('.calendar-event');expect(event.text()).toContain('Example School');expect(event.text()).toContain('Reserved for school clients');expect(w.findAll('.calendar-event')).toHaveLength(1);
+ await event.trigger('click');await flushPromises();expect(w.get('.edit-panel').text()).toContain('aren’t available for public booking');
+ expect(button(w,'Add an opening during these hours')).toBeUndefined();expect(button(w,'Publish virtual opening')).toBeUndefined();
+ await button(w,'Request school hours change').trigger('click');await flushPromises();
+ expect(w.get('.school-review input[type="time"]').element.value).toBe('11:30');
+ await w.get('.school-review input[type="time"]').setValue('12:30');
+ await button(w,'Submit change for approval').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledExactlyOnceWith('/public/provider-update/private-invitation/school-assignments/10/request',expect.objectContaining({agencyId:2,startTime:'12:30',endTime:'15:15'}));
+ expect(w.text()).toContain('remain reserved until it is approved');expect(w.get('.calendar-event').text()).toContain('11:30');w.unmount();
+});
+it('does not let a preview submit school-hours changes',async()=>{
+ api.get.mockResolvedValue({data:{...calendar,officeReservations:[],schoolAssignments:[{sourceType:'SCHOOL_ASSIGNMENT',schoolName:'Example School',startAt:'2026-10-12T17:30:00Z',endAt:'2026-10-12T21:15:00Z'}]}});
+ const w=render({readonly:true});await flushPromises();await w.get('.calendar-event').trigger('click');await flushPromises();
+ expect(button(w,'Request school hours change')).toBeUndefined();expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
 it('keeps the profile link in its dedicated read-only review step without sending or publishing',async()=>{const w=render({readonly:true,view:'profile'});await flushPromises();const link=w.get('a.primary').attributes('href');expect(link).toBe('https://www.itsco.health/providers/test-provider-465');expect(link).not.toContain('private-invitation');expect(button(w,'Save and continue').attributes('disabled')).toBeDefined();await button(w,'Create profile QR code').trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.find('a[download="provider-465-profile.png"]').exists()).toBe(true));expect(createProviderProfileQr).toHaveBeenCalledWith(link,calendar.agency);expect(api.post).not.toHaveBeenCalled();w.unmount();});
 it('lets a read-only preview browse weeks without sharing links in the calendar step',async()=>{const w=render({readonly:true});await flushPromises();expect(w.text()).toContain('Mon, Oct 12');expect(w.text()).toContain('Kept private');expect(w.find('.profile-share').exists()).toBe(false);await w.get('[aria-label="Next week"]').trigger('click');await flushPromises();expect(api.get).toHaveBeenLastCalledWith('/public/provider-update/private-invitation/availability-calendar',expect.objectContaining({params:{agencyId:2,weekStart:'2026-10-19'}}));expect(button(w,'Publish virtual opening')).toBeUndefined();expect(api.post).not.toHaveBeenCalled();w.unmount();});

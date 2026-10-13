@@ -231,14 +231,23 @@ export async function contactHours(req,res,next){
   res.json(req.method==='PUT'?await saveContactHours(r.provider_user_id,req.body):await getContactHours(r.provider_user_id));
  }catch(e){next(e);}
 }
+// The availability calendar links to the same provider-scoped school review.
+// This grants a change request, never permission to approve or alter assignments.
+function requireSchoolReviewSection(recipient) {
+ try { requireSection(recipient,'school_availability'); }
+ catch (error) {
+  if(error.status!==403)throw error;
+  requireSection(recipient,'office_schedule');
+ }
+}
 export async function schoolReview(req,res,next){
- try{const r=await reviewRecipient(req);requireSection(r,'school_availability');
+ try{const r=await reviewRecipient(req);requireSchoolReviewSection(r);
   const {loadProviderSchoolSchedule,loadProviderPendingScheduleAdjustments}=await import('../services/providerYearUpdate.service.js');
   res.json({schools:await loadProviderSchoolSchedule(r.provider_user_id,r.agency_id),pending:await loadProviderPendingScheduleAdjustments(r.provider_user_id,r.agency_id)});
  }catch(e){next(e);}
 }
 export async function schoolAdjustment(req,res,next){
- try{const r=await reviewRecipient(req);requireSection(r,'school_availability');if(r.previewOnly)throw fail('This preview is read-only.',403);
+ try{const r=await reviewRecipient(req);requireSchoolReviewSection(r);if(r.previewOnly)throw fail('This preview is read-only.',403);
   const {loadProviderSchoolSchedule}=await import('../services/providerYearUpdate.service.js');
   const schools=await loadProviderSchoolSchedule(r.provider_user_id,r.agency_id);
   const school=schools.find(s=>s.days.some(d=>Number(d.assignmentId)===Number(req.params.assignmentId)));

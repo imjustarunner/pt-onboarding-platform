@@ -28,11 +28,10 @@ it('adds a virtual window without replacing other openings, appointments, or mee
  expect(db.execute.mock.calls.some(([sql])=>/^(DELETE|UPDATE|INSERT INTO (appointments|office_events|company_events))/.test(sql))).toBe(false);
 });
 it.each(['busyBlocks','officeReservations'])('refuses a conflicting %s hour',async key=>{m.compute.mockResolvedValue({[key]:[{startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'}]});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
-it('publishes a virtual opening over an informational school assignment',async()=>{
+it('asks for school-hours approval before publishing and does not change availability or assignments',async()=>{
  m.compute.mockResolvedValue({schoolAssignments:[{startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T19:00:00Z'}],busyBlocks:[],officeReservations:[]});
- await addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'});
- expect(db.commit).toHaveBeenCalledOnce();
- expect(db.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO provider_virtual_working_hours'))).toBe(true);
+ await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY',enableVirtualOpen:true})).rejects.toMatchObject({status:409,message:expect.stringContaining('reserved for school clients')});
+ expect(m.connection).not.toHaveBeenCalled();expect(m.save).not.toHaveBeenCalled();
 });
 it('does not guess availability when an external calendar cannot be checked',async()=>{m.compute.mockResolvedValue({calendarWarnings:['unavailable']});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
 it('serializes additions and rolls back duplicates without touching saved windows',async()=>{db.execute.mockImplementation(async sql=>[sql.includes('FROM provider_virtual_working_hours')?[{day_of_week:'Monday',start_time:'09:00:00',end_time:'10:00:00',frequency:'WEEKLY'}]:[]]);await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(db.rollback).toHaveBeenCalledOnce();expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);});

@@ -79,6 +79,7 @@ export async function addUpdateVirtualOpening(ids, input) {
   const opening = virtualOpening(input,timeZone);
   const calendar = await Availability.computeWeekAvailability({...ids,weekStartYmd:opening.date,intakeOnly:true,includePrivateCalendar:true,materializeOfficeEvents:false});
   if (calendar.calendarWarnings?.length) throw fail('A connected calendar could not be checked. Refresh the calendar before publishing this opening.',409);
+  if ((calendar.schoolAssignments||[]).some(b=>overlaps(opening,b))) throw fail('These hours are reserved for school clients, including virtual school visits. Request a school-hours adjustment before publishing a public opening. The current hours remain reserved until approval.',409);
   if ((calendar.busyBlocks||[]).some(b=>overlaps(opening,b))) throw fail('That hour overlaps a booked appointment, hold, or calendar event. Choose another hour.',409);
   if ((calendar.officeReservations||[]).some(b=>overlaps(opening,b))) throw fail('Use the reserved office hour in your weekly calendar to open this time virtually or in both formats.',409);
   const db = await pool.getConnection();

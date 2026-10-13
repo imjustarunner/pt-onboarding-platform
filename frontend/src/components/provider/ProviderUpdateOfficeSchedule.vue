@@ -26,8 +26,8 @@
   <div class="week-toolbar">
    <h3>Your week</h3><div class="row"><button type="button" :disabled="loading||busy" aria-label="Previous week" @click="navigate(-7)">←</button><button type="button" :disabled="loading||busy" @click="load('')">This week</button><button type="button" :disabled="loading||busy" aria-label="Next week" @click="navigate(7)">→</button><label>Week of <input type="date" :value="calendar?.weekStart" :disabled="loading||busy" @change="load($event.target.value)" /></label><button type="button" :disabled="loading||busy" @click="load(calendar?.weekStart)">Refresh</button></div>
   </div>
-  <p v-if="calendar" class="muted">{{calendar.timeZone}} · <span class="key open">Public opening</span> <span class="key reserved">Reserved / kept private</span> <span class="key busy">Unavailable</span> <span v-if="calendar.schoolAssignments?.length" class="key school">School assignment · informational</span></p>
-  <p v-if="calendar?.schoolAssignments?.length" class="notice">School assignments are shown for reference. You can publish openings during those hours. Booked appointments, meetings, and other commitments remain unavailable.</p>
+  <p v-if="calendar" class="muted">{{calendar.timeZone}} · <span class="key open">Public opening</span> <span class="key reserved">Reserved / kept private</span> <span class="key busy">Unavailable</span> <span v-if="calendar.schoolAssignments?.length" class="key school">Reserved for school clients</span></p>
+  <div v-if="calendar?.schoolAssignments?.length" class="notice"><p>School hours are reserved for that school’s clients, including virtual visits. Empty time within school hours is not publicly bookable. To offer public appointments then, request an adjustment to your school hours first.</p><button type="button" @click="openSchoolReview(false,true)">View school schedule</button></div>
   <p v-if="loading" role="status">Loading weekly calendar…</p>
   <p v-for="warning in calendar?.calendarWarnings||[]" :key="warning" role="alert" class="notice">{{warning}}</p>
   <div v-if="calendar" class="calendar-scroll" :aria-busy="loading" tabindex="0" aria-label="Weekly availability calendar; scroll horizontally to see all seven days">
@@ -49,9 +49,11 @@
   <section v-if="selected" ref="selectionPanel" class="edit-panel" tabindex="-1">
    <h3>{{selected.office?'Reserved office hour':'Selected time'}} · {{time(selected.startAt)}}–{{time(selected.endAt)}}</h3>
    <p>{{selected.label}} · {{selected.detail}}</p>
-   <template v-if="selected.sourceType==='SCHOOL_ASSIGNMENT'">
-    <p>These recurring hours come from your school assignment{{selected.schoolName?` at ${selected.schoolName}`:''}}. The assignment does not block new openings. Existing appointments and other commitments still apply.</p>
-    <button v-if="canExplore" type="button" class="primary" :disabled="busy||loading" @click="startOpening(selected.date,`${String(Math.floor(selected.startMinute/60)).padStart(2,'0')}:${String(selected.startMinute%60).padStart(2,'0')}`)">Add an opening during these hours</button>
+   <template v-if="selectedSchool">
+    <h4>Reserved for school clients</h4>
+    <p>These hours{{selectedSchool.schoolName?` at ${selectedSchool.schoolName}`:''}} aren’t available for public booking, even when no appointment is scheduled. Virtual visits with school clients belong in the school schedule.</p>
+    <p>To offer public appointments during this time, request a school-hours adjustment. The current hours stay reserved until approval. Existing appointments remain booked.</p>
+    <div class="row"><button type="button" :disabled="busy||loading" @click="openSchoolReview()">View school schedule</button><button v-if="!readonly" type="button" class="primary" :disabled="busy||loading" @click="openSchoolReview(true)">Request school hours change</button></div>
    </template>
    <p v-else-if="selected.kind==='busy'">This time is blocked by a commitment or an unavailable room. Existing appointments are managed in your regular schedule.</p>
    <template v-else-if="selected.office">
@@ -63,11 +65,16 @@
    <template v-else-if="selected.weeklyId"><fieldset :disabled="!canEdit||busy||loading"><label>Remove opening<select v-model="closeScope"><option value="single">This date only</option><option value="future">This and future dates</option></select></label><button type="button" @click="closeOpening">Delete this virtual opening</button></fieldset><p class="muted">This removes the saved {{selected.weeklyWindow}} availability window on the selected dates; existing client appointments stay in place.</p></template>
    <button type="button" @click="selected=null">Close details</button>
   </section>
+  <section v-if="schoolReview" ref="schoolReviewPanel" class="edit-panel" tabindex="-1" aria-label="School schedule and change requests">
+   <h3>School schedule</h3>
+   <ProviderUpdateSchoolSchedule :key="`${schoolReview.assignmentId||0}-${schoolReview.requestChange}`" :base="base" :agency-id="agencyId" :school-id="schoolReview.schoolId" :initial-assignment-id="schoolReview.assignmentId" :request-change="schoolReview.requestChange" :readonly="readonly" hide-complete />
+   <button type="button" @click="schoolReview=null;load(calendar.weekStart)">Back to public availability</button>
+  </section>
   <section v-if="openingChoice!==null" ref="virtualPanel" class="edit-panel">
    <h3>What would you like to make available?</h3><div class="row"><button type="button" @click="openingChoice='room';rooms=[]">Request a recurring room</button><button v-if="canEdit || readonly" type="button" @click="openingChoice='virtual'">Open virtual appointments</button><button type="button" @click="openingChoice=null">Cancel</button></div>
    <template v-if="openingChoice==='room'"><p>Request a room for one hour, repeating weekly, every other week, or every four weeks. The room search checks the next six occurrences. Staff review the request before it becomes your office reservation.</p><fieldset :disabled="!canExplore||busy||loading"><div class="request-fields"><label>Date<input v-model="opening.date" type="date" :min="calendar?.today" /></label><label>Start<input v-model="opening.startTime" type="time" /></label><label>Repeat<select v-model="opening.frequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label><label>Office location<select v-model="requestLocation" aria-label="Office location"><option value="">Choose an office</option><option v-for="office in calendar?.offices||[]" :key="office.id" :value="office.id">{{[office.name,office.city].filter(Boolean).join(' · ')}}</option></select></label></div><button type="button" :disabled="!canRequestRooms||!requestLocation" @click="findRooms">Find available rooms</button><label v-if="rooms.length" class="room-select">Room at {{selectedOfficeName}}<select v-model="requestRoom" aria-label="Available room"><option value="">Choose a room</option><option v-for="room in rooms" :key="room.id" :value="room.id">{{selectedOfficeName}} · {{officeRoomLabel(room)}}</option></select></label><p v-if="roomsChecked && !rooms.length">No rooms are available for that pattern. Try another office or time.</p><p v-if="selectedRoom" class="request-summary"><strong>Your request:</strong> {{selectedOfficeName}} · {{officeRoomLabel(selectedRoom)}}<br />{{opening.date}} · {{opening.startTime}} · One hour · {{opening.frequency==='WEEKLY'?'Weekly':opening.frequency==='BIWEEKLY'?'Every other week':'Every four weeks'}}</p><button v-if="rooms.length" type="button" class="primary" :disabled="!canRequestRooms||!selectedRoom" @click="requestOffice">Submit room request</button></fieldset></template>
    <template v-if="openingChoice==='virtual'">
-   <h3>Add virtual availability</h3><p>Publishing this hour also sets Virtual appointments to Open on your public profile. Cancel above to keep your current setting.</p><p>Virtual openings can be added outside your office reservations. To offer in-person or combined availability, select a reserved office hour in the calendar.</p>
+   <h3>Add public virtual availability</h3><p>Publishing this hour also sets Virtual appointments to Open on your public profile. Virtual visits for school clients are managed in the school schedule. Cancel above to keep your current setting.</p><p>Public virtual openings can be added outside your school hours and office reservations. To offer in-person or combined availability, select a reserved office hour in the calendar.</p>
    <fieldset :disabled="!canExplore||busy||loading"><div class="row"><label>Date<input ref="openingDate" v-model="opening.date" type="date" :min="calendar?.today" /></label><label>Start time<input v-model="opening.startTime" type="time" /></label><label>Repeat<select v-model="opening.frequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label></div><p>One hour · Virtual · {{calendar?.timeZone}}</p><button type="button" class="primary" :disabled="!canEdit" @click="addOpening">Publish virtual opening</button></fieldset></template>
   </section>
 
@@ -89,11 +96,15 @@ import {createProviderProfileQr} from '../../utils/providerProfileQr';
 import {providerProfileUrl} from '../../utils/providerProfileLinks';
 import {officeRoomLabel} from '../../utils/officeRoomLabel';
 import {calendarDays,shiftDate} from '../../utils/providerUpdateCalendar';
+import ProviderUpdateSchoolSchedule from './ProviderUpdateSchoolSchedule.vue';
 const props=defineProps({agencyId:[Number,String],mode:{type:String,default:'auth'},token:String,data:Object,readonly:Boolean,view:{type:String,default:'calendar'}});
 const emit=defineEmits(['complete']);
 const base=computed(()=>props.mode==='token'?`/public/provider-update/${encodeURIComponent(props.token)}`:'/provider-update/me');
 const calendar=ref(null),loading=ref(false),busy=ref(false),error=ref(''),message=ref(''),qr=ref(''),selected=ref(null),officeFormat=ref('private'),officeFrequency=ref('WEEKLY'),closeScope=ref('single'),selectionPanel=ref(null),openingDate=ref(null),virtualPanel=ref(null);
 const openingChoice=ref(null),requestLocation=ref(''),requestRoom=ref(''),rooms=ref([]),roomsChecked=ref(false);
+const schoolReview=ref(null),schoolReviewPanel=ref(null);
+const selectedSchool=computed(()=>selected.value?.sourceType==='SCHOOL_ASSIGNMENT'?selected.value:selected.value?.schoolAssignment);
+async function openSchoolReview(requestChange=false,all=false){schoolReview.value={schoolId:all?undefined:selectedSchool.value?.schoolId,assignmentId:all?undefined:selectedSchool.value?.assignmentId,requestChange};openingChoice.value=null;await nextTick();schoolReviewPanel.value?.scrollIntoView?.({behavior:'smooth',block:'start'});schoolReviewPanel.value?.focus({preventScroll:true});}
 const selectedOfficeName=computed(()=>calendar.value?.offices?.find(o=>String(o.id)===String(requestLocation.value))?.name||'Selected office');
 const selectedRoom=computed(()=>rooms.value.find(r=>String(r.id)===String(requestRoom.value)));
 const opening=reactive({date:'',startTime:'09:00',frequency:'WEEKLY'}),settings=reactive({inPersonStatus:'unavailable',virtualStatus:'unavailable'});
@@ -140,7 +151,7 @@ async function makeQr(){error.value='';try{const url=profileUrl.value;const imag
 watch(profileUrl,()=>{qr.value='';});
 function refresh(){if(calendar.value&&!busy.value&&!loading.value&&!document.hidden)load(calendar.value.weekStart);}
 function changed(event){if(Number(event.detail?.agencyId)===Number(props.agencyId))refresh();}
-watch(()=>[props.view,props.token,props.agencyId],()=>load());
+watch(()=>[props.view,props.token,props.agencyId],()=>{schoolReview.value=null;load();});
 onMounted(()=>{load();window.addEventListener('focus',refresh);window.addEventListener('provider-update-availability-changed',changed);document.addEventListener('visibilitychange',refresh);});
 onUnmounted(()=>{loadId++;window.removeEventListener('focus',refresh);window.removeEventListener('provider-update-availability-changed',changed);document.removeEventListener('visibilitychange',refresh);});
 </script>
