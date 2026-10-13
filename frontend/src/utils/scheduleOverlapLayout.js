@@ -31,8 +31,13 @@ export function layoutScheduleDayBlocks(cells, rowMinutes = 60) {
       const top=Number(slice?.topPct || 0);
       const height=Number(slice?.heightPct ?? 100);
       const startMs=hour*60+minute+rowMinutes*top/100;
-      intervals.push({key:scheduleBlockPlacementKey(hour,minute,block.key),startMs,endMs:startMs+rowMinutes*height/100});
+      intervals.push({key:scheduleBlockPlacementKey(hour,minute,block.key),startMs,endMs:startMs+rowMinutes*height/100, context:block.kind === 'sevt' && block.eventKind === 'SCHEDULE_HOLD' && !block.isCancelled, cancelled:!!block.isCancelled});
     }
   }
-  return assignOverlapLanes(intervals);
+  const background = intervals.filter(item => item.context && intervals.some(other =>
+    !other.context && !other.cancelled && item.startMs < other.endMs && other.startMs < item.endMs));
+  const backgroundKeys = new Set(background.map(item => item.key));
+  const layout = assignOverlapLanes(intervals.filter(item => !backgroundKeys.has(item.key)));
+  for (const item of background) layout.set(item.key, {col:0, cols:1, background:true});
+  return layout;
 }

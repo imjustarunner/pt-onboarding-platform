@@ -165,16 +165,7 @@ const buildDefaultPreferences = (userRole) => {
     work_modality: null,
     scheduling_preferences: null,
     schedule_display_prefs: null,
-    schedule_color_overrides: {
-      request: '#F2C94C',
-      school: '#2D9CDB',
-      supervision: '#9B51E0',
-      office_assigned: '#27AE60',
-      office_temporary: '#9B51E0',
-      office_booked: '#EB5757',
-      google_busy: '#111827',
-      ehr_busy: '#F2994A'
-    },
+    schedule_color_overrides: {},
     show_read_receipts: false,
     allow_staff_step_in: true,
     staff_step_in_after_minutes: 1440,

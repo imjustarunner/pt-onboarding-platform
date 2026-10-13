@@ -209,42 +209,7 @@
               Customize the colors used in schedule blocks (applies everywhere you view schedules).
             </div>
 
-            <div class="color-grid">
-              <div class="field">
-                <label>Pending request</label>
-                <input v-model="scheduleColors.request" type="color" :disabled="viewOnly" />
-              </div>
-              <div class="field">
-                <label>School assigned</label>
-                <input v-model="scheduleColors.school" type="color" :disabled="viewOnly" />
-              </div>
-              <div class="field">
-                <label>Supervision</label>
-                <input v-model="scheduleColors.supervision" type="color" :disabled="viewOnly" />
-              </div>
-              <div class="field">
-                <label>Office assigned</label>
-                <input v-model="scheduleColors.office_assigned" type="color" :disabled="viewOnly" />
-              </div>
-              <div class="field">
-                <label>Office temporary</label>
-                <input v-model="scheduleColors.office_temporary" type="color" :disabled="viewOnly" />
-              </div>
-              <div class="field">
-                <label>Office booked</label>
-                <input v-model="scheduleColors.office_booked" type="color" :disabled="viewOnly" />
-              </div>
-              <div class="field">
-                <label>Google busy</label>
-                <input v-model="scheduleColors.google_busy" type="color" :disabled="viewOnly" />
-              </div>
-            </div>
-
-            <div style="display:flex; gap: 10px; margin-top: 10px;">
-              <button class="btn btn-secondary" type="button" @click="resetScheduleColors" :disabled="viewOnly">
-                Reset colors
-              </button>
-            </div>
+            <ScheduleColorSettings v-model="scheduleColors" :disabled="viewOnly" />
           </div>
 
           <div v-if="canEditAdminControlled" class="card">
@@ -904,6 +869,8 @@
 </template>
 
 <script setup>
+import ScheduleColorSettings from './schedule/ScheduleColorSettings.vue';
+import { defaultScheduleColors } from '../utils/scheduleAppearance.js';
 import EmailSignatureNote from './communications/EmailSignatureNote.vue';
 import VacationResponderSettings from './communications/VacationResponderSettings.vue';
 import StaffCommunicationChoices from './communications/StaffCommunicationChoices.vue';
@@ -1069,20 +1036,7 @@ const defaultToastPreferences = () => ({
 });
 const toastPrefs = ref(defaultToastPreferences());
 
-const defaultScheduleColors = () => ({
-  request: '#F2C94C',
-  school: '#2D9CDB',
-  supervision: '#9B51E0',
-  office_assigned: '#27AE60',
-  office_temporary: '#9B51E0',
-  office_booked: '#EB5757',
-  google_busy: '#111827',
-  ehr_busy: '#F2994A'
-});
 const scheduleColors = ref(defaultScheduleColors());
-const resetScheduleColors = () => {
-  scheduleColors.value = defaultScheduleColors();
-};
 
 const schedulingPrefs = ref({
   preferred_location_ids: [],

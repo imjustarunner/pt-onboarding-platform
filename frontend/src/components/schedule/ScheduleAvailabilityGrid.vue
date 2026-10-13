@@ -760,68 +760,19 @@
           </div>
 
           <details class="sched-color-key" data-testid="my-schedule-color-key">
-            <summary class="sched-color-key__summary" title="What calendar colors and icons mean">
-              <span class="sched-tool-cluster__label">Color key</span>
-              <span class="sched-more-tools__hint muted">{{
-                colorBlocksByTenant
-                  ? 'Fill = organization · label = appointment type'
-                  : 'appointment type colors'
-              }}</span>
+            <summary class="sched-color-key__summary">
+              <span class="sched-tool-cluster__label">Appointment colors</span>
+              <span class="sched-more-tools__hint muted">Customize by appointment type</span>
               <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
             </summary>
-            <div class="sched-legend sched-legend--in-tools" aria-label="Schedule legend">
-              <template v-if="colorBlocksByTenant">
-                <span
-                  v-for="opt in activeScheduleAgencyLegend"
-                  :key="`legend-org-${opt.id}`"
-                  class="sched-legend-chip"
-                >
-                  <span
-                    v-if="agencyIconUrlById(opt.id, { preferSchoolOwn: true })"
-                    class="sched-legend-icon-wrap"
-                    aria-hidden="true"
-                  >
-                    <img
-                      class="sched-legend-icon"
-                      :src="agencyIconUrlById(opt.id, { preferSchoolOwn: true })"
-                      alt=""
-                    />
-                  </span>
-                  <span
-                    v-else
-                    class="sched-legend-dot"
-                    :style="{ background: agencyBadgeColorById(opt.id) || '#64748b' }"
-                    aria-hidden="true"
-                  ></span>
-                  {{ opt.label }}
-                </span>
-                <span class="sched-legend-chip muted sched-legend-chip--note">Fill = organization · label = appointment type</span>
-              </template>
-              <template v-else-if="hideOfficeAndCalendarIntegration">
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Pending</span>
-              </template>
-              <template v-else>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Requested (pending)</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--school" aria-hidden="true"></span> School assigned</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--supv sched-legend-dot--ring" aria-hidden="true"></span> Supervision</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--huddle" aria-hidden="true"></span> Huddle</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--group-huddle" aria-hidden="true"></span> Group huddle</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--meeting" aria-hidden="true"></span> Meeting</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Schedule event</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa sched-legend-dot--dashed" aria-hidden="true"></span> Office reserved (empty)</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temp hold</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ob" aria-hidden="true"></span> Office reserved (booked)</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-ip sched-legend-dot--ring" aria-hidden="true"></span> In-person intake</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-vi sched-legend-dot--ring" aria-hidden="true"></span> Virtual intake</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--portal sched-legend-dot--ring" aria-hidden="true"></span> Open for new clients</span>
-                <span v-if="googleCalendarEnabled && showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
-                <span v-if="googleCalendarEnabled && showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
-                <span v-if="showPeerBusyOverlay" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--peerbusy" aria-hidden="true"></span> Peer activity (color = person)</span>
-                <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--agency" aria-hidden="true"></span> Agency</span>
-              </template>
+            <div class="sched-type-colors">
+            <p class="hint">Icons identify agencies; colors identify appointment types.</p>
+            <ScheduleColorSettings v-model="scheduleColors" :disabled="scheduleColorsSaving" />
+            <button type="button" class="btn btn-primary" :disabled="scheduleColorsSaving" @click="saveScheduleColors">
+              {{ scheduleColorsSaving ? 'Saving…' : 'Save colors' }}
+            </button>
+            <p v-if="scheduleColorsStatus" class="hint" role="status">{{ scheduleColorsStatus }}</p>
+            <p v-if="scheduleColorsError" class="error" role="alert">{{ scheduleColorsError }}</p>
             </div>
           </details>
         </div>
@@ -1428,7 +1379,7 @@
                 </div>
                 <div class="cell-expanded-cards">
                   <button v-for="item in calendarStackItems" :key="`expanded-${item.key}`"
-                    type="button" class="cell-expanded-item" :class="`cell-block-${item.kind}`" :style="calendarStackItemStyle(item)"
+                    type="button" class="cell-expanded-item" :class="[`cell-block-${item.kind}`, {'cell-block--type-colored': !!scheduleBlockColorKey(item)}]" :style="calendarStackItemStyle(item)"
                     @click.stop="openExpandedCalendarItem($event, item)">
                     <strong>{{ cellBlockKindLabel(item) }}</strong>
                     <span>{{ item.title || item.shortLabel }}</span>
@@ -1448,6 +1399,8 @@
                   fallCheckinEventClass(b),
                   {
                     'cell-block--side-by-side': !!b.sideBySideLane,
+                    'cell-block--context': !!b.backgroundContext,
+                    'cell-block--type-colored': !!scheduleBlockColorKey(b),
                     'cell-block-hovered': isBlockHovered(d, slot.hour, b),
                     'cell-block-peer-interactive': b.peerInteractive,
                     'cell-block-timed': !!b.timedSlice,
@@ -1522,7 +1475,7 @@
                   </span>
                 </template>
                 <span v-else-if="b.kind === 'supv-signup'" class="cell-block-text cell-block-text--signup-supv">
-                  <span v-if="b.signupTimeRange" class="cell-block-signup-range">{{ b.signupTimeRange }}</span>
+                  <span v-if="b.signupTimeRange && !hideGridBlockTime(b)" class="cell-block-signup-range">{{ b.signupTimeRange }}</span>
                   <span class="cell-block-signup-headline" title="Open group supervision — agency signup session">OPEN GROUP SUPERVISION</span>
                   <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
                   <SupervisionSignupCountdown
@@ -1548,7 +1501,7 @@
                     class="cell-block-confirm-chip cell-block-confirm-chip--pending"
                     title="Awaiting client confirmation"
                   >Unconfirmed</span>
-                  <span>{{ b.shortLabel }}</span>
+                  <span>{{ gridBlockLabel(b) }}</span>
                   <span
                     v-if="b.schedulingNoteSnippet"
                     class="cell-block-note-snip"
@@ -5784,6 +5737,8 @@
 <script setup>
 import CalendarSharing from '../CalendarSharing.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
+import ScheduleColorSettings from './ScheduleColorSettings.vue';
+import { defaultScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
@@ -5988,18 +5943,24 @@ const openScheduleNoteAid = () => {
 
 const supvAppVideoOrgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 
-const defaultScheduleColors = () => ({
-  request: '#F2C94C',
-  school: '#2D9CDB',
-  supervision: '#9B51E0',
-  office_assigned: '#27AE60',
-  office_temporary: '#9B51E0',
-  office_booked: '#EB5757',
-  google_busy: '#111827',
-  ehr_busy: '#F2994A'
-});
-
 const scheduleColors = ref(defaultScheduleColors());
+const scheduleColorsSaving = ref(false);
+const scheduleColorsStatus = ref('');
+const scheduleColorsError = ref('');
+const saveScheduleColors = async () => {
+  const uid = Number(authStore.user?.id || 0);
+  if (!uid || scheduleColorsSaving.value) return;
+  scheduleColorsSaving.value = true;
+  scheduleColorsStatus.value = '';
+  scheduleColorsError.value = '';
+  try {
+    await api.put(`/users/${uid}/preferences`, {schedule_color_overrides:{...scheduleColors.value}}, {skipGlobalLoading:true});
+    scheduleColorsStatus.value = 'Your schedule colors are saved.';
+  } catch {
+    scheduleColorsError.value = 'Colors could not be saved. Please try again.';
+  } finally { scheduleColorsSaving.value = false; }
+};
+watch(scheduleColors, () => { scheduleColorsStatus.value = ''; }, {deep:true});
 
 const parseJsonMaybe = (v) => {
   if (!v) return null;
@@ -10253,6 +10214,14 @@ const supervisionDayName = (ev) => {
 
 const hasSupervision = (dayName, hour) => supervisionSessionsInCell(dayName, hour).length > 0;
 
+const hideGridBlockTime = (block) => scheduleSideBySide.value && isExactHourAppointment(block);
+const gridBlockLabel = (block) => {
+  const label = String(block.shortLabel || '');
+  if (!hideGridBlockTime(block)) return label;
+  const lines = label.split('\n');
+  return lines.length > 1 && lines[0] === clockRangeLabel(block.startAt, block.endAt) ? lines.slice(1).join('\n') : label;
+};
+
 const clipBlockLabel = (text, max = 28) => {
   const s = String(text || '').trim();
   if (!s) return '';
@@ -11581,7 +11550,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
   }
 
   // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
-  const scheduleHits = scheduleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
+  const scheduleHits = scheduleEventsInCell(dayName, hour, minute);
   for (const ev of scheduleHits) {
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
     if (!expanded && (segmentClass === 'middle' || segmentClass === 'end')) continue;
@@ -11612,6 +11581,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
       appointmentId: Number(ev?.appointmentId || 0) || null,
+      isClientSession: isClientSessionScheduleEvent(ev),
       appointmentStatus: String(ev?.appointmentStatus || '').trim().toLowerCase() || null,
       confirmationState: sessionConfirmationState(ev),
       schedulingNoteSnippet: sessionSchedulingNoteSnippet(ev),
@@ -11773,13 +11743,21 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
     displayBlocks = blocks.filter((b) => b.kind !== 'request');
   }
 
-  // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
-  if (!unlimited && !singleDayFocused && displayBlocks.length > 3) {
-    const extra = displayBlocks.length - 2;
+  if (!forLayout && !expanded) {
+    const layout = sideBySideDayLayouts.value.get(dayName);
+    for (const block of displayBlocks) {
+      const placement = layout?.get(scheduleBlockPlacementKey(hour, minute, block.key));
+      block.backgroundContext = !!placement?.background;
+      if (scheduleSideBySide.value) block.sideBySideLane = placement;
+    }
+  }
+  // Context blocks sit behind events and do not use up a visible event slot.
+  const foreground = displayBlocks.filter(block => !block.backgroundContext);
+  if (!unlimited && !singleDayFocused && foreground.length > 3) {
+    const extra = foreground.length - 2;
     return [
-      displayBlocks[0],
-      displayBlocks[1],
-      { key: 'more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more items in this hour` }
+      ...displayBlocks.filter(block => block.backgroundContext), ...foreground.slice(0, 2),
+      { key:'more', kind:'more', shortLabel:`+${extra}`, title:`${extra} more items in this hour` }
     ];
   }
   // Day view: stamp lane columns so overlapping timed blocks tile horizontally.
@@ -11799,12 +11777,6 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
           b.laneCols = lane.cols;
         }
       }
-    }
-  }
-  if (scheduleSideBySide.value && !forLayout && !expanded) {
-    const layout = sideBySideDayLayouts.value.get(dayName);
-    for (const block of displayBlocks) {
-      block.sideBySideLane = layout?.get(scheduleBlockPlacementKey(hour, minute, block.key));
     }
   }
   return displayBlocks;
@@ -11833,7 +11805,6 @@ const dayViewColumnIndexForKind = (kind) => {
 };
 
 const sideBySideDayLayouts = computed(() => {
-  if (!scheduleSideBySide.value) return new Map();
   const byDay = new Map();
   for (const day of visibleDays.value) {
     const cells = displayTimeSlots.value.map(slot => ({
@@ -11862,6 +11833,7 @@ const dayViewLaneLayout = computed(() => {
       for (const ev of scheduleEventsInCell(dayName, hour, minute)) {
         const segment = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
         if (segment === 'middle' || segment === 'end') continue;
+        if (sideBySideDayLayouts.value.get(dayName)?.get(scheduleBlockPlacementKey(hour, minute, `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`))?.background) continue;
         pushInterval(
           `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
           ev?.startAt,
@@ -19736,12 +19708,7 @@ const typeStyleToken = (b) => {
 
 /** Meeting/supervision blocks keep type hues; logos show tenant. */
 function usesMeetingTypeFill(b) {
-  const kind = String(b?.kind || '');
-  if (kind === 'supv' || kind === 'supv-signup') return true;
-  if (kind !== 'sevt') return false;
-  const eventKind = String(b?.eventKind || '').toUpperCase();
-  return ['HUDDLE', 'TEAM_MEETING', 'FALL_CHECKIN_PRESLOT', 'FALL_CHECKIN_BOOKED', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES'].includes(eventKind)
-    || !!String(b?.meetingSubtype || '').trim();
+  return !!scheduleBlockColorKey(b);
 }
 
 function applyTypeFillVars(style, palette) {
@@ -19754,107 +19721,12 @@ function applyTypeFillVars(style, palette) {
 }
 
 function meetingTypePalette(b, dark) {
-  const kind = String(b?.kind || '');
-  if (kind === 'supv-signup') {
-    const enrolled = !!b?.viewerSignedUp || !!b?.sessionLive;
-    const borderStyle = enrolled ? 'solid' : 'dashed';
-    return dark
-      ? { fill: 'rgba(45, 212, 191, 0.42)', border: 'rgba(94, 234, 212, 0.92)', stripe: 'rgba(94, 234, 212, 0.95)', text: 'rgba(204, 251, 241, 0.98)', borderStyle }
-      : { fill: 'rgba(20, 184, 166, 0.28)', border: 'rgba(13, 148, 136, 0.78)', stripe: 'rgba(13, 148, 136, 0.92)', text: 'rgba(19, 78, 74, 0.98)', borderStyle };
-  }
-  if (kind === 'supv') {
-    const st = String(b?.sessionType || 'individual').toLowerCase();
-    if (st === 'group') {
-      return dark
-        ? { fill: 'rgba(251, 113, 133, 0.42)', border: 'rgba(251, 113, 133, 0.90)', stripe: 'rgba(253, 164, 175, 0.95)', text: 'rgba(255, 228, 230, 0.98)' }
-        : { fill: 'rgba(244, 63, 94, 0.22)', border: 'rgba(190, 18, 60, 0.55)', stripe: 'rgba(225, 29, 72, 0.90)', text: 'rgba(136, 19, 55, 0.98)' };
-    }
-    if (st === 'triadic') {
-      return dark
-        ? { fill: 'rgba(232, 121, 249, 0.42)', border: 'rgba(232, 121, 249, 0.90)', stripe: 'rgba(240, 171, 252, 0.95)', text: 'rgba(250, 232, 255, 0.98)' }
-        : { fill: 'rgba(192, 38, 211, 0.22)', border: 'rgba(162, 28, 175, 0.55)', stripe: 'rgba(168, 85, 247, 0.90)', text: 'rgba(112, 26, 117, 0.98)' };
-    }
-    return dark
-      ? { fill: 'rgba(167, 139, 250, 0.48)', border: 'rgba(196, 181, 253, 0.90)', stripe: 'rgba(216, 180, 254, 0.95)', text: 'rgba(237, 233, 254, 0.98)' }
-      : { fill: 'rgba(124, 58, 237, 0.22)', border: 'rgba(109, 40, 217, 0.55)', stripe: 'rgba(124, 58, 237, 0.90)', text: 'rgba(76, 29, 149, 0.98)' };
-  }
-  if (kind !== 'sevt') return null;
-  const eventKind = String(b?.eventKind || '').toUpperCase();
-  if (eventKind === 'FALL_CHECKIN_PRESLOT') {
-    return dark
-      ? { fill: 'rgba(148, 163, 184, 0.18)', border: 'rgba(148, 163, 184, 0.72)', stripe: 'rgba(148, 163, 184, 0.85)', text: 'rgba(226, 232, 240, 0.95)', borderStyle: 'dashed' }
-      : { fill: 'rgba(148, 163, 184, 0.14)', border: 'rgba(100, 116, 139, 0.72)', stripe: 'rgba(100, 116, 139, 0.85)', text: 'rgba(51, 65, 85, 0.95)', borderStyle: 'dashed' };
-  }
-  if (eventKind === 'FALL_CHECKIN_BOOKED') {
-    return dark
-      ? { fill: 'rgba(52, 211, 153, 0.42)', border: 'rgba(110, 231, 183, 0.92)', stripe: 'rgba(110, 231, 183, 0.95)', text: 'rgba(209, 250, 229, 0.98)' }
-      : { fill: 'rgba(16, 185, 129, 0.24)', border: 'rgba(5, 150, 105, 0.78)', stripe: 'rgba(5, 150, 105, 0.92)', text: 'rgba(6, 78, 59, 0.98)' };
-  }
-  if (eventKind === 'HUDDLE') {
-    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2;
-    if (isGroup) {
-      // Group huddle — deeper teal to distinguish from solo cyan huddle
-      return dark
-        ? { fill: 'rgba(20, 184, 166, 0.48)', border: 'rgba(45, 212, 191, 0.95)', stripe: 'rgba(94, 234, 212, 0.98)', text: 'rgba(204, 251, 241, 0.98)' }
-        : { fill: 'rgba(13, 148, 136, 0.30)', border: 'rgba(15, 118, 110, 0.72)', stripe: 'rgba(13, 148, 136, 0.95)', text: 'rgba(19, 78, 74, 0.98)' };
-    }
-    return dark
-      ? { fill: 'rgba(34, 211, 238, 0.40)', border: 'rgba(103, 232, 249, 0.90)', stripe: 'rgba(165, 243, 252, 0.95)', text: 'rgba(207, 250, 254, 0.98)' }
-      : { fill: 'rgba(6, 182, 212, 0.24)', border: 'rgba(14, 116, 144, 0.58)', stripe: 'rgba(8, 145, 178, 0.92)', text: 'rgba(22, 78, 99, 0.98)' };
-  }
-  if (eventKind === 'TEAM_MEETING') {
-    const subtype = String(b?.meetingSubtype || 'general').toLowerCase();
-    if (subtype === 'admin') {
-      return dark
-        ? { fill: 'rgba(251, 191, 36, 0.40)', border: 'rgba(252, 211, 77, 0.90)', stripe: 'rgba(253, 224, 71, 0.95)', text: 'rgba(254, 243, 199, 0.98)' }
-        : { fill: 'rgba(245, 158, 11, 0.26)', border: 'rgba(180, 83, 9, 0.58)', stripe: 'rgba(217, 119, 6, 0.92)', text: 'rgba(120, 53, 15, 0.98)' };
-    }
-    if (['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype)) {
-      return dark
-        ? { fill: 'rgba(129, 140, 248, 0.45)', border: 'rgba(165, 180, 252, 0.90)', stripe: 'rgba(199, 210, 254, 0.95)', text: 'rgba(224, 231, 255, 0.98)' }
-        : { fill: 'rgba(79, 70, 229, 0.24)', border: 'rgba(67, 56, 202, 0.55)', stripe: 'rgba(79, 70, 229, 0.90)', text: 'rgba(49, 46, 129, 0.98)' };
-    }
-    if (subtype === 'interview') {
-      // Distinct grape/purple — matches Google Calendar colorId 3
-      return dark
-        ? { fill: 'rgba(167, 139, 250, 0.48)', border: 'rgba(196, 181, 253, 0.95)', stripe: 'rgba(221, 214, 254, 0.98)', text: 'rgba(237, 233, 254, 0.98)' }
-        : { fill: 'rgba(124, 58, 237, 0.26)', border: 'rgba(91, 33, 182, 0.58)', stripe: 'rgba(109, 40, 217, 0.92)', text: 'rgba(76, 29, 149, 0.98)' };
-    }
-    if (subtype === 'evaluation') {
-      return dark
-        ? { fill: 'rgba(52, 211, 153, 0.42)', border: 'rgba(110, 231, 183, 0.92)', stripe: 'rgba(167, 243, 208, 0.96)', text: 'rgba(209, 250, 229, 0.98)' }
-        : { fill: 'rgba(16, 185, 129, 0.24)', border: 'rgba(4, 120, 87, 0.58)', stripe: 'rgba(5, 150, 105, 0.90)', text: 'rgba(6, 78, 59, 0.98)' };
-    }
-    const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2;
-    if (isGroup) {
-      // Group meeting — slightly stronger blue than solo meeting
-      return dark
-        ? { fill: 'rgba(59, 130, 246, 0.50)', border: 'rgba(96, 165, 250, 0.95)', stripe: 'rgba(147, 197, 253, 0.98)', text: 'rgba(219, 234, 254, 0.98)' }
-        : { fill: 'rgba(29, 78, 216, 0.28)', border: 'rgba(30, 64, 175, 0.65)', stripe: 'rgba(37, 99, 235, 0.95)', text: 'rgba(30, 58, 138, 0.98)' };
-    }
-    // general team meeting (solo / host-only)
-    return dark
-      ? { fill: 'rgba(96, 165, 250, 0.42)', border: 'rgba(147, 197, 253, 0.90)', stripe: 'rgba(191, 219, 254, 0.95)', text: 'rgba(219, 234, 254, 0.98)' }
-      : { fill: 'rgba(37, 99, 235, 0.22)', border: 'rgba(29, 78, 216, 0.55)', stripe: 'rgba(37, 99, 235, 0.90)', text: 'rgba(30, 64, 175, 0.98)' };
-  }
-  if (eventKind === 'SCHEDULE_HOLD') {
-    return dark
-      ? { fill: 'rgba(148, 163, 184, 0.28)', border: 'rgba(148, 163, 184, 0.75)', stripe: 'rgba(203, 213, 225, 0.90)', text: 'rgba(226, 232, 240, 0.95)' }
-      : { fill: 'rgba(100, 116, 139, 0.16)', border: 'rgba(71, 85, 105, 0.55)', stripe: 'rgba(71, 85, 105, 0.85)', text: 'rgba(51, 65, 85, 0.95)' };
-  }
-  if (eventKind === 'INDIRECT_SERVICES') {
-    return dark
-      ? { fill: 'rgba(163, 230, 53, 0.35)', border: 'rgba(190, 242, 100, 0.85)', stripe: 'rgba(217, 249, 157, 0.92)', text: 'rgba(236, 252, 203, 0.98)' }
-      : { fill: 'rgba(132, 204, 22, 0.22)', border: 'rgba(77, 124, 15, 0.55)', stripe: 'rgba(101, 163, 13, 0.90)', text: 'rgba(54, 83, 20, 0.98)' };
-  }
-  return dark
-    ? { fill: 'rgba(52, 211, 153, 0.35)', border: 'rgba(110, 231, 183, 0.85)', stripe: 'rgba(167, 243, 208, 0.92)', text: 'rgba(209, 250, 229, 0.98)' }
-    : { fill: 'rgba(16, 185, 129, 0.22)', border: 'rgba(5, 150, 105, 0.55)', stripe: 'rgba(5, 150, 105, 0.88)', text: 'rgba(6, 95, 70, 0.98)' };
+  return scheduleTypePalette(b, scheduleColors.value, dark);
 }
 
 const cellBlockStyle = (b) => {
   const kind = String(b?.kind || '');
-  const style = {};
+  const style = {zIndex:3};
   const dark = darkScheduleTheme.value;
   const officeKindFillMap = dark
     ? {
@@ -19992,6 +19864,9 @@ const cellBlockStyle = (b) => {
       top:`${slice.topPct}%`, height:`calc(${slice.heightPct}% - 2px)`, bottom:'auto',
       minHeight:'0', maxWidth:'none', flex:'none', zIndex:6, boxSizing:'border-box'
     });
+  }
+  if (b?.backgroundContext) {
+    Object.assign(style, {left:'2px', right:'auto', width:`calc(100% - ${(canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0) + 4}px)`, zIndex:2, opacity:0.42});
   }
   return style;
 };
@@ -31773,14 +31648,22 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 
 /* Let the event layers span rows without later cell backgrounds covering them.
    Full row height also keeps multi-hour cards aligned with the time axis. */
-.sched-wrap--side-by-side .sched-cell,
-.sched-wrap--side-by-side .cell-blocks { z-index:auto; overflow:visible; }
-.sched-wrap--side-by-side .cell-blocks { position:absolute; top:0; bottom:-1px; left:5px; right:5px; height:auto; }
-.sched-wrap--side-by-side.sched-wrap-quarter .sched-cell {
+.sched-wrap .sched-cell,
+.sched-wrap .cell-blocks { z-index:auto; overflow:visible; }
+.sched-wrap .cell-blocks { position:absolute; top:0; bottom:-1px; left:5px; right:5px; height:auto; }
+.sched-wrap.sched-wrap-quarter .sched-cell {
   min-height:max(24px, calc(var(--sched-cell-min-height, 36px) * 0.7));
   padding-top:0; padding-bottom:0; box-sizing:border-box;
 }
-.sched-wrap--side-by-side.sched-wrap-quarter .sched-hour:not(.sched-overflow-label) { padding-top:2px; padding-bottom:2px; }
+.sched-wrap.sched-wrap-quarter .sched-hour:not(.sched-overflow-label) { padding-top:2px; padding-bottom:2px; }
+.sched-type-colors { padding:0 12px 12px; }
+.sched-type-colors > .btn { margin-top:10px; }
+.cell-block.cell-block--type-colored,
+.cell-expanded-item.cell-block--type-colored {
+  background:var(--blockFill); border-color:var(--blockBorder); color:var(--blockText);
+  box-shadow:inset 3px 0 0 var(--blockTypeStripe);
+}
+.cell-block--context { box-shadow:none !important; }
 .cell-block--side-by-side { container-type:inline-size; overflow:hidden; padding:3px !important; gap:2px !important; margin:0 !important; }
 .cell-block--side-by-side.cell-block .cell-block-text,
 .cell-block--side-by-side .cell-block-office-status,
@@ -31789,7 +31672,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .cell-block--side-by-side .cell-block-signup-host { font-size:clamp(9px, 16cqi, 12px); line-height:1.15; min-width:0; max-width:100%; overflow:hidden; overflow-wrap:anywhere; }
 .cell-block--side-by-side .cell-block-agency-icon { width:12px; height:12px; flex-basis:12px; margin:0; }
 .cell-block--side-by-side .cell-block-office-body { min-width:0; overflow:hidden; }
-.sched-wrap--side-by-side .cell-multi-pick-badge { opacity:0; }
+.sched-wrap--side-by-side .cell-multi-pick-badge { opacity:0; pointer-events:none; }
 .sched-wrap--side-by-side .cell-blocks:hover .cell-multi-pick-badge,
-.sched-wrap--side-by-side .cell-blocks:focus-within .cell-multi-pick-badge { opacity:1; }
+.sched-wrap--side-by-side .cell-blocks:focus-within .cell-multi-pick-badge { opacity:1; pointer-events:auto; }
 </style>

@@ -2,7 +2,7 @@ import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { shallowMount, flushPromises } from '@vue/test-utils';
 import { reactive, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-const m = vi.hoisted(() => ({get:vi.fn(),put:vi.fn(),route:null,prefs:{},summary:{}}));
+const m = vi.hoisted(() => ({get:vi.fn(),put:vi.fn(),route:null,prefs:{},colors:{},summary:{}}));
 vi.mock('../../../services/api', () => ({default:{get:m.get,put:m.put,post:vi.fn(),delete:vi.fn(),patch:vi.fn()},isApiRateLimited:()=>false}));
 vi.mock('vue-router', () => ({useRoute:()=>m.route,useRouter:()=>({push:vi.fn(),replace:vi.fn(),resolve:()=>({href:'/dashboard'})})}));
 vi.mock('../../../store/auth', () => ({useAuthStore:()=>({user:{id:7,role:'admin'},isAuthenticated:true})}));
@@ -20,10 +20,10 @@ async function mount(props={}) {
 }
 beforeEach(()=>{
   vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-12T18:00:00Z'));
-  setActivePinia(createPinia());localStorage.clear();vi.clearAllMocks();m.prefs={};
+  setActivePinia(createPinia());localStorage.clear();vi.clearAllMocks();m.prefs={};m.colors={};
   m.summary={weekStart:'2026-10-12',scheduleEvents:[event(1,'09:00','14:30'),event(2,'11:00','12:00'),event(3,'13:00','14:00'),event(4,'16:00','17:00')]};
   m.route=reactive({path:'/dashboard',params:{},query:{}});
-  m.get.mockImplementation(async url=>({data:url.endsWith('/preferences')?{schedule_display_prefs:m.prefs}:url.includes('/schedule-summary')?m.summary:url.includes('agencies')?[]:{}}));
+  m.get.mockImplementation(async url=>({data:url.endsWith('/preferences')?{schedule_display_prefs:m.prefs,schedule_color_overrides:m.colors}:url.includes('/schedule-summary')?m.summary:url.includes('agencies')?[]:{}}));
   m.put.mockResolvedValue({data:{}});
 });
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
@@ -88,4 +88,38 @@ it('finishes a pending preference save when leaving and never writes it again la
   expect(m.put).toHaveBeenCalledWith('/users/7/preferences',expect.objectContaining({schedule_display_prefs:expect.objectContaining({scheduleSideBySide:true})}),expect.anything());
   await vi.advanceTimersByTimeAsync(1000);
   expect(m.put).toHaveBeenCalledTimes(1);
+});
+
+it('fades overlapping holds behind appointments without taking a side-by-side lane',async()=>{
+  m.summary.scheduleEvents=[event(1,'09:00','15:00'),{...event(2,'11:00','12:00'),kind:'PERSONAL_EVENT',clientId:20}];
+  const s=await mount();
+  for(const side of [false,true]) {
+    s.scheduleSideBySide=side;await nextTick();
+    const hold=s.cellBlocks('Tuesday',9,0)[0], appointment=s.cellBlocks('Tuesday',11,0)[0];
+    expect(hold.backgroundContext).toBe(true);expect(appointment.backgroundContext).toBe(false);
+    expect(s.cellBlockStyle(hold).zIndex).toBeLessThan(s.cellBlockStyle(appointment).zIndex);
+    expect(s.cellBlockStyle(hold).opacity).toBeLessThan(0.5);
+    if(side)expect(appointment.sideBySideLane).toEqual({col:0,cols:1});
+  }
+});
+it('omits exact-hour time from the grid but retains it in hover and off-hour cards',async()=>{
+  m.summary.scheduleEvents=[{...event(1,'13:00','14:00'),kind:'PERSONAL_EVENT',title:'Planning'},{...event(2,'14:30','15:30'),kind:'TEAM_MEETING',title:'Team meeting'}];
+  const s=await mount();s.scheduleSideBySide=true;await nextTick();
+  const full=s.cellBlocks('Tuesday',13,0)[0], partial=s.cellBlocks('Tuesday',14,0)[0];
+  expect(s.gridBlockLabel(full)).not.toContain('1:00');expect(s.gridBlockLabel(full)).toContain('Planning');
+  expect(s.gridBlockLabel(partial)).toContain(s.clockRangeLabel(partial.startAt,partial.endAt));
+  await wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="13"] .cell-blocks').trigger('mouseenter');
+  expect(wrapper.find('.cell-expanded-item').text()).toContain(s.clockRangeLabel(full.startAt,full.endAt));
+  s.scheduleSideBySide=false;expect(s.gridBlockLabel(full)).toContain(s.clockRangeLabel(full.startAt,full.endAt));
+});
+it('uses distinct custom appointment colors and saves only the viewer color preferences',async()=>{
+  m.colors={interview:'#123456'};
+  const s=await mount({mode:'admin',userId:91});
+  expect(s.scheduleColors.interview).toBe('#123456');
+  const interview={kind:'sevt',eventKind:'TEAM_MEETING',meetingSubtype:'interview'};
+  expect(s.cellBlockStyle(interview)['--blockFill']).not.toBe(s.cellBlockStyle({kind:'supv'})['--blockFill']);
+  s.scheduleColors={...s.scheduleColors,interview:'#123456',supervision:'#654321'};
+  expect(s.cellBlockStyle(interview)['--blockFill']).toBe('rgba(18, 52, 86, 0.22)');
+  await s.saveScheduleColors();
+  expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{schedule_color_overrides:expect.objectContaining({interview:'#123456',supervision:'#654321'})},expect.anything());
 });
