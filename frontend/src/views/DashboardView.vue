@@ -667,7 +667,7 @@
               </div>
               </template>
               <template #header-actions>
-                <RouterLink v-if="!isClubContext" :to="virtualOfficePath" class="btn btn-secondary btn-sm">AuricWell office</RouterLink>
+                <RouterLink v-if="!isClubContext" :to="virtualOfficePath" class="btn btn-secondary btn-sm">AuricWell Office</RouterLink>
                 <ScheduleCalendarMenu :agency-ids="personalCalendarAgencyIds" />
                 <button type="button" class="btn btn-secondary btn-sm" @click="openTasksHubFromSchedule">
                   Tasks
@@ -4018,7 +4018,7 @@ const dashboardCards = computed(() => {
         description: 'Attended meetings, participants, chat, transcripts, and personal notes.'
       });
       if (!isClubContext.value) cards.push({
-        id: 'virtual_office', label: 'AuricWell office', kind: 'link', to: virtualOfficePath.value,
+        id: 'virtual_office', label: 'AuricWell Office', kind: 'link', to: virtualOfficePath.value,
         badgeCount: 0, brandIconUrl: AURICWELL_MARK_URL, iconUrl: AURICWELL_MARK_URL,
         description: 'Open your virtual office, copy your guest link, and admit waiting guests.'
       });

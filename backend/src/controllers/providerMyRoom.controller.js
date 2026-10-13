@@ -1,3 +1,4 @@
+import {activeMeetingAgencyIds} from '../services/meetingJoinPolicy.service.js';
 import {officeSchedule,officeEncounterLink} from '../services/virtualOfficeSchedule.service.js';
 import {admitCounselingVisit} from '../services/counselingSessionVisit.service.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
@@ -33,6 +34,12 @@ export const putMyRoomPlan = respond(async req => ({plan:await setMeetingPlan(Nu
 export const getMyRoomMe = respond(async req => { const {room,plan}=await host(req); return {room:await virtualOfficePresentation(room,req),plan}; });
 export const getMyRoomLobby = respond(async req => { const {room}=await host(req); return office.officeLobby(room,req); });
 export const getMyRoomHostVideo = respond(async req => office.officeHostVideo((await host(req)).room,{appointmentId:req.body?.appointmentId,sessionId:req.body?.sessionId,req}));
+export const getOfficeScheduleScopes = respond(async req => {
+ const agencies=await User.getAgencies(req.user.id);
+ // The selected tenant may be outside a super-admin's explicit memberships.
+ const candidates=[...(agencies || []).map(a=>a.id),req.query.agencyId];
+ return {agencyIds:await activeMeetingAgencyIds(candidates,req.user.id)};
+});
 export const getOfficeSchedule = respond(async req => {
  const {room}=await host(req);
  const data=await officeSchedule(room,req.query,req);

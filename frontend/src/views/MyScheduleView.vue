@@ -12,7 +12,7 @@
         @select-view="onSelectHubView"
       >
         <template #header-actions>
-          <router-link class="btn btn-secondary btn-sm" :to="orgTo('/my-virtual-office')">AuricWell office</router-link>
+          <router-link class="btn btn-secondary btn-sm" :to="orgTo('/my-virtual-office')">AuricWell Office</router-link>
           <button v-if="isSuperadmin" class="btn btn-secondary btn-sm" @click="showOfficeTransition = !showOfficeTransition" :aria-expanded="showOfficeTransition">Office scheduling transition</button>
           <router-link
             v-if="canApproveOfficeRequests"

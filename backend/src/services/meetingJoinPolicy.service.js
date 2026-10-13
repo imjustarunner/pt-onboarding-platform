@@ -1,13 +1,26 @@
 import pool from '../config/database.js';
 
 // Room access follows the current account and roster, never the role of a URL.
+// Shared by access checks and agenda scope discovery. A directory affiliation is
+// not sufficient to open a private office; inactive organizations remain excluded.
+const activeMeetingMembershipSql = `COALESCE(u.is_active,1)=1
+      AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')
+      AND (u.role IN ('super_admin','superadmin') OR EXISTS (
+        SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=org.id AND ua.is_active=1))`;
+
+export async function activeMeetingAgencyIds(agencyIds, userId) {
+  const ids=[...new Set((agencyIds || []).map(Number).filter(id=>Number.isSafeInteger(id)&&id>0))];
+  if(!ids.length || !Number(userId))return [];
+  const [rows]=await pool.execute(`SELECT org.id FROM agencies org JOIN users u ON u.id=?
+    WHERE org.id IN (${ids.map(()=>'?').join(',')}) AND org.is_active=1
+      AND ${activeMeetingMembershipSql}`, [userId,...ids]);
+  return rows.map(row=>Number(row.id));
+}
+
 export async function hasActiveMeetingMembership(agencyId, userId) {
   if (!Number(userId) || !Number(agencyId)) return false;
   const [rows] = await pool.execute(`SELECT 1 FROM users u JOIN agencies org ON org.id=? AND org.is_active=1
-    WHERE u.id=? AND COALESCE(u.is_active,1)=1
-      AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')
-      AND (u.role IN ('super_admin','superadmin') OR EXISTS (
-        SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=org.id AND ua.is_active=1))
+    WHERE u.id=? AND ${activeMeetingMembershipSql}
     LIMIT 1`, [agencyId, userId]);
   return !!rows?.length;
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
-import { canJoinTeamMeeting, canJoinSupervision, roomUnavailable, requirePersonalSupervisionInvitation } from '../meetingJoinPolicy.service.js';
+import { activeMeetingAgencyIds, canJoinTeamMeeting, canJoinSupervision, roomUnavailable, requirePersonalSupervisionInvitation } from '../meetingJoinPolicy.service.js';
 beforeEach(() => { vi.clearAllMocks(); m.execute.mockResolvedValue([[]]); });
 describe('current meeting room access', () => {
   const event = { id: 1, agency_id: 2, provider_id: 3 };
@@ -45,4 +45,15 @@ describe('current meeting room access', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ requiresSignIn: true }));
   });
+});
+
+it('discovers only server-authorized active agencies within the candidate list',async()=>{
+ m.execute.mockResolvedValue([[{id:2}]]);
+ expect(await activeMeetingAgencyIds([2,'2',445,null,-1,'bad'],5)).toEqual([2]);
+ const [sql,params]=m.execute.mock.calls[0];expect(params).toEqual([5,2,445]);
+ expect(sql).toContain('org.is_active=1');expect(sql).toContain('ua.is_active=1');expect(sql).toContain('u.status');
+ expect(sql).toContain("u.role IN ('super_admin','superadmin')");
+});
+it('does not query a tenant catalog without candidates or an authenticated user',async()=>{
+ expect(await activeMeetingAgencyIds([],5)).toEqual([]);expect(await activeMeetingAgencyIds([2],0)).toEqual([]);expect(m.execute).not.toHaveBeenCalled();
 });

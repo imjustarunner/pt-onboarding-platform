@@ -23,7 +23,9 @@ const props=defineProps({agencyId:Number,locked:Boolean,activeKey:String,compact
 const agencies=useAgencyStore(),auth=useAuthStore();const localDay=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const expanded=ref(false);
 const day=ref(localDay(new Date())),agencyFilter=ref(''),items=ref([]),loading=ref(false),error=ref('');let timer,version=0,stopped=false;
-const tenants=computed(()=>{const map=new Map();for(const a of [...(agencies.userAgencies||[]),agencies.currentAgency].filter(a=>Number(a?.id)>0))map.set(Number(a.id),a);return [...map.values()];});
+const accessibleAgencyIds=ref([]);
+const candidates=computed(()=>{const map=new Map();for(const a of [...(agencies.userAgencies||[]),agencies.currentAgency].filter(a=>Number(a?.id)>0))map.set(Number(a.id),a);return [...map.values()];});
+const tenants=computed(()=>candidates.value.filter(a=>accessibleAgencyIds.value.includes(Number(a.id))));
 const visible=computed(()=>items.value.filter(i=>!agencyFilter.value||Number(i.agencyId)===Number(agencyFilter.value)));
 const tenant=i=>tenants.value.find(a=>Number(a.id)===Number(i.agencyId));const logo=i=>i.agencyLogoUrl||tenant(i)?.logoUrl||tenant(i)?.logo_url||'';
 const color=i=>/^#[0-9a-f]{6}$/i.test(i.color||'')?i.color:officeTypeColors[i.kind]||'#557f98';
@@ -34,13 +36,20 @@ async function load(){
  const ticket=++version;loading.value=true;error.value='';
  const start=new Date(`${day.value}T00:00:00`),end=new Date(start);end.setDate(end.getDate()+1);
  const monday=new Date(start);monday.setDate(monday.getDate()-((monday.getDay()+6)%7));
- const scopes=tenants.value.length?tenants.value:[{id:props.agencyId}];
+ const scopes=candidates.value.length?candidates.value:[{id:props.agencyId}];
  const brands=new Map();
- const results=await Promise.allSettled([
-  ...scopes.map(a=>api.get('/my-room/me/schedule',{params:{agencyId:a.id,from:start.toISOString(),to:end.toISOString()},skipGlobalLoading:true}).then(({data})=>{brands.set(Number(a.id),{agencyName:data.branding?.agencyName||a.name,agencyLogoUrl:data.branding?.agencyLogoUrl||data.branding?.logoUrl});return (data.items||[]).map(i=>({...i,type:i.type||'clinical',agencyId:Number(a.id),key:`${a.id}:${i.key}`}));})),
+ const [scopeResult,summaryResult]=await Promise.allSettled([
+  api.get('/my-room/me/schedule-scopes',{params:{agencyId:props.agencyId},skipGlobalLoading:true}).then(({data})=>{
+   const ids=(data.agencyIds||[]).map(Number);
+   if(stopped||ticket!==version)return [];
+   accessibleAgencyIds.value=ids;
+   if(agencyFilter.value&&!ids.includes(Number(agencyFilter.value)))agencyFilter.value='';
+   return Promise.allSettled(scopes.filter(a=>ids.includes(Number(a.id))).map(a=>api.get('/my-room/me/schedule',{params:{agencyId:a.id,from:start.toISOString(),to:end.toISOString()},skipGlobalLoading:true}).then(({data})=>{brands.set(Number(a.id),{agencyName:data.branding?.agencyName||a.name,agencyLogoUrl:data.branding?.agencyLogoUrl||data.branding?.logoUrl});return (data.items||[]).map(i=>({...i,type:i.type||'clinical',agencyId:Number(a.id),key:`${a.id}:${i.key}`}));})));
+  }),
   api.get(`/users/${auth.user?.id}/schedule-summary`,{params:{agencyId:props.agencyId,weekStart:localDay(monday),includeAllAgencies:1,skipOfficeMaterialize:true,includeGoogleBusy:false},skipGlobalLoading:true}).then(({data})=>[...(data.scheduleEvents||[]),...(data.supervisionSessions||[]).map(i=>({...i,kind:'SUPERVISION'}))].map(agendaMeeting).filter(Boolean).filter(i=>new Date(i.startAt)<end&&new Date(i.endAt)>start))
  ]);
  if(stopped||ticket!==version)return;
+ const results=[...(scopeResult.status==='fulfilled'?scopeResult.value:[scopeResult]),summaryResult];
  const loaded=results.filter(r=>r.status==='fulfilled').flatMap(r=>r.value);
  items.value=loaded.map(i=>({...i,...brands.get(i.agencyId)})).sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
  if(results.some(r=>r.status==='rejected'))error.value='Some of your schedule could not be loaded.';
