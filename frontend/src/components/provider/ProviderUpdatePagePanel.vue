@@ -21,7 +21,7 @@
       @close="$emit('close')"
     />
 
-    <div v-if="page.alone" class="pu-page-footer"><button type="button" class="pu-btn primary" :disabled="continuing" @click="saveAndContinue">Save and continue →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
+    <div v-if="page.alone" class="pu-page-footer"><button v-if="soleSection?.key !== 'handbook' || soleSection.completed || recipient?.previewOnly" type="button" class="pu-btn primary" :disabled="continuing" @click="saveAndContinue">Save and continue →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
 
     <!-- Bundled page: several related sections on one interface -->
     <div v-if="!page.alone" class="pu-page-stack">

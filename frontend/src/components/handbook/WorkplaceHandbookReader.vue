@@ -83,14 +83,16 @@
         <p v-if="askMsg" role="status">{{ askMsg }}</p>
       </div>
 
-      <div class="ack-row" v-if="!previewMode && digest && entries.length">
-        <button type="button" class="btn primary" :disabled="acking || !!loadError" @click="acknowledge">
-          {{ acking ? 'Saving…' : 'I have reviewed these handbook updates' }}
-        </button>
-      </div>
       </template>
-      <div v-if="!libraryMode && activeView === 'handbook' && (!digest || !entries.length) && handbook?.version && !previewMode" class="ack-row">
-        <button type="button" class="btn primary" :disabled="acking" @click="acknowledge">I have reviewed the available handbook sections</button>
+      <div v-if="!libraryMode && !previewMode && canAcknowledge" class="ack-row">
+        <p v-if="reviewCompleted" class="ok" role="status">Your handbook review is saved.</p>
+        <template v-else>
+          <p v-if="reviewLabel">When you have finished reviewing, save here to mark Handbook Updates complete.</p>
+          <button type="button" class="btn primary" :disabled="acking || savingReview" @click="acknowledge">
+            {{ acking || savingReview ? 'Saving handbook review…' : reviewLabel || (digest && entries.length ? 'I have reviewed these handbook updates' : 'I have reviewed the available handbook sections') }}
+          </button>
+          <p v-if="reviewError" class="reader-error" role="alert">{{ reviewError }}</p>
+        </template>
       </div>
       </div>
     </template>
@@ -119,6 +121,10 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   recipientId: { type: [Number, String], default: null },
   previewMode: { type: Boolean, default: false },
+  savingReview: { type: Boolean, default: false },
+  reviewCompleted: { type: Boolean, default: false },
+  reviewError: { type: String, default: '' },
+  reviewLabel: { type: String, default: '' },
   adminUpdateId: { type: [Number, String], default: null },
   pushId: { type: [Number, String], default: null }
 });
@@ -151,6 +157,7 @@ async function saveEdit(){
 }
 const error = ref('');
 const handbook = ref(null);
+const canAcknowledge = computed(() => !loading.value && !error.value && !loadError.value && !!((digest.value && entries.value.length) || (handbook.value?.version && handbook.value?.sections?.length)));
 const book = ref(null);
 const activeView = ref('updates');
 const showHistory = ref(false);
@@ -243,7 +250,7 @@ async function submitQuestion() {
 }
 
 async function acknowledge() {
-  if(props.previewMode)return;
+  if(props.previewMode || props.savingReview || props.reviewCompleted || !canAcknowledge.value)return;
   acking.value = true;
   try {
     emit('acknowledged', { digestId: digest.value?.id || null, handbookVersionId: handbook.value?.version?.id || null });

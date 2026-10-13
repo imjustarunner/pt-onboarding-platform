@@ -16,7 +16,11 @@
       :agency-id="agencyId"
       :recipient-id="recipient?.id"
       :preview-mode="!!recipient?.previewOnly"
-      @acknowledged="markComplete({ handbookAcknowledged: true })"
+      :saving-review="saving"
+      :review-error="localError"
+      :review-completed="section.completed"
+      review-label="Save handbook review and continue"
+      @acknowledged="saveHandbookReview"
     />
 
     <!-- Admin Update — same in-app published page as /admin-update/:token -->
@@ -445,6 +449,11 @@ function markComplete(data = {}) {
     status: 'completed',
     data: { ...(props.section.data || {}), ...data }
   });
+}
+
+function saveHandbookReview(review) {
+  if (saving.value || props.section.completed) return;
+  return markComplete({ ...review, handbookAcknowledged: true });
 }
 
 async function saveBlurb() {
