@@ -75,6 +75,7 @@ jobs:
           src/components/schedule/__tests__/supervisionScheduler.test.js
           src/components/schedule/__tests__/scheduleBlocks.test.js
           src/components/schedule/__tests__/scheduleOverlap.test.js
+          src/components/schedule/__tests__/scheduleLoading.test.js
           src/utils/__tests__/scheduleOverlapLayout.test.js
           src/utils/__tests__/scheduleAppearance.test.js
           src/components/schedule/__tests__/scheduleColorSettings.test.js

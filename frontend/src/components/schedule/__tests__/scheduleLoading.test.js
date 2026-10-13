@@ -1,0 +1,128 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { flushPromises, shallowMount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { reactive } from 'vue';
+
+const m = vi.hoisted(() => ({ get: vi.fn(), route: null, failSchedule: false }));
+vi.mock('../../../services/api', () => ({ default: { get: m.get, put: vi.fn(), post: vi.fn() }, isApiRateLimited: () => false }));
+vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
+vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [] }) }));
+import Grid from '../ScheduleAvailabilityGrid.vue';
+import { clearScheduleSummaryCache, getScheduleSummaryStale, setScheduleSummary } from '../../../utils/scheduleSummaryCache.js';
+
+const summary = { providerId: 7, weekStart: '2026-10-12', scheduleEvents: [], scheduleAgencyIds: [] };
+let wrapper;
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  vi.setSystemTime(new Date('2026-10-13T18:00:00Z'));
+  setActivePinia(createPinia());
+  localStorage.clear();
+  clearScheduleSummaryCache();
+  vi.clearAllMocks();
+  m.failSchedule = false;
+  m.route = reactive({ path: '/dashboard', params: {}, query: {} });
+  m.get.mockImplementation(async (url) => {
+    if (url.includes('/schedule-summary')) {
+      if (m.failSchedule) throw { response: { status: 503, data: { error: { message: 'Schedule temporarily unavailable.' } } } };
+      return { data: summary };
+    }
+    if (url.endsWith('/agencies')) throw { response: { status: 403 } };
+    return { data: {} };
+  });
+});
+afterEach(() => {
+  wrapper?.unmount();
+  clearScheduleSummaryCache();
+  vi.useRealTimers();
+});
+async function mount() {
+  wrapper = shallowMount(Grid, {
+    props: { userId: 7, mode: 'self', weekStartYmd: '2026-10-12' },
+    global: { stubs: { RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } }
+  });
+  await flushPromises();
+  return wrapper.vm.$.setupState;
+}
+
+it('loads the signed-in provider calendar even when the optional agency request is denied', async () => {
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  await flushPromises();
+  expect(m.get).toHaveBeenCalledWith('/users/7/schedule-summary', expect.objectContaining({ params: expect.objectContaining({ includeAllAgencies: 'true' }) }));
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toBe('');
+  expect(wrapper.find('[data-testid="my-schedule-empty"]').exists()).toBe(false);
+});
+
+it('shows a load error without throwing, and lets the provider retry successfully', async () => {
+  const state = await mount();
+  m.failSchedule = true;
+  await expect(state.load({ forceRefresh: true })).resolves.toBeUndefined();
+  await flushPromises();
+  expect(state.loading).toBe(false);
+  expect(wrapper.find('[role="alert"]').text()).toContain('Schedule temporarily unavailable.');
+  m.failSchedule = false;
+  await wrapper.find('[data-testid="schedule-retry"]').trigger('click');
+  await flushPromises();
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toBe('');
+});
+
+it('keeps a cached calendar visible after a transient refresh failure', async () => {
+  setScheduleSummary('7|all|2026-10-12|monday|false|false|false|', summary);
+  vi.setSystemTime(new Date(Date.now() + 120_000));
+  m.failSchedule = true;
+  const state = await mount();
+  await expect(state.load()).resolves.toBeUndefined();
+  await flushPromises();
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toContain('previously loaded schedule');
+});
+
+it.each([401, 403])('clears cached schedule data when the calendar request is denied with %s', async (status) => {
+  const key = '7|all|2026-10-12|monday|false|false|false|';
+  setScheduleSummary(key, summary);
+  vi.setSystemTime(new Date(Date.now() + 120_000));
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation(async (url, options) => {
+    if (url.includes('/schedule-summary')) throw { response: { status, data: {} } };
+    return get(url, options);
+  });
+  const state = await mount();
+  await expect(state.load()).resolves.toBeUndefined();
+  await flushPromises();
+  expect(state.summary).toBeNull();
+  expect(state.error).toBeTruthy();
+  expect(getScheduleSummaryStale(key)).toBeNull();
+  expect(wrapper.find('[data-testid="schedule-retry"]').exists()).toBe(true);
+});
+
+it.each([
+  { scheduleSideBySide: true, rowHeightMode: 'compact', spanMode: 'week' },
+  { scheduleSideBySide: true, rowHeightMode: 'xl', spanMode: 'day', hideWeekend: true },
+  { spanMode: 'agenda', weekStartsOn: 'sunday', showAllHours: true }
+])('loads My Schedule with saved display settings %j', async (prefs) => {
+  localStorage.setItem('schedule.displayPrefs.v1:7', JSON.stringify(prefs));
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  await flushPromises();
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toBe('');
+  expect(wrapper.find('[data-testid="my-schedule-empty"]').exists()).toBe(false);
+});
+
+it('keeps app appointments loaded when a saved Google overlay reports a permission error', async () => {
+  localStorage.setItem('schedule.overlayPrefs.v2:7:multi', JSON.stringify({ showGoogleEvents: true, viewMode: 'open_finder' }));
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation(async (url, options) => {
+    if (url.includes('/schedule-summary')) return { data: { ...summary, googleCalendarEnabled: true, googleEvents: [], googleEventsError: 'Request failed with status code 403' } };
+    return get(url, options);
+  });
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(1000);
+  await flushPromises();
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toBe('');
+  expect(wrapper.find('[data-testid="my-schedule-empty"]').exists()).toBe(false);
+});

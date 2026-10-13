@@ -891,7 +891,7 @@
               </template>
 
               <div ref="myScheduleStageRef" class="my-schedule-stage my-schedule-stage--hub">
-              <div v-if="superviseesError" class="error" style="margin-top: 8px;">{{ superviseesError }}</div>
+              <div v-if="scheduleViewMode === 'supervisee' && superviseesError" class="error" style="margin-top: 8px;">{{ superviseesError }}</div>
               <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
                 Scheduling is disabled for this organization.
               </div>

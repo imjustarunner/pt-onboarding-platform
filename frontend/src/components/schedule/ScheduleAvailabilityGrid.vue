@@ -914,7 +914,17 @@
 
     <!-- Open finder view (existing personal grid) -->
     <template v-else>
-      <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
+      <div v-if="error" class="error" style="margin-top: 10px;" role="alert">
+        {{ error }}
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          style="margin-left: 8px;"
+          :disabled="loading"
+          data-testid="schedule-retry"
+          @click="load({ forceRefresh: true })"
+        >Retry</button>
+      </div>
       <div v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
         {{ googleBusyDisabledHint }}
       </div>
@@ -9723,11 +9733,18 @@ const load = async ({ forceRefresh = false } = {}) => {
       nextTick(() => showOfficeReminder());
     }
   } catch (e) {
-    if (!cached) {
+    const status = Number(e?.response?.status || 0);
+    const accessDenied = status === 401 || status === 403;
+    if (accessDenied) invalidateScheduleSummaryCacheForUser(props.userId);
+    const keepCachedSchedule = !!stalePack?.data && !accessDenied;
+    if (!keepCachedSchedule) {
       summary.value = null;
-      error.value = e.response?.data?.error?.message || 'Failed to load schedule';
     }
-    // If we had cache, keep showing it on fetch failure
+    const message = e?.response?.data?.error?.message
+      || (status === 403 ? 'The schedule request was denied. Please retry.' : 'Could not load your schedule. Please retry.');
+    error.value = keepCachedSchedule
+      ? `${message} Showing the previously loaded schedule.`
+      : message;
   } finally {
     loading.value = false;
   }
