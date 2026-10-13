@@ -170,7 +170,14 @@ function guessTenantName(host) {
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
-  if (/^\/join\/my-room\/[^/?#]+/.test(path || '')) return { ...AURICWELL_OFFICE_META };
+  if (/^\/join\/my-room\/[^/?#]+/.test(path || '')) {
+    if (['auricwell.com','www.auricwell.com'].includes(normHost(host))) return { ...AURICWELL_OFFICE_META };
+    const tenant = TENANTS[normHost(host)];
+    return {name:tenant?.name || 'My Virtual Office',
+      title:tenant ? `${tenant.name} · My Virtual Office` : 'My Virtual Office',
+      description:'Welcome to your virtual office. Check in and your host will welcome you in.',
+      ...(tenant?.image ? {image:`https://${normHost(host)}${tenant.image}`} : {})};
+  }
   const product = productBrowserBranding(host);
   if (product) return { name: product.title, title: product.title, description: product.description, image: `https://${String(host).split(':')[0]}${product.image}`, imagePath: product.image, url: `https://${String(host).split(':')[0]}${path || '/'}` };
   const hostname = normHost(host);

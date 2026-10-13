@@ -8,6 +8,12 @@ export function officeMeetingTarget(raw,origin=window.location.origin){
  }catch{return null;}
 }
 export function agendaMeeting(event){
+ // An old join URL cannot override an explicit in-person/phone modality.
+ const modalities=[event.modality,event.deliveryContext,event.delivery_context].filter(value=>String(value||'').trim());
+ const virtualModes=new Set(['VIRTUAL','TELEHEALTH','VIDEO','ONLINE','REMOTE']);
+ if(modalities.some(value=>!virtualModes.has(String(value).trim().toUpperCase())))return null;
+ // Team meetings/huddles predate modality and use their video-link configuration.
+ if(!modalities.length && !['TEAM_MEETING','HUDDLE'].includes(String(event.kind||'').toUpperCase()))return null;
  const url=((event.isHost||event.role==='supervisor')&&event.hostJoinUrl)||event.appJoinUrl||event.participantJoinUrl||event.joinUrl||event.meetLink||event.googleMeetLink;
  if(!url||['CANCELLED','CANCELED'].includes(String(event.status||'').toUpperCase()))return null;
  const start=parseScheduleUtcInstant(event.startAt),end=parseScheduleUtcInstant(event.endAt);if(!start||!end)return null;

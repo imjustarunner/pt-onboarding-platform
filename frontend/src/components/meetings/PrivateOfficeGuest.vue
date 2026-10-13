@@ -92,6 +92,7 @@
 </template>
 
 <script setup>
+import { officeAccent } from '../../utils/officeBranding';
 import OfficeBrand from './OfficeBrand.vue';
 import OfficeProviderCard from './OfficeProviderCard.vue';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
@@ -100,7 +101,7 @@ import SupervisionWaitingRoomStage from '../supervision/SupervisionWaitingRoomSt
 
 const props=defineProps({slug:{type:String,required:true},request:{type:Function,required:true},productName:{type:String,default:'AuricWell'}});
 const slug=computed(()=>props.slug);
-const brandStyle=computed(()=>{const color=room.value?.branding?.colorPalette?.primary;return {'--office-accent':props.productName?'#315c66':/^#[a-f0-9]{3,8}$/i.test(color||'')?color:'#087f5b'};});
+const brandStyle=computed(()=>({'--office-accent':officeAccent(room.value?.branding)}));
 const api={get:(url,opts)=>props.request(url,{...opts,method:'GET'}).then(data=>({data})),post:(url,body,opts)=>props.request(url,{...opts,method:'POST',body}).then(data=>({data}))};
 
 const loading = ref(true);

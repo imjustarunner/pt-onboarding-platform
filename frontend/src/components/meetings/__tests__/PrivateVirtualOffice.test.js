@@ -7,7 +7,7 @@ async function setup(encounter,admitted=[]){
  const data={waiting:[{id:7,guestDisplayName:'Second client'}],admitted,encounter:{providerReady:true,...encounter}};
  const request=vi.fn(async(path,options)=>{
   if(path==='/me/plan')return {plan:{privateOffice:true,multipleOfficeGuests:true}};
-  if(path==='/me')return {room:{slug:'synthetic',branding:{agencyName:'Practice'}}};
+  if(path==='/me')return {room:{slug:'synthetic',branding:{agencyName:'Practice',officeProduct:'auricwell',officeOrigin:'https://auricwell.com'}}};
   if(path==='/me/video-token')return {sessionId:'media',token:'synthetic'};
   if(path==='/me/end'){data.encounter.state='ending';return {ok:false,state:'ending'};}
   return structuredClone(data);
@@ -75,4 +75,12 @@ it('requires identity confirmation before assigning an office guest to an appoin
  await button(wrapper,'Identify and admit').trigger('click');await flushPromises();expect(request.mock.calls.some(([p])=>p.includes('/admit'))).toBe(false);
  expect(button(wrapper,'Confirm and admit').attributes('disabled')).toBeDefined();await wrapper.find('[role=dialog] select').setValue('10');await button(wrapper,'Confirm and admit').trigger('click');await flushPromises();
  expect(request).toHaveBeenCalledWith('/lobby/7/admit',{method:'POST',body:{clientId:10,confirmIdentity:true,sameEncounter:false}});wrapper.unmount();
+});
+
+it('keeps a non-EHR office on its tenant brand and stable guest link',async()=>{
+ const request=vi.fn(async path=>path==='/me'?{room:{slug:'same-stable-room',branding:{officeProduct:'tenant',officeOrigin:'https://learn.example',agencyName:'Learning Center',agencyLogoUrl:'/learning.svg',colorPalette:{primary:'#884499'}}}}:path==='/me/plan'?{plan:{privateOffice:true}}:{waiting:[],admitted:[],encounter:{state:'idle'}});
+ const w=mount(Office,{props:{request},global:{stubs:{TherapySessionWorkspace:stub,OfficeDayList:true,CounselingSessionView:true}}});await flushPromises();
+ expect(w.text()).not.toContain('AuricWell');expect(w.text()).toContain('Learning Center');expect(w.text()).toContain('My Virtual Office');
+ expect(w.classes()).not.toContain('auricwell-surface');expect(w.find('input[readonly]').element.value).toBe('https://learn.example/join/my-room/same-stable-room');
+ expect(w.attributes('style')).toContain('#884499');w.unmount();
 });

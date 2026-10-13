@@ -3,6 +3,8 @@
  * Mirrors login-theme inheritance: school/program/learning orgs inherit parent
  * agency colors when useAffiliatedAgencyBranding is true (default).
  */
+import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
+import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -109,6 +111,10 @@ export async function buildPublicFormBranding(ctx = {}) {
   const brandingLogoUrl = resolveOrgLogoUrl(brandingOrg, { baseUrl });
 
   return {
+    // Use the office owner's EHR entitlement, never an inherited parent theme.
+    officeProduct: getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled ? 'auricwell' : 'tenant',
+    officeOrigin: getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled
+      ? 'https://auricwell.com' : new URL(buildPublicPortalBaseUrl(portalOrg)).origin,
     brandingAgencyId: brandingOrg?.id || null,
     legalOrganizationSlug: agency?.slug || agency?.portal_url || portalOrg?.slug || portalOrg?.portal_url || null,
     portalOrganizationId: portalOrg?.id || null,

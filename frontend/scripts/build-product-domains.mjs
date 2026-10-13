@@ -64,6 +64,7 @@ redirect('www.michaelvmendez.com','https://michaelvmendez.com');
 const auricwellLocations=Object.keys(auricwellPages).map(section=>location(section?`/${section}`:'/',page('auricwell-domain',section||'home',renderWebsite(section,{base:'',email:'support@auricwell.com',origin:'https://auricwell.com',canonicalBase:''})))).join('\n');
 // Static SPA entry: crawlers do not execute Vue. No shared og:url/canonical:
 // each private office retains its requested URL, without identifiers in metadata.
+page('tenant-office','index',injectShareMetaIntoHtml(shell,buildShareMeta({host:'plottwisthq.com',path:'/join/my-room/office'})));
 const officeShell=page('auricwell-office','index',injectPublicFavicon(injectShareMetaIntoHtml(shell,AURICWELL_OFFICE_META),'auricwell.com'));
 server('auricwell.com',`${auricwellLocations}
  location ^~ /join/my-room/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex, nofollow" always; try_files ${officeShell} =404; }

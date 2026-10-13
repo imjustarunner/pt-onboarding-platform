@@ -2,10 +2,8 @@
 <script setup>
 import {computed,ref} from 'vue';
 import {useRoute} from 'vue-router';
-import {registerClinicalWorkspace} from '../composables/useClinicalWorkspace';
 const route=useRoute();
 const dashboardPath=computed(()=>route.params.organizationSlug ? `/${route.params.organizationSlug}/dashboard` : '/dashboard');
-registerClinicalWorkspace(computed(()=>true));
 import api from '../services/api';
 const request=computed(()=>{const agencyId=selectedAgencyId.value;return (path,{method='GET',body}={})=>api({url:`/my-room${path}`,method,data:body,params:{agencyId},skipAuthRedirect:true,skipGlobalLoading:true}).then(r=>r.data);});
 import PrivateVirtualOffice from '../components/meetings/PrivateVirtualOffice.vue';

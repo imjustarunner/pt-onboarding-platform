@@ -25,3 +25,13 @@ it('preserves host links and excludes canceled meetings',()=>{
  const event={kind:'TEAM_MEETING',id:1,startAt:'2026-10-13 15:00:00',endAt:'2026-10-13 16:00:00',isHost:true,hostJoinUrl:'/join/team-meeting/host',appJoinUrl:'/join/team-meeting/guest'};
  expect(agendaMeeting(event).url).toBe(event.hostJoinUrl);expect(agendaMeeting({...event,isHost:false}).url).toBe(event.appJoinUrl);expect(agendaMeeting({...event,status:'CANCELLED'})).toBeNull();
 });
+
+it('only includes virtual sessions even when an in-person event retains video links',()=>{
+ const event={id:1,kind:'SUPERVISION',startAt:'2026-10-13 15:00:00',endAt:'2026-10-13 16:00:00',appJoinUrl:'/join/supervision/guest'};
+ for(const modality of ['in_person','IN-PERSON','PHONE','unknown',''])expect(agendaMeeting({...event,modality})).toBeNull();
+ for(const modality of ['virtual','TELEHEALTH','VIDEO'])expect(agendaMeeting({...event,modality})).not.toBeNull();
+ expect(agendaMeeting({...event,kind:'TEAM_MEETING',modality:'IN_PERSON'})).toBeNull();
+ expect(agendaMeeting({...event,kind:'TEAM_MEETING'})).not.toBeNull();
+ expect(agendaMeeting({...event,kind:'PERSONAL_EVENT'})).toBeNull();
+ expect(agendaMeeting({...event,modality:'VIRTUAL',deliveryContext:'in_person'})).toBeNull();
+});

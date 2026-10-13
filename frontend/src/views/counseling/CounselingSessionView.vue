@@ -1,7 +1,7 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalSessionBranding && !embedded" immersive :tenant-id="session?.agencyId || session?.agency_id" context-label="Counseling session" :back-disabled="phase !== 'pre' && phase !== 'ended'">
   <div class="cs" :class="{ 'cs--provider': participantRole === 'provider', 'cs--activity': inActivityMode }">
-    <header v-if="phase !== 'connected'" class="clinical-brand"><img :src="AURICWELL_MARK_URL" alt="AuricWell" /><div><strong>AuricWell</strong><small>{{ branding?.agencyName || 'Virtual care' }}</small></div></header>
+    <OfficeBrand v-if="phase !== 'connected'" class="clinical-brand" :branding="branding" />
     <ClientRecordingConsentPanel v-if="session && phase !== 'ended'" :base-url="transcriptionBase" :is-provider="participantRole === 'provider'" />
     <ConsentedTranscriptionPanel v-if="phase === 'connected'" ref="transcriptionPanel" :base-url="transcriptionBase" :connected="videoConnected" :is-host="participantRole === 'provider'" :get-stream="getTranscriptionStream" />
     <label v-if="participantRole === 'provider' && phase !== 'joining'" class="cs__note-type">Note type for a recorded session
@@ -29,7 +29,7 @@
     </div>
 
     <section v-else-if="phase === 'waiting'" class="cs-waiting">
-      <SupervisionWaitingRoomStage :meeting-title="`AuricWell · ${branding?.agencyName || session?.title || 'Virtual care'}`" host-role-label="Provider" :host-present="session?.status==='active'" :show-preview-hint="false" />
+      <SupervisionWaitingRoomStage :meeting-title="`${clinicalSessionBranding ? 'AuricWell · ' : ''}${branding?.agencyName || session?.title || 'Virtual office'}`" host-role-label="Provider" :host-present="session?.status==='active'" :show-preview-hint="false" />
       <button class="waiting-leave cs__btn" @click="confirmEnd">Leave waiting room</button><p v-if="preError" role="alert">{{ preError }}</p>
     </section>
     <template v-else-if="phase === 'connected'">
@@ -57,10 +57,8 @@
 </template>
 
 <script setup>
-import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
-import { practiceCategoryForBusinessType } from '../../config/practiceCategories.js';
-import { useAgencyStore } from '../../store/agency';
-import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import OfficeBrand from '../../components/meetings/OfficeBrand.vue';
+import { isAuricWellOffice } from '../../utils/officeBranding';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -106,17 +104,7 @@ async function enterConnected(){await loadSessionMeta();try{await refreshVideoTo
 const joining = ref(false);
 const preError = ref('');
 const session = ref(null);
-const clinicalAgencyStore = useAgencyStore();
-const clinicalSessionBranding = computed(() => {
-  if (!session.value) return false;
-  const agencyId = Number(session.value.agencyId);
-  const tenant = [clinicalAgencyStore.currentAgency, ...(clinicalAgencyStore.userAgencies || [])].find(a => Number(a?.id) === agencyId);
-  // A booked tutoring/coaching call retains its tenant shell. Unbooked calls
-  // use explicit tenant context, never the viewer's provider role.
-  return isMentalHealthWorkspace({
-    practiceCategory: practiceCategoryForBusinessType(session.value.businessType), tenant
-  });
-});
+const clinicalSessionBranding = computed(() => isAuricWellOffice(branding.value));
 const participantRole = ref('client');
 const needsMfa=ref(false),endBusy=ref(false),disconnection=ref('ended');let closureTimer;
 const videoCreds = ref(null);

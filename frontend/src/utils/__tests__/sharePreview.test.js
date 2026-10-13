@@ -83,8 +83,8 @@ for (const [domain, slug] of Object.entries(publicDomains)) {
  });
 }
 
-it('brands office links on every entry host without putting office identifiers or credentials in preview metadata',()=>{
- for(const host of ['auricwell.com','plottwisthq.com','app.itsco.health']){
+it('brands AuricWell office links without putting office identifiers or credentials in preview metadata',()=>{
+ for(const host of ['auricwell.com']){
   const meta=buildShareMeta({host,path:'/join/my-room/private-slug?token=private-token'});
   expect(meta.title).toBe('AuricWell · Virtual Office');
   expect(meta.image).toBe('https://auricwell.com/auricwell/virtual-office-share.png');
@@ -93,5 +93,13 @@ it('brands office links on every entry host without putting office identifiers o
   expect(html).toContain('og:image:width" content="1200"');
   expect(html).toContain('og:image:height" content="630"');
   expect(html).toContain('id="app"');
+ }
+});
+
+it('does not impose AuricWell on tenant office previews or reveal visit identifiers',()=>{
+ for(const host of ['plottwisthq.com','app.itsco.health']){
+  const meta=buildShareMeta({host,path:'/join/my-room/private-slug?token=private-token'});
+  expect(meta.title).toContain('My Virtual Office');
+  expect(JSON.stringify(meta)).not.toMatch(/AuricWell|auricwell|private-slug|private-token/);
  }
 });

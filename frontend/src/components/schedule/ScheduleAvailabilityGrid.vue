@@ -21096,7 +21096,7 @@ const completePlatformVirtualSessionBooking = async ({
       const roomRes = await api.get('/my-room/me', { params:{agencyId:props.agencyId}, skipGlobalLoading: true });
       const slug = roomRes?.data?.room?.slug || roomRes?.data?.slug;
       if (slug) {
-        virtualSessionShareUrl.value = virtualOfficeGuestUrl(slug);
+        virtualSessionShareUrl.value = virtualOfficeGuestUrl(slug, roomRes?.data?.room?.branding?.officeOrigin || window.location.origin);
         virtualSessionScheduledSessionKey.value = `my-room:${slug}`;
       }
     } catch {
