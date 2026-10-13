@@ -223,7 +223,7 @@
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
           <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
           <SupervisionVideoLobbyPanel
-            v-if="(isHost || isCoHostBySignal) && resolvedEventId"
+            v-if="(isHost || isCoHostBySignal) && resolvedEventId && !meetingCompletedAt"
             class="join-host-lobby"
             :session-id="resolvedEventId"
             :is-supervisor="isHost || isCoHostBySignal"
@@ -737,6 +737,7 @@ const meetingCompletedAt = ref(null);
 const meetingClosedByName = ref('');
 const roomName = ref('');
 const isHost = ref(false);
+const isInterviewer = ref(false);
 const canEndForEveryone = ref(false);
 const resolvedEventId = ref(0);
 const roomMode = ref('main');
@@ -1076,7 +1077,7 @@ const canManageMeetingLive = computed(() => (
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
 const canSeeFullWorkspace = computed(() => {
   if (isHost.value) return true;
-  if (isInterviewMeeting.value) return false;
+  if (isInterviewMeeting.value) return isInterviewer.value;
   // Evaluation meetings: host, reviewers, and the evaluated employee all need the sidebar.
   if (isEvaluationMeeting.value) {
     if (authStore.user?.capabilities?.canManageHiring === true) return true;
@@ -1191,6 +1192,7 @@ function applyTokenPayload(data) {
   diagnostics.value = data.diagnostics || diagnostics.value;
   roomName.value = data.roomName || data.room_name || roomName.value;
   isHost.value = !!(data.isHost ?? data.is_host);
+  isInterviewer.value = data.isInterviewer === true;
   const prevMode = roomMode.value;
   roomMode.value = String(data.roomMode || (String(roomName.value || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
   if (roomMode.value === 'main' && (!joinedMainAt.value || prevMode === 'lobby')) {
@@ -1374,7 +1376,9 @@ async function resolveAndRedirect() {
     );
     const data = resp?.data || {};
     const slug = String(data.orgSlug || '').trim();
-    if (data.canonicalJoinUrl) {
+    // Assigned interviewers keep their current authenticated origin. Tenant
+    // branding still comes from the event; cookies cannot cross tenant domains.
+    if (data.canonicalJoinUrl && data.isInterviewer !== true) {
       const target = new URL(data.canonicalJoinUrl);
       if (target.protocol === 'https:' && target.origin !== window.location.origin) {
         window.location.replace(target.href);

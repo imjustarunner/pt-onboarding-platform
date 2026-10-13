@@ -86,6 +86,21 @@ describe('host and cohost waiting-room alerts',()=>{
   expect(person.alertKey).toBe('calendar:99');alerts.vm.$emit('admit',person);await flushPromises();
   expect(apiMock.post).toHaveBeenCalledWith('/team-meetings/42/calendar-guests/99/admit');
  });
+ it.each([403,410])('stops polling and hides host controls after terminal %s',async status=>{
+  apiMock.get.mockRejectedValue({response:{status}});
+  await render('team-meeting');
+  const calls=apiMock.get.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(20000);await flushPromises();
+  expect(apiMock.get).toHaveBeenCalledTimes(calls);
+  expect(wrapper.find('.lobby-panel').exists()).toBe(false);
+ });
+ it('ignores an in-flight lobby response after calendar access is revoked',async()=>{
+  let finishLobby;
+  apiMock.get.mockImplementation(path=>path.endsWith('/calendar-guests')?Promise.reject({response:{status:403}}):new Promise(resolve=>{finishLobby=resolve;}));
+  await render('team-meeting');
+  finishLobby({data:{participants:[{userId:11,joinIdentity:'user-11',displayName:'Late response'}]}});await flushPromises();
+  expect(wrapper.emitted('update:waitingCount').at(-1)).toEqual([0]);expect(sound.play).not.toHaveBeenCalled();
+ });
  it('ignores an old meeting’s delayed lobby response after switching sessions',async()=>{
   let resolveOld;
   apiMock.get.mockImplementation(path=>path==='/supervision/sessions/42/lobby-participants'

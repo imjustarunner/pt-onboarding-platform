@@ -73,9 +73,13 @@ export async function saveInterviewWorkspace(interviewId, body, actor) {
     if (!rows.length) throw Object.assign(new Error('Interview workspace is not initialized'), { status: 409 });
     const current = HiringInterviewArtifact.hydrate(rows[0]);
     const merged = mergeInterviewWorkspace(current, body, actor);
-    await conn.execute(`UPDATE hiring_interview_artifacts SET flow_state_json = ?, private_notes_json = ?, scorecard_json = ?, team_chat_json = ?, finalized_at = NULL, average_score = NULL WHERE hiring_interview_id = ?`,
+    // Continuing notes/chat must not undo a finalized scorecard. New ratings
+    // require finalization again, under the same row lock as the rating update.
+    const scoreChanged = JSON.stringify(current.scorecard_json) !== JSON.stringify(merged.scorecard_json);
+    const finalizationSql = scoreChanged ? ', finalized_at = NULL, average_score = NULL' : '';
+    await conn.execute(`UPDATE hiring_interview_artifacts SET flow_state_json = ?, private_notes_json = ?, scorecard_json = ?, team_chat_json = ?${finalizationSql} WHERE hiring_interview_id = ?`,
       [maybeEncryptNotePayload(JSON.stringify(merged.flow_state_json)), maybeEncryptNotePayload(JSON.stringify(merged.private_notes_json)), maybeEncryptNotePayload(JSON.stringify(merged.scorecard_json)), maybeEncryptNotePayload(JSON.stringify(merged.team_chat_json)), interviewId]);
     await conn.commit();
-    return interviewArtifactForViewer({ ...current, ...merged, finalized_at: null, average_score: null }, actor.id);
+    return interviewArtifactForViewer({ ...current, ...merged, ...(scoreChanged ? { finalized_at: null, average_score: null } : {}) }, actor.id);
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
 }

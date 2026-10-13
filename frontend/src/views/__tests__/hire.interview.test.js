@@ -24,10 +24,34 @@ describe('interviewer workspace', () => {
     expect(document.querySelector('#test-brief-target').textContent).toContain('Jordan Applicant');
   });
 
-  it('loads scoped candidate materials even without a globally selected agency', async () => { await open(); expect(api.get).toHaveBeenCalledWith('/hiring/interview-hub/interviews/5/brief'); expect(wrapper.text()).toContain('Care Center'); expect(wrapper.text()).toContain('Jordan Applicant'); });
+  it('loads scoped candidate materials even without a globally selected agency', async () => { await open(); expect(api.get).toHaveBeenCalledWith('/hiring/interview-hub/interviews/5/brief', {skipGlobalLoading:true}); expect(wrapper.text()).toContain('Care Center'); expect(wrapper.text()).toContain('Jordan Applicant'); });
   it('saves only the changed question instead of replacing teammates’ maps', async () => { await open(); await wrapper.find('.ilw-check').trigger('click'); await wrapper.findAll('button').find(b => b.text() === 'Save progress').trigger('click'); await flushPromises(); expect(api.put.mock.calls[0][1]).toEqual({ completedPatch: { 'standard:q1': true } }); });
   it('autosaves private notes with server-owned author identity', async () => { await open(); vi.useFakeTimers(); await tab('Notes').trigger('click'); await wrapper.find('textarea').setValue('Only my notes'); await vi.advanceTimersByTimeAsync(850); await flushPromises(); expect(api.put.mock.calls[0][1]).toMatchObject({ myNotes: 'Only my notes' }); expect(api.put.mock.calls[0][1].privateNotesJson).toBeUndefined(); });
   it('keeps controls and unsaved text available on failed save; does not finalize', async () => { await open(); api.put.mockRejectedValue(new Error('offline')); await tab('Notes').trigger('click'); await wrapper.find('textarea').setValue('Do not lose this'); await wrapper.findAll('button').find(b => b.text() === 'Finalize scorecard').trigger('click'); await flushPromises(); expect(wrapper.find('textarea').element.value).toBe('Do not lose this'); expect(wrapper.text()).toContain('Your changes have not saved'); expect(api.post).not.toHaveBeenCalled(); expect(wrapper.find('.ilw-footer').exists()).toBe(true); });
+  it('finalizes quietly without ending the interview or removing controls', async () => {
+    await open();await wrapper.findAll('button').find(b => b.text() === 'Finalize scorecard').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/hiring/interview-hub/interviews/5/finalize', {agencyId:null}, {params:{},skipGlobalLoading:true});
+    expect(api.post.mock.calls.some(([url])=>url.endsWith('/end-guest-access'))).toBe(false);
+    expect(wrapper.text()).toContain('Scorecard finalized — interview remains open');expect(wrapper.find('.ilw-footer').exists()).toBe(true);
+  });
+  it('opens and closes a resume in the current page without a new window', async () => {
+    const original=api.get.getMockImplementation();
+    api.get.mockImplementation(async (url,...args)=>url.endsWith('/brief')?{data:{data:{candidateName:'Jordan',documents:[{id:7,title:'Resume',original_name:'Resume.pdf'}]}}}:url.endsWith('/documents/7')?{data:{url:'https://files.example/resume.pdf',mimeType:'application/pdf'}}:original(url,...args));
+    const popup=vi.spyOn(window,'open').mockImplementation(()=>null);
+    await open();await wrapper.findAll('button').find(b=>b.text()==='Resume' && b.element.closest('.ilw-source-card')).trigger('click');await flushPromises();
+    expect(document.querySelector('.ilw-document-panel')).not.toBeNull();
+    expect(document.querySelector('.ilw-document-panel iframe')?.getAttribute('src')).toBe('https://files.example/resume.pdf');
+    expect(popup).not.toHaveBeenCalled();document.querySelector('.ilw-document-panel button').click();await flushPromises();
+    expect(document.querySelector('.ilw-document-panel')).toBeNull();expect(wrapper.find('.ilw-footer').exists()).toBe(true);popup.mockRestore();
+  });
+  it('alerts for new internal messages and clears the alert when team chat opens', async () => {
+    vi.useFakeTimers();const focused=vi.spyOn(document,'hasFocus').mockReturnValue(true);await open();
+    api.get.mockResolvedValue({data:{data:{...artifact(),team_chat_json:[{id:'m1',authorId:12,text:'Ask about teamwork',at:'2026-10-13T15:00:00Z'}]}}});
+    await vi.advanceTimersByTimeAsync(5000);await flushPromises();
+    expect(document.querySelector('.ilw-chat-notice')?.textContent).toContain('New internal message');
+    document.querySelector('.ilw-chat-notice button').click();await flushPromises();
+    expect(document.querySelector('.ilw-chat-notice')).toBeNull();expect(wrapper.text()).toContain('Ask about teamwork');focused.mockRestore();
+  });
   it('saves each interviewer’s ratings separately', async () => { await open(); await tab('Scorecard').trigger('click'); await wrapper.findAll('.ilw-star')[3].trigger('click'); await wrapper.findAll('button').find(b => b.text() === 'Save progress').trigger('click'); await flushPromises(); expect(api.put.mock.calls[0][1].myRatings).toEqual({ communication: 4 }); });
   it('appends team messages without sending a stale chat log', async () => { await open(); await tab('Team chat').trigger('click'); await wrapper.find('.ilw-chat-form input').setValue('Please ask about experience'); await wrapper.find('.ilw-chat-form').trigger('submit'); await flushPromises(); expect(api.put.mock.calls[0][1].teamMessage.text).toContain('Please ask'); expect(api.put.mock.calls[0][1].teamChatJson).toBeUndefined(); });
 });

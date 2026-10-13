@@ -63,6 +63,8 @@
           :style="stageGridStyle"
           :class="{
             'vsr__stage--strip': layout === 'strip',
+            'vsr__stage--side-left': sideThumbnails && thumbnailSide === 'left',
+            'vsr__stage--side-right': sideThumbnails && thumbnailSide === 'right',
             'vsr__stage--solo': isSoloStage && !screenFocused,
             'vsr__stage--duo': isDuoStage && !screenFocused,
             'vsr__stage--grid': isGridStage && !screenFocused,
@@ -334,9 +336,9 @@
       </div>
 
       <div v-if="audioProblem" class="vsr__audio-problem" role="alert">{{ audioProblem }} Open Microphone settings to reconnect or choose another input.</div>
-      <div v-if="blockedAudioCount || playbackError" class="vsr__audio-problem" role="alert">
-        {{ playbackError || 'Your browser has paused meeting sound.' }}
-        <button type="button" class="vsr__ctrl" :disabled="playbackBusy" @click="enableMeetingAudio">Enable meeting sound</button>
+      <div v-if="blockedAudioCount || playbackError || audioResumeNeeded" class="vsr__audio-problem" role="alert">
+        {{ playbackError || (audioResumeNeeded ? 'Back from another app? Tap to resume meeting sound if it is paused.' : 'Your browser has paused meeting sound.') }}
+        <button type="button" class="vsr__ctrl" :disabled="playbackBusy" @click="enableMeetingAudio">{{ audioResumeNeeded ? 'Resume meeting sound' : 'Enable meeting sound' }}</button>
       </div>
       <details v-if="!hideControls && !lobbyMode" class="vsr__audio-settings" @toggle="refreshMicrophones">
         <summary>Microphone settings</summary>
@@ -752,8 +754,17 @@ watch(transportConnected, (ready) => {
 onBeforeUnmount(() => clearInterval(waitTimer));
 const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
+const thumbnailSide = ref('bottom');
+const sideThumbnails = computed(()=>['left','right'].includes(thumbnailSide.value) && props.tileFocus==='remote' && !screenFocused.value && stageSize.value.width>=520);
 let stageResizeObserver = null;
 const stageGridStyle = computed(() => {
+  if(sideThumbnails.value){
+    const rail=Math.min(160,Math.floor(stageSize.value.width*.22));
+    const count=Math.max(1,stageVideoCount.value-1);
+    return {gridTemplateColumns:thumbnailSide.value==='left'?`${rail}px minmax(0,1fr)`:`minmax(0,1fr) ${rail}px`,
+      gridTemplateRows:`repeat(${count},minmax(90px,1fr))`,
+      '--vsr-camera-side':`${Math.min(stageSize.value.width-rail-6,stageSize.value.height)}px`};
+  }
   if (screenFocused.value) {
     const columns = Math.max(1, stageVideoCount.value);
     const side = Math.max(1, Math.min(100, Math.floor((stageSize.value.width - 6 * (columns - 1)) / columns), Math.floor(stageSize.value.height * 0.22)));
@@ -853,6 +864,9 @@ const layoutMenuOptions = [
   { id: 'equal', label: 'Equal tiles', kind: 'focus' },
   { id: 'speaker', label: 'Speaker only', kind: 'focus' },
   { id: 'remote', label: 'Focus peer', kind: 'focus' },
+  { id: 'peer-left', label: 'Large peer · small videos left', kind: 'side', side:'left' },
+  { id: 'peer-right', label: 'Large peer · small videos right', kind: 'side', side:'right' },
+  { id: 'peer-bottom', label: 'Large peer · small videos below', kind: 'side', side:'bottom' },
   { id: 'local', label: 'Focus you', kind: 'focus' },
   { id: 'collapsed', label: 'Collapse videos', kind: 'focus' },
   { id: 'fullscreen', label: 'Full screen videos', kind: 'fullscreen' }
@@ -1483,6 +1497,7 @@ function muteAllExcept(excludeConnectionIds = []) {
 
 function isLayoutOptionActive(opt) {
   if (!opt) return false;
+  if (opt.kind === 'side') return props.tileFocus==='remote' && !screenFocused.value && thumbnailSide.value===opt.side;
   if (opt.kind === 'screen') return prioritizeScreen.value;
   if (opt.kind === 'fullscreen') return !!props.videoFullscreen;
   return !screenFocused.value && props.tileFocus === opt.id && !props.videoFullscreen;
@@ -1496,6 +1511,7 @@ function setVideoFullscreen(on) {
 
 function applyLayoutOption(opt) {
   if (!opt) return;
+  if(opt.kind==='side'){thumbnailSide.value=opt.side;prioritizeScreen.value=false;emit('update:tileFocus','remote');layoutMenuOpen.value=false;return;}
   if (opt.kind === 'screen') {
     prioritizeScreen.value = true;
     if (props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
@@ -1756,6 +1772,9 @@ const blockedSubscribers = new Set();
 const blockedAudioCount = ref(0);
 const playbackError = ref('');
 const playbackBusy = ref(false);
+const audioResumeNeeded = ref(false);
+let wasBackgrounded = false;
+let audioResumeTimer = null;
 
 function monitorMeetingAudio(sub, owner) {
   const update = (blocked) => {
@@ -1781,7 +1800,10 @@ async function enableMeetingAudio() {
       sub.subscribeToAudio?.(true);
       sub.setAudioVolume?.(100);
     }
-    await playback;
+    const mediaPlayback = [...(stageEl.value?.querySelectorAll('video, audio') || [])]
+      .filter(media => media.paused).map(media => media.play());
+    await Promise.all([playback, ...mediaPlayback]);
+    audioResumeNeeded.value = false;
     for (const sub of blockedSubscribers) {
       if (!sub.isAudioBlocked?.()) blockedSubscribers.delete(sub);
     }
@@ -2750,6 +2772,8 @@ async function toggleScreenShare() {
 function disconnect(emitEvent = true) {
   blockedSubscribers.clear();
   blockedAudioCount.value = 0;
+  audioResumeNeeded.value = false;
+  clearTimeout(audioResumeTimer);
   playbackError.value = '';
   transportConnected.value = false;
   clearInterval(waitTimer);
@@ -3106,19 +3130,37 @@ watch(
   }
 );
 
+function restoreMeetingPlayback() {
+  if (!sessionReady.value || document.hidden) return;
+  try { Promise.resolve(OTApi?.unblockAudio?.()).catch(() => { audioResumeNeeded.value = true; }); } catch { audioResumeNeeded.value = true; }
+  for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
+    // Restart the receiver after the OS releases phone-call audio focus.
+    try { sub.subscribeToAudio?.(false); sub.subscribeToAudio?.(true); } catch { audioResumeNeeded.value = true; }
+  }
+  for (const media of stageEl.value?.querySelectorAll('video, audio') || []) {
+    if (media.paused) {
+      try { Promise.resolve(media.play()).catch(() => { audioResumeNeeded.value = true; }); } catch { audioResumeNeeded.value = true; }
+    }
+  }
+}
+
 function handleVisibilityResume() {
   updateAloneWait();
-  if (typeof document !== 'undefined' && document.hidden) return;
-  try { joinToneCtx?.resume?.(); } catch { /* ignore */ }
-  if (!publisher || !sessionReady.value) return;
+  if (document.hidden) { wasBackgrounded = true; return; }
+  if (!sessionReady.value) return;
+  try { Promise.resolve(joinToneCtx?.resume?.()).catch(() => {}); } catch { /* ignore */ }
   reconcileSubscriptions();
-  try { publisher.publishAudio(!!publishAudio.value); } catch { /* ignore */ }
-  try { publisher.publishVideo(!!publishVideo.value); } catch { /* ignore */ }
+  try { publisher?.publishAudio(!!publishAudio.value); } catch { /* ignore */ }
+  try { publisher?.publishVideo(!!publishVideo.value); } catch { /* ignore */ }
   for (const r of remotes.value) {
     if (r.hasVideo) void refreshRemoteVideo(r.streamId, true);
-    const sub = subscribers.get(r.streamId);
-    try { sub?.subscribeToAudio?.(true); } catch { /* ignore */ }
   }
+  if (wasBackgrounded && (subscribers.size || screenSubscriber)) audioResumeNeeded.value = true;
+  wasBackgrounded = false;
+  restoreMeetingPlayback();
+  clearTimeout(audioResumeTimer);
+  // Phone-call audio focus can be released slightly after the visibility event.
+  audioResumeTimer = setTimeout(restoreMeetingPlayback, 800);
 }
 
 onMounted(() => {
@@ -3129,6 +3171,7 @@ onMounted(() => {
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('pageshow', handleVisibilityResume);
+    window.addEventListener('focus', handleVisibilityResume);
   }
   if (props.autoConnect && props.token) connect();
 });
@@ -3142,6 +3185,7 @@ onBeforeUnmount(() => {
   }
   if (typeof window !== 'undefined') {
     window.removeEventListener('pageshow', handleVisibilityResume);
+    window.removeEventListener('focus', handleVisibilityResume);
   }
   disconnect(false);
 });
@@ -4400,4 +4444,8 @@ defineExpose({
 .vsr__alone-prompt p, .vsr__alone-ended p { font-size: .875rem; line-height: 1.4; }
 .vsr__alone-prompt button { margin: 4px; }
 .vsr__alone-waiting { margin: 0; padding: 4px 10px; font-size: .8rem; color: #cbd5e1; }
+</style>
+
+<style scoped>
+.vsr__stage--side-left .vsr__tile--featured{grid-column:2!important;grid-row:1 / -1!important}.vsr__stage--side-right .vsr__tile--featured{grid-column:1!important;grid-row:1 / -1!important}.vsr__stage--side-left .vsr__tile--pip{grid-column:1!important}.vsr__stage--side-right .vsr__tile--pip{grid-column:2!important}.vsr__stage--side-left .vsr__tile--pip,.vsr__stage--side-right .vsr__tile--pip{max-height:140px;align-self:center}
 </style>

@@ -2,7 +2,7 @@
 <script setup>
 import {ref,watch,onBeforeUnmount} from 'vue';import api from '../../services/api';
 const props=defineProps({meetingKind:String,sessionId:[String,Number]});const guests=ref([]),error=ref(''),busy=ref(false);let timer;
-const emit=defineEmits(['update:guests','update:busy']);
+const emit=defineEmits(['update:guests','update:busy','unavailable']);
 watch(busy,value=>emit('update:busy',value));
 let generation=0,fetchingGeneration=null;
 const base=()=>props.meetingKind==='team-meeting'?`/team-meetings/${props.sessionId}/calendar-guests`:`/supervision/sessions/${props.sessionId}/calendar-guests`;
@@ -12,7 +12,7 @@ async function load(){
   const data=(await api.get(base(),{skipGlobalLoading:true,skipAuthRedirect:true})).data;
   if(current!==generation)return;
   guests.value=Array.isArray(data?.guests)?data.guests:[];error.value='';emit('update:guests',guests.value);
- }catch(e){if(current===generation&&guests.value.length)error.value=e.response?.data?.error?.message||'Cannot load calendar guests.';}
+ }catch(e){if(current===generation&&[401,403,404,410].includes(Number(e.response?.status))){clearInterval(timer);guests.value=[];emit('update:guests',[]);emit('unavailable');return;}if(current===generation&&guests.value.length)error.value=e.response?.data?.error?.message||'Cannot load calendar guests.';}
  finally{if(fetchingGeneration===current)fetchingGeneration=null;}
 }
 async function admit(id){if(busy.value)return;busy.value=true;try{await api.post(`${base()}/${id}/admit`);await load();}catch(e){error.value=e.response?.data?.error?.message||'Could not admit guest.';}finally{busy.value=false;}}

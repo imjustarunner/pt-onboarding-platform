@@ -128,6 +128,19 @@ describe('VideoSessionRoom connection lifecycle', () => {
     wrapper.unmount();
   });
 
+  it('moves interviewer thumbnails to either side without reconnecting the session', async () => {
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'layout',token:'eyJ.test.token',allowTileFocus:true,tileFocus:'remote',focusCandidate:true,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    for(const side of ['left','right']){
+      await wrapper.findAll('button').find(b=>b.text()==='Layout').trigger('click');
+      await wrapper.findAll('button').find(b=>b.text().includes(`small videos ${side}`)).trigger('click');
+      expect(wrapper.find(`.vsr__stage--side-${side}`).exists()).toBe(true);
+      expect(wrapper.emitted('update:tileFocus').at(-1)).toEqual(['remote']);
+      expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
+    }
+    wrapper.unmount();
+  });
+
   it('keeps publisher and subscriber targets mounted while the SDK is connecting', async () => {
     const wrapper = mount(VideoSessionRoom, {
       props: {
@@ -467,6 +480,24 @@ describe('alone-room disconnect and arrivals', () => {
 
 
 describe('meeting speaker playback recovery',()=>{
+ it('restores sound after a phone interruption without reconnecting or unmuting',async()=>{
+  const publisher={on:vi.fn(),publishAudio:vi.fn(),publishVideo:vi.fn(),destroy:vi.fn(),getAudioSource:()=>null};
+  videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});
+  videoSdk.unblockAudio.mockResolvedValue(undefined);
+  const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'mobile',token:'eyJ.test.token',startMuted:true,playJoinTone:false}});
+  await flushPromises();await vi.dynamicImportSettled();videoSdk.session.publish.mockImplementation((_p,cb)=>cb(null));videoSdk.connectCallback(null);await flushPromises();
+  const sub={on:vi.fn(),subscribeToAudio:vi.fn(),setAudioVolume:vi.fn(),isAudioBlocked:()=>false};
+  videoSdk.session.subscribe=vi.fn((_stream,target)=>({...sub,element:target}));
+  videoSdk.session._handlers.streamCreated({stream:{streamId:'peer',hasVideo:false,hasAudio:true,connection:{connectionId:'peer'}}});await flushPromises();
+  const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));
+  hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+  expect(sub.subscribeToAudio).toHaveBeenCalledWith(false);expect(sub.subscribeToAudio).toHaveBeenLastCalledWith(true);
+  expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);expect(wrapper.vm.publishAudio).toBe(false);
+  expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
+  await wrapper.findAll('button').find(b=>b.text()==='Resume meeting sound').trigger('click');await flushPromises();
+  expect(wrapper.text()).not.toContain('Back from another app?');expect(videoSdk.unblockAudio).toHaveBeenCalled();
+  wrapper.unmount();hidden.mockRestore();
+ });
  it('shows a recovery button when the browser blocks a subscriber and enables sound from a click',async()=>{
   const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'sound-test',token:'eyJ.test.token',playJoinTone:false}});
   await flushPromises();await vi.dynamicImportSettled();

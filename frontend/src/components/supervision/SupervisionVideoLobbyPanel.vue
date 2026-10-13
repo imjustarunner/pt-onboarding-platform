@@ -1,8 +1,8 @@
 <template>
-  <CalendarGuestLobby v-if="isSupervisor && sessionId" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" />
-  <WaitingRoomAlerts v-if="isSupervisor && sessionId" :meeting-key="`${meetingKind}:${sessionId}`" :participants="alertParticipants" :busy="!!admittingKey || admittingAll || disablingWaitingRoom || calendarBusy" @admit="admitFromAlert" />
+  <CalendarGuestLobby v-if="isSupervisor && !unavailable && sessionId" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="stopUnavailable" />
+  <WaitingRoomAlerts v-if="isSupervisor && !unavailable && sessionId" :meeting-key="`${meetingKind}:${sessionId}`" :participants="alertParticipants" :busy="!!admittingKey || admittingAll || disablingWaitingRoom || calendarBusy" @admit="admitFromAlert" />
   <div
-    v-if="isSupervisor && sessionId && waitingRoomEnabled"
+    v-if="isSupervisor && !unavailable && sessionId && waitingRoomEnabled"
     class="lobby-panel"
     :class="{ 'lobby-panel--dark': theme === 'dark' }"
   >
@@ -89,6 +89,8 @@ function admitPath(pathId) {
 }
 
 const participants = ref([]);
+const unavailable = ref(false);
+function stopUnavailable(){unavailable.value=true;stopPolling();participants.value=[];calendarGuests.value=[];emit('update:waitingCount',0);}
 const calendarLobby = ref(null), calendarGuests = ref([]), calendarBusy = ref(false);
 const alertParticipants = computed(() => [
   ...(waitingRoomEnabled.value ? participants.value.map(p => ({ ...p, alertKey: `member:${p.joinIdentity}` })) : []),
@@ -124,7 +126,7 @@ function waitingRoomPath() {
 }
 
 async function fetchLobbyParticipants() {
-  if (!props.sessionId || !props.isSupervisor) return;
+  if (!props.sessionId || !props.isSupervisor || unavailable.value) return;
   const generation = pollingGeneration;
   if (fetchingGeneration === generation) return;
   fetchingGeneration = generation;
@@ -132,7 +134,7 @@ async function fetchLobbyParticipants() {
   if (!hasLoadedOnce) initialLoading.value = true;
   try {
     const resp = await api.get(lobbyParticipantsPath(), { skipGlobalLoading: true, skipAuthRedirect: true });
-    if (generation !== pollingGeneration) return;
+    if (generation !== pollingGeneration || unavailable.value) return;
     if (resp?.data?.waitingRoomEnabled != null) {
       waitingRoomEnabled.value = !!resp.data.waitingRoomEnabled;
     }
@@ -163,7 +165,8 @@ async function fetchLobbyParticipants() {
     loadError.value = '';
     emit('update:waitingCount', participants.value.length);
   } catch (e) {
-    if (generation !== pollingGeneration) return;
+    if (generation !== pollingGeneration || unavailable.value) return;
+    if([401,403,404,410].includes(Number(e?.response?.status))){stopUnavailable();return;}
     // Keep the last good list on poll errors so the UI does not bounce empty ↔ filled.
     if (!hasLoadedOnce) participants.value = [];
     loadError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load waiting room';
@@ -241,7 +244,7 @@ async function admitAll() {
 }
 
 function startPolling() {
-  if (!props.sessionId || !props.isSupervisor) return;
+  if (!props.sessionId || !props.isSupervisor || unavailable.value) return;
   void fetchLobbyParticipants();
   pollInterval = setInterval(() => { void fetchLobbyParticipants(); }, 4000);
 }
@@ -258,6 +261,7 @@ watch(
   () => {
     stopPolling();
     pollingGeneration += 1;
+    unavailable.value=false;
     participants.value = [];
     calendarGuests.value = [];
     arrivalKeys.value = [];

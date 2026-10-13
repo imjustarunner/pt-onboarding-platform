@@ -753,17 +753,10 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       return res.status(guestBlock.status).json(guestBlock.body);
     }
     // Host privileges come from the account's assignment, not an old host URL.
-    let isHost = await isMeetingHost(row, actorUserId);
-    if (
-      !isHost
-      && isInterviewMeeting(row)
-      && actorUserId
-      && !guestJoin
-      && await canAccessInterviewMeeting(req, row)
-    ) {
-      isHost = true;
-    }
-    if (tokenRole === 'host' && !isHost) {
+    const isHost = await isMeetingHost(row, actorUserId);
+    const isInterviewer = !!(isInterviewMeeting(row) && actorUserId && !guestJoin
+      && await canAccessInterviewMeeting(req, row));
+    if (tokenRole === 'host' && !isHost && !isInterviewer) {
       return res.status(403).json({
         error: { message: 'This is the host join link. Only the meeting host can use it.' }
       });
@@ -774,8 +767,8 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     const identity = guestJoin
       ? (guestIdentity || `guest-iv-${eventId}`)
       : `user-${actorUserId}`;
-    // Host always bypasses the waiting room; mark them admitted so they never appear in the lobby list.
-    if (isHost) {
+    // Assigned interviewers can enter directly without gaining host controls.
+    if (isHost || isInterviewer) {
       await admitJoinIdentity({ eventId, userId: actorUserId, joinIdentity: identity });
       // Drop legacy/duplicate host waiting rows (e.g. raw numeric identity or name-only).
       try {
@@ -796,7 +789,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
         console.warn('[teamMeeting] host lobby presence cleanup failed', e?.message || e);
       }
     }
-    const admitted = isHost || await isUserAdmitted({ eventId, userId: actorUserId, joinIdentity: identity });
+    const admitted = isHost || isInterviewer || await isUserAdmitted({ eventId, userId: actorUserId, joinIdentity: identity });
     const useLobby = !isHost && waitingRoomOn && !admitted;
 
     let displayName;
@@ -896,6 +889,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       roleLabel,
       profilePhotoUrl,
       isHost,
+      isInterviewer,
       isGuest: guestJoin || String(identity).startsWith('guest-'),
       eventId,
       joinToken: row.participant_join_token || row.join_token || null,
@@ -1275,16 +1269,9 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)
       : `user-${actorUserId}`;
     const waitingRoomOn = isWaitingRoomEnabled(row);
-    let isHost = await isMeetingHost(row,actorUserId);
-    if (
-      !isHost
-      && isInterviewMeeting(row)
-      && actorUserId
-      && !guestJoin
-      && await canAccessInterviewMeeting(req, row)
-    ) {
-      isHost = true;
-    }
+    const isHost = await isMeetingHost(row, actorUserId);
+    const isInterviewer = !!(isInterviewMeeting(row) && actorUserId && !guestJoin
+      && await canAccessInterviewMeeting(req, row));
     const transcriptArtifact = await ProviderScheduleEventArtifact.findByEventId(row.id);
     const transcriptState = {
       startedAt: transcriptArtifact?.transcript_started_at || null,
@@ -1309,7 +1296,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       });
     }
 
-    if (isHost) {
+    if (isHost || isInterviewer) {
       await admitJoinIdentity({
         eventId: row.id,
         userId: actorUserId,

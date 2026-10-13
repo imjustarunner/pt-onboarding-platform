@@ -240,11 +240,9 @@ export async function finalizeInterview(interviewId, { transcriptSummary = undef
 
   const updatedArtifact = await HiringInterviewArtifact.finalizeCurrent(interviewId, patch, computeAverageScore);
 
-  const updatedInterview = await HiringInterview.updateById(interviewId, {
-    status: 'completed'
-  });
-
-  return { interview: updatedInterview, artifact: updatedArtifact };
+  // Scorecard finalization is independent of meeting/guest access. Only the
+  // explicit End Interview / End meeting actions close the live interview.
+  return { interview, artifact: updatedArtifact };
 }
 
 export default {

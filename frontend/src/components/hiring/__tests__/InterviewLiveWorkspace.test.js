@@ -27,6 +27,6 @@ it('shows strengths alongside the resume and saves a rating from the visible sco
  expect(rating.attributes('aria-pressed')).toBe('true');
  await wrapper.findAll('button').find(button => button.text()==='Save progress').trigger('click');
  await flushPromises();
- expect(api.put).toHaveBeenCalledWith('/hiring/interview-hub/interviews/4/artifacts', expect.objectContaining({myRatings:{communication:4}}));
+ expect(api.put).toHaveBeenCalledWith('/hiring/interview-hub/interviews/4/artifacts', expect.objectContaining({myRatings:{communication:4}}), {skipGlobalLoading:true});
  expect(wrapper.text()).toContain('Progress saved');
 });

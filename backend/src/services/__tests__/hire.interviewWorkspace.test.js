@@ -68,6 +68,13 @@ describe('multi-interviewer persistence', () => {
     expect(conn.execute.mock.calls[0][0]).toContain('FOR UPDATE');
     expect(conn.commit).toHaveBeenCalledOnce();
   });
+  it.each([false,true])('preserves finalization unless ratings change (%s)', async changeRatings => {
+    const current={...base(),finalized_at:'2026-10-13 15:00:00',average_score:3};
+    const conn={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn().mockResolvedValueOnce([[current]]).mockResolvedValueOnce([{}])};db.getConnection.mockResolvedValue(conn);
+    const result=await saveInterviewWorkspace(1,changeRatings?{myRatings:{communication:4}}:{teamMessage:{id:'new',text:'Thank you'}},actor);
+    expect(result.finalized_at).toBe(changeRatings?null:current.finalized_at);
+    expect(conn.execute.mock.calls[1][0].includes('finalized_at = NULL')).toBe(changeRatings);
+  });
   it('rolls back failed persistence and releases the connection', async () => {
     const conn = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn().mockResolvedValueOnce([[base()]]).mockRejectedValueOnce(new Error('write failed')) };
     db.getConnection.mockResolvedValue(conn);

@@ -64,6 +64,19 @@
     </div>
 
     </Teleport>
+    <Teleport to="body">
+      <section v-if="documentPanel" class="ilw-document-panel" :class="{dark}" role="dialog" aria-modal="false" aria-label="Candidate document" @keydown.esc="closeDocument">
+        <header><strong>{{ documentPanel.title }}</strong><button ref="documentClose" class="ilw-btn" @click="closeDocument">Close document</button></header>
+        <p v-if="documentPanel.loading" role="status">Loading document…</p>
+        <p v-else-if="documentError" role="alert">{{ documentError }}</p>
+        <pre v-else-if="documentPanel.text" class="ilw-document-text">{{ documentPanel.text }}</pre>
+        <p v-else-if="documentPanel.unsupported">A preview is not available for this file format.</p>
+        <iframe v-else-if="documentPanel.url" :src="documentPanel.url" :title="documentPanel.title" referrerpolicy="no-referrer" sandbox="allow-scripts" />
+      </section>
+      <div v-if="unreadChat" :key="chatNoticeVersion" class="ilw-chat-notice" role="status" aria-live="polite">
+        <strong>New internal message{{ unreadChat > 1 ? 's' : '' }} · {{ unreadChat }}</strong><span>Interviewers only</span><button class="ilw-btn" @click="openTeamChat">Open team chat</button>
+      </div>
+    </Teleport>
     <p class="ilw-save-status" role="status">{{ saving ? 'Saving…' : saveStatus }} · Interviewers only</p>
     <div class="ilw-tabs">
       <button
@@ -275,7 +288,9 @@ const ratings = reactive({});
 const myNotes = ref('');
 const teamChat = ref([]);
 const chatDraft = ref('');
-const unreadChat = ref(0);
+const unreadChat = ref(0), chatNoticeVersion = ref(0);
+const documentPanel = ref(null), documentClose = ref(null);
+let documentRequest = 0, documentTrigger = null;
 const chatScroll = ref(null);
 const candidateUserId = ref(null);
 const resumeBullets = ref([]);
@@ -328,6 +343,7 @@ watch(() => props.eventId, load);
 onUnmounted(() => {
   if (autosaveTimer) clearTimeout(autosaveTimer);
   if (pollTimer) clearInterval(pollTimer);
+  documentRequest++;
   saveArtifacts();
 });
 
@@ -367,7 +383,7 @@ async function load() {
     const uid = String(authStore.user?.id || '');
     myNotes.value = notesMap[uid] || notesMap[authStore.user?.id] || '';
 
-    teamChat.value = Array.isArray(data.artifact?.team_chat_json) ? data.artifact.team_chat_json : [];
+    receiveTeamChat(data.artifact?.team_chat_json, true);
     guestAccessEnded.value = !!(data?.interview?.guest_access_ended_at);
     await loadResumeSummary();
     await loadMeetingNotes();
@@ -410,7 +426,7 @@ async function loadMeetingNotes() {
 async function loadResumeSummary() {
   if (!interviewId.value) return;
   try {
-    const response = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/brief`);
+    const response = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/brief`, {skipGlobalLoading:true});
     const brief = response.data?.data || {};
     candidateName.value = brief.candidateName || '';
     candidateRole.value = brief.role || '';
@@ -425,16 +441,34 @@ async function loadResumeSummary() {
   } catch { documentError.value = 'Candidate materials could not be loaded. Reopen the workspace to retry.'; }
 }
 
-async function openDocument(doc) {
-  documentError.value = '';
-  const tab = window.open('', '_blank');
-  if (tab) tab.opener = null;
-  try {
-    const r = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/documents/${doc.id}`);
-    if (tab && r.data?.url) tab.location = r.data.url;
-    else { tab?.close(); documentError.value = 'Allow popups to open the original document.'; }
-  } catch { tab?.close(); documentError.value = 'Unable to open this document.'; }
+function closeDocument() {
+  documentRequest++;documentPanel.value=null;documentTrigger?.focus?.();
 }
+async function openDocument(doc) {
+  const request=++documentRequest;
+  documentTrigger=document.activeElement;documentError.value='';
+  documentPanel.value={title:doc.title || doc.original_name || 'Candidate document',loading:true,url:''};
+  await nextTick();documentClose.value?.focus();
+  try {
+    const r=await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/documents/${doc.id}`,{skipGlobalLoading:true});
+    if(request!==documentRequest)return;
+    const url=new URL(r.data?.url || '',window.location.origin);
+    if(!r.data?.url || !['http:','https:'].includes(url.protocol))throw new Error('Document unavailable');
+    const mime=String(r.data?.mimeType||'').toLowerCase();
+    const supported=!mime || mime==='application/pdf' || mime.startsWith('image/');
+    documentPanel.value={...documentPanel.value,loading:false,url:url.href,text:!supported?r.data?.extractedText || r.data?.noteText || '':'',unsupported:!supported};
+  } catch { if(request===documentRequest){documentPanel.value.loading=false;documentError.value='Unable to open this document. Close this panel and try again.';} }
+}
+function receiveTeamChat(messages,initial=false) {
+  const incoming=Array.isArray(messages)?messages:[];
+  const key=m=>`${m.authorId}:${m.id || `${m.at}:${m.text}`}`;
+  const known=new Set(teamChat.value.map(key));
+  const fresh=incoming.filter(m=>!known.has(key(m))&&String(m.authorId)!==String(authStore.user?.id));
+  if(initial)unreadChat.value=0;
+  else if(activeTab.value!=='chat'&&fresh.length){unreadChat.value+=fresh.length;chatNoticeVersion.value++;}
+  teamChat.value=incoming;
+}
+async function openTeamChat(){activeTab.value='chat';await nextTick();chatScroll.value?.scrollIntoView?.({block:'nearest',behavior:'smooth'});}
 
 async function refreshShared() {
   if (!interviewId.value || saving.value || !document.hasFocus()) return;
@@ -445,9 +479,7 @@ async function refreshShared() {
       if (!(key in pendingCompleted)) completed[key] = value;
     }
     if (art.flow_state_json?.sections) flowSections.value = art.flow_state_json.sections;
-    const incoming = art.team_chat_json || [];
-    if (activeTab.value !== 'chat' && incoming.length > teamChat.value.length) unreadChat.value += incoming.length - teamChat.value.length;
-    teamChat.value = incoming;
+    receiveTeamChat(art.team_chat_json);
   } catch { saveStatus.value = 'Team sync interrupted — retrying'; }
 }
 
@@ -538,11 +570,11 @@ function saveArtifacts(extra = {}) {
     if (!Object.keys(delta).length && payload.myNotes === undefined && payload.myRatings === undefined && !payload.sectionPatch && !payload.teamMessage) return true;
     saving.value = true;
     try {
-      const r = await api.put(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, payload);
+      const r = await api.put(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, payload, {skipGlobalLoading:true});
       for (const [key, value] of Object.entries(delta)) if (pendingCompleted[key] === value) delete pendingCompleted[key];
       if (myNotes.value === notes) notesDirty.value = false;
       if (JSON.stringify(ratings) === JSON.stringify(currentRatings)) ratingsDirty.value = false;
-      teamChat.value = r.data?.data?.team_chat_json || teamChat.value;
+      receiveTeamChat(r.data?.data?.team_chat_json || teamChat.value);
       error.value = '';
       saveStatus.value = 'Progress saved';
       return true;
@@ -583,8 +615,9 @@ async function finalize() {
     if (!await saveArtifacts()) return;
     await api.post(`/hiring/interview-hub/interviews/${interviewId.value}/finalize`, {
       agencyId: props.agencyId
-    }, { params: agencyParam.value });
+    }, { params: agencyParam.value, skipGlobalLoading:true });
     await loadMeetingNotes();
+    saveStatus.value=guestAccessEnded.value?'Scorecard finalized':'Scorecard finalized — interview remains open';
     emit('finalized');
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Failed to finalize';
@@ -606,7 +639,7 @@ async function endGuestAccess() {
     const r = await api.post(
       `/hiring/interview-hub/interviews/${interviewId.value}/end-guest-access`,
       { agencyId: props.agencyId },
-      { params: agencyParam.value }
+      { params: agencyParam.value, skipGlobalLoading:true }
     );
     guestAccessEnded.value = true;
     emit('guest-access-ended', r.data?.data || r.data || {});
@@ -638,7 +671,8 @@ function formatWhen(v) {
   color: #111827;
 }
 .ilw > * { flex-shrink: 0; }
-.ilw.dark { color: #e5e7eb; }
+.ilw.dark { color: #e5e7eb; background: #172332; }
+.ilw.dark h3, .ilw.dark h4, .ilw-brief.dark h3, .ilw-brief.dark h4 { color: #eef2f8; }
 .ilw-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -879,4 +913,8 @@ function formatWhen(v) {
 .ilw-skills { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0; }
 .ilw-skills span { background: #64748b33; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
 .ilw-save-status { margin: 0; font-size: 12px; color: #86efac; }
+</style>
+
+<style scoped>
+.ilw-document-panel{position:fixed;inset:auto 16px 16px;z-index:1300;height:48vh;display:flex;flex-direction:column;background:#fff;color:#17243b;border:1px solid #94a3b8;border-radius:14px;box-shadow:0 -12px 45px #0005;overflow:hidden}.ilw-document-panel.dark{background:#192331;color:#e5e7eb}.ilw-document-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}.ilw-document-panel iframe{width:100%;flex:1;min-height:0;border:0;background:white}.ilw-document-panel p{padding:16px}.ilw-document-text{overflow:auto;white-space:pre-wrap;padding:16px;font:14px/1.6 system-ui}.ilw-chat-notice{position:fixed;top:20px;right:20px;z-index:1400;max-width:calc(100vw - 40px);padding:16px 20px;border:2px solid #b99afa;border-radius:14px;background:#37205e;color:#fff;box-shadow:0 8px 30px #0005;animation:internal-message-pulse 1.5s ease-in-out 3}.ilw-chat-notice strong,.ilw-chat-notice span{display:block;margin-bottom:7px}.ilw-chat-notice span{font-size:12px;color:#e0d4f7}@keyframes internal-message-pulse{50%{box-shadow:0 0 0 7px #b99afa60}}@media(prefers-reduced-motion:reduce){.ilw-chat-notice{animation:none}}
 </style>
