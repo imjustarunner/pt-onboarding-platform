@@ -1,3 +1,4 @@
+import { isUnpaidInternActivity } from '../services/internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate, getMeetingClaimRateOverride, MEETING_RATE_TYPES} from '../services/meetingClaimRate.service.js';
 import {validateSupplementalTime} from '../services/payrollSubmissionContext.service.js';
 import { materializeRecurring, normalizeRecurring, day as recurringDay } from '../services/recurringPayroll.service.js';
@@ -83,7 +84,7 @@ import { getAgencyHolidayPayPolicy, upsertAgencyHolidayPayPolicy } from '../serv
 import {
   getAgencyPercentagePayPolicy,
   upsertAgencyPercentagePayPolicy,
-  resolvePercentOfChargePay
+  resolvePercentOfChargePay, collectedRevenuePay
 } from '../services/payrollPercentagePayPolicy.service.js';
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
@@ -4892,7 +4893,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
 
 export const upsertRate = async (req, res, next) => {
   try {
-    const { agencyId, userId, serviceCode, rateAmount, payPercent, effectiveStart, effectiveEnd } = req.body || {};
+    const { agencyId, userId, serviceCode, rateAmount, payPercent, payMethod, effectiveStart, effectiveEnd } = req.body || {};
     if (!agencyId || !userId || !serviceCode || rateAmount === undefined) {
       return res.status(400).json({ error: { message: 'agencyId, userId, serviceCode, and rateAmount are required' } });
     }
@@ -4902,6 +4903,8 @@ export const upsertRate = async (req, res, next) => {
     if (payPercentNum !== null && (!Number.isFinite(payPercentNum) || payPercentNum < 0 || payPercentNum > 100)) {
       return res.status(400).json({ error: { message: 'payPercent must be between 0 and 100' } });
     }
+    if (payMethod != null && !['fixed_rate','percent_collected'].includes(payMethod)) return res.status(400).json({error:{message:'Invalid pay method'}});
+    if (payMethod === 'percent_collected' && (payPercentNum === null || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveStart || '')))) return res.status(400).json({error:{message:'Collected-revenue pay requires a percentage and effective start date.'}});
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
     if (!resolvedAgencyId) return;
@@ -4910,6 +4913,7 @@ export const upsertRate = async (req, res, next) => {
     const userIdNum = parseInt(userId);
     const code = String(serviceCode).trim();
     const hasExplicitWindow = !!(normalizedEffectiveStart || normalizedEffectiveEnd);
+    const priorRate = !hasExplicitWindow ? await PayrollRate.findBestRate({agencyId:resolvedAgencyId,userId:userIdNum,serviceCode:code}) : null;
 
     // Policy: when a window is not supplied, treat this as the user's current canonical
     // per-code override. Replace any legacy effective-dated rows for this code so the
@@ -4928,6 +4932,7 @@ export const upsertRate = async (req, res, next) => {
       serviceCode: code,
       rateAmount: Number(rateAmount),
       payPercent: payPercentNum,
+      payMethod: payMethod ?? priorRate?.pay_method ?? null,
       // Rate unit is agency-driven via payroll_service_code_rules.pay_rate_unit.
       // Keep per-user rates stored as per_unit for backward compatibility.
       rateUnit: 'per_unit',
@@ -6335,9 +6340,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         if (pctPay.usesPercentPay && Number.isFinite(pctPay.percent)) {
           const paidBase = presentClientPaidAmount + carryoverClientPaidAmount;
           const paid = paidBase > 0 ? paidBase : clientPaidAmount;
-          if (paid > 0) {
-            return Math.round((paid * pctPay.percent / 100) * 100) / 100;
-          }
+          if (pctPay.basis === 'collected' || paid > 0) return collectedRevenuePay(paid, pctPay.percent);
         }
         if (perCode) {
           if (bucket !== 'flat') {
@@ -6393,7 +6396,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
         rateAmount,
         rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
-        payMethod: pctPay.usesPercentPay ? 'percent_of_charge' : 'fixed_rate',
+        payMethod: pctPay.usesPercentPay ? (pctPay.basis === 'collected' ? 'percent_collected' : 'percent_of_charge') : 'fixed_rate',
         payPercent: pctPay.usesPercentPay ? pctPay.percent : null,
         clientPaidAmount: pctPay.usesPercentPay ? clientPaidAmount : null,
         presentClientPaidAmount: pctPay.usesPercentPay ? presentClientPaidAmount : null,
@@ -9806,6 +9809,13 @@ export const patchPayrollPeriodTodo = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     if (!todoId) return res.status(400).json({ error: { message: 'todoId is required' } });
 
+    if (req.body?.notes !== undefined) {
+      const notes = String(req.body.notes ?? '');
+      if (notes.length > 10000) return res.status(400).json({error:{message:'Task notes must be at most 10,000 characters.'}});
+      const updated = await PayrollPeriodTodo.updateNotes({todoId,payrollPeriodId,agencyId:period.agency_id,notes,userId:req.user.id});
+      if (!updated) return res.status(404).json({error:{message:'Task not found in this pay period.'}});
+    }
+
     const hasStatus = req.body?.status !== undefined && req.body?.status !== null;
     if (hasStatus) {
       const statusRaw = String(req.body?.status || '').trim().toLowerCase();
@@ -10054,7 +10064,8 @@ export const getPayrollComplianceDigest = async (req, res, next) => {
     } = await import('../services/payrollCompliance.service.js');
     const digest = await buildComplianceDigest({
       agencyId: period.agency_id,
-      payrollPeriodId
+      payrollPeriodId,
+      includeHistory: req.method === 'GET' ? req.query?.includeHistory === 'true' : req.body?.includeHistory === true
     });
     res.json(digest);
   } catch (e) {
@@ -10077,6 +10088,7 @@ export const postPayrollCompliancePreview = async (req, res, next) => {
       agencyId: period.agency_id,
       payrollPeriodId,
       userId,
+      includeHistory: req.body?.includeHistory === true,
       excludedRowIds: req.body?.excludedRowIds || [],
       excludedClientKeys: req.body?.excludedClientKeys || [],
       includeLateNotes: req.body?.includeLateNotes !== false,
@@ -10104,6 +10116,7 @@ export const postPayrollComplianceSend = async (req, res, next) => {
       agencyId: period.agency_id,
       payrollPeriodId,
       userId,
+      includeHistory: req.body?.includeHistory === true,
       excludedRowIds: req.body?.excludedRowIds || [],
       excludedClientKeys: req.body?.excludedClientKeys || [],
       includeLateNotes: req.body?.includeLateNotes !== false,
@@ -10130,7 +10143,8 @@ export const postPayrollComplianceSendAll = async (req, res, next) => {
     } = await import('../services/payrollCompliance.service.js');
     const digest = await buildComplianceDigest({
       agencyId: period.agency_id,
-      payrollPeriodId
+      payrollPeriodId,
+      includeHistory: req.method === 'GET' ? req.query?.includeHistory === 'true' : req.body?.includeHistory === true
     });
     if (!digest.unlocked) {
       return res.status(403).json({ error: { message: 'Compliance is not unlocked for this agency yet' } });
@@ -10147,6 +10161,7 @@ export const postPayrollComplianceSendAll = async (req, res, next) => {
           agencyId: period.agency_id,
           payrollPeriodId,
           userId: provider.userId,
+          includeHistory: req.body?.includeHistory === true,
           excludedRowIds: excl.excludedRowIds || [],
           excludedClientKeys: excl.excludedClientKeys || [],
           includeLateNotes,
@@ -18938,8 +18953,34 @@ export const getTimeClaimMeetingAttendance = async (req, res, next) => {
     if (Number(claim.user_id) === Number(req.user?.id)) {
       if (!(await userHasAgencyAccess({ userId: req.user.id, agencyId: claim.agency_id }))) return res.status(403).json({error:{message:'Access denied'}});
     } else if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
+    const sessionId = Number(claim.payload?.supervisionSessionId);
+    if (sessionId) {
+      const [sessions] = await pool.execute(`SELECT id, supervisor_user_id, supervisee_user_id, co_facilitator_user_id, session_type, start_at, end_at, modality
+        FROM supervision_sessions WHERE id = ? AND agency_id = ?`, [sessionId, claim.agency_id]);
+      const session = sessions[0];
+      if (!session) return res.json({ attendees: [] });
+      if (Number(claim.user_id) === Number(req.user?.id)) {
+        const ownIds = [session.supervisor_user_id,session.supervisee_user_id,session.co_facilitator_user_id].map(Number);
+        if (!ownIds.includes(Number(req.user.id))) {
+          const [membership] = await pool.execute(`SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND user_id=?
+            UNION SELECT user_id FROM supervision_session_attendance_rollups WHERE session_id=? AND user_id=?`,[sessionId,req.user.id,sessionId,req.user.id]);
+          if (!membership.length && !(await requirePayrollAccess(req,res,claim.agency_id))) return;
+        }
+      }
+      const [people] = await pool.execute(`SELECT u.id user_id, u.first_name, u.last_name, COALESCE(r.total_seconds,0) total_seconds
+        FROM users u LEFT JOIN supervision_session_attendance_rollups r ON r.user_id=u.id AND r.session_id=?
+        WHERE u.id IN (?, ?, ?) OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=? AND a.user_id=u.id)
+          OR r.total_seconds > 0 ORDER BY u.first_name,u.last_name`,
+        [sessionId, session.supervisor_user_id, session.supervisee_user_id, session.co_facilitator_user_id, sessionId]);
+      return res.json({ meetingType: session.session_type === 'group' ? 'Group supervision' : 'Individual supervision',
+        platform: session.modality, startAt: session.start_at, endAt: session.end_at,
+        supervisorName: people.filter(p=>Number(p.user_id)===Number(session.supervisor_user_id)).map(p=>[p.first_name,p.last_name].filter(Boolean).join(' '))[0],
+        attendees: people.map(p=>({ userId:Number(p.user_id), name:[p.first_name,p.last_name].filter(Boolean).join(' '),
+          isHost:Number(p.user_id)===Number(session.supervisor_user_id), attendanceRecorded:Number(p.total_seconds)>0,
+          totalMinutes: Math.round(Number(p.total_seconds)/60*100)/100 })) });
+    }
     const eventId = Number(claim.payload?.scheduleEventId);
-    if (claim.payload?.source !== 'meeting_compensation_auto' || !eventId) return res.json({attendees:[]});
+    if (!['meeting_compensation_auto','schedule_event_training_flag'].includes(claim.payload?.source) || !eventId) return res.json({attendees:[]});
     const [rows] = await pool.execute(
       `SELECT r.user_id, r.total_seconds, u.first_name, u.last_name, e.provider_id, e.event_timezone
        FROM agency_meeting_attendance_rollups r
@@ -18950,7 +18991,7 @@ export const getTimeClaimMeetingAttendance = async (req, res, next) => {
     const override = await getMeetingClaimRateOverride(claim);
     res.json({rateLabel:MEETING_RATE_TYPES[override?.rate_type] || null, timeZone:rows[0]?.event_timezone || null, attendees:rows.map(r=>({
       userId:Number(r.user_id), name:[r.first_name,r.last_name].filter(Boolean).join(' ') || 'Staff member',
-      isHost:Number(r.user_id)===Number(r.provider_id)
+      isHost:Number(r.user_id)===Number(r.provider_id), attendanceRecorded:true, totalMinutes:Math.round(Number(r.total_seconds || 0)/60*100)/100
     }))});
   } catch (e) { next(e); }
 };
@@ -19476,6 +19517,7 @@ export const patchTimeClaim = async (req, res, next) => {
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
 
     if (action === 'approve') {
+      if (await isUnpaidInternActivity(claim)) return res.status(409).json({ error: { message: 'This is unpaid intern indirect time. Attendance stays in meeting history; reject or withdraw the payroll claim.' } });
       const correction=claim.payload?.source==='supervision_payroll_correction' && Number(claim.payload?.originalClaimId)>0;
       if(claim.payload?.rateReviewRequired && (body.appliedAmount==null || body.appliedAmount===''))return res.status(409).json({error:{message:'Confirm the correction amount after reviewing the changed supervision rate.'}});
       const targetPayrollPeriodId = Number(body.targetPayrollPeriodId || 0);

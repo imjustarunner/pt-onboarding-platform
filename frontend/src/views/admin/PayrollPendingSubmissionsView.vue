@@ -584,7 +584,7 @@
             </div>
             <button type="button" class="btn btn-secondary btn-sm" @click="closeTimeClaimView">Close</button>
           </div>
-          <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="claimName(reviewedTimeClaim)" :period-label="periodLabelForId(reviewedTimeClaim.suggested_payroll_period_id)" />
+          <MeetingClaimDetails v-if="hasMeetingClaimDetails(reviewedTimeClaim)" :claim="reviewedTimeClaim" :employee-name="claimName(reviewedTimeClaim)" :period-label="periodLabelForId(reviewedTimeClaim.suggested_payroll_period_id)" />
           <div v-else-if="reviewedTimeClaim" class="pps-modal-body">
             <div class="pps-detail-grid">
               <div class="field"><label>Claim ID</label><div>{{ reviewedTimeClaim.id || '—' }}</div></div>
@@ -598,7 +598,7 @@
             <template v-if="reviewedTimeClaim.claim_type === 'training_focus_completion'">
               <div class="field"><label>Training Focus</label><div>{{ reviewedTimeClaim.payload?.trainingFocusName || '—' }}</div></div>
               <div class="pps-detail-grid">
-                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Total Minutes</label><div>{{ formatClaimTime(reviewedTimeClaim.payload?.totalMinutes) }}</div></div>
                 <div class="field"><label>Minutes source</label><div>{{ reviewedTimeClaim.payload?.minutesSource || 'tracked' }}</div></div>
                 <div class="field"><label>Completed</label><div>{{ reviewedTimeClaim.payload?.completedAt ? String(reviewedTimeClaim.payload.completedAt).slice(0, 10) : '—' }}</div></div>
               </div>
@@ -859,6 +859,7 @@
 </template>
 
 <script setup>
+import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1245,6 +1246,7 @@ const claimName = (c) => {
 };
 
 const submitterLabel = (row) => {
+  if (automaticClaimLabel(row)) return automaticClaimLabel(row);
   const fn = String(row?.submitted_by_first_name || '').trim();
   const ln = String(row?.submitted_by_last_name || '').trim();
   const email = String(row?.submitted_by_email || '').trim();

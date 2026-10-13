@@ -2454,6 +2454,7 @@
 </template>
 
 <script setup>
+import { automaticClaimLabel } from '../../utils/payrollClaimDisplay';
 import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -2525,6 +2526,7 @@ const overtimeTherapyNotesAttestationEnabled = computed(() => agencyFlags.value?
 const userId = computed(() => authStore.user?.id || null);
 
 const submitterLabel = (row) => {
+  if (automaticClaimLabel(row)) return automaticClaimLabel(row);
   const currentUid = userId.value ? Number(userId.value) : null;
   const submittedById = row?.submitted_by_user_id === null || row?.submitted_by_user_id === undefined ? null : Number(row.submitted_by_user_id);
   if (currentUid && submittedById && submittedById === currentUid) return 'You';

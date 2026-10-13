@@ -1,3 +1,5 @@
+import { formatClaimTime } from './payrollClaimDisplay';
+
 /** Display helpers for hourly Log Time (`indirect_time`) payroll claims. */
 
 export function logTimeBucketLabel(bucket) {
@@ -31,7 +33,7 @@ export function logTimeActivitiesSummary(payload, { maxItems = 3 } = {}) {
   const rows = logTimeAllocationRows(payload);
   if (!rows.length) return '';
   const shown = rows.slice(0, maxItems).map((r) => {
-    const parts = [`${r.label} ${r.minutes} min`];
+    const parts = [`${r.label} ${formatClaimTime(r.minutes)} min`];
     if (r.note) parts.push(`— ${r.note}`);
     return parts.join(' ');
   });

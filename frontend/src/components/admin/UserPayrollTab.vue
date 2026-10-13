@@ -323,6 +323,7 @@
           </div>
         </div>
 
+        <CollectedRevenueRates :agency-id="selectedAgencyId" :user-id="userId" :rules="serviceCodeRules" :rates="perCodeRates" :can-edit="canEditRates" @saved="loadComp" />
         <div v-if="percentOfChargePayEnabled" class="pct-toggle-row">
           <label class="pct-toggle-label">
             <input
@@ -494,9 +495,9 @@
               </div>
 
               <div class="rate-value" v-if="!editingRates">
-                <span v-if="r.rateAmount !== null" class="rate-val-dollar">{{ fmtMoney(r.rateAmount) }}</span>
-                <span v-if="r.isPercentPay && userPercentPayEnabled" class="rate-val-pct">{{ ratePercentDisplay(r) }}</span>
-                <span v-if="r.rateAmount === null && !(r.isPercentPay && userPercentPayEnabled)" class="muted">—</span>
+                <span v-if="r.rateAmount !== null && !r.collectedPay" class="rate-val-dollar">{{ fmtMoney(r.rateAmount) }}</span>
+                <span v-if="r.isPercentPay && (userPercentPayEnabled || r.collectedPay)" class="rate-val-pct">{{ ratePercentDisplay(r) }}</span>
+                <span v-if="r.rateAmount === null && !(r.isPercentPay && (userPercentPayEnabled || r.collectedPay))" class="muted">—</span>
               </div>
 
               <div class="rate-edit" v-else>
@@ -519,7 +520,8 @@
                   </svg>
                 </button>
 
-                <div class="rate-inputs-wrap">
+                <p v-if="r.collectedPay" class="muted">Edit this dated percentage in “Percentage of collected revenue” above.</p>
+                <div v-else class="rate-inputs-wrap">
                   <div class="rate-input-row">
                     <span class="rate-input-prefix">$</span>
                     <input
@@ -814,6 +816,7 @@
 </template>
 
 <script setup>
+import CollectedRevenueRates from '../payroll/CollectedRevenueRates.vue';
 import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
@@ -1504,7 +1507,7 @@ const payrollRuleByCode = computed(() => {
 const buildRateRowMeta = (serviceCode, rateRow) => {
   const code = String(serviceCode || '').trim();
   const rule = payrollRuleByCode.value.get(code.toUpperCase()) || null;
-  const isPercentPay = percentOfChargePayEnabled.value
+  const isPercentPay = rateRow?.pay_method === 'percent_collected' || percentOfChargePayEnabled.value
     && String(rule?.pay_method || '').trim().toLowerCase() === 'percent_of_charge';
   const userPercentRaw = rateRow?.pay_percent;
   const userPercent = userPercentRaw === null || userPercentRaw === undefined || userPercentRaw === ''
@@ -1520,6 +1523,7 @@ const buildRateRowMeta = (serviceCode, rateRow) => {
     ?? agencyDefault;
   return {
     isPercentPay,
+    collectedPay: rateRow?.pay_method === 'percent_collected',
     payPercent: Number.isFinite(userPercent) ? userPercent : null,
     codePercent: Number.isFinite(codePercent) ? codePercent : null,
     agencyDefault,
@@ -1867,13 +1871,14 @@ const saveRates = async () => {
     const allowedCodes = new Set((fullRateRows.value || []).map((r) => String(r.serviceCode || '').trim()).filter(Boolean));
     // Cleanup orphan per-code overrides for service codes no longer in agency rules.
     for (const code of current.keys()) {
-      if (!allowedCodes.has(code)) deletes.push(code);
+      if (!allowedCodes.has(code) && !perCodeRates.value.some(r=>r.service_code===code && r.pay_method==='percent_collected')) deletes.push(code);
     }
 
     // Merge dollar and percent drafts per code — both fields are independent.
     // For each allowed code, compute the desired (rateAmount, payPercent) pair and
     // emit a change only when something actually differs from what's stored.
     for (const code of allowedCodes) {
+      if (perCodeRates.value.some(r=>r.service_code===code && r.pay_method==='percent_collected')) continue;
       const dollarStr = String(rateDraftByCode.value?.[code] ?? '').trim();
       const pctStr    = String(percentDraftByCode.value?.[code] ?? '').trim();
 

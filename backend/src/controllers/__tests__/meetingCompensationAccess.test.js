@@ -44,11 +44,24 @@ it('passes an authorized administrator’s change to the protected rate service'
 });
 it('lets the claim owner see who attended without exposing emails or transcripts', async () => {
   const res = response(), next = vi.fn(); await getTimeClaimMeetingAttendance(req('provider'), res, next);
-  expect(next).not.toHaveBeenCalled(); expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ attendees: [{ userId: 465, name: 'Sample Attendee', isHost: false }, { userId: 501, name: 'Sample Host', isHost: true }] }));
+  expect(next).not.toHaveBeenCalled(); expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ attendees: [{ userId: 465, name: 'Sample Attendee', isHost: false, attendanceRecorded:true, totalMinutes:0 }, { userId: 501, name: 'Sample Host', isHost: true, attendanceRecorded:true, totalMinutes:0 }] }));
 });
 it('blocks another employee from opening the claim attendance', async () => {
   const request = req('provider'); request.user.id = 999;
   const res = response(), next = vi.fn(); await getTimeClaimMeetingAttendance(request, res, next);
   expect(next).not.toHaveBeenCalled(); expect(res.status).toHaveBeenCalledWith(403);
   expect(m.execute.mock.calls.some(([sql]) => sql.includes('FROM agency_meeting_attendance_rollups'))).toBe(false);
+});
+it('returns supervision participants and recorded minutes, without clinical content',async()=>{
+ m.claim.mockResolvedValue({...claim,payload:{source:'supervision_session_finalize',supervisionSessionId:66}});
+ const fallback=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM supervision_sessions')?[[{id:66,supervisor_user_id:501,supervisee_user_id:465,co_facilitator_user_id:null,session_type:'individual',modality:'virtual'}]]:sql.includes('FROM users u LEFT JOIN supervision_session_attendance_rollups')?[[{user_id:501,first_name:'Test',last_name:'Supervisor',total_seconds:3000},{user_id:465,first_name:'Test',last_name:'Clinician',total_seconds:2700}]]:fallback(sql,args));
+ const res=response(),next=vi.fn();await getTimeClaimMeetingAttendance(req('provider'),res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({supervisorName:'Test Supervisor',attendees:expect.arrayContaining([expect.objectContaining({userId:465,totalMinutes:45,attendanceRecorded:true})])}));
+ expect(m.execute.mock.calls.find(([sql])=>sql.includes('FROM supervision_sessions'))[1]).toEqual([66,2]);
+});
+it('does not reveal another supervision session through a forged claim reference',async()=>{
+ m.claim.mockResolvedValue({...claim,payload:{supervisionSessionId:99}});
+ const fallback=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM supervision_sessions')?[[{id:99,supervisor_user_id:100,supervisee_user_id:101,co_facilitator_user_id:null}]]:fallback(sql,args));
+ const res=response(),next=vi.fn();await getTimeClaimMeetingAttendance(req('provider'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM users u LEFT JOIN supervision_session_attendance_rollups'))).toBe(false);
 });

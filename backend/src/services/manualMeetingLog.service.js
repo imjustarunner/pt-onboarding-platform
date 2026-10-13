@@ -1,3 +1,4 @@
+import { isStudentIntern } from './internMeetingPolicy.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import { canManageMeetingCompensation } from './meetingClaimRate.service.js';
@@ -19,14 +20,14 @@ export const REASONS = { offline:'Met outside the app', missing_claim:'App did n
 export async function manualMeetingOptions(agencyId, userId) {
   if (!await hasActiveMeetingMembership(agencyId, userId)) throw fail(403,'Current agency membership is required.');
   const [users] = await pool.execute(`SELECT u.id,COALESCE(NULLIF(ua.agency_role,''),u.role) AS role,
-    u.has_supervisor_privileges AS is_supervisor,CONCAT_WS(' ',u.first_name,u.last_name) AS name
+    u.credential,u.title,u.employment_type,u.has_supervisor_privileges AS is_supervisor,CONCAT_WS(' ',u.first_name,u.last_name) AS name
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
     WHERE COALESCE(u.is_active,1)=1 AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')`, [agencyId]);
   const actor = users.find(u => Number(u.id) === Number(userId));
   const allowed = ['clinical_practice_assistant','provider_plus'].includes(actor?.role);
   if (!allowed) return { allowed:false, people:[], types:[] };
   const people = users.filter(u => STAFF.includes(u.role) && (actor.role === 'clinical_practice_assistant'
-    || Number(u.id) === Number(userId) || ['intern','intern_plus','admin','super_admin','superadmin','supervisor'].includes(u.role) || Number(u.is_supervisor) === 1));
+    || Number(u.id) === Number(userId) || isStudentIntern(u) || ['intern','intern_plus','admin','super_admin','superadmin','supervisor'].includes(u.role) || Number(u.is_supervisor) === 1));
   return { allowed, actorId:Number(userId), actorRole:actor.role, people, platforms:PLATFORMS, reasons:REASONS,
     types:[{value:'primary',label:actor.role === 'clinical_practice_assistant'?'CPA meeting / huddle':'Intern mentorship / huddle'}, {value:'contact',label:'Administrative / supervisor contact'}] };
 }
@@ -57,7 +58,7 @@ export function validateManualMeeting(body, options, now = new Date()) {
     if (!person || seen.has(Number(p.userId))) throw fail(403,'Select distinct current staff from your available attendee list.');
     seen.add(Number(p.userId));
     if (options.actorRole === 'provider_plus' && Number(p.userId)!==options.actorId) {
-      const eligible = body.type==='primary' ? ['intern','intern_plus'].includes(person.role)
+      const eligible = body.type==='primary' ? isStudentIntern(person)
         : ['admin','super_admin','superadmin','supervisor'].includes(person.role) || Number(person.is_supervisor)===1;
       if (!eligible) throw fail(403,'Mentorship is for interns; administrative contacts must include an administrator or supervisor.');
     }

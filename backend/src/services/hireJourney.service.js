@@ -1,3 +1,4 @@
+import { isStudentIntern } from './internMeetingPolicy.service.js';
 import pool from '../config/database.js';
 
 export const parseMetadata = (value) => {
@@ -159,7 +160,7 @@ export async function completeOnboarding(userId, requiredStepKeys = []) {
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
-    const [[user]] = await db.execute('SELECT status FROM users WHERE id = ? FOR UPDATE', [userId]);
+    const [[user]] = await db.execute('SELECT status,role,credential,title,employment_type FROM users WHERE id = ? FOR UPDATE', [userId]);
     if (user?.status !== 'ONBOARDING') throw Object.assign(new Error('Onboarding is not open.'), { status: 409 });
     await ensureJourney(userId, db);
     const [[journey]] = await db.execute('SELECT * FROM hire_journeys WHERE user_id = ? FOR UPDATE', [userId]);
@@ -176,7 +177,7 @@ export async function completeOnboarding(userId, requiredStepKeys = []) {
     }
     const [days] = await db.execute('SELECT * FROM hire_onboarding_time WHERE user_id = ? FOR UPDATE', [userId]);
     for (const day of days) {
-      if (day.payroll_claim_id || !day.seconds) continue;
+      if (day.payroll_claim_id || !day.seconds || isStudentIntern(user)) continue;
       const payload = {
         source: 'onboarding_portal', categoryLabel: 'Onboarding', meetingType: 'Onboarding',
         totalMinutes: Number(day.seconds) / 60, durationMinutes: Number(day.seconds) / 60,

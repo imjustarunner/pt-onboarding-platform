@@ -1,3 +1,4 @@
+import { isStudentIntern } from './internMeetingPolicy.service.js';
 import {reconcileSupervisorClaim} from './supervisionPayrollCorrection.service.js';
 /**
  * Side effects when a supervision session is finalized:
@@ -200,9 +201,10 @@ export async function userEligibleForSupervisionTimeClaim({
 
   try {
     const [hwRows] = await pool.execute(
-      'SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1',
+      'SELECT is_hourly_worker, role, credential, title, employment_type FROM users WHERE id = ? LIMIT 1',
       [uid]
     );
+    if (isStudentIntern(hwRows?.[0])) return { ok: true, eligible: false, reason: 'intern_unpaid_indirect' };
     const hw = hwRows?.[0]?.is_hourly_worker;
     const isHourly = hw === 1 || hw === true || hw === '1';
     if (isHourly) return { ok: true, eligible: true, reason: 'hourly' };

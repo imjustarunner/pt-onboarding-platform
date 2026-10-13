@@ -108,8 +108,7 @@ test('digest includes current and older missing notes with normalized dates and 
     if (sql.includes('FROM payroll_periods pp')) {
       assert.deepEqual(params, [7, '2026-09-12']);
       assert.match(sql, /pp\.agency_id = \? AND pp\.period_start <= \?/);
-      assert.doesNotMatch(sql, /LIMIT/);
-      return [periods];
+      return [sql.includes('LIMIT 3') ? periods.slice(0,3) : periods];
     }
     if (sql.includes('agency_compliance_notification_mutes') || sql.includes('billing_encounters')) return [[]];
     if (sql.includes('FROM users')) return [[{ id: 5, first_name: 'Test', last_name: 'Provider', email: 'test@example.com' }]];
@@ -118,10 +117,10 @@ test('digest includes current and older missing notes with normalized dates and 
 
   const digest = await buildComplianceDigest({ agencyId: 7, payrollPeriodId: 1 });
   assert.equal(digest.period.label, '2026-09-12 → 2026-09-25');
-  assert.equal(queriedPeriods.length, 10);
+  assert.equal(queriedPeriods.length, 3);
   assert.equal(digest.providers.length, 1);
   const provider = digest.providers[0];
-  assert.equal(provider.lateNotesByPeriod.length, 10);
+  assert.equal(provider.lateNotesByPeriod.length, 3);
   assert.ok(provider.lateNotesByPeriod.every((group) => group.rows.length === 1));
   assert.equal(provider.lateNotesByPeriod[0].rows[0].label, '9/12 - 90837');
 
@@ -130,6 +129,8 @@ test('digest includes current and older missing notes with normalized dates and 
   assert.ok(!selected.text.includes('9/12 - 90837'));
   const empty = buildComplianceEmailBody({ provider, excludedRowIds: queriedPeriods.map((id) => id * 10) });
   assert.equal(empty.hasContent, false);
+  const history = await buildComplianceDigest({agencyId:7,payrollPeriodId:1,includeHistory:true});
+  assert.equal(history.providers[0].lateNotesByPeriod.length,10);
 });
 
 test('newer catch-up snapshot replaces stale imports, removing completed and deleted notes but keeping old missing notes', async (t) => {

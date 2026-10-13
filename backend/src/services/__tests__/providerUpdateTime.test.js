@@ -26,11 +26,11 @@ describe('paid update time',()=>{
   expect(db.commit).not.toHaveBeenCalled();
  });
  it('submits precise seconds as support activity and records the claim pointer in the same transaction',async()=>{
-  db.execute.mockResolvedValueOnce([[{section_seconds_json:{license:31},active_seconds:31}]]).mockResolvedValueOnce([{insertId:71}]).mockResolvedValue([{}]);
+  db.execute.mockResolvedValueOnce([[{role:'provider'}]]).mockResolvedValueOnce([[{section_seconds_json:{license:31},active_seconds:31}]]).mockResolvedValueOnce([{insertId:71}]).mockResolvedValue([{}]);
   const id=await createUpdateTimeClaim(db,{id:1,push_id:3,provider_user_id:4,agency_id:2,active_seconds:31,finalized_at:new Date('2026-10-10T12:00:00Z')},4);
-  expect(id).toBe(71);const payload=JSON.parse(db.execute.mock.calls[1][1][4]);
+  expect(id).toBe(71);const payload=JSON.parse(db.execute.mock.calls[2][1][4]);
   expect(payload.categoryGroup).toBe('support_activity');expect(payload.totalMinutes).toBe(31/60);expect(payload.sectionSeconds).toEqual({license:31});
-  expect(db.execute.mock.calls[2][1]).toEqual([71,1]);
+  expect(db.execute.mock.calls[3][1]).toEqual([71,1]);
  });
  it('does not create a second claim or a claim for an unfinished update',async()=>{
   expect(await createUpdateTimeClaim(db,{payroll_time_claim_id:4},1)).toBe(4);

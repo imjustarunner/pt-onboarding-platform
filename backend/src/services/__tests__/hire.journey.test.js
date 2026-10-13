@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), assertGuides: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite: vi.fn() }));
+vi.mock('../companyDocumentLearning.service.js', () => ({ assertOnboardingGuideTraining: mocks.assertGuides }));
 vi.mock('../portalTraining.service.js', () => ({ portalModuleForms: vi.fn(async () => ({ fields: [] })) }));
 import { taskPhase, taskProgress, creditedActivitySeconds, recordOnboardingActivity, completeOnboarding, requireOnboardingSubmitted } from '../hireJourney.service.js';
 
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
-beforeEach(() => { vi.clearAllMocks(); mocks.getConnection.mockResolvedValue(db); });
+beforeEach(() => { vi.clearAllMocks(); mocks.assertGuides.mockReset().mockResolvedValue(undefined); mocks.getConnection.mockResolvedValue(db); });
 describe('process separation', () => {
   it('keeps the legacy employee profile module out of pre-hire', () => expect(taskPhase({ task_type: 'training', title: 'Complete New Employee Onboarding & Profile Setup', metadata: { portalPhase: 'pre_hire' } }, 'PREHIRE_OPEN')).toBe('onboarding'));
   it('keeps contracts in prehire after promotion', () => expect(taskPhase({ metadata: '{"contractGeneration":true}' }, 'ONBOARDING')).toBe('pre_hire'));
@@ -42,9 +43,10 @@ describe('server activity', () => {
   });
 });
 describe('payroll submission', () => {
-  function completionDb({ completed = false, failClaim = false, pending = false, guideRequired = false } = {}) {
+  function completionDb({ completed = false, failClaim = false, pending = false, guideRequired = false, intern = false } = {}) {
+    if (guideRequired) mocks.assertGuides.mockRejectedValue(new Error('Complete required guide reading and quizzes'));
     mocks.execute.mockImplementation(async (sql) => {
-      if (sql.startsWith('SELECT status')) return [[{ status: 'ONBOARDING' }]];
+      if (sql.startsWith('SELECT status')) return [[{ status: 'ONBOARDING', role: 'provider', title: intern ? 'Intern' : 'Provider', credential: intern ? 'BA' : 'LPC' }]];
       if (sql.startsWith('SELECT * FROM users')) return [[{ id: 1, status: 'ONBOARDING', role: 'provider' }]];
       if (sql.startsWith('SELECT id, name, slug FROM agencies')) return [[{ id: 8, slug: guideRequired ? 'itsco' : 'unrelated-company' }]];
       if (sql.startsWith('SELECT u.*')) return [[{ id: 1, role: 'provider', status: 'ONBOARDING' }]];
@@ -63,6 +65,12 @@ describe('payroll submission', () => {
     const call = mocks.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO payroll_time_claims'));
     expect(JSON.parse(call[1][4])).toMatchObject({ totalMinutes: 30, actualSeconds: 1800, source: 'onboarding_portal' });
     expect(db.commit).toHaveBeenCalledTimes(1);
+  });
+  it('retains intern onboarding time without creating paid claims', async () => {
+    completionDb({ intern: true }); await completeOnboarding(1);
+    expect(db.commit).toHaveBeenCalledTimes(1);
+    expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO payroll_time_claims'))).toBe(false);
+    expect(mocks.execute.mock.calls.some(([sql]) => /^(DELETE FROM|UPDATE) hire_onboarding_time/.test(sql))).toBe(false);
   });
   it('blocks final onboarding submission before required guide quizzes are complete', async () => {
     completionDb({ guideRequired: true }); await expect(completeOnboarding(1)).rejects.toThrow('required guide reading and quizzes');

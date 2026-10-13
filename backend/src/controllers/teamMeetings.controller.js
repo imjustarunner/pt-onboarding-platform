@@ -1,3 +1,4 @@
+import { isStudentIntern } from '../services/internMeetingPolicy.service.js';
 import { canManageMeetingCompensation, meetingClaimCompensation, saveMeetingClaimRate } from '../services/meetingClaimRate.service.js';
 import { requireSessionPrivacyConfiguration } from '../services/sessionAiPrivacy.service.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
@@ -2439,9 +2440,12 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
     } catch(error) { if(error.code!=='ER_NO_SUCH_TABLE') throw error; }
     const kind = String(event.kind || '').toUpperCase();
     const hostId = Number(event.provider_id || 0);
+    const ids = (attendance?.participants || []).map(p=>Number(p.userId)).filter(Boolean);
+    const [identities] = ids.length ? await pool.execute(`SELECT id,role,credential,title,employment_type FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
     const rows = (attendance?.participants || []).map((p) => {
       const claim = latestByUser.get(Number(p.userId)) || null;
-      const defaultCode = kind==='HUDDLE' && p.role==='intern' ? 'Unpaid Indirect' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : 'MEETING';
+      const unpaidIndirect = isStudentIntern(identities.find(u=>Number(u.id)===Number(p.userId)));
+      const defaultCode = unpaidIndirect ? 'Unpaid Indirect' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : 'MEETING';
       return {
         userId: p.userId,
         name: p.name,
@@ -2449,6 +2453,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
         isHost: !!p.isHost,
         attendanceMinutes: p.totalMinutes,
         attendanceSeconds: p.totalSeconds,
+        unpaidIndirect,
         manualPolicy: manualAttendance.find(a=>Number(a.user_id)===Number(p.userId))?.claim_policy || null,
         serviceCode: claim?.serviceCode || defaultCode,
         claimId: claim?.claimId || null,

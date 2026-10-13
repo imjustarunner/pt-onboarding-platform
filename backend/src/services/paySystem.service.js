@@ -783,7 +783,7 @@ function splitBreakdownByCutoff(breakdown, { cutoff, preStatus, postStatus, date
     if (!code || String(code).startsWith('__')) return false;
     if (String(code).toUpperCase() === 'AUTO INDIRECT') return false;
     const row = breakdown[code];
-    return row && typeof row === 'object';
+    return row && typeof row === 'object' && row.payMethod !== 'percent_collected';
   });
 
   for (const code of codes) {
@@ -836,7 +836,7 @@ function splitBreakdownByCutoff(breakdown, { cutoff, preStatus, postStatus, date
 function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCode}) {
   const boundary=status.agreementBoundary, args=status.agreementStatusArgs;
   for (const [key,row] of Object.entries({...breakdown})) {
-    if (!row || typeof row!=='object' || key.startsWith('__') || key==='AUTO INDIRECT') continue;
+    if (!row || typeof row!=='object' || key.startsWith('__') || key==='AUTO INDIRECT' || row.payMethod === 'percent_collected') continue;
     const code=canonicalServiceCode(key,row), units=Number(row.finalizedUnits??row.units??0);
     if (!(units>0) || classifyPayType(code,row)==='skip') continue;
     const dates=datedUnitsByCode?.get(code) || [];
@@ -915,6 +915,7 @@ export function applyPaySystemToBreakdown({
     const units = Number(row.finalizedUnits ?? row.units ?? 0) || 0;
     if (units <= 1e-9) continue;
 
+    if (row.payMethod === 'percent_collected') { servicePay += Number(row.amount || 0); continue; }
     const lineStatus = row.rateEraStatus || status;
     const serviceCode = canonicalServiceCode(code, row);
     const rule = {

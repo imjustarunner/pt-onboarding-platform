@@ -1,0 +1,16 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const db=vi.hoisted(()=>({execute:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:db}));
+import {isStudentIntern,isUnpaidInternActivity} from '../internMeetingPolicy.service.js';
+import {resolvePercentOfChargePay,collectedRevenuePay} from '../payrollPercentagePayPolicy.service.js';
+import PayrollPeriodTodo from '../../models/PayrollPeriodTodo.model.js';
+beforeEach(()=>vi.clearAllMocks());
+it.each([{role:'intern'},{role:'intern_plus'},{role:'provider',credential:'Counseling Intern'},{role:'provider',credential:'BA',title:'Intern'},{role:'provider',employment_type:'intern'}])('recognizes internship without requiring an intern login role: %j',u=>expect(isStudentIntern(u)).toBe(true));
+it.each([{role:'provider',credential:'BA'},{role:'provider',credential:'LPCC'},{role:'provider_plus',title:'Internship Mentor'}])('does not exclude paid staff %j',u=>expect(isStudentIntern(u)).toBe(false));
+it('blocks an old auto claim for a provider-role intern, but leaves direct claims alone',async()=>{db.execute.mockResolvedValue([[{role:'provider',title:'Intern',credential:'BA'}]]);expect(await isUnpaidInternActivity({user_id:7,payload:{source:'meeting_compensation_auto'}})).toBe(true);expect(await isUnpaidInternActivity({user_id:7,payload:{serviceCode:'H0004'}})).toBe(false);});
+it('uses the employee collection agreement without changing agency or other employees',()=>{const base={policy:{enabled:false},rule:{pay_method:'fixed_rate'},userPercentPayEnabled:false};expect(resolvePercentOfChargePay({...base,perCodeRate:{pay_method:'percent_collected',pay_percent:42.5}})).toEqual({usesPercentPay:true,percent:42.5,basis:'collected'});expect(resolvePercentOfChargePay(base).usesPercentPay).toBe(false);expect(collectedRevenuePay(125,42.5)).toBe(53.13);expect(collectedRevenuePay(null,42.5)).toBe(0);expect(collectedRevenuePay(0,42.5)).toBe(0);});
+it('requires an explicit collection percentage and accepts deliberate zero',()=>{expect(()=>resolvePercentOfChargePay({perCodeRate:{pay_method:'percent_collected',pay_percent:null}})).toThrow(/explicit percentage/);expect(resolvePercentOfChargePay({perCodeRate:{pay_method:'percent_collected',pay_percent:0}}).percent).toBe(0);});
+it('saves payroll notes against one task, one period and one agency',async()=>{db.execute.mockResolvedValue([{affectedRows:1}]);expect(await PayrollPeriodTodo.updateNotes({todoId:11,payrollPeriodId:22,agencyId:2,notes:'Reviewed',userId:501})).toBe(true);const [sql,args]=db.execute.mock.calls[0];expect(sql).toMatch(/WHERE id=\? AND payroll_period_id=\? AND agency_id=\? LIMIT 1/);expect(args).toEqual(['Reviewed',501,11,22,2]);});
+
+import {applyPaySystemToBreakdown} from '../paySystem.service.js';
+it('preserves collection-based pay when tier rates and mid-period status change',()=>{const breakdown={TUTORING:{units:2,finalizedUnits:2,category:'direct',amount:42,payMethod:'percent_collected',payPercent:42}};applyPaySystemToBreakdown({breakdown,rateProfile:{category:2,level:1},status:{rateChangeDate:'2026-10-15',preCutoffStatus:{},postCutoffStatus:{}},datedUnitsByCode:new Map([['TUTORING',[{serviceDate:'2026-10-10',units:1},{serviceDate:'2026-10-20',units:1}]]])});expect(breakdown.TUTORING.amount).toBe(42);expect(breakdown.TUTORING__post).toBeUndefined();});

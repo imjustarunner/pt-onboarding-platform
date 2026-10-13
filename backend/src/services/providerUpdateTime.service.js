@@ -1,3 +1,4 @@
+import { isStudentIntern, loadMeetingPayIdentity } from './internMeetingPolicy.service.js';
 import pool from '../config/database.js';
 import { enabledSectionKeys } from '../constants/providerUpdateSections.js';
 export const updateTimestamp = value => value instanceof Date ? value : new Date(typeof value === 'string' && /^\d{4}-\d\d-\d\d[ T]\d\d:\d\d/.test(value) && !/(Z|[+-]\d\d:\d\d)$/.test(value) ? value.replace(' ','T')+'Z' : value);
@@ -52,6 +53,7 @@ export async function updateTimeSummary(recipientId, db = pool) {
 export async function createUpdateTimeClaim(db, recipient, actorId) {
   if (recipient.payroll_time_claim_id) return recipient.payroll_time_claim_id;
   if (!recipient.finalized_at || String(recipient.token).startsWith('preview_') || !(Number(recipient.active_seconds) > 0)) return null;
+  if (isStudentIntern(await loadMeetingPayIdentity(recipient.provider_user_id, db))) return null;
   const seconds = Number(recipient.active_seconds);
   const summary = await updateTimeSummary(recipient.id, db);
   const payload = { source: 'provider_update', pushId: Number(recipient.push_id), recipientId: Number(recipient.id),

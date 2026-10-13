@@ -40,6 +40,7 @@ class PayrollRate {
     serviceCode,
     rateAmount,
     payPercent = null,
+    payMethod = null,
     rateUnit = 'per_unit',
     effectiveStart = null,
     effectiveEnd = null
@@ -51,15 +52,16 @@ class PayrollRate {
     if (hasPayPercent) {
       await pool.execute(
         `INSERT INTO payroll_rates
-         (agency_id, user_id, service_code, rate_amount, pay_percent, rate_unit, effective_start, effective_end)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         (agency_id, user_id, service_code, rate_amount, pay_percent, pay_method, rate_unit, effective_start, effective_end)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            rate_amount = VALUES(rate_amount),
            pay_percent = VALUES(pay_percent),
+           pay_method = COALESCE(VALUES(pay_method), pay_method),
            rate_unit = VALUES(rate_unit),
            effective_end = VALUES(effective_end),
            updated_at = CURRENT_TIMESTAMP`,
-        [agencyId, userId, serviceCode, rateAmount, pct, rateUnit, effectiveStart, effectiveEnd]
+        [agencyId, userId, serviceCode, rateAmount, pct, payMethod, rateUnit, effectiveStart, effectiveEnd]
       );
     } else {
       await pool.execute(

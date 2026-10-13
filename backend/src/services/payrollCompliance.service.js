@@ -178,15 +178,13 @@ export async function maybeUnlockPayrollCompliance({ agencyId, period }) {
   return { unlocked: true, justUnlocked: true };
 }
 
-async function listPriorPeriodsWithImports({ agencyId, currentPeriod }) {
+async function listPriorPeriodsWithImports({ agencyId, currentPeriod, includeHistory = false }) {
   // Compare DATE values in SQL, not weekday-prefixed JavaScript Date strings.
-  // Include all imported periods through this run so older missing notes remain actionable.
+  // Default to this run and the two preceding periods. History is explicitly opt-in.
   const [periods] = await pool.execute(
     `SELECT pp.* FROM payroll_periods pp
      WHERE pp.agency_id = ? AND pp.period_start <= ?
-       AND (EXISTS (SELECT 1 FROM payroll_imports pi WHERE pi.payroll_period_id = pp.id)
-         OR EXISTS (SELECT 1 FROM payroll_period_run_snapshots ps WHERE ps.payroll_period_id = pp.id))
-     ORDER BY pp.period_end DESC, pp.id DESC`,
+     ORDER BY pp.period_start DESC, pp.id DESC ${includeHistory ? '' : 'LIMIT 3'}`,
     [Number(agencyId), ymd(currentPeriod.period_start)]
   );
   const out = [];
@@ -430,7 +428,7 @@ async function resolveSupervisors(providerUserId, agencyId) {
   }));
 }
 
-export async function buildComplianceDigest({ agencyId, payrollPeriodId }) {
+export async function buildComplianceDigest({ agencyId, payrollPeriodId, includeHistory = false }) {
   const period = await PayrollPeriod.findById(payrollPeriodId);
   if (!period || Number(period.agency_id) !== Number(agencyId)) {
     const err = new Error('Pay period not found');
@@ -459,7 +457,7 @@ export async function buildComplianceDigest({ agencyId, payrollPeriodId }) {
     mutedByProvider.get(pid).add(cid);
   }
 
-  const periodBundles = await listPriorPeriodsWithImports({ agencyId, currentPeriod: period });
+  const periodBundles = await listPriorPeriodsWithImports({ agencyId, currentPeriod: period, includeHistory });
   const byProvider = new Map();
 
   const ensureProvider = (userId, meta = {}) => {
@@ -694,9 +692,10 @@ export async function previewComplianceEmail({
   excludedRowIds = [],
   excludedClientKeys = [],
   includeLateNotes = true,
-  includeSessionLimits = true
+  includeSessionLimits = true,
+  includeHistory = false
 }) {
-  const digest = await buildComplianceDigest({ agencyId, payrollPeriodId });
+  const digest = await buildComplianceDigest({ agencyId, payrollPeriodId, includeHistory });
   if (!digest.unlocked) {
     const err = new Error('Compliance is not unlocked for this agency yet');
     err.status = 403;
@@ -734,7 +733,8 @@ export async function sendComplianceEmail({
   excludedClientKeys = [],
   includeLateNotes = true,
   includeSessionLimits = true,
-  generatedByUserId = null
+  generatedByUserId = null,
+  includeHistory = false
 }) {
   const preview = await previewComplianceEmail({
     agencyId,
@@ -743,7 +743,8 @@ export async function sendComplianceEmail({
     excludedRowIds,
     excludedClientKeys,
     includeLateNotes,
-    includeSessionLimits
+    includeSessionLimits,
+    includeHistory
   });
   if (!preview.hasContent) {
     const err = new Error('Nothing selected to send for this provider');

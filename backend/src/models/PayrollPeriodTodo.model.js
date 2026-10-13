@@ -37,6 +37,12 @@ class PayrollPeriodTodo {
     return res?.insertId || null;
   }
 
+  static async updateNotes({todoId,payrollPeriodId,agencyId,notes,userId}) {
+    const [result] = await pool.execute(`UPDATE payroll_period_todos SET notes=?,notes_updated_by_user_id=?,notes_updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND payroll_period_id=? AND agency_id=? LIMIT 1`,[notes,userId,todoId,payrollPeriodId,agencyId]);
+    return result.affectedRows > 0;
+  }
+
   static async setStatus({ todoId, payrollPeriodId, agencyId, status, doneByUserId }) {
     const st = String(status || '').toLowerCase() === 'done' ? 'done' : 'pending';
     await pool.execute(

@@ -1,3 +1,4 @@
+import { isStudentIntern, loadMeetingPayIdentity } from './internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate} from './meetingClaimRate.service.js';
 import { huddleTitle, huddleHostServiceCode } from './huddlePolicy.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
@@ -127,16 +128,6 @@ async function loadEvent(eventId) {
     [eid]
   );
   return rows?.[0] || null;
-}
-
-async function loadUserRole(userId) {
-  const uid = Number(userId || 0);
-  if (!uid) return '';
-  const [rows] = await pool.execute(
-    `SELECT role FROM users WHERE id = ? LIMIT 1`,
-    [uid]
-  );
-  return String(rows?.[0]?.role || '').trim().toLowerCase();
 }
 
 async function loadUserIsSupervisor(userId) {
@@ -368,13 +359,17 @@ async function syncCompensationClaimsUnlocked({
       let payRateSource = 'meeting';
       let categoryLabel = null;
       let compensationNote = null;
-      const role = await loadUserRole(uid);
-      const unpaidIndirect = kind === 'HUDDLE' && role === 'intern';
+      const identity = await loadMeetingPayIdentity(uid);
+      const role = String(identity.role || '').trim().toLowerCase();
+      if (isStudentIntern(identity)) {
+        // Attendance rollups remain the indirect-hours evidence; no payable claim is created.
+        results.push({ userId: uid, ok: true, skipped: true, error: 'intern_unpaid_indirect' });
+        continue;
+      }
       if (kind === 'HUDDLE' && isHost) {
         serviceCode = huddleHostServiceCode(row, role);
         payRateSource = serviceCode === 'Admin Time' ? 'admin_time' : 'individual_meeting';
       }
-      if (unpaidIndirect) { serviceCode='Unpaid Indirect'; payRateSource='unpaid'; }
       if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin')) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
       const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
       if (Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
@@ -398,7 +393,7 @@ async function syncCompensationClaimsUnlocked({
         continue;
       }
 
-      if (!manualPerson && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin') && !unpaidIndirect && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
+      if (!manualPerson && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin') && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
         results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
         continue;
       }
@@ -415,7 +410,6 @@ async function syncCompensationClaimsUnlocked({
       if (manualPerson) Object.assign(payload, { manualMeetingLogId:manualLog.id, attendanceSource:'manual',
         platform:({in_person:'In person',phone:'Phone call',google_meet:'Google Meet',app_issue:'App meeting — attendance issue',other:'Other'})[manualLog.platform],
         compensationNote:[payload.compensationNote,'Manually recorded attendance; submitted for payroll review.'].filter(Boolean).join(' ') });
-      if (unpaidIndirect) Object.assign(payload,{unpaidIndirect:true,amount:0,bucket:'indirect',categoryLabel:`${meetingType} · unpaid indirect time`});
       // eslint-disable-next-line no-await-in-loop
       const res = await upsertClaim({
         agencyId,

@@ -67,3 +67,10 @@ it('does not treat unrelated untimed direct-care indirect allowances as meeting 
 it('marks a saved-but-unprocessed claim sync for safe retry',async()=>{
  m.sync.mockResolvedValue({ok:false,error:'database busy'});expect(await saveManualMeeting(body(),465)).toMatchObject({eventId:100,syncPending:true});expect(m.commit).toHaveBeenCalled();
 });
+
+it('allows a provider-role student intern in the mentor roster and manual log',async()=>{
+ const roster=[...people,{id:979,name:'Student',role:'provider',title:'Intern',credential:'BA'}];
+ m.execute.mockImplementation(async sql=>sql.includes('FROM users u JOIN user_agencies')?[roster]:[[]]);
+ const options=await manualMeetingOptions(2,477);expect(options.people.some(p=>p.id===979)).toBe(true);
+ const b=body();b.people=[{userId:477,minutes:60},{userId:979,minutes:45}];expect(validate(b,options).subtype).toBe('mentorship');
+});

@@ -31,7 +31,8 @@ it('pays the mentor Individual Meeting and records intern attendance as unpaid i
  m.execute.mockImplementation(async (sql,args)=>sql.includes('SELECT role')?[[{role:args[0]===1?'provider_plus':'intern'}]]:[[]]);
  await syncCompensationClaimsForEvent({event:{...event,kind:'HUDDLE',meeting_subtype:'mentorship'}});
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'Individual Meeting'})}));
- expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:2,payload:expect.objectContaining({serviceCode:'Unpaid Indirect',amount:0,unpaidIndirect:true,bucket:'indirect',totalMinutes:45})}));
+ expect(m.create).not.toHaveBeenCalledWith(expect.objectContaining({userId:2}));
+ expect(m.rollups).toHaveBeenCalledWith(event.id);
  expect(m.rate).not.toHaveBeenCalledWith(expect.objectContaining({userId:2}));
 });
 
@@ -71,4 +72,10 @@ it('keeps a fallback host claim visible to payroll even when its assigned rate n
  m.execute.mockImplementation(async sql=>sql.includes('FROM manual_meeting_logs')?[[{id:90,platform:'in_person'}]]:sql.includes('FROM manual_meeting_log_attendees')?[[{user_id:1,claim_policy:'submit'}]]:sql.includes('SELECT role')?[[{role:'clinical_practice_assistant'}]]:[[]]);
  await syncCompensationClaimsForEvent({event:{...event,kind:'HUDDLE',meeting_subtype:'cpa'}});
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({status:'submitted',payload:expect.objectContaining({serviceCode:'Admin Time'})}));
+});
+
+it.each([{role:'provider',title:'Intern',credential:'BA'},{role:'provider',employment_type:'intern'},{role:'intern_plus'}])('does not submit payable admin or mentorship claims for an intern with identity %j', async identity=>{
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT role')?[[identity]]:[[]]);
+ const result=await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
+ expect(m.create).not.toHaveBeenCalled();expect(result.results[0].error).toBe('intern_unpaid_indirect');
 });

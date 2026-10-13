@@ -67,6 +67,14 @@ export async function upsertAgencyPercentagePayPolicy({ agencyId, policy }) {
 }
 
 export function resolvePercentOfChargePay({ policy, rule, perCodeRate, userPercentPayEnabled = false }) {
+  // An explicit employee/code agreement takes priority; it never changes agency-wide methods.
+  if (perCodeRate?.pay_method === 'percent_collected') {
+    const raw = perCodeRate.pay_percent;
+    const percent = raw === null || raw === undefined || raw === '' ? NaN : Number(raw);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new Error('Collected-revenue pay requires an explicit percentage between 0 and 100.');
+    return { usesPercentPay: true, percent, basis: 'collected' };
+  }
+  if (perCodeRate?.pay_method === 'fixed_rate') return { usesPercentPay: false, percent: null };
   if (!policy?.enabled) {
     return { usesPercentPay: false, percent: null };
   }
@@ -98,4 +106,10 @@ export function resolvePercentOfChargePay({ policy, rule, perCodeRate, userPerce
     usesPercentPay: true,
     percent: normalizePayPercent(percent, 0)
   };
+}
+
+export function collectedRevenuePay(amountCollected, percent) {
+  const amount = Number(amountCollected);
+  // Missing collections do not fall back to hourly or billed revenue pay.
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * percent) / 100 : 0;
 }

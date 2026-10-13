@@ -94,6 +94,7 @@
                 <div v-if="editingId !== t.id">
                   <div><strong>{{ t.title }}</strong></div>
                   <div v-if="t.description" class="ptp-muted" style="margin-top: 4px;">{{ t.description }}</div>
+                  <PayrollTodoNotes :key="`${periodId}-${t.id}`" :period-id="periodId" :todo="t" :disabled="locked" @saved="loadTodos" />
                 </div>
                 <div v-else class="ptp-edit">
                   <div class="field">
@@ -319,6 +320,7 @@
 </template>
 
 <script setup>
+import PayrollTodoNotes from './PayrollTodoNotes.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
 

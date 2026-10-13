@@ -1,6 +1,8 @@
 <template>
   <div class="pcp">
-    <AnnualMileagePanel :agency-id="agencyId" />
+    <div class="pcp-muted"><strong>Review reminders for this payroll run</strong><p>Review the current pay period and the two preceding periods. Check only the items you want included, then use Preview email before sending a reminder. Unchecking an item excludes it from the email; it does not resolve the underlying note.</p><p>Late notes clear when updated billing reports show them completed. Session counts still use the full fiscal year. No reminders are sent automatically from this screen.</p></div>
+    <details><summary>Annual mileage tracking (optional)</summary><p>This is a yearly reimbursement summary. If there are no mileage claims, there is nothing to do here.</p><AnnualMileagePanel :agency-id="agencyId" /></details>
+    <label>Late-note history <select v-model="includeHistory" :disabled="loading || sendingAll || !!sendingUserId" @change="reload"><option :value="false">Current and previous 2 pay periods</option><option :value="true">All earlier pay periods</option></select></label>
     <div class="pcp-toolbar">
       <div class="pcp-filters" role="tablist" aria-label="Compliance view">
         <button
@@ -166,6 +168,7 @@ const loading = ref(false);
 const error = ref('');
 const unlocked = ref(false);
 const providers = ref([]);
+const includeHistory = ref(false);
 const filterMode = ref('all'); // all | late_notes | session_limits
 const sendingUserId = ref(null);
 const sendingAll = ref(false);
@@ -275,7 +278,7 @@ async function reload() {
   error.value = '';
   try {
     await api.post(`/payroll/periods/${props.periodId}/compliance-unlock-check`);
-    const resp = await api.get(`/payroll/periods/${props.periodId}/compliance-digest`);
+    const resp = await api.get(`/payroll/periods/${props.periodId}/compliance-digest`, { params: { includeHistory: includeHistory.value } });
     unlocked.value = !!resp.data?.unlocked;
     providers.value = resp.data?.providers || [];
     emit('unlocked', unlocked.value);
@@ -291,6 +294,7 @@ function payloadFor(p) {
   const ex = ensureUserExclusions(p.userId);
   return {
     userId: p.userId,
+    includeHistory: includeHistory.value,
     excludedRowIds: ex.excludedRowIds,
     excludedClientKeys: ex.excludedClientKeys,
     includeLateNotes: showLateNotes.value,
@@ -332,6 +336,7 @@ async function sendAll() {
   try {
     await api.post(`/payroll/periods/${props.periodId}/compliance-send-all`, {
       exclusionsByUser: exclusions.value,
+      includeHistory: includeHistory.value,
       includeLateNotes: showLateNotes.value,
       includeSessionLimits: showSessionLimits.value
     });

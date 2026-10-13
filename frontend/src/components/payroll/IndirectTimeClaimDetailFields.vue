@@ -5,7 +5,7 @@
       <div class="field"><label>Pay bucket</label><div>{{ bucketLabel }}</div></div>
       <div class="field"><label>Start</label><div>{{ payload?.startTime || '—' }}</div></div>
       <div class="field"><label>End</label><div>{{ payload?.endTime || '—' }}</div></div>
-      <div class="field"><label>Total Minutes</label><div>{{ payload?.totalMinutes ?? '—' }}</div></div>
+      <div class="field"><label>Total Minutes</label><div>{{ formatClaimTime(payload?.totalMinutes) }}</div></div>
       <div v-if="payload?.allocationMode" class="field">
         <label>Allocation mode</label>
         <div>{{ allocationModeLabel }}</div>
@@ -17,7 +17,7 @@
       <div v-for="row in allocationRows" :key="row.key" class="itcdf-activity">
         <div class="itcdf-activity-head">
           <strong>{{ row.label }}</strong>
-          <span class="itcdf-mins">{{ row.minutes }} min</span>
+          <span class="itcdf-mins">{{ formatClaimTime(row.minutes) }} min</span>
         </div>
         <div v-if="row.startTime || row.endTime" class="itcdf-times muted">
           {{ row.startTime || '—' }} – {{ row.endTime || '—' }}
@@ -34,6 +34,7 @@
 </template>
 
 <script setup>
+import { formatClaimTime } from '../../utils/payrollClaimDisplay';
 import { computed } from 'vue';
 import { logTimeAllocationRows, logTimeBucketLabel } from '../../utils/logTimeClaimDetails';
 

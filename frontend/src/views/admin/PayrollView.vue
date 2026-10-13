@@ -423,6 +423,7 @@
                         <div v-if="editingPeriodTodoId !== t.id">
                           <div><strong>{{ t.title }}</strong></div>
                           <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                          <PayrollTodoNotes :key="`${selectedPeriodId}-${t.id}`" :period-id="selectedPeriodId" :todo="t" @saved="loadPayrollTodos" />
                         </div>
                         <div v-else>
                           <div class="field">
@@ -2967,7 +2968,9 @@
               </div>
 
               <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
-                <button class="btn btn-secondary" @click="loadAllPendingTimeClaims" :disabled="pendingTimeLoading || !agencyId">
+                <span class="hint">{{ pendingTimeMode === 'recent' ? 'Current and previous 2 pay periods' : pendingTimeMode === 'all' ? 'All pending history' : 'Selected pay period' }}</span>
+                <button class="btn btn-secondary" @click="loadAllPendingTimeClaims()" :disabled="pendingTimeLoading">Working 3 pay periods</button>
+                <button class="btn btn-secondary" @click="loadAllPendingTimeClaims(true)" :disabled="pendingTimeLoading || !agencyId">
                   Show all pending (any period)
                 </button>
                 <button class="btn btn-secondary" @click="loadPendingTimeClaims" :disabled="pendingTimeLoading || !selectedPeriodId">
@@ -6410,7 +6413,7 @@
             </div>
             <button class="btn btn-secondary btn-sm" @click="showTimeClaimReviewModal = false">Close</button>
           </div>
-          <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="nameForUserId(reviewedTimeClaim.user_id)" :period-label="timeClaimPeriodLabel(reviewedTimeClaim.suggested_payroll_period_id)" />
+          <MeetingClaimDetails v-if="hasMeetingClaimDetails(reviewedTimeClaim)" :claim="reviewedTimeClaim" :employee-name="nameForUserId(reviewedTimeClaim.user_id)" :period-label="timeClaimPeriodLabel(reviewedTimeClaim.suggested_payroll_period_id)" />
           <div v-else-if="reviewedTimeClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
 
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
@@ -6482,7 +6485,7 @@
             <template v-else-if="reviewedTimeClaim.claim_type === 'training_focus_completion'">
               <div class="field"><label>Training Focus</label><div>{{ reviewedTimeClaim.payload?.trainingFocusName || '—' }}</div></div>
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
-                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Total Minutes</label><div>{{ formatClaimTime(reviewedTimeClaim.payload?.totalMinutes) }}</div></div>
                 <div class="field"><label>Completed</label><div>{{ reviewedTimeClaim.payload?.completedAt ? String(reviewedTimeClaim.payload.completedAt).slice(0, 10) : '—' }}</div></div>
               </div>
               <div v-if="Array.isArray(reviewedTimeClaim.payload?.stepBreakdown) && reviewedTimeClaim.payload.stepBreakdown.length" class="card" style="margin-top: 8px;">
@@ -6523,7 +6526,7 @@
               <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
                 <div class="field"><label>Start Time</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
                 <div class="field"><label>End Time</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
-                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Total Minutes</label><div>{{ formatClaimTime(reviewedTimeClaim.payload?.totalMinutes) }}</div></div>
               </div>
               <template v-if="String(reviewedTimeClaim.payload?.meetingType || '').trim() === 'Outreach'">
                 <div class="field-row" style="grid-template-columns: 1fr 1fr;">
@@ -6649,6 +6652,9 @@
 </template>
 
 <script setup>
+import PayrollTodoNotes from '../../components/payroll/PayrollTodoNotes.vue';
+import { workingPeriods, claimInWorkingPeriods } from '../../utils/payrollWorkingPeriods';
+import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -8595,7 +8601,7 @@ const timeRequestedLabel = (c) => {
   const mins = timeClaimMinutes(c);
   if (!(mins > 0)) return '—';
   const hrs = Math.round((mins / 60) * 100) / 100;
-  return `${mins} min (${hrs} h)`;
+  return `${formatClaimTime(mins)} min (${formatClaimTime(hrs)} h)`;
 };
 
 const timeClaimOvertimeDayLabels = [
@@ -9286,16 +9292,16 @@ const loadPendingTimeClaims = async () => {
   }
 };
 
-const loadAllPendingTimeClaims = async () => {
+const loadAllPendingTimeClaims = async (includeHistory = false) => {
   if (!agencyId.value) return;
-  pendingTimeMode.value = 'all';
+  pendingTimeMode.value = includeHistory === true ? 'all' : 'recent';
   try {
     pendingTimeLoading.value = true;
     pendingTimeError.value = '';
     const resp = await api.get('/payroll/time-claims', {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object' && !isSkillBuilderEventTimeClaim(r));
+    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object' && !isSkillBuilderEventTimeClaim(r) && (includeHistory === true || claimInWorkingPeriods(r, workingPeriods(periods.value || [], selectedPeriodId.value))));
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
     const bNext = { ...(timeBucketByClaimId.value || {}) };
     const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
@@ -9320,7 +9326,7 @@ const loadAllPendingTimeClaims = async () => {
 };
 
 const reloadPendingTimeClaims = async () => {
-  if (pendingTimeMode.value === 'all') await loadAllPendingTimeClaims();
+  if (pendingTimeMode.value !== 'period') await loadAllPendingTimeClaims(pendingTimeMode.value === 'all');
   else await loadPendingTimeClaims();
   await loadEventTimeSubmissions();
 };
@@ -11143,7 +11149,7 @@ const fmtMoney = (v) => {
 const fmtBreakdownRate = (line) => {
   const method = String(line?.payMethod || '').trim().toLowerCase();
   const pct = line?.payPercent;
-  if (method === 'percent_of_charge' && pct !== null && pct !== undefined && pct !== '') {
+  if (['percent_of_charge','percent_collected'].includes(method) && pct !== null && pct !== undefined && pct !== '') {
     const n = Number(pct);
     if (Number.isFinite(n)) {
       return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
@@ -11183,6 +11189,7 @@ const fmtClaimDate = (d) => {
   return Number.isNaN(dt.getTime()) ? ymd : dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 const submitterLabel = (row) => {
+  if (automaticClaimLabel(row)) return automaticClaimLabel(row);
   const submittedById = row?.submitted_by_user_id === null || row?.submitted_by_user_id === undefined ? null : Number(row.submitted_by_user_id);
   const fn = String(row?.submitted_by_first_name || '').trim();
   const ln = String(row?.submitted_by_last_name || '').trim();
@@ -11655,7 +11662,7 @@ const splitBreakdownForDisplay = (breakdown) => {
     const totalAmount = Number(v.amount || 0);
     const totalUnits = Math.max(0, finalizedUnits);
     const baseUnits = Math.max(0, totalUnits - carryUnits);
-    const isPercentPay = String(v.payMethod || '').trim().toLowerCase() === 'percent_of_charge'
+    const isPercentPay = ['percent_of_charge','percent_collected'].includes(String(v.payMethod || '').trim().toLowerCase())
       && v.payPercent !== null && v.payPercent !== undefined && v.payPercent !== '';
     const payPct = isPercentPay ? Number(v.payPercent) : null;
 
