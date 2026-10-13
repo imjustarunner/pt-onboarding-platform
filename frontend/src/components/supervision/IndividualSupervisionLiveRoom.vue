@@ -163,7 +163,7 @@
           <div class="isl__card-actions">
             <button type="button" class="isl__ghost" @click="setVideoFocus('equal')">Equal</button>
             <button type="button" class="isl__ghost" @click="toggleSection('video')">
-              {{ sectionState.video === 'collapsed' ? 'Expand' : sectionState.video === 'expanded' ? 'Shrink' : 'Collapse' }}
+              {{ sectionState.video === 'collapsed' ? 'Expand' : sectionState.video === 'expanded' ? 'Shrink' : 'Enlarge' }}
             </button>
           </div>
         </div>
@@ -766,6 +766,7 @@ defineExpose({
 }
 .isl__header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
@@ -773,6 +774,8 @@ defineExpose({
 }
 .isl__header-left, .isl__header-right {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   gap: 12px;
 }
@@ -1065,22 +1068,29 @@ defineExpose({
   font-size: 0.8rem;
   font-weight: 650;
 }
-.isl__card--video { min-height: 0; flex: 1.35 1 auto; }
-.isl__card--video.isl__card--expanded .isl__video-body {
-  min-height: min(52vh, 560px);
-}
-.isl__card--video:not(.isl__card--collapsed) .isl__video-body {
-  min-height: min(46vh, 480px);
-}
+/* Give the nested video room a definite height. A min-height alone leaves its
+   percentage-height children sized by their content, so layout changes cannot
+   enlarge the camera stage. Keep this card from shrinking behind the workspace. */
+.isl__card--video { min-width: 0; flex: 0 0 auto; }
 .isl__video-body {
+  display: flex;
+  height: clamp(420px, 56dvh, 720px);
+  min-width: 0;
   border-radius: 12px;
   overflow: hidden;
   background: #0f1117;
 }
+.isl__card--video.isl__card--expanded .isl__video-body {
+  height: clamp(500px, 70dvh, 900px);
+}
+.isl__card--video.isl__card--collapsed .isl__video-body {
+  height: 260px;
+}
 .isl__video-body :deep(.supervision-video-room),
-.isl__video-body :deep(.vsr),
-.isl__video-body :deep(.vsr__stage) {
-  min-height: inherit;
+.isl__video-body :deep(.vsr) {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
 }
 
 .isl__main-grid {
