@@ -11,6 +11,7 @@ on:
       - 'scripts/preserve-deploy-secrets*'
       - 'scripts/provision-mfa-secret*'
       - '.dockerignore'
+      - 'scripts/build-backend-image*'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
@@ -125,6 +126,28 @@ jobs:
           fi
           echo "✅  No illegal frontend/src imports found."
 
+      - name: Configure Docker Hub cache
+        run: |
+          set -euo pipefail
+          # Preserve runner configuration and use Docker Hub if the Google cache misses.
+          sudo mkdir -p /etc/docker
+          if [ ! -f /etc/docker/daemon.json ]; then echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null; fi
+          sudo jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' /etc/docker/daemon.json > /tmp/docker-daemon.json
+          sudo install -m 644 /tmp/docker-daemon.json /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Log in to Docker Hub when credentials are configured
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          else
+            echo 'Using the public image cache with Docker Hub fallback.'
+          fi
+
       - name: Build Docker image
         run: |
           # DEBUG: Print the Admin folder to confirm the file exists and check casing
@@ -135,12 +158,7 @@ jobs:
           ls -la frontend/index.html frontend/vite.config.js || true
           echo "======================================"
 
-          # Build the Docker image
-          # Note: We build from root context (.) because backend Dockerfile needs access to frontend folder
-          docker build -f backend/Dockerfile \
-            --build-arg VITE_API_URL="/api" \
-            -t $IMAGE_NAME:$GITHUB_SHA \
-            -t $IMAGE_NAME:latest .
+          bash scripts/build-backend-image.sh
 
       - name: Smoke test — app module graph loads inside the image
         run: |

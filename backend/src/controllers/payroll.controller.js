@@ -1,3 +1,5 @@
+import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
+import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
 import { isUnpaidInternActivity } from '../services/internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate, getMeetingClaimRateOverride, MEETING_RATE_TYPES} from '../services/meetingClaimRate.service.js';
 import {validateSupplementalTime} from '../services/payrollSubmissionContext.service.js';
@@ -1890,7 +1892,7 @@ async function getAgencyUsersForPayrollMatching(agencyId) {
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
     [agencyId]
   );
-  return rows || [];
+  return [...(rows || []), ...await payrollAliasUsers(agencyId)];
 }
 
 function titleCaseWords(s) {
@@ -1914,7 +1916,10 @@ async function ensureUserForProviderName({ agencyId, providerName }) {
   const last = titleCaseWords(lastRaw);
 
   // Try to find an existing user by name first (across agencies), then attach to this agency.
-  const existing = await User.findByName(first, last);
+  const found = await User.findByName(first, last);
+  const existing = (found || []).filter(canMatchPayrollUser);
+  // An archived duplicate must stay archived and must not cause another duplicate.
+  if (!existing.length && (found?.length || await archivedPayrollName(first, last))) return null;
   if (Array.isArray(existing) && existing.length > 0) {
     const matchInAgency = existing.find((u) => {
       const ids = String(u.agency_ids || '')
@@ -2460,6 +2465,7 @@ function parsePayrollRows(records, opts = {}) {
       serviceDate: parseServiceDate(serviceDateRaw),
       unitCount,
       clientPaidAmount,
+      billedAmount: billedAmountFromReport(normalized),
       noteStatus,
       apptType: apptTypeStr ? String(apptTypeStr).trim() : '',
       // IMPORTANT: Do not persist the raw billing report row or non-essential fields.
@@ -4903,8 +4909,8 @@ export const upsertRate = async (req, res, next) => {
     if (payPercentNum !== null && (!Number.isFinite(payPercentNum) || payPercentNum < 0 || payPercentNum > 100)) {
       return res.status(400).json({ error: { message: 'payPercent must be between 0 and 100' } });
     }
-    if (payMethod != null && !['fixed_rate','percent_collected'].includes(payMethod)) return res.status(400).json({error:{message:'Invalid pay method'}});
-    if (payMethod === 'percent_collected' && (payPercentNum === null || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveStart || '')))) return res.status(400).json({error:{message:'Collected-revenue pay requires a percentage and effective start date.'}});
+    if (payMethod != null && !['fixed_rate','percent_collected','percent_billed'].includes(payMethod)) return res.status(400).json({error:{message:'Invalid pay method'}});
+    if (['percent_collected','percent_billed'].includes(payMethod) && (payPercentNum === null || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveStart || '')))) return res.status(400).json({error:{message:'Percentage pay requires a percentage and effective start date.'}});
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
     if (!resolvedAgencyId) return;
@@ -6144,8 +6150,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const bestPerCodeRate = (codeKey) => {
       const arr = ratesByCode.get(codeKey) || [];
       // listForUser is ordered by service_code ASC, effective_start DESC.
-      // Policy update: always use the first/currently listed per-code rate at run time.
-      return arr[0] || null;
+      // Explicit percentage agreements must be effective in the period being calculated.
+      return arr.some(r => ['percent_billed','percent_collected'].includes(r.pay_method)) ? rateAtDate(arr, periodEnd) : arr[0] || null;
     };
     const breakdown = {};
     let noNoteUnitsTotal = 0;
@@ -6322,6 +6328,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         userPercentPayEnabled: rateCard?.percent_pay_enabled
       });
 
+      const billedPay = pctPay.basis === 'billed'
+        ? await billedPayForStagingRow({ row, payrollPeriodId, agencyId, rates: ratesByCode.get(codeKey) || [] }) : null;
+
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
         const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(Number(userId));
@@ -6337,6 +6346,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
             return 0;
           }
         }
+        if (billedPay) return billedPay.amount;
         if (pctPay.usesPercentPay && Number.isFinite(pctPay.percent)) {
           const paidBase = presentClientPaidAmount + carryoverClientPaidAmount;
           const paid = paidBase > 0 ? paidBase : clientPaidAmount;
@@ -6396,8 +6406,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
         rateAmount,
         rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
-        payMethod: pctPay.usesPercentPay ? (pctPay.basis === 'collected' ? 'percent_collected' : 'percent_of_charge') : 'fixed_rate',
+        payMethod: pctPay.usesPercentPay ? (pctPay.basis === 'billed' ? 'percent_billed' : pctPay.basis === 'collected' ? 'percent_collected' : 'percent_of_charge') : 'fixed_rate',
         payPercent: pctPay.usesPercentPay ? pctPay.percent : null,
+        ...(billedPay ? { billedAmount: billedPay.billedAmount, presentBilledPay: billedPay.presentAmount, carryoverBilledPay: billedPay.carryoverAmount } : {}),
         clientPaidAmount: pctPay.usesPercentPay ? clientPaidAmount : null,
         presentClientPaidAmount: pctPay.usesPercentPay ? presentClientPaidAmount : null,
         carryoverClientPaidAmount: pctPay.usesPercentPay ? carryoverClientPaidAmount : null,
@@ -7329,7 +7340,8 @@ export const importPayrollCsv = [
           requiresProcessing,
           processedAt: null,
           processedByUserId: null,
-          clientPaidAmount: r.clientPaidAmount ?? null
+          clientPaidAmount: r.clientPaidAmount ?? null,
+          billedAmount: r.billedAmount ?? r.billed_amount ?? null
         };
       });
 
@@ -7550,7 +7562,8 @@ export const importPayrollAuto = [
           requiresProcessing,
           processedAt: null,
           processedByUserId: null,
-          clientPaidAmount: r.clientPaidAmount ?? null
+          clientPaidAmount: r.clientPaidAmount ?? null,
+          billedAmount: r.billedAmount ?? r.billed_amount ?? null
         };
       });
 
@@ -7771,7 +7784,8 @@ export const batchCatchUp = [
                 requiresProcessing,
                 processedAt: null,
                 processedByUserId: null,
-                clientPaidAmount: r.clientPaidAmount ?? null
+                clientPaidAmount: r.clientPaidAmount ?? null,
+                billedAmount: r.billedAmount ?? r.billed_amount ?? null
               };
             });
             const skippedOutOfPeriod = Math.max(0, parsed2.length - rowsToInsertPersist.length);
@@ -7885,7 +7899,8 @@ export const batchCatchUp = [
               requiresProcessing,
               processedAt: null,
               processedByUserId: null,
-              clientPaidAmount: r.clientPaidAmount ?? null
+              clientPaidAmount: r.clientPaidAmount ?? null,
+              billedAmount: r.billedAmount ?? r.billed_amount ?? null
             };
           });
           await PayrollImportRow.bulkInsert(rowsToInsert2);
@@ -8266,7 +8281,8 @@ export const batchCatchUp = [
             requiresProcessing,
             processedAt: null,
             processedByUserId: null,
-            clientPaidAmount: r.clientPaidAmount ?? null
+            clientPaidAmount: r.clientPaidAmount ?? null,
+            billedAmount: r.billedAmount ?? r.billed_amount ?? null
           });
         }
         await PayrollImportRow.bulkInsert(rowsToInsert);
@@ -11505,7 +11521,8 @@ export const replacePayrollImport = [
           requiresProcessing,
           processedAt: null,
           processedByUserId: null,
-          clientPaidAmount: r.clientPaidAmount ?? null
+          clientPaidAmount: r.clientPaidAmount ?? null,
+          billedAmount: r.billedAmount ?? r.billed_amount ?? null
         };
       });
       const skippedOutOfPeriod = Math.max(0, (parsed || []).length - rowsToInsert.length);

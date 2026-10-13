@@ -11149,7 +11149,7 @@ const fmtMoney = (v) => {
 const fmtBreakdownRate = (line) => {
   const method = String(line?.payMethod || '').trim().toLowerCase();
   const pct = line?.payPercent;
-  if (['percent_of_charge','percent_collected'].includes(method) && pct !== null && pct !== undefined && pct !== '') {
+  if (['percent_of_charge','percent_collected','percent_billed'].includes(method) && pct !== null && pct !== undefined && pct !== '') {
     const n = Number(pct);
     if (Number.isFinite(n)) {
       return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
@@ -11659,6 +11659,7 @@ const splitBreakdownForDisplay = (breakdown) => {
       continue;
     }
 
+    if (v.payMethod === 'percent_billed') { out.push({ code, ...v }); continue; }
     const totalAmount = Number(v.amount || 0);
     const totalUnits = Math.max(0, finalizedUnits);
     const baseUnits = Math.max(0, totalUnits - carryUnits);

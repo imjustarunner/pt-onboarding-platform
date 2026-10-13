@@ -78,6 +78,7 @@ class PayrollImportRow {
         String(r.apptType || '').trim() || null,
         null, // amount_collected (do not store)
         ...(hasClientPaid ? [clientPaid] : []),
+        r.billedAmount ?? null,
         null, // paid_status (do not store)
         r.draftPayable === undefined || r.draftPayable === null ? 1 : (r.draftPayable ? 1 : 0),
         r.unitCount,
@@ -98,7 +99,7 @@ class PayrollImportRow {
        (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name,
         provider_name_ciphertext_b64, provider_name_iv_b64, provider_name_auth_tag_b64, provider_name_key_id,
         patient_first_name_ciphertext_b64, patient_first_name_iv_b64, patient_first_name_auth_tag_b64, patient_first_name_key_id,
-        service_code, location, service_date, note_status, appt_type, amount_collected, ${hasClientPaid ? 'client_paid_amount, ' : ''}paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
+        service_code, location, service_date, note_status, appt_type, amount_collected, ${hasClientPaid ? 'client_paid_amount, ' : ''}billed_amount, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -145,6 +146,7 @@ class PayrollImportRow {
          pir.draft_payable,
          pir.unit_count,
          pir.client_paid_amount,
+         pir.billed_amount,
          pir.row_fingerprint,
          pir.requires_processing,
          pir.processed_at,
