@@ -148,6 +148,7 @@
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_holiday' }" @click="typeFilter = 'school_holiday'">Holiday</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">School break / Day off</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_outreach' }" @click="typeFilter = 'school_outreach'">Outreach</button>
+      <button type="button" class="chip" :class="{ active: outstandingOnly }" @click="outstandingOnly = !outstandingOnly; if (outstandingOnly) typeFilter = ''">Needs payment</button>
       <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
     </div>
 
@@ -196,6 +197,7 @@
                 <td>
                   <div class="name-cell">
                     <span class="primary">{{ e.title }}</span>
+                    <span v-if="e.requiresPayment" class="hint">{{ eventPaymentLabel(e) }}</span>
                     <span v-if="e.featured" class="featured">Featured</span>
                   </div>
                   <div class="muted clamp">{{ e.description || '—' }}</div>
@@ -365,6 +367,7 @@
 </template>
 
 <script setup>
+import { needsEventPayment, eventPaymentLabel } from '../../../utils/eventOperations';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   formatSchoolEventWhen,
@@ -404,6 +407,7 @@ const kioskSettingsError = ref('');
 const kioskCustomPin = ref('5373');
 const agencies = computed(() => agencyStore.agencies || []);
 const events = ref([]);
+const outstandingOnly = ref(false);
 const summary = ref(null);
 const schoolOptions = ref([]);
 const loading = ref(false);
@@ -630,6 +634,7 @@ const filtered = computed(() => {
       return false;
     });
   }
+  if (outstandingOnly.value) list = list.filter(needsEventPayment);
   if (typeFilter.value) list = list.filter((e) => e.eventType === typeFilter.value);
   if (lifecycleFilter.value) list = list.filter((e) => e.lifecycleStatus === lifecycleFilter.value);
   if (staffingFilter.value) {
@@ -674,7 +679,7 @@ const pagedList = computed(() => displayList.value.slice((page.value - 1) * page
 
 const selectedEvent = computed(() => events.value.find((e) => e.id === selectedEventId.value) || null);
 
-watch([search, schoolFilter, typeFilter, lifecycleFilter, staffingFilter, dateFrom, dateTo, tab], () => {
+watch([search, schoolFilter, typeFilter, lifecycleFilter, staffingFilter, outstandingOnly, dateFrom, dateTo, tab], () => {
   page.value = 1;
 });
 

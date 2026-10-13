@@ -8,6 +8,14 @@ vi.mock('../../models/Notification.model.js', () => ({ default: { coalesceOrCrea
 vi.mock('../../models/UserCommunication.model.js', () => ({ default: { create: mock.communication, updateDeliveryStatus: vi.fn() } }));
 vi.mock('../../services/vonage.service.js', () => ({ default: { sendSms: mock.sms } }));
 vi.mock('../../services/smsCompliance.service.js', () => ({ prepareSmsDelivery: mock.prepare, getSmsSender: async () => ({ id: 8, agency_id: 4, scope: 'number:8', registration: { purposes: ['polling'] } }) }));
+vi.mock('../../services/companyEventOperations.service.js', () => ({
+  isEventCoordinator: vi.fn(async () => false), validateEventOperations: vi.fn(async () => ({})), saveEventOperations: vi.fn()
+}));
+vi.mock('../../services/companyEventSms.service.js', () => ({
+  resolveCompanyEventSmsSender: vi.fn(async () => ({ sender: { id: 8, phone_number: '+13035550100' }, campaignNumber: 2 })),
+  sendCompanyEventSms: (...args) => mock.sms(...args), recordCompanyEventPollSmsResponse: vi.fn(),
+  isCompanyEventSmsMuted: vi.fn(async () => false)
+}));
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
 import * as controller from '../companyEvents.controller.js';
 let event, users, replies;

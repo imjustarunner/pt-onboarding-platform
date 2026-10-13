@@ -101,7 +101,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -120,6 +120,12 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+  if (companyEventId != null) {
+    const [events] = await pool.execute('SELECT id FROM company_events WHERE id = ? AND agency_id = ?', [Number(companyEventId), Number(sender.agency_id)]);
+    if (!events.length) throw smsPolicyError('event_sms_invalid_event', 'Event does not belong to this sending agency');
+    const [muted] = await pool.execute('SELECT 1 FROM company_event_sms_preferences WHERE company_event_id = ? AND phone = ? LIMIT 1', [Number(companyEventId), recipient]);
+    if (muted.length) throw smsPolicyError('event_sms_muted', 'Recipient has turned off texts about this event');
+  }
   if (purpose === 'workforce' && staffNotificationKind === 'hiring') {
     if(!Number.isSafeInteger(Number(hiringUserId))||Number(hiringUserId)<1)throw smsPolicyError('sms_hiring_consent_required','The hiring recipient must be identified.');
     const [grants] = await pool.execute(`SELECT r.id FROM hire_communication_preferences p

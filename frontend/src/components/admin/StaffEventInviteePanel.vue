@@ -77,16 +77,16 @@
       </table>
     </div>
 
-    <!-- Unmatched guest registrations (no account link) -->
+    <!-- Public attendee registrations are kept separate from staff assignments. -->
     <div class="response-list" v-if="guestRegistrations.length">
       <div class="table-title">
-        Unmatched Guest Registrations
-        <span class="unmatched-badge" title="These attendees submitted an RSVP from the public page but couldn't be linked to an account automatically. Match them manually or ask them to re-submit using their work email.">{{ guestRegistrations.length }}</span>
+        Public Attendee Registrations
+        <span class="unmatched-badge" title="Attendees who registered on the public event page.">{{ guestRegistrations.length }}</span>
       </div>
-      <p class="muted" style="font-size:12px;margin-bottom:8px;">These RSVPs came from the public event page but couldn't be linked to a staff account via email, phone, or name. Ask them to re-submit with their work email or sign in first, and then contact an admin to link the record.</p>
+      <p class="muted" style="font-size:12px;margin-bottom:8px;">Public RSVPs and attendee check-ins appear here. Staff interest, assignments, and work time are managed through the staff event link.</p>
       <table class="mini-table">
         <thead>
-          <tr><th>Name</th><th>Email</th><th>Phone</th><th>Response</th><th>Guests</th><th>Dietary</th><th>Notes</th></tr>
+          <tr><th>Name</th><th>Email</th><th>Phone</th><th>Response</th><th>Guests</th><th>Check-in</th><th>Check-out</th><th>Dietary</th><th>Notes</th></tr>
         </thead>
         <tbody>
           <tr v-for="g in guestRegistrations" :key="g.id">
@@ -95,6 +95,8 @@
             <td>{{ g.phone || '-' }}</td>
             <td>{{ g.response }}</td>
             <td>{{ g.guestCount }}</td>
+            <td>{{ g.checkedInAt ? formatDateTime(g.checkedInAt) : 'Not checked in' }}</td>
+            <td>{{ g.checkedOutAt ? formatDateTime(g.checkedOutAt) : '—' }}</td>
             <td>{{ g.dietaryNotes || '-' }}</td>
             <td>{{ g.notes || '-' }}</td>
           </tr>

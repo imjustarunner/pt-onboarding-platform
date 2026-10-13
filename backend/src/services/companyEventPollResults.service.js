@@ -40,12 +40,13 @@ export async function deliverPollResults({ event, summary, recipients, send, opt
       if (prior.length || !await optedIn(event.id, userId)) { counts.skipped++; continue; }
       const [record] = await conn.execute("INSERT INTO company_event_dispatch_logs (company_event_id,user_id,channel,dispatch_type,status) VALUES (?,?,'sms','poll_results','queued')", [event.id, userId]);
       try {
-        await send({ userId, to: recipient.phone, body: pollResultsMessage(event, summary) });
-        await conn.execute("UPDATE company_event_dispatch_logs SET status = 'sent', sent_at = NOW() WHERE id = ?", [record.insertId]);
+        const result = await send({ userId, to: recipient.phone, body: pollResultsMessage(event, summary) });
+        await conn.execute("UPDATE company_event_dispatch_logs SET status = 'sent', twilio_sid = ?, sent_at = NOW() WHERE id = ?", [result?.sid || null, record.insertId]);
         counts.sent++;
       } catch (error) {
-        await conn.execute("UPDATE company_event_dispatch_logs SET status = 'failed', status_reason = ? WHERE id = ?", [String(error.code || 'delivery_failed').slice(0,255), record.insertId]);
-        counts.failed++;
+        const suppressed = Number(error.status) === 403;
+        await conn.execute("UPDATE company_event_dispatch_logs SET status = ?, status_reason = ? WHERE id = ?", [suppressed ? 'skipped' : 'failed', String(error.code || 'delivery_failed').slice(0,255), record.insertId]);
+        if (suppressed) counts.skipped++; else counts.failed++;
       }
     } finally {
       try { if (locked) await conn.execute('SELECT RELEASE_LOCK(?)', [lock]); } finally { conn.release(); }

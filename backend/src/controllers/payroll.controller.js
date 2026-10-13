@@ -57,6 +57,7 @@ import PayrollMedcancelClaimItem from '../models/PayrollMedcancelClaimItem.model
 import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model.js';
 import PayrollCompanyCardExpense from '../models/PayrollCompanyCardExpense.model.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
+import { persistEventTravelClaim } from '../services/companyEventParticipation.service.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import PayrollUserIndirectServiceAssignment from '../models/PayrollUserIndirectServiceAssignment.model.js';
 import PayrollHolidayBonusClaim from '../models/PayrollHolidayBonusClaim.model.js';
@@ -18651,7 +18652,9 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       userId
     });
 
-    const claim = await PayrollTimeClaim.create({
+    const persistClaim = claimType === 'indirect_time' && (payload.eventWorkType === 'travel' || payload.source === 'company_event_travel')
+      ? persistEventTravelClaim : (args) => PayrollTimeClaim.create(args);
+    const claim = await persistClaim({
       agencyId,
       userId,
       submittedByUserId,
@@ -18910,11 +18913,14 @@ export const updateMyTimeClaim = async (req, res, next) => {
       if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) claimDate = ymd;
     }
 
-    const updated = await PayrollTimeClaim.resubmit({
-      id,
-      claimDate,
-      payload: nextPayload
-    });
+    const eventTravel = prevPayload.eventWorkType === 'travel' || nextPayload.eventWorkType === 'travel'
+      || prevPayload.source === 'company_event_travel' || nextPayload.source === 'company_event_travel';
+    const updated = eventTravel
+      ? await persistEventTravelClaim({
+        agencyId: Number(claim.agency_id), userId: Number(userId), claimDate,
+        payload: { ...nextPayload, eventWorkType: 'travel', source: 'company_event_travel' }
+      }, { existingClaimId: id })
+      : await PayrollTimeClaim.resubmit({ id, claimDate, payload: nextPayload });
     const hours = Math.round((totalMinutes / 60) * 10000) / 10000;
     await pool.execute(
       `UPDATE payroll_time_claims SET bucket = 'indirect', credits_hours = ? WHERE id = ? LIMIT 1`,

@@ -10,10 +10,11 @@
     <div class="toolbar">
       <select v-model="selectedEventId" class="input">
         <option value="">Create new event…</option>
-        <option v-for="evt in events" :key="evt.id" :value="String(evt.id)">
+        <option v-for="evt in selectableEvents" :key="evt.id" :value="String(evt.id)">
           {{ evt.title }} ({{ formatDate(evt.startsAt) }})
         </option>
       </select>
+      <label class="chip-toggle"><input v-model="outstandingOnly" type="checkbox" /> Needs payment</label>
       <button class="btn btn-secondary btn-sm" type="button" @click="resetForm">New</button>
       <button class="btn btn-secondary btn-sm" type="button" @click="reloadEvents">Reload</button>
     </div>
@@ -360,33 +361,9 @@
       </template>
     </div>
 
-    <div v-if="!isServiceProgramDraft" class="section section-disabled">
-      <h4>8) SMS (framed; disabled send)</h4>
-      <p class="muted">SMS targeting will be available when texting is approved.</p>
-      <div class="grid two">
-        <div>
-          <label class="lbl">Target</label>
-          <select v-model="smsDraft.target" class="input">
-            <option value="all_invitees">All invitees</option>
-            <option value="non_responders">Non-responders</option>
-            <option value="attending">Attending only</option>
-            <option value="all">All in audience</option>
-          </select>
-        </div>
-        <div>
-          <label class="lbl">Schedule (optional)</label>
-          <input v-model="smsDraft.scheduledFor" class="input" type="datetime-local" />
-        </div>
-      </div>
-      <label class="lbl">Message draft</label>
-      <textarea v-model.trim="smsDraft.message" class="input" rows="2" />
-      <div class="inline-row">
-        <button class="btn btn-secondary btn-sm" type="button" @click="saveSmsDraft" :disabled="!selectedEventId || smsSaving">
-          {{ smsSaving ? 'Saving…' : 'Save draft' }}
-        </button>
-        <small class="muted">No text messages are sent from this action.</small>
-      </div>
-    </div>
+    <EventTextCampaignPanel :agency-id="agencyId" :event="selectedEventDetails" />
+
+    <EventOperationsSettings :model-value="draft" :users="selectedEventDetails.canAssignCoordinators === false ? [] : audienceUsers" @update:model-value="Object.assign(draft, $event)" />
 
     <div class="save-row">
       <button class="btn btn-primary" type="button" @click="saveEvent" :disabled="saving || !canSave">
@@ -394,29 +371,7 @@
       </button>
     </div>
 
-    <!-- Public event page + registration link — visible once an event is saved -->
-    <div v-if="selectedEventIdNum > 0" class="section reg-link-hint">
-      <h4>Public event page</h4>
-      <p class="muted" style="margin: 0 0 10px;">
-        Share this URL so anyone can view event details. Employees who received a tokenized email invitation
-        will see a personalised <strong>"Can't wait to see you there!"</strong> confirmation when they visit
-        after RSVPing.
-      </p>
-      <div class="reg-url-row">
-        <code class="reg-url">{{ eventPublicUrl }}</code>
-        <button type="button" class="btn btn-secondary btn-sm" @click="copyEventUrl">
-          {{ copied ? '✓ Copied' : 'Copy link' }}
-        </button>
-        <a :href="eventPublicUrl" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">
-          Open &rarr;
-        </a>
-      </div>
-      <p class="muted" style="margin: 14px 0 8px;">
-        To let staff register and auto-enroll in this event, create a
-        <strong>Smart Registration</strong> digital form and lock it to this event.
-      </p>
-      <RouterLink class="btn btn-secondary btn-sm" :to="digitalFormsPath">Open Digital Forms &rarr;</RouterLink>
-    </div>
+    <EventShareLinks v-if="selectedEventIdNum > 0" :event="selectedEventDetails" />
 
     <StaffEventInviteePanel
       v-if="selectedEventIdNum > 0"
@@ -428,6 +383,10 @@
 </template>
 
 <script setup>
+import EventOperationsSettings from './EventOperationsSettings.vue';
+import EventShareLinks from './EventShareLinks.vue';
+import EventTextCampaignPanel from './EventTextCampaignPanel.vue';
+import { eventOperationsDraft, eventOperationsPayload, eventPaymentError, needsEventPayment } from '../../utils/eventOperations';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import api from '../../services/api';
@@ -552,6 +511,7 @@ const smsDraft = reactive({
 });
 
 const defaultDraft = () => ({
+  ...eventOperationsDraft(),
   title: '',
   eventType: 'company_event',
   description: '',
@@ -578,6 +538,14 @@ const defaultDraft = () => ({
 });
 const draft = reactive(defaultDraft());
 const baselineSnapshot = ref('');
+const outstandingOnly = ref(false);
+const selectedEventRecord = ref(null);
+const selectedEventDetails = computed(() => events.value.find(event => Number(event.id) === selectedEventIdNum.value) || (Number(selectedEventRecord.value?.id) === selectedEventIdNum.value ? selectedEventRecord.value : null) || { id: selectedEventIdNum.value });
+const selectableEvents = computed(() => {
+  const list = events.value.filter(event => !outstandingOnly.value || needsEventPayment(event) || Number(event.id) === selectedEventIdNum.value);
+  if (selectedEventRecord.value && Number(selectedEventRecord.value.id) === selectedEventIdNum.value && !list.some(event => Number(event.id) === selectedEventIdNum.value)) return [selectedEventRecord.value, ...list];
+  return list;
+});
 
 const selectedEventIdNum = computed(() => {
   const n = Number(selectedEventId.value || 0);
@@ -704,7 +672,9 @@ const deriveCategoryFromEventType = (rawType) => {
 
 const populateFromEvent = (evt) => {
   if (!evt) return;
+  selectedEventRecord.value = evt;
   Object.assign(draft, {
+    ...eventOperationsDraft(evt),
     title: evt.title || '',
     eventType: evt.eventType || 'company_event',
     description: evt.description || '',
@@ -730,7 +700,7 @@ const populateFromEvent = (evt) => {
     audience: {
       userIds: Array.isArray(evt.audience?.userIds) ? [...evt.audience.userIds] : [],
       roleKeys: Array.isArray(evt.audience?.roleKeys) ? [...evt.audience.roleKeys] : [],
-      groupIds: []
+      groupIds: Array.isArray(evt.audience?.groupIds) ? [...evt.audience.groupIds] : []
     }
   });
   selectedEventCategory.value = deriveCategoryFromEventType(evt.eventType);
@@ -748,6 +718,7 @@ const serializeFormState = () => JSON.stringify({
   selectedEventCategory: String(selectedEventCategory.value || ''),
   selectedPreset: String(selectedPreset.value || ''),
   draft: {
+    ...eventOperationsPayload(draft),
     title: draft.title || '',
     eventType: draft.eventType || '',
     description: draft.description || '',
@@ -849,7 +820,7 @@ const loadIntakeLinksForRegistrationPicker = async () => {
 
 const reloadEvents = async () => {
   if (!props.agencyId) return;
-  const resp = await api.get(`/agencies/${props.agencyId}/company-events`);
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events`, { params: outstandingOnly.value ? { paymentStatus: 'outstanding' } : {} });
   events.value = Array.isArray(resp.data) ? resp.data : [];
   await loadIntakeLinksForRegistrationPicker();
 };
@@ -969,6 +940,7 @@ const detachSurveyFromSession = async (attachmentId) => {
 
 const saveEvent = async () => {
   if (!canSave.value) return;
+  if (eventPaymentError(draft)) { error.value = eventPaymentError(draft); return; }
   saving.value = true;
   error.value = '';
   try {
@@ -978,6 +950,7 @@ const saveEvent = async () => {
       .filter(Boolean);
 
     const payload = {
+      ...eventOperationsPayload(draft),
       title: draft.title,
       eventType: draft.eventType || selectedEventCategory.value || 'company_event',
       description: draft.description,
@@ -985,16 +958,22 @@ const saveEvent = async () => {
       startsAt: isoForApi(draft.startsAtLocal),
       endsAt: isoForApi(draft.endsAtLocal),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      recurrence: { frequency: 'none', interval: 1, byWeekday: [] },
+      recurrence: selectedEventDetails.value.recurrence || { frequency: 'none', interval: 1, byWeekday: [] },
       rsvpMode: isServiceProgramDraft.value ? 'none' : (draft.rsvpMode || 'yes_no_maybe'),
       votingConfig: isServiceProgramDraft.value
         ? { enabled: false, viaSms: false, question: '', options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'maybe', label: 'Maybe' }] }
-        : { enabled: true, viaSms: false, question: draft.votingQuestion || 'Will you attend?', options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'maybe', label: 'Maybe' }] },
-      reminderConfig: { enabled: false, channels: { sms: false }, offsetsHours: [] },
+        : {
+            enabled: true,
+            viaSms: false,
+            ...selectedEventDetails.value.votingConfig,
+            question: draft.votingQuestion || 'Will you attend?',
+            options: selectedEventDetails.value.votingConfig?.options || [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'maybe', label: 'Maybe' }]
+          },
+      reminderConfig: selectedEventDetails.value.reminderConfig || { enabled: false, channels: { sms: false }, offsetsHours: [] },
       audience: {
         userIds: isServiceProgramDraft.value ? [] : (draft.audience.userIds || []),
         roleKeys: isServiceProgramDraft.value ? [] : (draft.audience.roleKeys || []),
-        groupIds: []
+        groupIds: isServiceProgramDraft.value ? [] : (draft.audience.groupIds || [])
       },
       guestPolicy: draft.guestPolicy,
       potluckEnabled: !!draft.potluckEnabled,
@@ -1163,6 +1142,8 @@ const applyEventCategory = () => {
   if (cat === 'custom') return;
   draft.eventType = cat;
 };
+
+watch(outstandingOnly, () => { void reloadEvents().catch(() => { error.value = 'Could not load event payments.'; }); });
 
 watch([selectedEventIdNum, isServiceProgramDraft], () => {
   void loadIntakeLinksForThisEvent();

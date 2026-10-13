@@ -9,12 +9,26 @@ const parsePositiveInt = (raw) => {
   return Number.isFinite(value) && value > 0 ? value : null;
 };
 
-export async function clientOnSkillBuilderEventRoster(clientId, eventId, agencyId) {
+async function withEventPunchTransaction(dbPool, userId, action) {
+  const db = await dbPool.getConnection();
+  try {
+    await db.beginTransaction();
+    // The employee link, kiosks, and travel claims share this lock. A retry or
+    // simultaneous kiosk/phone checkout cannot generate another payroll pair.
+    await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+    const result = await action(db);
+    if (result?.error) await db.rollback();
+    else await db.commit();
+    return result;
+  } catch (err) { await db.rollback(); throw err; } finally { db.release(); }
+}
+
+export async function clientOnSkillBuilderEventRoster(clientId, eventId, agencyId, db = pool) {
   const cid = parsePositiveInt(clientId);
   const eid = parsePositiveInt(eventId);
   const aid = parsePositiveInt(agencyId);
   if (!cid || !eid || !aid) return false;
-  const [r] = await pool.execute(
+  const [r] = await db.execute(
     `SELECT 1 AS ok
      FROM skills_group_clients sgc
      INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
@@ -25,12 +39,12 @@ export async function clientOnSkillBuilderEventRoster(clientId, eventId, agencyI
   return !!r?.[0]?.ok;
 }
 
-export async function providerOnSkillBuilderEventRoster(providerUserId, eventId, agencyId) {
+export async function providerOnSkillBuilderEventRoster(providerUserId, eventId, agencyId, db = pool) {
   const pid = parsePositiveInt(providerUserId);
   const eid = parsePositiveInt(eventId);
   const aid = parsePositiveInt(agencyId);
   if (!pid || !eid || !aid) return false;
-  const [r] = await pool.execute(
+  const [r] = await db.execute(
     `SELECT 1 AS ok
      FROM skills_group_providers sgp
      INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
@@ -42,18 +56,20 @@ export async function providerOnSkillBuilderEventRoster(providerUserId, eventId,
 }
 
 /** Staff on event roster via skills groups, provider assignments, or session providers. */
-export async function providerOnEventStaffRoster(providerUserId, eventId, agencyId) {
-  if (await providerOnSkillBuilderEventRoster(providerUserId, eventId, agencyId)) return true;
+export async function providerOnEventStaffRoster(providerUserId, eventId, agencyId, db = pool) {
+  if (await providerOnSkillBuilderEventRoster(providerUserId, eventId, agencyId, db)) return true;
 
   const pid = parsePositiveInt(providerUserId);
   const eid = parsePositiveInt(eventId);
-  if (!pid || !eid) return false;
+  const aid = parsePositiveInt(agencyId);
+  if (!pid || !eid || !aid) return false;
 
   try {
-    const [r] = await pool.execute(
-      `SELECT 1 AS ok FROM company_event_provider_assignments
-       WHERE company_event_id = ? AND provider_user_id = ? LIMIT 1`,
-      [eid, pid]
+    const [r] = await db.execute(
+      `SELECT 1 AS ok FROM company_event_provider_assignments a
+       JOIN company_events e ON e.id = a.company_event_id
+       WHERE a.company_event_id = ? AND a.provider_user_id = ? AND e.agency_id = ? LIMIT 1`,
+      [eid, pid, aid]
     );
     if (r?.[0]?.ok) return true;
   } catch (err) {
@@ -61,10 +77,10 @@ export async function providerOnEventStaffRoster(providerUserId, eventId, agency
   }
 
   try {
-    const [r] = await pool.execute(
+    const [r] = await db.execute(
       `SELECT 1 AS ok FROM company_event_session_providers
-       WHERE company_event_id = ? AND provider_user_id = ? LIMIT 1`,
-      [eid, pid]
+       WHERE company_event_id = ? AND provider_user_id = ? AND agency_id = ? LIMIT 1`,
+      [eid, pid, aid]
     );
     if (r?.[0]?.ok) return true;
   } catch (err) {
@@ -265,6 +281,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
 
   if (directHours > 0) {
     const directClaim = await PayrollTimeClaim.create({
+      db: poolConn,
       agencyId,
       userId,
       submittedByUserId: userId,
@@ -287,6 +304,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
     : 'indirect';
   if (remainderHours > 0 && remainderBucket !== 'direct') {
     const remainderClaim = await PayrollTimeClaim.create({
+      db: poolConn,
       agencyId,
       userId,
       submittedByUserId: userId,
@@ -306,6 +324,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
 
   if (directClaimId && indirectClaimId) {
     await PayrollTimeClaim.updatePayload({
+      db: poolConn,
       id: directClaimId,
       payload: { ...basePayload, bucketRole: 'direct', payrollRateSlot: 'direct', siblingClaimId: indirectClaimId }
     });
@@ -342,6 +361,9 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
  * @param {import('mysql2/promise').Pool|import('mysql2/promise').PoolConnection} poolConn
  */
 export async function recordSkillBuilderEventClockIn(poolConn, params) {
+  if (typeof poolConn.getConnection === 'function' && [params.agencyId, params.eventId, params.userId].every(parsePositiveInt)) {
+    return withEventPunchTransaction(poolConn, params.userId, (db) => recordSkillBuilderEventClockIn(db, params));
+  }
   const {
     agencyId,
     eventId,
@@ -373,13 +395,13 @@ export async function recordSkillBuilderEventClockIn(poolConn, params) {
 
   const cid = parsePositiveInt(clientId);
   if (cid) {
-    const okRoster = await clientOnSkillBuilderEventRoster(cid, eid, aid);
+    const okRoster = await clientOnSkillBuilderEventRoster(cid, eid, aid, poolConn);
     if (!okRoster) {
       return { error: { status: 400, message: 'Client is not on this event roster' } };
     }
   }
 
-  const onRoster = await providerOnEventStaffRoster(uid, eid, aid);
+  const onRoster = await providerOnEventStaffRoster(uid, eid, aid, poolConn);
   if (!onRoster && !allowUnassigned) {
     return { error: { status: 400, message: 'User is not on this event provider roster' } };
   }
@@ -447,6 +469,9 @@ export async function recordEventEmployeeClockIn(poolConn, params) {
  * @param {import('mysql2/promise').Pool|import('mysql2/promise').PoolConnection} poolConn
  */
 export async function recordSkillBuilderEventClockOut(poolConn, params) {
+  if (typeof poolConn.getConnection === 'function' && [params.agencyId, params.eventId, params.userId].every(parsePositiveInt)) {
+    return withEventPunchTransaction(poolConn, params.userId, (db) => recordSkillBuilderEventClockOut(db, params));
+  }
   const agencyId = parsePositiveInt(params.agencyId);
   const eventId = parsePositiveInt(params.eventId);
   const userId = parsePositiveInt(params.userId);
@@ -468,7 +493,7 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   const lastIn = inRows?.[0];
   if (!lastIn) return { error: { status: 400, message: 'No clock-in found' } };
 
-  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId);
+  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId, poolConn);
   const allowUnassigned = params.allowUnassigned === true;
   if (!onRoster && !allowUnassigned) {
     // Self clock-in without assignment still needs a matching open punch (handled above).
@@ -488,7 +513,7 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
     `SELECT skill_builder_direct_hours, event_type FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
     [eventId, agencyId]
   );
-  const eventPayroll = await loadEventPayrollContext({ agencyId, eventId }).catch(() => null);
+  const eventPayroll = await loadEventPayrollContext({ agencyId, eventId, db: poolConn }).catch(() => null);
   const eventType = String(eventPayroll?.eventType || evRows?.[0]?.event_type || '').toLowerCase();
   const schoolPortalEvent = eventType.startsWith('school_') || source === 'school_events_kiosk';
   const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
@@ -612,6 +637,9 @@ async function syncAdminManualEmployeeKioskCheckin(poolConn, {
  * Creates kiosk punches + deferred event-time payroll claims (sent back to employee).
  */
 export async function recordAdminManualEmployeeEventTime(poolConn, params) {
+  if (typeof poolConn.getConnection === 'function' && [params.agencyId, params.eventId, params.userId].every(parsePositiveInt)) {
+    return withEventPunchTransaction(poolConn, params.userId, (db) => recordAdminManualEmployeeEventTime(db, params));
+  }
   const agencyId = parsePositiveInt(params.agencyId);
   const eventId = parsePositiveInt(params.eventId);
   const userId = parsePositiveInt(params.userId);
@@ -634,7 +662,7 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
     return { error: { status: 400, message: 'Check-out must be after check-in' } };
   }
 
-  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId);
+  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId, poolConn);
   if (!onRoster) {
     return { error: { status: 400, message: 'Employee is not on this event staff roster' } };
   }
@@ -659,7 +687,7 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
     };
   }
 
-  const paired = await listPairedEventProviderAttendance(eventId, { userId, agencyId });
+  const paired = await listPairedEventProviderAttendance(eventId, { userId, agencyId, db: poolConn });
   const hasDayRecord = paired.some((row) => {
     const d = utcDateToZonedYmd(row.clockInAt, eventTimezone);
     return d === kioskDateYmd && row.clockInAt;
@@ -683,7 +711,7 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
     return { error: { status: 409, message: 'Employee has an open clock-in. Close it before adding manual times.' } };
   }
 
-  const eventPayroll = await loadEventPayrollContext({ agencyId, eventId }).catch(() => null);
+  const eventPayroll = await loadEventPayrollContext({ agencyId, eventId, db: poolConn }).catch(() => null);
   const schoolPortalEvent = eventType.startsWith('school_');
   const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
   const remainderSlot = eventPayroll?.rateSlot || (schoolPortalEvent ? 'other_1' : 'indirect');
@@ -769,7 +797,7 @@ function claimStatusFromRow(row) {
 /**
  * Pair clock_in / clock_out punches for an event into payroll-ready rows.
  */
-export async function listPairedEventProviderAttendance(eventId, { userId = null, agencyId = null } = {}) {
+export async function listPairedEventProviderAttendance(eventId, { userId = null, agencyId = null, db = pool } = {}) {
   const eid = parsePositiveInt(eventId);
   if (!eid) return [];
 
@@ -783,7 +811,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
 
   let rows = [];
   try {
-    [rows] = await pool.execute(
+    [rows] = await db.execute(
       `SELECT p.id, p.user_id, p.punch_type, p.punched_at, p.session_id,
               p.payroll_time_claim_id, p.payroll_indirect_claim_id,
               u.first_name, u.last_name
@@ -796,7 +824,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
   } catch (err) {
     if (err?.code === 'ER_NO_SUCH_TABLE') return [];
     if (err?.code === 'ER_BAD_FIELD_ERROR') {
-      [rows] = await pool.execute(
+      [rows] = await db.execute(
         `SELECT p.id, p.user_id, p.punch_type, p.punched_at, p.session_id,
                 p.payroll_time_claim_id, NULL AS payroll_indirect_claim_id,
                 u.first_name, u.last_name
@@ -819,7 +847,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
   const claimById = new Map();
   if (claimIds.size) {
     const ph = [...claimIds].map(() => '?').join(',');
-    const [claimRows] = await pool.execute(
+    const [claimRows] = await db.execute(
       `SELECT id, status, bucket, credits_hours, target_payroll_period_id, payload_json, rejection_reason
        FROM payroll_time_claims WHERE id IN (${ph})`,
       [...claimIds]
@@ -831,7 +859,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
 
   let directHoursCap = 0;
   if (agencyId) {
-    const [evRows] = await pool.execute(
+    const [evRows] = await db.execute(
       `SELECT skill_builder_direct_hours, event_type FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
       [eid, agencyId]
     );

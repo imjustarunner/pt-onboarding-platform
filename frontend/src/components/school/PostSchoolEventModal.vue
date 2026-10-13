@@ -144,6 +144,10 @@
             Important dates include every day from the start date through the end date. They do not open provider staffing.
           </p>
 
+          <EventOperationsSettings v-if="!isCalendarOnlyCategory && canEditOperations" :model-value="form" :users="coordinatorUsers" @update:model-value="Object.assign(form, $event)" />
+          <EventShareLinks v-if="editEvent?.id && !isCalendarOnlyCategory" :event="editEvent" />
+          <EventTextCampaignPanel v-if="editEvent?.id && agencyId && !isCalendarOnlyCategory && canCoordinateEvent" :agency-id="agencyId" :event="editEvent" />
+
           <label class="field">
             <span class="lbl">Details link (optional)</span>
             <input
@@ -240,6 +244,10 @@
 </template>
 
 <script setup>
+import EventOperationsSettings from '../admin/EventOperationsSettings.vue';
+import EventShareLinks from '../admin/EventShareLinks.vue';
+import EventTextCampaignPanel from '../admin/EventTextCampaignPanel.vue';
+import { eventOperationsDraft, eventOperationsPayload, eventPaymentError } from '../../utils/eventOperations';
 import { onMounted, reactive, ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -412,12 +420,15 @@ function withReinitIdentity(payload) {
 }
 
 /** Direct assign-on-create: admin / support / super_admin only (not school staff or providers). */
+const canEditOperations = computed(() => ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'schedule_manager'].includes(String(authStore.user?.role || '').toLowerCase()));
+const canCoordinateEvent = computed(() => canEditOperations.value && (canManageDistrictBroadcast.value || (props.editEvent?.coordinatorUserIds || []).map(Number).includes(Number(authStore.user?.id))));
 const canDirectAssignRole = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support'].includes(role);
 });
 
 const form = reactive({
+  ...eventOperationsDraft({ eventType: 'school_event' }),
   category: 'back_to_school',
   title: '',
   description: '',
@@ -452,6 +463,14 @@ const canAssignOnCreate = computed(
 );
 
 const assignProviderOptions = ref([]);
+const coordinatorUsers = ref([]);
+async function loadCoordinatorOptions() {
+  if (!canDirectAssignRole.value || !props.agencyId || isCalendarOnlyCategory.value) return;
+  try {
+    const { data } = await api.get(`/agencies/${props.agencyId}/company-events/audience-options`, { params: props.editEvent?.id ? { eventId: props.editEvent.id } : {} });
+    coordinatorUsers.value = data?.users || [];
+  } catch { coordinatorUsers.value = []; }
+}
 const providersLoading = ref(false);
 const selectedAssignIds = ref([]);
 const assignPick = ref('');
@@ -652,7 +671,9 @@ const submit = async () => {
       error.value = 'Enter a start date and an end date on or after it. For events, the end time must be after the start time.';
       return;
     }
+    if (!isCalendarOnlyCategory.value && eventPaymentError(form)) { error.value = eventPaymentError(form); return; }
     const payload = withReinitIdentity({
+      ...(!isCalendarOnlyCategory.value && canEditOperations.value ? eventOperationsPayload(form) : {}),
       category: isDistrictOutreachCreate.value || isDistrictOutreachEvent.value ? 'outreach' : form.category,
       title: form.title.trim(),
       description: form.description.trim(),
@@ -821,6 +842,7 @@ const hydrateFromEdit = () => {
       : e.providersRequested != null
         ? Math.max(1, Number(e.providersRequested) || 2)
         : 2;
+  Object.assign(form, eventOperationsDraft({ eventType: 'school_event', ...e }));
   form.schoolEventStatus = e.schoolEventStatus || e.status || 'scheduled';
   form.outreachTableInvited = !!e.outreachTableInvited;
   form.flierFileUrl = e.flierFileUrl || '';
@@ -830,6 +852,7 @@ const hydrateFromEdit = () => {
 };
 
 onMounted(() => {
+  void loadCoordinatorOptions();
   form.category = props.districtOutreach
     ? 'outreach'
     : (props.initialCategory || (isDistrictCreate.value ? 'day_off' : 'back_to_school'));

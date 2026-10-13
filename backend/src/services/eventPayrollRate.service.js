@@ -33,12 +33,12 @@ export const KNOWN_EVENT_PAYROLL_TYPES = [
 const eventContextCache = new Map();
 const EVENT_CONTEXT_TTL_MS = 2 * 60 * 1000;
 
-export async function loadAgencyOtherRateTitles(agencyId) {
+export async function loadAgencyOtherRateTitles(agencyId, db = pool) {
   const base = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
   const aid = Number(agencyId);
   if (!aid) return base;
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT title_1, title_2, title_3
        FROM payroll_other_rate_titles
        WHERE agency_id = ?
@@ -162,11 +162,11 @@ export function reportingBucketForRateSlot(slot, rateCard = null) {
   return String(raw || '').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
 }
 
-export async function resolveEventPayrollTreatment({ agencyId, eventType, titles = {} }) {
+export async function resolveEventPayrollTreatment({ agencyId, eventType, titles = {}, db = pool }) {
   const defaults = defaultTreatmentForEventType(eventType);
   let mapped = null;
   try {
-    mapped = await PayrollEventTypeRateMap.getForEventType(agencyId, defaults.eventType);
+    mapped = await PayrollEventTypeRateMap.getForEventType(agencyId, defaults.eventType, db);
   } catch {
     mapped = null;
   }
@@ -183,15 +183,15 @@ export async function resolveEventPayrollTreatment({ agencyId, eventType, titles
   };
 }
 
-export async function loadEventPayrollContext({ agencyId, eventId, titles = null }) {
+export async function loadEventPayrollContext({ agencyId, eventId, titles = null, db = pool }) {
   const aid = Number(agencyId);
   const eid = Number(eventId);
   if (!aid || !eid) return null;
   const cacheKey = `${aid}:${eid}`;
   const cached = eventContextCache.get(cacheKey);
-  if (cached && (Date.now() - cached.at) < EVENT_CONTEXT_TTL_MS) {
+  if (db === pool && cached && (Date.now() - cached.at) < EVENT_CONTEXT_TTL_MS) {
     if (!cached.ctx) return null;
-    const resolvedTitles = titles || await loadAgencyOtherRateTitles(aid);
+    const resolvedTitles = titles || await loadAgencyOtherRateTitles(aid, db);
     return {
       ...cached.ctx,
       rateSlotLabel: rateSlotLabel(cached.ctx.rateSlot, resolvedTitles)
@@ -200,7 +200,7 @@ export async function loadEventPayrollContext({ agencyId, eventId, titles = null
 
   let row = null;
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT id, title, event_type, skill_builder_direct_hours, timezone
        FROM company_events
        WHERE id = ? AND agency_id = ?
@@ -212,14 +212,15 @@ export async function loadEventPayrollContext({ agencyId, eventId, titles = null
     row = null;
   }
   if (!row) {
-    eventContextCache.set(cacheKey, { at: Date.now(), ctx: null });
+    if (db === pool) eventContextCache.set(cacheKey, { at: Date.now(), ctx: null });
     return null;
   }
-  const resolvedTitles = titles || await loadAgencyOtherRateTitles(aid);
+  const resolvedTitles = titles || await loadAgencyOtherRateTitles(aid, db);
   const treatment = await resolveEventPayrollTreatment({
     agencyId: aid,
     eventType: row.event_type,
-    titles: resolvedTitles
+    titles: resolvedTitles,
+    db
   });
   const ctx = {
     eventId: eid,
@@ -231,7 +232,7 @@ export async function loadEventPayrollContext({ agencyId, eventId, titles = null
       : null,
     ...treatment
   };
-  eventContextCache.set(cacheKey, { at: Date.now(), ctx });
+  if (db === pool) eventContextCache.set(cacheKey, { at: Date.now(), ctx });
   return ctx;
 }
 

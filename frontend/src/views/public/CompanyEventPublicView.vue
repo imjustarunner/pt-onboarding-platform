@@ -164,29 +164,35 @@
         </div>
 
         <!-- Inline RSVP / Registration form -->
-        <div v-if="event.rsvpMode && event.rsvpMode !== 'none'" class="event-rsvp-card" id="rsvp">
+        <div v-if="event.publicRegistrationEnabled && !isProgramEvent" class="event-rsvp-card" id="rsvp">
+          <p v-if="registrationUnavailableMessage" role="status">{{ registrationUnavailableMessage }}</p>
           <!-- Already confirmed banner -->
           <div v-if="submitted || rsvpResponse" class="rsvp-done">
             <div class="rsvp-done-icon">{{ (regForm.response || rsvpResponse) === 'yes' ? '🎉' : (regForm.response || rsvpResponse) === 'maybe' ? '🤔' : '😔' }}</div>
             <strong class="rsvp-done-title">{{ rsvpBannerTitle }}</strong>
             <p class="rsvp-done-body">{{ rsvpBannerBody }}</p>
 
-            <!-- Unmatched account notice -->
-            <div v-if="submittedUnmatched" class="rsvp-unmatched-notice">
-              <span class="rsvp-unmatched-icon">ℹ️</span>
-              <div>
-                <strong>Your RSVP is saved!</strong> We couldn't automatically link it to an account using
-                the info provided. An admin can connect it for you, or you can
-                <a :href="`/login?redirect=/company-events/${eventId}`" class="rsvp-link">sign in</a>
-                and re-submit with your work account to link it instantly.
-              </div>
-            </div>
+            <p v-if="smsConsentStatus === 'pending_review'" class="rsvp-calendar-hint">Your text preference is saved. Texting enrollment still needs to be verified before messages can be sent.</p>
+            <p v-if="smsConsentPath" class="rsvp-calendar-hint"><a :href="smsConsentPath">Complete your text messaging consent</a></p>
+            <p v-else-if="['suppressed', 'error'].includes(smsConsentStatus)" class="rsvp-calendar-hint">Your RSVP is saved. Text updates could not be enabled; contact the organizer for help.</p>
+            <p class="rsvp-calendar-hint">Your attendee registration has been recorded. Staff staffing requests use the separate staff event link.</p>
 
-            <!-- Dashboard hint for matched/logged-in users -->
-            <div v-else-if="(regForm.response || rsvpResponse) !== 'no'" class="rsvp-calendar-hint">
-              📅 This event appears in your <strong>dashboard</strong> under "Upcoming company events"
-              with Google Calendar and ICS download links.
-            </div>
+            <section v-if="event.attendeeCheckInEnabled && (regForm.response || rsvpResponse) === 'yes'" class="attendee-check-in">
+              <h3>Event check-in</h3>
+              <p v-if="loadingAttendance" role="status">Loading your check-in status…</p>
+              <button v-else-if="guestIdentity.managementToken && !attendanceVerified" type="button" class="btn-event btn-event-outline" @click="loadGuestAttendance">Refresh check-in status</button>
+              <p v-else-if="guestAttendance.checkedOutAt" role="status">Checked out at {{ attendanceTime(guestAttendance.checkedOutAt) }}. Thank you for attending.</p>
+              <template v-else-if="guestAttendance.checkedInAt">
+                <p role="status">Checked in at {{ attendanceTime(guestAttendance.checkedInAt) }}.</p>
+                <button v-if="guestIdentity.managementToken" type="button" class="btn-event btn-event-outline" :disabled="checkingAttendance" @click="recordAttendance('check-out')">{{ checkingAttendance ? 'Saving…' : 'Check out' }}</button>
+              </template>
+              <template v-else-if="guestIdentity.managementToken">
+                <p>{{ attendanceEventDay === false ? 'Check-in opens on the event day.' : 'On the event day, check in when you arrive.' }}</p>
+                <button type="button" class="btn-event btn-event-primary" :disabled="checkingAttendance || attendanceEventDay === false" @click="recordAttendance('check-in')">{{ checkingAttendance ? 'Saving…' : 'Check in' }}</button>
+              </template>
+              <p v-else>Open this page in the browser you used to register, or ask the event coordinator for help checking in.</p>
+              <p v-if="attendanceError" role="alert" class="rsvp-error">{{ attendanceError }}</p>
+            </section>
 
             <button v-if="submitted || rsvpResponse" type="button" class="btn-event btn-event-outline" style="margin-top:12px;" @click="submitted = false; rsvpResponse = ''; submittedUnmatched = false">
               Update my registration
@@ -197,7 +203,7 @@
           </div>
 
           <!-- RSVP form -->
-          <div v-else>
+          <div v-else-if="!registrationUnavailableMessage">
             <p class="cta-section-label">Your RSVP</p>
             <h3 class="rsvp-form-heading">Will you be attending?</h3>
 
@@ -217,18 +223,14 @@
                 <input v-model.trim="regForm.lastName" class="rsvp-input" placeholder="Your last name" />
               </div>
               <div class="rsvp-field rsvp-field--wide">
-                <label class="rsvp-label">Work email</label>
-                <input v-model.trim="regForm.email" class="rsvp-input" type="email" placeholder="your.name@agency.com" />
+                <label class="rsvp-label">Email</label>
+                <input v-model.trim="regForm.email" class="rsvp-input" type="email" placeholder="you@example.com" />
               </div>
               <div class="rsvp-field">
-                <label class="rsvp-label">Phone <span class="rsvp-optional">(backup to find your account)</span></label>
+                <label class="rsvp-label">Phone <span class="rsvp-optional">(optional)</span></label>
                 <input v-model.trim="regForm.phone" class="rsvp-input" type="tel" placeholder="(719) 555-0100" />
               </div>
-              <p class="rsvp-match-hint">
-                We'll link your RSVP to your account using your email, phone, or name.
-                Using your <strong>work email</strong> gives the best match.
-                Or <a :href="`/login?redirect=/company-events/${eventId}`" class="rsvp-link">sign in first</a> to skip this.
-              </p>
+              <p class="rsvp-match-hint">Your details are used to manage this event. Text updates are optional.</p>
             </div>
 
             <!-- Attendance choice -->
@@ -297,6 +299,16 @@
                 <label class="rsvp-label">Anything else we should know?</label>
                 <textarea v-model.trim="regForm.notes" class="rsvp-input" rows="2" placeholder="Optional notes…" />
               </div>
+            </div>
+
+            <div v-if="event.attendeeSmsEnabled && smsDisclosure.enabled" class="rsvp-details">
+              <div v-if="authUser" class="rsvp-field">
+                <label class="rsvp-label">Mobile phone for event updates (optional)</label>
+                <input v-model.trim="regForm.phone" class="rsvp-input" type="tel" autocomplete="tel" />
+              </div>
+              <label class="sms-choice"><input v-model="regForm.smsConsent" type="checkbox" /> Yes, I want text updates from {{ branding.agencyName || 'the event organizer' }} about this event at the phone number provided.</label>
+              <p class="rsvp-match-hint">{{ smsDisclosure.text }}</p>
+              <p class="rsvp-match-hint"><a :href="smsDisclosure.termsUrl" target="_blank" rel="noopener noreferrer">SMS terms</a> · <a :href="smsDisclosure.privacyUrl" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
             </div>
 
             <div v-if="regError" class="rsvp-error">{{ regError }}</div>
@@ -378,6 +390,7 @@ const regForm = reactive({
   lastName: '',
   email: '',
   phone: '',
+  smsConsent: false,
   response: '',
   guestCount: 1,
   needListItemId: 0,
@@ -388,7 +401,62 @@ const regForm = reactive({
 const submittingReg = ref(false);
 const regError = ref('');
 const submitted = ref(false);
-const submittedUnmatched = ref(false); // true when RSVP saved but no account was linked
+const smsConsentStatus = ref('');
+const smsConsentPath = ref('');
+const submittedUnmatched = ref(false);
+const guestIdentity = ref({ email: '', managementToken: '' });
+const guestAttendance = ref({ checkedInAt: null, checkedOutAt: null });
+const checkingAttendance = ref(false);
+const loadingAttendance = ref(false);
+const attendanceVerified = ref(false);
+const attendanceEventDay = ref(null);
+const attendanceError = ref('');
+const attendanceTime = (value) => new Date(value).toLocaleString();
+
+function storeGuestAttendance() {
+  try {
+    const key = `attendee_rsvp_event_${eventId.value}`;
+    const saved = JSON.parse(localStorage.getItem(key) || '{}');
+    localStorage.setItem(key, JSON.stringify({ ...saved, email: guestIdentity.value.email, ...guestAttendance.value }));
+  } catch { /* Check-in still works when browser storage is unavailable. */ }
+}
+
+async function recordAttendance(action) {
+  if (checkingAttendance.value || !attendanceVerified.value || !guestIdentity.value.email || !guestIdentity.value.managementToken) return;
+  checkingAttendance.value = true; attendanceError.value = '';
+  try {
+    const { data } = await api.post(`/company-events/public/${eventId.value}/${action}`, { ...guestIdentity.value }, { skipAuthRedirect: true });
+    guestAttendance.value = { checkedInAt: data.checkedInAt || null, checkedOutAt: data.checkedOutAt || null };
+    attendanceEventDay.value = data.isEventDay ?? null;
+    storeGuestAttendance();
+  } catch (e) { attendanceError.value = e?.response?.data?.error?.message || 'Could not record your attendance. Please ask the event coordinator for help.'; }
+  finally { checkingAttendance.value = false; }
+}
+
+async function loadGuestAttendance() {
+  if (!event.value?.attendeeCheckInEnabled || !guestIdentity.value.email || !guestIdentity.value.managementToken) return;
+  loadingAttendance.value = true; attendanceVerified.value = false; attendanceError.value = '';
+  try {
+    const { data } = await api.post(`/company-events/public/${eventId.value}/attendance`, { ...guestIdentity.value }, { skipAuthRedirect: true });
+    guestAttendance.value = { checkedInAt: data.checkedInAt || null, checkedOutAt: data.checkedOutAt || null };
+    attendanceEventDay.value = data.isEventDay ?? null;
+    attendanceVerified.value = true;
+    storeGuestAttendance();
+  } catch (e) { attendanceError.value = e?.response?.data?.error?.message || 'Could not load your check-in status. Please ask the event coordinator for help.'; }
+  finally { loadingAttendance.value = false; }
+}
+const registrationUnavailableMessage = computed(() => {
+  if (event.value?.publicRegistrationStatus && event.value.publicRegistrationStatus !== 'open') return 'Registration for this event is closed.';
+  if (event.value?.rsvpDeadline && new Date(event.value.rsvpDeadline).getTime() < Date.now()) return 'The RSVP deadline for this event has passed.';
+  if (event.value?.endsAt && new Date(event.value.endsAt).getTime() < Date.now()) return 'This event has ended.';
+  return '';
+});
+const smsDisclosure = computed(() => ({
+  enabled: event.value?.smsConsentDisclosure?.enabled === true,
+  text: event.value?.smsConsentDisclosure?.text || event.value?.smsConsentDisclosure?.disclosure || 'Consent is optional and is not a condition of attendance, purchase, or services. Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to stop messages from this texting program. Use the event code included in each text to stop updates about only this event.',
+  termsUrl: event.value?.smsConsentDisclosure?.termsUrl || '/terms',
+  privacyUrl: event.value?.smsConsentDisclosure?.privacyUrl || '/privacypolicy'
+}));
 
 const rsvpOptions = [
   { value: 'yes', label: 'Yes, I\'ll be there', emoji: '✅' },
@@ -498,8 +566,11 @@ const submitRsvp = async () => {
   const firstName = String(user?.firstName || user?.first_name || regForm.firstName || '').trim();
   const lastName = String(user?.lastName || user?.last_name || regForm.lastName || '').trim();
   const email = String(user?.email || regForm.email || '').trim();
-  const phone = String(user?.phone || regForm.phone || '').trim();
+  const phone = String(regForm.phone || '').trim();
+  let managementToken = '';
+  try { managementToken = localStorage.getItem(`attendee_event_management_${eventId.value}_${email.toLowerCase()}`) || ''; } catch { /* Storage may be unavailable. */ }
 
+  if (regForm.smsConsent && !phone) { regError.value = 'Enter your mobile phone number to receive event texts, or leave the text choice unchecked.'; return; }
   if (!regForm.response) { regError.value = 'Please choose a response.'; return; }
   if (!firstName || !email) { regError.value = 'Please provide your first name and email.'; return; }
   if (
@@ -525,6 +596,8 @@ const submitRsvp = async () => {
         lastName,
         email,
         phone,
+        smsConsent: event.value?.attendeeSmsEnabled === true && smsDisclosure.value.enabled && regForm.smsConsent === true,
+        managementToken: managementToken || undefined,
         response: regForm.response,
         guestCount: Number(regForm.guestCount || 1),
         needListItemId: Number(regForm.needListItemId || 0) || null,
@@ -534,17 +607,26 @@ const submitRsvp = async () => {
       },
       { skipAuthRedirect: true }
     );
+    guestIdentity.value = { email: email.toLowerCase(), managementToken: resp.data?.managementToken || managementToken };
+    guestAttendance.value = { checkedInAt: resp.data?.checkedInAt || null, checkedOutAt: resp.data?.checkedOutAt || null };
+    attendanceVerified.value = true;
+    attendanceError.value = '';
     // Persist locally so banner shows on future visits.
     try {
-      localStorage.setItem(`rsvp_event_${eventId.value}`, JSON.stringify({
+      if (resp.data?.managementToken) localStorage.setItem(`attendee_event_management_${eventId.value}_${email.toLowerCase()}`, resp.data.managementToken);
+      localStorage.setItem(`attendee_rsvp_event_${eventId.value}`, JSON.stringify({
         response: regForm.response,
         name: firstName,
+        email: email.toLowerCase(),
+        ...guestAttendance.value,
         at: new Date().toISOString()
       }));
     } catch { /* ignore */ }
     submitted.value = true;
-    // Track whether the backend was able to link to an existing account.
-    submittedUnmatched.value = resp?.data?.matched === false;
+    smsConsentStatus.value = resp.data?.smsConsentStatus || '';
+    smsConsentPath.value = resp.data?.smsConsentPath || '';
+    submittedUnmatched.value = false;
+    await loadGuestAttendance();
   } catch (e) {
     regError.value = e?.response?.data?.error?.message || 'Could not save your RSVP. Please try again.';
   } finally {
@@ -623,11 +705,15 @@ const rsvpBannerBody = computed(() => {
 
 const loadStoredRsvp = () => {
   try {
-    const stored = localStorage.getItem(`rsvp_event_${eventId.value}`);
+    const stored = localStorage.getItem(`attendee_rsvp_event_${eventId.value}`);
     if (!stored) return;
     const data = JSON.parse(stored);
     rsvpResponse.value = String(data.response || '').toLowerCase();
     rsvpName.value = String(data.name || '').trim();
+    const email = String(data.email || '').trim().toLowerCase();
+    const managementToken = email ? localStorage.getItem(`attendee_event_management_${eventId.value}_${email}`) || '' : '';
+    guestIdentity.value = { email, managementToken };
+    guestAttendance.value = { checkedInAt: data.checkedInAt || null, checkedOutAt: data.checkedOutAt || null };
   } catch { /* ignore */ }
 };
 
@@ -642,8 +728,9 @@ const load = async () => {
       await router.replace(pr.programEventsPath);
       return;
     }
-    event.value = resp.data?.event || null;
+    event.value = resp.data?.event ? { ...resp.data.event, smsConsentDisclosure: resp.data.smsConsentDisclosure || resp.data.event.smsConsentDisclosure } : null;
     branding.value = resp.data?.branding || branding.value;
+    await loadGuestAttendance();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'This event could not be loaded.';
   } finally {
@@ -658,6 +745,9 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.sms-choice { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; font-size: 14px; margin: 14px 0; }
+.sms-choice input { margin-top: 4px; flex-shrink: 0; }
+.attendee-check-in { margin-top: 18px; padding-top: 12px; border-top: 1px solid #cbd5e1; }
 :root {
   --ep-primary: #15803d;
   --ep-secondary: #1D2633;

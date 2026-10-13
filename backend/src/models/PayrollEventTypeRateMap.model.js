@@ -38,12 +38,12 @@ class PayrollEventTypeRateMap {
     }
   }
 
-  static async getForEventType(agencyId, eventType) {
+  static async getForEventType(agencyId, eventType, db = pool) {
     const aid = Number(agencyId);
     const t = String(eventType || '').trim().toLowerCase();
     if (!aid || !t) return null;
     try {
-      const [rows] = await pool.execute(
+      const [rows] = await db.execute(
         `SELECT * FROM payroll_event_type_rate_maps
          WHERE agency_id = ? AND event_type = ?
          LIMIT 1`,

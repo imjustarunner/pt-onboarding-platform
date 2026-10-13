@@ -305,6 +305,7 @@ import billingPolicyRoutes from './routes/billingPolicy.routes.js';
 import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import companyEventStaffingRoutes from './routes/companyEventStaffing.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
+import companyEventParticipationRoutes from './routes/companyEventParticipation.routes.js';
 import surveyRoutes from './routes/survey.routes.js';
 import { employeeRouter as facilitatorAvailabilityEmployeeRoutes, adminRouter as facilitatorAvailabilityAdminRoutes } from './routes/facilitatorAvailability.routes.js';
 import stripeWebhookRoutes from './routes/stripeWebhook.routes.js';
@@ -865,6 +866,7 @@ app.use('/api/clinical-forms', safetyPlansRoutes);
 app.use('/api/safety-plans', safetyPlansRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
+app.use('/api/me/company-events', companyEventParticipationRoutes);
 
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
 app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);

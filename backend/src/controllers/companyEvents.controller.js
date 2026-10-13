@@ -2,18 +2,23 @@ import Notification from '../models/Notification.model.js';
 import { listActiveTeamMembers, teamMemberPhone, teamSmsEligibility } from '../services/conversaTeamRecipients.service.js';
 import { pollDeliveryMode, pollUsesInternal, pollUsesSms } from '../utils/teamPollDelivery.js';
 import { canManageConversaTeam, isConversaTeamCommunication, assertConversaTeamManager } from '../services/conversaTeamAccess.service.js';
+import { getCompanyEventSmsConsentDetails, enrollCompanyEventGuestSms, revokeCompanyEventGuestSms } from '../services/companyEventSms.service.js';
+import { registerPublicEventGuest } from '../services/companyEventPublicRegistration.service.js';
+import { mapEventOperations, readEventOperations, assertEventRegistrationOpen } from '../utils/companyEventOperations.js';
+import { isEventCoordinator, validateEventOperations, saveEventOperations } from '../services/companyEventOperations.service.js';
 import {reviewedPollResponses,reviewedPollSummary,reviewPollResponse} from '../services/staffPollReview.service.js';
 import {validatePollOptions,unmatchedPollReply} from '../utils/staffPollResponses.js';
 import { getPollResultPreference, setPollResultPreference, deliverPollResults } from '../services/companyEventPollResults.service.js';
 import { getSmsSender } from '../services/smsCompliance.service.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 import { selectCompanyEventVote } from '../utils/companyEventSmsVote.js';
+import { sendCompanyEventSms, previewCompanyEventSmsDelivery, resolveCompanyEventSmsSender, getCompanyEventSmsReport, isCompanyEventSmsMuted, companyEventParticipantSmsAudience, listCompanyEventSmsAttendees, recordCompanyEventPollSmsResponse } from '../services/companyEventSms.service.js';
+import { listOutstandingOutreachCommitments } from '../services/eventOutreachCommitment.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
-import VonageService from '../services/vonage.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import {
   parseJsonMaybe,
@@ -245,6 +250,8 @@ const userCanManageCompanyEvents = (req) => {
 // Async version: same as above but also allows SSC club managers / assistant managers on the target club.
 async function userCanManageCompanyEventsAsync(req, agencyId = null) {
   if (userCanManageCompanyEvents(req)) return true;
+  const scopedEventId = parsePositiveInt(req.params?.eventId);
+  if (scopedEventId && await isEventCoordinator({ userId: req.user?.id, agencyId: resolveRequestedAgencyId(req, agencyId), eventId: scopedEventId })) return true;
   const role = String(req.user?.role || '').toLowerCase();
   const targetAgencyId = resolveRequestedAgencyId(req, agencyId);
   if (targetAgencyId) {
@@ -412,6 +419,7 @@ function mapEventRow(row, req, opts = {}) {
   const id = Number(row.id);
   const agencyId = Number(row.agency_id);
   const base = {
+    ...mapEventOperations(row),
     id,
     agencyId,
     organizationId: row.organization_id != null && row.organization_id !== undefined
@@ -1238,7 +1246,34 @@ async function listNeedListItems(eventId, agencyId) {
   }));
 }
 
-async function resolveRecipientUserIds(agencyId, eventId, audience = null) {
+async function assertEventCommunicationManager(req, ...events) {
+  if (canManageConversaTeam(req.user)) return;
+  const eventId = parsePositiveInt(req.params?.eventId);
+  const agencyId = parsePositiveInt(req.params?.id);
+  const existing = events.find(event => Number(event?.id) === eventId);
+  if (eventId && agencyId && !['direct_notice', 'team_poll'].includes(String(existing?.event_type || '').toLowerCase())
+      && await isEventCoordinator({ userId: req.user?.id, agencyId, eventId })) {
+    const event = existing || await loadEventByIdForAgency(eventId, agencyId);
+    if (event && !['direct_notice', 'team_poll'].includes(String(event.event_type || '').toLowerCase())) return;
+  }
+  assertConversaTeamManager(req.user, ...events);
+}
+
+async function listEligibleSmsUsersForAgency(agencyId) {
+  return listActiveTeamMembers(agencyId);
+}
+
+async function resolveRecipientUserIds(agencyId, eventId, audience = null, { applyStaffScope = true } = {}) {
+  const finish = async (ids) => {
+    const activeStaff = new Set((await listEligibleSmsUsersForAgency(agencyId)).map(user => Number(user.id)));
+    const scopedIds = ids.filter(id => activeStaff.has(Number(id)));
+    if (!applyStaffScope || !scopedIds.length) return scopedIds;
+    const row = await loadEventByIdForAgency(eventId, agencyId);
+    if (!row || readEventOperations(row).staffAudienceScope !== 'outreach_due') return scopedIds;
+    const event = mapEventRow(row, null);
+    return (await listOutstandingOutreachCommitments({ agencyId, eventDate: event.nextOccurrenceStart || event.startsAt,
+      timezone: event.timezone, userIds: scopedIds })).map(item => Number(item.userId));
+  };
   const currentAudience = audience || await getAudienceForEvent(eventId);
   const roleKeys = normalizeRoleAudience(currentAudience.roleKeys);
   if (!currentAudience.userIds.length && !currentAudience.groupIds.length && !roleKeys.length) {
@@ -1249,7 +1284,7 @@ async function resolveRecipientUserIds(agencyId, eventId, audience = null) {
        WHERE ua.agency_id = ? AND u.is_active = TRUE`,
       [agencyId]
     );
-    return [...new Set((rows || []).map((row) => Number(row.user_id)).filter((id) => id > 0))];
+    return finish([...new Set((rows || []).map((row) => Number(row.user_id)).filter((id) => id > 0))]);
   }
 
   const result = new Set(currentAudience.userIds);
@@ -1287,7 +1322,7 @@ async function resolveRecipientUserIds(agencyId, eventId, audience = null) {
       }
     }
   }
-  return [...result].filter((id) => id > 0);
+  return finish([...result].filter((id) => id > 0));
 }
 
 async function resolveUsersFromOverride({ agencyId, userIds = [], groupIds = [], roleKeys = [] }) {
@@ -1386,36 +1421,13 @@ async function findAgencyByCompanyEventShortCode(toNumber) {
   return null;
 }
 
-async function getCompanyEventSmsSettingsForAgency(agencyId) {
-  if (!agencyId) return { enabled: false, fromNumber: null, senderNumberId: null, reason: 'agency_required' };
-  const agency = await Agency.findById(agencyId);
-  if (!agency) return { enabled: false, fromNumber: null, senderNumberId: null, reason: 'agency_not_found' };
-  const flags = parseFeatureFlags(agency.feature_flags);
-  if (flags.smsNumbersEnabled !== true) {
-    return { enabled: false, fromNumber: null, senderNumberId: null, reason: 'sms_numbers_disabled' };
+async function getCompanyEventSmsSettingsForAgency(agencyId, { purpose = 'workforce' } = {}) {
+  try {
+    const { sender, campaignNumber } = await resolveCompanyEventSmsSender({ agencyId, audience: 'staff', purpose });
+    return { enabled: true, fromNumber: sender.phone_number, senderNumberId: sender.id, campaignNumber, reason: null };
+  } catch (error) {
+    return { enabled: false, fromNumber: null, senderNumberId: null, reason: error.code || 'sender_unavailable' };
   }
-  if (flags.companyEventsEnabled !== true) {
-    return { enabled: false, fromNumber: null, senderNumberId: null, reason: 'company_events_sms_disabled' };
-  }
-  const senderNumberId = flags.companyEventsSenderNumberId ? Number(flags.companyEventsSenderNumberId) : null;
-  if (!senderNumberId) {
-    return { enabled: true, fromNumber: null, senderNumberId: null, reason: 'sender_number_not_configured' };
-  }
-  const [rows] = await pool.execute(
-    `SELECT phone_number
-     FROM twilio_numbers
-     WHERE id = ?
-       AND agency_id = ?
-       AND is_active = TRUE
-       AND status = 'active'
-     LIMIT 1`,
-    [senderNumberId, agencyId]
-  );
-  const fromNumber = MessageLog.normalizePhone(rows?.[0]?.phone_number || null);
-  if (!fromNumber) {
-    return { enabled: true, fromNumber: null, senderNumberId, reason: 'sender_number_invalid' };
-  }
-  return { enabled: true, fromNumber, senderNumberId, reason: null };
 }
 
 async function findAgencyUserByPhone(agencyId, phoneNumber) {
@@ -1689,7 +1701,9 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!(await userCanManageCompanyEventsAsync(req))) {
+    const managesAgency = await userCanManageCompanyEventsAsync(req);
+    const coordinatesEvents = !managesAgency && await isEventCoordinator({ userId: req.user?.id, agencyId });
+    if (!managesAgency && !coordinatesEvents) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const communicationsOnly = String(req.query?.communicationsOnly || '') === '1';
@@ -1698,13 +1712,15 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
       `SELECT *
        FROM company_events
        WHERE agency_id = ?
+         ${managesAgency ? '' : 'AND id IN (SELECT company_event_id FROM company_event_coordinators WHERE user_id = ?)'}
+         ${req.query?.paymentStatus === 'outstanding' ? "AND JSON_EXTRACT(operations_json, '$.requiresPayment') = TRUE AND COALESCE(JSON_EXTRACT(operations_json, '$.paymentPaid'), FALSE) = FALSE" : ''}
        ORDER BY starts_at DESC, id DESC
        LIMIT 300`,
-      [agencyId]
+      managesAgency ? [agencyId] : [agencyId, req.user.id]
     );
     const events = (rows || [])
-      .filter((row) => communicationsOnly ? isConversaTeamCommunication(row) : canManageConversaTeam(req.user) || !isConversaTeamCommunication(row))
-      .map((row) => mapEventRow(row, req));
+      .filter((row) => communicationsOnly ? isConversaTeamCommunication(row) : canManageConversaTeam(req.user) || !['direct_notice', 'team_poll'].includes(String(row.event_type || '').toLowerCase()))
+      .map((row) => ({ ...mapEventRow(row, req), canAssignCoordinators: userCanManageCompanyEvents(req) })).filter((event) => req.query?.paymentStatus !== 'outstanding' || event.paymentOutstanding);
     const orgIds = [...new Set(events.map((e) => e.organizationId).filter((id) => Number(id) > 0))];
     const slugByOrgId = new Map();
     if (orgIds.length) {
@@ -1832,14 +1848,15 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!(await userCanManageCompanyEventsAsync(req, agencyId))) {
+    const scopedCoordinator = parsePositiveInt(req.query?.eventId) && await isEventCoordinator({ userId: req.user?.id, agencyId, eventId: parsePositiveInt(req.query.eventId) });
+    if (!(await userCanManageCompanyEventsAsync(req, agencyId)) && !scopedCoordinator) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
 
     if (String(req.query?.communicationsOnly || '') === '1') {
-      assertConversaTeamManager(req.user);
+      await assertEventCommunicationManager(req);
       const members = await listActiveTeamMembers(agencyId);
-      const settings = await getCompanyEventSmsSettingsForAgency(agencyId);
+      const settings = await getCompanyEventSmsSettingsForAgency(agencyId, { purpose: 'polling' });
       const users = [];
       for (let offset = 0; offset < members.length; offset += 6) {
         users.push(...await Promise.all(members.slice(offset, offset + 6).map(async member => ({
@@ -1915,6 +1932,7 @@ async function validateTeamAudience(agencyId, parsed) {
 async function createCompanyEventCore(req, agencyId, userId, parsed) {
   assertConversaTeamManager(req.user, parsed);
   await validateTeamAudience(agencyId, parsed);
+  const operations = await validateEventOperations({ body: req.body || {}, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
   let organizationIdForRow = null;
   if (parsed.organizationId) {
     const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
@@ -2016,6 +2034,7 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
     }
   }
   const eventId = Number(insertResult.insertId);
+  await saveEventOperations({ eventId, agencyId, actorUserId: userId, operations });
   await setEventAudience(eventId, parsed.audience);
 
   const row = await loadEventByIdForAgency(eventId, agencyId);
@@ -2146,7 +2165,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   const existing = await loadEventByIdForAgency(eventId, agencyId);
   if (!existing) return { error: { status: 404, message: 'Company event not found' } };
 
-  assertConversaTeamManager(req.user, existing, body || {});
+  await assertEventCommunicationManager(req, existing, body || {});
   const existingVote = parseJsonMaybe(existing.voting_config_json) || {};
   const incomingVote = body?.votingConfig;
   if (existingVote.deliveryMode && incomingVote && incomingVote.deliveryMode === undefined && !!incomingVote.viaSms === pollUsesSms(existingVote)) {
@@ -2155,13 +2174,23 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   const parsed = parseEventPayload(body || {});
   if (parsed.error) return { error: { status: 400, message: parsed.error } };
   await validateTeamAudience(agencyId, parsed);
+  const operations = await validateEventOperations({ body: body || {}, existing, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
+  const delegatedCoordinator = !userCanManageCompanyEvents(req) && await isEventCoordinator({ userId, agencyId, eventId });
+  if (delegatedCoordinator && Number(parsed.skillBuilderDirectHours || 0) !== Number(existing.skill_builder_direct_hours || 0)) {
+    return { error: { status: 403, message: 'Event coordinator access does not grant permission to change payroll hours' } };
+  }
   if (isServiceProgramEventType(parsed.eventType)) {
     parsed.rsvpMode = 'none';
     parsed.registrationEligible = true;
   }
 
   let organizationIdForRow = null;
-  if (parsed.organizationId) {
+  if (String(existing.event_type || '').startsWith('school_')) {
+    if (Number(parsed.organizationId || 0) !== Number(existing.organization_id || 0) || parsed.eventType !== existing.event_type) {
+      return { error: { status: 400, message: 'Use the school event editor to change the school or event category' } };
+    }
+    organizationIdForRow = existing.organization_id;
+  } else if (parsed.organizationId) {
     const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
     if (v.error) return { error: { status: 400, message: v.error } };
     organizationIdForRow = v.organizationId;
@@ -2271,6 +2300,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       if (!(e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('kiosk_event_pin_code'))) throw e;
     }
   }
+  await saveEventOperations({ eventId, agencyId, actorUserId: userId, operations });
   await setEventAudience(eventId, parsed.audience);
 
   try {
@@ -2347,7 +2377,7 @@ export const deleteCompanyEvent = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, event);
+    await assertEventCommunicationManager(req, event);
     const [result] = await pool.execute(
       'DELETE FROM company_events WHERE id = ? AND agency_id = ?',
       [eventId, agencyId]
@@ -2372,7 +2402,7 @@ export const listCompanyEventResponses = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, event);
+    await assertEventCommunicationManager(req, event);
 
     const [rows] = await pool.execute(
       `SELECT cer.*, u.first_name, u.last_name, u.email,
@@ -2421,7 +2451,7 @@ export const listCompanyEventDeliveryLogs = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, event);
+    await assertEventCommunicationManager(req, event);
     const [rows] = await pool.execute(
       `SELECT l.*, u.first_name, u.last_name, u.email
        FROM company_event_dispatch_logs l
@@ -2433,6 +2463,7 @@ export const listCompanyEventDeliveryLogs = async (req, res, next) => {
     );
     res.json({
       summary: await getEventDeliverySummary(eventId),
+      smsCampaign: await getCompanyEventSmsReport(eventId, agencyId),
       logs: (rows || []).map((row) => ({
         id: Number(row.id),
         userId: Number(row.user_id),
@@ -2462,7 +2493,7 @@ export const getCompanyEventAnalytics = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, row);
+    await assertEventCommunicationManager(req, row);
     const event = mapEventRow(row, req);
     const audience = await getAudienceForEvent(eventId);
     const recipients = await resolveRecipientUserIds(agencyId, eventId, audience);
@@ -2495,7 +2526,7 @@ export const exportCompanyEventResponsesCsv = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, event);
+    await assertEventCommunicationManager(req, event);
     const [rows] = await pool.execute(
       `SELECT cer.response_key, cer.response_label, cer.source, cer.received_at,
               u.first_name, u.last_name, u.email,
@@ -2649,15 +2680,16 @@ async function sendClosedPollResults(row, req) {
   const ids = new Set(await resolveRecipientUserIds(Number(row.agency_id), event.id, audience));
   const users = await listActiveTeamMembers(Number(row.agency_id));
   const recipients = users.filter(u => ids.has(Number(u.id))).map(u => ({ id: u.id, phone: teamMemberPhone(u) }));
-  const settings = await getCompanyEventSmsSettingsForAgency(Number(row.agency_id));
+  const settings = await getCompanyEventSmsSettingsForAgency(Number(row.agency_id), { purpose: 'polling' });
   if (!settings.fromNumber) return { sent: 0, skipped: recipients.length, failed: 0, reason: 'sender_not_configured' };
+  const batchId = crypto.randomUUID();
   return deliverPollResults({ event, summary: await listEventResponseSummary(event.id), recipients,
-    send: ({ to, body }) => VonageService.sendSms({ purpose: 'polling', agencyId: Number(row.agency_id), from: settings.fromNumber, to, body }) });
+    send: ({ userId, to, body }) => sendCompanyEventSms({ eventId: event.id, userId, purpose: 'polling', agencyId: Number(row.agency_id), from: settings.fromNumber, to, body, dispatchType: 'poll_results', batchId }) });
 }
 
 export const closeCompanyEventVoting = async (req, res, next) => {
   try {
-    assertConversaTeamManager(req.user);
+    await assertEventCommunicationManager(req);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -2684,7 +2716,7 @@ export const closeCompanyEventVoting = async (req, res, next) => {
 
 export const sendCompanyEventVotingSms = async (req, res, next) => {
   try {
-    assertConversaTeamManager(req.user);
+    await assertEventCommunicationManager(req);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -2716,7 +2748,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
     if (!users.length) return res.status(400).json({ error: { message: 'No active team recipients found.' } });
     const sendSms = pollUsesSms(event.votingConfig);
     const sendInternal = !smsOnlyRoute && pollUsesInternal(event.votingConfig);
-    const settings = sendSms ? await getCompanyEventSmsSettingsForAgency(agencyId) : {};
+    const settings = sendSms ? await getCompanyEventSmsSettingsForAgency(agencyId, { purpose: 'polling' }) : {};
     const from = settings.enabled ? settings.fromNumber : null;
     if (sendSms && !from) return res.status(409).json({ error: { message: 'Configure an approved staff polling SMS number before sending.' } });
     if (sendSms) {
@@ -2726,6 +2758,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
       }
     }
     const body = `${event.votingConfig.question || event.title}\n${companyEventSmsInstructions(event)}`;
+    const batchId = crypto.randomUUID();
     let sentCount = 0, inAppCount = 0, skippedCount = 0, failedCount = 0;
     for (const user of users) {
       const userId = Number(user.id);
@@ -2754,7 +2787,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
       let communication = null;
       try {
         communication = await UserCommunication.create({ userId, agencyId, templateType: 'company_event_vote', templateId: eventId, subject: null, body, generatedByUserId: req.user?.id || null, channel: 'sms', recipientAddress: teamMemberPhone(user), deliveryStatus: 'pending' });
-        const result = await VonageService.sendSms({ purpose: 'polling', agencyId, to: teamMemberPhone(user), from, body });
+        const result = await sendCompanyEventSms({ eventId, userId, dispatchType: 'vote_invite', batchId, purpose: 'polling', agencyId, to: teamMemberPhone(user), from, body });
         await writeDispatchLog({ eventId, userId, channel: 'sms', dispatchType: 'vote_invite', status: 'sent', twilioSid: result?.sid, payload: { body }, sentAt: new Date() });
         sentCount++;
         if (communication?.id) await UserCommunication.updateDeliveryStatus(communication.id, 'sent', result?.sid || null);
@@ -2764,15 +2797,59 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
         await writeDispatchLog({ eventId, userId, channel: 'sms', dispatchType: 'vote_invite', status: 'failed', statusReason: String(error.message).slice(0,255) });
       }
     }
-    res.json({ ok: true, sentCount, inAppCount, skippedCount, failedCount });
+    res.json({ ok: true, batchId, sentCount, inAppCount, skippedCount, failedCount });
   } catch (error) {
     next(error);
   }
 };
 
+async function resolveEventMessageRecipients(agencyId, eventId, event, body = {}) {
+  const recipientScope = String(body.recipientScope || event.staffAudienceScope || 'audience');
+  if (!['audience', 'outreach_due'].includes(recipientScope)) throw Object.assign(new Error('Choose an event audience or staff with outreach time remaining'), { status: 400 });
+  const userIds = normalizeIds(body.recipientUserIds);
+  const groupIds = normalizeIds(body.recipientGroupIds);
+  const roleKeys = normalizeRoleAudience(body.recipientRoleKeys);
+  const hasOverride = userIds.length || groupIds.length || roleKeys.length;
+  let ids = hasOverride
+    ? await resolveUsersFromOverride({ agencyId, userIds, groupIds, roleKeys })
+    : await resolveRecipientUserIds(agencyId, eventId, await getAudienceForEvent(eventId), { applyStaffScope: false });
+  let audit = null;
+  if (recipientScope === 'outreach_due') {
+    const outstanding = await listOutstandingOutreachCommitments({ agencyId, eventDate: event.nextOccurrenceStart || event.startsAt, timezone: event.timezone, userIds: ids, includeAudit: true });
+    audit = outstanding.audit;
+    ids = outstanding.recipients.map(row => Number(row.userId));
+  }
+  const allowed = new Set(ids.map(Number));
+  const users = (await listEligibleSmsUsersForAgency(agencyId)).filter(user => allowed.has(Number(user.id)));
+  return { users, ids: users.map(user => Number(user.id)), audit };
+}
+
+export const previewCompanyEventSms = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id), eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) return res.status(403).json({ error: { message: 'Event coordinator access required' } });
+    const row = await loadEventByIdForAgency(eventId, agencyId);
+    if (!row) return res.status(404).json({ error: { message: 'Event not found' } });
+    const event = mapEventRow(row, req);
+    const mode = req.body?.mode === 'recruitment' ? 'recruitment' : 'message';
+    const attendeeScope = req.body?.recipientScope === 'attendees';
+    if (attendeeScope && mode === 'recruitment') return res.status(400).json({ error: { message: 'Staff recruitment is only available for staff audiences' } });
+    const audience = attendeeScope ? companyEventParticipantSmsAudience(row) : 'staff';
+    const recipients = attendeeScope ? { users: await listCompanyEventSmsAttendees(eventId, agencyId), audit: null } : await resolveEventMessageRecipients(agencyId, eventId, event, req.body);
+    const users = recipients.users;
+    const message = String(req.body?.message || '').trim();
+    const title = String(req.body?.title || event.title).trim();
+    const preview = await previewCompanyEventSmsDelivery({ eventId, agencyId, mode, audience, purpose: audience === 'participant' ? 'reminders' : (mode === 'recruitment' ? 'polling' : 'workforce'),
+      body: mode === 'recruitment' ? message : `${title}\n${message}`, event },
+    users.map(user => ({ phone: user.phone || teamMemberPhone(user) })));
+    res.json({ ...preview, outreachAudit: recipients.audit });
+  } catch (error) { next(error); }
+};
+
 export const sendCompanyEventDirectMessage = async (req, res, next) => {
   try {
-    assertConversaTeamManager(req.user);
+    await assertEventCommunicationManager(req);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -2786,21 +2863,35 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
     const event = mapEventRow(row, req);
-    if (event.votingConfig.enabled) return res.status(400).json({ error: { message: 'Use poll delivery to respect polling consent and delivery choices.' } });
-    const overrideUserIds = normalizeIds(req.body?.recipientUserIds);
-    const overrideGroupIds = normalizeIds(req.body?.recipientGroupIds);
-    const overrideRoleKeys = normalizeRoleAudience(req.body?.recipientRoleKeys);
-    const hasOverrideAudience = overrideUserIds.length > 0 || overrideGroupIds.length > 0 || overrideRoleKeys.length > 0;
-    const audience = await getAudienceForEvent(eventId);
-    const requestedIds = hasOverrideAudience
-      ? await resolveUsersFromOverride({ agencyId, userIds: overrideUserIds, groupIds: overrideGroupIds, roleKeys: overrideRoleKeys })
-      : await resolveRecipientUserIds(agencyId, eventId, audience);
-    const team = await listActiveTeamMembers(agencyId);
-    const recipientIds = requestedIds.filter(id => team.some(user => Number(user.id) === Number(id)));
-    if (!recipientIds.length) return res.status(400).json({ error: { message: 'No recipients found for this event audience' } });
+    const batchId = crypto.randomUUID();
+    if (req.body?.recipientScope === 'attendees') {
+      if (req.body?.mode === 'recruitment') return res.status(400).json({ error: { message: 'Recruitment is for staff audiences' } });
+      if (req.body?.sendSms === false) return res.status(400).json({ error: { message: 'Attendee messaging requires SMS delivery' } });
+      const message = String(req.body?.message || '').trim();
+      if (!message) return res.status(400).json({ error: { message: 'message is required' } });
+      const audience = companyEventParticipantSmsAudience(row);
+      const purpose = audience === 'participant' ? 'reminders' : 'workforce';
+      const attendees = await listCompanyEventSmsAttendees(eventId, agencyId);
+      await resolveCompanyEventSmsSender({ agencyId, audience, purpose });
+      let smsCount = 0, smsFailedCount = 0, smsSkippedCount = 0;
+      for (const attendee of attendees) {
+        try {
+          await sendCompanyEventSms({ eventId, agencyId, audience, purpose, to: attendee.phone,
+            body: `${String(req.body?.title || event.title).trim()}\n${message}`, dispatchType: 'attendee_message', batchId });
+          smsCount++;
+        } catch (error) { if (Number(error.status) === 403) smsSkippedCount++; else smsFailedCount++; }
+      }
+      return res.json({ ok: true, inAppCount: 0, smsCount, smsFailedCount, smsSkippedCount, batchId });
+    }
+
+    if (event.eventType === 'team_poll' || event.eventType === 'direct_notice' && event.votingConfig.enabled) return res.status(400).json({ error: { message: 'Use poll delivery to respect polling consent and delivery choices.' } });
+    const mode = req.body?.mode === 'recruitment' ? 'recruitment' : 'message';
+    const purpose = mode === 'recruitment' ? 'polling' : 'workforce';
+    const { ids: recipientIds, users: recipientUsers, audit: outreachAudit } = await resolveEventMessageRecipients(agencyId, eventId, event, req.body);
+    if (!recipientIds.length) return res.status(400).json({ error: { message: 'No eligible staff found for this event audience' }, outreachAudit });
 
     let title = String(req.body?.title || event.title || 'Company message').trim().slice(0, 255);
-    let message = String(req.body?.message || event.splashContent || event.description || '').trim();
+    let message = String(req.body?.message ?? (mode === 'recruitment' ? '' : (event.splashContent || event.description || ''))).trim();
     const templateId = parsePositiveInt(req.body?.templateId);
     if (templateId) {
       const [tplRows] = await pool.execute(
@@ -2815,9 +2906,12 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
       title = String(template.title_template || '').trim().slice(0, 255) || title;
       message = String(template.message_template || '').trim() || message;
     }
-    if (!message) return res.status(400).json({ error: { message: 'message is required' } });
+    if (!message && mode !== 'recruitment') return res.status(400).json({ error: { message: 'message is required' } });
     const sendInApp = req.body?.sendInApp !== false;
     const sendSms = req.body?.sendSms !== false;
+    // Validate the sender before causing in-app side effects. Each recipient is checked again at delivery.
+    const smsSettings = sendSms ? await getCompanyEventSmsSettingsForAgency(agencyId, { purpose }) : null;
+    if (sendSms && !smsSettings.fromNumber) return res.status(409).json({ error: { message: 'Configure an approved Campaign 2 staff event sender before texting', code: smsSettings.reason } });
     const occurrenceKey = formatOccurrenceKey(event.nextOccurrenceStart || event.startsAt);
     const [agencyRows] = await pool.execute('SELECT id, name FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
     const agency = agencyRows?.[0] || { id: agencyId, name: '' };
@@ -2835,6 +2929,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
           const resolvedMessage = applyTemplateVariables(message, { user: userRecord, event, agency });
           await createNotificationAndDispatch({
             type: 'company_event_message',
+              audienceJson: event.staffPageUrl ? { navigationUrl: event.staffPageUrl } : null,
             title: resolvedTitle,
             message: resolvedMessage,
             userId,
@@ -2847,7 +2942,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             eventId,
             userId: Number(userId),
             channel: 'in_app',
-            dispatchType: 'direct_message',
+            dispatchType: mode === 'recruitment' ? 'recruitment' : 'direct_message',
             occurrenceKey,
             status: 'sent',
             payload: { title: resolvedTitle, message: resolvedMessage },
@@ -2859,7 +2954,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             eventId,
             userId: Number(userId),
             channel: 'in_app',
-            dispatchType: 'direct_message',
+            dispatchType: mode === 'recruitment' ? 'recruitment' : 'direct_message',
             occurrenceKey,
             status: 'failed',
             statusReason: String(error?.message || 'in_app_failed').slice(0, 255)
@@ -2868,11 +2963,10 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
       }
     }
 
-    let smsCount = 0;
+    let smsCount = 0, smsFailedCount = 0, smsSkippedCount = 0;
     if (sendSms) {
-      const users = team;
+      const users = recipientUsers;
       const recipientMap = new Map(users.map((user) => [Number(user.id), user]));
-      const smsSettings = await getCompanyEventSmsSettingsForAgency(agencyId);
       const fromNumber = smsSettings.fromNumber;
       if (!fromNumber) {
         return res.status(400).json({ error: { message: 'Company event sender number is not configured in agency SMS settings' } });
@@ -2881,14 +2975,15 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
         for (const userId of recipientIds) {
           const recipient = recipientMap.get(Number(userId));
           if (!recipient) continue;
-          const toRaw = recipient.phone_number || recipient.personal_phone || recipient.work_phone || null;
+          const toRaw = teamMemberPhone(recipient);
           const to = MessageLog.normalizePhone(toRaw);
           if (!to) {
+            smsSkippedCount++;
             await writeDispatchLog({
               eventId,
               userId: Number(userId),
               channel: 'sms',
-              dispatchType: 'direct_message',
+              dispatchType: mode === 'recruitment' ? 'recruitment' : 'direct_message',
               occurrenceKey,
               status: 'skipped',
               statusReason: 'no_phone'
@@ -2903,13 +2998,13 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             const userRecord = userRows?.[0] || {};
             const resolvedTitle = applyTemplateVariables(title, { user: userRecord, event, agency });
             const resolvedMessage = applyTemplateVariables(message, { user: userRecord, event, agency });
-            const smsBody = `${resolvedTitle}\n${resolvedMessage}`.slice(0, 480);
-            const sendResult = await VonageService.sendSms({ purpose: 'workforce', agencyId, to, from: fromNumber, body: smsBody });
+            const smsBody = mode === 'recruitment' ? resolvedMessage : `${resolvedTitle}\n${resolvedMessage}`.slice(0, 480);
+            const sendResult = await sendCompanyEventSms({ eventId, userId: Number(userId), purpose, agencyId, to, from: fromNumber, body: smsBody, mode, batchId, dispatchType: mode === 'recruitment' ? 'recruitment' : 'direct_message' });
             await writeDispatchLog({
               eventId,
               userId: Number(userId),
               channel: 'sms',
-              dispatchType: 'direct_message',
+              dispatchType: mode === 'recruitment' ? 'recruitment' : 'direct_message',
               occurrenceKey,
               status: 'sent',
               twilioSid: sendResult?.sid || null,
@@ -2918,13 +3013,15 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             });
             smsCount += 1;
           } catch (error) {
+            const skipped = Number(error.status) === 403;
+            if (skipped) smsSkippedCount++; else smsFailedCount++;
             await writeDispatchLog({
               eventId,
               userId: Number(userId),
               channel: 'sms',
-              dispatchType: 'direct_message',
+              dispatchType: mode === 'recruitment' ? 'recruitment' : 'direct_message',
               occurrenceKey,
-              status: 'failed',
+              status: skipped ? 'skipped' : 'failed',
               statusReason: String(error?.message || 'send_failed').slice(0, 255),
               payload: { to }
             });
@@ -2933,7 +3030,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
       }
     }
 
-    res.json({ ok: true, inAppCount, smsCount });
+    res.json({ ok: true, inAppCount, smsCount, smsFailedCount, smsSkippedCount, outreachAudit, batchId });
   } catch (error) {
     next(error);
   }
@@ -3061,7 +3158,7 @@ export const deleteCompanyEventNeedListItem = async (req, res, next) => {
 
 export const saveCompanyEventSmsDraft = async (req, res, next) => {
   try {
-    assertConversaTeamManager(req.user);
+    await assertEventCommunicationManager(req);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     const target = String(req.body?.target || '').trim().toLowerCase();
@@ -3140,7 +3237,7 @@ export const sendCompanyEventInvitations = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, row);
+    await assertEventCommunicationManager(req, row);
     if (row.event_type === 'team_poll') return res.status(400).json({ error: { message: 'Team polls use their selected internal/SMS delivery methods.' } });
     if (isServiceProgramEventType(row.event_type)) {
       return res.status(400).json({
@@ -3270,7 +3367,7 @@ export const sendCompanyEventReminders = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
-    assertConversaTeamManager(req.user, row);
+    await assertEventCommunicationManager(req, row);
     if (row.event_type === 'team_poll') return res.status(400).json({ error: { message: 'Team polls use their selected internal/SMS delivery methods.' } });
     if (isServiceProgramEventType(row.event_type)) {
       return res.status(400).json({
@@ -3309,7 +3406,9 @@ export const sendCompanyEventReminders = async (req, res, next) => {
       inviteParams = [eventId, agencyId];
     }
 
-    const [inviteRows] = await pool.execute(inviteQuery, inviteParams);
+    const [allInviteRows] = await pool.execute(inviteQuery, inviteParams);
+    const eligibleIds = new Set(await resolveRecipientUserIds(agencyId, eventId));
+    const inviteRows = (allInviteRows || []).filter(invite => eligibleIds.has(Number(invite.user_id)));
     if (!inviteRows.length) return res.json({ ok: true, sent: 0, message: 'No recipients matched the criteria.' });
 
     const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'company_event_invitation');
@@ -3383,7 +3482,7 @@ export const listCompanyEventGuestRegistrations = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT id, first_name AS firstName, last_name AS lastName, email, phone,
               response, guest_count AS guestCount, dietary_notes AS dietaryNotes,
-              notes, matched_user_id AS matchedUserId, created_at AS createdAt
+              notes, checked_in_at AS checkedInAt, checked_out_at AS checkedOutAt, matched_user_id AS matchedUserId, created_at AS createdAt
        FROM company_event_guest_registrations
        WHERE company_event_id = ? AND agency_id = ?
        ORDER BY created_at DESC`,
@@ -3833,7 +3932,7 @@ export const downloadCompanyEventIcsForAgency = async (req, res, next) => {
 
 export const listCompanyEventTemplates = async (req, res, next) => {
   try {
-    assertConversaTeamManager(req.user);
+    await assertEventCommunicationManager(req);
     const agencyId = parsePositiveInt(req.params.id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
     if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
@@ -3950,7 +4049,7 @@ export const processCompanyEventResponseReminders = async () => {
   );
   for (const row of rows || []) {
     const manager = await User.findById(row.updated_by_user_id || row.created_by_user_id);
-    if (!canManageConversaTeam(manager)) continue;
+    if (!canManageConversaTeam(manager) && (['direct_notice', 'team_poll'].includes(String(row.event_type || '').toLowerCase()) || !await isEventCoordinator({ userId: manager?.id, agencyId: row.agency_id, eventId: row.id }))) continue;
     const event = mapEventRow(row, null);
     const targetStart = new Date(event.nextOccurrenceStart || event.startsAt);
     if (!Number.isFinite(targetStart.getTime())) continue;
@@ -4001,7 +4100,7 @@ export const processCompanyEventResponseReminders = async () => {
       if (reminderConfig.channels.sms && pollUsesSms(event.votingConfig)) {
         smsUsers = team;
         recipientMap = new Map(smsUsers.map((u) => [Number(u.id), u]));
-        const smsSettings = await getCompanyEventSmsSettingsForAgency(event.agencyId);
+        const smsSettings = await getCompanyEventSmsSettingsForAgency(event.agencyId, { purpose: 'polling' });
         fromNumber = smsSettings.fromNumber;
       }
       for (const userId of targets) {
@@ -4013,6 +4112,7 @@ export const processCompanyEventResponseReminders = async () => {
           try {
             await Notification.create({
               type: 'company_event_message',
+              audienceJson: event.staffPageUrl ? { navigationUrl: event.staffPageUrl } : null,
               title,
               message,
               userId,
@@ -4061,7 +4161,7 @@ export const processCompanyEventResponseReminders = async () => {
               const eligibility = await teamSmsEligibility(recipient, { agencyId: event.agencyId, from: fromNumber });
               if (!eligibility.eligible) { await writeDispatchLog({ eventId: event.id, userId, channel: 'sms', dispatchType, occurrenceKey, status: 'skipped', statusReason: eligibility.label }); continue; }
               const smsBody = `${title}\n${companyEventSmsInstructions(event)}`;
-              const sendResult = await VonageService.sendSms({ purpose: 'polling', agencyId: event.agencyId, to, from: fromNumber, body: smsBody });
+              const sendResult = await sendCompanyEventSms({ eventId: event.id, userId: Number(userId), dispatchType, batchId: `${event.id}:${dispatchType}:${occurrenceKey}`, purpose: 'polling', agencyId: event.agencyId, to, from: fromNumber, body: smsBody });
               await writeDispatchLog({
                 eventId: event.id,
                 userId: Number(userId),
@@ -4091,7 +4191,7 @@ export const processCompanyEventResponseReminders = async () => {
   }
 };
 
-export const handleCompanyEventInbound = async ({ from, to, body }) => {
+export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventId = null, topicResponse = null }) => {
   const agencyId = await findAgencyByCompanyEventShortCode(to);
   if (!agencyId) return null;
 
@@ -4105,10 +4205,12 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
   const activeEvents = await getActiveSmsVotingEvents(agencyId);
   const eligibleEvents = [];
   for (const row of activeEvents) {
+    if (smsTopicEventId && Number(row.id) !== Number(smsTopicEventId)) continue;
+    if (await isCompanyEventSmsMuted(row.id, from)) continue;
     const audience = await getAudienceForEvent(row.id);
     if (await userIsInAudience({ userId: Number(user.id), audience })) eligibleEvents.push(mapEventRow(row, null));
   }
-  const selected = selectCompanyEventVote(eligibleEvents, body);
+  const selected = selectCompanyEventVote(eligibleEvents, topicResponse || body);
   if (!selected) return null;
   if (selected.ambiguous) return { handled: true, agencyId, responseMessage: `Reply with "<code> <option>". Active codes: ${selected.codes.join(', ')}` };
   const targetEvent = selected.event;
@@ -4137,7 +4239,8 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
     [targetEvent.id, Number(user.id), parsed.key, parsed.label, parsed.raw, MessageLog.normalizePhone(from) || from]
   );
   await dismissPollNotification(targetEvent.id, Number(user.id));
-  return { handled: true, agencyId, responseMessage: parsed.key==='__UNCLASSIFIED__'?'Thanks! Your reply was saved for the organizer to review.':`Thanks! Recorded: ${parsed.label}.` };
+  await recordCompanyEventPollSmsResponse({ eventId: targetEvent.id, userId: user.id, responseKey: parsed.key });
+  return { handled: true, agencyId, eventId: targetEvent.id, responseMessage: parsed.key==='__UNCLASSIFIED__'?'Thanks! Your reply was saved for the organizer to review.':`Thanks! Recorded: ${parsed.label}.` };
 };
 
 /**
@@ -4148,261 +4251,34 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
 export const registerForCompanyEventPublic = async (req, res, next) => {
   try {
     const eventId = Number(req.params.id);
-    if (!Number.isFinite(eventId) || eventId <= 0) {
-      return res.status(400).json({ error: { message: 'Invalid event id' } });
+    if (!Number.isSafeInteger(eventId) || eventId <= 0) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
+    assertEventRegistrationOpen(rows[0]);
+    const smsConsentDisclosure = await getCompanyEventSmsConsentDetails(rows[0]);
+    const result = await registerPublicEventGuest({ eventId, body: req.body || {}, consentDetails: smsConsentDisclosure });
+    let smsConsentStatus = null;
+    let smsConsentPath = null;
+    if (req.body?.smsConsent === false) {
+      await revokeCompanyEventGuestSms({ eventId, guestRegistrationId: result.guestRegistrationId });
+      smsConsentStatus = 'suppressed';
     }
-
-    const firstName = String(req.body.firstName || '').trim();
-    const lastName  = String(req.body.lastName  || '').trim();
-    const email     = String(req.body.email     || '').trim().toLowerCase();
-    const response  = String(req.body.response  || '').trim().toLowerCase();
-    const guestCount    = Number(req.body.guestCount    || 1);
-    const dietaryNotes  = String(req.body.dietaryNotes  || '').trim();
-    const notes         = String(req.body.notes         || '').trim();
-    const needListCustomItemName = String(
-      req.body.needListCustomItemName || req.body.need_list_custom_item_name || ''
-    ).trim();
-
-    if (!firstName || !email) {
-      return res.status(400).json({ error: { message: 'firstName and email are required' } });
-    }
-    if (!['yes', 'no', 'maybe'].includes(response)) {
-      return res.status(400).json({ error: { message: 'response must be yes, no, or maybe' } });
-    }
-
-    // Verify event exists and is active.
-    const [evRows] = await pool.execute(
-      'SELECT id, agency_id, title, potluck_enabled FROM company_events WHERE id = ? AND is_active = 1 LIMIT 1',
-      [eventId]
-    );
-    if (!evRows.length) {
-      return res.status(404).json({ error: { message: 'Event not found or not active' } });
-    }
-    const eventAgencyId = Number(evRows[0].agency_id);
-    const potluckEnabled = !!(evRows[0].potluck_enabled === 1 || evRows[0].potluck_enabled === true);
-    const needListItemIdRaw = Number(req.body?.needListItemId || req.body?.need_list_item_id || 0);
-    const needListItemId = Number.isFinite(needListItemIdRaw) && needListItemIdRaw > 0 ? needListItemIdRaw : null;
-
-    const phone = String(req.body.phone || '').replace(/\D/g, '').slice(-10); // last 10 digits
-
-    // Potluck rule: for "yes" responses, require selecting one unclaimed need-list item
-    // when the event has remaining potluck items.
-    let availableNeedItems = [];
-    if (potluckEnabled) {
-      const [needRows] = await pool.execute(
-        `SELECT id, item_name, item_notes, item_category
-         FROM company_event_need_list_items
-         WHERE company_event_id = ? AND agency_id = ?
-           AND claimed_by_user_id IS NULL
-           AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')
-         ORDER BY created_at ASC, id ASC`,
-        [eventId, eventAgencyId]
-      );
-      availableNeedItems = needRows || [];
-    }
-    if (response === 'yes' && availableNeedItems.length > 0) {
-      const selectedNeedItem = needListItemId
-        ? (availableNeedItems.find((row) => Number(row.id) === needListItemId) || null)
-        : null;
-      const validSelected = !!selectedNeedItem;
-      if (!validSelected) {
-        return res.status(400).json({
-          error: {
-            message: 'Please choose one remaining potluck item before confirming "Yes".'
-          }
-        });
-      }
-      const isOpenRequest = String(selectedNeedItem.item_notes || '')
-        .trim()
-        .toUpperCase()
-        .startsWith(OPEN_REQUEST_MARKER);
-      if (isOpenRequest && !needListCustomItemName) {
-        return res.status(400).json({
-          error: {
-            message: 'Please type what you are bringing for this category.'
-          }
-        });
+    if (result.input.smsConsent) {
+      try {
+        const enrolled = await enrollCompanyEventGuestSms({ eventId, agencyId: result.event.agency_id,
+          phone: result.input.phone, guestRegistrationId: result.guestRegistrationId,
+          evidence: { consented: true, source: 'event_registration', reference: `event:${eventId}:guest:${result.guestRegistrationId}`,
+            disclosure: smsConsentDisclosure?.disclosure, consentText: smsConsentDisclosure?.disclosure,
+            capturedAt: new Date().toISOString() } });
+        smsConsentStatus = enrolled.status;
+        smsConsentPath = enrolled.consentPath || null;
+      } catch (error) {
+        smsConsentStatus = 'error';
+        console.warn('[event-registration] SMS enrollment unavailable', { eventId, code: error.code });
       }
     }
-
-    // Attempt to match user account: 1) email, 2) phone, 3) first+last name.
-    let userId = null;
-    let matchMethod = null;
-
-    const [byEmail] = await pool.execute(
-      'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1',
-      [email]
-    );
-    if (byEmail.length) { userId = Number(byEmail[0].id); matchMethod = 'email'; }
-
-    if (!userId && phone.length >= 7) {
-      const [byPhone] = await pool.execute(
-        `SELECT id FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,'(',''),')',''),'-',''),' ','') LIKE ? LIMIT 1`,
-        [`%${phone}`]
-      );
-      if (byPhone.length) { userId = Number(byPhone[0].id); matchMethod = 'phone'; }
-    }
-
-    if (!userId && firstName && lastName) {
-      const [byName] = await pool.execute(
-        'SELECT id FROM users WHERE LOWER(first_name) = ? AND LOWER(last_name) = ? LIMIT 1',
-        [firstName.toLowerCase(), lastName.toLowerCase()]
-      );
-      if (byName.length) { userId = Number(byName[0].id); matchMethod = 'name'; }
-    }
-
-    // Build registration payload.
-    const registrationPayload = JSON.stringify({
-      guestCount,
-      dietaryNotes,
-      notes,
-      needListItemId: needListItemId || null
-    });
-
-    if (userId) {
-      // Matched user — upsert invitation record.
-      const [existing] = await pool.execute(
-        'SELECT id FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1',
-        [eventId, userId]
-      );
-      if (existing.length) {
-        await pool.execute(
-          `UPDATE company_event_invitations
-           SET response = ?, responded_at = NOW(), registration_payload_json = ?, registration_submitted_at = NOW()
-           WHERE id = ?`,
-          [response, registrationPayload, existing[0].id]
-        );
-      } else {
-        const token = (await import('crypto')).default.randomBytes(32).toString('hex');
-        await pool.execute(
-          `INSERT INTO company_event_invitations
-           (company_event_id, agency_id, user_id, token, response, responded_at, registration_payload_json, registration_submitted_at)
-           VALUES (?, ?, ?, ?, ?, NOW(), ?, NOW())`,
-          [eventId, eventAgencyId, userId, token, response, registrationPayload]
-        );
-      }
-
-      const option = resolveRsvpOption(
-        { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
-        response
-      );
-      await pool.execute(
-        `INSERT INTO company_event_responses
-         (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
-         VALUES (?, ?, ?, ?, ?, 'in_app', NOW())
-         ON DUPLICATE KEY UPDATE
-           response_key = VALUES(response_key),
-           response_label = VALUES(response_label),
-           response_body = VALUES(response_body),
-           source = VALUES(source),
-           received_at = VALUES(received_at)`,
-        [eventId, userId, option?.key || response, option?.label || response, response]
-      );
-    } else {
-      // No account match — store as a guest registration for admin review.
-      // Upsert by email so re-submits update rather than duplicate.
-      const [existingGuest] = await pool.execute(
-        'SELECT id FROM company_event_guest_registrations WHERE company_event_id = ? AND LOWER(email) = ? LIMIT 1',
-        [eventId, email]
-      );
-      if (existingGuest.length) {
-        await pool.execute(
-          `UPDATE company_event_guest_registrations
-           SET response = ?, guest_count = ?, dietary_notes = ?, notes = ?, phone = ?, updated_at = NOW()
-           WHERE id = ?`,
-          [response, guestCount, dietaryNotes || null, notes || null, phone || null, existingGuest[0].id]
-        );
-      } else {
-        await pool.execute(
-          `INSERT INTO company_event_guest_registrations
-           (company_event_id, agency_id, first_name, last_name, email, phone, response, guest_count, dietary_notes, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [eventId, eventAgencyId, firstName, lastName, email, phone || null, response, guestCount, dietaryNotes || null, notes || null]
-        );
-      }
-    }
-
-    // If attendee changed away from "yes", release any prior claimed item for this attendee.
-    if (potluckEnabled && response !== 'yes') {
-      if (userId) {
-        await pool.execute(
-          `UPDATE company_event_need_list_items
-           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
-           WHERE company_event_id = ? AND agency_id = ? AND claimed_by_user_id = ?`,
-          [eventId, eventAgencyId, userId]
-        );
-      } else {
-        await pool.execute(
-          `UPDATE company_event_need_list_items
-           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
-           WHERE company_event_id = ? AND agency_id = ? AND LOWER(COALESCE(claimed_by_guest_email, '')) = ?`,
-          [eventId, eventAgencyId, email]
-        );
-      }
-    }
-
-    // Claim selected need-list item (if provided and still available).
-    // For matched users we claim by user_id; otherwise by guest name/email.
-    if (needListItemId && response === 'yes' && potluckEnabled) {
-      const selectedNeedItem = availableNeedItems.find((row) => Number(row.id) === needListItemId) || null;
-      const selectedIsOpenRequest = String(selectedNeedItem?.item_notes || '')
-        .trim()
-        .toUpperCase()
-        .startsWith(OPEN_REQUEST_MARKER);
-      const claimedItemName = selectedIsOpenRequest
-        ? needListCustomItemName.slice(0, 255)
-        : String(selectedNeedItem?.item_name || '').trim().slice(0, 255);
-      let claimResult;
-      if (userId) {
-        await pool.execute(
-          `UPDATE company_event_need_list_items
-           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
-           WHERE company_event_id = ? AND agency_id = ? AND claimed_by_user_id = ?`,
-          [eventId, eventAgencyId, userId]
-        );
-        const [r] = await pool.execute(
-          `UPDATE company_event_need_list_items
-           SET item_name = ?, claimed_by_user_id = ?, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NOW()
-           WHERE id = ? AND company_event_id = ? AND agency_id = ?
-             AND claimed_by_user_id IS NULL
-             AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')`,
-          [claimedItemName, userId, needListItemId, eventId, eventAgencyId]
-        );
-        claimResult = r;
-      } else {
-        await pool.execute(
-          `UPDATE company_event_need_list_items
-           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
-           WHERE company_event_id = ? AND agency_id = ? AND LOWER(COALESCE(claimed_by_guest_email, '')) = ?`,
-          [eventId, eventAgencyId, email]
-        );
-        const [r] = await pool.execute(
-          `UPDATE company_event_need_list_items
-           SET item_name = ?, claimed_by_user_id = NULL, claimed_by_guest_name = ?, claimed_by_guest_email = ?, claimed_at = NOW()
-           WHERE id = ? AND company_event_id = ? AND agency_id = ?
-             AND claimed_by_user_id IS NULL
-             AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')`,
-          [claimedItemName, (`${firstName} ${lastName}`.trim() || firstName).slice(0, 200), email.slice(0, 255), needListItemId, eventId, eventAgencyId]
-        );
-        claimResult = r;
-      }
-      if (!Number(claimResult?.affectedRows || 0)) {
-        return res.status(409).json({
-          error: {
-            message: 'That potluck item was just claimed by someone else. Please pick another item and submit again.'
-          }
-        });
-      }
-    }
-
-    res.json({
-      ok: true,
-      matched: !!userId,
-      matchMethod: matchMethod || null,
-      userId: userId || null,
-      response
-    });
+    res.json({ ok: true, matched: false, response: result.response, managementToken: result.managementToken, smsConsentStatus, smsConsentPath, checkedInAt: result.checkedInAt, checkedOutAt: result.checkedOutAt });
   } catch (error) {
+    if (error.status || error.statusCode) return res.status(error.status || error.statusCode).json({ error: { message: error.message } });
     next(error);
   }
 };
@@ -4421,8 +4297,8 @@ export const getCompanyEventPublic = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT
-         ce.id, ce.title, ce.event_type, ce.description, ce.splash_content,
-         ce.starts_at, ce.ends_at, ce.timezone, ce.rsvp_deadline,
+         ce.id, ce.agency_id, ce.operations_json, ce.is_active, ce.school_event_status, ce.public_registration_status, ce.title, ce.event_type, ce.description, ce.splash_content,
+         ce.starts_at, ce.ends_at, ce.timezone, ce.rsvp_deadline, ce.employee_report_time,
          ce.rsvp_mode,
          ce.event_location_name, ce.event_location_address, ce.event_location_phone,
          ce.public_age_min, ce.public_age_max, ce.public_session_label, ce.public_session_date_range, ce.public_session_time,
@@ -4449,6 +4325,12 @@ export const getCompanyEventPublic = async (req, res, next) => {
        LIMIT 1`,
       [eventId]
     );
+
+    if (!rows.length || rows[0].school_event_status === 'canceled' ||
+        (!req.companyEventStaffLink && !readEventOperations(rows[0]).publicRegistrationEnabled)) {
+      return res.status(404).json({ error: { message: 'Event page is not available' } });
+    }
+    const smsConsentDisclosure = req.companyEventStaffLink ? null : await getCompanyEventSmsConsentDetails(rows[0]);
 
     // Also look up any active digital registration form locked to this event.
     const [formRows] = await pool.execute(
@@ -4495,6 +4377,8 @@ export const getCompanyEventPublic = async (req, res, next) => {
     );
 
     res.json({
+      staff: req.companyEventStaffLink ? { requiresSignIn: true } : undefined,
+      smsConsentDisclosure,
       publicRouting: {
         agencyPortalSlug: agencyPortalSlug || null,
         programPortalSlug: programPortalSlug || null,
@@ -4505,6 +4389,10 @@ export const getCompanyEventPublic = async (req, res, next) => {
       },
       event: {
         id: Number(row.id),
+        publicRegistrationEnabled: readEventOperations(row).publicRegistrationEnabled,
+        attendeeSmsEnabled: readEventOperations(row).attendeeSmsEnabled,
+        attendeeCheckInEnabled: readEventOperations(row).attendeeCheckInEnabled,
+        publicRegistrationStatus: row.public_registration_status || 'open',
         title: row.title || '',
         eventType: row.event_type || 'company_event',
         description: row.description || '',
@@ -4512,6 +4400,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
         startsAt: row.starts_at || null,
         endsAt: row.ends_at || null,
         timezone: row.timezone || 'UTC',
+        employeeReportTime: req.companyEventStaffLink && row.employee_report_time ? String(row.employee_report_time).slice(0, 5) : undefined,
         rsvpDeadline: row.rsvp_deadline || null,
         rsvpMode: String(row.rsvp_mode || 'none').trim().toLowerCase(),
         locationName: row.event_location_name || '',
@@ -4847,9 +4736,14 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to create event copy' } });
     }
 
+    // A copy receives its own staff link and no cross-tenant coordinator or payment history.
+    await saveEventOperations({ eventId: newEventId, agencyId: targetAgencyId, actorUserId: userId,
+      operations: { ...readEventOperations(sourceRow), coordinatorUserIds: [], paymentPaid: false,
+        paymentPaidAt: null, paymentPaidByUserId: null, paymentNotes: '', publicRegistrationEnabled: false } });
+
     // Regenerate scheduled sessions for the new event (non-fatal if it throws).
     try {
-      await materializeSessionsForEvent(newEventId, targetAgencyId);
+      await materializeSessionsForEvent(pool, { companyEventId: newEventId });
     } catch (e) {
       // Intentionally swallow: session materialization is idempotent and will be retried on next
       // edit. A failure here must not block the copy itself.
@@ -4871,7 +4765,7 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
 };
 
 export const classifyCompanyEventResponse=async(req,res,next)=>{
- try{assertConversaTeamManager(req.user);const agencyId=parsePositiveInt(req.params.id),eventId=parsePositiveInt(req.params.eventId);
+ try{await assertEventCommunicationManager(req);const agencyId=parsePositiveInt(req.params.id),eventId=parsePositiveInt(req.params.eventId);
  if(!await userHasAgencyAccess(req,agencyId)||!await userCanManageCompanyEventsAsync(req))return res.status(403).json({error:{message:'Not authorized to review this agency’s polls.'}});
  const event=await loadEventByIdForAgency(eventId,agencyId);if(!event)return res.status(404).json({error:{message:'Poll not found.'}});
  const config=parseVotingConfig(parseJsonMaybe(event.voting_config_json));

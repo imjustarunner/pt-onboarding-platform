@@ -37,6 +37,22 @@ beforeEach(() => {
 });
 
 describe('campaign-wide SMS delivery gate', () => {
+  it('event suppression blocks that event while preserving other consented traffic', async () => {
+    const original = pool.execute.getMockImplementation();
+    pool.execute.mockImplementation(async (sql, args) => {
+      if (sql.includes('FROM company_events')) return [[{ id: args[0] }]];
+      if (sql.includes('FROM company_event_sms_preferences')) return [Number(args[0]) === 4 ? [{ muted: 1 }] : []];
+      return original(sql, args);
+    });
+    permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'reminders', status: 'opted_in' });
+    await expect(prepareSmsDelivery({ ...message, companyEventId: 4 })).rejects.toMatchObject({ code: 'event_sms_muted' });
+    await expect(prepareSmsDelivery({ ...message, companyEventId: 5 })).resolves.toMatchObject({ to: message.to });
+    await expect(prepareSmsDelivery(message)).resolves.toMatchObject({ to: message.to });
+  });
+  it('rejects an event outside the sender agency even with recipient consent', async () => {
+    permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'reminders', status: 'opted_in' });
+    await expect(prepareSmsDelivery({ ...message, companyEventId: 99 })).rejects.toMatchObject({ code: 'event_sms_invalid_event' });
+  });
   it('requires a separately reviewed hiring grant and never turns it into staff consent',async()=>{
     const original=pool.execute.getMockImplementation();let hiringGranted=false;
     pool.execute.mockImplementation(async(sql,args)=>{

@@ -5,15 +5,15 @@
         <h4>{{ title }}</h4>
         <small class="hint">{{ subtitle }}</small>
         <p v-if="canManageTeam" class="hint"><router-link :to="teamCommunicationsPath">Open team texts &amp; polls in Conversa →</router-link></p>
-        <div v-if="canManageTeam" class="hint" :class="{ 'status-ready': smsReadiness.ready, 'status-not-ready': !smsReadiness.ready }" style="margin-top: 4px;">
-          Conversa team SMS: {{ smsReadiness.message }}
+        <div class="hint" :class="{ 'status-ready': smsReadiness.ready, 'status-not-ready': !smsReadiness.ready }" style="margin-top: 4px;">
+          Company Events SMS: {{ smsReadiness.message }}
         </div>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary btn-sm" @click="loadAll" :disabled="loading || !agencyId">
           {{ loading ? 'Loading…' : reloadLabel }}
         </button>
-        <button type="button" class="btn btn-primary btn-sm" @click="startCreate" :disabled="saving || !agencyId">
+        <button type="button" class="btn btn-primary btn-sm" v-if="canManageAll" @click="startCreate" :disabled="saving || !agencyId">
           {{ newEventLabel }}
         </button>
         <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="startDirectMessage" :disabled="saving || !agencyId">
@@ -36,7 +36,7 @@
       </button>
     </div>
 
-    <div class="editor-card">
+    <div v-if="canManageAll || draft.id" class="editor-card">
       <h5 style="margin: 0 0 10px 0;">{{ draft.id ? editEventLabel : createEventLabel }}</h5>
       <div class="grid">
         <div class="form-group">
@@ -211,17 +211,17 @@
       </div>
 
       <div v-if="!isServiceProgramEventType" class="voting-block">
-        <strong>RSVP / Conversa team polls</strong>
+        <strong>RSVP / voting</strong>
         <div class="grid" style="margin-top: 8px;">
           <div class="form-group">
             <label class="lbl">Mode</label>
             <select v-model="draft.rsvpMode" class="input">
               <option value="none">Disabled</option>
               <option value="yes_no_maybe">Yes/No/Maybe</option>
-              <option v-if="canManageTeam" value="custom_vote">Custom vote</option>
+              <option value="custom_vote">Custom vote</option>
             </select>
           </div>
-          <div v-if="canManageTeam" class="form-group">
+          <div class="form-group">
             <label class="lbl">Voting enabled</label>
             <select v-model="draft.votingConfig.enabled" class="input">
               <option :value="false">No</option>
@@ -229,7 +229,7 @@
             </select>
           </div>
         </div>
-        <div v-if="canManageTeam && draft.votingConfig.enabled" class="grid">
+        <div v-if="draft.votingConfig.enabled" class="grid">
           <div class="form-group">
             <label class="lbl">Question</label>
             <input v-model.trim="draft.votingConfig.question" class="input" placeholder="Will you attend?" />
@@ -246,7 +246,7 @@
             <input v-model.trim="draft.smsCode" class="input" maxlength="32" placeholder="BOOKCLUB" />
           </div>
         </div>
-        <div v-if="canManageTeam && draft.votingConfig.enabled" class="grid">
+        <div v-if="draft.votingConfig.enabled" class="grid">
           <div v-for="(opt, idx) in draft.votingConfig.options" :key="`opt-${idx}`" class="form-group">
             <label class="lbl">Option {{ idx + 1 }}</label>
             <div class="option-row">
@@ -255,13 +255,13 @@
             </div>
           </div>
         </div>
-        <div v-if="canManageTeam && draft.votingConfig.enabled" class="poll-settings">
+        <div v-if="draft.votingConfig.enabled" class="poll-settings">
           <button type="button" class="btn btn-secondary" :disabled="draft.votingConfig.options.length>=12" @click="draft.votingConfig.options.push({key:'',label:''})">Add answer choice</button>
           <label><input v-model="draft.votingConfig.allowOther" type="checkbox" /> Allow written answers for review (SMS: poll code followed by their answer)</label>
           <label><input v-model="draft.votingConfig.shareResults" type="checkbox" /> Share final aggregate results with participants</label>
           <p class="hint">Reply codes can be numbers or words, such as 1 or MON. Participants always see their own reply. Staff replies are identified to organizers; this is not an anonymous poll.</p>
         </div>
-        <div v-if="canManageTeam && draft.votingConfig.enabled" class="grid" style="margin-top: 6px;">
+        <div v-if="draft.votingConfig.enabled" class="grid" style="margin-top: 6px;">
           <div class="form-group">
             <label class="lbl">Reminders enabled</label>
             <select v-model="draft.reminderConfig.enabled" class="input">
@@ -320,14 +320,18 @@
         </div>
       </div>
 
+      <EventOperationsSettings v-model="draft" :users="canManageAll ? audienceUsers : []" />
+      <EventTextCampaignPanel v-if="draft.id" :agency-id="agencyId" :event="selectedEventDetails" />
+      <EventShareLinks v-if="draft.id" :event="selectedEventDetails" />
       <div class="actions" style="margin-top: 10px;">
-        <button type="button" class="btn btn-secondary btn-sm" @click="resetDraft" :disabled="saving">Reset</button>
+        <button type="button" class="btn btn-secondary btn-sm" v-if="canManageAll" @click="resetDraft" :disabled="saving">Reset</button>
         <button type="button" class="btn btn-primary btn-sm" @click="saveEvent" :disabled="saving || !agencyId">
           {{ saving ? 'Saving…' : (draft.id ? 'Update event' : 'Create event') }}
         </button>
       </div>
     </div>
 
+    <label class="payment-filter"><input v-model="outstandingOnly" type="checkbox" /> Needs payment</label>
     <div class="table-wrap">
       <table class="table">
         <thead>
@@ -342,9 +346,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="event in events" :key="event.id">
+          <tr v-for="event in filteredEvents" :key="event.id">
             <td>
               <div style="font-weight: 600;">{{ event.title }}</div>
+              <div v-if="event.requiresPayment" class="hint">{{ eventPaymentLabel(event) }}</div>
               <div class="hint">{{ (event.eventType || 'company_event') === 'direct_notice' ? 'direct_message' : (event.eventType || 'company_event') }}</div>
             </td>
             <td class="hint">{{ programLabelForEvent(event) }}</td>
@@ -370,24 +375,24 @@
               <button type="button" class="btn btn-secondary btn-sm" @click="editEvent(event)">Edit</button>
               <button
                 type="button"
-                class="btn btn-secondary btn-sm push-as-splash-btn"
+                v-if="canManageAll" class="btn btn-secondary btn-sm push-as-splash-btn"
                 title="Drop this event into a slide-out splash on every staff dashboard so they can share it with families."
                 :disabled="saving || pushingSplashEventId === event.id"
                 @click="pushEventAsSplash(event)"
               >
                 {{ pushingSplashEventId === event.id ? 'Pushing…' : 'Push as splash →' }}
               </button>
-              <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="sendDirectMessage(event)" :disabled="saving">Send message</button>
-              <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="editEvent(event)" :disabled="saving">Texts &amp; responses</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="viewDeliveryLogs(event)" :disabled="saving">Delivery</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="downloadResponsesCsv(event)" :disabled="saving">CSV</button>
-              <button v-if="canManageTeam && event.votingConfig?.enabled" type="button" class="btn btn-secondary btn-sm" @click="reviewingPoll=event">Results &amp; review replies</button>
-              <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="closeVoting(event)" :disabled="saving || !event.votingConfig?.enabled || !!event.votingClosedAt">Close</button>
-              <button type="button" class="btn btn-danger btn-sm" @click="removeEvent(event)" :disabled="saving">Delete</button>
+              <button v-if="event.votingConfig?.enabled" type="button" class="btn btn-secondary btn-sm" @click="reviewingPoll=event">Results &amp; review replies</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="closeVoting(event)" :disabled="saving || !event.votingConfig?.enabled || !!event.votingClosedAt">Close</button>
+              <button v-if="canManageAll" type="button" class="btn btn-danger btn-sm" @click="removeEvent(event)" :disabled="saving">Delete</button>
             </td>
           </tr>
-          <tr v-if="!events.length">
-            <td colspan="7" class="hint">{{ emptyEventsLabel }}</td>
+          <tr v-if="!filteredEvents.length">
+            <td colspan="7" class="hint">{{ outstandingOnly ? 'No events need payment.' : emptyEventsLabel }}</td>
           </tr>
         </tbody>
       </table>
@@ -396,13 +401,17 @@
 </template>
 
 <script setup>
+import EventOperationsSettings from './EventOperationsSettings.vue';
+import EventShareLinks from './EventShareLinks.vue';
+import EventTextCampaignPanel from './EventTextCampaignPanel.vue';
+import { eventOperationsDraft, eventOperationsPayload, eventPaymentError, needsEventPayment, eventPaymentLabel } from '../../utils/eventOperations';
+import { canManageConversaTeam } from '../../constants/conversa';
 import StaffPollResultsReview from './StaffPollResultsReview.vue';
 
 import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-import api from '../../services/api';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
-import { canManageConversaTeam } from '../../constants/conversa';
+import api from '../../services/api';
 import {
   formatBusinessDateTime,
   isoToZonedDatetimeLocal,
@@ -411,12 +420,14 @@ import {
 } from '../../utils/timezones';
 
 const router = useRouter();
-const auth = useAuthStore();
-const canManageTeam = computed(() => canManageConversaTeam(auth.user));
+const route = useRoute();
+const authStore = useAuthStore();
+const canManageTeam = computed(() => canManageConversaTeam(authStore.user));
 const teamCommunicationsPath = computed(() => {
-  const slug = router.currentRoute.value.params.organizationSlug;
+  const slug = route.params?.organizationSlug;
   return { path: `${slug ? '/' + slug : ''}/admin/communications`, query: { mode: 'team' } };
 });
+const canManageAll = computed(() => ['admin', 'super_admin', 'support', 'staff'].includes(String(authStore.user?.role || '').toLowerCase()) || events.value.some(event => event.canAssignCoordinators === true));
 const reviewingPoll=ref(null);
 const affiliateProgramOrgs = ref([]);
 const pushingSplashEventId = ref(null);
@@ -532,6 +543,7 @@ function browserTimeZone() {
 }
 
 const emptyDraft = () => ({
+  ...eventOperationsDraft(),
   id: null,
   organizationId: 0,
   title: '',
@@ -588,6 +600,10 @@ const emptyDraft = () => ({
 });
 
 const draft = ref(emptyDraft());
+const selectedEventRecord = ref(null);
+const selectedEventDetails = computed(() => events.value.find(event => Number(event.id) === Number(draft.value.id)) || (Number(selectedEventRecord.value?.id) === Number(draft.value.id) ? selectedEventRecord.value : null) || draft.value);
+const outstandingOnly = ref(false);
+const filteredEvents = computed(() => events.value.filter(event => !outstandingOnly.value || needsEventPayment(event)));
 const eventTypeSelection = computed({
   get() {
     const raw = String(draft.value.eventType || '').trim();
@@ -733,7 +749,10 @@ const toggleWeekday = (weekday, checked) => {
 };
 
 const editEvent = (event) => {
+  selectedEventRecord.value = event;
+  if (!canManageAll.value) void loadAudienceOptions(event.id).catch(() => { error.value = 'Could not load staff choices for this event.'; });
   draft.value = {
+    ...eventOperationsDraft(event),
     id: event.id,
     organizationId:
       event.organizationId != null && event.organizationId !== '' && Number(event.organizationId) > 0
@@ -838,10 +857,12 @@ const saveEvent = async () => {
     error.value = 'End time must be after start time.';
     return;
   }
+  if (eventPaymentError(draft.value)) { error.value = eventPaymentError(draft.value); return; }
   saving.value = true;
   error.value = '';
   try {
     const payload = {
+      ...eventOperationsPayload(draft.value),
       title: draft.value.title,
       description: draft.value.description,
       eventType: draft.value.eventType || 'company_event',
@@ -1084,18 +1105,18 @@ const loadEvents = async () => {
     events.value = [];
     return;
   }
-  const resp = await api.get(`/agencies/${props.agencyId}/company-events`);
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events`, { params: outstandingOnly.value ? { paymentStatus: 'outstanding' } : {} });
   events.value = Array.isArray(resp.data) ? resp.data : [];
 };
 
-const loadAudienceOptions = async () => {
+const loadAudienceOptions = async (eventId = null) => {
   if (!props.agencyId) {
     audienceUsers.value = [];
     audienceGroups.value = [];
     audienceRoles.value = [];
     return;
   }
-  const resp = await api.get(`/agencies/${props.agencyId}/company-events/audience-options`);
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events/audience-options`, { params: eventId ? { eventId } : {} });
   audienceUsers.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
   audienceGroups.value = Array.isArray(resp.data?.groups) ? resp.data.groups : [];
   audienceRoles.value = Array.isArray(resp.data?.roles) ? resp.data.roles : [];
@@ -1109,7 +1130,6 @@ const loadTemplates = async () => {
 };
 
 const loadSmsReadiness = async () => {
-  if (!canManageTeam.value) return;
   if (!props.agencyId) {
     smsReadiness.value = { ready: false, message: 'Select an agency' };
     return;
@@ -1122,11 +1142,11 @@ const loadSmsReadiness = async () => {
       return;
     }
     if (settings.companyEventsEnabled !== true) {
-      smsReadiness.value = { ready: false, message: 'Conversa team SMS disabled in agency settings' };
+      smsReadiness.value = { ready: false, message: 'Company Events SMS disabled in agency settings' };
       return;
     }
     if (!settings.companyEventsSenderNumberId) {
-      smsReadiness.value = { ready: false, message: 'Select Conversa team sender number in Texting Numbers' };
+      smsReadiness.value = { ready: false, message: 'Select Company Events sender number in Texting Numbers' };
       return;
     }
     smsReadiness.value = { ready: true, message: 'Ready' };
@@ -1147,14 +1167,23 @@ const loadAll = async () => {
   loading.value = true;
   error.value = '';
   try {
-    await Promise.all([loadEvents(), loadAudienceOptions(), loadTemplates(), loadAffiliateProgramOrgs()]);
-    await loadSmsReadiness();
+    await loadEvents();
+    const linkedEvent = events.value.find(event => Number(event.id) === Number(route.query?.eventId));
+    if (linkedEvent) editEvent(linkedEvent);
+    if (canManageAll.value) {
+      await Promise.all([loadAudienceOptions(), loadTemplates(), loadAffiliateProgramOrgs(), loadSmsReadiness()]);
+    } else {
+      smsReadiness.value = { ready: true, message: 'Campaign readiness is checked when you preview a text.' };
+      if (events.value.length && !draft.value.id) editEvent(events.value[0]);
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load company events';
   } finally {
     loading.value = false;
   }
 };
+
+watch(outstandingOnly, () => { void loadEvents().catch(() => { error.value = 'Could not load event payments.'; }); });
 
 watch(() => props.agencyId, async () => {
   resetDraft();

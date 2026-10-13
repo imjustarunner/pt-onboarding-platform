@@ -1015,6 +1015,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/company-events/:eventId/staff/:token',
+    name: 'CompanyEventStaff',
+    component: () => import('../views/public/CompanyEventStaffView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/company-events/:eventId',
     name: 'CompanyEventPublic',
     component: () => import('../views/public/CompanyEventPublicView.vue'),
@@ -2207,7 +2213,7 @@ const routes = [
     component: () => import('../views/admin/CompanyEventsView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager', 'provider', 'intern'],
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager', 'provider', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'schedule_manager'],
       organizationSlug: true
     }
   },
@@ -3675,7 +3681,7 @@ const routes = [
     path: '/admin/company-events',
     name: 'CompanyEvents',
     component: () => import('../views/admin/CompanyEventsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager', 'provider', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'schedule_manager'] }
   },
   {
     path: '/admin/surveys/:id/results',

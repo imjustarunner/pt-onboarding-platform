@@ -1,3 +1,4 @@
+import { isEventCoordinator } from './companyEventOperations.service.js';
 import pool from '../config/database.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
@@ -128,6 +129,8 @@ export async function canManageProgramEvent(req, agencyId) {
   if (!(await userHasAgencyAccessForRequest(req, agencyId))) return false;
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
+  const eventId = parsePositiveInt(req.params?.eventId);
+  if (eventId && await isEventCoordinator({ userId: req.user?.id, agencyId, eventId })) return true;
   return getProgramCoordinatorAccess(parsePositiveInt(req.user?.id));
 }
 

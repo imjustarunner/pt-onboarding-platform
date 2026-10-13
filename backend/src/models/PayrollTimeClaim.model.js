@@ -9,10 +9,11 @@ class PayrollTimeClaim {
     claimType,
     claimDate,
     payload,
-    suggestedPayrollPeriodId = null
+    suggestedPayrollPeriodId = null,
+    db = pool
   }) {
     const payloadJson = JSON.stringify(payload || {});
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO payroll_time_claims
        (agency_id, user_id, submitted_by_user_id, status, claim_type, claim_date, payload_json, suggested_payroll_period_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -27,11 +28,11 @@ class PayrollTimeClaim {
         suggestedPayrollPeriodId
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(
       `SELECT c.*,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
@@ -239,15 +240,15 @@ class PayrollTimeClaim {
     return PayrollTimeClaim.findById(id);
   }
 
-  static async updatePayload({ id, payload }) {
-    await pool.execute(
+  static async updatePayload({ id, payload, db = pool }) {
+    await db.execute(
       `UPDATE payroll_time_claims
        SET payload_json = ?
        WHERE id = ?
        LIMIT 1`,
       [JSON.stringify(payload || {}), id]
     );
-    return PayrollTimeClaim.findById(id);
+    return PayrollTimeClaim.findById(id, db);
   }
 
   /** Employee withdrew from payroll review — keep row for edit/resubmit. */
@@ -270,7 +271,7 @@ class PayrollTimeClaim {
   }
 
   /** Resubmit after edit/withdraw — back to pending review. */
-  static async resubmit({ id, claimDate = null, payload = null }) {
+  static async resubmit({ id, claimDate = null, payload = null, db = pool }) {
     const sets = [
       `status = 'submitted'`,
       `target_payroll_period_id = NULL`,
@@ -291,11 +292,11 @@ class PayrollTimeClaim {
       params.push(JSON.stringify(payload || {}));
     }
     params.push(id);
-    await pool.execute(
+    await db.execute(
       `UPDATE payroll_time_claims SET ${sets.join(', ')} WHERE id = ? LIMIT 1`,
       params
     );
-    return this.findById(id);
+    return this.findById(id, db);
   }
 
   static async hardDelete({ id }) {
@@ -373,4 +374,3 @@ class PayrollTimeClaim {
 }
 
 export default PayrollTimeClaim;
-

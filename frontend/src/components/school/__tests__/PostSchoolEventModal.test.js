@@ -86,3 +86,20 @@ describe('important date form', () => {
   });
 
 });
+
+describe('school event fee tracking', () => {
+  it('saves a paid fee and its follow-up note with the school event', async () => {
+    vi.useFakeTimers();
+    api.put.mockResolvedValue({ data: { id: 10 } });
+    const wrapper = render({ agencyId: 1, schoolOrganizationId: 2, editEvent: {
+      id: 10, category: 'open_house', title: 'Open House', requiresPayment: true, paymentAmount: 25,
+      paymentPaid: false, paymentNotes: 'Waiting for payment link',
+      startsAt: '2026-10-19T23:00:00.000Z', endsAt: '2026-10-20T01:00:00.000Z'
+    } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="payment-amount"]').element.value).toBe('25');
+    await wrapper.find('[data-testid="payment-paid"]').setValue(true);
+    await wrapper.find('.pse-actions .btn-primary').trigger('click'); await flushPromises();
+    expect(api.put).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ requiresPayment: true, paymentAmount: 25, paymentPaid: true, paymentNotes: 'Waiting for payment link' }));
+  });
+});

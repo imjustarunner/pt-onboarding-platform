@@ -3,6 +3,22 @@ export function notificationDestination(notification, { organizationSlug = null,
   const base = organizationSlug ? `/${organizationSlug}` : '';
   const entityType = String(n.related_entity_type || '').toLowerCase();
   const entityId = Number(n.related_entity_id || 0);
+  if (n.type === 'company_event_message') {
+    let audience = n.audience_json || n.audienceJson || {};
+    if (typeof audience === 'string') {
+      try { audience = JSON.parse(audience); } catch { audience = {}; }
+    }
+    const rawUrl = String(audience?.navigationUrl || '');
+    try {
+      // The notification carries only an event link. Never navigate to an arbitrary origin.
+      const origin = typeof window === 'undefined' ? 'https://app.invalid' : window.location.origin;
+      const url = new URL(rawUrl, origin);
+      if (url.origin !== origin) return null;
+      const match = url.pathname.match(/^\/company-events\/(\d+)\/staff\/([A-Za-z0-9_-]+)$/);
+      if (match && Number(match[1]) === entityId) return url.pathname;
+    } catch { /* Old notifications may not include a valid staff link. */ }
+    return null;
+  }
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
 
   if (entityType === 'office_kiosk_support' && entityId) return `/office-support/${entityId}`;
@@ -70,6 +86,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
   if(notification.related_entity_type==='provider_availability')return 'Review availability';
+  if (notification.type === 'company_event_message') return 'View event and RSVP';
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
   if (notification.type === 'school_event_marketing_photo') return 'View photos';

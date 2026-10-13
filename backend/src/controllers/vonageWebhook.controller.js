@@ -5,6 +5,7 @@ import { inspectInboundReception, enqueueCommunicationReview } from '../services
 import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { deliverCompanyEventVoteReply } from '../services/companyEventSmsReply.service.js';
+import { handleCompanyEventTopicInbound, recordCompanyEventSmsDeliveryStatus } from '../services/companyEventSms.service.js';
 /**
  * Vonage inbound SMS webhook controller.
  *
@@ -170,7 +171,10 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     if (await handleStaffSmsAssistant({from:fromNorm,to:toNorm,body,messageId})) return res.status(200).json({ok:true,staffAssistant:true});
 
-    const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
+    const eventTopicHandled = await handleCompanyEventTopicInbound({ from: fromNorm, to: toNorm, body, messageId,
+      sendReply: (options) => VonageService.sendSms(options) });
+    const companyEventHandled = eventTopicHandled?.handled ? eventTopicHandled : await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body,
+      smsTopicEventId: eventTopicHandled?.eventId, topicResponse: eventTopicHandled?.response });
     if (companyEventHandled?.handled) {
       try {
         await deliverCompanyEventVoteReply({ result: companyEventHandled, from: fromNorm, to: toNorm,
@@ -681,11 +685,12 @@ export const deliveryStatusWebhook = async (req, res) => {
   // Best-effort: log status updates to message_logs if we can match by messageId.
   try {
     const merged = { ...(req.query || {}), ...(req.body || {}) };
-    const messageId = merged.messageId || merged['message-id'] || merged.message_id;
+    const messageId = merged.messageId || merged['message-id'] || merged.message_id || merged.message_uuid;
     const status = merged.status;
     if (messageId && status) {
       // Map Vonage status to a normalized value.
       const normalizedStatus = String(status).toLowerCase();
+      await recordCompanyEventSmsDeliveryStatus(messageId, normalizedStatus);
       await pool.execute(
         `UPDATE message_logs
          SET delivery_status = ?, updated_at = NOW()

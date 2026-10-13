@@ -38,6 +38,15 @@ describe('notificationActions', () => {
     expect(notificationDestination({ type: 'status_expired', user_id: 7, related_entity_type: 'user' }, { role: 'provider' })).toBeNull();
   });
 
+  it('opens staff event links from notifications without requiring an administrator role', () => {
+    const event = { type: 'company_event_message', related_entity_type: 'company_event', related_entity_id: 8 };
+    expect(notificationDestination({ ...event, audience_json: JSON.stringify({ navigationUrl: '/company-events/8/staff/shared-token' }) }, { role: 'provider' })).toBe('/company-events/8/staff/shared-token');
+    expect(notificationDestination({ ...event, audienceJson: { navigationUrl: `${window.location.origin}/company-events/8/staff/shared-token` } })).toBe('/company-events/8/staff/shared-token');
+    expect(notificationDestination({ ...event, audience_json: { navigationUrl: 'https://untrusted.example/company-events/8/staff/shared-token' } })).toBeNull();
+    expect(notificationDestination({ ...event, audience_json: { navigationUrl: '/company-events/9/staff/shared-token' } })).toBeNull();
+    expect(notificationDestination({ ...event, audience_json: '{invalid' })).toBeNull();
+  });
+
   it('clears follow-up atomically when dismissing a protected notification', () => {
     expect(notificationDismissPayload({ _requires_follow_up_for_viewer: true }))
       .toEqual({ followUp: false, dismissed: true });

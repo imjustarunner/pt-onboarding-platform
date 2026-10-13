@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), access: vi.fn(), user: vi.fn() }));
+vi.mock('../../services/companyEventOperations.service.js', () => ({ isEventCoordinator: vi.fn(async () => false) }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute, query: mocks.execute } }));
 vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAffiliatedOrgAccessForRequest: mocks.access }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.user } }));

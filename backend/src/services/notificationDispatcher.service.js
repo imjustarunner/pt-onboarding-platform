@@ -297,10 +297,18 @@ class NotificationDispatcherService {
       channel: 'push'
     });
     if (!typePushEnabled) return { dispatched: false, reason: 'type_push_disabled' };
+    let notificationUrl = '/notifications';
+    if (notification.type === 'company_event_message') {
+      const audience = parseJsonMaybe(notification.audience_json) || {};
+      try {
+        const path = new URL(String(audience.navigationUrl || ''), 'https://event.invalid').pathname;
+        if (/^\/company-events\/\d+\/staff\/[a-f0-9]{32,128}$/.test(path)) notificationUrl = path;
+      } catch { /* Missing navigation retains the notifications inbox. */ }
+    }
     const result = await PushService.sendPushToUser(notification.user_id, {
       title: notification.title || 'Notification',
       body: notification.message || '',
-      url: '/notifications',
+      url: notificationUrl,
       tag: `n-${notification.id}`
     });
     return { dispatched: result.sent > 0, ...result };

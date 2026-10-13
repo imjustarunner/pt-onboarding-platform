@@ -1,11 +1,11 @@
 <template>
   <div class="container company-events-page">
     <div class="page-head">
-      <h1>Club Events</h1>
-      <p class="muted">Create RSVPs for virtual or in-person events, run club meetups, and potlucks.</p>
+      <h1>{{ isClub ? 'Club Events' : 'Events' }}</h1>
+      <p class="muted">{{ isClub ? 'Create RSVPs for virtual or in-person events, run club meetups, and potlucks.' : 'Manage event details, payments, staff interest, public registrations, and event messages.' }}</p>
     </div>
 
-    <div v-if="!agencyId" class="error">No club selected. Choose a club first.</div>
+    <div v-if="!agencyId" class="error">Choose an organization to manage its events.</div>
     <div v-else-if="sscMemberEventsHint" class="card member-events-hint">
       <h2 style="margin: 0 0 8px;">Club events</h2>
       <p class="muted" style="margin: 0 0 12px;">
@@ -35,7 +35,8 @@ import CompanyEventsManager from '../../components/admin/CompanyEventsManager.vu
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
-const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const agencyId = computed(() => Number(route.query.agencyId || agencyStore.currentAgency?.id || 0) || null);
+const isClub = computed(() => ['ssc', 'sstc'].includes(String(route.params?.organizationSlug || '').toLowerCase()));
 
 const myClubDashboardLink = computed(() => {
   const slug = String(route.params?.organizationSlug || '').trim();
@@ -58,6 +59,7 @@ const hasActiveClubAffiliation = computed(() => {
 
 /** Affiliated members (e.g. provider) on SSC — friendly pointer; full manager UI stays manager-only. */
 const sscMemberEventsHint = computed(() => {
+  if (Number(route.query.eventId) > 0) return false;
   const slug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   if (slug !== 'ssc' && slug !== 'sstc') return false;
   const role = String(authStore.user?.role || '').trim().toLowerCase();
@@ -66,6 +68,7 @@ const sscMemberEventsHint = computed(() => {
 });
 
 const sscManagerOnlyDenied = computed(() => {
+  if (Number(route.query.eventId) > 0) return false;
   const slug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   if (slug !== 'ssc' && slug !== 'sstc') return false;
   const role = String(authStore.user?.role || '').trim().toLowerCase();
@@ -89,4 +92,3 @@ const sscManagerOnlyDenied = computed(() => {
   margin: 0;
 }
 </style>
-
