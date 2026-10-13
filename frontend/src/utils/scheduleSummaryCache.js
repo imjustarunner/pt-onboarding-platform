@@ -2,6 +2,8 @@
  * Cache for schedule-summary responses.
  * Memory TTL 90s + sessionStorage warm paint so My Schedule can show last week instantly.
  */
+import { invalidateScheduleSummaryRequests } from './scheduleSummaryRequests';
+
 const CACHE_TTL_MS = 90 * 1000;
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const SESSION_PREFIX = 'sched_summary_v2:';
@@ -67,6 +69,7 @@ export function setScheduleSummary(key, data) {
 export function invalidateScheduleSummaryCacheForUser(userId) {
   const uid = Number(userId || 0);
   if (!uid) return;
+  invalidateScheduleSummaryRequests(uid);
   const prefix = `${uid}|`;
   for (const key of [...cache.keys()]) {
     if (String(key).startsWith(prefix)) cache.delete(key);

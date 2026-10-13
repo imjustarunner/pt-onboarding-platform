@@ -19,6 +19,22 @@ const event={id:1,start_at:'2030-01-07 17:00:00',end_at:'2030-01-07 18:00:00',st
 let events;
 beforeEach(()=>{vi.clearAllMocks();events=[{...event}];Hours.listForProvider.mockResolvedValue([]);readActiveHolds.mockResolvedValue([]);expandWeeklyHold.mockReturnValue([]);pool.execute.mockImplementation(async sql=>[sql.includes('SELECT ol.timezone')?[{timezone:'UTC'}]:sql.includes('FROM office_events e')?events:[]]);});
 const compute=()=>Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false});
+it('allows published openings during school assignments, keeps school details private, and still blocks appointments', async () => {
+ const original = pool.execute.getMockImplementation();
+ pool.execute.mockImplementation((sql,args) => sql.includes('FROM provider_school_assignments psa')
+  ? Promise.resolve([[{school_organization_id:4,school_name:'Example School',day_of_week:'Monday',start_time:'17:00:00',end_time:'18:00:00'}]]) : original(sql,args));
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+ const publicResult = await compute();
+ expect(publicResult.virtualSlots).toHaveLength(1);expect(publicResult.inPersonSlots).toHaveLength(1);
+ expect(publicResult).not.toHaveProperty('busyBlocks');expect(JSON.stringify(publicResult)).not.toContain('Example School');
+ const privateResult=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includePrivateCalendar:true,materializeOfficeEvents:false});
+ expect(privateResult.busyBlocks).toEqual([]);
+ expect(privateResult.schoolAssignments).toContainEqual(expect.objectContaining({sourceType:'SCHOOL_ASSIGNMENT',schoolId:4,schoolName:'Example School',label:'School assignment'}));
+ const withSchool=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation((sql,args)=>sql.startsWith('SELECT start_at, end_at FROM appointments')
+  ? Promise.resolve([[{start_at:event.start_at,end_at:event.end_at}]]) : withSchool(sql,args));
+ const booked=await compute();expect(booked.virtualSlots).toEqual([]);expect(booked.inPersonSlots).toEqual([]);
+});
 describe('published office availability and profile policy',()=>{
  it('returns conflict explanations only to explicitly opted-in staff calls',async()=>{
   Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);

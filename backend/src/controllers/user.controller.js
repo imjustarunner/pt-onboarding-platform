@@ -4033,6 +4033,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    let providerAgencies;
+    const getProviderAgencies = () => (providerAgencies ||= User.getAgencies(providerId));
+    const meetingBases = new Map();
+    const resolveMeetingBase = (id) => {
+      const aid = Number(id);
+      if (!meetingBases.has(aid)) meetingBases.set(aid, tenantMeetingBase(aid));
+      return meetingBases.get(aid);
+    };
     const provider = await User.findById(providerId);
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
 
@@ -4045,7 +4053,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     if (!agencyId) {
       try {
         // fallback to requester's first agency (super_admin may have none)
-        const reqAgencies = await User.getAgencies(req.user.id);
+        const reqAgencies = isSelf ? await getProviderAgencies() : await User.getAgencies(req.user.id);
         agencyId = reqAgencies?.[0]?.id ? Number(reqAgencies[0].id) : null;
       } catch {
         agencyId = null;
@@ -4056,7 +4064,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // Access control: super_admin can view any user; otherwise must share agency with provider or be supervisor of provider.
     if (!isSelf && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
       const actorAgencies = await User.getAgencies(req.user.id);
-      const targetAgencies = await User.getAgencies(providerId);
+      const targetAgencies = await getProviderAgencies();
       const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
       const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
       if (shared.length > 0) {
@@ -4081,7 +4089,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // provider_schedule_events and other rows use a child org id. If the provider has no membership
     // matching agencyId, scope to their first org so the summary is not empty.
     if (!isSelf && String(req.user?.role || '').toLowerCase() === 'super_admin') {
-      const targetAgencies = await User.getAgencies(providerId);
+      const targetAgencies = await getProviderAgencies();
       const targetIds = (targetAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
       if (targetIds.length) {
         const want = Number(agencyId || 0);
@@ -4255,7 +4263,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       let schoolAgencyIds = agencyId ? [Number(agencyId)] : [];
       if (includeAllAgencies) {
         try {
-          const targetAgencies = await User.getAgencies(providerId);
+          const targetAgencies = await getProviderAgencies();
           schoolAgencyIds = Array.from(new Set(
             (targetAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)
           ));
@@ -4746,14 +4754,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
           googleMeetLink: r.google_meet_link || null,
           joinToken: joinToken || null,
           hostJoinToken: hostJoinToken || null,
-          joinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
-          participantJoinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
+          joinUrl: joinableSession ? joinUrlForSupervision(await resolveMeetingBase(r.agency_id), joinKey) : null,
+          participantJoinUrl: joinableSession ? joinUrlForSupervision(await resolveMeetingBase(r.agency_id), joinKey) : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
           timeZone: r.event_timezone || null,
           hostJoinUrl: joinableSession && hostJoinToken
-            ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), hostJoinToken)
+            ? joinUrlForSupervision(await resolveMeetingBase(r.agency_id), hostJoinToken)
             : null,
           liveEndedAt,
           liveEnded,
@@ -4845,11 +4853,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
           && !meetingCompleted;
         const appJoinUrl = (joinableMeeting && meetingJoinKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? joinUrlForTeamMeeting(await tenantMeetingBase(r.agency_id), meetingJoinKey)
+          ? joinUrlForTeamMeeting(await resolveMeetingBase(r.agency_id), meetingJoinKey)
           : null;
         const hostJoinUrl = (joinableMeeting && meetingHostKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? joinUrlForTeamMeeting(await tenantMeetingBase(r.agency_id), meetingHostKey)
+          ? joinUrlForTeamMeeting(await resolveMeetingBase(r.agency_id), meetingHostKey)
           : null;
         const waitingRoomEnabled = r.waiting_room_enabled == null
           ? true
@@ -5763,7 +5771,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       if (aid > 0) scheduleAgencyIdSet.add(aid);
     }
     try {
-      const targetAgencies = await User.getAgencies(providerId);
+      const targetAgencies = await getProviderAgencies();
       for (const a of targetAgencies || []) {
         const aid = Number(a?.id || 0);
         if (aid > 0) scheduleAgencyIdSet.add(aid);
@@ -5780,34 +5788,32 @@ export const getUserScheduleSummary = async (req, res, next) => {
         ? Array.from(scheduleAgencyIdSet.values())
         : (agencyId ? [Number(agencyId)] : []);
       const seenVwh = new Set();
-      for (const aid of agencyIdsForVwh) {
-        if (!aid) continue;
-        const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: aid, providerId });
-        for (const r of rows || []) {
-          const sessionType = String(r?.sessionType || 'REGULAR').toUpperCase();
-          const forIntake = r?.availableForIntake === true
-            || r?.availableForIntake === 1
-            || ['INTAKE', 'BOTH'].includes(sessionType);
-          // Grid "Open" marker is for intake-capable availability (never labeled "for intake").
-          if (!forIntake) continue;
-          const key = `${aid}|${r.id}`;
-          if (seenVwh.has(key)) continue;
-          seenVwh.add(key);
-          virtualWorkingHours.push({
-            id: Number(r?.id || 0) || null,
-            agencyId: aid,
-            dayOfWeek: r.dayOfWeek,
-            startTime: r.startTime,
-            endTime: r.endTime,
-            sessionType,
-            availableForIntake: !!forIntake,
-            availableForSession: !!(r?.availableForSession === true
-              || r?.availableForSession === 1
-              || ['REGULAR', 'BOTH'].includes(sessionType)),
-            startDate:r.startDate,endDate:r.endDate,purpose:r.purpose,excludedDates:r.excludedDates,careTypes:r.careTypes,
-            frequency: String(r?.frequency || 'WEEKLY').toUpperCase()
-          });
-        }
+      const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyIds: agencyIdsForVwh, providerId });
+      for (const r of rows || []) {
+        const aid = Number(r.agencyId);
+        const sessionType = String(r?.sessionType || 'REGULAR').toUpperCase();
+        const forIntake = r?.availableForIntake === true
+          || r?.availableForIntake === 1
+          || ['INTAKE', 'BOTH'].includes(sessionType);
+        // Grid "Open" marker is for intake-capable availability (never labeled "for intake").
+        if (!forIntake) continue;
+        const key = `${aid}|${r.id}`;
+        if (seenVwh.has(key)) continue;
+        seenVwh.add(key);
+        virtualWorkingHours.push({
+          id: Number(r?.id || 0) || null,
+          agencyId: aid,
+          dayOfWeek: r.dayOfWeek,
+          startTime: r.startTime,
+          endTime: r.endTime,
+          sessionType,
+          availableForIntake: !!forIntake,
+          availableForSession: !!(r?.availableForSession === true
+            || r?.availableForSession === 1
+            || ['REGULAR', 'BOTH'].includes(sessionType)),
+          startDate:r.startDate,endDate:r.endDate,purpose:r.purpose,excludedDates:r.excludedDates,careTypes:r.careTypes,
+          frequency: String(r?.frequency || 'WEEKLY').toUpperCase()
+        });
       }
     } catch {
       virtualWorkingHours = [];

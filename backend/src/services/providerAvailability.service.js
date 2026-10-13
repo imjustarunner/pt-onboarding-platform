@@ -276,17 +276,22 @@ export class ProviderAvailabilityService {
       }
     }
 
-    // 2) School scheduled hours block both modalities
+    // 2) School assignments describe where a provider plans to work. They are
+    // context, not appointments, and must allow explicitly published openings.
     let schoolAssignments = [];
-    try {
+    if (includePrivateCalendar) try {
       const [rows] = await pool.execute(
-        `SELECT psa.day_of_week, psa.start_time, psa.end_time
+        `SELECT psa.day_of_week, psa.start_time, psa.end_time,
+                psa.school_organization_id, school.name AS school_name
          FROM provider_school_assignments psa
+         LEFT JOIN agencies school ON school.id = psa.school_organization_id
          WHERE psa.provider_user_id = ?
            AND psa.is_active = TRUE`,
         [pid]
       );
       schoolAssignments = (rows || []).map((r) => ({
+        schoolId: Number(r.school_organization_id) || null,
+        schoolName: String(r.school_name || '').trim() || null,
         dayOfWeek: r.day_of_week,
         startTime: String(r.start_time || '').slice(0, 5),
         endTime: String(r.end_time || '').slice(0, 5)
@@ -295,11 +300,11 @@ export class ProviderAvailabilityService {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       schoolAssignments = [];
     }
-    const schoolBusy = [];
+    const schoolContext = [];
     for (const r of schoolAssignments || []) {
       const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
       const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
-      if (s && e && e > s) schoolBusy.push({ start: s, end: e });
+      if (s && e && e > s) schoolContext.push({ start: s, end: e, schoolId: r.schoolId, schoolName: r.schoolName });
     }
 
     // 3) Office events: base availability for in-person + reserved blocks to prevent virtual overlap
@@ -626,7 +631,6 @@ export class ProviderAvailabilityService {
       ...officeBookedBusy,
       ...selectionBusy,
       ...requestBusy,
-      ...schoolBusy,
       ...externalBusyIntervals
     ]);
     const officeReservedBusyForVirtual = subtractIntervals(
@@ -687,7 +691,7 @@ export class ProviderAvailabilityService {
       bases: [...combinedVirtualBase.map(b => ({...b,format:'VIRTUAL'})), ...officePublishedCandidates.map(b => ({...b,format:'IN_PERSON'}))],
       blockers: [['Personal event, meeting or schedule hold', appCalendarBusy], ['Client appointment', appointmentBusy], ['Appointment linked to an office reservation', officeBookedBusy],
         ['Pending time selection', selectionBusy], ['Pending appointment request', requestBusy],
-        ['School commitment', schoolBusy], ['External calendar busy time', externalBusyIntervals]],
+        ['External calendar busy time', externalBusyIntervals]],
       policy, formatAllowed: agencyFormatAllowed, officeAllowed: agencyOfficeAllowed, slotMinutes
     }) : undefined;
     return {
@@ -696,8 +700,13 @@ export class ProviderAvailabilityService {
       ...(includePrivateCalendar ? { officeReservations, busyBlocks: [
         ['Booked appointment', mergeIntervals([...appointmentBusy, ...officeBookedBusy])],
         ['Meeting or personal commitment', appCalendarBusy], ['Pending appointment', mergeIntervals([...selectionBusy, ...requestBusy])],
-        ['School commitment', schoolBusy], ['Calendar busy time', externalBusyIntervals]
-      ].flatMap(([label, intervals]) => intervals.map(({start, end}) => ({label, startAt:start.toISOString(), endAt:end.toISOString()}))) } : {}),
+        ['Calendar busy time', externalBusyIntervals]
+      ].flatMap(([label, intervals]) => intervals.map(({start, end}) => ({label, startAt:start.toISOString(), endAt:end.toISOString()}))),
+        schoolAssignments: schoolContext.map(({ start, end, schoolId, schoolName }) => ({
+          label: 'School assignment', sourceType: 'SCHOOL_ASSIGNMENT', schoolId, schoolName,
+          startAt: start.toISOString(), endAt: end.toISOString()
+        }))
+      } : {}),
       ...(includeDiagnostics ? {diagnostics, scheduleAgencyId:scheduleAid} : {}),
       ok: true,
       agencyId: aid,
@@ -713,4 +722,3 @@ export class ProviderAvailabilityService {
 }
 
 export default ProviderAvailabilityService;
-

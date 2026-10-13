@@ -478,7 +478,6 @@
         <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" class="sched-tool-cluster" title="Office bookings for this person — All buildings, one building, or Off">
           <span class="sched-tool-cluster__label">Office</span>
           <select
-            v-if="showOfficeLocationSelect"
             v-model.number="selectedOfficeLocationId"
             class="sched-select sched-select--compact"
             :disabled="loading || officeGridLoading"
@@ -489,7 +488,6 @@
             <option :value="OFFICE_SCOPE_OFF">Off</option>
             <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
           </select>
-          <span v-else class="sched-office-fixed-label">{{ singleAssignedOfficeName }}</span>
           <button
             v-if="isOfficeScopeSpecific"
             type="button"
@@ -5745,6 +5743,7 @@
 </template>
 
 <script setup>
+import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import CalendarSharing from '../CalendarSharing.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
@@ -6212,7 +6211,7 @@ const showGoogleBusy = computed({ get: () => googleCalendarEnabled.value && goog
 const showGoogleEvents = computed({ get: () => googleCalendarEnabled.value && googleEventsPreference.value, set: value => { googleEventsPreference.value = !!value; } });
 // Incoming TherapyNotes feeds have been retired, including saved overlay preferences.
 const showExternalBusy = computed({ get: () => false, set: () => {} });
-const showOfficeOverlay = ref(true);
+const showOfficeOverlay = ref(false);
 const showQuarterDetail = ref(false);
 /** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
 const showPeerBusyOverlay = ref(false);
@@ -7159,7 +7158,7 @@ const loadPeerBusySummaries = async () => {
     try {
       // Peers (busy) always loads that peer's Google + Therapy Notes ICS — not gated on
       // the viewer's own Google/TN toolbar toggles (those apply to this calendar only).
-      const data = await api.get(`/users/${uid}/schedule-summary`, {
+      const data = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, {
         params: {
           weekStart: ws,
           weekStartsOn: effectiveWeekStartsOn.value,
@@ -7507,6 +7506,7 @@ const loadSelfScheduleAgencies = async () => {
       if (!id || seen.has(id)) continue;
       seen.add(id);
       deduped.push({
+        ...row,
         id,
         name: String(row?.name || row?.agency_name || `Agency ${id}`).trim(),
         organization_type: row?.organization_type || row?.organizationType || 'agency',
@@ -7532,21 +7532,9 @@ const loadSelfScheduleAgencies = async () => {
       seen.add(currentId);
     }
     selfScheduleAgencyOptions.value = deduped;
-    for (const row of deduped) {
-      void agencyStore.hydrateAgencyById?.(row.id)?.then((full) => {
-        const iconId = full?.icon_id ?? full?.iconId;
-        if (iconId) void brandingStore.prefetchIconIds?.([iconId]);
-      });
-    }
-    // Superadmin: load org catalog so the booking tenant picker isn't stuck on one membership.
-    const role = String(authStore.user?.role || '').toLowerCase();
-    if ((role === 'super_admin' || role === 'superadmin') && !(agencyStore.agencies || []).length) {
-      try {
-        await agencyStore.fetchAgencies();
-      } catch {
-        // best-effort
-      }
-    }
+    // The membership response already includes names and flags. Fetching every
+    // full agency here creates hundreds of requests for multi-agency accounts.
+    // The booking dialog loads the admin catalog only when it is opened.
   } catch {
     selfScheduleAgencyOptions.value = [];
   } finally {
@@ -7565,7 +7553,7 @@ try {
       showGoogleEvents.value = saved.showGoogleEvents !== undefined ? !!saved.showGoogleEvents : false;
       normalizeGoogleOverlayMode('events');
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
-      showOfficeOverlay.value = saved.showOfficeOverlay !== undefined ? !!saved.showOfficeOverlay : true;
+      showOfficeOverlay.value = saved.showOfficeOverlay !== undefined ? !!saved.showOfficeOverlay : false;
       hideExternalIcsTitles.value = !!saved.hideExternalIcsTitles;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
       const dedicatedHideWeekend = loadHideWeekendPref();
@@ -7587,7 +7575,7 @@ try {
       showGoogleBusy.value = true;
       showGoogleEvents.value = false;
       showExternalBusy.value = true;
-      showOfficeOverlay.value = true;
+      showOfficeOverlay.value = false;
       const dedicatedHideWeekend = loadHideWeekendPref();
       hideWeekend.value = dedicatedHideWeekend !== null ? dedicatedHideWeekend : true;
       const dedicatedShowAllHours = loadShowAllHoursPref();
@@ -7612,7 +7600,6 @@ onMounted(() => {
       /* ignore */
     }
   }
-  void loadSelfScheduleAgencies();
   if (props.mode === 'self' && isDayOrAgendaSpan.value) ensureSingleDayFocus();
   try {
     narrowScheduleMql = window.matchMedia('(max-width: 820px)');
@@ -8827,7 +8814,7 @@ const mergeDiscoveredScheduleAgencies = (agencyIds = []) => {
       featureFlags: source?.featureFlags || source?.feature_flags || null
     });
     existing.add(id);
-    void agencyStore.hydrateAgencyById?.(id)?.then((full) => {
+    if (!source && (props.mode !== 'self' || selfScheduleAgenciesLoaded.value)) void agencyStore.hydrateAgencyById?.(id)?.then((full) => {
       const iconId = full?.icon_id ?? full?.iconId;
       if (iconId) void brandingStore.prefetchIconIds?.([iconId]);
     });
@@ -9479,7 +9466,7 @@ const load = async ({ forceRefresh = false } = {}) => {
 
     // Self / My Schedule: one cross-tenant request so every booking shows (and load stays fast).
     if (useAllAgencies) {
-      const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
+      const resp = await getScheduleSummaryResponse(`/users/${props.userId}/schedule-summary`, {
         params: {
           weekStart: weekStart.value,
           weekStartsOn: effectiveWeekStartsOn.value,
@@ -9493,7 +9480,7 @@ const load = async ({ forceRefresh = false } = {}) => {
             : {}))
         },
         skipGlobalLoading: true
-      });
+      }, { fresh: forceRefresh });
       const data = resp.data || null;
       if (data) {
         const tagged = {
@@ -9534,7 +9521,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         summary.value = null;
       }
     } else if (ids.length === 1) {
-      const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
+      const resp = await getScheduleSummaryResponse(`/users/${props.userId}/schedule-summary`, {
         params: {
           weekStart: weekStart.value,
           weekStartsOn: effectiveWeekStartsOn.value,
@@ -9860,8 +9847,9 @@ watch([() => props.mode, () => props.userId], () => {
 
 // When chips would show "Agency 123", fetch `/agencies/:id` so store lists get real names (admin / multi-org view).
 watch(
-  [propAgencyIds, selfScheduleAgencyOptions],
+  [propAgencyIds, selfScheduleAgencyOptions, selfScheduleAgenciesLoaded],
   () => {
+    if (props.mode === 'self' && !selfScheduleAgenciesLoaded.value) return;
     const want = new Set();
     for (const raw of propAgencyIds.value || []) {
       const n = Number(raw || 0);
@@ -9872,6 +9860,7 @@ watch(
       if (n) want.add(n);
     }
     for (const id of want) {
+      if (selfScheduleAgencyOptions.value.some((row) => Number(row.id) === id && row.name && !/^Agency \d+$/.test(row.name))) continue;
       if (agencyNameFromStore(id)) continue;
       void agencyStore.hydrateAgencyById(id);
     }
@@ -18022,7 +18011,7 @@ const fetchMeetingBusyEntries = async (ids, ranges) => {
         } else {
           params.agencyId = Number(effectiveAgencyId.value);
         }
-        const r = await api.get(`/users/${id}/schedule-summary`, {
+        const r = await getScheduleSummaryResponse(`/users/${id}/schedule-summary`, {
           params,
           skipGlobalLoading: true
         });
@@ -18981,7 +18970,7 @@ const cancelBookingError = ref('');
 /** 0 = Off (hide office blocks), -1 = All offices for this person, >0 = specific building */
 const OFFICE_SCOPE_OFF = 0;
 const OFFICE_SCOPE_ALL = -1;
-const selectedOfficeLocationId = ref(OFFICE_SCOPE_ALL);
+const selectedOfficeLocationId = ref(OFFICE_SCOPE_OFF);
 const isOfficeScopeSpecific = computed(() => Number(selectedOfficeLocationId.value) > 0);
 const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL);
 const officeGridLoading = ref(false);
@@ -19081,18 +19070,13 @@ const assignedOfficeChoices = computed(() => {
 });
 const hasSingleAssignedOffice = computed(() => assignedOfficeChoices.value.length === 1);
 const showOfficeLocationSelect = computed(() => !hasSingleAssignedOffice.value && (officeLocations.value || []).length > 1);
-const singleAssignedOfficeName = computed(() => {
-  const row = assignedOfficeChoices.value[0];
-  return String(row?.name || row?.label || 'Your office').trim() || 'Your office';
-});
-
 const applySelfDefaultOfficeSelection = async (officeRows) => {
+  if (!shouldApplySelfDefaultOffice()) return;
   if (hasSingleAssignedOffice.value) {
     const picked = Number(assignedOfficeChoices.value[0]?.id || 0);
     if (picked > 0) selectedOfficeLocationId.value = picked;
     return;
   }
-  if (!shouldApplySelfDefaultOffice()) return;
   const assigned = myAssignedOffices.value.length
     ? myAssignedOffices.value
     : await fetchMyAssignedOffices();
@@ -19111,7 +19095,7 @@ watch(viewMode, async (mode) => {
 });
 
 watch(hasSingleAssignedOffice, (single) => {
-  if (!single) return;
+  if (!single || !shouldApplySelfDefaultOffice()) return;
   const picked = Number(assignedOfficeChoices.value[0]?.id || 0);
   if (picked > 0) selectedOfficeLocationId.value = picked;
 });

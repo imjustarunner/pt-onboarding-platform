@@ -13,6 +13,7 @@
  </section>
 </template>
 <script setup>
+import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {ChevronDown} from '@lucide/vue';
 import {useAgencyStore} from '../../store/agency';
@@ -46,7 +47,7 @@ async function load(){
    if(agencyFilter.value&&!ids.includes(Number(agencyFilter.value)))agencyFilter.value='';
    return Promise.allSettled(scopes.filter(a=>ids.includes(Number(a.id))).map(a=>api.get('/my-room/me/schedule',{params:{agencyId:a.id,from:start.toISOString(),to:end.toISOString()},skipGlobalLoading:true}).then(({data})=>{brands.set(Number(a.id),{agencyName:data.branding?.agencyName||a.name,agencyLogoUrl:data.branding?.agencyLogoUrl||data.branding?.logoUrl});return (data.items||[]).map(i=>({...i,type:i.type||'clinical',agencyId:Number(a.id),key:`${a.id}:${i.key}`}));})));
   }),
-  api.get(`/users/${auth.user?.id}/schedule-summary`,{params:{agencyId:props.agencyId,weekStart:localDay(monday),includeAllAgencies:1,skipOfficeMaterialize:true,includeGoogleBusy:false},skipGlobalLoading:true}).then(({data})=>[...(data.scheduleEvents||[]),...(data.supervisionSessions||[]).map(i=>({...i,kind:'SUPERVISION'}))].map(agendaMeeting).filter(Boolean).filter(i=>new Date(i.startAt)<end&&new Date(i.endAt)>start))
+  getScheduleSummaryResponse(`/users/${auth.user?.id}/schedule-summary`,{params:{agencyId:props.agencyId,weekStart:localDay(monday),includeAllAgencies:1,skipOfficeMaterialize:true,includeGoogleBusy:false},skipGlobalLoading:true}).then(({data})=>[...(data.scheduleEvents||[]),...(data.supervisionSessions||[]).map(i=>({...i,kind:'SUPERVISION'}))].map(agendaMeeting).filter(Boolean).filter(i=>new Date(i.startAt)<end&&new Date(i.endAt)>start))
  ]);
  if(stopped||ticket!==version)return;
  const results=[...(scopeResult.status==='fulfilled'?scopeResult.value:[scopeResult]),summaryResult];

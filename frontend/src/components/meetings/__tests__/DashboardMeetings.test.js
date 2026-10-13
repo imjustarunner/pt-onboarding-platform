@@ -9,6 +9,16 @@ vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'itsco'}})}))
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-09-22T18:00:00Z'));});
 afterEach(()=>vi.useRealTimers());
 describe('dashboard meeting entry',()=>{
+ it('does not fetch the full calendar for a collapsed lazy shortcut',async()=>{
+  api.get.mockClear();api.get.mockResolvedValue({data:{scheduleEvents:[]}});
+  const w=mount(DashboardMeetings,{props:{lazy:true},global:{stubs:{RouterLink:true}}});
+  await vi.advanceTimersByTimeAsync(60000);expect(api.get).not.toHaveBeenCalled();
+  const details=w.findAll('details')[1];details.element.open=true;
+  await details.trigger('toggle');await flushPromises();
+  expect(api.get).toHaveBeenCalledTimes(1);
+  details.element.open=false;await details.trigger('toggle');
+  await vi.advanceTimersByTimeAsync(60000);expect(api.get).toHaveBeenCalledTimes(1);w.unmount();
+ });
  it('highlights current and next-five-minute meetings, hides ended meetings, and deep-links later ones',async()=>{
   api.get.mockResolvedValue({data:{scheduleEvents:[
    {id:1,kind:'TEAM_MEETING',title:'Now',startAt:'2026-09-22T17:30:00Z',endAt:'2026-09-22T18:30:00Z',appJoinUrl:'/join/current'},

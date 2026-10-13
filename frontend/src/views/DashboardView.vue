@@ -1492,9 +1492,14 @@ const canSeeSchoolPortalsForCoordinator = computed(() => {
 });
 const tutorialStore = useTutorialStore();
 const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
-const activeTab = ref('checklist');
-const previousContentTab = ref('checklist');
-const selectedRailCardId = ref('checklist');
+// Mount the requested calendar immediately. A temporary overview/checklist
+// mounts unrelated panels and starts their network requests before switching.
+const initialTab = !props.previewMode && (route.query?.tab === 'my_schedule'
+  || (!route.query?.tab && !route.query?.my && userPrefsStore.defaultLandingPage === 'schedule'))
+  ? 'my_schedule' : 'checklist';
+const activeTab = ref(initialTab);
+const previousContentTab = ref(initialTab);
+const selectedRailCardId = ref(initialTab);
 const mobileSectionsOpen = ref(false);
 const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'benefits' | 'kudos' | 'preferences' | 'support'
 
@@ -1502,7 +1507,7 @@ const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
 const documentsCount = ref(0);
 const checklistCount = ref(0);
-const userStatus = ref('active');
+const userStatus = ref(authStore.user?.status || 'active');
 const hirePortalContinueLink = ref('');
 const daysRemaining = ref(null);
 const downloading = ref(false);
@@ -5694,10 +5699,14 @@ onMounted(async () => {
       }, 3200);
     }
   };
-  await fetchOnboardingStatus();
-  void loadClubManagerContextForShare();
   loadScheduleViewPrefs();
   syncFromQuery();
+  if (activeTab.value === 'my_schedule' && isOnboardingComplete.value) {
+    void fetchOnboardingStatus();
+  } else {
+    await fetchOnboardingStatus();
+  }
+  void loadClubManagerContextForShare();
   // When no tab in URL, apply default_landing_page preference or fall back to existing logic.
   if (!route.query?.tab && !route.query?.my) {
     const landing = userPrefsStore.defaultLandingPage || 'dashboard';

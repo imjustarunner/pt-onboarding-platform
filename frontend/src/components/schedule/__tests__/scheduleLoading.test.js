@@ -3,11 +3,11 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), route: null, failSchedule: false }));
+const m = vi.hoisted(() => ({ get: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
 vi.mock('../../../services/api', () => ({ default: { get: m.get, put: vi.fn(), post: vi.fn() }, isApiRateLimited: () => false }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
-vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [] }) }));
+vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import { clearScheduleSummaryCache, getScheduleSummaryStale, setScheduleSummary } from '../../../utils/scheduleSummaryCache.js';
 
@@ -125,4 +125,24 @@ it('keeps app appointments loaded when a saved Google overlay reports a permissi
   expect(state.summary).toMatchObject(summary);
   expect(state.error).toBe('');
   expect(wrapper.find('[data-testid="my-schedule-empty"]').exists()).toBe(false);
+});
+
+it('loads memberships once without requesting full details for every agency and defaults office overlays off', async () => {
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation(async (url, options) => {
+    if (url.endsWith('/agencies')) return { data: Array.from({ length: 300 }, (_, i) => ({ id: i + 1, name: `Tenant ${i + 1}`, organization_type: 'agency' })) };
+    if (url === '/offices') return { data: [{ id: 1, name: 'Office' }] };
+    return get(url, options);
+  });
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  await flushPromises();
+  expect(m.get.mock.calls.filter(([url]) => url === '/users/me/agencies')).toHaveLength(1);
+  expect(m.hydrate).not.toHaveBeenCalled();
+  expect(state.selectedOfficeLocationId).toBe(0);
+  expect(state.showOfficeOverlay).toBe(false);
+  expect(m.get.mock.calls.some(([url]) => /weekly-grid|assigned-offices/.test(url))).toBe(false);
+  const select = wrapper.find('[data-tour="my-schedule-office-select"]');
+  expect(select.exists()).toBe(true);
+  expect(select.findAll('option').map(o => o.text())).toContain('Off');
 });

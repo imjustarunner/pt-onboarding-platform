@@ -1946,7 +1946,7 @@
 
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <ProviderAvailabilityNotice v-if="isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
-        <DashboardMeetings v-if="authStore.isAuthenticated && /dashboard/i.test(route.path)" />
+        <DashboardMeetings v-if="authStore.isAuthenticated && /dashboard/i.test(route.path)" lazy />
         <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry && route.name !== 'SchoolCareBridgeOperations'" style="margin: 10px auto" />
         <router-view :key="route.path" />
         <TenantLegalFooter v-if="route.meta?.publicMarketingHub" />

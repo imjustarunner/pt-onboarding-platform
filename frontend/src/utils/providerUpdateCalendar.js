@@ -16,6 +16,8 @@ export function calendarDays(calendar) {
    detail:[o.buildingName,o.roomLabel].filter(Boolean).join(' · ')};
  });
  for(const b of busy) events.push({...b,key:`busy-${events.length}`,kind:'busy',detail:'Private commitment'});
+ for(const school of calendar.schoolAssignments||[]) events.push({...school,key:`school-${events.length}`,kind:'school',
+  sourceType:'SCHOOL_ASSIGNMENT',label:'School assignment',detail:school.schoolName||'Recurring school hours'});
  for(const slot of calendar.virtualSlots||[]){
   if(offices.some(o=>overlaps(o,slot)))continue;
   const local=localParts(slot.startAt,tz),day=new Date(local.date+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'long',timeZone:'UTC'});

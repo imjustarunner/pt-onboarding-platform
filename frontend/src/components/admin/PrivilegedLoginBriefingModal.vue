@@ -240,6 +240,7 @@
 </template>
 
 <script setup>
+import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import DashboardMeetings from '../meetings/DashboardMeetings.vue';
 import BriefingItemDetails from './BriefingItemDetails.vue';
 import { PLATFORM_BRAND } from '../../config/platformBrand.js';
@@ -775,7 +776,7 @@ async function loadBriefing() {
         params: { ...ticketParams, mine: true, ticketKind: 'escalation', limit: 30 },
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),
-      api.get(`/users/${userId.value}/schedule-summary`, {
+      getScheduleSummaryResponse(`/users/${userId.value}/schedule-summary`, {
         params: scheduleParams,
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),

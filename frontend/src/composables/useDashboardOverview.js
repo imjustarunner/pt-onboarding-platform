@@ -2,6 +2,7 @@
  * useDashboardOverview — parallel fetch for My Dashboard Overview landing.
  * Composes existing endpoints (no aggregator API).
  */
+import { getScheduleSummaryResponse } from '../utils/scheduleSummaryRequests';
 import { computed, ref, watch } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
@@ -464,7 +465,7 @@ export function useDashboardOverview(opts = {}) {
               : null;
           })
           .catch(() => { tier.value = null; }),
-        api.get(`/users/${uid}/schedule-summary`, {
+        getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, {
           params: { agencyId: aid, weekStart, includeAllAgencies: 1 },
           skipGlobalLoading: true
         })

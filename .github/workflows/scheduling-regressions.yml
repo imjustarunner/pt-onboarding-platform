@@ -67,7 +67,9 @@ jobs:
           backend/src/services/__tests__/scheduling.lifecycleRecurrence.test.js
           backend/src/services/__tests__/scheduling.blockRecurrence.test.js
           backend/src/services/__tests__/scheduling.publicAvailability.test.js
+          backend/src/services/__tests__/scheduling.providerUpdateAvailability.test.js
           backend/src/services/__tests__/scheduleSummaryPrivacy.service.test.js
+          backend/src/models/__tests__/scheduling.virtualHoursBatch.test.js
       - name: Scheduling form and display regressions
         working-directory: frontend
         run: >-
@@ -76,6 +78,11 @@ jobs:
           src/components/schedule/__tests__/scheduleBlocks.test.js
           src/components/schedule/__tests__/scheduleOverlap.test.js
           src/components/schedule/__tests__/scheduleLoading.test.js
+          src/utils/__tests__/scheduleSummaryRequests.test.js
+          src/views/__tests__/DashboardScheduleStartup.test.js
+          src/components/provider/__tests__/ProviderUpdateOfficeSchedule.test.js
+          src/utils/__tests__/providerUpdateCalendar.test.js
+          src/components/meetings/__tests__/DashboardMeetings.test.js
           src/utils/__tests__/scheduleOverlapLayout.test.js
           src/utils/__tests__/scheduleAppearance.test.js
           src/components/schedule/__tests__/scheduleColorSettings.test.js

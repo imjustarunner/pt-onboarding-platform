@@ -114,19 +114,23 @@ class ProviderVirtualWorkingHours {
     return out;
   }
 
-  static async listForProvider({ agencyId, providerId }) {
+  static async listForProvider({ agencyId, agencyIds, providerId }) {
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
-    if (!aid || !pid) return [];
+    const ids = [...new Set((Array.isArray(agencyIds) ? agencyIds : [aid])
+      .map(Number).filter(id => Number.isInteger(id) && id > 0))];
+    if (!ids.length || !Number.isInteger(pid) || pid < 1) return [];
+    const where = `agency_id IN (${ids.map(() => '?').join(',')}) AND provider_id = ?`;
+    const params = [...ids, pid];
     let rows = [];
     try {
       const [r] = await pool.execute(
-        `SELECT id, day_of_week, start_time, end_time, session_type, frequency,
+        `SELECT id, agency_id, day_of_week, start_time, end_time, session_type, frequency,
                 available_for_intake, available_for_session, DATE_FORMAT(start_date, '%Y-%m-%d') start_date, DATE_FORMAT(end_date, '%Y-%m-%d') end_date, purpose, excluded_dates_json, care_types_json
          FROM provider_virtual_working_hours
-         WHERE agency_id = ? AND provider_id = ?
+         WHERE ${where}
          ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
-        [aid, pid]
+        params
       );
       rows = r || [];
     } catch (e) {
@@ -134,21 +138,21 @@ class ProviderVirtualWorkingHours {
       if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       try {
         const [r] = await pool.execute(
-          `SELECT id, day_of_week, start_time, end_time, session_type, frequency
+          `SELECT id, agency_id, day_of_week, start_time, end_time, session_type, frequency
            FROM provider_virtual_working_hours
-           WHERE agency_id = ? AND provider_id = ?
+           WHERE ${where}
            ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
-          [aid, pid]
+          params
         );
         rows = r || [];
       } catch (e2) {
         if (e2?.code !== 'ER_BAD_FIELD_ERROR' && e2?.code !== 'ER_NO_SUCH_TABLE') throw e2;
         const [r] = await pool.execute(
-          `SELECT id, day_of_week, start_time, end_time
+          `SELECT id, agency_id, day_of_week, start_time, end_time
            FROM provider_virtual_working_hours
-           WHERE agency_id = ? AND provider_id = ?
+           WHERE ${where}
            ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
-          [aid, pid]
+          params
         );
         rows = r || [];
       }
@@ -164,6 +168,7 @@ class ProviderVirtualWorkingHours {
       const flags = flagsFromSessionType(sessionType);
       return {
         id: Number(r.id || 0) || null,
+        agencyId: Number(r.agency_id || aid),
         dayOfWeek: r.day_of_week,
         startTime: String(r.start_time || '').slice(0, 5),
         endTime: String(r.end_time || '').slice(0, 5),

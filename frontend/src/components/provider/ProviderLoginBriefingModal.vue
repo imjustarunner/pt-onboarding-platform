@@ -138,6 +138,7 @@
 </template>
 
 <script setup>
+import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import DashboardMeetings from '../meetings/DashboardMeetings.vue';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -602,7 +603,7 @@ async function loadBriefing() {
       tierData
     ] = await Promise.all([
       safeRequest(api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
-      safeRequest(api.get(`/users/${userId.value}/schedule-summary`, { params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), {}),
+      safeRequest(getScheduleSummaryResponse(`/users/${userId.value}/schedule-summary`, { params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), {}),
       safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
       safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),
       safeRequest(api.get('/supervision/my-prompts', {
