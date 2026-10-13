@@ -6604,7 +6604,10 @@ const saveDisplayPrefs = () => {
   saveDisplayPrefsLocal();
   try { window?.localStorage?.setItem?.('schedule.weekStartsOn', weekStartsOnLocal.value); } catch { /* ignore */ }
   if (displayPrefsServerTimer) clearTimeout(displayPrefsServerTimer);
-  displayPrefsServerTimer = setTimeout(() => { void saveDisplayPrefsToServer(); }, 700);
+  displayPrefsServerTimer = setTimeout(() => {
+    displayPrefsServerTimer = null;
+    void saveDisplayPrefsToServer();
+  }, 700);
 };
 
 // Restore display prefs immediately from localStorage (skip day focus until focusableDays exists).
@@ -7723,6 +7726,13 @@ watch(
 );
 
 onUnmounted(() => {
+  // Finish the latest choice now instead of letting a closed view write stale
+  // preferences after the user opens another schedule.
+  if (displayPrefsServerTimer) {
+    clearTimeout(displayPrefsServerTimer);
+    displayPrefsServerTimer = null;
+    void saveDisplayPrefsToServer();
+  }
   document.removeEventListener('click', onHubTitleDocClick, true);
   clearSupvMeetPolling();
   clearGevtClickTimer();

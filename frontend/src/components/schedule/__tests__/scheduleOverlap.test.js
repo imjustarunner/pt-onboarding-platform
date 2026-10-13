@@ -77,3 +77,15 @@ it('hovering a later part of a long event shows the events at that time',async()
   expect(s.calendarStackItems.map(b=>b.eventId)).toEqual([1,2]);
   expect(wrapper.findAll('.cell-expanded-item')).toHaveLength(2);
 });
+
+it('finishes a pending preference save when leaving and never writes it again later',async()=>{
+  vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout']});
+  const s=await mount();m.put.mockClear();
+  s.scheduleSideBySide=true;await nextTick();
+  expect(m.put).not.toHaveBeenCalled();
+  wrapper.unmount();
+  expect(m.put).toHaveBeenCalledTimes(1);
+  expect(m.put).toHaveBeenCalledWith('/users/7/preferences',expect.objectContaining({schedule_display_prefs:expect.objectContaining({scheduleSideBySide:true})}),expect.anything());
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(m.put).toHaveBeenCalledTimes(1);
+});
