@@ -1285,7 +1285,7 @@
       class="blocking-splash supervision-join-splash"
       role="dialog"
       aria-modal="true"
-      aria-label="Join group supervision"
+      :aria-label="`Join ${mandatorySupervisionPrompt.sessionTypeLabel}`"
     >
       <div class="blocking-splash-card supervision-join-splash-card">
         <button
@@ -1301,7 +1301,7 @@
           <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
         </div>
         <p class="blocking-splash-eyebrow">Live now</p>
-        <h3 class="blocking-splash-title">Join Group Supervision Now</h3>
+        <h3 class="blocking-splash-title">Join {{ mandatorySupervisionPrompt.sessionTypeLabel }} Now</h3>
         <p class="blocking-splash-message">
           {{ mandatorySupervisionPrompt.sessionTypeLabel }} with {{ mandatorySupervisionPrompt.supervisorName || 'your supervisor' }} is active.
           ({{ mandatorySupervisionPrompt.timeLabel }})
