@@ -1,6 +1,6 @@
 import { networkEvidence } from '../utils/securityEvidence.js';
 import { clinicalAudit } from '../services/clinicalSessionAudit.service.js';
-import { buildPublicFormBrandingForAgencyId } from '../services/publicFormBranding.service.js';
+import { virtualOfficePresentation } from '../services/virtualOfficePresentation.service.js';
 import * as workspace from '../services/therapyWorkspace.service.js';
 import User from '../models/User.model.js';
 import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
@@ -24,7 +24,7 @@ async function ownerOfVisit(req) {
 }
 export const getMyRoomPlan = respond(async req => ({plan:await getMeetingPlan(req.user.id),plans:MEETING_PLANS}));
 export const putMyRoomPlan = respond(async req => ({plan:await setMeetingPlan(Number(req.params.userId),req.body.tier,req.user.id)}));
-export const getMyRoomMe = respond(async req => { const {room,plan}=await host(req); return {room:{slug:room.slug,displayName:room.displayName,agencyId:room.agencyId,branding:await buildPublicFormBrandingForAgencyId(room.agencyId)},plan}; });
+export const getMyRoomMe = respond(async req => { const {room,plan}=await host(req); return {room:await virtualOfficePresentation(room,req),plan}; });
 export const getMyRoomLobby = respond(async req => { const {room}=await host(req); return office.officeLobby(room,req); });
 export const getMyRoomHostVideo = respond(async req => office.officeHostVideo((await host(req)).room));
 export const postMyRoomHeartbeat = respond(async req => office.officeHostHeartbeat((await host(req)).room));
@@ -38,7 +38,7 @@ export const endMyRoom = respond(async req => {
 });
 export const getMyRoomPublic = respond(async req => {
  const room=await office.officeBySlug(req.params.slug);
- return {room:{slug:room.slug,displayName:room.displayName,agencyId:room.agencyId,branding:await buildPublicFormBrandingForAgencyId(room.agencyId)}};
+ return {room:await virtualOfficePresentation(room,req)};
 });
 export const joinMyRoomLobby = respond(async req => ({lobby:await office.joinOffice(await office.officeBySlug(req.params.slug),req.body,networkEvidence(req).clientIp,networkEvidence(req).ipSource)}));
 export const getMyRoomLobbyGuestStatus = respond(async req => ({lobby:await office.officeGuestStatus(await office.officeBySlug(req.params.slug),Number(req.params.lobbyId),req.get('X-Office-Visit'))}));

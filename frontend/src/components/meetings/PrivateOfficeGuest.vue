@@ -5,16 +5,16 @@
     <template v-else>
       <div class="jmr-card">
         <p v-if="error" role="alert" class="jmr-error">{{ error }}</p>
-        <header class="visit-header"><div class="visit-brand"><img v-if="productName" :src="AURICWELL_MARK_URL" :alt="productName" /><img v-else-if="room?.branding?.logoUrl" :src="room.branding.logoUrl" alt="" /><div><strong>{{ productName || room?.branding?.agencyName || 'Virtual office' }}</strong><small v-if="productName">{{ room?.branding?.agencyName }}</small></div></div><ol class="visit-steps" aria-label="Visit progress"><li :class="{active:phase==='form'}">1 · Check-in</li><li :class="{active:phase==='waiting'}">2 · Waiting room</li><li :class="{active:phase==='video'}">3 · Visit</li></ol></header>
-        <div v-if="phase === 'waiting'" class="jmr-waiting">
-          <SupervisionWaitingRoomStage :meeting-title="`${productName || room?.branding?.agencyName || 'Virtual office'} · ${roomDisplayName}`" :host-present="hostPresent" host-role-label="Provider" :show-preview-hint="false" />
-          <div class="waiting-identity"><img v-if="photoDataUrl" :src="photoDataUrl" alt="Your check-in photo" /><span>Joining as {{ guestDisplayName || 'Guest' }}</span><button class="jmr-btn" @click="leaveVisit">Leave waiting room</button></div>
+        <header class="visit-header"><OfficeBrand :branding="room?.branding" /><ol class="visit-steps" aria-label="Visit progress"><li :class="{active:phase==='form'}">1 · Check-in</li><li :class="{active:phase==='waiting'}">2 · Waiting room</li><li :class="{active:phase==='video'}">3 · Visit</li></ol></header>
+        <div v-if="phase === 'waiting'" class="waiting-office">
+          <div class="waiting-welcome"><OfficeProviderCard :provider="room?.provider" :display-name="roomDisplayName" :agency-name="room?.branding?.agencyName" /><div class="waiting-identity"><img v-if="photoDataUrl" :src="photoDataUrl" alt="Your check-in photo" /><span>Joining as {{ guestDisplayName || 'Guest' }}</span><button class="jmr-btn jmr-btn--secondary" @click="leaveVisit">Leave waiting room</button></div></div>
+          <div class="jmr-waiting"><SupervisionWaitingRoomStage :meeting-title="`${roomDisplayName}’s virtual office`" :host-present="hostPresent" host-role-label="Provider" :show-preview-hint="false" /></div>
         </div>
         <TherapySessionWorkspace v-else-if="phase === 'video'" :video="video" :branding="room?.branding" :product-name="productName" :request="workspaceRequest" @leave-request="leaveVisit" @disconnected="leaveVisit" @meeting-ended="leaveVisit" />
         <div v-else-if="phase === 'ended'"><h1>Visit ended</h1><p>This office visit has ended. You can request admission again.</p><button class="jmr-btn" @click="startOver">Request a new visit</button></div>
         <form v-else class="jmr-form" @submit.prevent="submitJoin">
           <div class="checkin-heading"><p class="eyebrow">VIRTUAL OFFICE VISIT</p><h1>Visit check-in</h1><p>Add a name and photo to help {{ roomDisplayName }} recognize you. Both are optional.</p></div>
-          <aside class="checkin-guide"><div class="provider-avatar">{{ roomDisplayName.slice(0,1) }}</div><h2>{{ roomDisplayName }}</h2><p>{{ room?.branding?.agencyName }}</p><hr /><h3>You’re almost ready</h3><p>You are not in the waiting room yet.</p><ol><li>Add your name and a photo if you wish.</li><li>Enter the waiting room and enjoy the music.</li><li>Your provider will review your request and let you in.</li></ol><p class="jmr-muted">Your photo is shown only to your provider and removed when your visit ends. A photo helps recognition; it does not verify identity.</p></aside>
+          <aside class="checkin-guide"><OfficeProviderCard :provider="room?.provider" :display-name="roomDisplayName" :agency-name="room?.branding?.agencyName" /><h3>You’re almost ready</h3><p>You are not in the waiting room yet.</p><ol><li>Add your name and a photo if you wish.</li><li>Enter the waiting room and enjoy the music.</li><li>Your provider will review your request and let you in.</li></ol><p class="jmr-muted">Your photo is shown only to your provider and removed when your visit ends. A photo helps recognition; it does not verify identity.</p></aside>
           <label class="jmr-label">
             Your name (suggested)
             <input
@@ -92,7 +92,8 @@
 </template>
 
 <script setup>
-import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
+import OfficeBrand from './OfficeBrand.vue';
+import OfficeProviderCard from './OfficeProviderCard.vue';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import TherapySessionWorkspace from './TherapySessionWorkspace.vue';
 import SupervisionWaitingRoomStage from '../supervision/SupervisionWaitingRoomStage.vue';
@@ -269,9 +270,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.visit-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:32px}.visit-brand{display:flex;align-items:center;gap:14px;font-size:22px}.visit-brand img{max-width:150px;max-height:60px}.visit-brand small{display:block;font-size:13px;color:#64748b}.visit-steps{display:flex;gap:20px;list-style:none;color:#8b99a9;font-size:13px;padding:0}.visit-steps li.active{color:#078765;font-weight:700}.checkin-heading{grid-column:1/-1}.checkin-heading h1{font-size:38px;letter-spacing:-.04em;margin:10px 0}.checkin-heading p{color:#66768c}.eyebrow{letter-spacing:.15em;font-size:11px}.checkin-guide{grid-column:2;grid-row:2/6;padding:30px;background:#f4f9f8;border:1px solid #dfebe7;border-radius:18px;line-height:1.7}.checkin-guide h2{font-size:22px}.checkin-guide h3{font-size:21px}.checkin-guide ol{padding-left:20px}.checkin-guide li{margin:16px 0}.provider-avatar{border-radius:50%;background:#e0f3ec;color:#167c60;width:72px;height:72px;display:grid;place-items:center;font-size:28px}.waiting-identity{position:absolute;right:22px;top:22px;z-index:3;background:white;border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center}.waiting-identity img{width:45px;height:45px;border-radius:50%;object-fit:cover}
+.visit-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:32px}.visit-brand{display:flex;align-items:center;gap:14px;font-size:22px}.visit-brand img{max-width:150px;max-height:60px}.visit-brand small{display:block;font-size:13px;color:#64748b}.visit-steps{display:flex;gap:20px;list-style:none;color:#8b99a9;font-size:13px;padding:0}.visit-steps li.active{color:#078765;font-weight:700}.checkin-heading{grid-column:1/-1}.checkin-heading h1{font-size:38px;letter-spacing:-.04em;margin:10px 0}.checkin-heading p{color:#66768c}.eyebrow{letter-spacing:.15em;font-size:11px}.checkin-guide{grid-column:2;grid-row:2/6;padding:30px;background:#f4f9f8;border:1px solid #dfebe7;border-radius:18px;line-height:1.7}.checkin-guide h2{font-size:22px}.checkin-guide h3{font-size:21px}.checkin-guide ol{padding-left:20px}.checkin-guide li{margin:16px 0}.provider-avatar{border-radius:50%;background:#e0f3ec;color:#167c60;width:72px;height:72px;display:grid;place-items:center;font-size:28px}.waiting-welcome{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:20px}.waiting-welcome>.provider-card{width:min(480px,100%)}.waiting-identity{background:white;border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center}.waiting-identity img{width:45px;height:45px;border-radius:50%;object-fit:cover}
 
 .join-my-room {
+  box-sizing: border-box;
+  width: 100%;
   min-height: 100vh;
   display: flex;
   align-items: flex-start;
@@ -280,6 +283,7 @@ onUnmounted(() => {
   background: #fff;
 }
 .jmr-card {
+  box-sizing: border-box;
   width: 100%;
   max-width: 1400px;
   background: #fff;
@@ -389,5 +393,5 @@ onUnmounted(() => {
 .jmr-muted { color: #64748b; font-size: 0.9rem; }
 .jmr-error { color: #b91c1c; font-size: 0.9rem; margin: 0.35rem 0 0; }
 .jmr-ok { color: #047857; font-size: 0.92rem; font-weight: 600; }
-.jmr-label,.jmr-photo,.jmr-check,.jmr-btn--block{grid-column:1}.jmr-photo-preview{aspect-ratio:16/10}.jmr-btn{background:var(--office-accent);border-color:var(--office-accent);padding:14px}.jmr-btn--secondary{color:#087f5b;background:white}.jmr-photo-placeholder{font-size:18px}.jmr-waiting :deep(.swr__overlay){max-width:640px;padding-right:24px}.jmr-waiting :deep(.swr__sub){white-space:normal}@media(max-width:800px){.jmr-form{grid-template-columns:1fr}.checkin-guide{grid-column:1;grid-row:auto;order:10}.visit-header{flex-direction:column;align-items:flex-start}.visit-steps{gap:12px}.waiting-identity{position:relative;top:auto;right:auto}.jmr-waiting{min-height:850px}.jmr-card{padding:18px}.checkin-heading h1{font-size:30px}.jmr-waiting :deep(.swr__overlay){padding:16px}.jmr-waiting :deep(.swr__sub){max-width:none}}
+.jmr-label,.jmr-photo,.jmr-check,.jmr-btn--block{grid-column:1}.jmr-photo-preview{aspect-ratio:16/10}.jmr-btn{background:var(--office-accent);border-color:var(--office-accent);padding:14px}.jmr-btn--secondary{color:#087f5b;background:white}.jmr-photo-placeholder{font-size:18px}.jmr-waiting :deep(.swr__overlay){max-width:640px;padding-right:24px}.jmr-waiting :deep(.swr__sub){white-space:normal}@media(max-width:800px){.waiting-welcome{flex-direction:column}.waiting-identity{flex-wrap:wrap}.waiting-welcome>.provider-card{width:100%}.jmr-form{grid-template-columns:1fr}.checkin-guide{grid-column:1;grid-row:auto;order:10}.visit-header{flex-direction:column;align-items:flex-start}.visit-steps{gap:12px}.waiting-identity{position:relative;top:auto;right:auto}.jmr-waiting{min-height:850px}.jmr-card{padding:18px}.checkin-heading h1{font-size:30px}.jmr-waiting :deep(.swr__overlay){padding:16px}.jmr-waiting :deep(.swr__sub){max-width:none}}
 </style>

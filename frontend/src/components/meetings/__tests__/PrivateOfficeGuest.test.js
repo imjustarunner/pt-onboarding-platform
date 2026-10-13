@@ -14,3 +14,18 @@ describe('public office check-in',()=>{
   const w=mount(Guest,{props:{slug:'sample',request},global:{stubs:{SupervisionWaitingRoomStage:true,TherapySessionWorkspace:{name:'TherapySessionWorkspace',template:'<div>Session tools</div>'}}}});await flushPromises();await w.find('form').trigger('submit');await flushPromises();await vi.advanceTimersByTimeAsync(4000);expect(w.text()).not.toContain('Session tools');admitted=true;await vi.advanceTimersByTimeAsync(4000);await flushPromises();expect(w.text()).toContain('Session tools');expect(request.mock.calls.find(([url])=>url.endsWith('/video-token'))[1].headers['X-Office-Visit']).toBe('secret');w.unmount();
  });
 });
+
+it('shows the agency logo and expandable public provider profile before and after check-in',async()=>{
+ const room={displayName:'Dr Sample',branding:{agencyName:'Practice A',agencyLogoUrl:'/agency.svg'},provider:{name:'Dr Sample',photoUrl:'/provider.jpg',credential:'LPC',bio:'A public introduction.',languages:['English','Spanish']}};
+ const request=vi.fn(async(url,opts)=>url.endsWith('/public')?{room}:opts?.method==='POST'?{lobby:{id:1,credential:'synthetic',status:'waiting'}}:{lobby:{status:'waiting'}});
+ const w=mount(Guest,{props:{slug:'sample',request},global:{stubs:{SupervisionWaitingRoomStage:true,TherapySessionWorkspace:true}}});await flushPromises();
+ for(const phase of ['form','waiting']){
+  if(phase==='waiting'){await w.find('form').trigger('submit');await flushPromises();}
+  expect(w.find('img[alt="Practice A logo"]').attributes('src')).toBe('/agency.svg');
+  expect(w.find('.provider-card img').attributes('src')).toBe('/provider.jpg');
+  expect(w.find('.provider-card summary').text()).toContain('Dr Sample, LPC');
+  expect(w.find('.provider-profile').text()).toContain('A public introduction.');
+  expect(w.find('.provider-profile').text()).toContain('English · Spanish');
+ }
+ w.unmount();
+});

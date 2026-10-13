@@ -1,6 +1,6 @@
 import { publicRouter as publicSchoolVisitRoutes, staffRouter as schoolVisitRoutes } from './routes/schoolVisit.routes.js';
 import { recordsError } from './services/recordsRequests/errors.js';
-import clinicalVideoCallbackRoutes from './routes/clinicalVideoCallback.routes.js';
+import clinicalVideoCallbackRoutes, { clinicalVideoCallbackPaths } from './routes/clinicalVideoCallback.routes.js';
 import clinicalSessionSecurityRoutes from './routes/clinicalSessionSecurity.routes.js';
 import officeLobbyRoutes from './routes/officeLobby.routes.js';
 import officeKioskAccessRoutes from './routes/officeKioskAccess.routes.js';
@@ -384,7 +384,7 @@ app.use('/api', protectTaxIdResponses);
 // Handles both /api/stripe/webhook (direct) and /api/stripe/connect-webhook (Connect).
 app.use('/api/stripe', stripeWebhookRoutes);
 app.use('/api/claimmd/webhook', claimMdWebhookRoutes);
-app.use('/api/clinical-video/events', securityEvidenceMiddleware, clinicalVideoCallbackRoutes);
+app.use(clinicalVideoCallbackPaths, securityEvidenceMiddleware, clinicalVideoCallbackRoutes);
 
 // Body-parser limits.
 // The default express.json() limit is 100kb, which is not enough for the

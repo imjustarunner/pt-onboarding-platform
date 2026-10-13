@@ -84,7 +84,8 @@ export async function officeLobby(room,req) {
  const current=officeSessions[0];
  const media=current?.video_session_id?await clinical.clinicalMedia(current.video_session_id):null;
  const [[previous]]=await pool.execute('SELECT COUNT(*) total FROM private_virtual_office_visits WHERE room_id=? AND generation=?',[room.id,current?.generation||0]);
- const encounter={state:media?.state||'idle',hasParticipants:Number(previous.total)>0,generation:current?.generation||0};
+ const providerReady=media?.state==='active' && await clinical.hasMonitoredProvider(current.video_session_id);
+ const encounter={state:media?.state||'idle',hasParticipants:Number(previous.total)>0,generation:current?.generation||0,providerReady:!!providerReady};
  const [rows] = await pool.execute(`SELECT id,display_name,status,photo_envelope,admitted_at,ip_address FROM private_virtual_office_visits WHERE room_id=? AND status IN ('waiting','admitted') AND expires_at>UTC_TIMESTAMP() ORDER BY created_at`,[room.id]);
  if(rows.length)await clinicalAudit({kind:'office',sessionId:room.id,generation:current?.generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req},'clinical_lobby_read',{visitIds:rows.map(r=>r.id)});
  return {plan,encounter,waiting:rows.filter(r=>r.status==='waiting').map(r=>({id:r.id,guestDisplayName:r.display_name,guestPhotoUrl:r.photo_envelope?decryptChatText(JSON.parse(r.photo_envelope)):null})),admitted:rows.filter(r=>r.status==='admitted').map(r=>({id:r.id,guestDisplayName:r.display_name,admittedAt:r.admitted_at,ipAddress:r.ip_address}))};

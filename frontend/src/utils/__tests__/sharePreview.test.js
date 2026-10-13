@@ -82,3 +82,16 @@ for (const [domain, slug] of Object.entries(publicDomains)) {
   }
  });
 }
+
+it('brands office links on every entry host without putting office identifiers or credentials in preview metadata',()=>{
+ for(const host of ['auricwell.com','plottwisthq.com','app.itsco.health']){
+  const meta=buildShareMeta({host,path:'/join/my-room/private-slug?token=private-token'});
+  expect(meta.title).toBe('AuricWell · Virtual Office');
+  expect(meta.image).toBe('https://auricwell.com/auricwell/virtual-office-share.png');
+  const html=injectShareMetaIntoHtml('<html><head><title>Plot Twist Co</title><meta property="og:url" content="old"></head><body><div id="app"></div></body></html>',meta);
+  expect(html).not.toMatch(/private-slug|private-token|og:url|Plot Twist Co/);
+  expect(html).toContain('og:image:width" content="1200"');
+  expect(html).toContain('og:image:height" content="630"');
+  expect(html).toContain('id="app"');
+ }
+});

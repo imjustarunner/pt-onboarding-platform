@@ -87,6 +87,13 @@ const PATH_TENANTS = {
 };
 
 export const DEFAULT_OG_IMAGE_PLACEHOLDER = 'https://plottwisthq.com/api/public/share-preview/image';
+export const AURICWELL_OFFICE_META = {
+  name: 'AuricWell', title: 'AuricWell · Virtual Office',
+  description: 'Welcome to your provider’s virtual office. Check in, get comfortable, and your provider will welcome you in.',
+  image: 'https://auricwell.com/auricwell/virtual-office-share.png',
+  imagePath: '/auricwell/virtual-office-share.png', imageWidth: 1200, imageHeight: 630,
+  imageAlt: 'AuricWell Virtual Office — a welcoming space for your visit.', imageType: 'image/png'
+};
 
 function normHost(host) {
   return String(host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
@@ -163,6 +170,7 @@ function guessTenantName(host) {
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
+  if (/^\/join\/my-room\/[^/?#]+/.test(path || '')) return { ...AURICWELL_OFFICE_META };
   const product = productBrowserBranding(host);
   if (product) return { name: product.title, title: product.title, description: product.description, image: `https://${String(host).split(':')[0]}${product.image}`, imagePath: product.image, url: `https://${String(host).split(':')[0]}${path || '/'}` };
   const hostname = normHost(host);
@@ -207,12 +215,15 @@ export function injectShareMetaIntoHtml(html, meta) {
     ['property','og:description',meta.description],['property','og:image',meta.image],
     ['property','og:url',meta.url],['property','og:site_name',meta.name],
     ['name','twitter:card','summary_large_image'],['name','twitter:title',meta.title],
-    ['name','twitter:description',meta.description],['name','twitter:image',meta.image]
+    ['name','twitter:description',meta.description],['name','twitter:image',meta.image],
+    ['property','og:type','website'],['property','og:image:width',meta.imageWidth],
+    ['property','og:image:height',meta.imageHeight],['property','og:image:type',meta.imageType],
+    ['property','og:image:alt',meta.imageAlt],['name','twitter:image:alt',meta.imageAlt]
   ];
   for (const [attr,key,value] of tags) {
     const pattern = new RegExp(`<meta\\b[^>]*${attr}=["']${key}["'][^>]*>`, 'gi');
     out = out.replace(pattern, '');
-    out = out.replace('</head>', `<meta ${attr}="${key}" content="${safe(value)}"></head>`);
+    if (value != null) out = out.replace('</head>', `<meta ${attr}="${key}" content="${safe(value)}"></head>`);
   }
   return out;
 }

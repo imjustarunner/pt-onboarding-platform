@@ -5,7 +5,7 @@ import {pages as michaelPages, renderSite} from '../src/michael/site.mjs';
 import {plotlinePages} from '../src/content/plotlineWebsite.js';
 import {fundthredPages} from '../src/content/fundthredWebsite.js';
 import {injectPublicFavicon} from '../src/utils/publicBrowserBranding.js';
-import {buildShareMeta, injectShareMetaIntoHtml} from '../src/utils/sharePreview.js';
+import {buildShareMeta, injectShareMetaIntoHtml, AURICWELL_OFFICE_META} from '../src/utils/sharePreview.js';
 const dist=fileURLToPath(new URL('../dist',import.meta.url));
 const shell=readFileSync(`${dist}/index.html`,'utf8');
 const config=`${dist}/itsco-public.nginx.conf`;
@@ -62,7 +62,11 @@ const michaelLocations=Object.keys(michaelPages).map(section=>{
 server('michaelvmendez.com',michaelLocations);
 redirect('www.michaelvmendez.com','https://michaelvmendez.com');
 const auricwellLocations=Object.keys(auricwellPages).map(section=>location(section?`/${section}`:'/',page('auricwell-domain',section||'home',renderWebsite(section,{base:'',email:'support@auricwell.com',origin:'https://auricwell.com',canonicalBase:''})))).join('\n');
+// Static SPA entry: crawlers do not execute Vue. No shared og:url/canonical:
+// each private office retains its requested URL, without identifiers in metadata.
+const officeShell=page('auricwell-office','index',injectPublicFavicon(injectShareMetaIntoHtml(shell,AURICWELL_OFFICE_META),'auricwell.com'));
 server('auricwell.com',`${auricwellLocations}
+ location ^~ /join/my-room/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex, nofollow" always; try_files ${officeShell} =404; }
  location = /app { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }
  location ^~ /app/ { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }
  location = /demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell-demo.html =404; }

@@ -24,12 +24,15 @@ export async function requireActiveClinicalMedia(mediaId, db = pool) {
   if (!media || media.state !== 'active') throw fail(409, 'This encounter is closing or has ended. End the visit before opening another.');
   return media;
 }
-export async function requireMonitoredProvider(mediaId, db = pool) {
-  await requireActiveClinicalMedia(mediaId, db);
+export async function hasMonitoredProvider(mediaId, db = pool) {
   const [rows] = await db.execute(`SELECT c.connection_id FROM clinical_video_connections c
     JOIN clinical_video_grants g ON g.id=c.grant_id WHERE c.media_id=? AND g.participant_role='provider'
     AND c.disconnected_at IS NULL AND c.disconnect_requested=FALSE AND g.revoked_at IS NULL LIMIT 1`, [mediaId]);
-  if (!rows.length) throw fail(409, 'Waiting for secure confirmation of the provider video connection.');
+  return rows.length > 0;
+}
+export async function requireMonitoredProvider(mediaId, db = pool) {
+  await requireActiveClinicalMedia(mediaId, db);
+  if (!await hasMonitoredProvider(mediaId, db)) throw fail(409, 'Waiting for secure confirmation of the provider video connection.');
 }
 export async function clinicalVideoToken(mediaId, { actor, role, visitId = null, req }, db = pool) {
   requireClinicalVideoMonitoring();

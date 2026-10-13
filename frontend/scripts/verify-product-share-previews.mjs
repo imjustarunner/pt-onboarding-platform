@@ -32,3 +32,14 @@ for (const [host, path] of checks) {
 const nginx = readFileSync(new URL('itsco-public.nginx.conf', dist), 'utf8');
 assert.match(nginx, /server_name www\.auricwell\.com;[\s\S]*?return 302 https:\/\/auricwell\.com\$request_uri/);
 console.log(`Verified ${checks.length} built product pages: branded metadata, same-domain PNGs, dimensions, download size, and www redirect.`);
+
+const officeHtml=readFileSync(new URL('_public-sites/auricwell-office/index.html',dist),'utf8');
+const office=new JSDOM(officeHtml).window.document;
+assert.equal(office.title,'AuricWell · Virtual Office');
+assert.equal(office.querySelector('meta[property="og:image"]').content,'https://auricwell.com/auricwell/virtual-office-share.png');
+assert.equal(office.querySelector('meta[property="og:url"]'),null);
+assert(office.querySelector('#app') && office.querySelector('script[type="module"]'));
+assert.match(nginx,/location \^~ \/join\/my-room\/ \{[^}]*try_files \/_public-sites\/auricwell-office\/index.html =404/);
+const officePng=readFileSync(new URL('auricwell/virtual-office-share.png',dist));
+assert.equal(officePng.readUInt32BE(16),1200);assert.equal(officePng.readUInt32BE(20),630);assert(officePng.length<500000);
+console.log('Verified the private office crawler shell, dedicated image, and production route.');
