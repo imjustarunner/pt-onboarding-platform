@@ -6,6 +6,7 @@
   <p v-if="!availablePushes.length">Create and save a Provider Update from Compose first.</p>
   <p v-if="error" role="alert" class="error">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
   <template v-if="push">
+   <ProviderUpdateReminders :agency-id="agencyId" :push-id="push.id" :push-status="push.status" />
    <details class="training-manager"><summary>Manage videos, photos &amp; subsection guides</summary><ProviderUpdateTrainingEditor :agency-id="agencyId" :push-id="push.id" :config="push.section_config_json" @saved="trainingSaved" /></details>
    <div class="roster-toolbar">
     <label>Find a person<input v-model="search" type="search" placeholder="Name or work email" /></label>
@@ -67,6 +68,7 @@ import {computed,nextTick,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {PROVIDER_UPDATE_SECTIONS} from '../../utils/providerUpdate';
 import api from '../../services/api';
 import ProviderUpdateTrainingEditor from './ProviderUpdateTrainingEditor.vue';
+import ProviderUpdateReminders from './ProviderUpdateReminders.vue';
 const props=defineProps({agencyId:{type:[Number,String],required:true},pushes:{type:Array,default:()=>[]}}),emit=defineEmits(['sent']);
 const pushId=ref(''),push=ref(null),people=ref([]),personId=ref(''),recipients=ref([]),search=ref(''),busy=ref(false),error=ref(''),notice=ref(''),previewUrl=ref(''),amendment=ref(null),needsAmendment=ref(false),approved=ref(false);
 const availablePushes=computed(()=>props.pushes.filter(p=>!String(p.title).startsWith('[PREVIEW]')));

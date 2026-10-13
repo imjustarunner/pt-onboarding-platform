@@ -15,7 +15,11 @@ import * as ctrl from '../controllers/providerUpdate.controller.js';
 import * as hb from '../controllers/workplaceHandbook.controller.js';
 import * as compensationDrafts from '../controllers/compensationDraft.controller.js';
 
+import {reminderSettings} from '../controllers/providerUpdateReminders.controller.js';
+
 const router = express.Router();
+router.get('/pushes/:pushId/reminders', authenticate, reminderSettings);
+router.put('/pushes/:pushId/reminders', authenticate, reminderSettings);
 
 router.post('/me/save-for-later', authenticate, review.saveForLater);
 router.post('/training-media', authenticate, trainingMediaUpload.single('file'), uploadTrainingMedia);

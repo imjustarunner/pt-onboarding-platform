@@ -1,0 +1,12 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn()}}));
+import api from '../../../services/api';
+import Component from '../ProviderUpdateReminders.vue';
+beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{enabled:false,smsEnabled:false,deliveries:[]}});api.put.mockImplementation(async(url,body)=>({data:{...body,deliveries:[]}}));});
+const render=async(status='sent')=>{const w=mount(Component,{props:{agencyId:2,pushId:5,pushStatus:status}});await flushPromises();return w;};
+it('makes no schedule mutation until enabled and sends the text choice',async()=>{const w=await render();expect(api.put).not.toHaveBeenCalled();expect(w.text()).toContain('9 a.m. Mountain');await w.get('input').setValue(true);await w.get('button').trigger('click');await flushPromises();expect(api.put).toHaveBeenCalledWith('/provider-update/pushes/5/reminders',{agencyId:2,enabled:true,smsEnabled:true});expect(w.text()).toContain('Daily reminders are on');w.unmount();});
+it('can pause without sending an invitation',async()=>{api.get.mockResolvedValue({data:{enabled:true,smsEnabled:true,deliveries:[]}});const w=await render();await w.findAll('button').find(b=>b.text()==='Pause reminders').trigger('click');await flushPromises();expect(api.put.mock.calls[0][1].enabled).toBe(false);expect(w.text()).toContain('Daily reminders paused');w.unmount();});
+it('keeps drafts from activating reminders',async()=>{const w=await render('draft');expect(w.get('button').attributes('disabled')).toBeDefined();w.unmount();});
+it('shows failed saves without claiming activation',async()=>{api.put.mockRejectedValue(Error('offline'));const w=await render();await w.get('button').trigger('click');await flushPromises();expect(w.get('[role=alert]').text()).toContain('Could not save');expect(w.text()).toContain('Daily reminders are off');w.unmount();});
+it('distinguishes accepted sends, pending approval and uncertain delivery',async()=>{api.get.mockResolvedValue({data:{enabled:true,smsEnabled:true,deliveries:[{channel:'email',status:'sent',count:4},{channel:'email',status:'pending',count:1},{channel:'sms',status:'sending',count:1}]}});const w=await render();expect(w.text()).toContain('Emails sent: 4');expect(w.text()).toContain('awaiting approval: 1');expect(w.text()).toContain('needing delivery review: 1');w.unmount();});

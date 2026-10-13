@@ -1590,6 +1590,20 @@ if (!isBootstrap) {
     } finally { trainingNoticesBusy = false; }
   };
   setInterval(processTrainingNotices, 60 * 1000).unref();
+  let providerUpdateRemindersBusy = false;
+  const processProviderUpdateReminders = async () => {
+    if (providerUpdateRemindersBusy) return;
+    providerUpdateRemindersBusy = true;
+    try {
+      const {providerUpdateReminders} = await import('./services/providerUpdateReminders.service.js');
+      await providerUpdateReminders.run();
+    } catch (error) {
+      console.warn('[ProviderUpdate daily reminders]', error?.code || 'worker_failed');
+    } finally { providerUpdateRemindersBusy = false; }
+  };
+  void processProviderUpdateReminders();
+  setInterval(processProviderUpdateReminders, 60 * 1000).unref();
+
   let personalUpdateNoticesBusy = false;
   setInterval(async () => {
     if (personalUpdateNoticesBusy) return;

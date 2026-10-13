@@ -1,3 +1,4 @@
+vi.mock('../ProviderUpdateReminders.vue',()=>({default:{template:'<div />'}}));
 // @vitest-environment jsdom
 import {beforeEach,it,expect,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';

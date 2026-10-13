@@ -18,6 +18,7 @@ import UserCommunication from '../../models/UserCommunication.model.js';
 import CommunicationLoggingService from '../communicationLogging.service.js';
 import { logContactCommunicationIfApplicable } from '../contactCommsLogging.service.js';
 import { isAgencyTriggerChannelEnabled } from '../notificationTriggerSettings.service.js';
+import {assertProviderUpdateReminderDelivery} from '../providerUpdateReminderGuard.service.js';
 import { emailRequiresAdminApproval, getEmailSendingMode, isEmailNotificationsEnabled } from '../emailSettings.service.js';
 import {
   validateOutboundEmailQuality,
@@ -990,6 +991,7 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  await assertProviderUpdateReminderDelivery({templateType,existingCommunicationId,userId,agencyId:identity.agency_id});
   const eventDelivery=await priorityEventEmailRecipient({agencyId:identity.agency_id,userId,templateType,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
   const gate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
