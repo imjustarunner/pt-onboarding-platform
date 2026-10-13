@@ -583,6 +583,7 @@ const props = defineProps({
 const emit = defineEmits([
   'connected',
   'disconnected',
+  'connection-status',
   'request-rejoin',
   'error',
   'stream-created',
@@ -2339,12 +2340,18 @@ async function connect() {
       emit('stream-destroyed', event);
     });
 
+    session.on('sessionReconnecting', () => {
+      emit('connection-status', { event: 'reconnecting' });
+      showConnectionNotice('Connection interrupted. Trying to reconnect…');
+    });
     session.on('sessionReconnected', () => {
+      emit('connection-status', { event: 'reconnected' });
+      showConnectionNotice('Connection restored.');
       reconcileSubscriptions();
       handleVisibilityResume();
     });
     const connectedSession = session;
-    session.on('sessionDisconnected', () => {
+    session.on('sessionDisconnected', (event) => {
       if (intentionallyDisconnectedSessions.has(connectedSession)) {
         intentionallyDisconnectedSessions.delete(connectedSession);
         return;
@@ -2352,7 +2359,7 @@ async function connect() {
       connecting.value = false;
       sessionReady.value = false;
       transportConnected.value = false;
-      emit('disconnected');
+      emit('disconnected', { reason: event?.reason || 'unknown' });
     });
 
     // Host/server broadcasts this when the meeting is marked completed.

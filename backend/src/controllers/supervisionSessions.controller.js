@@ -2184,6 +2184,39 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
 // Anonymous supervision joins were replaced by account-bound personal invitations.
 export const getSupervisionGuestJoin = requirePersonalSupervisionInvitation;
 
+/** Authenticated operational diagnostics; never changes meeting state or attendance. */
+export const postSupervisionConnectionEvent = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const row = await SupervisionSession.resolveByJoinRef(String(req.params.id || '').trim());
+    if (!row?.id) return res.status(404).json({ error: { message: 'Session not found' } });
+    const id = Number(row.id);
+    if (!await canJoinSupervision(row, userId, userMatchesSupervisionOpenAudience)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const event = req.body?.event;
+    if (!['connected', 'disconnected', 'reconnecting', 'reconnected', 'connect-failed', 'rejoin-requested', 'join-request-failed'].includes(event)) {
+      return res.status(400).json({ error: { message: 'Invalid connection event' } });
+    }
+    const reason = ['clientDisconnected', 'forceDisconnected', 'mediaIdle', 'networkDisconnected', 'serverRotation', 'alone-timeout'].includes(req.body?.reason)
+      ? req.body.reason : 'unknown';
+    const code = Number(req.body?.code);
+    // A client report is diagnostic evidence, never authority to change access,
+    // close attendance, or end the room. Do not log arbitrary SDK payloads.
+    console.info(JSON.stringify({
+      severity: 'INFO', type: 'supervision_video_connection', source: 'client_report',
+      sessionId: id, userId, event, reason,
+      code: Number.isInteger(code) && code >= 0 && code <= 99999 ? code : null,
+      online: typeof req.body?.online === 'boolean' ? req.body.online : null,
+      requestId: req.evidenceContext?.requestId || null
+    }));
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** Account-bound supervision heartbeat and leave. */
 export const postSupervisionJoinPresence = async (req, res, next) => {
   try {

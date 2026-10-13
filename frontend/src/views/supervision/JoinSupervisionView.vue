@@ -28,12 +28,12 @@
         Log in to join
       </button>
       <button
-        v-if="sessionExit === null && error.includes('left the session')"
+        v-if="sessionExit === null && !showLoginFallback"
         type="button"
         class="join-login-btn join-login-btn--secondary"
         @click="rejoinSession"
       >
-        Rejoin session
+        Try joining again
       </button>
     </div>
     <SupervisionLiveRoom
@@ -84,6 +84,7 @@ import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExi
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
+import { reportSupervisionConnection } from '../../utils/supervisionConnectionDiagnostics';
 
 const router = useRouter();
 const route = useRoute();
@@ -131,6 +132,7 @@ const videoConnected = ref(false);
 const liveEndedAt = ref(null);
 const meetingClosedByName = ref('');
 const participantJoinUrl = ref('');
+let joinInFlight = false;
 
 const sessionHasEnded = computed(() => !!liveEndedAt.value);
 
@@ -339,6 +341,7 @@ function goToScheduleFromExit() {
 }
 
 async function rejoinSession() {
+  if (joinInFlight) return;
   if (sessionHasEnded.value) {
     showSessionExit({ variant: 'host-ended', canRejoin: false });
     return;
@@ -348,6 +351,7 @@ async function rejoinSession() {
   intentionalLeave.value = false;
   error.value = '';
   joinAttemptedForPath.value = '';
+  reportSupervisionConnection(numericSessionId.value || sessionId.value, 'rejoin-requested');
   await fetchTokenAndJoin();
 }
 
@@ -412,7 +416,9 @@ function onMeetingEnded(payload = {}) {
 function onVideoDisconnected(payload = {}) {
   if (intentionalLeave.value || sessionExit.value) return;
   videoConnected.value = false;
-  void finishLeave({ variant: payload?.reason === 'alone-timeout' ? 'alone-timeout' : 'left', canRejoin: !sessionHasEnded.value });
+  const variant = payload?.reason === 'alone-timeout' ? 'alone-timeout'
+    : ['networkDisconnected', 'serverRotation'].includes(payload?.reason) ? 'connection-lost' : 'left';
+  void finishLeave({ variant, canRejoin: !sessionHasEnded.value });
 }
 
 function onVideoConnected() {
@@ -519,11 +525,14 @@ async function requestVideoToken(sid, { authRetry = false } = {}) {
   }
   return api.get(`/supervision/sessions/${encodeURIComponent(sid)}/video-token`, {
     skipAuthRedirect: true,
+    skipGlobalLoading: true,
     headers
   });
 }
 
 async function fetchTokenAndJoin() {
+  if (joinInFlight) return;
+  joinInFlight = true;
   error.value = '';
   showLoginFallback.value = false;
   const sid = sessionId.value;
@@ -548,6 +557,7 @@ async function fetchTokenAndJoin() {
     return;
   } catch (e) {
     const status = Number(e?.response?.status || 0);
+    reportSupervisionConnection(numericSessionId.value || sid, 'join-request-failed', { code: status });
     if (status === 401) {
       showLoginFallback.value = true;
       error.value = 'Please log in to join this session.';
@@ -566,7 +576,8 @@ async function fetchTokenAndJoin() {
       return;
     }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
-    if (status === 401) showLoginFallback.value = true;
+  } finally {
+    joinInFlight = false;
   }
 }
 

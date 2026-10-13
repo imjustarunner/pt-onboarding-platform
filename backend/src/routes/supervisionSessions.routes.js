@@ -11,6 +11,7 @@ import { getSuperviseeReviewDocument } from '../controllers/supervisedBilling.co
 import { getSupervisionCases, getSupervisionCaseOverview, acknowledgeSupervisionCase } from '../controllers/supervisionCaseReview.controller.js';
 import { getSupervisionDocumentationPolicy, saveSupervisionDocumentationPolicy, listDocumentationReviewTime, saveDocumentationReviewTime, changeDocumentationReviewTime, listSuperviseeDocumentReviews, recordSuperviseeDocumentReview } from '../controllers/supervisedBilling.controller.js';
 import {
+  postSupervisionConnectionEvent,
   listSupervisionProviderCandidates,
   listSupervisionAttendanceLogs,
   exportSupervisionAttendanceLogsCsv,
@@ -78,6 +79,7 @@ router.post('/guest-transcript/:joinToken', requirePersonalSupervisionInvitation
 router.get('/guest-activity/:joinToken', requirePersonalSupervisionInvitation);
 router.post('/guest-activity/:joinToken', requirePersonalSupervisionInvitation);
 router.post('/sessions/:id/join-presence', authenticateSupervisionSession, postSupervisionJoinPresence);
+router.post('/sessions/:id/connection-events', authenticateSupervisionSession, postSupervisionConnectionEvent);
 
 router.use(authenticateSupervisionSession);
 router.get('/manual-entries',listManualSupervision);

@@ -718,6 +718,7 @@
             :is-supervisor="appVideoIsSupervisor"
           />
           <SupervisionVideoRoom
+            supervision-diagnostics
             :token="appVideoToken"
             :room-name="appVideoRoomName"
             :vonage-session-id="appVideoVonageSessionId"

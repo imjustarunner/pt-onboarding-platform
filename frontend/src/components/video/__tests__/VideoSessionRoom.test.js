@@ -36,6 +36,16 @@ vi.mock('@vonage/client-sdk-video', () => ({
 }));
 
 describe('VideoSessionRoom connection lifecycle', () => {
+  it.each(['networkDisconnected','forceDisconnected','serverRotation'])('preserves the SDK disconnect reason: %s',async reason=>{
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'supervision',token:'eyJ.test.token',playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session._handlers.sessionReconnecting();
+    videoSdk.session._handlers.sessionReconnected();
+    expect(wrapper.emitted('connection-status')).toEqual([[{event:'reconnecting'}],[{event:'reconnected'}]]);
+    videoSdk.session._handlers.sessionDisconnected({reason});
+    expect(wrapper.emitted('disconnected')).toEqual([[{reason}]]);
+    wrapper.unmount();
+  });
   beforeEach(() => {
     videoSdk.session = null;
     videoSdk.connectCallback = null;

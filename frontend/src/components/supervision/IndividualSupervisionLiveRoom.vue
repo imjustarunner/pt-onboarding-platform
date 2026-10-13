@@ -101,6 +101,7 @@
           @click="onSelfStageClick"
         >
           <SupervisionVideoRoom
+            supervision-diagnostics
             v-if="token && vonageSessionId && applicationId"
             :token="token"
             :vonage-session-id="vonageSessionId"
@@ -129,6 +130,7 @@
         @click="onSelfStageClick"
       >
         <SupervisionVideoRoom
+          supervision-diagnostics
           v-if="token && vonageSessionId && applicationId"
           :token="token"
           :vonage-session-id="vonageSessionId"
@@ -169,6 +171,7 @@
         </div>
         <div class="isl__video-body">
           <SupervisionVideoRoom
+            supervision-diagnostics
             v-if="token && vonageSessionId && applicationId"
             ref="videoRoomRef"
             :token="token"

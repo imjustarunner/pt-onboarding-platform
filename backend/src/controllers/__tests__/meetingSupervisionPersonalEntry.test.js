@@ -11,7 +11,7 @@ vi.mock('../../models/SupervisionSession.model.js', () => ({ default: {
 } }));
 vi.mock('../../models/SupervisionSessionArtifact.model.js', () => ({ default: { appendTranscriptChunk: m.append, upsertBySessionId: m.upsert, findBySessionId: async () => null } }));
 vi.mock('../../services/video.service.js', () => ({ isVideoConfigured: () => true, resolveVideoProjectId: () => 'project', getVideoClientDiagnostics: () => ({}), createAccessTokenAsync: m.token, createOrGetRoomByUniqueName: async name => ({ sid: name }), completeRoom:m.complete }));
-import { getSupervisionVideoToken, postSupervisionJoinPresence, saveClientTranscript, upsertSupervisionSessionArtifacts, endSupervisionLiveSession, finalizeSupervisionSession } from '../supervisionSessions.controller.js';
+import { postSupervisionConnectionEvent, getSupervisionVideoToken, postSupervisionJoinPresence, saveClientTranscript, upsertSupervisionSessionArtifacts, endSupervisionLiveSession, finalizeSupervisionSession } from '../supervisionSessions.controller.js';
 let session;
 const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
 const request = (id = 8, body = {}) => ({ params: { id: '9' }, query: {}, body: {inMainRoom:true,...body}, user: { id, role: 'provider', first_name: id === 7 ? 'Supervisor' : 'Rachel', last_name: 'Example' }, supervisionInvitationAccess: { sessionId: 9 } });
@@ -35,6 +35,24 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe('identified supervision room roles and attendance', () => {
+  it('records bounded connection diagnostics without changing attendance or trusting a claimed user',async()=>{
+    const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+    const res=await invoke(postSupervisionConnectionEvent,request(8,{event:'disconnected',reason:'networkDisconnected',online:false,userId:7,token:'secret',message:'private content'}));
+    expect(res.json).toHaveBeenCalledWith({ok:true});
+    const entry=JSON.parse(log.mock.calls[0][0]);
+    expect(entry).toMatchObject({type:'supervision_video_connection',source:'client_report',sessionId:9,userId:8,event:'disconnected',reason:'networkDisconnected',online:false});
+    expect(JSON.stringify(entry)).not.toMatch(/secret|private content/);
+    expect(m.record).not.toHaveBeenCalled();expect(m.rollup).not.toHaveBeenCalled();expect(m.end).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+  it('rejects connection reports from someone outside the supervision and invalid event types',async()=>{
+    const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+    const denied=await invoke(postSupervisionConnectionEvent,request(999,{event:'connected'}));
+    expect(denied.status).toHaveBeenCalledWith(403);
+    const invalid=await invoke(postSupervisionConnectionEvent,request(8,{event:'arbitrary payload'}));
+    expect(invalid.status).toHaveBeenCalledWith(400);expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
   it('does not disconnect the room or close attendance when another host blocks ending',async()=>{
     session.session_type='group';session.co_facilitator_user_id=9;
     const original=m.execute.getMockImplementation();

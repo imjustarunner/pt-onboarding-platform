@@ -3,6 +3,13 @@ import { describe, expect, it } from 'vitest';
 import MeetingSessionExitPanel from '../MeetingSessionExitPanel.vue';
 
 describe('MeetingSessionExitPanel', () => {
+  it('distinguishes a lost connection from a host closing the session',()=>{
+    const wrapper=mount(MeetingSessionExitPanel,{props:{variant:'connection-lost',canRejoin:true,sessionKind:'supervision'}});
+    expect(wrapper.get('h2').text()).toBe('Your video connection was interrupted');
+    expect(wrapper.text()).toContain('Try rejoining');
+    expect(wrapper.text()).not.toContain('Session was closed');
+    wrapper.unmount();
+  });
   it('prominently identifies who closed a team meeting and when', () => {
     const wrapper = mount(MeetingSessionExitPanel, {
       props: {

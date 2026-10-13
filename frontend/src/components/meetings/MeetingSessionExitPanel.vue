@@ -106,12 +106,14 @@ const bannerText = computed(() => (
 ));
 
 const headline = computed(() => {
+  if (props.variant === 'connection-lost') return 'Your video connection was interrupted';
   if (props.variant === 'alone-timeout') return 'You left the video room';
   if (isClosed.value) return isSupervision.value ? 'Session was closed' : 'Team meeting was closed';
   return isSupervision.value ? 'You left the session' : 'You left the meeting';
 });
 
 const bodyText = computed(() => {
+  if (props.variant === 'connection-lost') return 'Try rejoining when your connection is ready. We will check that the session is still open before connecting you.';
   if (props.variant === 'alone-timeout') return 'No one else joined while you were waiting, so your video connection was stopped. The meeting has not been marked complete. You can rejoin when someone is ready.';
   if (props.variant === 'host-ended') {
     return `This ${sessionNoun.value} is no longer live. Head back to your portal, or close this tab.`;

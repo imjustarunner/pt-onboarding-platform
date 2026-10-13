@@ -38,9 +38,10 @@
       @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
       @activity-notice-click="$emit('activity-notice-click', $event)"
       @leave-request="$emit('leave-request')"
-      @disconnected="$emit('disconnected', $event)"
-      @connected="$emit('connected', $event)"
-      @error="$emit('error', $event)"
+      @connection-status="reportConnection($event.event, $event)"
+      @disconnected="reportConnection('disconnected', $event); $emit('disconnected', $event)"
+      @connected="reportConnection('connected'); $emit('connected', $event)"
+      @error="reportConnection('connect-failed', $event); $emit('error', $event)"
       @recreate-room="$emit('recreate-room')"
       @meeting-ended="$emit('meeting-ended', $event)"
       @interview-guest-ended="$emit('interview-guest-ended', $event)"
@@ -67,6 +68,7 @@ import { computed, ref } from 'vue';
 import VideoSessionRoom from '../video/VideoSessionRoom.vue';
 import { useAuthStore } from '../../store/auth';
 import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
+import { reportSupervisionConnection } from '../../utils/supervisionConnectionDiagnostics';
 
 const videoRoomRef = ref(null);
 
@@ -109,8 +111,13 @@ const props = defineProps({
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },
   localProfilePhotoUrl: { type: String, default: '' },
-  lobbyMode: { type: Boolean, default: false }
+  lobbyMode: { type: Boolean, default: false },
+  supervisionDiagnostics: { type: Boolean, default: false }
 });
+
+function reportConnection(event, detail) {
+  if (props.supervisionDiagnostics) reportSupervisionConnection(props.sessionId, event, detail);
+}
 
 defineEmits([
   'disconnected',

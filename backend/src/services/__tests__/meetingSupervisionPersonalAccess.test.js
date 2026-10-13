@@ -93,6 +93,13 @@ describe('personal supervision invitation without app sign-in', () => {
     await authenticateSupervisionSession(req, res, next);
     expect(next).toHaveBeenCalledWith(); expect(req.user.id).toBe(8); expect(req.user.role).toBe('provider'); expect(m.authenticate).not.toHaveBeenCalled();
   });
+  it('scopes connection diagnostics to the personal invitation session',async()=>{
+    const token=await grant();
+    const request=supervisionSessionRequest('POST','/sessions/9/connection-events');
+    expect(request).toEqual({sessionId:9,action:'connection-events'});
+    await expect(validateSupervisionAccess(token,request)).resolves.toMatchObject({sessionId:9});
+    await expect(validateSupervisionAccess(token,supervisionSessionRequest('POST','/sessions/10/connection-events'))).rejects.toMatchObject({status:403});
+  });
   it('retains normal authentication for requests without a personal grant', async () => {
     const req = { get: () => null }, res = response(), next = vi.fn();
     await authenticateSupervisionSession(req, res, next); expect(m.authenticate).toHaveBeenCalledWith(req, res, next);

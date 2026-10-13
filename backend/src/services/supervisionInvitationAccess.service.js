@@ -45,7 +45,7 @@ export function supervisionSessionRequest(method, path) {
   const action = match[2];
   const allowed = {
     GET: /^(calendar-guests|video-token|admission-status|lobby-participants|live-attendance|attendees|presenters|presentations|presentations\/mine|presentation-state|artifacts|personal-note|activity|transcription)$/,
-    POST: /^(calendar-guests\/\d+\/admit|join-presence|end-live|admit\/\d+|waiting-room|client-transcript|transcript-control|activity|artifacts|transcription\/(control|audio))$/,
+    POST: /^(calendar-guests\/\d+\/admit|join-presence|connection-events|end-live|admit\/\d+|waiting-room|client-transcript|transcript-control|activity|artifacts|transcription\/(control|audio))$/,
     PUT: /^(presentation-state|personal-note)$/
   };
   return allowed[String(method).toUpperCase()]?.test(action) ? { sessionId: Number(match[1]), action } : null;

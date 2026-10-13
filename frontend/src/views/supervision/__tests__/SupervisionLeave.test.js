@@ -16,6 +16,29 @@ beforeEach(()=>{
 afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();});
 async function render(){wrapper=mount(JoinSupervisionView,{global:{stubs:{SupervisionLiveRoom:true,MeetingSessionExitPanel:true}}});await flushPromises();return wrapper.findComponent({name:'SupervisionLiveRoom'});}
 describe('supervision leave versus explicit meeting closure',()=>{
+  it('keeps a retry available after a connection interruption and a failed rejoin request',async()=>{
+    const room=await render();
+    room.vm.$emit('disconnected',{reason:'networkDisconnected'});await flushPromises();
+    const exit=wrapper.findComponent({name:'MeetingSessionExitPanel'});
+    expect(exit.props()).toMatchObject({variant:'connection-lost',canRejoin:true});
+    m.get.mockRejectedValueOnce({response:{status:503,data:{error:{message:'Temporarily unavailable'}}}});
+    exit.vm.$emit('rejoin');await flushPromises();
+    expect(wrapper.text()).toContain('Temporarily unavailable');
+    const retry=wrapper.get('button.join-login-btn--secondary');
+    await retry.trigger('click');await flushPromises();
+    expect(wrapper.findComponent({name:'SupervisionLiveRoom'}).exists()).toBe(true);
+    expect(m.post.mock.calls.some(([url])=>url.endsWith('/end-live'))).toBe(false);
+    expect(m.finish).not.toHaveBeenCalled();
+    expect(m.post).toHaveBeenCalledWith('/supervision/sessions/101/connection-events',expect.objectContaining({event:'join-request-failed',code:503}),expect.any(Object));
+    expect(m.get).toHaveBeenLastCalledWith('/supervision/sessions/101/video-token',expect.objectContaining({skipGlobalLoading:true}));
+  });
+  it('still respects a server-ended room when retrying after a network interruption',async()=>{
+    const room=await render();room.vm.$emit('disconnected',{reason:'networkDisconnected'});await flushPromises();
+    m.get.mockRejectedValueOnce({response:{status:410,data:{liveEndedAt:'2026-10-13T20:00:00Z'}}});
+    wrapper.findComponent({name:'MeetingSessionExitPanel'}).vm.$emit('rejoin');await flushPromises();
+    expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).props()).toMatchObject({variant:'host-ended',canRejoin:false});
+    expect(wrapper.findComponent({name:'SupervisionLiveRoom'}).exists()).toBe(false);
+  });
   it.each([false,true])('leave-only never ends the room or transcript (host/cohost=%s)',async host=>{
     m.host=host;const room=await render();room.vm.$emit('leave',{endForAll:false});await flushPromises();
     expect(m.post).toHaveBeenCalledWith('/supervision/sessions/101/join-presence',expect.objectContaining({action:'leave'}),expect.any(Object));
