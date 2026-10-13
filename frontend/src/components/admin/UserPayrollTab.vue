@@ -1558,12 +1558,12 @@ const fullRateRows = computed(() => {
   // Keep the FIRST row for each code so UI matches payroll's "best current" pick.
   const rateByCode = new Map();
   for (const r of perCodeRates.value || []) {
-    const code = String(r.service_code || '').trim();
+    const code = String(r.service_code || '').trim().toUpperCase();
     if (!code) continue;
     if (!rateByCode.has(code)) rateByCode.set(code, r);
   }
   return out.map((x) => {
-    const r = rateByCode.get(x.serviceCode) || null;
+    const r = rateByCode.get(x.serviceCode.toUpperCase()) || null;
     const vis = visibilityByCode.value.get(x.serviceCode);
     const meta = buildRateRowMeta(x.serviceCode, r);
     return {
@@ -1871,14 +1871,14 @@ const saveRates = async () => {
     const allowedCodes = new Set((fullRateRows.value || []).map((r) => String(r.serviceCode || '').trim()).filter(Boolean));
     // Cleanup orphan per-code overrides for service codes no longer in agency rules.
     for (const code of current.keys()) {
-      if (!allowedCodes.has(code) && !perCodeRates.value.some(r=>r.service_code===code && ['percent_collected','percent_billed'].includes(r.pay_method))) deletes.push(code);
+      if (!allowedCodes.has(code) && !perCodeRates.value.some(r=>String(r.service_code || '').trim().toUpperCase()===code.toUpperCase() && ['percent_collected','percent_billed'].includes(r.pay_method))) deletes.push(code);
     }
 
     // Merge dollar and percent drafts per code — both fields are independent.
     // For each allowed code, compute the desired (rateAmount, payPercent) pair and
     // emit a change only when something actually differs from what's stored.
     for (const code of allowedCodes) {
-      if (perCodeRates.value.some(r=>r.service_code===code && ['percent_collected','percent_billed'].includes(r.pay_method))) continue;
+      if (perCodeRates.value.some(r=>String(r.service_code || '').trim().toUpperCase()===code.toUpperCase() && ['percent_collected','percent_billed'].includes(r.pay_method))) continue;
       const dollarStr = String(rateDraftByCode.value?.[code] ?? '').trim();
       const pctStr    = String(percentDraftByCode.value?.[code] ?? '').trim();
 
