@@ -17,7 +17,7 @@
       <label>Contract basis<select v-model="method"><option value="percent_billed">Billed charges</option><option value="percent_collected">Collected payments</option></select></label>
       <button class="btn btn-primary" :disabled="saving || loading">{{ saving ? 'Saving…' : 'Save percentage rate' }}</button>
     </form>
-    <p class="hint">All four fields are required. Billed-charge pay needs an Amount Billed or Total Charge column in the report. Missing charges require review; they do not become $0 pay. Saved rates and dates remain visible above.</p>
+    <p class="hint">All four fields are required. Billed-charge pay uses Amount Billed or Total Charge. For TherapyNotes appointments with one unit, it also accepts Rate. Multi-unit rows need a total billed amount. Missing charges require review; they do not become $0 pay. Saved rates and dates remain visible above.</p>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="success" role="status">{{ success }}</p>
   </section>
 </template>

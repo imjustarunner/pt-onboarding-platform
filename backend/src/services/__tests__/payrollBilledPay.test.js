@@ -40,3 +40,25 @@ describe('provider identities', () => {
 });
 
 it('holds an archived name for review instead of recreating it',async()=>{db.execute.mockResolvedValue([[{id:1388}]]);expect(await archivedPayrollName('Josie','Cleveland')).toBe(true);expect(db.execute.mock.calls[0][1]).toEqual(['Josie','Cleveland']);});
+
+const tutoringReport = {Type:'Appointment', 'Clinician Name':'Sample Tutor', 'Service Code':'Tutoring', Units:1, 'Note Status':'Draft', Rate:'65.00'};
+it('uses the two single-unit tutoring charges, not collected payments', async () => {
+  const entries = [
+    {...tutoringReport,Date:'9/30/2026','Patient Amount Paid':'(65.00)'},
+    {...tutoringReport,Date:'10/7/2026','Patient Amount Paid':'0.00'}
+  ].map((r,i)=>({...entry,id:i+1,service_date:i?'2026-10-07':'2026-09-30',billed_amount:billedAmountFromReport(r),note_status:'DRAFT',draft_payable:1}));
+  expect(entries.map(r=>r.billed_amount)).toEqual([65,65]);
+  db.execute.mockResolvedValue([entries]);
+  expect(await billedPayForStagingRow({row:{userId:993,serviceCode:'Tutoring',finalizedUnits:2},payrollPeriodId:910,agencyId:6,rates:[rate]})).toMatchObject({amount:57.2,billedAmount:130,presentAmount:57.2});
+});
+it('requires total charges for multi-unit rows and gives explicit totals priority',()=>{
+  expect(billedAmountFromReport({...tutoringReport,Units:2})).toBe(null);
+  expect(billedAmountFromReport({...tutoringReport,Units:2,'Amount Billed':'100.00'})).toBe(100);
+  expect(billedAmountFromReport({...tutoringReport,'Amount Billed':'0.00'})).toBe(0);
+  expect(billedAmountFromReport({...tutoringReport,'Amount Billed':'invalid'})).toBe(null);
+  expect(billedAmountFromReport({...tutoringReport,Type:'Payment'})).toBe(null);
+});
+it('does not make an unpaid draft payable just because it has a billed charge',async()=>{
+  db.execute.mockResolvedValue([[{...entry,billed_amount:65,note_status:'DRAFT',draft_payable:0}]]);
+  expect(await billedPayForStagingRow({row:{userId:993,serviceCode:'Tutoring',finalizedUnits:0},payrollPeriodId:910,agencyId:6,rates:[rate]})).toMatchObject({amount:0});
+});

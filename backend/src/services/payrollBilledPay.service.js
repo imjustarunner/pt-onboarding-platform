@@ -2,17 +2,25 @@ import pool from '../config/database.js';
 
 const day = value => value instanceof Date ? value.toISOString().slice(0, 10) : String(value || '').slice(0, 10);
 const fail = message => { throw Object.assign(new Error(message), { status: 409 }); };
-// Read total charges only. A unit rate, an outstanding balance, and patient payments
-// are different amounts and must never be substituted for the billed charge.
+// Read explicit total charges, or Rate for a recognized single-unit TherapyNotes
+// appointment. Multi-unit Rate values are ambiguous; balances and payments are not charges.
 export function billedAmountFromReport(row) {
   const values = new Map(Object.entries(row || {}).map(([key, value]) => [key.toLowerCase().replace(/[_\s]+/g, ' ').trim(), value]));
+  const amount = raw => {
+    const text = String(raw ?? '').trim().replace(/[$,]/g, '');
+    return /^\d+(\.\d{1,2})?$/.test(text) ? Number(text) : null;
+  };
   for (const key of ['amount billed', 'billed amount', 'total billed', 'total charge', 'total charges', 'charge amount', 'amount charged', 'patient amount billed', 'billed', 'charge', 'charges']) {
     const raw = values.get(key);
     if (raw == null || String(raw).trim() === '') continue;
-    const text = String(raw).trim().replace(/[$,]/g, '');
-    if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
-    return Number(text);
+    return amount(raw);
   }
+  const singleAppointment = String(values.get('type') || '').trim().toLowerCase() === 'appointment'
+    && Number(values.get('units')) === 1
+    && String(values.get('clinician name') || '').trim()
+    && String(values.get('service code') || '').trim()
+    && values.has('note status');
+  if (singleAppointment) return amount(values.get('rate'));
   return null;
 }
 export function rateAtDate(rates, date) {
@@ -27,7 +35,7 @@ export function calculateBilledPay({ entries, finalizedUnits, rates, serviceCode
   let cents = 0, billedAmount = 0, presentCents = 0, carryCents = 0;
   for (const row of entries) {
     const billed = row.billed_amount;
-    if (billed == null || billed === '' || !Number.isFinite(Number(billed)) || Number(billed) < 0) fail(`Billed amount missing for ${serviceCode}. Re-upload a report with an Amount Billed or Total Charge column; client payments cannot substitute for billed charges.`);
+    if (billed == null || billed === '' || !Number.isFinite(Number(billed)) || Number(billed) < 0) fail(`Billed amount missing for ${serviceCode}. Re-upload a report with Amount Billed or Total Charge, or a single-unit TherapyNotes appointment with Rate; client payments cannot substitute for billed charges.`);
     const rate = rateAtDate(rates, row.service_date);
     if (rate?.pay_method !== 'percent_billed' || rate.pay_percent == null) fail(`Review the dated ${serviceCode} percentage agreement for ${day(row.service_date)} before calculating payroll.`);
     const percent = Number(rate.pay_percent);
