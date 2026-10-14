@@ -87,9 +87,10 @@ async function verifyHold() {
     if(hold.value?.token===token && !data.active) { save(null); await load(); }
   } catch { error.value='Could not verify your pending hold. Please contact the team before relying on this time.'; }
 }
-watch(() => [props.agencySlug, props.providerId, props.serviceType,props.careType], () => {
+watch(() => [props.agencySlug, props.providerId, props.serviceType,props.careType,props.fixedFormat], () => {
   hold.value = null;
-  try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType) { hold.value = saved; format.value = props.fixedFormat || saved.modality || 'IN_PERSON'; } } catch {}
+  format.value = props.fixedFormat || 'IN_PERSON';
+  try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType && (!props.fixedFormat || saved.modality === props.fixedFormat)) { hold.value = saved; format.value = props.fixedFormat || saved.modality || 'IN_PERSON'; } } catch {}
   emit('hold', active.value || hold.value?.preferenceOnly ? hold.value : null); verifyHold(); load();
 }, { immediate: true });
 const statusTimer = setInterval(verifyHold, 60000);

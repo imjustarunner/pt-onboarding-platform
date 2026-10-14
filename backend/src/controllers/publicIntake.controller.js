@@ -5,11 +5,12 @@ import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentVa
 import { buildSharedIntakeDocuments } from '../services/sharedIntakeDocuments.service.js';
 import { sendPacketCompletionNotification } from '../services/packetCompletionNotification.service.js';
 import {allowsProviderPreference,stripIneligibleProviderPreference} from '../utils/intakeProviderPreference.js';
+import { validateEnrollmentProviderSelection, recordEnrollmentProviderSelection } from '../services/enrollmentProviderSelection.service.js';
 import { hiringCommunicationContext, validateHiringChoice, saveHiringChoice } from '../services/hiringCommunication.service.js';
 import { applicationSnapshot, enrichApplicationRecord, issueApplicationReceiptToken, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import learningReflections from '../../../frontend/src/navigation/learningReflection.js';
 import {prepareLearningPacket} from '../services/learningEnrollment.service.js';
-import { createPublicProviderHoldService } from '../services/publicProviderHold.service.js';
+import { attachEnrollmentOpeningPreference } from '../services/enrollmentOpeningPreference.service.js';
 import { validateIntakeBilling } from '../services/intakeBillingValidation.service.js';
 import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
 import { createFamilyCardSetup, completeFamilyCardSetup } from '../services/familyCardSetup.service.js';
@@ -167,7 +168,7 @@ import {
   persistDisclosureAcknowledgement,
   validateSmartDisclosureResponse
 } from '../services/smartDisclosure.service.js';
-import { listOfficeIntakeProviders } from '../services/officeIntakeProviders.service.js';
+import { listOfficeIntakeProviders, scopeLearningIntakeProviders } from '../services/officeIntakeProviders.service.js';
 import {
   buildPublicPasswordlessLoginUrl,
   buildPublicPortalLoginUrl
@@ -6548,16 +6549,26 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
     if(!allowsProviderPreference(link))return res.json({providers:[]});
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     if(String(link.master_channel||'').toLowerCase()==='tutoring') {
-      const {listTutors}=await import('./publicAgencyServices.controller.js');
-      return listTutors({params:{agencySlug:agency?.slug},query:{...req.query,learningProgram:req.query.learningProgram||'tutoring'}},{status(code){res.status(code);return this;},json(data){return res.json({...data,providers:(data.providers||[]).map(p=>({...p,name:p.displayName,waitlist:!p.acceptingNewClients}))});}},next);
+      const { listTutors } = await import('./publicAgencyServices.controller.js');
+      let payload, status = 200;
+      await listTutors({ params: { agencySlug: agency?.slug }, query: { ...req.query, view: 'directory', learningProgram: req.query.learningProgram || 'tutoring' } },
+        { status(code) { status = code; return this; }, json(data) { payload = data; return data; } }, error => { throw error; });
+      if (status !== 200) return res.status(status).json(payload);
+      return res.json({ ...payload, providers: await scopeLearningIntakeProviders(Number(agency.id), payload?.providers || [], req.query.programType) });
     }
     const ages = String(req.query.ages || '')
       .split(',')
       .map((v) => Number(v))
       .filter((n) => Number.isFinite(n) && n >= 0 && n < 120);
     const serviceMode = String(req.query.serviceMode || req.query.whoFor || '').trim();
+    let matchingPreferences = null;
+    if (req.query.matchingPreferences) {
+      try { matchingPreferences = validateMatchingPreferences(JSON.parse(req.query.matchingPreferences)); }
+      catch (error) { throw Object.assign(new Error(error?.message || 'Review the provider fit preferences.'), { status: 400 }); }
+    }
     const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0), {
       ages,
+      matchingPreferences,
       serviceMode, programType:req.query.programType, includeNotAccepting:false, includeWaitlist:true
     });
     res.setHeader('Cache-Control', 'no-store');
@@ -7043,6 +7054,8 @@ export const createPublicConsent = async (req, res, next) => {
 
     const intakeData = req.body?.intakeData || null;
     validateIntakeMatchingPreferences(intakeData);
+    stripIneligibleProviderPreference(link, intakeData);
+    await validateSubmittedProviderPreferences(link, intakeData);
     let effectiveIntakeData = intakeData;
     let clientMatchPayload = null;
     if (effectiveIntakeData && linkSupportsPublicRegistrationFeatures(link)) {
@@ -9265,6 +9278,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       success: true,
       submission: updatedSubmission,
       status: 'processing',
+      reservationNotice: intakeData?.responses?.submission?.requested_opening_preference?.reservationNotice || null,
       submissionId,
       clientBundles: (createdClients || []).map((c) => ({
         clientId: c.id,
@@ -12073,6 +12087,7 @@ export const submitPublicIntake = async (req, res, next) => {
       submission: updatedSubmission,
       documents: signedDocs,
       downloadUrl,
+      reservationNotice: intakeData?.responses?.submission?.requested_opening_preference?.reservationNotice || null,
       emailDelivery,
       clientBundles,
       registrationReturningAutoMatch: returningAutoMatchInitialsForEmailSubmit
@@ -12640,20 +12655,36 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
   }
 };
 
-/**
- * Resolve the tenant (agency_id) that owns this intake link.
- * Used by the Stripe/QB payment flow which runs BEFORE final intake submit,
- * before `link.agency_id` is always available (e.g. school-scoped links).
- */
-async function attachSubmittedProviderHold(link,intakeData,clients,submission,token) {
-  const preference=intakeData?.responses?.submission?.requested_opening_preference;
-  if(!allowsProviderPreference(link)||!token || !preference?.providerId) return;
-  const clientId=clients?.[0]?.id || submission?.client_id;
-  if(!clientId) return;
-  const agencyId=await resolveAgencyIdForLink(link);
-  await createPublicProviderHoldService(pool).attach({agencyId,providerId:Number(preference.providerId),token,clientId});
+/** Persist the desired provider for care coordination; attach only a proven hold. */
+async function attachSubmittedProviderHold(link, intakeData, clients, submission, token) {
+  if (!allowsProviderPreference(link)) return;
+  const agencyId = await resolveAgencyIdForLink(link);
+  const clientIds = clients?.length ? clients.map(client => client.id) : [submission?.client_id];
+  const preference = intakeData?.responses?.submission?.requested_opening_preference;
+  const clientId = clientIds[0];
+  const channel = String(link.master_channel || '').toLowerCase();
+  const serviceType = ['tutoring', 'coaching', 'consulting'].includes(channel) ? channel : 'counseling';
+  const canonicalOpening = await attachEnrollmentOpeningPreference(pool, { agencyId, preference, holdToken: token, serviceType, clientId });
+  if (canonicalOpening) {
+    intakeData.responses.submission.requested_opening_preference = canonicalOpening;
+    if (submission?.id) {
+      const updated = await IntakeSubmission.updateById(submission.id, {
+        intake_data: JSON.stringify(intakeData), intake_data_hash: hashIntakeData(intakeData)
+      });
+      Object.assign(submission, updated);
+    }
+  }
+  for (const selectedClientId of [...new Set(clientIds.map(Number).filter(id => id > 0))]) {
+    // A shared packet may enroll several children, but a held time belongs to
+    // only the client attached above. Others retain a non-reserving preference.
+    const clientOpening = canonicalOpening?.reserved && Number(selectedClientId) !== Number(clientId)
+      ? { ...canonicalOpening, reserved: false, holdWasActiveAtSubmission: false, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION' }
+      : canonicalOpening;
+    await recordEnrollmentProviderSelection(pool, { agencyId, clientIds: [selectedClientId], submissionId: submission?.id, intakeData, canonicalOpening: clientOpening });
+  }
 }
 
+/** Resolve the caring tenant for public forms, including school-scoped links. */
 const resolveAgencyIdForLink = async (link) => {
   let agencyId = Number(link?.agency_id || 0) || null;
   if (!agencyId && link?.organization_id) {
@@ -13064,15 +13095,20 @@ export const savePreferencesUser = async (req, res, next) => {
   }
 };
 
-async function validateSubmittedProviderPreferences(link,intakeData) {
- const bag=intakeData?.responses?.submission;
- const ids=bag?.preferred_office_provider_ids;if(!Array.isArray(ids)||!ids.length||link.master_channel==='tutoring')return;
- const agencyId=await resolveAgencyIdForLink(link);
- const providers=await listOfficeIntakeProviders(agencyId,{includeNotAccepting:false,includeWaitlist:true,serviceMode:bag.service_subject||bag.serviceSubject||'',programType:bag.preferred_service_format||bag.preferred_modality||bag.preferredModality});
- const selected=ids.map(id=>providers.find(p=>Number(p.id)===Number(id)));
- if(selected.some(p=>!p))throw Object.assign(new Error('One of your preferred providers is no longer open to requests for this service. Please choose another provider or continue without a preference.'),{status:409});
- bag.preferred_office_provider_ids=selected.map(p=>String(p.id));
- bag.preferred_office_provider_summary=selected.map((p,i)=>`#${i+1} ${p.name}`).join(', ');
+async function validateSubmittedProviderPreferences(link, intakeData) {
+  const agencyId = await resolveAgencyIdForLink(link);
+  const loadProviders = String(link?.master_channel || '').toLowerCase() === 'tutoring'
+    ? async (id, options) => {
+      const [rows] = await pool.execute(`SELECT u.id, CONCAT_WS(' ', u.first_name, u.last_name) AS name,
+        (COALESCE(u.provider_accepting_new_clients, 1) = 1 AND t.accepting_new_students = 1) AS accepting
+        FROM users u JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+        JOIN provider_tutoring_profiles t ON t.user_id = u.id AND t.agency_id = ua.agency_id
+        JOIN provider_public_service_enrollments e ON e.user_id = u.id AND e.agency_id = ua.agency_id AND e.service_type = 'tutoring' AND e.is_active = 1
+        WHERE COALESCE(ua.is_active, 1) = 1 AND COALESCE(u.is_active, 1) = 1
+          AND COALESCE(u.is_archived, 0) = 0 AND u.status = 'ACTIVE_EMPLOYEE'`, [id]);
+      return scopeLearningIntakeProviders(id, rows.map(row => ({ ...row, acceptingNewClients: !!row.accepting })), options.programType);
+    } : listOfficeIntakeProviders;
+  return validateEnrollmentProviderSelection({ link, intakeData, agencyId, loadProviders });
 }
 
 function validateIntakeMatchingPreferences(data){

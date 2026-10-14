@@ -18,6 +18,7 @@
         </div>
       </template>
     </details>
+    <ProviderEnrollmentWaitlist v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id) && !hideOfficeAndCalendarIntegration" :provider-id="Number(userId)" :agency-ids="String(route.query.waitlist || '') === '1' && Number(route.query.agencyId) > 0 ? [Number(route.query.agencyId)] : effectiveAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" />
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
@@ -5748,6 +5749,7 @@
 </template>
 
 <script setup>
+import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import CalendarSharing from '../CalendarSharing.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';

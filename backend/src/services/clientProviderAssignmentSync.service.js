@@ -1,4 +1,5 @@
 import { resolveClientProviderHolds } from './publicProviderHold.service.js';
+import { resolveAssignedEnrollmentWaitlist } from './providerEnrollmentWaitlist.service.js';
 import pool from '../config/database.js';
 import { queueSchoolClientStatusEmails } from './schoolClientStatusEmail.service.js';
 
@@ -204,6 +205,7 @@ export async function afterLegacyProviderFieldsChanged(
   if (!pid) return;
 
   await resolveClientProviderHolds(connection,{clientId:cid,userId});
+  await resolveAssignedEnrollmentWaitlist(connection, cid);
   await syncLegacyProviderToAffiliatedOrgs(connection, {
     clientId: cid,
     userId,
@@ -220,6 +222,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   const cid = parseInt(clientId, 10);
   if (!cid) return;
   await resolveClientProviderHolds(connection,{clientId:cid,userId});
+  await resolveAssignedEnrollmentWaitlist(connection, cid);
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
     await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });

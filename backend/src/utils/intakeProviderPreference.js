@@ -8,12 +8,12 @@ export function allowsProviderPreference(link) {
 export function stripIneligibleProviderPreference(link,intakeData) {
  if(allowsProviderPreference(link))return;
  const bag=intakeData?.responses?.submission;if(!bag)return;
- for(const key of ['preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','preferredProviderUserId','preferredProviderId'])delete bag[key];
+ for(const key of ['preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','preferredProviderUserId','preferredProviderId','providerSelection','providerSelections','requested_profile_provider_id','enrollment_source'])delete bag[key];
 }
-// Strip unverified provider selections. Explicit opening preferences are separately
-// validated by the enrollment service; only a server-side hold reserves time.
+// Brief interest forms never select a provider or reserve a time. Those requests
+// belong to the full enrollment pathway and its server-side policy validation.
 export function withoutQuickProviderSelection(payload={}) {
  const clean={...payload,preferences:{...payload.preferences}};
- for(const bag of [clean,clean.preferences])for(const key of ['preferredProviderUserId','preferredProviderId','providerId','preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','requestedOpening','requestedOpeningPreference','providerHoldToken'])delete bag[key];
+ for(const bag of [clean,clean.preferences])for(const key of ['preferredProviderUserId','preferredProviderId','providerId','preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','requestedOpening','requestedOpeningPreference','providerHoldToken','providerSelection','providerSelections','requested_profile_provider_id','enrollment_source'])delete bag[key];
  return clean;
 }

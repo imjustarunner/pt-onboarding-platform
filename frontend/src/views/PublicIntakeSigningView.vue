@@ -97,7 +97,15 @@
       <template v-if="!(isJobApplication && step === -1) && step >= 1 && publicFormLead">
         <p class="df-form-lead">{{ publicFormLead }}</p>
       </template>
+      <div v-if="providerProfileRequest && isOfficeInDepthIntake && step < 3" class="df-banner df-banner--info" role="status">
+        You’re completing full enrollment with {{selectedEnrollmentProvider?.name || 'your selected provider'}} as your requested provider.
+        Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to confirm availability and coordinate care.
+        <button type="button" @click="setSelectedOfficeProviderIds([])">Continue without this provider request</button>
+        <p v-if="providerHoldChangeError" role="alert">{{providerHoldChangeError}}</p>
+        <p v-if="providerSelectionNotice">{{providerSelectionNotice}}</p>
+      </div>
       <div v-if="draftRestoredMessage" class="draft-restored-banner df-banner df-banner--info">{{ draftRestoredMessage }}</div>
+      <div v-if="step === 3 && completionReservationNotice" class="df-banner df-banner--info" role="status">{{completionReservationNotice}}</div>
 
       <div v-if="step === -1" class="step cover-step">
         <div v-if="isJobApplication" class="job-landing-shell" :style="{ '--job-landing-accent': jobLandingAccent }">
@@ -1916,7 +1924,7 @@
           </button>
         </div>
 
-        <div v-if="isOfficeInDepthIntake && currentFlowStep?.type === 'provider_match'" class="provider-match-step">
+        <div v-if="allowsFullProviderChoice && currentFlowStep?.type === 'provider_match'" class="provider-match-step">
           <div v-if="providerMatchOnClinicalHold" class="clinical-review-hold">
             <DigitalFormNotice
               variant="warn"
@@ -1924,19 +1932,60 @@
               body="Based on answers in this intake, a clinician will review your information before matching you with a provider. You can continue — no provider selection is needed right now."
             />
           </div>
-          <ChooseProviderDirectory
-            v-else
-            mode="intake"
-            title="Choose a provider"
-            lead="Select one or more providers. Optionally rank your top 3. Choosing a slot is a preference — not a booking."
-            :show-header="true"
-            :providers="matchingOfficeProviders"
-            :loading="officeProvidersLoading"
-            :selected-ids="selectedOfficeProviderIds"
-            @update:selected-ids="setSelectedOfficeProviderIds"
-          />
-          <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
-          <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1 && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :care-type="serviceSubject==='couple'?'COUPLES':serviceSubject==='family'?'FAMILY':'INDIVIDUAL'" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
+          <template v-else>
+            <div class="enrollment-provider-preferences">
+              <p>Tell us how you would like to meet and any provider preferences. Open providers appear first, followed by providers accepting waitlist requests. These preferences are optional.</p>
+              <label for="enrollment-provider-format">Appointment format</label>
+              <select id="enrollment-provider-format" :value="enrollmentModality" @change="changeEnrollmentModality($event.target.value)">
+                <option value="ALL">Either virtual or in person</option>
+                <option v-for="format in enrollmentModalityOptions" :key="format" :value="format">{{format==='VIRTUAL'?'Virtual':'In person'}}</option>
+              </select>
+              <p v-if="officeProvidersLoading" role="status">Checking Open and Waitlist providers…</p>
+              <p v-if="officeProvidersError" role="alert">{{officeProvidersError}} <button type="button" @click="loadOfficeIntakeProviders">Try again</button></p>
+              <fieldset class="enrollment-scheduling-preferences">
+                <legend>When could you meet? (optional)</legend>
+                <p>Your provider and support team can use these preferences when an opening becomes available. They do not reserve an appointment.</p>
+                <div class="enrollment-preference-options" role="group" aria-label="Preferred days">
+                  <label v-for="day in enrollmentWeekdays" :key="day"><input v-model="enrollmentPreferredDays" type="checkbox" :value="day" /> {{day}}</label>
+                </div>
+                <div class="enrollment-preference-options" role="group" aria-label="Preferred times">
+                  <label v-for="time in enrollmentTimeWindows" :key="time"><input v-model="enrollmentPreferredTimes" type="checkbox" :value="time" /> {{time}}</label>
+                </div>
+                <label for="enrollment-preference-timezone">Time zone</label>
+                <input id="enrollment-preference-timezone" v-model="enrollmentPreferenceTimeZone" maxlength="100" placeholder="For example, America/Denver" />
+                <label for="enrollment-scheduling-notes">Anything else about your availability?</label>
+                <textarea id="enrollment-scheduling-notes" v-model="intakeResponses.submission.preferred_scheduling_notes" maxlength="1000" rows="2" placeholder="For example, Tuesdays after 4 PM or Thursday mornings." />
+              </fieldset>
+              <template v-if="!providerChoicesVisible && !officeProvidersLoading && !officeProvidersError && link?.master_channel!=='tutoring'">
+                <div v-for="(client,idx) in clients" :key="idx">
+                  <h4 v-if="clients.length>1">{{client.firstName||t('clientN')}} {{client.lastName}}</h4>
+                  <ClientMatchingPreferences :model-value="intakeResponses.clients[idx]?.matchingPreferences||{}" :allowed-options="matchingPreferenceOptions" :locale="intakeLocale" @update:model-value="ensureClientBag(idx).matchingPreferences=$event" />
+                </div>
+              </template>
+              <button v-if="!providerChoicesVisible" class="btn btn-primary" type="button" :disabled="officeProvidersLoading || !!officeProvidersError" @click="providerChoicesVisible=true">Show matching providers</button>
+              <button v-else class="btn btn-secondary" type="button" @click="providerChoicesVisible=false">Adjust matching preferences</button>
+              <button v-if="!providerChoicesVisible" class="btn btn-secondary" type="button" @click="skipEnrollmentProvider">Skip provider choice — let the care team help</button>
+            </div>
+            <ChooseProviderDirectory
+              v-if="providerChoicesVisible"
+              mode="intake"
+              title="Choose a provider (optional)"
+              lead="Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to confirm availability and coordinate care."
+              :show-header="true"
+              :providers="matchingOfficeProviders"
+              :loading="officeProvidersLoading"
+              :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
+              :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'"
+              :modality="enrollmentModality"
+              :selected-ids="selectedOfficeProviderIds"
+              @update:selected-ids="setSelectedOfficeProviderIds"
+              @skip="skipEnrollmentProvider"
+            />
+            <p v-if="selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='waitlist'" role="status">Your enrollment requests {{selectedEnrollmentProvider.name}}’s waitlist. No appointment or start date is confirmed; the care team will follow up.</p>
+            <p v-if="providerSelectionNotice" role="status">{{providerSelectionNotice}}</p>
+            <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
+            <PublicProviderSlotPicker v-if="providerChoicesVisible && selectedOfficeProviderIds.length === 1 && selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='accepting' && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :fixed-format="enrollmentModality==='ALL'?'':enrollmentModality" :care-type="serviceSubject==='couple'?'COUPLES':serviceSubject==='family'?'FAMILY':'INDIVIDUAL'" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
+          </template>
         </div>
 
         <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
@@ -3014,7 +3063,7 @@ import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
 import ClientMatchingPreferences from '../components/public/ClientMatchingPreferences.vue';
-import {focusMatch} from '../navigation/providerFocus.js';
+import { enrollmentFormat, enrollmentProviderStatus, matchingEnrollmentProviders, enrollmentMatchingOptions, providerEnrollmentEntry } from '../utils/enrollmentProviderMatching.js';
 import ChooseProviderDirectory from '../components/public/ChooseProviderDirectory.vue';
 import PublicProviderSlotPicker from '../components/publicServices/PublicProviderSlotPicker.vue';
 import OfficeIntakeStartPage from '../components/office/OfficeIntakeStartPage.vue';
@@ -4582,7 +4631,7 @@ const clients = ref([
 ]);
 const intakeResponses = reactive({
   guardian: {},
-  submission: {learning: ['bridge','academic-acceleration','tutoring'].includes(route.query.program)?{version:1,program:route.query.program,packageId:String(route.query.packageId||'')}:undefined},
+  submission: {...providerEnrollmentEntry(route.query),learning: ['bridge','academic-acceleration','tutoring'].includes(route.query.program)?{version:1,program:route.query.program,packageId:String(route.query.packageId||'')}:undefined},
   clients: [{}]
 });
 
@@ -4717,6 +4766,7 @@ const signerLabel = computed(() => {
   return t('signerLabelGuardian');
 });
 const emailDeliveryStatus = ref(null);
+const completionReservationNotice = ref('');
 const completionEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     return t('completionEmailFailed');
@@ -4773,14 +4823,41 @@ const communications = reactive({
   internalWorkforceOptIn: ''
 });
 
-const showMatchingPreferences=computed(()=>!isJobApplication.value&&!isMedicalRecordsRequest.value&&!isClientBound.value&&(usesSchoolChildDetails.value||['counseling','coaching'].includes(String(link.value?.master_channel||''))||isOfficeInDepthIntake.value&&link.value?.master_channel!=='tutoring'));
+const showMatchingPreferences=computed(()=>!isOfficeInDepthIntake.value&&!isJobApplication.value&&!isMedicalRecordsRequest.value&&!isClientBound.value&&(usesSchoolChildDetails.value||['counseling','coaching'].includes(String(link.value?.master_channel||''))||isOfficeInDepthIntake.value&&link.value?.master_channel!=='tutoring'));
+const allowsFullProviderChoice=computed(()=>isOfficeInDepthIntake.value&&!/quick|short|interest|registration|request/.test(String(link.value?.form_type||'').toLowerCase()));
 const officeProviders = ref([]);
-const matchingOfficeProviders=computed(()=>{
- const choices=intakeResponses.clients.map(c=>c.matchingPreferences||{});
- const score=p=>choices.reduce((total,choice)=>total+focusMatch(p.clinicalFocus,choice).score,0);
- return officeProviders.value.filter(p=>choices.every(choice=>focusMatch(p.clinicalFocus,choice).eligible)).slice().sort((a,b)=>score(b)-score(a));
+const officeProvidersLoading=ref(false),officeProvidersLoaded=ref(false),providerSelectionNotice=ref('');
+const officeProvidersError=ref('');
+const providerChoicesVisible=ref(route.query.enrollmentSource==='provider');
+const enrollmentWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const enrollmentTimeWindows = ['Morning', 'Afternoon', 'Evening'];
+const enrollmentPreferredDays = computed({
+  get: () => Array.isArray(intakeResponses.submission.preferred_days) ? intakeResponses.submission.preferred_days : [],
+  set: value => { intakeResponses.submission.preferred_days = value; }
 });
-const officeProvidersLoading = ref(false);
+const enrollmentPreferredTimes = computed({
+  get: () => Array.isArray(intakeResponses.submission.preferred_times) ? intakeResponses.submission.preferred_times : [],
+  set: value => { intakeResponses.submission.preferred_times = value; }
+});
+const enrollmentPreferenceTimeZone = computed({
+  get: () => intakeResponses.submission.preferred_time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+  set: value => { intakeResponses.submission.preferred_time_zone = value; }
+});
+watch([enrollmentPreferredDays, enrollmentPreferredTimes, () => intakeResponses.submission.preferred_scheduling_notes], () => {
+  if (!intakeResponses.submission.preferred_time_zone) intakeResponses.submission.preferred_time_zone = enrollmentPreferenceTimeZone.value;
+});
+const enrollmentModality=computed(()=>enrollmentFormat(intakeResponses.submission?.preferred_service_format
+  || intakeResponses.submission?.preferredModality || intakeResponses.submission?.preferred_modality
+  || intakeResponses.clients.find(c=>c.preferred_service_format)?.preferred_service_format));
+const enrollmentModalityOptions=computed(()=>['VIRTUAL','IN_PERSON'].filter(f=>officeProviders.value.some(p=>enrollmentProviderStatus(p,f)!=='unavailable')));
+const matchingPreferenceOptions=computed(()=>enrollmentMatchingOptions(officeProviders.value,enrollmentModality.value));
+const presentingProblemsForMatching=computed(()=>[intakeResponses.submission,...intakeResponses.clients].flatMap(b=>
+ ['presenting_concerns','main_reason_and_concerns','main_reason_seeking','biggest_concern_now','three_important_help'].flatMap(key=>Array.isArray(b?.[key])?b[key]:b?.[key]?[b[key]]:[])));
+const matchingOfficeProviders=computed(()=>matchingEnrollmentProviders(officeProviders.value,{
+ format:enrollmentModality.value,preferences:intakeResponses.clients.map(c=>c.matchingPreferences||{}),presentingProblems:presentingProblemsForMatching.value
+}));
+const providerProfileRequest=computed(()=>intakeResponses.submission?.enrollment_source==='provider'&&intakeResponses.submission?.requested_profile_provider_id);
+const selectedEnrollmentProvider=computed(()=>matchingOfficeProviders.value.find(p=>selectedOfficeProviderIds.value.includes(String(p.id))));
 const selectedOfficeProviderIds = computed(() => {
   const raw = intakeResponses.submission?.preferred_office_provider_ids;
   return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
@@ -4811,6 +4888,11 @@ async function setSelectedOfficeProviderIds(ids) {
     }
   }catch{providerHoldChangeError.value='Could not release the previous held opening. Please try again before changing providers.';return;}
   finally{changingOfficeProvider=false;}
+  if(providerProfileRequest.value&&!cur.includes(String(providerProfileRequest.value))){
+    intakeResponses.submission.enrollment_source='general';
+    intakeResponses.submission.requested_profile_provider_id=null;
+    providerChoicesVisible.value=false;
+  }
   intakeResponses.submission.preferred_office_provider_ids = cur;
   const selected = (officeProviders.value || []).filter((p) => cur.includes(String(p.id)));
   const ranked = cur
@@ -4833,8 +4915,8 @@ function toggleOfficeProvider(row) {
   setSelectedOfficeProviderIds(cur);
 }
 async function loadOfficeIntakeProviders() {
-  if (!publicKey || officeProvidersLoading.value || !isOfficeInDepthIntake.value) return;
-  officeProvidersLoading.value = true;
+  if (!publicKey || officeProvidersLoading.value || !allowsFullProviderChoice.value) return;
+  officeProvidersLoading.value = true;officeProvidersError.value='';
   try {
     const ages = (clients.value || [])
       .map((c) => ageYearsFromDob(c?.dateOfBirth || c?.dob))
@@ -4842,27 +4924,80 @@ async function loadOfficeIntakeProviders() {
     const clientLearning = intakeResponses.clients.map(client => client?.learning).filter(Boolean);
     const requests = link.value?.master_channel === 'tutoring' && clientLearning.length ? clientLearning : [intakeResponses.submission.learning || {}];
     const results = await Promise.all(requests.map(learning => api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`, {
-      params: {serviceMode:serviceSubject.value,...(ages.length ? {ages: ages.join(',')} : {}), learningProgram: learning.program || route.query.program, learningFormat: learning.format, gradeLevel: learning.grade, subject: learning.subject, programType: link.value?.master_channel==='tutoring'?(learning.format === 'in-person' ? 'IN_PERSON' : 'VIRTUAL'):(intakeResponses.submission.preferred_service_format||intakeResponses.submission.preferredModality||intakeResponses.submission.preferred_modality||'ALL')},
+      params: {serviceMode:serviceSubject.value,...(ages.length ? {ages: ages.join(',')} : {}), learningProgram: learning.program || route.query.program, learningFormat: learning.format, gradeLevel: learning.grade, subject: learning.subject, programType: link.value?.master_channel==='tutoring'?(learning.format === 'in-person' ? 'IN_PERSON' : 'VIRTUAL'):'ALL'},
       skipGlobalLoading: true
     })));
     // The shared preference must fit every student in a multi-student packet.
     officeProviders.value = (results[0]?.data?.providers || []).filter(provider => results.every(result => (result.data?.providers || []).some(other => String(other.id) === String(provider.id))));
+    officeProvidersLoaded.value=true;
     applyProviderPrefillFromQuery();
   } catch {
+    officeProvidersLoaded.value=false;
+    officeProvidersError.value='We could not load provider choices. Try again, or continue without choosing a provider.';
     officeProviders.value = [];
   } finally {
     officeProvidersLoading.value = false;
   }
 }
+let providerPrefillApplied=false;
 function applyProviderPrefillFromQuery() {
+  if(providerPrefillApplied)return;
   const qid = String(route.query.providerId || route.query.preferredProviderId || '').trim();
-  if (!qid) return;
-  const exists = (officeProviders.value || []).some((p) => String(p.id) === qid);
-  if (!exists) return;
-  const cur = selectedOfficeProviderIds.value;
-  if (cur.includes(qid)) return;
-  setSelectedOfficeProviderIds([qid, ...cur.filter((id) => id !== qid)]);
+  if(!qid)return;
+  if(intakeResponses.submission.enrollment_source==='general'){providerPrefillApplied=true;return;}
+  const exists = officeProviders.value.some(p=>String(p.id)===qid&&enrollmentProviderStatus(p,enrollmentModality.value)!=='unavailable');
+  if(!exists){officeProvidersError.value='The requested provider is no longer open to enrollment in this format. Choose another provider or continue without a preference.';return;}
+  providerPrefillApplied=true;
+  if(!selectedOfficeProviderIds.value.includes(qid))setSelectedOfficeProviderIds([qid]);
 }
+async function changeEnrollmentModality(value) {
+  const format=enrollmentFormat(value);
+  const slug=referralAgencySlug.value||agencyInfo.value?.portal_url||agencyInfo.value?.slug||'';
+  const key=`provider-hold:${slug}`;
+  try {
+    let saved;try{saved=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
+    if(saved&&format!=='ALL'&&saved.modality!==format){
+      if(saved.token)await api.post(`/public/agency-services/${encodeURIComponent(slug)}/release-hold`,{token:saved.token},{skipAuthRedirect:true});
+      sessionStorage.removeItem(key);saveOpeningPreference(null);
+    }
+    intakeResponses.submission.preferred_service_format=format;
+    const eligible=selectedOfficeProviderIds.value.filter(id=>officeProviders.value.some(p=>String(p.id)===id&&enrollmentProviderStatus(p,format)!=='unavailable'));
+    if(eligible.length!==selectedOfficeProviderIds.value.length)await setSelectedOfficeProviderIds(eligible);
+  }catch{providerHoldChangeError.value='Could not release the previous time. Please try again before changing format.';}
+}
+async function skipEnrollmentProvider() {
+  await setSelectedOfficeProviderIds([]);
+  if(providerHoldChangeError.value)return;
+  intakeResponses.submission.provider_choice_skipped=true;
+  await nextFlowStep();
+}
+async function restoreEntryOpeningPreference() {
+  if(!providerProfileRequest.value)return;
+  const slug=referralAgencySlug.value||agencyInfo.value?.portal_url||agencyInfo.value?.slug||'';
+  let saved;
+  try {
+    saved=JSON.parse(sessionStorage.getItem(`provider-hold:${slug}`)||'null');
+  }catch{}
+  const service=link.value?.master_channel==='tutoring'?'tutoring':'counseling';
+  if(Number(saved?.providerId)!==Number(providerProfileRequest.value)||saved?.serviceType!==service||saved?.modality!==enrollmentModality.value)return;
+  if(saved.token){
+    const {data}=await api.post(`/public/agency-services/${encodeURIComponent(slug)}/hold-status`,{token:saved.token},{skipAuthRedirect:true,skipGlobalLoading:true});
+    if(data?.active===false){
+      saved={...saved,token:null,preferenceOnly:true};
+      sessionStorage.setItem(`provider-hold:${slug}`,JSON.stringify(saved));
+      providerSelectionNotice.value='The previously held time has been released. We kept it as a preference for the care team; it is no longer reserved.';
+    }
+  }
+  saveOpeningPreference(saved);
+}
+
+watch(()=>[matchingOfficeProviders.value.map(p=>String(p.id)).join(','),selectedOfficeProviderIds.value.join(','),officeProvidersLoading.value],async()=>{
+  if(!officeProvidersLoaded.value||officeProvidersLoading.value||changingOfficeProvider||providerMatchOnClinicalHold.value)return;
+  const eligible=selectedOfficeProviderIds.value.filter(id=>matchingOfficeProviders.value.some(p=>String(p.id)===id));
+  if(eligible.length===selectedOfficeProviderIds.value.length)return;
+  await setSelectedOfficeProviderIds(eligible);
+  if(!providerHoldChangeError.value)providerSelectionNotice.value='Your previous provider choice no longer matches the selected preferences or current availability. Choose another provider, adjust your preferences, or continue without a choice.';
+});
 
 // Demographics step state
 const sharedDemographicsData = reactive({
@@ -5878,6 +6013,7 @@ const flowSteps = computed(() => {
           || s?.type === 'family_roster'
       )
       .filter((s) => {
+        if(s?.type==='provider_match'&&!allowsFullProviderChoice.value)return false;
         // Skip payment_collection when the guardian selected Medicaid coverage
         // or all selected registrations are Medicaid-only.
         if (s?.type === 'payment_collection') {
@@ -7841,8 +7977,11 @@ const clearPersistedDraft = () => {
   }
 };
 
+const providerEntryContext = () => route.query.enrollmentSource === 'provider'
+  ? `${route.query.providerId || ''}:${route.query.format || ''}:${route.query.serviceType || ''}` : '';
 const buildDraftSnapshot = () => ({
   version: DRAFT_STORAGE_VERSION,
+  providerEntryContext: providerEntryContext(),
   savedAt: new Date().toISOString(),
   sessionToken: String(sessionToken.value || '').trim() || null,
   submissionId: submissionId.value || null,
@@ -8077,7 +8216,22 @@ const applyDraftSnapshot = (parsed) => {
     }
     if (parsed.intakeResponses && typeof parsed.intakeResponses === 'object') {
       intakeResponses.guardian = parsed.intakeResponses.guardian || {};
-      intakeResponses.submission = parsed.intakeResponses.submission || {};
+      const savedSubmission = parsed.intakeResponses.submission || {};
+      const entry = providerEnrollmentEntry(route.query);
+      const sameEntry = parsed.providerEntryContext === providerEntryContext()
+        || (!parsed.providerEntryContext && savedSubmission.enrollment_source === 'provider'
+          && Number(savedSubmission.requested_profile_provider_id) === Number(entry.requested_profile_provider_id)
+          && savedSubmission.preferred_service_format === entry.preferred_service_format);
+      intakeResponses.submission = { ...savedSubmission, ...(!sameEntry ? entry : {}) };
+      if (entry.requested_profile_provider_id && !sameEntry) {
+        delete intakeResponses.submission.requested_opening_preference;
+        delete intakeResponses.submission.providerSelection;
+        delete intakeResponses.submission.providerSelections;
+        delete intakeResponses.submission.preferred_office_provider_summary;
+        delete intakeResponses.submission.provider_choice_skipped;
+        providerChoicesVisible.value = true;
+        providerPrefillApplied = false;
+      }
       intakeResponses.clients = Array.isArray(parsed.intakeResponses.clients)
         ? parsed.intakeResponses.clients
         : [{}];
@@ -10352,6 +10506,7 @@ const submitConsent = async () => {
     error.value = '';
     stepError.value = '';
     syncClientNamesToResponses();
+    await restoreEntryOpeningPreference();
     ensureRegistrationMaps();
     if (organizationId.value) {
       intakeResponses.submission.organizationId = Number(organizationId.value) || organizationId.value;
@@ -11737,6 +11892,11 @@ const finalizePacket = async () => {
       stepError.value = intakeLocale.value === 'es' ? 'Revise y firme este acuerdo para continuar.' : 'Please review and sign this agreement to continue.';
       return;
     }
+    if (providerMatchOnClinicalHold.value && !providerProfileRequest.value) {
+      await setSelectedOfficeProviderIds([]);
+      if (providerHoldChangeError.value) throw new Error(providerHoldChangeError.value);
+    }
+    await restoreEntryOpeningPreference();
     const sanitizedResponses = sanitizeFinalizeResponses(intakeResponses || {});
     stampClinicalReviewOnSubmission();
     if (sanitizedResponses?.submission) {
@@ -11827,6 +11987,7 @@ const finalizePacket = async () => {
       }
     }, { skipGlobalLoading: isOfficeInDepthIntake.value });
     downloadUrl.value = resp.data?.downloadUrl || '';
+    completionReservationNotice.value = resp.data?.reservationNotice || providerSelectionNotice.value || '';
     emailDeliveryStatus.value = resp.data?.emailDelivery || null;
     clientBundleLinks.value = resp.data?.clientBundles || [];
     if (resp.data?.registrationCompletion) {
@@ -14715,6 +14876,15 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 12px;
 }
+.enrollment-provider-preferences { display: grid; gap: 12px; margin-bottom: 20px; padding: 18px; border: 1px solid #d7e3dc; border-radius: 12px; background: #f8fbf9; }
+.enrollment-provider-preferences select { width: min(100%, 360px); padding: 10px; border: 1px solid #bdcec3; border-radius: 8px; background: white; }
+.enrollment-provider-preferences button { justify-self: start; }
+.enrollment-scheduling-preferences { display: grid; gap: 10px; margin: 4px 0; padding: 14px; border: 1px solid #d7e3dc; border-radius: 10px; min-width: 0; }
+.enrollment-scheduling-preferences p { margin: 0; color: #526257; }
+.enrollment-preference-options { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.enrollment-preference-options label { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; }
+.enrollment-preference-options input { width: auto; margin: 0; }
+.enrollment-scheduling-preferences textarea, .enrollment-scheduling-preferences > input { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #bdcec3; border-radius: 8px; background: white; }
 .provider-match-step {
   margin: 16px 0;
 }

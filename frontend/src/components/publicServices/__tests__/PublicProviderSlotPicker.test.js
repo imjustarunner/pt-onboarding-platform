@@ -10,6 +10,13 @@ const mountPicker=async()=>{wrapper=mount(Picker,{props:{agencySlug:'test',provi
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2030-01-06T12:00:00Z'));sessionStorage.clear();api.get.mockReset().mockResolvedValue({data:{onlineScheduling:true,slots:[slot]}});api.post.mockReset().mockResolvedValue({data:{hold,active:true}});});
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 describe('public opening selection',()=>{
+ it('reloads and switches formats when the enclosing enrollment changes the fixed format',async()=>{
+  wrapper=mount(Picker,{props:{agencySlug:'test',providerId:9,fixedFormat:'IN_PERSON'}});await flushPromises();
+  await wrapper.setProps({fixedFormat:'VIRTUAL'});await flushPromises();
+  expect(api.get).toHaveBeenLastCalledWith(expect.any(String),expect.objectContaining({params:expect.objectContaining({programType:'VIRTUAL'})}));
+  await wrapper.find('.opening-day button').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith(expect.stringContaining('/holds'),expect.objectContaining({modality:'VIRTUAL'}),expect.any(Object));
+ });
  it('reloads the requested week and format through the shared calendar controls',async()=>{
   await mountPicker();
   await wrapper.find('input[type=date]').setValue('2030-01-14');await flushPromises();

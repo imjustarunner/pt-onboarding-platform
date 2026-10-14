@@ -16,6 +16,13 @@
       </button>
     </nav>
 
+    <ProviderEnrollmentWaitlist
+      v-if="!profileEmbed && Number(currentUserId) === Number(authStore.user?.id) && ['all','office','new'].includes(activeSection)"
+      :provider-id="Number(currentUserId)"
+      :initially-expanded="String(route.query.waitlist || '') === '1'"
+      :agency-ids="membershipAgencies.length ? membershipAgencies.map(agency => Number(agency.id)) : [agencyId]"
+    />
+
     <ReferralDirectoryPanel v-if="!profileEmbed && activeSection === 'referrals'" embedded />
 
     <ClientCheckinSubmissions v-else-if="!profileEmbed && activeSection === 'checkins'" :create-client-to="providerOnboardingTo" />
@@ -496,6 +503,7 @@
 </template>
 
 <script setup>
+import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import ClientCheckinSubmissions from '../kiosk/ClientCheckinSubmissions.vue';
 import PostClientToExchangeButton from '../clientExchange/PostClientToExchangeButton.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';

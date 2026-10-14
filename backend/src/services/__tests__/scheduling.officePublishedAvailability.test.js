@@ -33,5 +33,7 @@ it('checks the invitation agency again under the assignment lock before changing
  const db={beginTransaction:vi.fn(),execute:vi.fn(async()=>[[{...assignment,is_active:1}]]),rollback:vi.fn(),commit:vi.fn(),release:vi.fn()};
  pool.getConnection.mockResolvedValue(db);
  await expect(setOfficeAssignmentBookingAvailability({assignmentId:1,providerId:9,agencyId:77,inPerson:true,virtual:true})).rejects.toMatchObject({status:403});
- expect(db.execute).toHaveBeenCalledTimes(1);expect(db.rollback).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();
+ expect(db.execute.mock.calls[0][0]).toContain('FOR UPDATE');
+ expect(db.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+ expect(db.rollback).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();
 });

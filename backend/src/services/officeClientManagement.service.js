@@ -95,7 +95,7 @@ function addDaysYmd(ymd, days) {
 function deriveBucket(row) {
   const statusKey = String(row.statusKey || '').toLowerCase();
   const workflow = String(row.status || '').toUpperCase();
-  if (statusKey === 'waitlist' || workflow === 'ON_HOLD') return 'waitlisted';
+  if (statusKey === 'waitlist' || workflow === 'ON_HOLD' || (!hasAssignedProvider(row) && row.intakePreferences?.waitlist?.active === true)) return 'waitlisted';
   if (!hasAssignedProvider(row)) return 'prospective';
   if (
     ['PUBLIC_OFFICE_INTAKE', 'ADAPTIVE_QUICK_PROSPECTIVE', 'PUBLIC_BOOKING_INQUIRY'].includes(row.source)
@@ -302,6 +302,7 @@ function enrichRow(base, { guardians, therapyUnit, nextAppointmentAt, waitlistNo
     needsClinicalReview,
     clinicalReviewHoldReason: prefs.clinicalReviewHoldReason || meta.clinicalReviewHoldReason || null,
     preferredProviderUserId,
+    providerSelection: prefs.providerSelection || null,
     preferredProviderName: null,
     portalEnabled: !!base.portalEnabled,
     guardians: guardians || [],
@@ -884,7 +885,7 @@ export async function setOfficeClientWaitlist({
   if (!cid || !aid) throw Object.assign(new Error('clientId and agencyId required'), { status: 400 });
 
   const [rows] = await pool.execute(
-    `SELECT id, agency_id, client_type, intake_preferences_json, status
+    `SELECT id, agency_id, client_type, intake_preferences_json, adaptive_intake_meta_json, status
      FROM clients WHERE id = ? LIMIT 1`,
     [cid]
   );
@@ -912,6 +913,8 @@ export async function setOfficeClientWaitlist({
   }
 
   const prefs = parseJson(client.intake_preferences_json, {}) || {};
+  const meta = parseJson(client.adaptive_intake_meta_json, {}) || {};
+  const desiredProviderId = Number(prefs.waitlist?.providerId || prefs.providerSelection?.providerId || prefs.preferredProviderUserId || meta.preferredProviderUserId || prefs.preferred_office_provider_ids?.[0]) || null;
   if (remove) {
     const nextPrefs = {
       ...prefs,
@@ -936,7 +939,10 @@ export async function setOfficeClientWaitlist({
   const nextPrefs = {
     ...prefs,
     waitlist: {
+      ...(prefs.waitlist || {}),
       active: true,
+      providerId: desiredProviderId,
+      source: prefs.waitlist?.source || 'staff',
       reason: String(reason || '').trim() || null,
       priority: priority || null,
       followUpAt: followUpAt || null,

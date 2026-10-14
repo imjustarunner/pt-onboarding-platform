@@ -1,6 +1,8 @@
 import Profile from '../models/ProviderPublicProfile.model.js';
-import {agencyFormatAllowed,agencyWaitlistAllowed} from '../utils/providerAgencyAvailability.js';
+import {agencyFormatAllowed,agencyIntakeStatus} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { focusMatch } from '../../../frontend/src/navigation/providerFocus.js';
 import { ageYearsFromDob } from '../utils/intakeShowIf.js';
 import { providerServesAgeBucket } from '../utils/ageMatch.util.js';
 
@@ -39,6 +41,7 @@ function mapProviderRow(row = {}, { ageYears = null, slots = [], waitlistCount =
     credentials: String(row.credential || row.title || '').trim() || null,
     psychologyTodayUrl: String(row.psychology_today_url || '').trim() || null,
     acceptingNewClients: accepting,
+    seesClients: ![false, 0, '0'].includes(row.sees_clients),
     inOfficeAvailable: Number(row.in_office_available || 0) === 1,
     openSlots,
     openOfficeSlots: Number(row.open_office_slots != null ? row.open_office_slots : openSlots) || 0,
@@ -75,6 +78,7 @@ function parseAgeGroups(raw) {
 }
 
 function bucketFromYears(years) {
+  if (years == null || years === '') return null;
   const n = Number(years);
   if (!Number.isFinite(n) || n < 0) return null;
   if (n <= 5) return 'Toddler (0-5)';
@@ -178,14 +182,14 @@ async function loadWaitlistCountMap(agencyId, userIds = []) {
   const placeholders = ids.map(() => '?').join(',');
   try {
     const [rows] = await pool.execute(
-      `SELECT c.provider_id, COUNT(*) AS cnt
+      `SELECT COALESCE(c.provider_id, CAST(JSON_UNQUOTE(JSON_EXTRACT(c.intake_preferences_json, '$.preferredProviderUserId')) AS UNSIGNED)) AS provider_id, COUNT(*) AS cnt
          FROM clients c
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
         WHERE c.agency_id = ?
-          AND c.provider_id IN (${placeholders})
-          AND LOWER(COALESCE(cs.status_key, '')) = 'waitlist'
-          AND (c.is_archived IS NULL OR c.is_archived = 0)
-        GROUP BY c.provider_id`,
+          AND COALESCE(c.provider_id, CAST(JSON_UNQUOTE(JSON_EXTRACT(c.intake_preferences_json, '$.preferredProviderUserId')) AS UNSIGNED)) IN (${placeholders})
+          AND (LOWER(COALESCE(cs.status_key, '')) = 'waitlist' OR JSON_EXTRACT(c.intake_preferences_json, '$.waitlist.active') = TRUE)
+          AND c.status <> 'ARCHIVED' AND c.terminated_at IS NULL
+        GROUP BY COALESCE(c.provider_id, CAST(JSON_UNQUOTE(JSON_EXTRACT(c.intake_preferences_json, '$.preferredProviderUserId')) AS UNSIGNED))`,
       [aid, ...ids]
     );
     const map = new Map();
@@ -220,6 +224,7 @@ const ROLE_CLAUSE = `
 
 const ACTIVE_CLAUSE = `
   COALESCE(u.is_active, 1) = 1
+  AND COALESCE(u.is_demo, 0) = 0
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
   AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN (
     'ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING',
@@ -290,19 +295,19 @@ function providerSupportsServiceMode(populations = [], serviceMode = '') {
 
 /**
  * Office intake / Choose a provider directory.
- * Includes providers who are not accepting (shown as waitlist) and those with
- * zero open office slots. Open-slot providers sort first.
+ * Includes Open and explicitly Waitlist providers, even without published slots.
+ * Closed formats never accept preferences; Open providers sort before Waitlist.
  * @param {{ ages?: number[], includeNotAccepting?: boolean, serviceMode?: string }} opts
  * serviceMode: individual | couple | family | child — filters on provider groups/focus when set.
  */
-export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '', programType='ALL', includeWaitlist=false } = {}) {
+export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '', programType='ALL', includeWaitlist=false, matchingPreferences=null } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
   const ageYears = youngestAge(ages);
   const acceptingClause = '1=1';
 
   const queries = [
-    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential,
+    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             COALESCE(u.in_office_available, 0) AS in_office_available,
@@ -353,7 +358,7 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
         AND ${ROLE_CLAUSE}
       ORDER BY open_slots DESC, u.last_name ASC, u.first_name ASC`,
     // Fallback without virtual / in-person tables
-    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential,
+    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             COALESCE(u.in_office_available, 0) AS in_office_available,
@@ -373,7 +378,7 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
         AND (${acceptingClause})
         AND ${ROLE_CLAUSE}
       ORDER BY open_slots DESC, u.last_name ASC, u.first_name ASC`,
-    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential,
+    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             0 AS in_office_available,
@@ -427,6 +432,7 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
     const supportsCouples = populations.some((p) => /couple/.test(p));
     const supportsFamilyTherapy = populations.some((p) => /famil/.test(p));
     return {
+      profilePhotoUrl: publicUploadsUrlFromStoredPath(row.profile_photo_path || null),
       ...mapProviderRow(
         { ...row, age_specialty: ageMap.get(Number(row.id)) || '' },
         {
@@ -449,21 +455,43 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
     mapped = filtered;
   }
 
-  const scoped=[];
-  for(const person of mapped){
-   const profile=await Profile.getForProvider({providerUserId:person.id,agencyId:aid}),policy=profile?.agencyAvailability,details=profile?.details||{};
-   const format=String(programType||'ALL').toUpperCase().replace(/[ -]/g,'_');
-   const supports=f=>policy?agencyFormatAllowed(policy,f,{intake:false}):f==='IN_PERSON'?(details.inPersonEnabled!==false&&(person.inOfficeAvailable||details.inPersonEnabled||person.openOfficeSlots>0)):details.virtualEnabled!==false&&(details.virtualEnabled||person.openVirtualSlots>0||(details.sessionFormats||[]).some(v=>/virtual/i.test(v)));
-   const selectedFormats=['IN_PERSON','VIRTUAL'].includes(format)?[format]:['IN_PERSON','VIRTUAL'];
-   const accepting=policy?selectedFormats.some(f=>agencyFormatAllowed(policy,f)):person.acceptingNewClients;
-   const waitlist=policy?selectedFormats.some(f=>agencyWaitlistAllowed(policy,f)):details.waitlistEnabled===true;
-   if(!includeNotAccepting&&!accepting&&!(includeWaitlist&&waitlist))continue;
-   if(format==='IN_PERSON'&&!supports('IN_PERSON')||format==='VIRTUAL'&&!supports('VIRTUAL'))continue;
-   scoped.push({...person,clinicalFocus:details.clinicalFocus||null,acceptingNewClients:accepting,waitlist:!accepting&&waitlist,inOfficeAvailable:!!supports('IN_PERSON')});
+  const scoped = [];
+  for (const person of mapped) {
+    const profile = await Profile.getForProvider({ providerUserId: person.id, agencyId: aid });
+    const policy = profile?.agencyAvailability, details = profile?.details || {};
+    if (!policy && !person.seesClients) continue;
+    const format = String(programType || 'ALL').toUpperCase().replace(/[ -]/g, '_');
+    const supports = f => policy ? agencyFormatAllowed(policy, f, { intake: false })
+      : f === 'IN_PERSON'
+        ? details.inPersonEnabled !== false && !!(person.inOfficeAvailable || details.inPersonEnabled || person.openOfficeSlots > 0)
+        : details.virtualEnabled !== false && !!(details.virtualEnabled || person.openVirtualSlots > 0 || (details.sessionFormats || []).some(v => /virtual/i.test(v)));
+    const legacyStatus = f => {
+      if (!supports(f)) return 'unavailable';
+      const explicit = details[f === 'IN_PERSON' ? 'officeAvailability' : 'virtualAvailability'];
+      if (['accepting', 'waitlist', 'unavailable'].includes(explicit)) return explicit;
+      const accepting = profile?.acceptingNewClientsOverride ?? person.acceptingNewClients;
+      return accepting ? 'accepting' : details.waitlistEnabled === true ? 'waitlist' : 'unavailable';
+    };
+    const intakeStatusByFormat = Object.fromEntries(['IN_PERSON', 'VIRTUAL'].map(f => [f, policy ? agencyIntakeStatus(policy, f) : legacyStatus(f)]));
+    const selectedFormats = ['IN_PERSON', 'VIRTUAL'].includes(format) ? [format] : ['IN_PERSON', 'VIRTUAL'];
+    const accepting = selectedFormats.some(f => intakeStatusByFormat[f] === 'accepting');
+    const waitlist = selectedFormats.some(f => intakeStatusByFormat[f] === 'waitlist');
+    // Closed is never a selectable intake request, including legacy callers.
+    if (!accepting && !waitlist) continue;
+    if (!includeNotAccepting && !accepting && !includeWaitlist) continue;
+    if (ageYears != null && person.ageSpecialty.length && !person.servesAge) continue;
+    const fit = matchingPreferences ? focusMatch(details.clinicalFocus, matchingPreferences) : { eligible: true, score: 0 };
+    if (!fit.eligible) continue;
+    scoped.push({ ...person, clinicalFocus: details.clinicalFocus || null,
+      publicBlurb: profile?.publicBlurb || '', insurances: profile?.insurances || [],
+      languages: details.languages || [], sessionFormats: ['IN_PERSON', 'VIRTUAL'].filter(supports),
+      intakeStatusByFormat, acceptingNewClients: accepting, waitlist: !accepting && waitlist,
+      inOfficeAvailable: supports('IN_PERSON'), virtualAvailable: supports('VIRTUAL'), fitScore: fit.score });
   }
   mapped=scoped;
   mapped.sort((a, b) => {
     if (a.waitlist !== b.waitlist) return a.waitlist ? 1 : -1;
+    if (a.fitScore !== b.fitScore) return b.fitScore - a.fitScore;
     if (a.supportsServiceMode !== b.supportsServiceMode) return a.supportsServiceMode ? -1 : 1;
     if (a.ageMatch !== b.ageMatch) return a.ageMatch ? -1 : 1;
     if (a.servesAge !== b.servesAge) return a.servesAge ? -1 : 1;
@@ -474,3 +502,29 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
 }
 
 export { ageYearsFromDob, bucketFromYears };
+
+/** Learning uses its own program/grade validation, but the same tenant intake gate. */
+export async function scopeLearningIntakeProviders(agencyId, providers = [], programType = 'ALL') {
+  const format = String(programType || 'ALL').toUpperCase().replace(/[ -]/g, '_');
+  const selectedFormats = ['IN_PERSON', 'VIRTUAL'].includes(format) ? [format] : ['IN_PERSON', 'VIRTUAL'];
+  const result = [];
+  for (const person of providers) {
+    const profile = await Profile.getForProvider({ providerUserId: Number(person.id), agencyId });
+    const policy = profile?.agencyAvailability, details = profile?.details || {};
+    const intakeStatusByFormat = Object.fromEntries(['IN_PERSON', 'VIRTUAL'].map(f => {
+      if (policy) return [f, agencyIntakeStatus(policy, f)];
+      const enabled = f === 'IN_PERSON' ? details.inPersonEnabled !== false : details.virtualEnabled !== false;
+      const explicit = details[f === 'IN_PERSON' ? 'officeAvailability' : 'virtualAvailability'];
+      const status = ['accepting', 'waitlist', 'unavailable'].includes(explicit) ? explicit
+        : person.acceptingNewClients ? 'accepting' : details.waitlistEnabled === true ? 'waitlist' : 'unavailable';
+      return [f, enabled ? status : 'unavailable'];
+    }));
+    const open = selectedFormats.some(f => intakeStatusByFormat[f] === 'accepting');
+    const waitlist = selectedFormats.some(f => intakeStatusByFormat[f] === 'waitlist');
+    if (!open && !waitlist) continue;
+    result.push({ ...person, name: person.name || person.displayName, publicBlurb: profile?.publicBlurb || '',
+      acceptingNewClients: open, waitlist: !open && waitlist, intakeStatusByFormat,
+      sessionFormats: ['IN_PERSON', 'VIRTUAL'].filter(f => intakeStatusByFormat[f] !== 'unavailable') });
+  }
+  return result.sort((a, b) => Number(a.waitlist) - Number(b.waitlist) || String(a.name).localeCompare(String(b.name)));
+}

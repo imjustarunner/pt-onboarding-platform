@@ -1,6 +1,18 @@
 <template>
+  <section v-if="isProviderEnrollment" class="provider-enrollment-entry" aria-labelledby="provider-enrollment-title">
+    <h1 id="provider-enrollment-title">Full enrollment with your desired provider</h1>
+    <p>Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to coordinate care.</p>
+    <p v-if="loading" role="status">Checking availability and opening full enrollment…</p>
+    <p v-else-if="loadError" role="alert">{{loadError}}</p>
+    <template v-else-if="providerEntryOptions.length">
+      <h2>How would you like to meet?</h2>
+      <p>Choose a setting to continue to the full enrollment packet.</p>
+      <button v-for="option in providerEntryOptions" :key="option.format" type="button" class="df-btn df-btn-primary" @click="continueProviderEnrollment(option.format)">{{option.label}} · {{option.status==='waitlist'?'Join this provider’s waitlist':'Request this provider'}}</button>
+    </template>
+    <button type="button" class="df-btn df-btn-secondary" :disabled="loading" @click="continueWithoutProvider">Enroll without a preferred provider</button>
+  </section>
   <div
-    v-if="showJoinBoot"
+    v-else-if="showJoinBoot"
     class="ajl-boot"
     :style="{ backgroundImage: `url(${bootThemeUrl})` }"
     aria-hidden="true"
@@ -531,7 +543,6 @@
         <p class="ai-page-lead">Confirm the details below. Our team will follow up within 1–2 business days.</p>
         <div class="ai-help-card" style="margin-bottom: 1rem;">
           <p><strong>For:</strong> {{ whoForLabel }}</p>
-          <p v-if="readOpeningSelection()"><strong>Selected appointment time:</strong> {{ new Date(readOpeningSelection().startAt).toLocaleString(undefined, {dateStyle:'medium',timeStyle:'short',timeZone:readOpeningSelection().timeZone}) }} · {{ readOpeningSelection().modality === 'VIRTUAL' ? 'Virtual' : 'In person' }} · {{ (readOpeningSelection().frequency || 'WEEKLY').replaceAll('_',' ').toLowerCase() }}<br/>{{ readOpeningSelection().token ? 'Reserved pending staff confirmation; checked again when you submit.' : 'Preference only — not reserved. Included for staff review.' }}</p>
           <p><strong>Contact:</strong> {{ form.respondent.firstName }} {{ form.respondent.lastName }} · {{ form.respondent.email }} · {{ form.respondent.phone }}</p>
           <p v-if="isDependentWhoFor">
             <strong>Dependent 1:</strong> {{ form.client.firstName }} {{ form.client.middleName }} {{ form.client.lastName }}
@@ -676,10 +687,15 @@ import {
 } from '../../utils/joinLandingTemplate.js';
 import { pickTenantBackgroundUrl, pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets.js';
 import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
+import { providerEnrollmentFormats, fullProviderEnrollmentPath } from '../../utils/providerEnrollmentEntry.js';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const entryProviderId = computed(() => Number(route.query.providerId || route.query.preferredProviderUserId || 0));
+const isProviderEnrollment = computed(() => route.query.enrollmentSource === 'provider' || entryProviderId.value > 0);
+const providerEntrySchedule = ref(null);
+const providerEntryOptions = computed(() => providerEnrollmentFormats(providerEntrySchedule.value));
 const agencySlug = computed(() =>
   String(route.params.organizationSlug || route.params.agencySlug || '').trim()
 );
@@ -1060,9 +1076,6 @@ async function selectPreferredProvider(id,skip=false) {
   finally{changingProvider=false;}
 }
 
-function readOpeningSelection() {
-  try { const hold = JSON.parse(sessionStorage.getItem(`provider-hold:${agencySlug.value}`) || 'null'); return hold?.providerId === Number(form.preferredProviderUserId) && hold.serviceType === resolvedServiceType.value ? hold : null; } catch { return null; }
-}
 const selectedLearningPackage=computed(()=>providers.value.find(p=>Number(p.id)===Number(form.preferredProviderUserId))?.tutoringProfile?.packages?.find(p=>p.id===learningForm.value.packageId));
 const preferredProviderLabel = computed(() => {
   if (!form.preferredProviderUserId) return 'Let the team choose / first available';
@@ -1534,6 +1547,7 @@ function goBack() {
 }
 
 function onPathwayContinue(pathway) {
+  if (isProviderEnrollment.value) return;
   if (pathway === 'full') {
     const key = config.value?.pathways?.full?.publicKey;
     if (!key) return;
@@ -1543,6 +1557,66 @@ function onPathwayContinue(pathway) {
   phase.value = 'quick';
   quickStep.value = 0;
   loadProviders();
+}
+
+async function continueProviderEnrollment(format) {
+  try {
+    const destination = fullProviderEnrollmentPath({
+      config: config.value,
+      schedule: providerEntrySchedule.value,
+      providerId: entryProviderId.value,
+      serviceType: resolvedServiceType.value,
+      format,
+      query: route.query
+    });
+    const key = `provider-hold:${agencySlug.value}`;
+    let selected;
+    try { selected = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { /* no stored selection */ }
+    const keepingTime = Number(selected?.providerId) === entryProviderId.value
+      && selected?.serviceType === resolvedServiceType.value && selected?.modality === format
+      && providerEntryOptions.value.find(option => option.format === format)?.status === 'accepting';
+    if (selected && !keepingTime) {
+      if (selected.token) await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`, { token: selected.token }, { skipAuthRedirect: true });
+      sessionStorage.removeItem(key);
+    }
+    await router.replace(destination);
+  } catch (e) {
+    loadError.value = e.message;
+  }
+}
+
+async function continueWithoutProvider() {
+  try {
+    const key = `provider-hold:${agencySlug.value}`;
+    let selected;
+    try { selected = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { /* no stored selection */ }
+    if (Number(selected?.providerId) === entryProviderId.value) {
+      if (selected.token) await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`, { token: selected.token }, { skipAuthRedirect: true });
+      sessionStorage.removeItem(key);
+    }
+    await router.replace({ path: route.path, query: {} });
+    loadError.value = '';
+    providerEntrySchedule.value = null;
+  } catch {
+    loadError.value = 'Could not release your previously selected time. Please try again.';
+  }
+}
+
+async function loadProviderEnrollment() {
+  if (!Number.isSafeInteger(entryProviderId.value) || entryProviderId.value <= 0) {
+    throw new Error('This provider link is incomplete. Return to the provider’s profile or enroll without a preferred provider.');
+  }
+  if (!config.value?.pathways?.full?.enabled || !config.value.pathways.full.publicKey) {
+    throw new Error('Full enrollment is not available right now. Please contact our team for help enrolling with this provider.');
+  }
+  const { data } = await api.get(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/providers/${entryProviderId.value}/schedule-summary`, {
+    params: { serviceType: resolvedServiceType.value }, skipAuthRedirect: true, skipGlobalLoading: true
+  });
+  providerEntrySchedule.value = data;
+  if (!providerEntryOptions.value.length) throw new Error('This provider is closed to new clients. Please choose another provider or enroll without a preferred provider.');
+  const requestedFormat = String(route.query.format || '').toUpperCase();
+  if (requestedFormat) await continueProviderEnrollment(requestedFormat);
+  else if (providerEntryOptions.value.length === 1) await continueProviderEnrollment(providerEntryOptions.value[0].format);
 }
 
 watch(()=>[learningForm.value.program,learningForm.value.grade,learningForm.value.subject,learningForm.value.format],()=>{form.preferredProviderUserId=null;if(phase.value==='quick')loadProviders();});
@@ -1708,8 +1782,6 @@ async function submitQuick() {
 
     const { data } = await api.post(`/public/adaptive-intake/${agencySlug.value}/quick`, {
       serviceType: serviceType.value || config.value?.activeService?.serviceType || null,
-      requestedOpeningPreference: readOpeningSelection(),
-      providerHoldToken: readOpeningSelection()?.token || undefined,
       createdViaDevFill: devFillUsed.value && canDevFill.value,
       whoFor: form.whoFor,
       respondent: {
@@ -1839,12 +1911,11 @@ onMounted(async () => {
     writeJoinLandingCache(agencySlug.value, resolvedServiceType.value || serviceType.value || 'counseling', data);
     providers.value = data?.providerPreview || [];
 
-    await applyCoGuardianInviteFromQuery();
-
-    const prefProvider = Number(route.query.providerId || route.query.preferredProviderUserId || 0);
-    if (prefProvider) {
-      form.preferredProviderUserId = prefProvider;
+    if (isProviderEnrollment.value) {
+      await loadProviderEnrollment();
+      return;
     }
+    await applyCoGuardianInviteFromQuery();
 
     const services = Array.isArray(data?.intakeServices) ? data.intakeServices : [];
     if (!isCoGuardianInvitee.value && services.length > 1 && !data?.activeService && !serviceType.value) {
@@ -1855,7 +1926,7 @@ onMounted(async () => {
       loadError.value = 'No intake services are available right now.';
     }
   } catch (e) {
-    loadError.value = e?.response?.data?.error?.message || 'Unable to load intake.';
+    loadError.value = e?.response?.data?.error?.message || (isProviderEnrollment.value ? e?.message : '') || 'Unable to load intake.';
   } finally {
     loading.value = false;
   }
@@ -1863,6 +1934,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.provider-enrollment-entry{max-width:720px;margin:8vh auto;padding:32px;background:#fff;border:1px solid #d9e6df;border-radius:18px;color:#173e35;line-height:1.7}.provider-enrollment-entry button{display:block;width:100%;margin:12px 0;text-align:center}.provider-enrollment-entry>a{display:block;margin-top:24px;color:#176144}@media(max-width:760px){.provider-enrollment-entry{margin:20px;padding:22px}}
+
 .ajl-boot {
   min-height: 100dvh;
   background-size: cover;

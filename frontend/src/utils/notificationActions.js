@@ -21,6 +21,12 @@ export function notificationDestination(notification, { organizationSlug = null,
   }
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
 
+  if (n.type === 'provider_waitlist_reminder') {
+    const query = new URLSearchParams({ waitlist: '1' });
+    if (n.agency_id) query.set('agencyId', String(n.agency_id));
+    return `${base}/${adminLike ? 'admin/office-clients' : 'my-schedule'}?${query}`;
+  }
+
   if (entityType === 'office_kiosk_support' && entityId) return `/office-support/${entityId}`;
   if (['client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned'].includes(n.type)) {
     let audience = n.audience_json || {};
@@ -85,6 +91,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
+  if (notification.type === 'provider_waitlist_reminder') return 'Review waitlist';
   if(notification.related_entity_type==='provider_availability')return 'Review availability';
   if (notification.type === 'company_event_message') return 'View event and RSVP';
   if (notification.type === 'new_packet_uploaded') return 'Open packet';

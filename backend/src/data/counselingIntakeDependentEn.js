@@ -1965,7 +1965,7 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = [], { paymentOn
     type: 'provider_match',
     label: 'Choose a provider',
     helperText:
-      'Select one or more providers. Optionally rank your top 3. Choosing a slot is a preference — not a booking. First come first served; expect a callback within 24–48 hours.',
+      'Optionally choose up to three preferred providers, or skip and let our team help. Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to coordinate care and confirm fit and availability.',
     visibility: 'always',
     fields: []
   };

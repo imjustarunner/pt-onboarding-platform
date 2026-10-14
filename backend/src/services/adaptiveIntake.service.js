@@ -1,7 +1,6 @@
-import { resolveEnrollmentOpeningPreference, describeEnrollmentOpening } from './enrollmentOpeningPreference.service.js';
+import { describeEnrollmentOpening } from './enrollmentOpeningPreference.service.js';
 import {withoutQuickProviderSelection} from '../utils/intakeProviderPreference.js';
 import {resolveLearningInquiry,validateLearningProviderSelection} from './learningEnrollment.service.js';
-import { createPublicProviderHoldService } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 import * as ClientExchange from './clientExchange.service.js';
 import {
@@ -913,8 +912,6 @@ async function provisionQuickProspectiveAccess({
 }
 
 export async function submitQuickProspective({ agencySlugOrId, payload = {}, req }) {
-  const selectedOpening = payload.requestedOpeningPreference;
-  const selectedHoldToken = payload.providerHoldToken;
   payload=withoutQuickProviderSelection(payload);
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
@@ -928,10 +925,8 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     throw new Error('Please choose a service before submitting.');
   }
 
-  const requestedOpening = await resolveEnrollmentOpeningPreference(pool, {
-    agencyId: agencyRow.id, preference: selectedOpening, holdToken: selectedHoldToken,
-    serviceType: activeService?.serviceType || requestedServiceType
-  });
+  // Brief enrollment never selects a clinician or consumes a time reservation.
+  const requestedOpening = null;
 
   const vertical = activeService
     ? verticalFromServiceType(activeService.serviceType, agencyRow.organization_type)
@@ -1005,16 +1000,6 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       clientType
     }
   });
-
-  if (selectedHoldToken && requestedOpening?.reserved) {
-    const attached = await createPublicProviderHoldService(pool).attach({ agencyId: agencyRow.id,
-      providerId: requestedOpening.providerId, token: selectedHoldToken, clientId: client.id });
-    if (!attached) {
-      requestedOpening.reserved = false;
-      requestedOpening.holdWasActiveAtSubmission = false;
-      requestedOpening.status = 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION';
-    }
-  }
 
   const meta = {
     requestedOpening,

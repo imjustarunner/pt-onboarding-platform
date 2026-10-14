@@ -31,6 +31,8 @@
       <div class="ocm-kpi"><div class="ocm-kpi-value">{{ aggregates.portalPending || 0 }}</div><div class="ocm-kpi-label">Portal pending</div></div>
     </div>
 
+    <ProviderEnrollmentWaitlist ref="providerWaitlistQueue" :agency-ids="scopeAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" staff-view @review="reviewWaitlistClient" />
+
     <div class="ocm-toolbar">
       <input v-model="searchQuery" class="ocm-search" type="search" placeholder="Search clients, guardians, providers…" />
       <select v-if="multiTenant" v-model="tenantFilter" class="ocm-select">
@@ -234,7 +236,7 @@
         </div>
         <router-link class="ocm-link ocm-rail-footer" :to="orgPath('/admin/office-intake-queue')">View full intake queue</router-link>
 
-        <div v-if="selected" class="ocm-drawer">
+        <div v-if="selected" ref="officeReviewDrawer" class="ocm-drawer" tabindex="-1">
           <div class="ocm-drawer-head">
             <h3>
               {{ selected.fullName }}
@@ -324,9 +326,10 @@
 </template>
 
 <script setup>
+import ProviderEnrollmentWaitlist from '../../components/provider/ProviderEnrollmentWaitlist.vue';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import {
@@ -350,6 +353,8 @@ const {
   clientProfilePath
 } = useOfficeClientAgency();
 
+if (route.query.agencyId || route.query.tenant) tenantFilter.value = String(route.query.agencyId || route.query.tenant);
+
 const officeNavLinks = computed(() => buildOfficeQuickNavLinks({ orgPath, current: 'clients' }));
 
 const loading = ref(false);
@@ -370,6 +375,28 @@ const assignProviderId = ref('');
 const assigning = ref(false);
 const waitlistReason = ref('');
 const waitlisting = ref(false);
+const providerWaitlistQueue = ref(null);
+const officeReviewDrawer = ref(null);
+
+async function reviewWaitlistClient(request) {
+  const clientId = Number(request.clientId || request.id);
+  if (!clientId) return;
+  error.value = '';
+  try {
+    if (!clients.value.some(client => Number(client.id) === clientId)) {
+      const response = await api.get('/office-clients', { params: { agencyIds: String(request.agencyId), bucket: 'all', search: request.clientName || undefined }, skipGlobalLoading: true });
+      const row = (response.data?.clients || []).find(client => Number(client.id) === clientId);
+      if (!row) throw new Error('This waitlist request could not be found. Refresh the waitlist and try again.');
+      clients.value = [...clients.value, row];
+    }
+    selectedId.value = clients.value.find(client => Number(client.id) === clientId).id;
+    await nextTick();
+    officeReviewDrawer.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+    officeReviewDrawer.value?.focus?.({ preventScroll: true });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Unable to open this waitlist request.';
+  }
+}
 
 const selected = computed(() => clients.value.find((c) => c.id === selectedId.value) || null);
 
@@ -569,6 +596,7 @@ async function assignSelected() {
     });
     assignProviderId.value = '';
     await load();
+    await providerWaitlistQueue.value?.reload();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Assign failed.';
   } finally {
@@ -588,6 +616,7 @@ async function setWaitlist(remove) {
     });
     waitlistReason.value = '';
     await load();
+    await providerWaitlistQueue.value?.reload();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Waitlist update failed.';
   } finally {

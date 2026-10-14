@@ -2549,6 +2549,27 @@ if (!isBootstrap) {
   };
   checkProviderOpenings();
   setInterval(checkProviderOpenings, 15 * 60 * 1000);
+  let providerWaitlistRunning = false;
+  const checkProviderWaitlists = async () => {
+    if (providerWaitlistRunning || process.env.PROVIDER_WAITLIST_REMINDERS_ENABLED === 'false') return;
+    providerWaitlistRunning = true;
+    try {
+      // Inbox reminders and email deliveries have independent durable deduplication.
+      const jobs = await Promise.allSettled([
+        import('./services/providerEnrollmentWaitlist.service.js').then(service => service.runProviderWaitlistStaffReminders()),
+        import('./services/providerWaitlistEmail.service.js').then(service => service.runProviderWaitlistEmailTick())
+      ]);
+      for (const job of jobs) {
+        if (job.status === 'rejected') console.warn('[provider-waitlist-reminders]', job.reason?.code || 'REMINDER_FAILED');
+        else if (job.value?.retry || job.value?.held || job.value?.review) console.warn('[provider-waitlist-reminders] Delivery follow-up needed', {
+          retry: job.value.retry || 0, held: job.value.held || 0, review: job.value.review || 0
+        });
+      }
+    } finally { providerWaitlistRunning = false; }
+  };
+  // Leave startup capacity for provider schedules; weekly due dates are checked hourly.
+  setTimeout(checkProviderWaitlists, 60 * 1000).unref();
+  setInterval(checkProviderWaitlists, 60 * 60 * 1000).unref();
   scheduleSessionDocTasks();
   setInterval(scheduleSessionDocTasks, 60 * 1000);
 

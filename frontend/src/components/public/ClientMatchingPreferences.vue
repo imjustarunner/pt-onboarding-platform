@@ -11,8 +11,10 @@
 </template>
 <script setup>
 import {computed} from 'vue';import {FOCUS_GROUPS} from '../../navigation/providerFocus.js';
-const props=defineProps({modelValue:{type:Object,default:()=>({})},locale:{type:String,default:'en'},maxSelections:{type:Number,default:3},expanded:Boolean}),emit=defineEmits(['update:modelValue']);
-const es=computed(()=>props.locale==='es'),groups=FOCUS_GROUPS,labels={specialties:'Especialidades',ageGroups:'Edades',populations:'Comunidades',modalities:'Enfoques de terapia'};
+const props=defineProps({modelValue:{type:Object,default:()=>({})},locale:{type:String,default:'en'},maxSelections:{type:Number,default:3},expanded:Boolean,allowedOptions:{type:Object,default:null}}),emit=defineEmits(['update:modelValue']);
+const es=computed(()=>props.locale==='es');
+const groups=computed(()=>FOCUS_GROUPS.map(g=>({...g,options:props.allowedOptions?g.options.filter(o=>(props.allowedOptions[g.key]||[]).includes(o)||selected(g.key).includes(o)):g.options})).filter(g=>g.options.length));
+const labels={specialties:'Especialidades',ageGroups:'Edades',populations:'Comunidades',modalities:'Enfoques de terapia'};
 const selected=key=>props.modelValue?.[key]||[];
 function toggle(key,option,on){const list=selected(key);if(on&&props.maxSelections&&list.length>=props.maxSelections)return;emit('update:modelValue',{...props.modelValue,[key]:on?[...list,option]:list.filter(v=>v!==option)});}
 </script>

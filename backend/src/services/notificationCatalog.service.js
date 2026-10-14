@@ -33,7 +33,7 @@ const TYPES_BY_CATEGORY = {
   clients_documents: [
     'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
     'client_checklist_updated', 'client_terminated', 'client_assigned', 'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
-    'client_ready_to_schedule',
+    'client_ready_to_schedule', 'provider_waitlist_reminder',
     'client_school_roi_link_generated', 'client_school_roi_link_copied',
     'client_school_roi_link_sent', 'client_school_roi_completed',
     'client_school_roi_provider_reminder', 'unassigned_document_submitted',
@@ -110,6 +110,7 @@ const LABEL_OVERRIDES = {
   status_expired: 'Status expired',
   new_packet_uploaded: 'New packet uploaded',
   new_prospective_inquiry: 'New interest form submitted',
+  provider_waitlist_reminder: 'Provider waitlist check-in',
   company_event_registration_submitted: 'New event registration',
   company_event_shift_requested: 'New event shift application',
   company_event_shift_approved: 'Event shift approved',
@@ -202,6 +203,7 @@ const WORKFORCE_RELEVANT = new Set([
 
 const PROVIDER_RELEVANT = new Set([
   ...WORKFORCE_RELEVANT,
+  'provider_waitlist_reminder',
   'inbound_client_message', 'client_note', 'support_ticket_forwarded_to_provider',
   'paperwork_received', 'client_became_current', 'client_checklist_updated',
   'client_terminated', 'client_assigned', 'client_school_roi_link_sent',
@@ -296,6 +298,7 @@ const WORKFORCE_ESSENTIAL = new Set([
 
 const PROVIDER_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
+  'provider_waitlist_reminder',
   'kiosk_checkin', 'client_appointment_reply',
   'inbound_client_message', 'support_ticket_forwarded_to_provider',
   'paperwork_received', 'client_terminated', 'client_assigned',
@@ -333,6 +336,7 @@ const MANAGER_ESSENTIAL = new Set([
 
 const OPERATIONS_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
+  'provider_waitlist_reminder',
   'support_ticket_created', 'escalation_mention', 'referral_directory_pending_approval',
   'new_packet_uploaded', 'new_prospective_inquiry', 'unassigned_document_submitted',
   'medical_records_release_submitted', 'office_schedule_coverage_flag',
@@ -420,6 +424,7 @@ const LEGACY_CATEGORY_BY_TYPE = {
   client_ready_to_schedule: 'clients_new_intakes',
   new_packet_uploaded: 'clients_new_intakes',
   new_prospective_inquiry: 'clients_new_intakes',
+  provider_waitlist_reminder: 'clients_new_intakes',
   company_event_registration_submitted: 'clients_new_intakes',
   client_checklist_updated: 'clients_checklist_updates',
   client_became_current: 'clients_checklist_updates',

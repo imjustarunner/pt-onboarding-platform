@@ -20,6 +20,7 @@
           <option :value="null">All Types</option>
           <option value="new_packet_uploaded">New Packet Uploaded</option>
           <option value="new_prospective_inquiry">New Interest Form</option>
+          <option value="provider_waitlist_reminder">Provider Waitlist Reminder</option>
           <option value="company_event_registration_submitted">New Event Registration</option>
           <option value="status_expired">Status Expired</option>
           <option value="temp_password_expired">Temp Password Expired</option>
@@ -390,6 +391,7 @@ const getTypeLabel = (type) => {
     support_ticket_created: 'Support Tickets',
     new_packet_uploaded: 'New Packet Uploaded',
     new_prospective_inquiry: 'New Interest Form',
+    provider_waitlist_reminder: 'Provider Waitlist Reminder',
     company_event_registration_submitted: 'New Event Registration',
     office_availability_request_pending: 'Office Requests',
     office_schedule_standing_review_6_weeks: 'Office standing review',

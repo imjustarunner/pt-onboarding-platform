@@ -43,6 +43,48 @@ export async function resolveEnrollmentOpeningPreference(database, { agencyId, p
     status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION' };
 }
 
+/** Complete enrollment even when staff released a time while the packet was
+ * open. A failed hold lookup never upgrades a preference or reveals another
+ * agency/provider/client's reservation. The row lock closes the release race. */
+export async function attachEnrollmentOpeningPreference(database, { agencyId, preference, holdToken, serviceType, clientId }) {
+  if (!preference) return null;
+  const normalized = await resolveEnrollmentOpeningPreference(database, { agencyId, preference, serviceType });
+  if (!holdToken) return normalized;
+  const unavailable = { ...normalized, reservationNotice: 'Your previously selected time is no longer reserved. We saved it as a preference for our care coordination team.' };
+  if (!Number.isSafeInteger(Number(clientId)) || Number(clientId) <= 0) return unavailable;
+  const connection = await database.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(`SELECT provider_id, service_type, modality, frequency, time_zone, client_id, released_at,
+      (expires_at IS NOT NULL AND expires_at <= UTC_TIMESTAMP(3)) AS is_expired,
+      DATE_FORMAT(start_at, '%Y-%m-%dT%H:%i:%s.000Z') AS start_at,
+      DATE_FORMAT(end_at, '%Y-%m-%dT%H:%i:%s.000Z') AS end_at
+      FROM public_provider_slot_holds WHERE agency_id=? AND provider_id=? AND token_hash=? LIMIT 1 FOR UPDATE`,
+      [agencyId, normalized.providerId, hashHoldToken(holdToken)]);
+    const row = rows[0];
+    if (!row || row.released_at || Number(row.is_expired) === 1
+      || (row.client_id != null && Number(row.client_id) !== Number(clientId))
+      || row.service_type !== serviceType || row.modality !== normalized.modality) {
+      await connection.commit();
+      return unavailable;
+    }
+    if (row.client_id == null) {
+      const [attached] = await connection.execute(`UPDATE public_provider_slot_holds SET client_id=?
+        WHERE agency_id=? AND provider_id=? AND token_hash=? AND released_at IS NULL
+          AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(3)) AND client_id IS NULL`,
+        [clientId, agencyId, normalized.providerId, hashHoldToken(holdToken)]);
+      if (!attached.affectedRows) { await connection.commit(); return unavailable; }
+    }
+    await connection.commit();
+    return { providerId: Number(row.provider_id), serviceType: row.service_type, modality: row.modality,
+      startAt: row.start_at, endAt: row.end_at, frequency: row.frequency, timeZone: row.time_zone,
+      reserved: true, holdWasActiveAtSubmission: true, status: 'RESERVED_PENDING_CONFIRMATION' };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally { connection.release(); }
+}
+
 export function describeEnrollmentOpening(opening) {
   if (!opening) return null;
   const zone = opening.timeZone || 'America/Denver';

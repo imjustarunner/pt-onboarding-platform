@@ -5,6 +5,15 @@
       <p v-if="lead" class="cpd-lead">{{ lead }}</p>
     </header>
 
+    <p v-if="mode === 'intake'" class="cpd-intake-note">{{ preferenceDisclaimer }}</p>
+    <p v-if="mode === 'intake'" class="cpd-selection-count" role="status">Choose up to three provider preferences · {{ selectedCount }} selected<span v-if="atSelectionLimit">. Remove a preference to choose someone else.</span></p>
+    <button
+      v-if="mode === 'intake' && allowSkip"
+      type="button"
+      class="cpd-btn cpd-btn-secondary cpd-skip-top"
+      @click="skipSelection"
+    >Skip provider choice — let our team help</button>
+
     <div class="cpd-toolbar">
       <input
         v-model="search"
@@ -14,6 +23,7 @@
         aria-label="Search providers"
       />
       <select v-model="sortKey" class="cpd-sort" aria-label="Sort providers">
+        <option v-if="mode === 'intake'" value="bestFit">Best fit</option>
         <option value="openSlots">Openings first</option>
         <option value="name">Name A–Z</option>
         <option value="waitlist">Waitlist size</option>
@@ -27,6 +37,25 @@
     <p v-if="loading" class="cpd-muted">Loading providers…</p>
     <p v-else-if="error" class="cpd-error">{{ error }}</p>
     <p v-else-if="!filtered.length" class="cpd-muted">No providers match your search right now.</p>
+
+    <div v-else-if="mode === 'intake'" class="cpd-compact-list">
+      <article v-for="p in filtered" :key="p.id" class="cpd-compact-row" :class="{ 'cpd-card--selected': isSelected(p.id) }" :data-provider-id="p.id">
+        <img v-if="providerPhoto(p) && !photoFailures[p.id]" class="cpd-avatar" :src="providerPhoto(p)" alt="" loading="lazy" @error="photoFailures[p.id] = true" />
+        <span v-else class="cpd-avatar cpd-avatar-fallback" aria-hidden="true">{{ providerInitials(p) }}</span>
+        <div class="cpd-compact-summary">
+          <div class="cpd-compact-name"><h3 class="cpd-name">{{ p.displayName || p.name }}</h3><span class="cpd-badge" :class="isWaitlist(p) ? 'cpd-badge--wait' : 'cpd-badge--open'">{{ isWaitlist(p) ? 'Waitlist' : 'Open' }}</span></div>
+          <p v-if="p.credential || p.title || p.credentials" class="cpd-meta">{{ p.credential || p.title || p.credentials }}</p>
+          <p v-if="providerSessionFormats(p, modality).length" class="cpd-meta">{{ providerSessionFormats(p, modality).join(' · ') }}</p>
+          <p v-if="providerHighlights(p).length" class="cpd-compact-focus">{{ providerHighlights(p).join(' · ') }}</p>
+        </div>
+        <div class="cpd-compact-actions">
+          <button type="button" class="cpd-btn cpd-btn-secondary cpd-view-profile" :aria-label="`View ${p.displayName || p.name}’s profile`" @click="profileProvider = p">View profile</button>
+          <button type="button" class="cpd-btn cpd-select-provider" :class="isSelected(p.id) ? 'cpd-btn-primary' : 'cpd-btn-secondary'" :aria-pressed="isSelected(p.id)" :disabled="atSelectionLimit && !isSelected(p.id)" :aria-label="`${isSelected(p.id) ? 'Remove' : 'Select'} ${p.displayName || p.name}${isWaitlist(p) ? ' waitlist preference' : ' preference'}`" @click="toggleMulti(p)">
+            {{ rankMode && rankOf(p.id) ? `#${rankOf(p.id)} Selected` : isSelected(p.id) ? 'Selected ✓' : isWaitlist(p) ? 'Choose waitlist' : 'Prefer provider' }}
+          </button>
+        </div>
+      </article>
+    </div>
 
     <div v-else class="cpd-grid">
       <article
@@ -128,6 +157,19 @@
       </article>
     </div>
 
+    <EnrollmentProviderDetailsDialog
+      v-if="profileProvider && mode === 'intake'"
+      :provider="profileProvider"
+      :agency-slug="agencySlug"
+      :service-type="serviceType"
+      :modality="modality"
+      :selected="isSelected(profileProvider.id)"
+      :selection-disabled="atSelectionLimit && !isSelected(profileProvider.id)"
+      :disclaimer="preferenceDisclaimer"
+      @close="profileProvider = null"
+      @select="toggleMulti(profileProvider); profileProvider = null"
+    />
+
     <button
       v-if="mode === 'join' && allowSkip"
       type="button"
@@ -142,10 +184,16 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { psychologyTodayHref } from '../../utils/psychologyTodayUrl.js';
+import { publishedFocus } from '../../navigation/providerFocus.js';
+import EnrollmentProviderDetailsDialog from './EnrollmentProviderDetailsDialog.vue';
+import { intakeProviderStatus, providerInitials, providerPhoto, providerSessionFormats } from './intakeProviderPresentation.js';
 
 const props = defineProps({
   mode: { type: String, default: 'public' }, // public | join | intake
   title: { type: String, default: 'Choose a provider' },
+  agencySlug: { type: String, default: '' },
+  serviceType: { type: String, default: 'counseling' },
+  modality: { type: String, default: 'ALL' },
   lead: {
     type: String,
     default:
@@ -162,7 +210,7 @@ const props = defineProps({
   preferenceDisclaimer: {
     type: String,
     default:
-      'First come first served; a slot is not held. Expect a callback in 24–48 hours from support and/or the provider. Goodness of fit still applies.'
+      'Selecting a provider is optional and does not guarantee placement or book an appointment. Our support team or a care coordinator will reach out to review your preferences and coordinate care. Choosing a waitlisted provider requests their waitlist when you submit enrollment.'
   }
 });
 
@@ -176,12 +224,27 @@ const emit = defineEmits([
 ]);
 
 const search = ref('');
-const sortKey = ref('openSlots');
+const sortKey = ref(props.mode === 'intake' ? 'bestFit' : 'openSlots');
 const rankMode = ref(false);
+const profileProvider = ref(null);
+const photoFailures = ref({});
+const selectedCount = computed(() => new Set((props.selectedIds || []).map(String)).size);
+const atSelectionLimit = computed(() => props.mode === 'intake' && selectedCount.value >= 3);
+
+function isWaitlist(provider) { return intakeProviderStatus(provider, props.modality) === 'waitlist'; }
+function providerHighlights(provider) {
+  const focus = provider.clinicalFocus || provider.details?.clinicalFocus || provider.profile?.details?.clinicalFocus;
+  const specialties = provider.tutoringProfile?.subjectAreas || provider.specialties || [];
+  return publishedFocus('specialties', focus, Array.isArray(specialties) ? specialties : []).top.slice(0, 3);
+}
+function skipSelection() {
+  emit('skip');
+}
 
 watch(
   () => props.mode,
   (m) => {
+    sortKey.value = m === 'intake' ? 'bestFit' : 'openSlots';
     if (m !== 'intake') rankMode.value = false;
   }
 );
@@ -206,16 +269,19 @@ function rankOf(id) {
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   let rows = [...(props.providers || [])];
+  if (props.mode === 'intake') rows = rows.filter(p => intakeProviderStatus(p, props.modality) !== 'closed');
   if (q) {
     rows = rows.filter((p) => {
-      const blob = [p.name, p.displayName, p.credential, p.title, p.credentials]
+      const blob = [p.name, p.displayName, p.credential, p.title, p.credentials, ...providerHighlights(p)]
         .map((v) => String(v || '').toLowerCase())
         .join(' ');
       return blob.includes(q);
     });
   }
   rows.sort((a, b) => {
-    if (sortKey.value === 'name') return String(a.name || '').localeCompare(String(b.name || ''));
+    if (props.mode === 'intake' && isWaitlist(a) !== isWaitlist(b)) return isWaitlist(a) ? 1 : -1;
+    if (sortKey.value === 'bestFit') return 0;
+    if (sortKey.value === 'name') return String(a.displayName || a.name || '').localeCompare(String(b.displayName || b.name || ''));
     if (sortKey.value === 'waitlist') return (b.waitlistCount || 0) - (a.waitlistCount || 0);
     if (a.waitlist !== b.waitlist) return a.waitlist ? 1 : -1;
     return (b.openSlots || 0) - (a.openSlots || 0);
@@ -228,7 +294,9 @@ function selectSingle(p) {
 }
 
 function toggleMulti(p) {
+  if (!p || (props.mode === 'intake' && intakeProviderStatus(p, props.modality) === 'closed')) return;
   const id = String(p.id);
+  if (atSelectionLimit.value && !isSelected(id)) return;
   let next = [...(props.selectedIds || []).map(String)];
   if (rankMode.value) {
     if (next.includes(id)) {
@@ -376,4 +444,25 @@ function emitWaitlist(p) {
 .cpd-skip { margin-top: 1rem; }
 .cpd-muted { color: #6b7280; }
 .cpd-error { color: #b91c1c; }
+.cpd-intake-note { margin: 0 0 0.8rem; max-width: 78ch; color: #425766; font-size: 0.88rem; line-height: 1.6; }
+.cpd-skip-top { margin-bottom: 1rem; }
+.cpd-selection-count { color: #425766; font-size: 0.85rem; margin: 0 0 0.8rem; }
+.cpd-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.cpd-compact-list { display: grid; gap: 0.6rem; }
+.cpd-compact-row { display: flex; align-items: center; gap: 0.85rem; border: 1px solid #dce6e1; border-radius: 12px; padding: 0.9rem; background: #fff; }
+.cpd-avatar { width: 58px; height: 58px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.cpd-avatar-fallback { display: grid; place-items: center; background: #e8f2ee; color: #235749; font-size: 1.1rem; font-weight: 700; }
+.cpd-compact-summary { flex: 1; min-width: 0; display: grid; gap: 0.25rem; }
+.cpd-compact-name { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.cpd-compact-focus { margin: 0; color: #33594d; font-size: 0.82rem; line-height: 1.45; }
+.cpd-compact-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.cpd--intake .cpd-btn { min-height: 40px; }
+.cpd--intake .cpd-sort { max-width: 190px; }
+.cpd :focus-visible { outline: 3px solid #218970; outline-offset: 3px; }
+@media (max-width: 650px) {
+  .cpd-compact-row { flex-wrap: wrap; align-items: flex-start; }
+  .cpd-compact-actions { width: 100%; justify-content: flex-start; }
+  .cpd-avatar { width: 46px; height: 46px; }
+  .cpd-search { min-width: 0; width: 100%; }
+}
 </style>
