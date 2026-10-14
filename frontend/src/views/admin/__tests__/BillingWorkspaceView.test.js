@@ -29,6 +29,14 @@ describe('billing workspace', () => {
     expect(w.text()).toContain('Accepted does not mean paid'); expect(w.text()).not.toContain('Payments posted');
     expect(w.text()).toContain('Signed in as Test Biller'); w.unmount();
   });
+  it('identifies the billing manager without changing the treating company or signed-in identity', async () => {
+    const payload = data(); payload.organizations[0].billingManager = {id:17,name:'Plot Twist Co'};
+    api.get.mockResolvedValue({data:payload});
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    expect(w.text()).toContain('Billing managed by Plot Twist Co');
+    expect(w.text()).toContain('Company One'); expect(w.text()).toContain('Signed in as Test Biller');
+    expect(w.find('[data-testid="organization-scope"]').text()).toContain('All authorized companies'); w.unmount();
+  });
   it('keeps company details in the cross-company context, then drills into a selected company', async () => {
     const w = mount(BillingWorkspaceView); await flushPromises();
     await w.find('[aria-label="View Company One billing details"]').trigger('click');

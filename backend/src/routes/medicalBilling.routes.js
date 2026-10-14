@@ -27,7 +27,8 @@ import {
   requireClaimMd,
   requireMedicalBillingActorAccess,
   requireMedicalBillingReportAccess,
-  requireMedicalBillingFinancialAccess
+  requireMedicalBillingFinancialAccess,
+  allowVerifiedBillingMetadataAccess
 } from '../middleware/medicalBilling.middleware.js';
 
 const claimsGate = [requireMedicalClaims, requireMedicalBillingActorAccess];
@@ -134,6 +135,7 @@ router.post('/claims/:claimId/secondary', ...claimMdGate, createSecondaryClaim);
 router.get(
   '/status',
   requireMedicalBillingActorAccess,
+  allowVerifiedBillingMetadataAccess,
   [query('agencyId').isInt({ min: 1 })],
   getMedicalBillingStatus
 );
@@ -656,6 +658,7 @@ router.get(
 router.get(
   '/service-codes',
   ...masterGate,
+  allowVerifiedBillingMetadataAccess,
   [query('agencyId').isInt({ min: 1 })],
   listMedicalServiceCodes
 );
@@ -674,6 +677,7 @@ router.post(
 router.post(
   '/service-codes/preview-units',
   ...masterGate,
+  allowVerifiedBillingMetadataAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').isString().isLength({ min: 1, max: 32 }),
@@ -685,6 +689,7 @@ router.post(
 router.get(
   '/service-locations',
   ...masterGate,
+  allowVerifiedBillingMetadataAccess,
   [query('agencyId').isInt({ min: 1 })],
   listServiceLocations
 );
@@ -692,6 +697,7 @@ router.get(
 router.post(
   '/service-locations',
   ...masterGate,
+  allowVerifiedBillingMetadataAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('name').isString().isLength({ min: 1, max: 255 }),
@@ -713,6 +719,7 @@ router.post(
 router.patch(
   '/service-locations/:locationId',
   ...masterGate,
+  allowVerifiedBillingMetadataAccess,
   [
     param('locationId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 })

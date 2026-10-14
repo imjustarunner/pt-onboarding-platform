@@ -4,7 +4,7 @@
       <h1>Medical Billing</h1>
       <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:billingAgencySlug || agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
       <p class="muted">
-        Chart, signing, claims, and Claim.MD — only available when Medical Billing flags are enabled for this organization.
+        {{ billingAgencyId ? 'Service codes, locations, claims, and clearinghouse settings for this company.' : 'Chart, signing, claims, and Claim.MD — available when enabled for this organization.' }}
       </p>
     </header>
 
@@ -28,7 +28,7 @@
 
       <MedicalBillingReportsPanel v-if="canRunBillingReports" :agency-id="agencyId" />
 
-      <section class="mb-card">
+      <section v-if="!billingAgencyId" class="mb-card">
         <h2>Client chart</h2>
         <div class="mb-row">
           <input v-model.number="chartClientId" class="mb-input" type="number" placeholder="Client ID" />
@@ -92,7 +92,7 @@
         </div>
       </section>
 
-      <section class="mb-card">
+      <section v-if="!billingAgencyId" class="mb-card">
         <h2>Notes awaiting cosign</h2>
         <button type="button" class="mb-btn" :disabled="signingLoading" @click="loadSigningNotes">Refresh</button>
         <ul v-if="signingNotes.length" class="mb-list">
@@ -799,6 +799,7 @@ const loadStatus = async () => {
 };
 
 const loadSigningNotes = async () => {
+  if (props.billingAgencyId) return;
   if (!agencyId.value || !flags.value.medicalBillingEnabled) return;
   signingLoading.value = true;
   try {

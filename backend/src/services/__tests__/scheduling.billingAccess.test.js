@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../managedBillingAccess.service.js', () => ({ isActiveBillingAgency: vi.fn(async () => true) }));
+import { isActiveBillingAgency } from '../managedBillingAccess.service.js';
 vi.mock('../../utils/independentPracticeOwner.js', () => ({ isIndependentPracticeOwner: vi.fn(async () => false) }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn(), listBillingAgencyIds: vi.fn() } }));
 import User from '../../models/User.model.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../schedulingBillingAccess.service.js';
 describe('agency billing permission', () => {
-  beforeEach(() => { User.getAgencies.mockResolvedValue([{ id: 1 }, { id: 2 }]); User.listBillingAgencyIds.mockResolvedValue([1]); });
+  beforeEach(() => { isActiveBillingAgency.mockResolvedValue(true); User.getAgencies.mockResolvedValue([{ id: 1 }, { id: 2 }]); User.listBillingAgencyIds.mockResolvedValue([1]); });
   it('denies providers even with a legacy delegated billing flag', async () => {
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'provider' }, 1)).toBe(false);
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'provider' }, 2)).toBe(false);
@@ -16,6 +18,18 @@ describe('agency billing permission', () => {
   it('requires agency membership for administrators', async () => {
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'admin' }, 3)).toBe(false);
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'admin' }, 1)).toBe(true);
+  });
+  it('honors an explicit managed billing grant without adding clinical membership', async () => {
+    User.getAgencies.mockResolvedValue([{ id: 10 }]);
+    User.listBillingAgencyIds.mockResolvedValue([1, 3]);
+    expect(await hasSchedulingBillingAccess({ id: 9, role: 'support' }, 3)).toBe(true);
+    expect(await hasSchedulingBillingAccess({ id: 9, role: 'support' }, 2)).toBe(false);
+    User.listBillingAgencyIds.mockResolvedValue([]);
+    expect(await hasSchedulingBillingAccess({ id: 9, role: 'support' }, 3)).toBe(false);
+  });
+  it('rejects an archived agency even for superadmin and stale explicit grants', async () => {
+    isActiveBillingAgency.mockResolvedValue(false);
+    for (const role of ['super_admin', 'admin', 'support']) expect(await hasSchedulingBillingAccess({ id: 9, role }, 1)).toBe(false);
   });
   it('removes nested pricing while preserving sessions, codes and package quantities', () => {
     const clean = stripSchedulingFinancials({ id: 1, serviceCode: '90834', sessionsRemaining: 2,

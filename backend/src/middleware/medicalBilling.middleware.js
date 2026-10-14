@@ -1,22 +1,28 @@
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
 import pool from '../config/database.js';
+import { grantVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
 import User from '../models/User.model.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 
 async function loadAgencyFlags(agencyId) {
   const id = parseInt(agencyId, 10);
   if (!id) return null;
-  const [rows] = await pool.execute('SELECT id, feature_flags FROM agencies WHERE id = ?', [id]);
+  const [rows] = await pool.execute('SELECT id, feature_flags FROM agencies WHERE id = ? AND is_active = 1 AND COALESCE(is_archived, 0) = 0', [id]);
   return rows?.[0] || null;
 }
 
 function resolveAgencyId(req) {
-  return (
-    req.params?.agencyId
-    || req.body?.agencyId
-    || req.query?.agencyId
-    || req.headers?.['x-agency-id']
-  );
+  // X-Agency-Id identifies the shell's current agency. Explicit billing scope
+  // may differ, but body/query/path must agree with each other.
+  const values = [req.params?.agencyId, req.body?.agencyId, req.query?.agencyId]
+    .filter(value => value != null && value !== '');
+  if (!values.length && req.headers?.['x-agency-id']) values.push(req.headers['x-agency-id']);
+  if (!values.length) return null;
+  const ids = values.map(Number);
+  if (ids.some(id => !Number.isSafeInteger(id) || id < 1) || new Set(ids).size !== 1) {
+    throw Object.assign(new Error('Provide one consistent agencyId for this request'), { status: 400 });
+  }
+  return ids[0];
 }
 
 /**
@@ -97,9 +103,27 @@ export async function requireMedicalBillingActorAccess(req, res, next) {
 export async function requireMedicalBillingFinancialAccess(req, res, next) {
   try {
     const agencyId = Number(req.medicalBillingAgencyId || resolveAgencyId(req));
-    if (await hasSchedulingBillingAccess(req.user, agencyId)) return next();
+    if (await hasSchedulingBillingAccess(req.user, agencyId)) {
+      req.user = { ...req.user };
+      grantVerifiedBillingScope(req.user, agencyId);
+      return next();
+    }
     return res.status(403).json({ error: { message: 'Billing access required for this agency' } });
   } catch (error) { next(error); }
 }
 
 export const requireMedicalBillingReportAccess = requireMedicalBillingFinancialAccess;
+
+/** Shared code/location metadata can be read by clinicians or authorized billers.
+ * This does not run on chart, note, treatment-plan or signing routes.
+ */
+export async function allowVerifiedBillingMetadataAccess(req, res, next) {
+  try {
+    const agencyId = Number(req.medicalBillingAgencyId || resolveAgencyId(req));
+    if (await hasSchedulingBillingAccess(req.user, agencyId)) {
+      req.user = { ...req.user };
+      grantVerifiedBillingScope(req.user, agencyId);
+    }
+    next();
+  } catch (error) { next(error); }
+}

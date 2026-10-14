@@ -366,7 +366,7 @@ import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
-import { canAccessBillingWorkspace, canAccessMedicalBilling } from '../config/medicalBillingAccess.js';
+import { canAccessBillingWorkspace, canAccessMedicalBilling, isMedicalBillingEnabled } from '../config/medicalBillingAccess.js';
 import HubTopCardsBar from '../components/admin/HubTopCardsBar.vue';
 import { useHubTopCards } from '../composables/useHubTopCards.js';
 import {
@@ -463,7 +463,9 @@ const billingTo = (section = 'workspace') => ({
   query: {
     billingSection: section,
     // Delegated billers may work for companies other than their login organization.
-    billingScope: canAccessMedicalBilling(user.value, agencyId.value) ? String(agencyId.value) : 'all'
+    billingScope: !(user.value?.billingManagementAgencyIds || []).map(Number).includes(agencyId.value)
+      && isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags)
+      && canAccessMedicalBilling(user.value, agencyId.value) ? String(agencyId.value) : 'all'
   }
 });
 

@@ -1,4 +1,5 @@
 import User from '../models/User.model.js';
+import { hasVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
 import Client from '../models/Client.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -45,6 +46,8 @@ class ClinicalEligibilityService {
       err.status = 401;
       throw err;
     }
+    // Billing-only delegates enter here only after a financial route guard verified this exact agency.
+    if (hasVerifiedBillingScope(reqUser, agencyId)) return true;
     if (String(reqUser.role || '').toLowerCase() === 'super_admin') return true;
     const agencies = await User.getAgencies(reqUser.id);
     const hasAccess = (agencies || []).some((a) => Number(a.id) === Number(agencyId));

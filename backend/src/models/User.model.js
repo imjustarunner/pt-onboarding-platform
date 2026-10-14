@@ -1,6 +1,7 @@
 import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
 import pool, { onTableWrite } from '../config/database.js';
 import crypto from 'crypto';
+import { directBillingAgencyIds, managedBillingAgencies } from '../services/managedBillingAccess.service.js';
 import bcrypt from 'bcrypt';
 
 /**
@@ -2494,13 +2495,11 @@ class User {
 
   static async listBillingAgencyIds(userId) {
     try {
-      const [rows] = await pool.execute(
-        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND has_billing_access = 1',
-        [userId]
-      );
-      return (rows || []).map((r) => r.agency_id);
-    } catch {
-      return [];
+      const [direct, managed] = await Promise.all([directBillingAgencyIds(userId), managedBillingAgencies(userId)]);
+      return [...new Set([...direct, ...managed.map(agency => Number(agency.id))])];
+    } catch (error) {
+      if (['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error.code)) return [];
+      throw error;
     }
   }
 

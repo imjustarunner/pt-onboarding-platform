@@ -75,19 +75,8 @@ export async function supervisorHasClientViaSupervisee({ supervisorUserId, agenc
  * Admin / support billing import financials.
  */
 export async function ensureBillingFinancialAccess(req, res, { agencyId }) {
-  const role = String(req.user?.role || '').toLowerCase();
   if (!(await hasSchedulingBillingAccess(req.user, agencyId))) {
     res.status(403).json({ error: { message: 'Billing access required for this agency' } });
-    return false;
-  }
-  if (role === 'super_admin') return true;
-  const userId = Number(req.user?.id || 0);
-  const [ua] = await pool.execute(
-    `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
-    [userId, agencyId]
-  );
-  if (!ua?.length) {
-    res.status(403).json({ error: { message: 'Access denied' } });
     return false;
   }
   return true;

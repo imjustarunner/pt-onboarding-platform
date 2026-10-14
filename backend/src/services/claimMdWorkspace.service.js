@@ -2,13 +2,14 @@ import { listPayerEft } from './payerEft.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
+import { managedBillingAgencies } from './managedBillingAccess.service.js';
 import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
 import { claimMdConnectionMeta } from './claimMdConnection.service.js';
 
 const denied = () => Object.assign(new Error('Billing access is required for this organization.'), { status: 403 });
 const missingSchema = e => ['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(e?.code);
-const dependencies = { main: pool, clinical: clinicalPool, memberships: id => User.getAgencies(id), canAccess: hasSchedulingBillingAccess, connectionMeta: claimMdConnectionMeta, eftList: listPayerEft };
+const dependencies = { main: pool, clinical: clinicalPool, memberships: id => User.getAgencies(id), managed: managedBillingAgencies, canAccess: hasSchedulingBillingAccess, connectionMeta: claimMdConnectionMeta, eftList: listPayerEft };
 const pendingChangeSql="EXISTS (SELECT 1 FROM clinical_claim_change_requests ch WHERE ch.agency_id=clinical_claims.agency_id AND ch.clinical_session_id=clinical_claims.clinical_session_id AND ch.status IN ('pending','reconciliation_required'))";
 
 // Resolve scope on the server. Never accept a client-supplied list of agencies.
@@ -17,16 +18,23 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   if (!user?.id || ['provider', 'provider_plus'].includes(role)) throw denied();
   let candidates;
   if (role === 'super_admin') {
+    const sql = `SELECT a.id, a.name, a.slug, a.logo_url, a.color_palette, a.feature_flags,
+      m.id AS billing_manager_id, m.name AS billing_manager_name
+      FROM agencies a LEFT JOIN agency_billing_management bm ON bm.agency_id=a.id AND bm.is_active=1
+      LEFT JOIN agencies m ON m.id=bm.manager_agency_id AND m.is_active=1 AND COALESCE(m.is_archived,0)=0
+      WHERE a.is_active=1 AND COALESCE(a.is_archived,0)=0`;
     [candidates] = user.auricwellPreviewAgencyId
-      ? await deps.main.execute('SELECT id, name, slug, logo_url, color_palette, feature_flags FROM agencies WHERE is_active = 1 AND id = ?', [user.auricwellPreviewAgencyId])
-      : await deps.main.execute('SELECT id, name, slug, logo_url, color_palette, feature_flags FROM agencies WHERE is_active = 1');
+      ? await deps.main.execute(`${sql} AND a.id = ?`, [user.auricwellPreviewAgencyId])
+      : await deps.main.execute(sql);
   } else {
-    candidates = await deps.memberships(user.id);
+    const [memberships, managed] = await Promise.all([deps.memberships(user.id), deps.managed(user.id)]);
+    candidates = [...new Map([...memberships, ...managed].map(a => [Number(a.id), a])).values()];
   }
   const organizations = [];
   for (const a of candidates || []) {
+    if (a.is_active === 0 || a.is_active === false || Number(a.is_archived) === 1) continue;
     if (!getMedicalBillingFlags(a).medicalBillingEnabled || !await deps.canAccess(user, a.id)) continue;
-    organizations.push({ id: Number(a.id), name: a.name, slug: a.slug, logoUrl: a.logo_url || null, colors: a.color_palette || null });
+    organizations.push({ id: Number(a.id), name: a.name, slug: a.slug, logoUrl: a.logo_url || null, colors: a.color_palette || null, billingManager: a.billing_manager_id ? { id: Number(a.billing_manager_id), name: a.billing_manager_name } : null });
   }
   const requested = query.agencyId == null || query.agencyId === '' ? null : Number(query.agencyId);
   if (requested !== null && (!Number.isSafeInteger(requested) || !organizations.some(a => a.id === requested))) throw denied();

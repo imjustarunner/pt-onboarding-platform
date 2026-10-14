@@ -91,7 +91,7 @@ async function targets(policy,client,now) {
 export async function runEligibilityAutomation(deps={}) {
   if((deps.env||process.env).CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED!=='true')return [];
   const db=deps.db||pool,now=deps.now||new Date();
-  const [policies]=await db.execute('SELECT p.*,a.feature_flags FROM agency_eligibility_automation p JOIN agencies a ON a.id=p.agency_id WHERE p.enabled=1 AND a.is_active=1 ORDER BY p.agency_id');
+  const [policies]=await db.execute('SELECT p.*,a.feature_flags FROM agency_eligibility_automation p JOIN agencies a ON a.id=p.agency_id WHERE p.enabled=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 ORDER BY p.agency_id');
   const results=[];
   for(const policy of policies) {
     const summary={agencyId:policy.agency_id,returned:0,needsReview:0,alreadyRecorded:0};

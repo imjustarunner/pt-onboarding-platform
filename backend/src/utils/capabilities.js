@@ -1,6 +1,7 @@
 import { checkAccess } from './accessControl.js';
 import {financeAgencyIds} from '../services/finance/policy.js';
 import User from '../models/User.model.js';
+import { managedBillingAgencies } from '../services/managedBillingAccess.service.js';
 import { listAgencyIdsInTenantTree, resolveTenantRootAgencyId } from './meDashboardTenantScope.js';
 
 /**
@@ -43,6 +44,7 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
         User.listBillingAgencyIds(userForCaps.id)
       ])
     : [[], [], [], []];
+  const managedBilling = userForCaps?.id && !['provider', 'provider_plus'].includes(roleForCaps) ? await managedBillingAgencies(userForCaps.id) : [];
   const credentialingAgencyIds = await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
   const baseCaps = getUserCapabilities(userForCaps);
   const financeIds = await financeAgencyIds(userForCaps);
@@ -61,6 +63,8 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
     departmentAgencyIds,
     credentialingAgencyIds,
     billingAgencyIds,
+    billingManagementAgencyIds: [...new Set(managedBilling.map(a => Number(a.billing_manager_id)))],
+    managedBillingAgencyIds: [...new Set(managedBilling.map(a => Number(a.id)))],
     capabilities: {
       ...baseCaps,
       canManagePayroll,

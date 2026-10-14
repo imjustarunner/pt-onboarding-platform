@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import { managedBillingAgencies } from '../managedBillingAccess.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { billingError, positiveId, requireResponsiblePayer } from '../familyBillingPolicy.service.js';
 import { readClientInsurance } from '../clientInsurance.service.js';
@@ -31,11 +32,13 @@ export async function requireBillingStaff(user, agencyId, db = pool) {
   const aid = positiveId(agencyId), uid = positiveId(user?.id);
   if (['provider', 'provider_plus'].includes(user.role)) throw billingError(403, 'Billing staff access is required for this organization');
   if (['super_admin', 'superadmin'].includes(user.role)) {
-    const [agency] = await db.execute('SELECT id FROM agencies WHERE id = ?', [aid]);
+    const [agency] = await db.execute('SELECT id FROM agencies WHERE id = ? AND is_active = 1 AND COALESCE(is_archived, 0) = 0', [aid]);
     if (agency.length) return;
   }
-  const [rows] = await db.execute('SELECT has_billing_access FROM user_agencies WHERE user_id = ? AND agency_id = ?', [uid, aid]);
-  if (!rows.length || (!['admin', 'agency_admin', 'backoffice_admin'].includes(user.role) && Number(rows[0].has_billing_access) !== 1)) throw billingError(403, 'Billing staff access is required for this organization');
+  const [rows] = await db.execute('SELECT ua.has_billing_access FROM user_agencies ua JOIN agencies a ON a.id = ua.agency_id WHERE ua.user_id = ? AND ua.agency_id = ? AND ua.is_active = 1 AND a.is_active = 1 AND COALESCE(a.is_archived, 0) = 0', [uid, aid]);
+  if (rows.length && (['admin', 'agency_admin', 'backoffice_admin'].includes(user.role) || Number(rows[0].has_billing_access) === 1)) return;
+  if ((await managedBillingAgencies(uid, db)).some(a => Number(a.id) === aid)) return;
+  throw billingError(403, 'Billing staff access is required for this organization');
 }
 export async function requireClient(agencyId, clientId, db = pool) {
   const [rows] = await db.execute('SELECT id FROM clients WHERE id = ? AND agency_id = ?', [positiveId(clientId), positiveId(agencyId)]);

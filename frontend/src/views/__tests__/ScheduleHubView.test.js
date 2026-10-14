@@ -13,7 +13,7 @@ vi.mock('../../composables/useHubTopCards', () => ({ useHubTopCards: () => ({ so
 
 beforeEach(() => {
   state.auth = reactive({ user: { role: 'super_admin', capabilities: {} } });
-  state.agency = reactive({ currentAgency: { id: 17, name: 'Example Practice', slug: 'example', organization_type: 'agency' } });
+  state.agency = reactive({ currentAgency: { id: 17, name: 'Example Practice', slug: 'example', organization_type: 'agency', feature_flags: {medicalBillingEnabled:true} } });
 });
 async function openHub() {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:organizationSlug/workforce-operations', component: ScheduleHubView }, { path: '/:pathMatch(.*)*', component: { template: '<div />' } }] });
@@ -46,6 +46,19 @@ describe('AuricWell in Workforce Operations', () => {
     await flushPromises();
     expect(shortcut(w).attributes('href')).toContain('billingScope=all');
     expect(shortcut(w).attributes('href')).not.toContain('billingScope=21');
+    w.unmount();
+  });
+  it('opens all companies from Plot Twist Co when the manager is not itself a medical practice', async () => {
+    state.agency.currentAgency = {id:1,name:'PlotTwistCo',feature_flags:{}};
+    const w = await openHub();expect(shortcut(w).attributes('href')).toContain('billingScope=all');w.unmount();
+  });
+  it('opens all authorized companies from a billing management organization', async () => {
+    state.auth.user = { role: 'staff', capabilities: {}, billingAgencyIds: [17, 21], billingManagementAgencyIds: [17], managedBillingAgencyIds: [21] };
+    const w = await openHub();
+    expect(shortcut(w).attributes('href')).toContain('billingScope=all');
+    state.agency.currentAgency = { id: 21, name: 'ITSCO', feature_flags: {medicalBillingEnabled:true} };
+    await flushPromises();
+    expect(shortcut(w).attributes('href')).toContain('billingScope=21');
     w.unmount();
   });
   it.each([{ role: 'staff', capabilities: { canManagePayroll: true }, payrollAgencyIds: [17] }, { role: 'provider_plus', billingAgencyIds: [17] }])('does not grant billing through payroll or provider access: $role', async user => {

@@ -15,7 +15,7 @@ async function getAgencySchemaColumns() {
 /** Nested school/program/learning portals stay resolvable by slug while onboarding (is_active=0). */
 function slugLookupVisibilitySql(alias = 'a') {
   const p = alias ? `${alias}.` : '';
-  return `(${p}is_active = TRUE OR LOWER(COALESCE(${p}organization_type, '')) IN ('school', 'program', 'learning'))`;
+  return `COALESCE(${p}is_archived, 0) = 0 AND (${p}is_active = TRUE OR LOWER(COALESCE(${p}organization_type, '')) IN ('school', 'program', 'learning'))`;
 }
 
 /**
@@ -691,7 +691,7 @@ class Agency {
         `SELECT a.*
          FROM agency_custom_domains d
          JOIN agencies a ON a.id = d.agency_id
-         WHERE d.hostname = ? AND d.is_active = TRUE AND a.is_active = TRUE
+         WHERE d.hostname = ? AND d.is_active = TRUE AND a.is_active = TRUE AND COALESCE(a.is_archived, 0) = 0
          LIMIT 1`,
         [h]
       );
@@ -726,7 +726,7 @@ class Agency {
 
     const tryLookup = async (h) => {
       const [rows] = await pool.execute(
-        'SELECT * FROM agencies WHERE custom_domain = ? AND is_active = TRUE',
+        'SELECT * FROM agencies WHERE custom_domain = ? AND is_active = TRUE AND COALESCE(is_archived, 0) = 0',
         [h]
       );
       return rows?.[0] || null;
@@ -2701,7 +2701,7 @@ class Agency {
     }
     
     const [result] = await pool.execute(
-      'UPDATE agencies SET is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ? WHERE id = ?',
+      'UPDATE agencies SET is_archived = TRUE, is_active = FALSE, archived_at = NOW(), archived_by_user_id = ? WHERE id = ?',
       [archivedByUserId, id]
     );
     return result.affectedRows > 0;
@@ -2724,7 +2724,7 @@ class Agency {
     }
     
     const [result] = await pool.execute(
-      'UPDATE agencies SET is_archived = FALSE, archived_at = NULL, archived_by_user_id = NULL WHERE id = ?',
+      'UPDATE agencies SET is_archived = FALSE, is_active = TRUE, archived_at = NULL, archived_by_user_id = NULL WHERE id = ?',
       [id]
     );
     return result.affectedRows > 0;

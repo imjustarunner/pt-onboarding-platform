@@ -942,9 +942,10 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
   let rows;
   try {
     [rows] = await pool.execute(
-      `SELECT * FROM appointment_reminders
-       WHERE status = 'pending' AND scheduled_for <= NOW()
-       ORDER BY scheduled_for ASC
+      `SELECT r.* FROM appointment_reminders r
+       JOIN agencies a ON a.id = r.agency_id AND a.is_active = 1 AND COALESCE(a.is_archived, 0) = 0
+       WHERE r.status = 'pending' AND r.scheduled_for <= NOW()
+       ORDER BY r.scheduled_for ASC
        LIMIT ?`,
       [Math.max(1, Math.min(200, Number(limit) || 50))]
     );

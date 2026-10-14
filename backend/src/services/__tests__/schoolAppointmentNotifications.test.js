@@ -41,7 +41,7 @@ beforeEach(() => {
       standard_reminder_json: { enabled: true, required: true, channels: ['sms', 'email'], message: 'Reply N to cancel at the office' } }]];
     if (sql.includes('FROM client_session_notification_preferences')) return [preferences];
     if (sql.includes('FROM clients WHERE')) return [[client]];
-    if (sql.includes('SELECT * FROM appointment_reminders')) return [due];
+    if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
     return [{ affectedRows: 1, insertId: 3 }];
   });

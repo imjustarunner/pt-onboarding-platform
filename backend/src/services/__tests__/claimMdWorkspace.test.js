@@ -4,6 +4,7 @@ import { billingWorkspace } from '../claimMdWorkspace.service.js';
 const agency = id => ({ id, name: `Company ${id}`, feature_flags: { medicalBillingEnabled: true } });
 function fixture() {
   const deps = {
+    managed: vi.fn(async () => []),
     eftList: vi.fn(async () => ({items:[]})),
     main: { execute: vi.fn(async () => [[agency(1), agency(2), agency(3)]]) },
     memberships: vi.fn(async () => [agency(1), agency(2), agency(3)]),
@@ -29,6 +30,15 @@ describe('cross-company billing scope', () => {
     expect(data.organizations[0].enrollments.map(e => e.payerId)).toEqual(['COCHA']);
     expect(data.capabilities.paymentPosting).toBe(true);
     expect(data.organizations[0].payments).toEqual({postingCount:2,paidCents:16000});
+  });
+  it('includes managed companies once and labels their billing manager', async () => {
+    const deps = fixture();
+    deps.memberships.mockResolvedValue([agency(1)]);
+    deps.managed.mockResolvedValue([{...agency(1), billing_manager_id:10, billing_manager_name:'Plot Twist Co'}, {...agency(3), billing_manager_id:10, billing_manager_name:'Plot Twist Co'}, {...agency(4), is_archived:1}, {...agency(5), is_active:0}]);
+    const data = await billingWorkspace(user, {}, deps);
+    expect(data.organizations.map(a=>a.id)).toEqual([1,3]);
+    expect(data.organizations[1].billingManager).toEqual({id:10,name:'Plot Twist Co'});
+    for (const [,params] of deps.clinical.execute.mock.calls) expect(params.slice(0,2)).toEqual([1,3]);
   });
   it('denies providers before fetching any data, even if delegated access would return true', async () => {
     const deps = fixture(); deps.canAccess.mockResolvedValue(true);
@@ -67,7 +77,7 @@ describe('cross-company billing scope', () => {
 it('limits preview organization metadata, balances and claims before any financial query', async () => {
   const deps = fixture(); deps.main.execute.mockResolvedValue([[agency(3)]]);
   const data = await billingWorkspace({id:10,role:'super_admin',auricwellPreviewAgencyId:3},{agencyId:'3'},deps);
-  expect(deps.main.execute).toHaveBeenCalledWith(expect.stringContaining('AND id = ?'),[3]);
+  expect(deps.main.execute).toHaveBeenCalledWith(expect.stringContaining('AND a.id = ?'),[3]);
   expect(data.organizations.map(a=>a.id)).toEqual([3]);
   expect(deps.eftList.mock.calls.map(([id])=>id)).toEqual([3]);
   for (const [,params] of deps.clinical.execute.mock.calls) expect(params[0]).toBe(3);
