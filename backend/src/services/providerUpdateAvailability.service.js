@@ -14,6 +14,7 @@ import { availabilityOccursOn } from '../utils/availabilityRecurrence.js';
 import { editAvailabilityPublication } from './availabilityPublicationEdit.service.js';
 import { setOfficeAssignmentBookingAvailability } from './officeAssignmentBookingAvailability.service.js';
 import { saveAgencyAvailability } from './providerAgencyAvailability.service.js';
+import { listPendingOfficeBookingRequests } from './pendingOfficeBookingRequests.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -37,6 +38,25 @@ export function virtualOpening(input, timeZone) {
   if (`${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}` !== `${date} ${startTime}` || Date.parse(endAt)-Date.parse(startAt)!==3600000) throw fail('Choose an hour outside the daylight-saving clock change.');
   return {date, startTime, endTime, startAt, endAt, dayOfWeek:days[new Date(date+'T12:00:00Z').getUTCDay()], frequency:input.frequency};
 }
+// Room reservations can span several hours; virtual appointment openings remain
+// one hour. Search and submission must validate and use the same full window.
+export function roomRequestOpening(input, timeZone) {
+  const opening = virtualOpening(input, timeZone);
+  const endTime = String(input.endTime || opening.endTime);
+  if (!opening.startTime.endsWith(':00') || !endTime.endsWith(':00')) {
+    throw fail('Office room requests must start and end on the hour.');
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(endTime) || endTime <= opening.startTime) {
+    throw fail('Choose an end time after the start time, on the same day.');
+  }
+  const endAt = wallMysqlToUtcMysql(`${opening.date} ${endTime}:00`, timeZone).replace(' ', 'T') + 'Z';
+  const minutes = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+  if (Date.parse(endAt) - Date.parse(opening.startAt) !== (minutes(endTime) - minutes(opening.startTime)) * 60000) {
+    throw fail('Choose a room time range outside the daylight-saving clock change.');
+  }
+  return {...opening, endTime, endAt};
+}
+
 export async function availabilityContext(ids) {
   const [profile,user] = await Promise.all([Profile.getForProvider({providerUserId:ids.providerId,agencyId:ids.agencyId}),User.findById(ids.providerId)]);
   const policy = profile?.agencyAvailability || null;
@@ -52,12 +72,13 @@ async function writableContext(ids, format) {
 export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) {
   const timeZone = await Availability.resolveAgencyTimeZone(ids);
   const today = new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-  const [calendar,assignments,context,agencies,people,enrollments] = await Promise.all([
+  const [calendar,assignments,context,agencies,people,enrollments,pendingRoomRequests] = await Promise.all([
     Availability.computeWeekAvailability({...ids,weekStartYmd:calendarDate(weekStart || today),intakeOnly:true,includePrivateCalendar:true,includeDiagnostics:true,materializeOfficeEvents:!previewOnly}),
     listOpenForBookingForProvider(ids.providerId,ids.agencyId),availabilityContext(ids),
     pool.execute('SELECT name,portal_url,slug,organization_type,logo_path,logo_url,color_palette FROM agencies WHERE id=?',[ids.agencyId]),
     pool.execute('SELECT first_name,last_name FROM users WHERE id=?',[ids.providerId]),
-    pool.execute('SELECT service_type FROM provider_public_service_enrollments WHERE agency_id=? AND user_id=? AND is_active=1',[ids.agencyId,ids.providerId])
+    pool.execute('SELECT service_type FROM provider_public_service_enrollments WHERE agency_id=? AND user_id=? AND is_active=1',[ids.agencyId,ids.providerId]),
+    listPendingOfficeBookingRequests(pool,{agencyIds:[ids.agencyId],providerId:ids.providerId})
   ]);
   const sourceId = calendar.scheduleAgencyId || ids.agencyId;
   const weekly = await Hours.listForProvider({...ids,agencyId:sourceId});
@@ -69,7 +90,7 @@ export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) 
     return [format,context.policy?agencyIntakeStatus(context.policy,format):['accepting','waitlist','unavailable'].includes(legacy)?legacy:agencyIntakeStatus(context.preferences,format)];
   }));
   const [offices]=await pool.execute(`SELECT DISTINCT l.id,l.name,l.city FROM office_locations l LEFT JOIN office_location_agencies a ON a.office_location_id=l.id WHERE l.is_active=1 AND l.physical_office_location_id IS NULL AND (l.agency_id=? OR a.agency_id=?) ORDER BY l.name`,[ids.agencyId,ids.agencyId]);
-  return {offices,...calendar,assignments,weekly,profileServices,preferences:{...context.preferences,intakeStatusByFormat},
+  return {offices,...calendar,assignments,weekly,pendingRoomRequests,profileServices,preferences:{...context.preferences,intakeStatusByFormat},
     canRequestRooms:!previewOnly && Number(sourceId)===Number(ids.agencyId) && (context.preferences.seesClients || assignments.length>0),
     canEdit:!previewOnly && Number(sourceId)===Number(ids.agencyId) && context.preferences.seesClients,
     previewOnly, today, agency:agencies[0][0], provider:{id:ids.providerId,...people[0][0]}};

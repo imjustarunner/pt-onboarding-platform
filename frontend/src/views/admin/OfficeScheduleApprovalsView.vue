@@ -242,9 +242,11 @@ import OfficeRequestAssignModal from '../../components/admin/OfficeRequestAssign
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
-  initialQueueTab: { type: String, default: '' }
+  initialQueueTab: { type: String, default: '' },
+  syncQueueToRoute: { type: Boolean, default: true }
 });
 
+const emit = defineEmits(['queue-counts']);
 const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
@@ -395,6 +397,7 @@ const load = async () => {
       api.get('/office-schedule/requests/pending')
     ]);
     queueSummary.value = summaryResp.data || { booking: 0, intake: 0, legacy: 0, total: 0 };
+    emit('queue-counts', queueSummary.value);
     requests.value = bookingResp.data || [];
     intakeRequests.value = intakeResp.data || [];
     legacyRequests.value = legacyResp.data || [];
@@ -415,7 +418,7 @@ const switchTab = (tab) => {
     return;
   }
   queueTab.value = tab;
-  if (props.embedded) {
+  if (props.embedded && props.syncQueueToRoute) {
     router.replace({ query: { ...route.query, tab } });
   }
 };
@@ -490,6 +493,8 @@ const deny = async (r) => {
     actingId.value = null;
   }
 };
+
+defineExpose({ load });
 
 onMounted(async () => {
   if (!authStore.isAuthenticated) {

@@ -1,5 +1,6 @@
 import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
-import {indexPendingRoomRequest} from '../utils/officePendingRequests.js';
+import {indexPendingRoomRequest,pendingBookingOccurrences} from '../utils/officePendingRequests.js';
+import {listPendingOfficeBookingRequests as readPendingOfficeBookingRequests} from '../services/pendingOfficeBookingRequests.service.js';
 import {readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
 import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
@@ -66,6 +67,7 @@ import {
 import {
   materializeOfficeWeeks,
   assignOneTimeOfficeBlock,
+  assignRecurringOfficeBlock,
   upsertBookingPlanAndMaterialize
 } from '../services/officeAssignmentOrchestrator.service.js';
 import {
@@ -1811,6 +1813,10 @@ export const getWeeklyGrid = async (req, res, next) => {
         }
       }
     }
+    const bookingRequests = await readPendingOfficeBookingRequests(pool, {agencyIds:officeAgencyIds,officeLocationId:officeLocationIdNum});
+    for (const request of pendingBookingOccurrences(bookingRequests, days)) {
+      indexPendingRoomRequest(pendingBySlot, unassignedRoomRequests, request);
+    }
     for (const s of slots) {
       const roomId = Number(s.roomId || 0) || null;
       const pkSpecific = `${s.date}:${s.hour}:${roomId}`;
@@ -3404,6 +3410,17 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
           return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: createdEvent.id });
         }
       }
+    } else if (!reqRow.client_id) {
+      const window = parseSlotEndHour(reqRow.start_at, reqRow.end_at, tz);
+      if (!window) return res.status(400).json({error:{message:'Invalid room request time range'}});
+      const {assignments, plans} = await assignRecurringOfficeBlock({
+        officeLocationId:loc.id, roomId:chosen.id, providerId:reqRow.requested_provider_id,
+        weekday:wh.weekdayIndex, startHour:window.startHour, endHour:window.endHour,
+        frequency:normalizedRecurrence, startDate:window.date,
+        occurrenceCount:Number(reqRow.booked_occurrence_count) || null, createdByUserId:req.user.id
+      });
+      createdStandingAssignment = assignments[0] || null;
+      createdBookingPlan = plans[0] || null;
     } else {
       const assignedFrequency = RECURRING_FREQUENCIES.includes(String(normalizedRecurrence || '').toUpperCase())
         ? String(normalizedRecurrence).toUpperCase()

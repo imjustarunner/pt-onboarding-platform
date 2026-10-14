@@ -5763,6 +5763,7 @@
 </template>
 
 <script setup>
+import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import CalendarSharing from '../CalendarSharing.vue';
@@ -21974,20 +21975,11 @@ const submitRequest = async () => {
             ? null
             : Math.min(52, Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 7))))
           : null;
-        const dates = expandRecurrenceDates({
-          startYmd: baseDateYmd,
-          frequency: recurrence,
-          endMode,
-          occurrenceCount: occurrenceCount || 7,
-          untilDate: editorRecurrenceUntilDate.value,
-          weekdays: editorRecurrenceWeekdays.value
+        const slots = officeRequestWindows({
+          baseDate: baseDateYmd, selected: selectedActionContexts(), recurrence,
+          recurrenceWeekdays: editorRecurrenceWeekdays.value, startHour: h, endHour: endH,
+          roomId: editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value
         });
-        const slots = (dates.length ? dates : [baseDateYmd]).map((ymd) => ({
-          weekday: weekdayFromYmd(ymd),
-          startHour: h,
-          endHour: endH,
-          roomId: Number(editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value || 0) || undefined
-        }));
         const officeIds = officeId
           ? [officeId]
           : (editorOfficeLocations.value || []).map((l) => Number(l.id || 0)).filter((n) => n > 0).slice(0, 1);
@@ -22043,55 +22035,12 @@ const submitRequest = async () => {
       // Soft-hold slots are hour-granular; cover every hour the request window touches.
       const coverStartHour = Math.floor(((h * 60) + startMinute) / 60);
       const coverEndHour = Math.max(coverStartHour + 1, Math.ceil(((endH * 60) + endMinute) / 60));
-      const targets = Array.from({ length: Math.max(1, coverEndHour - coverStartHour) }, (_, i) => ({
-        dateYmd: baseDateYmd,
-        dayName: dn,
-        hour: coverStartHour + i,
-        roomId: baseRoomId
-      }));
-      const roomIds = [...new Set(targets.map((t) => Number(t.roomId || 0)).filter((n) => n > 0))];
-      const singleRoomId = roomIds.length === 1 ? roomIds[0] : 0;
-      const dateToHours = new Map();
-      for (const t of targets) {
-        const dateKey = String(t.dateYmd || baseDateYmd).slice(0, 10);
-        if (!dateToHours.has(dateKey)) dateToHours.set(dateKey, []);
-        dateToHours.get(dateKey).push(Number(t.hour || h));
-      }
-      const slots = [];
-      for (const [dateYmdKey, hoursList] of dateToHours.entries()) {
-        const weekday = weekdayFromYmd(dateYmdKey);
-        if (!(weekday >= 0 && weekday <= 6)) continue;
-        const uniq = Array.from(new Set(hoursList)).sort((a, b) => a - b);
-        let start = null;
-        let prev = null;
-        for (const val of uniq) {
-          if (start === null) {
-            start = val;
-            prev = val;
-            continue;
-          }
-          if (val === prev + 1) {
-            prev = val;
-            continue;
-          }
-          slots.push({
-            weekday,
-            startHour: start,
-            endHour: prev + 1,
-            roomId: singleRoomId || undefined
-          });
-          start = val;
-          prev = val;
-        }
-        if (start !== null) {
-          slots.push({
-            weekday,
-            startHour: start,
-            endHour: prev + 1,
-            roomId: singleRoomId || undefined
-          });
-        }
-      }
+      const singleRoomId = baseRoomId;
+      const slots = officeRequestWindows({
+        baseDate: baseDateYmd, selected: selectedActionContexts(), recurrence,
+        recurrenceWeekdays: editorRecurrenceWeekdays.value,
+        startHour: coverStartHour, endHour: coverEndHour, roomId: baseRoomId
+      });
       const exactRange = `${hourMinuteLabel(h, startMinute)}–${hourMinuteLabel(endH, endMinute)}`;
       const baseNotes = String(requestNotes.value || '').trim();
       const notesWithTime = (startMinute || endMinute)

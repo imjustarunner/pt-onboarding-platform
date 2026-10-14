@@ -3,8 +3,8 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
-vi.mock('../../../services/api', () => ({ default: { get: m.get, put: vi.fn(), post: vi.fn() }, isApiRateLimited: () => false }));
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
+vi.mock('../../../services/api', () => ({ default: { get: m.get, put: vi.fn(), post: m.post }, isApiRateLimited: () => false }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
@@ -265,4 +265,23 @@ it('submits ranked room preferences and the editor building from the provider re
   expect(call[1]).toMatchObject({agencyId:2,officeLocationIds:[1],preferredRoomIds:[5,7],requestedStartDate:'2026-10-13',slots:[{weekday:2,startHour:17,endHour:18}]});
   expect(call[1].slots[0].roomId).toBeUndefined();
   expect(call[1]).not.toHaveProperty('clientId');
+});
+
+it('submits every chosen office weekday with the edited time range and recurrence', async () => {
+  const state = await mount();
+  await wrapper.setProps({agencyId:2});
+  m.post.mockResolvedValue({data:{id:1,requestIds:[1,2]}});
+  state.requestType = 'office_request_only';
+  state.modalDay = 'Tuesday';
+  state.modalHour = 17;
+  state.modalStartHour = 17;
+  state.modalEndHour = 19;
+  state.scheduleEventRecurrence = 'WEEKLY';
+  state.scheduleEventOccurrenceCount = 6;
+  state.editorRecurrenceWeekdays = ['Tue','Wed'];
+  await state.submitRequest();
+  expect(m.post).toHaveBeenCalledWith('/availability/office-requests', expect.objectContaining({
+    recurrence:'WEEKLY', requestedStartDate:'2026-10-13',
+    slots:[{weekday:2,startHour:17,endHour:19,roomId:undefined},{weekday:3,startHour:17,endHour:19,roomId:undefined}]
+  }));
 });

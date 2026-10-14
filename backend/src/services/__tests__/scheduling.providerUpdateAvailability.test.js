@@ -9,7 +9,8 @@ vi.mock('../providerUpdate.service.js',()=>({listOpenForBookingForProvider:m.ass
 vi.mock('../officeAssignmentBookingAvailability.service.js',()=>({setOfficeAssignmentBookingAvailability:m.office}));
 vi.mock('../availabilityPublicationEdit.service.js',()=>({editAvailabilityPublication:m.edit}));
 vi.mock('../providerAgencyAvailability.service.js',()=>({saveAgencyAvailability:m.save}));
-import {readUpdateCalendar,virtualOpening,addUpdateVirtualOpening,closeUpdateVirtualOpening,openUpdateOfficeHours,saveUpdateAvailabilitySettings} from '../providerUpdateAvailability.service.js';
+vi.mock('../pendingOfficeBookingRequests.service.js',()=>({listPendingOfficeBookingRequests:vi.fn(async()=>[])}));
+import {readUpdateCalendar,virtualOpening,roomRequestOpening,addUpdateVirtualOpening,closeUpdateVirtualOpening,openUpdateOfficeHours,saveUpdateAvailabilitySettings} from '../providerUpdateAvailability.service.js';
 const ids={agencyId:2,providerId:465};let db;
 beforeEach(()=>{vi.clearAllMocks();vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-07T14:00:00Z'));
  m.profile.mockResolvedValue({details:{}});m.person.mockResolvedValue({sees_clients:1});m.assignments.mockResolvedValue([]);m.hours.mockResolvedValue([]);m.execute.mockResolvedValue([[{name:'Test agency',slug:'agency'}]]);m.compute.mockResolvedValue({weekStart:'2026-10-12',scheduleAgencyId:2,busyBlocks:[],officeReservations:[]});
@@ -63,4 +64,13 @@ it('explicitly opening virtual appointments publishes a four-week slot and opens
  expect(db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT'))[1][5]).toBe('EVERY_4_WEEKS');
  expect(m.save).toHaveBeenCalledWith(db,expect.objectContaining({body:expect.objectContaining({virtual:true,acceptingNewClients:true,applyToAll:false,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'accepting',SCHOOL:'unavailable'}})}));
  expect(db.commit).toHaveBeenCalledOnce();
+});
+
+it('checks and saves the complete 4–6 PM room window without changing one-hour virtual openings',()=>{
+ const input={date:'2026-10-14',startTime:'16:00',endTime:'18:00',frequency:'WEEKLY'};
+ expect(roomRequestOpening(input,'America/Denver')).toMatchObject({startAt:'2026-10-14T22:00:00Z',endAt:'2026-10-15T00:00:00Z',startTime:'16:00',endTime:'18:00'});
+ expect(virtualOpening(input,'America/Denver').endTime).toBe('17:00');
+ expect(()=>roomRequestOpening({...input,endTime:'18:30'},'America/Denver')).toThrow('on the hour');
+ expect(()=>roomRequestOpening({...input,endTime:'15:00'},'America/Denver')).toThrow('after the start');
+ expect(()=>roomRequestOpening({...input,date:'2026-11-01',startTime:'00:00',endTime:'03:00'},'America/Denver')).toThrow('daylight-saving');
 });

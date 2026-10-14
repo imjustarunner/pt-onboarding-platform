@@ -1,6 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({recipient:vi.fn(),section:vi.fn(),execute:vi.fn(),context:vi.fn(),opening:vi.fn(),calendar:vi.fn(),assignments:vi.fn(),rooms:vi.fn(),create:vi.fn()}));
-vi.mock('../providerUpdateReview.controller.js',()=>({reviewRecipient:m.recipient,requireSection:m.section}));vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));vi.mock('../../services/providerUpdateAvailability.service.js',()=>({availabilityContext:m.context,virtualOpening:m.opening}));vi.mock('../../services/providerAvailability.service.js',()=>({default:{computeWeekAvailability:m.calendar}}));vi.mock('../officeSchedule.controller.js',()=>({availableRoomsForSlot:m.rooms,createOfficeBookingRequest:m.create}));
+vi.mock('../providerUpdateReview.controller.js',()=>({reviewRecipient:m.recipient,requireSection:m.section}));vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));vi.mock('../../services/providerUpdateAvailability.service.js',()=>({availabilityContext:m.context,roomRequestOpening:m.opening}));vi.mock('../../services/providerAvailability.service.js',()=>({default:{computeWeekAvailability:m.calendar}}));vi.mock('../officeSchedule.controller.js',()=>({availableRoomsForSlot:m.rooms,createOfficeBookingRequest:m.create}));
 vi.mock('../../services/providerUpdate.service.js',()=>({listOpenForBookingForProvider:m.assignments}));
 import {updateRoomRequest} from '../providerUpdateRoomRequest.controller.js';let req,res,next;
 beforeEach(()=>{vi.clearAllMocks();m.recipient.mockResolvedValue({provider_user_id:7,agency_id:2});m.context.mockResolvedValue({preferences:{seesClients:true,scheduleAgencyId:2}});m.execute.mockResolvedValue([[{id:3,timezone:'America/Denver'}]]);m.opening.mockReturnValue({date:'2026-10-12',startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z',frequency:'EVERY_4_WEEKS'});m.calendar.mockResolvedValue({busyBlocks:[],officeReservations:[]});req={method:'POST',params:{token:'token'},body:{agencyId:99,providerId:99,locationId:3,roomId:4,clientId:91,appointmentId:8,notes:'attempted injection'}};res={};next=vi.fn();});
@@ -9,3 +9,13 @@ it('blocks preview writes and cross-agency offices',async()=>{m.recipient.mockRe
 it('blocks conflicts instead of converting an existing appointment',async()=>{m.calendar.mockResolvedValue({busyBlocks:[{startAt:'2026-10-12T15:30:00Z',endAt:'2026-10-12T16:30:00Z'}]});await updateRoomRequest(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.create).not.toHaveBeenCalled();});
 
 it('allows existing office holders without clinical publishing eligibility, but rejects unassigned staff',async()=>{m.context.mockResolvedValue({preferences:{seesClients:false,scheduleAgencyId:2}});m.assignments.mockResolvedValue([{id:42}]);await updateRoomRequest(req,res,next);expect(m.create).toHaveBeenCalledOnce();m.create.mockClear();m.assignments.mockResolvedValue([]);await updateRoomRequest(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.create).not.toHaveBeenCalled();});
+
+it('uses the full requested range for both room search and submission',async()=>{
+ m.opening.mockReturnValue({date:'2026-10-14',startAt:'2026-10-14T22:00:00Z',endAt:'2026-10-15T00:00:00Z',frequency:'WEEKLY'});
+ req.body={locationId:3,roomId:4,startTime:'16:00',endTime:'18:00',frequency:'WEEKLY'};
+ await updateRoomRequest(req,res,next);
+ expect(m.opening).toHaveBeenCalledWith(req.body,'America/Denver');
+ expect(m.create.mock.calls[0][0].body).toMatchObject({startAt:'2026-10-14T22:00:00Z',endAt:'2026-10-15T00:00:00Z'});
+ req.method='GET';req.query=req.body;await updateRoomRequest(req,res,next);
+ expect(m.rooms.mock.calls[0][0].query).toMatchObject({startAt:'2026-10-14T22:00:00Z',endAt:'2026-10-15T00:00:00Z'});
+});

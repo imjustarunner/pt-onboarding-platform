@@ -7,6 +7,14 @@ vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 vi.mock('../../../utils/providerProfileQr',()=>({createProviderProfileQr:vi.fn(async()=> 'data:image/png;base64,qr')}));
 const calendar={weekStart:'2026-10-12',weekEnd:'2026-10-19',today:'2026-10-07',timeZone:'America/Denver',canEdit:true,agency:{slug:'itsco',portal_url:null,name:'ITSCO'},provider:{id:465,first_name:'Test',last_name:'Provider'},preferences:{acceptingNewClients:true,inPerson:true,virtual:true},assignments:[{id:10,when:'Monday 9 AM',inPerson:false,virtual:false}],officeReservations:[{id:20,assignmentId:10,startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z',roomAvailable:true,buildingName:'Office'}],busyBlocks:[],weekly:[],inPersonSlots:[],virtualSlots:[]};
 const button=(w,label)=>w.findAll('button').find(b=>b.text()===label);
+it('shows both saved weekday requests as pending without presenting them as public openings',async()=>{
+ api.get.mockResolvedValue({data:{...calendar,pendingRoomRequests:[
+  {id:40,startAt:'2026-10-13T23:00:00Z',endAt:'2026-10-14T00:00:00Z',officeName:'Windchime',roomNumber:2,frequency:'WEEKLY'},
+  {id:41,startAt:'2026-10-14T23:00:00Z',endAt:'2026-10-15T00:00:00Z',officeName:'Windchime',roomNumber:9,frequency:'WEEKLY'}]}});
+ const w=render();await flushPromises();const pending=w.get('[aria-label="Pending room requests"]');
+ expect(pending.findAll('li')).toHaveLength(2);expect(pending.text()).toContain('Tue, Oct 13');expect(pending.text()).toContain('Wed, Oct 14');
+ expect(pending.text()).toContain('5:00 PM–6:00 PM');expect(pending.text()).toContain('not confirmed reservations');expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
 const render=props=>mount(ProviderUpdateOfficeSchedule,{props:{agencyId:2,mode:'token',token:'private-invitation',...props},global:{stubs:{ProviderContactHours:true}}});
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:structuredClone(calendar)});api.post.mockResolvedValue({data:{ok:true}});});
 it('explains school reservations and opens a scoped adjustment request without publishing or changing the assignment',async()=>{
@@ -55,4 +63,24 @@ it('identifies numbered rooms and shows the requested location before submission
  await w.get('[aria-label="Office location"]').setValue('1');api.get.mockResolvedValueOnce({data:{rooms:[{id:9,roomNumber:204,label:'Counseling Office'},{id:10,room_number:205,label:'Counseling Office'}]}});
  await button(w,'Find available rooms').trigger('click');await flushPromises();const select=w.get('[aria-label="Available room"]');expect(select.text()).toContain('Windchime · Room 204 · Counseling Office');expect(select.text()).toContain('Room 205');expect(button(w,'Submit room request').element.disabled).toBe(true);
  await select.setValue('9');expect(w.get('.request-summary').text()).toContain('Windchime · Room 204');expect(button(w,'Submit room request').element.disabled).toBe(false);await w.get('[aria-label="Office location"]').setValue('');await flushPromises();expect(w.find('.request-summary').exists()).toBe(false);w.unmount();
+});
+
+it('searches and submits the full 4–6 PM room range and invalidates stale room results when it changes',async()=>{
+ api.get.mockResolvedValueOnce({data:{...calendar,offices:[{id:1,name:'Windchime'}]}});
+ const w=render();await flushPromises();await w.get('.day-add').trigger('click');await button(w,'Request a recurring room').trigger('click');await flushPromises();
+ await w.get('.request-fields input[type=time]').setValue('16:00');
+ await w.get('[aria-label="Room request end time"]').setValue('18:00');
+ await w.get('[aria-label="Office location"]').setValue('1');
+ api.get.mockResolvedValueOnce({data:{rooms:[{id:9,roomNumber:204,label:'Counseling Office'}]}});
+ await button(w,'Find available rooms').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('/availability-rooms'),{params:expect.objectContaining({startTime:'16:00',endTime:'18:00'})});
+ await w.get('[aria-label="Available room"]').setValue('9');
+ expect(w.get('.request-summary').text()).toContain('16:00–18:00 · 2 hours');
+ await button(w,'Submit room request').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith(expect.stringContaining('/availability-rooms'),expect.objectContaining({startTime:'16:00',endTime:'18:00',roomId:9}));
+ await w.get('.day-add').trigger('click');await button(w,'Request a recurring room').trigger('click');await flushPromises();
+ api.get.mockResolvedValueOnce({data:{rooms:[{id:9,roomNumber:204}]}});
+ await button(w,'Find available rooms').trigger('click');await flushPromises();
+ await w.get('[aria-label="Room request end time"]').setValue('20:00');await flushPromises();
+ expect(w.find('[aria-label="Available room"]').exists()).toBe(false);w.unmount();
 });

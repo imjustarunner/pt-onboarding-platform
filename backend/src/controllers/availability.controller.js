@@ -1,4 +1,6 @@
 import {resolveOfficeRequestPreferences,readPreferredRooms} from '../services/officeRequestPreferences.service.js';
+import {assertOfficeRequestNotExpired} from '../utils/roomBookingWindow.js';
+import {distinctOfficeRequestWindows,insertOfficeRequestWindows,splitPendingOfficeRequest} from '../services/officeRequestWindows.service.js';
 import {enrichAvailabilityRoster} from '../services/providerAvailabilityRoster.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import pool from '../config/database.js';
@@ -1403,6 +1405,12 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     const preferences = await resolveOfficeRequestPreferences(pool, {agencyId,officeIds,slots:normalizedSlots,preferredRoomIds:req.body?.preferredRoomIds,preferredRoomId:req.body?.preferredRoomId});
     normalizedSlots = preferences.slots;
 
+    const requestWindows = distinctOfficeRequestWindows(normalizedSlots, requestedStartDate);
+    if (requestedRecurrence.recurrence === 'ONCE') {
+      const timeZone = await ProviderAvailabilityService.resolveAgencyTimeZone({agencyId});
+      for (const window of requestWindows) assertOfficeRequestNotExpired({startDate:window.startDate,recurrence:'ONCE',endHour:window.endHour,timeZone});
+    }
+
     // When replacing a prior request (date/time/frequency changed), cancel that pending
     // request so soft-holds clear and the new series can be submitted.
     const replaceRequestId = parseIntSafe(req.body?.replaceRequestId ?? req.body?.supersedeRequestId);
@@ -1474,46 +1482,13 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       }
     }
 
-    let result;
-    try {
-      [result] = await conn.execute(
-        `INSERT INTO provider_office_availability_requests
-          (agency_id, provider_id, preferred_office_ids_json, notes, status, requested_frequency, requested_occurrence_count, requested_start_date)
-         VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
-        [
-          agencyId,
-          providerId,
-          officeIds.length ? JSON.stringify(officeIds) : null,
-          notes || null,
-          requestedRecurrence.recurrence,
-          requestedRecurrence.occurrenceCount,
-          requestedStartDate
-        ]
-      );
-    } catch (insertErr) {
-      if (insertErr?.code === 'ER_BAD_FIELD_ERROR' || insertErr?.errno === 1054) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(409).json({
-          error: {
-            message: 'Office request recurrence fields are missing in the database. Run migrations 485 and 486 before creating office requests.'
-          }
-        });
-      }
-      throw insertErr;
-    }
-    const requestId = result.insertId;
-    if(preferences.preferredRooms.length) await conn.execute('UPDATE provider_office_availability_requests SET preferred_rooms_json=? WHERE id=?',[JSON.stringify(preferences.preferredRooms),requestId]);
-
-    for (const s of normalizedSlots) {
-      await conn.execute(
-        `INSERT INTO provider_office_availability_request_slots
-          (request_id, weekday, start_hour, end_hour, room_id)
-         VALUES (?, ?, ?, ?, ?)`,
-        [requestId, s.weekday, s.startHour, s.endHour, s.roomId]
-      );
-    }
+    const requestIds = await insertOfficeRequestWindows(conn, {
+      agencyId, providerId,
+      officesJson: officeIds.length ? JSON.stringify(officeIds) : null,
+      roomsJson: preferences.preferredRooms.length ? JSON.stringify(preferences.preferredRooms) : null,
+      notes, recurrence: requestedRecurrence.recurrence, occurrenceCount: requestedRecurrence.occurrenceCount
+    }, requestWindows);
+    const requestId = requestIds[0];
 
     await conn.commit();
     conn.release();
@@ -1554,6 +1529,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       ok: true,
       id: requestId,
       request: { id: requestId },
+      requestIds,
       supersededRequestIds: cancelledIds
     });
   } catch (e) {
@@ -2816,6 +2792,15 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Request is not pending' } });
     }
 
+    const splitRequestIds = await splitPendingOfficeRequest(pool, {requestId, agencyId});
+    if (splitRequestIds.length) {
+      return res.status(409).json({error:{
+        code:'OFFICE_REQUEST_SPLIT',
+        message:'Each requested day/time now has its own pending request. Review and approve each one; no rooms have been assigned yet.',
+        requestIds:splitRequestIds
+      }});
+    }
+
     const requestRecurrence = normalizeOfficeRequestRecurrence({
       recurrenceRaw: reqRow.requested_frequency ?? req.body?.requestedFrequency ?? req.body?.recurrence ?? null,
       occurrenceCountRaw: reqRow.requested_occurrence_count ?? req.body?.requestedOccurrenceCount ?? req.body?.bookedOccurrenceCount ?? req.body?.occurrenceCount ?? null
@@ -2893,6 +2878,12 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (!requestWindowCovered(weekday, hour, endHour)) {
       return res.status(400).json({ error: { message: `Hour ${hour} is not within the submitted availability window` } });
     }
+
+    if (slotRows.some(row => Number(row.weekday) !== weekday || Number(row.start_hour) < hour || Number(row.end_hour) > endHour)) {
+      return res.status(400).json({error:{message:'Approve the full requested time range so that no requested hours are lost.'}});
+    }
+
+    assertOfficeRequestNotExpired({startDate:requestStartDate,recurrence:recurrenceName,endHour,timeZone:officeTz});
 
     const providerId = Number(reqRow.provider_id);
 

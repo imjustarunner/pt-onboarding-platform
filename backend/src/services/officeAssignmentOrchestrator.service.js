@@ -145,6 +145,30 @@ async function upsertBookingPlanAndMaterialize({
   });
 }
 
+/** Reserve every hour in an approved recurring room-only request. */
+async function assignRecurringOfficeBlock({officeLocationId, roomId, providerId, weekday,
+  startHour, endHour, frequency, startDate, occurrenceCount = null, createdByUserId}) {
+  if (!Number.isInteger(startHour) || !Number.isInteger(endHour) || startHour < 0 || endHour > 24 || endHour <= startHour) {
+    throw Object.assign(new Error('Choose a valid whole-hour room range.'), {status:400});
+  }
+  const assignments = [], plans = [];
+  for (let hour = startHour; hour < endHour; hour++) {
+    let standing = await OfficeStandingAssignment.create({officeLocationId, roomId, providerId,
+      weekday, hour, assignedFrequency:frequency, createdByUserId});
+    standing = await OfficeStandingAssignment.update(standing.id, {available_since_date:startDate,
+      availability_mode:'AVAILABLE', temporary_until_date:null}) || standing;
+    assignments.push(standing);
+    await OfficeBookingPlan.upsertActive({standingAssignmentId:standing.id, bookedFrequency:frequency,
+      bookingStartDate:startDate, bookedOccurrenceCount:frequency === 'WEEKLY' ? null : occurrenceCount,
+      createdByUserId, bookingOrigin:'user'});
+    plans.push(await OfficeBookingPlan.findActiveByAssignmentId(standing.id));
+  }
+  // Materialize once after all hours have plans, rather than once per hour.
+  OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+  await materializeOfficeWeeks({officeLocationId, startDateYmd:startDate, createdByUserId, weeks:12});
+  return {assignments, plans};
+}
+
 /**
  * Create or update temporary standing assignments for a single calendar date + hour block.
  * Used for one-time admin assigns and legacy one-time request approvals.
@@ -290,5 +314,6 @@ export {
   resolveRecurrenceParams,
   upsertBookingPlanAndMaterialize,
   assignOneTimeOfficeBlock,
+  assignRecurringOfficeBlock,
   cleanupOrphanLegacyAssignment
 };

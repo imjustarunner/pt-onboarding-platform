@@ -68,6 +68,10 @@ jobs:
           backend/src/services/__tests__/scheduling.blockRecurrence.test.js
           backend/src/services/__tests__/scheduling.publicAvailability.test.js
           backend/src/services/__tests__/scheduling.providerUpdateAvailability.test.js
+          backend/src/services/__tests__/scheduling.officeRequestVisibility.test.js
+          backend/src/services/__tests__/scheduling.officeRequestDuration.test.js
+          backend/src/controllers/__tests__/providerUpdateRoomRequest.test.js
+          backend/src/services/__tests__/scheduling.officeRequestPreferences.test.js
           backend/src/services/__tests__/scheduling.providerUpdateReview.test.js
           backend/src/services/__tests__/scheduleSummaryPrivacy.service.test.js
           backend/src/models/__tests__/scheduling.virtualHoursBatch.test.js
@@ -80,6 +84,7 @@ jobs:
           src/components/schedule/__tests__/scheduleOverlap.test.js
           src/components/schedule/__tests__/scheduleLoading.test.js
           src/utils/__tests__/scheduleSummaryRequests.test.js
+          src/utils/__tests__/officeRequestWindows.test.js
           src/views/__tests__/DashboardScheduleStartup.test.js
           src/components/provider/__tests__/ProviderUpdateOfficeSchedule.test.js
           src/components/provider/__tests__/ProviderHoursFocus.test.js
@@ -90,6 +95,7 @@ jobs:
           src/components/schedule/__tests__/scheduleColorSettings.test.js
           src/utils/__tests__/recurringWindow.test.js
           src/views/__tests__/OfficeScheduleView.test.js
+          src/views/__tests__/OfficeApprovalsView.test.js
           src/components/admin/opsDashboard/__tests__/PlannedOutModal.test.js
           src/utils/__tests__/plannedOutTimezone.test.js
 
@@ -128,3 +134,4 @@ jobs:
           --config backend/vitest.scheduling.config.js
           backend/src/services/__tests__/scheduling.providerOffboarding.mysql.test.js
           backend/src/services/__tests__/scheduling.mysql.test.js
+          backend/src/services/__tests__/scheduling.officeReconciliation.mysql.test.js

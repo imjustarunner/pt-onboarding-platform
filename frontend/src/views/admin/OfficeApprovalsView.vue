@@ -16,6 +16,9 @@
     </header>
 
     <div class="oa-tabs" role="tablist">
+      <button type="button" class="oa-tab" :class="{active:tab==='booking'}" role="tab" :aria-selected="tab==='booking'" @click="tab='booking'">
+        Calendar / Provider Update requests <span v-if="bookingRequestCount" class="oa-badge">{{bookingRequestCount}}</span>
+      </button>
       <button
         type="button"
         class="oa-tab"
@@ -45,7 +48,8 @@
       <div v-else-if="loading && !officeRequests.length" class="oa-empty">Loading office requests…</div>
       <div v-else-if="!officeRequests.length" class="oa-empty">
         <div class="oa-empty-title">No pending office requests</div>
-        <p class="muted">New room / availability requests from providers will show up here.</p>
+        <p class="muted">No pending availability-intake requests. Requests submitted from a calendar or Provider Update appear in the Calendar / Provider Update requests tab.</p>
+        <button v-if="bookingRequestCount" type="button" class="btn btn-primary" @click="tab='booking'">Review {{bookingRequestCount}} calendar requests</button>
       </div>
 
       <div v-else class="oa-workspace">
@@ -373,6 +377,7 @@
       </div>
     </template>
 
+    <OfficeScheduleApprovalsView v-if="tab==='booking'" ref="bookingViewRef" embedded initial-queue-tab="booking" :sync-queue-to-route="false" @queue-counts="bookingRequestCount = Number($event.booking || 0)" />
     <div v-if="tab === 'conflicts'" class="oa-conflicts-wrap">
       <OfficeCoverageFlagsView ref="conflictsViewRef" embedded @count-change="onConflictCount" />
     </div>
@@ -391,6 +396,7 @@ import {
   zonedDatetimeLocalToIso
 } from '../../utils/timezones.js';
 import OfficeCoverageFlagsView from './OfficeCoverageFlagsView.vue';
+import OfficeScheduleApprovalsView from './OfficeScheduleApprovalsView.vue';
 
 const PAGE_SIZE = 6;
 const ALT_PREVIEW = 7;
@@ -401,7 +407,9 @@ const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
-const tab = ref(String(route.query.tab || 'requests').toLowerCase() === 'conflicts' ? 'conflicts' : 'requests');
+const tab = ref(['conflicts','booking'].includes(String(route.query.tab)) ? String(route.query.tab) : 'requests');
+const bookingRequestCount = ref(0);
+const bookingViewRef = ref(null);
 const selectedAgencyId = ref(null);
 const officeRequests = ref([]);
 const offices = ref([]);
@@ -1038,7 +1046,7 @@ const loadConflictCount = async () => {
 };
 
 const syncTabQuery = () => {
-  const next = tab.value === 'conflicts' ? 'conflicts' : 'requests';
+  const next = ['conflicts','booking'].includes(tab.value) ? tab.value : 'requests';
   if (String(route.query.tab || '') === next) return;
   router.replace({ query: { ...route.query, tab: next } }).catch(() => {});
 };
@@ -1204,14 +1212,16 @@ const loadRequests = async () => {
   error.value = '';
   actionError.value = '';
   try {
-    const [officesResp, reqResp] = await Promise.all([
+    const [officesResp, reqResp, summaryResp] = await Promise.all([
       api.get('/offices'),
       api.get('/availability/admin/office-requests', {
         params: { allAgencies: 1, status: 'PENDING' }
-      })
+      }),
+      api.get('/office-schedule/admin/pending-queue-summary')
     ]);
     offices.value = officesResp.data || [];
     officeRequests.value = reqResp.data || [];
+    bookingRequestCount.value = Number(summaryResp.data?.booking || 0);
     // Prefer keeping current selection; otherwise first request in filtered/grouped order.
     if (!officeRequests.value.some((r) => r.id === selectedId.value)) {
       selectedId.value = filteredRequests.value[0]?.id || officeRequests.value[0]?.id || null;
@@ -1226,6 +1236,10 @@ const loadRequests = async () => {
 };
 
 const refresh = async () => {
+  if (tab.value === 'booking') {
+    await bookingViewRef.value?.load?.();
+    return;
+  }
   if (tab.value === 'conflicts') {
     if (typeof conflictsViewRef.value?.load === 'function') {
       await conflictsViewRef.value.load();
@@ -1277,6 +1291,7 @@ const approveSelected = async () => {
     });
     await loadRequests();
   } catch (e) {
+    if (e?.response?.data?.error?.code === 'OFFICE_REQUEST_SPLIT') await loadRequests();
     actionError.value = e?.response?.data?.error?.message || 'Failed to approve request.';
   } finally {
     saving.value = false;
@@ -1342,7 +1357,7 @@ watch(
 watch(
   () => route.query.tab,
   (t) => {
-    const next = String(t || '').toLowerCase() === 'conflicts' ? 'conflicts' : 'requests';
+    const next = ['conflicts','booking'].includes(String(t || '').toLowerCase()) ? String(t).toLowerCase() : 'requests';
     if (tab.value !== next) tab.value = next;
   }
 );

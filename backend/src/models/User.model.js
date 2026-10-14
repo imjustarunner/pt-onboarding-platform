@@ -1878,6 +1878,11 @@ class User {
       await pool.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
     }
     
+    if (firstName !== undefined || lastName !== undefined) {
+      const {syncPersonalMailboxDisplayName} = await import('../services/personalMailboxDisplayName.service.js');
+      await syncPersonalMailboxDisplayName(pool,id);
+    }
+
     // Verify the role after update (double-check protection)
     // This is a safety net in case of direct database access or other bypasses
     const updatedUser = await this.findById(id);

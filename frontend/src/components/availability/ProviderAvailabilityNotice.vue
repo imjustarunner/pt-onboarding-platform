@@ -8,6 +8,7 @@
    <small v-if="r.checkedAt">Last checked {{new Date(r.checkedAt).toLocaleString()}}.</small>
   </div>
   <p>Publishing a new-client opening switches that format from Waitlist to Open.</p>
+  <p>Typical availability and pending room requests do not publish openings. In-person openings need a future room reservation that you have chosen to offer to new clients.</p>
   <p>Published hours may still be occupied by appointments, school assignments, or schedule blocks.</p>
   <p v-if="error" role="alert">{{error}}</p>
  </aside>

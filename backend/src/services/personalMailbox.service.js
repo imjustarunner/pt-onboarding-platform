@@ -8,6 +8,7 @@ import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
+import {syncPersonalMailboxDisplayName} from './personalMailboxDisplayName.service.js';
 
 const ELIGIBLE_ROLES = new Set([
   'admin',
@@ -238,6 +239,7 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
     if (
       current !== preferred ||
       currentReply !== String(replyTo).toLowerCase() ||
+      String(identity.display_name || '') !== displayName ||
       Number(identity.is_active) === 0
     ) {
       identity = await EmailSenderIdentity.update(identity.id, {
@@ -258,7 +260,7 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
       inbox = null;
     }
   }
-  if (inbox?.id && String(inbox.from_email || '').toLowerCase() !== preferred) {
+  if (inbox?.id && (String(inbox.from_email || '').toLowerCase() !== preferred || String(inbox.display_name || '') !== `${displayName} (App inbox)`)) {
     await pool.execute(
       `UPDATE communication_inboxes
        SET from_email = ?, sender_identity_id = ?, display_name = ?, is_active = 1
@@ -301,6 +303,7 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
     [aid, uid]
   );
   if (existing[0]) {
+    await syncPersonalMailboxDisplayName(pool,uid);
     await ensureMember(existing[0].id, uid, 'owner');
     return CommunicationInbox.findById(existing[0].id);
   }
