@@ -7,6 +7,7 @@
     :user-role-label="userRoleLabel"
     @select-section="$emit('select-section', $event)"
   >
+    <ContractSchedulingNotice v-if="canManageOwnAvailability && ['account', 'availability', 'compensation'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <ProviderOpeningNotice v-if="canManageOwnAvailability && ['account', 'availability'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <div data-profile-my-section="account" v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
@@ -67,6 +68,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import ContractSchedulingNotice from '../availability/ContractSchedulingNotice.vue';
 import ProviderOpeningNotice from '../availability/ProviderOpeningNotice.vue';
 import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
 import VirtualWorkingHoursEditor from '../availability/VirtualWorkingHoursEditor.vue';

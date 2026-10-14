@@ -9,3 +9,7 @@ it('exposes the shared settings for the signed-in provider in the selected agenc
 it('does not render another user’s self-service controls or club availability',()=>{for(const props of [{userId:10},{isClubContext:true}]){const w=render(props);expect(w.findComponent({name:'ProviderAvailabilitySettings'}).exists()).toBe(false);expect(w.findComponent({name:'AccountHubPanel'}).props('sections').some(s=>s.id==='availability')).toBe(false);w.unmount();}});
 
 it('provides the retained accounts and access page in My Account',()=>{const w=render({activeSection:'access'});expect(w.findComponent({name:'MyAccountAccess'}).exists()).toBe(true);expect(w.findComponent({name:'AccountHubPanel'}).props('sections').some(s=>s.id==='access')).toBe(true);w.unmount();});
+it('shows the contract scheduling check in the employee account and availability sections',()=>{
+ for(const activeSection of ['account','availability','compensation']){const w=render({activeSection});expect(w.findComponent({name:'ContractSchedulingNotice'}).props()).toMatchObject({providerId:9,agencyId:2});w.unmount();}
+ const w=render({userId:10});expect(w.findComponent({name:'ContractSchedulingNotice'}).exists()).toBe(false);w.unmount();
+});

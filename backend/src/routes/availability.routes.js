@@ -1,3 +1,4 @@
+import {getContractSchedulingExpectation} from '../controllers/contractSchedulingExpectation.controller.js';
 import {getServices,putServices,getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders,enableWaitlist} from '../controllers/providerAvailabilitySettings.controller.js';
 import { getEnrollmentWaitlist } from '../controllers/providerEnrollmentWaitlist.controller.js';
 import express from 'express';
@@ -55,6 +56,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
+router.get('/providers/:providerId/contract-scheduling-expectation', getContractSchedulingExpectation);
 router.get('/providers/:providerId/enrollment-waitlist', getEnrollmentWaitlist);
 router.get('/admin/enrollment-waitlist', getEnrollmentWaitlist);
 router.get('/providers/:providerId/workspace', getWorkspace);

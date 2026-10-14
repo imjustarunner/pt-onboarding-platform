@@ -1,6 +1,6 @@
 import { findContractPlaceholders } from './contractPlaceholders.js';
 
-export function weeklyRequiredHours(minHours) {
+export function minimumWeeklyHours(minHours) {
   const raw = String(minHours ?? '').trim();
   if (!raw) return null;
   // Older contract-builder entries can read "Ten (10) Hours" or "6 hours".
@@ -8,6 +8,12 @@ export function weeklyRequiredHours(minHours) {
   if (!numeric) return null;
   const hours = Number(numeric[1] ?? numeric[2]);
   if (!Number.isFinite(hours) || hours < 0) return null;
+  return hours;
+}
+
+export function weeklyRequiredHours(minHours) {
+  const hours = minimumWeeklyHours(minHours);
+  if (hours == null) return null;
   const capacity = Math.ceil(hours * 1.25);
   return Number.isSafeInteger(capacity) ? capacity : null;
 }

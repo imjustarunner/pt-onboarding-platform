@@ -374,6 +374,7 @@
             />
           </AccountDashboardCard>
 
+          <ContractSchedulingNotice v-if="showAccountSection('compensation-level')" :provider-id="userId" :agency-id="agencyId" staff />
           <StaffLearningCompensation v-if="showAccountSection('compensation-level')" :agency-id="agencyId" :user-id="userId" />
           <!-- Compensation Level -->
           <AccountDashboardCard
@@ -567,6 +568,7 @@
 </template>
 
 <script setup>
+import ContractSchedulingNotice from '../../availability/ContractSchedulingNotice.vue';
 import StaffLearningCompensation from '../StaffLearningCompensation.vue';
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import AccountDashboardCard from './AccountDashboardCard.vue';
