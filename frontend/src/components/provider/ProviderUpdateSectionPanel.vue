@@ -15,6 +15,8 @@
       :token="token"
       :agency-id="agencyId"
       :recipient-id="recipient?.id"
+      :push-id="recipient?.pushId"
+      :admin-update-id="recipient?.attachedAdminUpdateId"
       :preview-mode="!!recipient?.previewOnly"
       :saving-review="saving"
       :review-error="localError"

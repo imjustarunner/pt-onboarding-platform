@@ -89,15 +89,37 @@ export const linkEntry = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+async function getUpdateReviewDigest(agencyId, context, {allowDraft = false, preferDraft = false} = {}) {
+  let result = await getPublishedDigestForAgency(agencyId, context);
+  if (allowDraft && (!result?.digest || preferDraft)) {
+    const drafts = (await listDigests(agencyId)).filter(digest => digest.status === 'draft');
+    const linked = drafts.find(digest => context.pushId && Number(digest.provider_update_push_id) === Number(context.pushId))
+      || drafts.find(digest => context.adminUpdateId && Number(digest.admin_update_id) === Number(context.adminUpdateId));
+    if (linked) result = await getDigest(linked.id, agencyId);
+  }
+  return result;
+}
+
 export const getPublished = async (req, res, next) => {
   try {
     const agencyId = Number(req.query.agencyId || req.params.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId required' } });
     await assertHandbookReader(req.user, agencyId);
-    const digest = await getPublishedDigestForAgency(agencyId, {
-      adminUpdateId: req.query.adminUpdateId ? Number(req.query.adminUpdateId) : null,
-      pushId: req.query.pushId ? Number(req.query.pushId) : null
-    });
+    const context = {adminUpdateId: req.query.adminUpdateId ? Number(req.query.adminUpdateId) : null, pushId: req.query.pushId ? Number(req.query.pushId) : null};
+    let allowDraft = false;
+    if (context.pushId) {
+      const push = await getPush(context.pushId);
+      if (!push || Number(push.agency_id) !== agencyId) throw Object.assign(Error('Update not found.'), {status: 404});
+      // Match the email-link reader, using the update's actual attachment rather
+      // than a caller-supplied draft/month. Unassigned and future drafts stay private.
+      context.adminUpdateId = push.attached_admin_update_id || null;
+      if (push.status === 'sent') {
+        const [recipients] = await pool.execute(`SELECT id FROM provider_update_recipients
+          WHERE push_id=? AND agency_id=? AND provider_user_id=? AND LEFT(token,8)<>'preview_' LIMIT 1`, [push.id, agencyId, req.user.id]);
+        allowDraft = !!recipients?.length;
+      }
+    }
+    const digest = await getUpdateReviewDigest(agencyId, context, {allowDraft});
     const handbook = await getPublishedHandbook(agencyId);
     res.json(handbookResponseForReader({ ...handbook, ...digest, mode: 'handbook', handbook }, req.user));
   } catch (e) {
@@ -387,15 +409,10 @@ export const publicPublishedByToken = async (req, res, next) => {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
     const push = await getPush(recipient.push_id);
-    let digest = await getPublishedDigestForAgency(recipient.agency_id, {
+    const digest = await getUpdateReviewDigest(recipient.agency_id, {
       adminUpdateId: push?.attached_admin_update_id || null,
       pushId: push?.id || null
-    });
-    if(recipient.previewOnly || (!digest?.digest && push?.id)){
-      const drafts=await listDigests(recipient.agency_id);
-      const match=drafts.find(d=>d.status==='draft' && (Number(d.provider_update_push_id)===Number(push?.id) || (push?.attached_admin_update_id && Number(d.admin_update_id)===Number(push.attached_admin_update_id))));
-      if(match)digest=await getDigest(match.id,recipient.agency_id);
-    }
+    }, {allowDraft: !!push?.id, preferDraft: !!recipient.previewOnly});
     const handbook = await getPublishedHandbook(recipient.agency_id);
     res.json(handbookResponseForReader({
       ...digest,

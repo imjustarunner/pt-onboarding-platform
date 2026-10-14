@@ -23,7 +23,7 @@ function render({ mode = 'token', completed = false, previewOnly = false } = {})
     setup() {
       const page = ref({ key: 'handbook', title: 'Handbook Updates', alone: true, sections: [section(completed)], sectionsTotal: 1, sectionsCompleted: Number(completed) });
       const save = result => { page.value = { ...page.value, sections: result.sections, sectionsCompleted: result.sections.filter(s => s.completed).length }; };
-      return { page, save, mode, recipient: { id: 7, previewOnly } };
+      return { page, save, mode, recipient: { id: 7, pushId:5, attachedAdminUpdateId:1, previewOnly } };
     },
     template: '<Panel :page="page" :mode="mode" token="invitation" :agency-id="2" :recipient="recipient" @saved="save" />'
   }), { global: { plugins: [createPinia()] } });
@@ -40,6 +40,7 @@ beforeEach(() => {
 it.each(['token', 'auth'])('saves the handbook review before continuing for %s access', async mode => {
   const w = render({ mode });
   await flushPromises();
+  if(mode==='auth')expect(api.get).toHaveBeenCalledWith('/provider-update/handbook/published',{params:{agencyId:2,pushId:5,adminUpdateId:1}});
   expect(w.find('.pu-page-footer .primary').exists()).toBe(false);
   expect(saveButton(w).text()).toBe('Save handbook review and continue');
   await saveButton(w).trigger('click');
@@ -52,6 +53,22 @@ it.each(['token', 'auth'])('saves the handbook review before continuing for %s a
   expect(panel(w).emitted('advance')).toHaveLength(1);
   expect(w.text()).toContain('Your handbook review is saved.');
   w.unmount();
+});
+
+it('explains the two review actions and keeps questions optional',async()=>{
+ const w=render();await flushPromises();
+ expect(w.get('.review-instructions').text()).toContain('Save handbook review and continue');
+ expect(w.get('.review-instructions').text()).toContain('Asking a question is optional');
+ await w.get('.review-instructions button').trigger('click');
+ expect(Element.prototype.scrollIntoView).toHaveBeenCalled();expect(api.put).not.toHaveBeenCalled();
+ expect(w.get('.ack-row').classes()).toContain('review-action');w.unmount();
+});
+
+it('explains missing content without recording an acknowledgement of an empty digest',async()=>{
+ api.get.mockResolvedValue({data:{digest:null,entries:[],handbook:{version:null,sections:[]}}});
+ const w=render();await flushPromises();expect(w.text()).toContain('No handbook changes are available here yet.');
+ expect(w.text()).toContain('You can return to the overview');expect(w.find('.ack-row button').exists()).toBe(false);
+ expect(w.text()).not.toContain('No handbook updates in this digest');expect(api.put).not.toHaveBeenCalled();w.unmount();
 });
 
 it('keeps the completion action available after opening the full handbook', async () => {

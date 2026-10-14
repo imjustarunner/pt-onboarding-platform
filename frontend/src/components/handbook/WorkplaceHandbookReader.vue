@@ -7,6 +7,11 @@
       <div v-if="accessMode !== 'token' && !previewMode && !showHistory" class="history-action"><button type="button" class="btn" @click="showHistory = true">Handbook updates · Monthly tracker</button></div>
       <WorkplaceHandbookHistory v-if="showHistory" :agency-id="agencyId" :sections="handbook?.sections || []" @close="showHistory = false" @open-section="openHistorySection" />
       <div v-show="!showHistory" class="reader-content">
+      <div v-if="reviewLabel && canAcknowledge && !reviewCompleted && !previewMode" class="review-instructions">
+        <strong>How to finish Handbook Updates</strong>
+        <p>Read the changes below, then select <strong>{{ reviewLabel }}</strong>. Asking a question is optional.</p>
+        <button type="button" class="btn" @click="startReview">Read handbook updates ↓</button>
+      </div>
       <p v-if="handbook?.beta" class="beta-notice">Beta edition · Available to read while company publication is under review.</p>
       <div v-if="libraryMode && !handbook?.sections?.length" class="empty" role="status">A handbook has not been added for this organization yet. Your company administrator can prepare its edition in Library settings.</div>
       <nav v-if="!libraryMode && handbook?.sections?.length" class="reader-tabs" aria-label="Handbook views">
@@ -38,8 +43,10 @@
       <p v-if="canEdit" class="editor-notice">Administrator editing: changes saved here update this shared handbook digest for everyone in the agency.</p>
       <p v-if="editMessage" role="status">{{editMessage}}</p>
       <p v-if="loadError" role="alert">{{loadError}} <button type="button" class="btn" @click="load">Try again</button></p>
-      <div v-if="!entries.length" class="empty">
-        No handbook updates in this digest.
+      <div v-if="!entries.length" class="empty" role="status">
+        <strong>No handbook changes are available here yet.</strong>
+        <p v-if="handbook?.sections?.length">Select Read handbook to open the available handbook.</p>
+        <p v-else>You can return to the overview and work on your other sections. Use Need help to let People Operations know this section is empty.</p>
       </div>
 
       <article v-for="(e, idx) in entries" :key="e.id || idx" class="entry">
@@ -75,7 +82,8 @@
       </article>
 
       <div class="ask" v-if="!previewMode">
-        <h4>Ask People Operations</h4>
+        <h4>Ask People Operations (optional)</h4>
+        <p>You do not need to submit a question to complete this section.</p>
         <textarea v-model="question" rows="3" placeholder="Question about these handbook updates…" />
         <button type="button" class="btn" :disabled="asking || !question.trim()" @click="submitQuestion">
           {{ asking ? 'Sending…' : 'Submit question' }}
@@ -84,7 +92,7 @@
       </div>
 
       </template>
-      <div v-if="!libraryMode && !previewMode && canAcknowledge" class="ack-row">
+      <div v-if="!libraryMode && !previewMode && canAcknowledge" class="ack-row" :class="{'review-action': reviewLabel}">
         <p v-if="reviewCompleted" class="ok" role="status">Your handbook review is saved.</p>
         <template v-else>
           <p v-if="reviewLabel">When you have finished reviewing, save here to mark Handbook Updates complete.</p>
@@ -175,6 +183,11 @@ function formatChanged(text) {
 async function openSection(slug) {
   activeView.value = 'handbook'; await nextTick(); book.value?.selectSection(slug, true);
 }
+async function startReview() {
+  activeView.value = entries.value.length ? 'updates' : 'handbook';
+  await nextTick();
+  readerRoot.value?.querySelector('.entry, .book-page')?.scrollIntoView?.({behavior: 'smooth', block: 'start'});
+}
 async function showAssistant() { activeView.value = 'handbook'; await nextTick(); await book.value?.showAssistant(); }
 async function answerQuestion(payload, options) {
   const url = props.accessMode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}/handbook/answer` : '/provider-update/handbook/answer';
@@ -264,6 +277,8 @@ watch(() => [props.agencyId, props.token, props.adminUpdateId, props.pushId, pro
 
 <style scoped>
 .reader-content{display:grid;gap:.85rem}.history-action{display:flex;justify-content:flex-end}.history-action .btn{font-size:13px;background:white;border:1px solid #ccd9c6;border-radius:7px;padding:10px 14px;color:#12583f;cursor:pointer}
+.review-instructions{padding:1rem 1.2rem;border:1px solid #bdd2c4;border-radius:14px;background:#edf6f0;color:#254b36}.review-instructions p{margin:.5rem 0 .85rem;line-height:1.5}.ack-row.review-action{position:sticky;bottom:12px;z-index:2;background:#fff;border:2px solid #3d6b4f;box-shadow:0 5px 24px #14362326}.review-action .btn{min-height:48px;font-size:1rem}.review-action p{margin:.25rem 0 .65rem}.entry{scroll-margin-top:1rem}.ask p{margin:0;color:#52635a;font-size:.9rem}
+@media(max-width:600px){.ack-row.review-action{bottom:8px;padding:.8rem}.review-action .btn{width:100%;white-space:normal}}
 .beta-notice { margin: 0 0 12px; padding: 10px 14px; border-radius: 7px; background: #f4f1df; color: #645a35; font-size: 12px; }
 .changed :deep(img),.changed :deep(video){max-width:100%;height:auto}
 .changed{overflow-x:auto}.changed :deep(table){width:100%;border-collapse:collapse;margin:16px 0}.changed :deep(th){background:#173e5a;color:#fff;text-align:left}.changed :deep(td),.changed :deep(th){padding:12px;border:1px solid #d4dee5;min-width:100px}.changed :deep(h2){color:#173e5a;border-top:3px solid #c8dce9;padding-top:22px;margin-top:28px}.changed :deep(h3){color:#173e5a;background:#edf3f8;padding:12px;border-radius:8px}.changed :deep(dd){margin:6px 0 18px}.inline-editor{display:grid;gap:12px}.inline-editor label{display:grid;gap:6px}.inline-editor input,.inline-editor textarea{font:inherit;padding:10px;color:#19344e;border:1px solid #849bad;border-radius:6px}.editor-notice{background:#e7f0fb;color:#173e5a;padding:16px;border-radius:10px}

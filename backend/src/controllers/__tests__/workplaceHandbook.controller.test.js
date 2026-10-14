@@ -8,6 +8,7 @@ vi.mock('../../services/workplaceHandbook.service.js', () => ({ listDigests: vi.
 vi.mock('../../services/workplaceHandbookWorkflow.service.js', () => ({ sourceForAgency: vi.fn(), stageHandbookSource: vi.fn(), linkHandbookUpdate: vi.fn() }));
 vi.mock('../../services/workplaceHandbookAnswer.service.js', () => ({ answerPublishedHandbook: vi.fn() }));
 import User from '../../models/User.model.js';
+import pool from '../../config/database.js';
 import { assertAgencyAdmin, getRecipientByToken, getPush } from '../../services/providerUpdate.service.js';
 import { listDigests, getPublishedDigestForAgency, getPublishedHandbook, getDraftOrCreate, publishDraft, getDigest, setFullHandbookUrl } from '../../services/workplaceHandbook.service.js';
 import { getHistory, assertHandbookReader, getPublished, getLibraryHandbook, publish, publicPublishedByToken, getDigestHandler, saveFullHandbookUrl, answerQuestion, answerQuestionByToken } from '../workplaceHandbook.controller.js';
@@ -16,6 +17,46 @@ import { answerPublishedHandbook } from '../../services/workplaceHandbookAnswer.
 import { handbookResponseForReader } from '../../services/workplaceHandbookAccess.js';
 
 beforeEach(() => vi.resetAllMocks());
+describe('assigned provider update handbook changes', () => {
+  const request = {user:{id:7,role:'provider'},query:{agencyId:2,pushId:5,adminUpdateId:999},params:{}};
+  const communicated = {digest:{id:1,status:'draft'},entries:[{subject:'October change'}]};
+  function setup() {
+    User.getAgencies.mockResolvedValue([{id:2}]);
+    getPush.mockResolvedValue({id:5,agency_id:2,status:'sent',attached_admin_update_id:1});
+    pool.execute.mockResolvedValue([[{id:31}]]);
+    getPublishedDigestForAgency.mockResolvedValue({digest:null,entries:[]});
+    getPublishedHandbook.mockResolvedValue({version:null,sections:[]});
+    listDigests.mockResolvedValue([{id:3,status:'draft',period_label:'November',provider_update_push_id:null,admin_update_id:null},{id:1,status:'draft',provider_update_push_id:2,admin_update_id:1}]);
+    getDigest.mockResolvedValue(communicated);
+  }
+  it('shows the same communicated changes in the signed-in update and email link',async()=>{
+    setup();const signedIn={json:vi.fn()},link={json:vi.fn()},next=vi.fn();
+    await getPublished(request,signedIn,next);
+    getRecipientByToken.mockResolvedValue({id:31,agency_id:2,push_id:5,provider_user_id:7});
+    await publicPublishedByToken({params:{token:'invitation'}},link,next);
+    expect(next).not.toHaveBeenCalled();expect(signedIn.json.mock.calls[0][0].entries).toEqual(link.json.mock.calls[0][0].entries);
+    expect(signedIn.json.mock.calls[0][0].entries).toHaveLength(1);
+    expect(getPublishedDigestForAgency).toHaveBeenCalledWith(2,{pushId:5,adminUpdateId:1});
+    expect(getDigest).toHaveBeenCalledWith(1,2);expect(getDraftOrCreate).not.toHaveBeenCalled();expect(publishDraft).not.toHaveBeenCalled();
+  });
+  it('does not expose future drafts to unassigned staff or generic handbook readers',async()=>{
+    setup();pool.execute.mockResolvedValue([[]]);const res={json:vi.fn()},next=vi.fn();
+    await getPublished(request,res,next);expect(listDigests).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].entries).toEqual([]);
+    await getPublished({...request,query:{agencyId:2}},res,next);expect(listDigests).not.toHaveBeenCalled();
+  });
+  it('rejects a push from another agency before reading its drafts',async()=>{
+    setup();getPush.mockResolvedValue({id:5,agency_id:3,status:'sent'});const next=vi.fn();
+    await getPublished(request,{json:vi.fn()},next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));expect(getPublishedDigestForAgency).not.toHaveBeenCalled();
+  });
+  it('keeps the published assigned digest when another draft exists',async()=>{
+    setup();getPublishedDigestForAgency.mockResolvedValue({digest:{id:1,status:'published'},entries:[{subject:'Published change'}]});
+    await getPublished(request,{json:vi.fn()},vi.fn());expect(listDigests).not.toHaveBeenCalled();
+  });
+  it('prefers an exact push match over a shared Admin Update match',async()=>{
+    setup();listDigests.mockResolvedValue([{id:8,status:'draft',admin_update_id:1},{id:1,status:'draft',provider_update_push_id:5}]);
+    await getPublished(request,{json:vi.fn()},vi.fn());expect(getDigest).toHaveBeenCalledWith(1,2);
+  });
+});
 describe('library handbook reading', () => {
   it('shows the supplied company beta edition when publication is not ready', async () => {
     User.getAgencies.mockResolvedValue([{ id: 2 }]);
