@@ -1,9 +1,9 @@
-# Pull Docker Official Images from ECR Public to avoid Docker Hub anonymous pull limits.
+# Pull Docker Official Images directly from Docker Hub; ECR Public throttles CI pulls.
 # Frontend Dockerfile for Google Cloud Run
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM public.ecr.aws/docker/library/node:22-alpine AS builder
+FROM docker.io/library/node:22-alpine AS builder
 
 WORKDIR /app/frontend
 
@@ -65,7 +65,7 @@ RUN npm run build && printf '{"buildId":"%s"}\n' "$VITE_APP_BUILD_ID" > dist/ver
     exit 1 )
 
 # Stage 2: Production
-FROM public.ecr.aws/docker/library/nginx:alpine
+FROM docker.io/library/nginx:alpine
 
 # Copy built files from builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
