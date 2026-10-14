@@ -259,8 +259,15 @@ export const downloadAcknowledgedDocument = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only view your own acknowledgments' } });
     }
 
-    const acknowledgment = await DocumentAcknowledgment.findByTaskAndUser(taskId, targetUserId);
-    if (!acknowledgment) {
+    // An administrator may file a reference document without asserting that the
+    // employee acknowledged or signed it. Keep the original PDF downloadable.
+    const metadata = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+    const referenceOnly = metadata?.referenceOnly === true
+      && task.status === 'completed'
+      && template.is_user_specific === 1
+      && template.user_id === task.assigned_to_user_id;
+    const acknowledgment = referenceOnly ? null : await DocumentAcknowledgment.findByTaskAndUser(taskId, targetUserId);
+    if (!referenceOnly && !acknowledgment) {
       return res.status(404).json({ error: { message: 'Acknowledgment not found' } });
     }
 
@@ -279,6 +286,13 @@ export const downloadAcknowledgedDocument = async (req, res, next) => {
     } catch (e) {
       const StorageService = (await import('../services/storage.service.js')).default;
       originalBuffer = await StorageService.readTemplate(filename);
+    }
+
+    if (referenceOnly) {
+      const filename = String(template.name || 'reference-document').replace(/[^\w\s\-().]/g, '').trim() || 'reference-document';
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
+      return res.send(originalBuffer);
     }
 
     const originalPdf = await PDFDocument.load(originalBuffer);
