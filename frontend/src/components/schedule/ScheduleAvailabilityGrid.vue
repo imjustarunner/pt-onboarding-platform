@@ -475,17 +475,16 @@
           </router-link>
         </div>
 
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" class="sched-tool-cluster" title="Office bookings for this person — All buildings, one building, or Off">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" class="sched-tool-cluster" title="Filter your office rooms by building">
           <span class="sched-tool-cluster__label">Office</span>
           <select
             v-model.number="selectedOfficeLocationId"
             class="sched-select sched-select--compact"
             :disabled="loading || officeGridLoading"
             data-tour="my-schedule-office-select"
-            title="All = every office booking for this person. Pick a building for room-count overlay, or Off to hide office blocks."
+            title="All = every office booking for this person. Pick a building to enable available-room counts."
           >
             <option :value="OFFICE_SCOPE_ALL">All offices</option>
-            <option :value="OFFICE_SCOPE_OFF">Off</option>
             <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
           </select>
           <button
@@ -497,9 +496,9 @@
             :aria-checked="String(!!showOfficeOverlay)"
             :disabled="loading"
             @click="showOfficeOverlay = !showOfficeOverlay"
-            title="When a specific office is selected, show open/assigned room-count labels on empty cells"
+            title="Show counts of all available rooms in the selected building; off by default"
           >
-            Room counts
+            Available-room counts
           </button>
           <router-link
             v-if="canManageOffices"
@@ -777,6 +776,16 @@
       </div>
         </div>
       </details>
+
+      <div class="sched-room-visibility">
+        <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-pill"
+          :class="{ on: showMyRooms }" role="switch" :aria-checked="String(showMyRooms)"
+          data-testid="my-schedule-room-toggle" @click="showMyRooms = !showMyRooms"
+          title="Show your booked and Assigned Available office rooms; available-room counts are controlled separately in Settings">
+          My office rooms · {{ showMyRooms ? 'On' : 'Off' }}
+        </button>
+        <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" />
+      </div>
 
       <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridError" class="error" style="margin-top: 10px;">
         {{ officeGridError }}
@@ -1561,24 +1570,7 @@
       </div>
     </template>
 
-    <div
-      v-if="showMyRoomLobbyModal"
-      class="modal-backdrop"
-      @click.self="showMyRoomLobbyModal = false"
-    >
-      <div class="modal" style="max-width: 480px; width: calc(100% - 24px);">
-        <div class="nr-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-          <div class="nr-head-copy">
-            <div class="nr-title">My Room lobby</div>
-            <div class="nr-subtitle muted">Guests wait here until you admit them. Photo required.</div>
-          </div>
-          <button type="button" class="btn btn-secondary btn-sm" @click="showMyRoomLobbyModal = false">Close</button>
-        </div>
-        <div style="padding: 12px 16px 18px;">
-          <MyRoomLobbyPanel />
-        </div>
-      </div>
-    </div>
+    <MyRoomLobbyDialog v-if="showMyRoomLobbyModal" @close="showMyRoomLobbyModal = false" />
 
     <!-- Read-only slot info modal for non-admin users viewing someone else's booked slot -->
     <div v-if="showSlotInfoModal" class="modal-backdrop modal-backdrop--request" @click.self="showSlotInfoModal = false">
@@ -5828,7 +5820,8 @@ import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
 import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
-import MyRoomLobbyPanel from './MyRoomLobbyPanel.vue';
+import MyRoomLobbyDialog from './MyRoomLobbyDialog.vue';
+import ScheduleColorLegend from './ScheduleColorLegend.vue';
 import {
   APPOINTMENT_EDITOR_STATUS_OPTIONS,
   appointmentEditorTitleForKind,
@@ -6212,6 +6205,7 @@ const showGoogleEvents = computed({ get: () => googleCalendarEnabled.value && go
 // Incoming TherapyNotes feeds have been retired, including saved overlay preferences.
 const showExternalBusy = computed({ get: () => false, set: () => {} });
 const showOfficeOverlay = ref(false);
+const showMyRooms = ref(true);
 const showQuarterDetail = ref(false);
 /** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
 const showPeerBusyOverlay = ref(false);
@@ -6717,6 +6711,7 @@ const saveOverlayPrefs = () => {
       showGoogleEvents: !!showGoogleEvents.value,
       showExternalBusy: !!showExternalBusy.value,
       showOfficeOverlay: !!showOfficeOverlay.value,
+      showMyRooms: !!showMyRooms.value,
       hideExternalIcsTitles: !!hideExternalIcsTitles.value,
       selectedExternalCalendarIds: coerceIdArray(selectedExternalCalendarIds.value),
       hideWeekend: !!hideWeekend.value,
@@ -7554,6 +7549,7 @@ try {
       normalizeGoogleOverlayMode('events');
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
       showOfficeOverlay.value = saved.showOfficeOverlay !== undefined ? !!saved.showOfficeOverlay : false;
+      showMyRooms.value = saved.showMyRooms !== undefined ? !!saved.showMyRooms : true;
       hideExternalIcsTitles.value = !!saved.hideExternalIcsTitles;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
       const dedicatedHideWeekend = loadHideWeekendPref();
@@ -9957,7 +9953,7 @@ watch(externalCalendarsAvailable, (next) => {
 });
 
 // Persist overlay/view settings (provider UX only).
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, showAllHours, viewMode], () => {
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, showMyRooms, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, showAllHours, viewMode], () => {
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
@@ -11308,7 +11304,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
 
   // Office assignment blocks: All offices, one building, or Off.
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
-  const officeHits = selectedOfficeId === OFFICE_SCOPE_OFF
+  const officeHits = !showMyRooms.value || selectedOfficeId === OFFICE_SCOPE_OFF
     ? []
     : selectedOfficeId === OFFICE_SCOPE_ALL
       ? officeEventsInCell(dayName, hour, minute)
@@ -18970,7 +18966,7 @@ const cancelBookingError = ref('');
 /** 0 = Off (hide office blocks), -1 = All offices for this person, >0 = specific building */
 const OFFICE_SCOPE_OFF = 0;
 const OFFICE_SCOPE_ALL = -1;
-const selectedOfficeLocationId = ref(OFFICE_SCOPE_OFF);
+const selectedOfficeLocationId = ref(OFFICE_SCOPE_ALL);
 const isOfficeScopeSpecific = computed(() => Number(selectedOfficeLocationId.value) > 0);
 const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL);
 const officeGridLoading = ref(false);
@@ -19054,10 +19050,7 @@ const fetchMyAssignedOffices = async () => {
 
 const shouldApplySelfDefaultOffice = () => (
   props.mode === 'self'
-  && (
-    Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL
-    || viewMode.value === 'office_layout'
-  )
+  && viewMode.value === 'office_layout'
 );
 
 const assignedOfficeChoices = computed(() => {
@@ -29529,6 +29522,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   outline-offset: 1px;
   z-index: 1;
 }
+
+.sched-room-visibility { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; padding:12px 0; }
+.sched-room-visibility > .sched-pill { flex-shrink:0; }
 
 .modal-backdrop {
   position: fixed;

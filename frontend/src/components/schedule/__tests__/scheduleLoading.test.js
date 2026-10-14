@@ -150,7 +150,7 @@ it('keeps app appointments loaded when a saved Google overlay reports a permissi
   expect(wrapper.find('[data-testid="my-schedule-empty"]').exists()).toBe(false);
 });
 
-it('loads memberships once without requesting full details for every agency and defaults office overlays off', async () => {
+it('loads memberships once, shows personal rooms by default, and keeps available-room counts off', async () => {
   const get = m.get.getMockImplementation();
   m.get.mockImplementation(async (url, options) => {
     if (url.endsWith('/agencies')) return { data: Array.from({ length: 300 }, (_, i) => ({ id: i + 1, name: `Tenant ${i + 1}`, organization_type: 'agency' })) };
@@ -162,10 +162,36 @@ it('loads memberships once without requesting full details for every agency and 
   await flushPromises();
   expect(m.get.mock.calls.filter(([url]) => url === '/users/me/agencies')).toHaveLength(1);
   expect(m.hydrate).not.toHaveBeenCalled();
-  expect(state.selectedOfficeLocationId).toBe(0);
+  expect(state.selectedOfficeLocationId).toBe(-1);
+  expect(state.showMyRooms).toBe(true);
   expect(state.showOfficeOverlay).toBe(false);
   expect(m.get.mock.calls.some(([url]) => /weekly-grid|assigned-offices/.test(url))).toBe(false);
   const select = wrapper.find('[data-tour="my-schedule-office-select"]');
   expect(select.exists()).toBe(true);
-  expect(select.findAll('option').map(o => o.text())).toContain('Off');
+  expect(select.findAll('option').map(o => o.text())).toContain('All offices');
+});
+
+it('toggles personal reservations independently of available-room counts and remembers the choice', async () => {
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation((url, options) => {
+    if (url.includes('/schedule-summary')) return Promise.resolve({ data: { ...summary, officeEvents: [
+      { id: 1, buildingId: 1, roomId: 10, assignedProviderId: 7, slotState: 'ASSIGNED_AVAILABLE', startAt: new Date('2026-10-12T10:00:00').toISOString(), endAt: new Date('2026-10-12T11:00:00').toISOString() },
+      { id: 2, buildingId: 2, roomId: 20, assignedProviderId: 7, bookedProviderId: 7, slotState: 'ASSIGNED_BOOKED', startAt: new Date('2026-10-12T10:00:00').toISOString(), endAt: new Date('2026-10-12T11:00:00').toISOString() }
+    ] } });
+    return get(url, options);
+  });
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500); await flushPromises();
+  expect(state.cellBlocks('Monday', 10).map(b => b.kind)).toEqual(expect.arrayContaining(['oa','ob']));
+  expect(state.showOfficeOverlay).toBe(false);
+  await wrapper.find('[data-testid="my-schedule-room-toggle"]').trigger('click');
+  expect(state.cellBlocks('Monday', 10).some(b => ['oa','ob'].includes(b.kind))).toBe(false);
+  expect(state.showOfficeOverlay).toBe(false);
+  expect(JSON.parse(localStorage.getItem('schedule.overlayPrefs.v2:7:multi')).showMyRooms).toBe(false);
+  wrapper.unmount();
+  const restored = await mount();
+  expect(restored.showMyRooms).toBe(false);
+  await wrapper.find('[data-testid="my-schedule-room-toggle"]').trigger('click');
+  await vi.advanceTimersByTimeAsync(500); await flushPromises();
+  expect(restored.cellBlocks('Monday', 10).map(b => b.kind)).toEqual(expect.arrayContaining(['oa','ob']));
 });
