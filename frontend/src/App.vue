@@ -5,7 +5,7 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
-      <div v-if="pageLoading && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !isScheduleRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -2634,8 +2634,16 @@ function routeLooksLikePublicIntake(r) {
 }
 
 // Global loading overlay (tracks API calls + navigation + icon preloads).
-// Public intake covers have their own layout — do not start with the ITSCO overlay.
-const pageLoading = ref(!routeLooksLikePublicIntake(route));
+// Calendars show their own inline progress; unrelated requests must not cover them.
+const isScheduleRoute = computed(() => {
+  const path = String(route.path || '');
+  if (/\/(?:my-schedule|buildings\/schedule|office\/schedule|schedule\/staff|schedule\/board\/[^/]+|provider-mobile\/schedule)\/?$/.test(path)) return true;
+  if (!/\/dashboard\/?$/.test(path)) return false;
+  return route.query?.tab === 'my_schedule'
+    || (!route.query?.tab && !route.query?.my && userPreferencesStore.defaultLandingPage === 'schedule');
+});
+// Public intake and schedule pages must also avoid the initial overlay flash.
+const pageLoading = ref(!routeLooksLikePublicIntake(route) && !isScheduleRoute.value);
 const loadingText = getLoadingTextRef();
 let loadingStartedAt = 0;
 /** Only show overlay after continuous load — avoids flash storms from brief nav/API pulses. */
@@ -2785,8 +2793,24 @@ function suppressPublicIntakeFullscreenLoader() {
 }
 if (isPublicIntakeRoute.value) suppressPublicIntakeFullscreenLoader();
 
+function suppressScheduleFullscreenLoader() {
+  if (loaderShowTimer) {
+    clearTimeout(loaderShowTimer);
+    loaderShowTimer = null;
+  }
+  if (loaderHideTimer) {
+    clearTimeout(loaderHideTimer);
+    loaderHideTimer = null;
+  }
+  pageLoading.value = false;
+}
+
 function syncPageLoading(isOn) {
   try {
+    if (isScheduleRoute.value) {
+      suppressScheduleFullscreenLoader();
+      return;
+    }
     if (isSchoolPortalShellActive.value) {
       suppressSchoolPortalFullscreenLoader();
       return;
@@ -2807,7 +2831,7 @@ function syncPageLoading(isOn) {
       loaderShowTimer = window.setTimeout(() => {
         loaderShowTimer = null;
         try {
-          if (!globalLoading.value) return;
+          if (!globalLoading.value || isScheduleRoute.value) return;
           loadingStartedAt = Date.now();
           pageLoading.value = true;
         } catch {
@@ -2839,6 +2863,8 @@ function syncPageLoading(isOn) {
   }
 }
 watch(globalLoading, syncPageLoading);
+// Re-evaluate even when a request stays pending across navigation or a tab change.
+watch(isScheduleRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isSchoolPortalShellActive, (active) => {
   if (active) suppressSchoolPortalFullscreenLoader();
 });

@@ -80,6 +80,29 @@ it('keeps a cached calendar visible after a transient refresh failure', async ()
   expect(state.error).toContain('previously loaded schedule');
 });
 
+it('keeps the calendar mounted with inline progress while a refresh is pending', async () => {
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  await flushPromises();
+  const grid = wrapper.find('.sched-grid-wrap').element;
+  let resolveSchedule;
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation((url, options) => url.includes('/schedule-summary')
+    ? new Promise(resolve => { resolveSchedule = resolve; }) : get(url, options));
+  const refreshing = state.load({ forceRefresh: true });
+  await flushPromises();
+  expect(state.loading).toBe(true);
+  expect(state.summary).toMatchObject(summary);
+  expect(wrapper.find('.sched-grid-wrap').element).toBe(grid);
+  expect(wrapper.find('.sched-corner-loading').text()).toContain('Refreshing');
+  expect(wrapper.find('[data-testid="my-schedule-empty"]').exists()).toBe(false);
+  resolveSchedule({ data: summary });
+  await refreshing;
+  await flushPromises();
+  expect(wrapper.find('.sched-grid-wrap').element).toBe(grid);
+  expect(wrapper.find('.sched-corner-loading').exists()).toBe(false);
+});
+
 it.each([401, 403])('clears cached schedule data when the calendar request is denied with %s', async (status) => {
   const key = '7|all|2026-10-12|monday|false|false|false|';
   setScheduleSummary(key, summary);
