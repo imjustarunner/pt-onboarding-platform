@@ -2,7 +2,6 @@ import { withMeetingWindow } from '../services/meetingWindowConflict.service.js'
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import pool from '../config/database.js';
 import { assertMeetingBookingWindow } from '../utils/recurringWindow.js';
-import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
 import { withSupervisorTimeLock, assertNoReviewTimeOverlap } from '../services/supervisionReviewTime.service.js';
@@ -16,7 +15,8 @@ function normalizeInviteScopeValue(raw) {
 class SupervisionSession {
   static async create(input) {
     assertMeetingBookingWindow(input);
-    const ids=[input.supervisorUserId,input.coFacilitatorUserId,input.superviseeUserId];
+    if (input.initialStatus === 'CANCELLED') return this.createWithReviewTimeChecked(input);
+    const ids=[input.supervisorUserId,input.coFacilitatorUserId,...(input.sessionType === 'group' ? [...(input.requiredAttendeeUserIds || []), ...(input.presenterUserIds || [])] : [input.superviseeUserId])];
     return withMeetingWindow({ userIds: ids, startAt: input.startAt, endAt: input.endAt, timeZone: input.eventTimezone }, () => this.createWithReviewTimeChecked(input));
   }
 
@@ -43,7 +43,8 @@ class SupervisionSession {
     enrollmentMode = 'invited',
     signupClosesAt = null,
     autoCancelIfEmpty = false,
-    notifyParticipants = true
+    notifyParticipants = true,
+    initialStatus = 'SCHEDULED'
   }) {
     const participantToken = String(joinToken || generateJoinToken()).slice(0, 64);
     const hostToken = generateJoinToken().slice(0, 64);
@@ -67,7 +68,7 @@ class SupervisionSession {
            enrollment_mode, signup_closes_at, auto_cancel_if_empty,
            start_at, end_at, modality, location_text, notes, status,
            recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
@@ -90,6 +91,7 @@ class SupervisionSession {
           modality,
           locationText,
           notes,
+          initialStatus,
           recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
           recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
           recurrenceIndex == null ? null : Math.max(0, parseInt(recurrenceIndex, 10) || 0),
@@ -109,7 +111,7 @@ class SupervisionSession {
            invite_audience_all_supervised, invite_audience_group_support,
            start_at, end_at, modality, location_text, notes, status,
            recurrence_series_id, recurrence_frequency, recurrence_index, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
@@ -128,6 +130,7 @@ class SupervisionSession {
           modality,
           locationText,
           notes,
+          initialStatus,
           recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
           recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
           recurrenceIndex == null ? null : Math.max(0, parseInt(recurrenceIndex, 10) || 0),
@@ -140,7 +143,7 @@ class SupervisionSession {
       const [result] = await pool.execute(
         `INSERT INTO supervision_sessions
           (join_token, agency_id, supervisor_user_id, supervisee_user_id, session_type, invite_scope, start_at, end_at, modality, location_text, notes, status, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           Number(agencyId),
@@ -153,6 +156,7 @@ class SupervisionSession {
           modality,
           locationText,
           notes,
+          initialStatus,
           createdByUserId ? Number(createdByUserId) : null
         ]
       );
@@ -272,8 +276,9 @@ class SupervisionSession {
     if(!Array.isArray(attendees)||!attendees.length)return;
     const session=await this.findById(sessionId);
     if(!session)return;
+    if(session.status==='CANCELLED') return this.upsertAttendeesWithReviewTimeChecked(sessionId,attendees);
     const ids=[session.supervisor_user_id,session.co_facilitator_user_id,...attendees.map(a=>a.userId)];
-    return withSupervisorTimeLock(ids,async db=>{
+    const result = await withSupervisorTimeLock(ids,async db=>{
       const current=await this.findById(sessionId);
       await assertNoReviewTimeOverlap(db,ids,current.start_at,current.end_at,0,true);
       return this.upsertAttendeesWithReviewTimeChecked(sessionId,attendees);
@@ -327,6 +332,14 @@ class SupervisionSession {
        WHERE session_id = ? AND user_id = ?`,
       [isRequired ? 1 : 0, sid, uid]
     );
+    if (result.affectedRows > 0) {
+      const { parseMeetingSettings } = await import('../services/meetingSettingsPolicy.js');
+      const session = await this.findById(sid);
+      const settings = parseMeetingSettings(session.meeting_settings_json);
+      const required = new Set((settings.mandatoryAttendeeUserIds || []).map(Number));
+      if (isRequired) required.add(uid); else required.delete(uid);
+      await pool.execute("UPDATE supervision_sessions SET meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json,JSON_OBJECT()),'$.mandatoryAttendeeUserIds',CAST(? AS JSON)) WHERE id=?", [JSON.stringify([...required]),sid]);
+    }
     return result.affectedRows > 0;
   }
 
@@ -680,11 +693,14 @@ class SupervisionSession {
     const row=await this.findById(input.sessionId);
     if(!row)return;
     const ids=[row.supervisor_user_id,...(input.presenterUserIds || [])];
-    return withSupervisorTimeLock(ids,async db=>{
+    const result = await withSupervisorTimeLock(ids,async db=>{
       const latest=await this.findById(input.sessionId);
       await assertNoReviewTimeOverlap(db,ids,latest.start_at,latest.end_at,0,true);
       return this.setPresentersWithReviewTimeChecked(input);
     });
+    const { syncSupervisionAgenda } = await import('../services/supervisionAgenda.service.js');
+    await syncSupervisionAgenda(input.sessionId);
+    return result;
   }
   static async setPresentersWithReviewTimeChecked({
     sessionId,
@@ -694,8 +710,18 @@ class SupervisionSession {
   }) {
     const sid = parseInt(sessionId, 10);
     const presenterIds = Array.from(new Set((presenterUserIds || []).map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0))).slice(0, 2);
+    await pool.execute(`UPDATE supervision_session_attendees a JOIN supervision_sessions s ON s.id=a.session_id
+      JOIN supervision_session_presenters p ON p.session_id=a.session_id AND p.user_id=a.user_id
+      LEFT JOIN user_agencies ua ON ua.user_id=a.user_id AND ua.agency_id=s.agency_id
+      SET a.is_required=COALESCE(JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.mandatoryAttendeeUserIds'),CAST(a.user_id AS JSON)),0),
+        a.is_compensable_snapshot=IF(COALESCE(JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.mandatoryAttendeeUserIds'),CAST(a.user_id AS JSON)),0),COALESCE(ua.supervision_is_compensable,0),0)
+      WHERE a.session_id=? AND a.participant_role='supervisee' AND JSON_EXTRACT(s.meeting_settings_json,'$.mandatoryAttendeeUserIds') IS NOT NULL`,[sid]);
     await pool.execute('DELETE FROM supervision_session_presenters WHERE session_id = ?', [sid]);
     if (!presenterIds.length) return;
+    await pool.execute(`UPDATE supervision_session_attendees a JOIN supervision_sessions s ON s.id=a.session_id
+      LEFT JOIN user_agencies ua ON ua.user_id=a.user_id AND ua.agency_id=s.agency_id
+      SET a.is_required=1,a.is_compensable_snapshot=COALESCE(ua.supervision_is_compensable,0)
+      WHERE a.session_id=? AND a.user_id IN (${presenterIds.map(() => '?').join(',')})`, [sid, ...presenterIds]);
 
     const rows = presenterIds.map((uid, idx) => ({
       userId: uid,
@@ -733,6 +759,7 @@ class SupervisionSession {
          sp.user_id,
          sp.presenter_role,
          sp.status AS presenter_status,
+         (SELECT cp.status FROM supervision_case_presentations cp WHERE cp.session_id=sp.session_id AND cp.presenter_user_id=sp.user_id LIMIT 1) AS presentation_status,
          sp.topic_summary,
          ss.agency_id,
          ss.session_type,
@@ -752,84 +779,6 @@ class SupervisionSession {
       args
     );
     return rows || [];
-  }
-
-  static reminderScheduleForSessionStart(startAtRaw) {
-    const start = new Date(startAtRaw);
-    if (!Number.isFinite(start.getTime())) return [];
-    return [
-      { type: 'd7', scheduledFor: new Date(start.getTime() - (7 * 24 * 60 * 60 * 1000)) },
-      { type: 'h24', scheduledFor: new Date(start.getTime() - (24 * 60 * 60 * 1000)) },
-      { type: 'h1', scheduledFor: new Date(start.getTime() - (60 * 60 * 1000)) }
-    ];
-  }
-
-  static async ensurePresenterReminders({
-    presenterAssignmentId,
-    userId,
-    agencyId,
-    sessionId,
-    sessionType,
-    supervisorName,
-    startAt,
-    now = new Date()
-  }) {
-    const aid = parseInt(presenterAssignmentId, 10);
-    const uid = parseInt(userId, 10);
-    const agency = parseInt(agencyId, 10);
-    const sid = parseInt(sessionId, 10);
-    const nowDate = now instanceof Date ? now : new Date(now);
-    if (!aid || !uid || !agency || !sid || !Number.isFinite(nowDate.getTime())) return [];
-
-    const schedule = this.reminderScheduleForSessionStart(startAt);
-    const sent = [];
-    for (const item of schedule) {
-      if (!(item.scheduledFor instanceof Date) || !Number.isFinite(item.scheduledFor.getTime())) continue;
-      if (item.scheduledFor.getTime() > nowDate.getTime()) continue;
-
-      const [existsRows] = await pool.execute(
-        `SELECT id, sent_at
-         FROM supervision_presenter_reminders
-         WHERE presenter_assignment_id = ? AND reminder_type = ?
-         LIMIT 1`,
-        [aid, item.type]
-      );
-      if ((existsRows || []).length && existsRows[0]?.sent_at) continue;
-
-      const whenLabel = item.type === 'd7' ? 'in 7 days' : (item.type === 'h24' ? 'in 24 hours' : 'in 1 hour');
-      const title = 'Supervision presenter reminder';
-      const message = `You are assigned to present (${sessionType || 'group'} supervision) ${whenLabel}. Session starts at ${new Date(startAt).toLocaleString()} with ${supervisorName || 'your supervisor'}.`;
-
-      const notif = await Notification.create({
-        type: 'supervision_presenter_reminder',
-        severity: 'info',
-        title,
-        message,
-        userId: uid,
-        agencyId: agency,
-        relatedEntityType: 'supervision_session',
-        relatedEntityId: sid,
-        actorSource: 'Supervision'
-      });
-
-      if ((existsRows || []).length) {
-        await pool.execute(
-          `UPDATE supervision_presenter_reminders
-           SET scheduled_for = ?, sent_at = NOW(), notification_id = ?, channel = 'in_app'
-           WHERE id = ?`,
-          [item.scheduledFor, notif?.id || null, existsRows[0].id]
-        );
-      } else {
-        await pool.execute(
-          `INSERT INTO supervision_presenter_reminders
-            (presenter_assignment_id, reminder_type, scheduled_for, sent_at, notification_id, channel)
-           VALUES (?, ?, ?, NOW(), ?, 'in_app')`,
-          [aid, item.type, item.scheduledFor, notif?.id || null]
-        );
-      }
-      sent.push({ type: item.type, notificationId: notif?.id || null });
-    }
-    return sent;
   }
 
   static async listPresentersForSession(sessionId) {
@@ -1140,7 +1089,7 @@ class SupervisionSession {
          )
          AND ss.start_at < ?
          AND ss.end_at > ?
-         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+         AND (ss.status IS NULL OR ss.status <> 'CANCELLED' OR (ss.cancel_reason IS NOT NULL AND COALESCE(ss.recurrence_horizon_held,0)=0))
        ORDER BY ss.start_at ASC`,
       [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, windowEnd, windowStart]
     );

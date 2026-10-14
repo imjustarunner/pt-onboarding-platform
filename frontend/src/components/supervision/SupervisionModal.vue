@@ -10,6 +10,7 @@
       >
         Back to supervisees
       </button>
+      <span class="auricwell-supervision-brand"><img src="/auricwell/mark.svg" alt="" />AuricWell · Supervision</span>
       <h2 id="supervision-modal-title">
         {{ selectedSupervisee ? selectedSuperviseeDisplayName : 'Supervision' }}
       </h2>
@@ -693,7 +694,7 @@
         <div class="supervision-modal-header supervision-video-header">
           <div class="supervision-video-header-brand">
             <BrandingLogo size="medium" class="supervision-video-logo" />
-            <h2>Supervision video (in-app)</h2>
+            <h2>AuricWell · Supervision</h2>
           </div>
           <div class="supervision-video-header-actions">
             <a
@@ -2562,4 +2563,9 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
 }
+</style>
+
+<style scoped>
+.auricwell-supervision-brand { display:inline-flex; align-items:center; gap:6px; color:#52776c; font-size:12px; font-weight:700; letter-spacing:.06em; }
+.auricwell-supervision-brand img { width:22px; height:26px; }
 </style>

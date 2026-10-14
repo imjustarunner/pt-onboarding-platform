@@ -1,9 +1,10 @@
+import { canJoinSupervision, hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
 import multer from 'multer';
 import pool from '../config/database.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
 import StorageService from '../services/storage.service.js';
-import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
+import { isAdminLikeRole } from '../utils/supervisorSchoolAccess.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -57,30 +58,10 @@ async function getSessionAttendeeIds(sessionRow) {
 }
 
 async function canViewSession(req, sessionRow) {
-  if (!sessionRow) return false;
-  if (isAdminLikeRole(req.user?.role)) return true;
-  const uid = Number(req.user?.id || 0);
-  if (!uid) return false;
-  if (uid === Number(sessionRow.supervisor_user_id)) return true;
-  if (uid === Number(sessionRow.co_facilitator_user_id)) return true;
-  if (uid === Number(sessionRow.supervisee_user_id)) return true;
-  try {
-    const [attendee] = await pool.execute(
-      `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1`,
-      [Number(sessionRow.id), uid]
-    );
-    if (attendee?.length) return true;
-  } catch {
-    // fall through
-  }
-  try {
-    const presenters = await SupervisionSession.listPresentersForSession(sessionRow.id);
-    if ((presenters || []).some((p) => Number(p.user_id) === uid)) return true;
-  } catch {
-    // fall through
-  }
-  if (await isSupervisorActor({ userId: uid, role: req.user?.role, user: req.user })) return true;
-  return false;
+  const uid=Number(req.user?.id || 0);
+  if(!sessionRow || !uid) return false;
+  if(isAdminLikeRole(req.user?.role) && await hasActiveMeetingMembership(sessionRow.agency_id,uid)) return true;
+  return canJoinSupervision(sessionRow,uid);
 }
 
 async function canEditPresentation(req, sessionRow, presentation) {
@@ -102,9 +83,9 @@ async function canControlLiveState(req, sessionRow) {
   const targetId = Number(req.body?.activePresentationId || 0);
   if (req.body?.handoff === true) {
     const isHost = [sessionRow.supervisor_user_id, sessionRow.co_facilitator_user_id].map(Number).includes(uid);
-    if (!isHost && Number(active?.presenter_user_id) !== uid) return false;
     const target = targetId ? await SupervisionCasePresentation.findById(targetId) : null;
     if (!target || Number(target.session_id) !== Number(sessionRow.id)) return false;
+    if (!isHost && Number(active?.presenter_user_id) !== uid && Number(target.presenter_user_id) !== uid) return false;
     const assigned = await SupervisionSession.listPresentersForSession(sessionRow.id);
     return assigned.some(p => Number(p.user_id) === Number(target.presenter_user_id));
   }
@@ -215,6 +196,9 @@ export const updatePresentation = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the assigned presenter can edit this deck' } });
     }
 
+    if (req.body?.status !== undefined && !['draft','ready','presented'].includes(req.body.status)) {
+      return res.status(400).json({ error: { message: 'Invalid presentation status.' } });
+    }
     const updated = await SupervisionCasePresentation.updatePresentation(presentation.id, {
       sourceType: req.body?.sourceType,
       externalUrl: req.body?.externalUrl,

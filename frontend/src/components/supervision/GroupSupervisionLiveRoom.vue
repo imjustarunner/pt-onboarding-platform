@@ -4,6 +4,7 @@
       <div class="gsl__header-left">
         <BrandingLogo size="large" class="gsl__logo" />
         <div>
+          <span class="auricwell-supervision-brand"><img src="/auricwell/mark.svg" alt="" />AuricWell · Supervision</span>
           <h1>{{ displayTitle }}</h1>
           <p class="gsl__meta">
             <span v-if="presenterSubtitle" class="gsl__presenter-line">{{ presenterSubtitle }}</span>
@@ -267,9 +268,9 @@
       </button>
       <section v-show="presentationBandOpen" class="gsl__stage-wrap">
         <div v-if="canHandoffPresentation && availablePresentations.length > 1 && !editingSlide" class="gsl__handoff">
-          <span>Switch presenter:</span>
+          <span>Switch presenter (replaces the presentation on everyone’s screen):</span>
           <button v-for="(deck, index) in availablePresentations" :key="deck.id" type="button" class="btn btn-secondary btn-sm"
-            :disabled="Number(deck.id) === Number(presentation?.id)" @click="handoffPresentation(deck.id)">
+            :disabled="Number(deck.id) === Number(presentation?.id) || (!isSupervisor && !isMyDeckActive && Number(deck.presenterUserId) !== Number(myPresentation?.presenterUserId))" @click="handoffPresentation(deck.id)">
             Presentation {{ index + 1 }} · {{ deck.presenterName || 'Presenter' }}
           </button>
         </div>
@@ -1481,4 +1482,9 @@ defineExpose({
 @media (max-width: 980px) {
   .gsl:not(.gsl--video-fs) .gsl__video-strip:not(.gsl__video-strip--lobby), .gsl:not(.gsl--video-fs) .gsl__workspace { width: 100%; flex: 0 0 auto; box-sizing: border-box; }
 }
+</style>
+
+<style scoped>
+.auricwell-supervision-brand { display:inline-flex; align-items:center; gap:6px; color:#52776c; font-size:12px; font-weight:700; letter-spacing:.06em; }
+.auricwell-supervision-brand img { width:22px; height:26px; }
 </style>

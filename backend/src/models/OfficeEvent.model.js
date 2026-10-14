@@ -1,3 +1,4 @@
+import { activeOfficeProviderSql, inactiveOfficeProvider } from '../utils/officeProviderEligibility.js';
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 
@@ -335,7 +336,9 @@ class OfficeEvent {
        WHERE e.office_location_id = ?
          AND e.start_at < ?
          AND e.end_at > ?
-         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')`,
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         AND (e.end_at<UTC_TIMESTAMP() OR COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) IS NULL
+           OR EXISTS (SELECT 1 FROM users owner WHERE owner.id=COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) AND ${activeOfficeProviderSql('owner')}))`,
       [officeLocationId, endAt, startAt]
     );
     return rows || [];
@@ -384,10 +387,9 @@ class OfficeEvent {
         // Serialize materialization with provider offboarding. A previously read
         // template must not recreate reservations after its owner is archived.
         if (standingAssignmentId) {
-          const [[source]] = await conn.execute(`SELECT a.is_active,u.status,u.is_archived
+          const [[source]] = await conn.execute(`SELECT a.is_active AS assignment_active,u.is_active,u.status,u.is_archived
             FROM office_standing_assignments a JOIN users u ON u.id=a.provider_id WHERE a.id=? FOR UPDATE`, [standingAssignmentId]);
-          if (!source || !Number(source.is_active) || Number(source.is_archived)
-              || ['ARCHIVED','INACTIVE_EMPLOYEE'].includes(String(source.status || '').toUpperCase())) return null;
+          if (!source || !Number(source.assignment_active) || inactiveOfficeProvider(source)) return null;
         }
         return this.upsertSlotState({
         officeLocationId,

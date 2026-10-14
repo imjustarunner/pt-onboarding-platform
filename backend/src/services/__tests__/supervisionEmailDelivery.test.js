@@ -1,19 +1,20 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),release:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),release:vi.fn(),signup:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,release:m.release})}}));
 vi.mock('../../models/SupervisionSession.model.js',()=>({default:{resolveByJoinRef:async()=>({participant_join_token:'s'.repeat(32)})}}));
 vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{resolveByJoinRef:async()=>({participant_join_token:'h'.repeat(32)})}}));
 vi.mock('../meetingInvitations.service.js',()=>({personalMeetingInvitation:async()=>({url:'https://tenant.test/join/invitation/personal'})}));
+vi.mock('../supervisionSignup.service.js',()=>({canUserSignup:m.signup}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async()=>({email:'participant@tenant.test'})}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://tenant.test'}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantMessageMailboxes:async()=>({domain:'tenant.test',notifications:{id:6,from_email:'notifications@tenant.test'}})}));
 vi.mock('../supervisionReplyMailbox.service.js',()=>({ensureSupervisionReplyMailbox:async()=>({from_email:'supervision-replies@tenant.test'})}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 vi.mock('../priorityEventEmail.service.js',()=>({priorityEventEmailRecipient:async({to})=>({to})}));
-import {sendSupervisionEmail,sendSupervisionDayAheadReminders,prepareSupervisionEmail} from '../supervisionEmail.service.js';
+import {sendSupervisionEmail,sendSupervisionDayAheadReminders,prepareSupervisionEmail,signupInvitationDue} from '../supervisionEmail.service.js';
 const session={id:10,agency_id:2,session_type:'group',supervisor_user_id:3,status:'SCHEDULED',start_at:'2099-01-01 18:00:00',end_at:'2099-01-01 19:00:00',notify_participants:1};
 const user={id:8,first_name:'Ada'};
-beforeEach(()=>{vi.clearAllMocks();m.send.mockResolvedValue({id:'sent',internetMessageId:'<actual@test>',communicationId:123});m.execute.mockImplementation(async sql=>{
+beforeEach(()=>{vi.clearAllMocks();m.signup.mockResolvedValue({ok:true});m.send.mockResolvedValue({id:'sent',internetMessageId:'<actual@test>',communicationId:123});m.execute.mockImplementation(async sql=>{
  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
  if(sql.startsWith('SELECT * FROM supervision_email_deliveries'))return [[]];
  if(sql.startsWith('SELECT u.id'))return [[{id:3,first_name:'Host'},{id:8,first_name:'Ada',status:'INVITED',participant_role:'supervisee'}]];
@@ -65,4 +66,34 @@ it('uses the polished CPA body, huddle calendar and its own delivery receipt',as
  await sendSupervisionEmail({session:{...session,kind:'HUDDLE',provider_id:3,status:'ACTIVE',meeting_subtype:'cpa'},user});
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({subject:'Invitation: CPA Meeting with Aunya',attachments:[expect.objectContaining({filename:'huddle.ics'})],html:expect.stringContaining('Clinical Practice Assistant')}));
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE huddle_email_deliveries SET delivery_status='),expect.any(Array));
+});
+
+it('requires explicit opt-in for the single signup invitation and isolates it from regular supervision',()=>{
+ const tick=new Date('2098-12-31T18:00:00Z');
+ const signup={...session,enrollment_mode:'signup_only'};
+ expect(signupInvitationDue(signup,tick)).toBe(false);
+ signup.meeting_settings_json={signupInvitationEnabled:true};
+ expect(signupInvitationDue(signup,tick)).toBe(true);
+ expect(signupInvitationDue({...signup,enrollment_mode:'invited'},tick)).toBe(false);
+ expect(signupInvitationDue({...signup,status:'CANCELLED'},tick)).toBe(false);
+ expect(signupInvitationDue({...signup,notify_participants:0},tick)).toBe(false);
+});
+it('rechecks signup eligibility and uses a durable receipt so repeated ticks send one invitation',async()=>{
+ const event={...session,enrollment_mode:'signup_only',meeting_settings_json:{signupInvitationEnabled:true}};
+ const receipts=new Set();m.execute.mockImplementation(async(sql,args=[])=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.startsWith('SELECT * FROM supervision_sessions'))return [[event]];
+  if(sql.startsWith('SELECT u.id'))return [[user]];
+  if(sql.startsWith('SELECT * FROM supervision_email_deliveries'))return [receipts.has(args.join('|'))?[{delivery_status:'sent'}]:[]];
+  if(sql.startsWith('INSERT INTO supervision_email_deliveries'))receipts.add(args.join('|'));
+  return [{affectedRows:1}];
+ });
+ const tick=new Date('2098-12-31T18:00:00Z');
+ await sendSupervisionDayAheadReminders(tick);await sendSupervisionDayAheadReminders(tick);
+ expect(m.send).toHaveBeenCalledOnce();
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({subject:expect.stringContaining('sign up'),text:expect.stringContaining('not been registered automatically')}));
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('ua.agency_id=? AND ua.is_active=1'),[2]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('COALESCE(u.is_demo,0)=0'),[2]);
+ m.signup.mockResolvedValue({ok:false});
+ expect(await prepareSupervisionEmail({session:event,user,kind:'signup_invitation'})).toMatchObject({skipped:true});
 });

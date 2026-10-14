@@ -4731,7 +4731,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           : !(r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0');
         const liveEndedAt = r.live_ended_at || null;
         const liveEnded = !!liveEndedAt;
-        const joinableSession = !liveEnded;
+        const joinableSession = !liveEnded && String(r.status).toUpperCase() !== 'CANCELLED';
         return {
           id: r.id,
           role: isSupervisor
@@ -4759,6 +4759,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
+          signupInvitationEnabled: parseMeetingSettings(r.meeting_settings_json).signupInvitationEnabled === true,
           timeZone: r.event_timezone || null,
           hostJoinUrl: joinableSession && hostJoinToken
             ? joinUrlForSupervision(await resolveMeetingBase(r.agency_id), hostJoinToken)
@@ -4923,6 +4924,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
+          signupInvitationEnabled: parseMeetingSettings(r.meeting_settings_json).signupInvitationEnabled === true,
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
@@ -7341,28 +7343,10 @@ export const listUserMeetingCandidates = async (req, res, next) => {
     const requestedAgencyId = Number(req.query?.agencyId || 0);
     let scopedAgencyIds = [];
     if (allAgencies) {
-      if (isActorSuperAdmin) {
-        // Platform operators should see coworkers across every active tenant, not only
-        // agencies the viewed user happens to belong to.
-        try {
-          const [agencyRows] = await pool.execute(
-            `SELECT id
-             FROM agencies
-             WHERE is_active = TRUE
-               AND (is_archived IS NULL OR is_archived = FALSE)
-               AND LOWER(COALESCE(organization_type, 'agency')) IN ('agency', 'life_coach', 'consultant')
-             ORDER BY id ASC`
-          );
-          scopedAgencyIds = Array.from(new Set(
-            (agencyRows || []).map((r) => Number(r?.id || 0)).filter((n) => n > 0)
-          ));
-        } catch {
-          scopedAgencyIds = [];
-        }
-        if (!scopedAgencyIds.length) scopedAgencyIds = targetAgencyIds;
-      } else {
-        scopedAgencyIds = accessibleAgencyIds;
-      }
+      // All agencies means the scheduler's active affiliations, not every tenant
+      // on the platform or only the person whose calendar is currently visible.
+      scopedAgencyIds = actorAgencyIds;
+
     } else {
       const fallbackAgencyId = (isActorSuperAdmin ? targetAgencyIds : accessibleAgencyIds)[0] || 0;
       const agencyId = requestedAgencyId > 0 ? requestedAgencyId : fallbackAgencyId;
@@ -7411,16 +7395,20 @@ export const listUserMeetingCandidates = async (req, res, next) => {
            u.email,
            u.role,
            u.profile_photo_path,
-           GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids
+           u.has_provider_access,
+           GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids,
+           GROUP_CONCAT(DISTINCT CASE WHEN ua.supervision_is_prelicensed=1 THEN ua.agency_id END) AS prelicensed_agency_ids
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE ua.agency_id IN (${placeholders})
+           AND ua.is_active = 1
            AND u.id <> ?
+           AND COALESCE(u.is_demo, 0) = 0
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'DELETED'))
            AND ${roleClause}
-         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path
+         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access
          ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
         [...scopedAgencyIds, userId, ...scheduleCoworkerRoleSqlParams()]
       );
@@ -7432,6 +7420,8 @@ export const listUserMeetingCandidates = async (req, res, next) => {
         email: String(r.email || '').trim().toLowerCase(),
         role: String(r.role || '').trim().toLowerCase(),
         profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
+        hasProviderAccess: Number(r.has_provider_access) === 1,
+        prelicensedAgencyIds: String(r.prelicensed_agency_ids || '').split(',').map(Number).filter(Boolean),
         agencyIds: String(r.agency_ids || '')
           .split(',')
           .map((v) => Number(v || 0))
@@ -7439,99 +7429,24 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       })).filter((u) => u.id > 0);
     }
 
-    if (isActorSuperAdmin) {
-      const existingIds = new Set(users.map((u) => u.id));
-      const [platformRows] = await pool.execute(
-        `SELECT
-           u.id,
-           u.first_name,
-           u.last_name,
-           u.email,
-           u.role,
-           u.profile_photo_path,
-           GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids
-         FROM users u
-         LEFT JOIN user_agencies ua ON ua.user_id = u.id
-         WHERE u.id <> ?
-           AND LOWER(COALESCE(u.role, '')) IN ('super_admin', 'superadmin')
-           AND (u.is_active IS NULL OR u.is_active = TRUE)
-           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
-         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path
-         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-        [userId]
-      );
-      for (const r of (platformRows || [])) {
-        const id = Number(r.id || 0);
-        if (!id || existingIds.has(id)) continue;
-        existingIds.add(id);
-        users.push({
-          id,
-          firstName: String(r.first_name || '').trim(),
-          lastName: String(r.last_name || '').trim(),
-          email: String(r.email || '').trim().toLowerCase(),
-          role: String(r.role || '').trim().toLowerCase(),
-          profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
-          agencyIds: String(r.agency_ids || '')
-            .split(',')
-            .map((v) => Number(v || 0))
-            .filter((n) => n > 0)
-        });
-      }
-      users.sort((a, b) => {
-        const last = String(a.lastName || '').localeCompare(String(b.lastName || ''));
-        if (last !== 0) return last;
-        return String(a.firstName || '').localeCompare(String(b.firstName || ''));
-      });
-    }
-
-    const candidateIdSet = new Set(users.map((u) => u.id));
+    const candidateIdSet = () => new Set(users.map((u) => u.id));
     const filterCandidateIds = (ids) => (ids || [])
       .map((n) => Number(n || 0))
-      .filter((id) => id > 0 && candidateIdSet.has(id));
+      .filter((id) => id > 0 && candidateIdSet().has(id));
 
-    const groups = [];
-    const providerIds = filterCandidateIds(
-      users.filter((u) => ['provider', 'provider_plus', 'clinician'].includes(u.role)).map((u) => u.id)
-    );
-    const adminStaffIds = filterCandidateIds(
-      users.filter((u) => ['admin', 'assistant_admin', 'staff', 'support', 'clinical_practice_assistant', 'super_admin', 'superadmin'].includes(u.role)).map((u) => u.id)
-    );
-    if (providerIds.length) {
-      groups.push({ key: 'role:providers', label: 'Providers', kind: 'team', userIds: providerIds });
-    }
-    if (adminStaffIds.length) {
-      groups.push({ key: 'role:admin_staff', label: 'Admin / staff', kind: 'team', userIds: adminStaffIds });
-    }
-
+    const { meetingAudienceGroups } = await import('../utils/meetingAudienceGroups.js');
+    const [agencyRows] = scopedAgencyIds.length ? await pool.execute(
+      `SELECT id, name FROM agencies WHERE id IN (${scopedAgencyIds.map(() => '?').join(',')}) AND is_active=1 AND COALESCE(is_archived,0)=0`, scopedAgencyIds
+    ) : [[]];
+    const activeAgencyIds = new Set(agencyRows.map(a => Number(a.id)));
+    users = users.map(u => ({ ...u, agencyIds: u.agencyIds.filter(id => activeAgencyIds.has(id)) })).filter(u => u.agencyIds.length);
+    const [relationships] = scopedAgencyIds.length ? await pool.execute(
+      `SELECT supervisor_id, supervisee_id, agency_id FROM supervisor_assignments WHERE agency_id IN (${scopedAgencyIds.map(() => '?').join(',')})`, scopedAgencyIds
+    ) : [[]];
+    const groups = meetingAudienceGroups(users, agencyRows, relationships);
+    const agencyName = id => agencyRows.find(a => Number(a.id) === Number(id))?.name || `Agency ${id}`;
     if (scopedAgencyIds.length) {
       const placeholders = scopedAgencyIds.map(() => '?').join(',');
-    try {
-      const [supervisorRows] = await pool.execute(
-        `SELECT DISTINCT supervisor_id AS user_id
-         FROM supervisor_assignments
-         WHERE agency_id IN (${placeholders})`,
-        scopedAgencyIds
-      );
-      const supervisorIds = filterCandidateIds((supervisorRows || []).map((r) => r.user_id));
-      if (supervisorIds.length) {
-        groups.push({ key: 'rel:supervisors', label: 'Supervisors', kind: 'team', userIds: supervisorIds });
-      }
-
-      const [superviseeRows] = await pool.execute(
-        `SELECT DISTINCT supervisee_id AS user_id
-         FROM supervisor_assignments
-         WHERE agency_id IN (${placeholders})`,
-        scopedAgencyIds
-      );
-      const superviseeIds = filterCandidateIds((superviseeRows || []).map((r) => r.user_id));
-      if (superviseeIds.length) {
-        groups.push({ key: 'rel:supervisees', label: 'Supervisees', kind: 'team', userIds: superviseeIds });
-      }
-    } catch {
-      // supervisor_assignments may be unavailable in some environments
-    }
-
     try {
       const [deptRows] = await pool.execute(
         `SELECT d.id, d.name, d.agency_id, GROUP_CONCAT(uda.user_id) AS user_ids
@@ -7546,7 +7461,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       for (const row of (deptRows || [])) {
         const userIds = filterCandidateIds(String(row.user_ids || '').split(','));
         if (!userIds.length) continue;
-        const agencySuffix = scopedAgencyIds.length > 1 ? ` (agency ${Number(row.agency_id || 0)})` : '';
+        const agencySuffix = scopedAgencyIds.length > 1 ? ` — ${agencyName(row.agency_id)}` : '';
         groups.push({
           key: `department:${Number(row.id || 0)}`,
           label: `${String(row.name || 'Department').trim()}${agencySuffix}`,
@@ -7565,10 +7480,10 @@ export const listUserMeetingCandidates = async (req, res, next) => {
         const userIds = filterCandidateIds(g.userIds);
         groups.push({
           key: `custom:${g.id}`,
-          label: g.name,
+          label: `${g.name}${scopedAgencyIds.length > 1 ? ` — ${agencyName(g.agencyId)}` : ''}`,
           kind: 'custom',
           customGroupId: g.id,
-          userIds: userIds.length ? userIds : (g.userIds || [])
+          userIds
         });
       }
     } catch {

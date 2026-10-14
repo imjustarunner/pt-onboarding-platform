@@ -9,6 +9,9 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
+    <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
+      {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
+    </div>
     <details v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id) && effectiveAgencyIds.length" class="sched-subscription" data-tour="my-schedule-subscription" @toggle="subscriptionOpen = $event.target.open">
       <summary>Add my schedule to a personal calendar</summary>
       <template v-if="subscriptionOpen">
@@ -2008,6 +2011,7 @@
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-invitation-enabled="supervisionSignupInvitationEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
               :disabled="submitting || scheduleEventSaving"
@@ -2338,6 +2342,7 @@
             v-model:is-virtual="editorSupervisionIsVirtual"
             v-model:group-mode="supervisionGroupModeEnabled"
             v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-invitation-enabled="supervisionSignupInvitationEnabled"
             v-model:facilitator-user-id="supervisionFacilitatorUserId"
             v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
             v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
@@ -2352,6 +2357,7 @@
             :presenter-options="supervisionPresenterCandidateOptions"
             :occurrence-dates="supervisionPresenterDates"
             v-model:occurrence-presenters="supervisionOccurrencePresenters"
+            v-model:occurrence-cancellations="supervisionOccurrenceCancellations"
             :show-agenda-draft="!isSupervisionEditMode"
             :show-goals-actions-draft="!isSupervisionEditMode && !supervisionGroupModeEnabled"
             :disabled="submitting || scheduleEventSaving"
@@ -3552,6 +3558,7 @@
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-invitation-enabled="supervisionSignupInvitationEnabled"
               :session-type-label="supervisionEffectiveSessionTypeLabel"
               :can-book-group="canBookGroupSupervisionFromGrid"
               :disabled="submitting"
@@ -3574,6 +3581,7 @@
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-invitation-enabled="supervisionSignupInvitationEnabled"
               v-model:facilitator-user-id="supervisionFacilitatorUserId"
               v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
               v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
@@ -3585,6 +3593,7 @@
               :presenter-options="supervisionPresenterCandidateOptions"
               :occurrence-dates="supervisionPresenterDates"
               v-model:occurrence-presenters="supervisionOccurrencePresenters"
+            v-model:occurrence-cancellations="supervisionOccurrenceCancellations"
               :disabled="submitting"
             />
           </div>
@@ -3653,6 +3662,7 @@
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
+              v-model:signup-invitation-enabled="supervisionSignupInvitationEnabled"
               v-model:facilitator-user-id="supervisionFacilitatorUserId"
               v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
               v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
@@ -3664,6 +3674,7 @@
               :presenter-options="supervisionPresenterCandidateOptions"
               :occurrence-dates="supervisionPresenterDates"
               v-model:occurrence-presenters="supervisionOccurrencePresenters"
+            v-model:occurrence-cancellations="supervisionOccurrenceCancellations"
               :disabled="submitting"
               style="margin-top: 12px;"
             />
@@ -5508,6 +5519,9 @@
           <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;">
             <input v-model="cancelSupvNotify" type="checkbox" style="margin-top: 3px;" />
             <span>Send everyone a cancellation email (calendar invite update). Uncheck to cancel silently.</span>
+          </label>
+          <label class="field">Reason shown on the schedule and in the cancellation email
+            <textarea v-model="cancelSupvReason" maxlength="500" rows="2" placeholder="For example, Thanksgiving week" />
           </label>
           <div v-if="cancelSupvError" class="error" style="margin-bottom: 12px;">{{ cancelSupvError }}</div>
           <div style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
@@ -7664,14 +7678,18 @@ onMounted(() => {
   const onScheduleRefreshEvent = () => {
     invalidateScheduleSummaryCacheForUser(props.userId);
     void load({ forceRefresh: true });
+    void loadSelectedOfficeGrid();
   };
   window.addEventListener('pt-schedule-refresh', onScheduleRefreshEvent);
   schedScheduleRefreshHandler = onScheduleRefreshEvent;
+  window.addEventListener('focus', refreshVisibleOfficeGrid);
+  document.addEventListener('visibilitychange', refreshVisibleOfficeGrid);
   // Soft refresh so newly scheduled supervision/meetings appear without a hard reload.
   if (schedSoftRefreshTimer) clearInterval(schedSoftRefreshTimer);
   schedSoftRefreshTimer = setInterval(() => {
     if (document.visibilityState === 'hidden') return;
     void load({ forceRefresh: true });
+    void loadSelectedOfficeGrid();
   }, 45 * 1000);
 });
 
@@ -7725,6 +7743,8 @@ onUnmounted(() => {
   }
   if (schedScheduleRefreshHandler) {
     window.removeEventListener('pt-schedule-refresh', schedScheduleRefreshHandler);
+    window.removeEventListener('focus', refreshVisibleOfficeGrid);
+    document.removeEventListener('visibilitychange', refreshVisibleOfficeGrid);
     schedScheduleRefreshHandler = null;
   }
   if (schedSoftRefreshTimer) {
@@ -10228,7 +10248,7 @@ const supervisionDayName = (ev) => {
   return dayNamesSunFirst[d.getDay()] || null;
 };
 
-const hasSupervision = (dayName, hour) => supervisionSessionsInCell(dayName, hour).length > 0;
+const hasSupervision = (dayName, hour) => supervisionSessionsInCell(dayName, hour).some(ev => !isScheduleEventCancelled(ev));
 
 const hideGridBlockTime = (block) => scheduleSideBySide.value && isExactHourAppointment(block);
 const gridBlockLabel = (block) => {
@@ -11090,6 +11110,7 @@ const schoolAssignmentsInCell = (dayName, hour) => {
 };
 
 const supervisionReplacesSchoolAssignment = (session, assignment) => {
+  if (isScheduleEventCancelled(session)) return false;
   // Supervision always takes the calendar cell — do not stack over school assignment blocks
   // (including virtual sessions while the provider is assigned to a school).
   const modality = String(session?.modality || '').trim().toLowerCase();
@@ -11487,7 +11508,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
   const supvByAgency = new Map();
   for (const ev of supvHits) {
     const aid = Number(ev?.agencyId || ev?._agencyId || 0) || null;
-    const key = unlimited ? `${aid || 'none'}:${ev.id}` : aid || 'none';
+    const key = unlimited || isScheduleEventCancelled(ev) ? `${aid || 'none'}:${ev.id}` : aid || 'none';
     if (!supvByAgency.has(key)) supvByAgency.set(key, []);
     supvByAgency.get(key).push(ev);
   }
@@ -11536,8 +11557,9 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
     blocks.push({
       key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
       kind: isSignupBlock ? 'supv-signup' : 'supv',
-      shortLabel: unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join('\n') : supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
-      title: unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join(' · ') : supervisionTitle(dayName, hour, minute),
+      isCancelled: isScheduleEventCancelled(first),
+      shortLabel: isScheduleEventCancelled(first) ? `Canceled · ${first?.cancelReason || 'Supervision'}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join('\n') : supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
+      title: isScheduleEventCancelled(first) ? `Canceled supervision · ${clockRangeLabel(first?.startAt, first?.endAt)} · ${first?.cancelReason || ''}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join(' · ') : supervisionTitle(dayName, hour, minute),
       agencyId,
       segmentClass: 'single',
       hideAgencyDot: false,
@@ -11558,9 +11580,9 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       timedSlice,
       spanBlock: true,
       shareRow: hasSchoolBlocks,
-      canEdit: first?.canEdit === true || (first?.canEdit == null && String(first?.role || '') === 'supervisor'),
-      canReschedule: first?.canReschedule === true
-        || (first?.canReschedule == null && (first?.canEdit === true || String(first?.role || '') === 'supervisor')),
+      canEdit: !isScheduleEventCancelled(first) && (first?.canEdit === true || (first?.canEdit == null && String(first?.role || '') === 'supervisor')),
+      canReschedule: !isScheduleEventCancelled(first) && (first?.canReschedule === true
+        || (first?.canReschedule == null && (first?.canEdit === true || String(first?.role || '') === 'supervisor'))),
       draggable: !isScheduleEventCancelled(first) && Number(first?.id || 0) > 0
     });
   }
@@ -12233,7 +12255,7 @@ const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY
 const scheduleEventRecurrenceEndMode = ref('indefinite'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(7); // 1–104 for recurring meeting/huddle
 const supervisionReminderOffsets = ref([5]);
-const supervisionAttendanceReminders = ref({ mandatory: [1440, 5], optional: [1440, 5] });
+const supervisionAttendanceReminders = ref({ mandatory: [1440, 5], optional: [1440, 5], presenter: [10080, 2880, 1440, 180, 60] });
 const supervisionRecurrence = ref('ONCE');
 const supervisionRecurrenceEndMode = ref('indefinite'); // count | indefinite
 const supervisionOccurrenceCount = ref(6);
@@ -16640,12 +16662,14 @@ const supervisionGroupSupervisorUserId = computed(() => {
   return scheduleSubjectId;
 });
 const supervisionMandatoryAttendeeIds = ref([]);
-const supervisionMandatoryPanelOpen = ref(false);
+const supervisionMandatoryPanelOpen = ref(true);
 const supervisionSignupOnlyEnabled = ref(false);
+const supervisionSignupInvitationEnabled = ref(false);
 const supvSignupBusy = ref(false);
 const supvSignupError = ref('');
 const supervisionPresenterIds = ref([]);
 const supervisionOccurrencePresenters = ref({});
+const supervisionOccurrenceCancellations = ref({});
 const supervisionPresenterDates = computed(() => {
   if (isSupervisionEditMode.value || !supervisionGroupModeEnabled.value) return [];
   const recurrence = String(supervisionRecurrence.value || 'ONCE').toUpperCase();
@@ -16653,7 +16677,7 @@ const supervisionPresenterDates = computed(() => {
   return scheduleEventOccurrenceDates(editorDateYmd.value, recurrence,
     recurringMeetingOccurrenceCount(recurrence, supervisionRecurrenceEndMode.value, supervisionOccurrenceCount.value));
 });
-watch(showRequestModal, (open) => { if (!open) supervisionOccurrencePresenters.value = {}; });
+watch(showRequestModal, (open) => { if (!open) { supervisionOccurrencePresenters.value = {}; supervisionOccurrenceCancellations.value = {}; } });
 /** Invited attendees for the open supervision session (edit / info / roster). */
 const supvSessionAttendees = ref([]);
 const supvSessionAttendeesLoading = ref(false);
@@ -16850,6 +16874,10 @@ const pruneSupervisionMandatoryAttendeeIds = () => {
 
 const supervisionPresenterCandidateOptions = computed(() => {
   const map = new Map();
+  for (const row of isSupervisionEditMode.value ? [] : (availableSupervisionParticipants.value || [])) {
+    const id = Number(row.id || 0);
+    if (id) map.set(id, { id, label: supervisionParticipantLabel(row) });
+  }
   for (const chip of (selectedSupervisionParticipantChips.value || [])) {
     const id = Number(chip?.id || 0);
     if (!id) continue;
@@ -17973,6 +18001,7 @@ const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
   ];
   for (const rows of collections) {
     for (const row of rows) {
+      if (isScheduleEventCancelled(row)) continue;
       const startAt = row?.startAt || row?.start;
       const endAt = row?.endAt || row?.end;
       if (!overlaps(startAt, endAt)) continue;
@@ -18561,7 +18590,7 @@ const openSlotActionModal = async ({
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   supervisionReminderOffsets.value = [5];
-  supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5] };
+  supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5], presenter: [10080, 2880, 1440, 180, 60] };
   notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'indefinite';
@@ -18610,9 +18639,10 @@ const openSlotActionModal = async ({
   supervisionInviteAudienceAllSupervised.value = false;
   supervisionInviteAudienceGroupSupport.value = false;
   supervisionMandatoryAttendeeIds.value = [];
-  supervisionMandatoryPanelOpen.value = false;
+  supervisionMandatoryPanelOpen.value = true;
   supervisionLockedGroups.value = [];
   supervisionSignupOnlyEnabled.value = false;
+  supervisionSignupInvitationEnabled.value = false;
   supvSignupBusy.value = false;
   supvSignupError.value = '';
   supervisionPresenterIds.value = [];
@@ -19551,7 +19581,14 @@ const onQuickGlanceRowClick = (row) => {
   });
 };
 
+let officeGridRequestId = 0;
+let lastOfficeGridRefresh = 0;
+const refreshVisibleOfficeGrid = () => {
+  if (document.visibilityState !== 'hidden' && Date.now()-lastOfficeGridRefresh>15000) void loadSelectedOfficeGrid();
+};
 const loadSelectedOfficeGrid = async () => {
+  const requestId = ++officeGridRequestId;
+  lastOfficeGridRefresh = Date.now();
   const id = Number(selectedOfficeLocationId.value || 0);
   // Only a concrete building loads a room grid (All / Off do not).
   if (!(id > 0)) {
@@ -19569,12 +19606,14 @@ const loadSelectedOfficeGrid = async () => {
       params: { weekStart: startOfWeekMondayYmd(weekStart.value) || weekStart.value },
       skipGlobalLoading: true
     });
+    if (requestId !== officeGridRequestId) return;
     officeGrid.value = r.data || null;
   } catch (e) {
+    if (requestId !== officeGridRequestId) return;
     if (!hadGrid) officeGrid.value = null;
     officeGridError.value = e.response?.data?.error?.message || 'Failed to load office availability';
   } finally {
-    officeGridLoading.value = false;
+    if (requestId === officeGridRequestId) officeGridLoading.value = false;
   }
 };
 
@@ -20571,7 +20610,7 @@ const closeModal = () => {
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   supervisionReminderOffsets.value = [5];
-  supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5] };
+  supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5], presenter: [10080, 2880, 1440, 180, 60] };
   notifyMeetingParticipants.value = true;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
@@ -22172,6 +22211,8 @@ const submitRequest = async () => {
         ? recurringMeetingOccurrenceCount(recurrence, supervisionRecurrenceEndMode.value, supervisionOccurrenceCount.value)
         : 1;
       const dates = scheduleEventOccurrenceDates(dateYmd, recurrence, occurrenceCount);
+      if (dates.every(date => supervisionOccurrenceCancellations.value[date] !== undefined)) throw new Error('Keep at least one date scheduled.');
+      if (dates.some(date => supervisionOccurrenceCancellations.value[date] !== undefined && !String(supervisionOccurrenceCancellations.value[date]).trim())) throw new Error('Add a reason for each canceled date.');
       const createdSessionIds = [];
       const supervisionSeriesId = recurringRecurrences.includes(recurrence)
         ? generateRecurrenceSeriesId()
@@ -22185,21 +22226,25 @@ const submitRequest = async () => {
         // Unassigned later dates never inherit the first date's presenters.
         const selectedForDate = supervisionOccurrencePresenters.value[occYmd]
           ?? (supervisionRecurrenceIndex === 0 ? presenterUserIds : []);
-        const invitedIds = new Set([participantId, ...additionalAttendeeUserIds]);
-        const occPresenterUserIds = signupOnly ? [] : [...new Set(selectedForDate.map(Number))]
+        const invitedIds = new Set(supervisionPresenterCandidateOptions.value.map(opt => Number(opt.id)));
+        const occPresenterUserIds = signupOnly || supervisionOccurrenceCancellations.value[occYmd] !== undefined ? [] : [...new Set(selectedForDate.map(Number))]
           .filter(id => invitedIds.has(id)).slice(0, 2);
         // eslint-disable-next-line no-await-in-loop
         const supvRes = await api.post('/supervision/sessions', {
           agencyId: effectiveAgencyId.value,
+          allAgencies: supervisionUsingAllAgencies.value,
+          canceled: supervisionOccurrenceCancellations.value[occYmd] !== undefined,
+          cancelReason: supervisionOccurrenceCancellations.value[occYmd] || null,
           supervisorUserId: facilitatorUserId,
           coFacilitatorUserId: sessionType === 'group' ? coFacilitatorUserId : null,
           superviseeUserId: participantId,
           sessionType,
-          additionalAttendeeUserIds,
+          additionalAttendeeUserIds: [...new Set([...additionalAttendeeUserIds, ...occPresenterUserIds])],
           requiredAttendeeUserIds,
           optionalAttendeeUserIds,
           presenterUserIds: occPresenterUserIds,
           enrollmentMode: signupOnly ? 'signup_only' : 'invited',
+          signupInvitationEnabled: signupOnly && supervisionSignupInvitationEnabled.value,
           inviteAudienceAllSupervised: sessionType === 'group' ? inviteAudienceAllSupervised : false,
           inviteAudienceGroupSupport: sessionType === 'group' ? inviteAudienceGroupSupport : false,
           startAt,
@@ -22603,9 +22648,10 @@ watch(selectedSupervisionParticipantIds, () => {
 
 watch(supervisionGroupModeEnabled, (enabled) => {
   if (!enabled) {
-    supervisionMandatoryPanelOpen.value = false;
+    supervisionMandatoryPanelOpen.value = true;
     supervisionMandatoryAttendeeIds.value = [];
     supervisionSignupOnlyEnabled.value = false;
+  supervisionSignupInvitationEnabled.value = false;
   }
 });
 
@@ -22614,7 +22660,7 @@ watch(supervisionSignupOnlyEnabled, (enabled) => {
   selectedSupervisionParticipantId.value = 0;
   selectedSupervisionAdditionalParticipantIds.value = [];
   supervisionMandatoryAttendeeIds.value = [];
-  supervisionMandatoryPanelOpen.value = false;
+  supervisionMandatoryPanelOpen.value = true;
   supervisionInviteAudienceAllSupervised.value = false;
   supervisionInviteAudienceGroupSupport.value = false;
   supervisionPresenterIds.value = [];
@@ -23608,7 +23654,8 @@ const toggleSupvParticipantRequired = async (userId, nextRequired) => {
     Number(row.id) === uid ? { ...row, isRequired: nextRequired } : row
   ));
   try {
-    await api.patch(`/supervision/sessions/${sid}/attendees/${uid}`, { isRequired: nextRequired });
+    const { data } = await api.patch(`/supervision/sessions/${sid}/attendees/${uid}`, { isRequired: nextRequired });
+    supvParticipantHoursRows.value = supvParticipantHoursRows.value.map(row => Number(row.id) === uid ? { ...row, isRequired: data.isRequired } : row);
   } catch (e) {
     supvParticipantHoursRows.value = prevRows;
     supvParticipantRequiredError.value = e?.response?.data?.error?.message || e?.message || 'Failed to update attendee status';
@@ -23734,6 +23781,7 @@ const openSupvModal = (dayName, hour) => {
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
   supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionSignupInvitationEnabled.value = first.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = first.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
   notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
@@ -23783,6 +23831,7 @@ watch(selectedSupvSessionId, (id) => {
   supvNotes.value = String(ev.notes || '');
   meetingReminderMinutes.value = ev.reminderMinutes === undefined ? 5 : ev.reminderMinutes;
   supervisionReminderOffsets.value = ev.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionSignupInvitationEnabled.value = ev.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = ev.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
   notifyMeetingParticipants.value = ev.notifyParticipants !== false;
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
@@ -23947,7 +23996,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
           .filter((n) => Number.isFinite(n) && n > 0)
       )
     ).slice(0, 2);
-    await api.patch(`/supervision/sessions/${id}`, {
+    const changeResponse = await api.patch(`/supervision/sessions/${id}`, {
       startAt,
       endAt,
       timeZone: scheduleMeetingTimeZone(),
@@ -23957,7 +24006,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
       reminderMinutes: meetingReminderMinutes.value,
       reminderOffsets: supervisionReminderOffsets.value,
-      ...(supervisionGroupModeEnabled.value ? { attendanceReminders: supervisionAttendanceReminders.value } : {}),
+      ...(supervisionGroupModeEnabled.value ? { attendanceReminders: supervisionAttendanceReminders.value, signupInvitationEnabled: supervisionSignupInvitationEnabled.value } : {}),
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
       notifyParticipants: !!notifyMeetingParticipants.value,
@@ -23965,6 +24014,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       inviteAudienceGroupSupport: !!supervisionInviteAudienceGroupSupport.value,
       ...(scope ? { scope } : {})
     });
+    reportScheduleChangeDelivery(changeResponse.data);
     await load({ forceRefresh: true });
     closeSupvModal();
     if (closeScheduleShell) requestCloseModal();
@@ -24006,7 +24056,12 @@ const ensureSupvMeetLink = async () => {
 };
 
 const showCancelSupvModal = ref(false);
+const scheduleChangeNotice = ref('');
+const reportScheduleChangeDelivery = (data) => {
+  scheduleChangeNotice.value = data?.notificationDelivery?.failed ? 'The schedule change was saved, but some email notices could not be delivered. Contact support to review delivery before sending another notice.' : '';
+};
 const cancelSupvNotify = ref(true);
+const cancelSupvReason = ref('');
 const cancelSupvError = ref('');
 const cancelSupvBusy = ref(false);
 
@@ -24017,6 +24072,7 @@ const openCancelSupvConfirm = () => {
   }
   cancelSupvError.value = '';
   cancelSupvNotify.value = true;
+  cancelSupvReason.value = '';
   showCancelSupvModal.value = true;
 };
 
@@ -24036,7 +24092,8 @@ const confirmCancelSupvSession = async (scope = 'single') => {
     cancelSupvBusy.value = true;
     supvSaving.value = true;
     cancelSupvError.value = '';
-    await api.post(`/supervision/sessions/${id}/cancel`, { scope, notifyParticipants: cancelSupvNotify.value });
+    const changeResponse = await api.post(`/supervision/sessions/${id}/cancel`, { scope, notifyParticipants: cancelSupvNotify.value, cancelReason:cancelSupvReason.value.trim() });
+    reportScheduleChangeDelivery(changeResponse.data);
     invalidateScheduleSummaryCacheForUser(props.userId);
     showCancelSupvModal.value = false;
     await load({ forceRefresh: true });
@@ -25073,6 +25130,7 @@ const beginEditScheduleStackItem = async (item) => {
       && item?.notify_participants !== 0;
     meetingReminderMinutes.value = item?.reminderMinutes === undefined ? 5 : item.reminderMinutes;
     supervisionReminderOffsets.value = item?.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionSignupInvitationEnabled.value = item?.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = item?.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
@@ -25546,6 +25604,7 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
   supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionSignupInvitationEnabled.value = first.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = first.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
   notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;

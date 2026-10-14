@@ -109,7 +109,7 @@
         </div>
       </div>
 
-      <div v-if="showNotifyOption && notifyParticipants && showControls && groupMode">
+      <div v-if="showNotifyOption && notifyParticipants && showControls && groupMode && !signupOnly">
         <h4>Mandatory attendees · Compensated</h4>
         <MeetingReminderEditor :model-value="attendanceReminders?.mandatory ?? reminderOffsets ?? (reminderMinutes == null ? [] : [1440, reminderMinutes])" :disabled="disabled"
           @update:model-value="updateAttendanceReminders('mandatory', $event)" />
@@ -117,11 +117,18 @@
         <p class="supb-hint">Optional sessions are for their benefit and support.</p>
         <MeetingReminderEditor :model-value="attendanceReminders?.optional ?? reminderOffsets ?? (reminderMinutes == null ? [] : [1440, reminderMinutes])" :disabled="disabled"
           @update:model-value="updateAttendanceReminders('optional', $event)" />
-        <p class="supb-hint">Presenters have their own reminders: 1 week, 48 hours, 24 hours, 3 hours, and 1 hour before.</p>
+        <h4>Presenters · Mandatory</h4>
+        <p class="supb-hint">Separate reminders for their assigned date. Clear the list to turn presenter reminders off. Preparation instructions stop after they mark their presentation complete.</p>
+        <MeetingReminderEditor :model-value="attendanceReminders?.presenter ?? [10080, 2880, 1440, 180, 60]" :disabled="disabled"
+          @update:model-value="updateAttendanceReminders('presenter', $event)" />
       </div>
-      <MeetingReminderEditor v-else-if="showNotifyOption && notifyParticipants && showControls"
+      <MeetingReminderEditor v-else-if="showNotifyOption && notifyParticipants && showControls && !signupOnly"
         :model-value="reminderOffsets ?? (reminderMinutes == null ? [] : [reminderMinutes])" :disabled="disabled"
         @update:model-value="emit('update:reminderOffsets', $event)" />
+      <label v-if="signupOnly && showControls && notifyParticipants" class="supb-check">
+        <input type="checkbox" :checked="signupInvitationEnabled" :disabled="disabled" @change="emit('update:signupInvitationEnabled', $event.target.checked)" />
+        Send one signup invitation 24 hours before each date to active providers and staff in this agency. Nobody is registered automatically.
+      </label>
       <template v-if="showDetails">
         <template v-if="groupMode && canBookGroup">
           <div class="supb-row">
@@ -187,9 +194,10 @@
 
         <div v-if="(presenterOptions.length || occurrenceDates.length) && groupMode && !signupOnly" class="supb-row">
           <label class="supb-label">Presenter(s) <span class="supb-optional">optional</span></label>
+          <input v-if="!occurrenceDates.length" v-model="presenterSearch.single" class="supb-input" placeholder="Search presenters…" aria-label="Search presenters" />
           <div v-if="!occurrenceDates.length" class="supb-presenter-picker" role="group" aria-label="Select presenters from invited participants">
             <label
-              v-for="opt in presenterOptions"
+              v-for="opt in filteredPresenters('single')"
               :key="`supb-presenter-${opt.id}`"
               class="supb-presenter-option"
               :class="{
@@ -207,9 +215,18 @@
             </label>
           </div>
           <fieldset v-for="(date, index) in occurrenceDates" :key="date" class="supb-occurrence">
-            <legend>{{ date }}</legend>
+            <legend>{{ date }} <span v-if="occurrenceCancellations[date] !== undefined">· Canceled</span></legend>
+            <label class="supb-check"><input type="checkbox" :checked="occurrenceCancellations[date] !== undefined" :disabled="disabled"
+              @change="toggleCanceled(date, $event.target.checked)" /> Cancel this date</label>
+            <label v-if="occurrenceCancellations[date] !== undefined" class="supb-label">Reason shown on everyone's schedule
+              <input class="supb-input" :value="occurrenceCancellations[date]" maxlength="500" required :disabled="disabled"
+                :aria-label="`Cancellation reason for ${date}`" placeholder="For example, Thanksgiving week"
+                @input="emit('update:occurrenceCancellations', { ...occurrenceCancellations, [date]: $event.target.value })" />
+            </label>
+            <template v-else>
+            <input v-model="presenterSearch[date]" class="supb-input" placeholder="Search presenters…" :aria-label="`Search presenters for ${date}`" />
             <div class="supb-presenter-picker">
-              <label v-for="opt in presenterOptions" :key="opt.id" class="supb-presenter-option">
+              <label v-for="opt in filteredPresenters(date)" :key="opt.id" class="supb-presenter-option">
                 <input type="checkbox" :aria-label="`${date}: ${opt.label}`"
                   :checked="presentersForDate(date, index).includes(Number(opt.id))"
                   :disabled="disabled || (presentersForDate(date, index).length >= 2 && !presentersForDate(date, index).includes(Number(opt.id)))"
@@ -219,11 +236,13 @@
             </div>
             <span v-if="!presentersForDate(date, index).length" class="supb-hint">No presenter assigned</span>
             <button v-else type="button" :disabled="disabled" @click="emit('update:occurrencePresenters', { ...occurrencePresenters, [date]: [] })">No presenters for this date</button>
+            <p class="supb-hint">{{ presentersForDate(date, index).map(id => presenterOptions.find(p => Number(p.id) === id)?.label).filter(Boolean).join(', ') }}</p>
+            </template>
           </fieldset>
           <p class="supb-hint muted">
             Choose who is presenting from the invited list (up to 2). Leave unchecked if nobody is presenting —
-            invited participants are not presenters unless selected here.
-            Presenter email reminders: 1 week, 48 hours, 24 hours, 3 hours, and 1 hour before their assigned date (when email notifications are on).
+            Selecting a presenter invites them as mandatory for that date.
+            Presenters are mandatory on their assigned date. Configure their reminders above.
           </p>
         </div>
 
@@ -324,7 +343,7 @@
 
 <script setup>
 import MeetingReminderEditor from './MeetingReminderEditor.vue';
-import { computed, ref } from 'vue';
+import { computed, ref, reactive } from 'vue';
 
 const props = defineProps({
   isVirtual: { type: Boolean, default: true },
@@ -337,6 +356,7 @@ const props = defineProps({
   showNotifyOption: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
   signupOnly: { type: Boolean, default: false },
+  signupInvitationEnabled: { type: Boolean, default: false },
   canBookGroup: { type: Boolean, default: false },
   facilitatorUserId: { type: Number, default: 0 },
   coFacilitatorUserId: { type: Number, default: 0 },
@@ -347,6 +367,7 @@ const props = defineProps({
   presenterOptions: { type: Array, default: () => [] },
   occurrenceDates: { type: Array, default: () => [] },
   occurrencePresenters: { type: Object, default: () => ({}) },
+  occurrenceCancellations: { type: Object, default: () => ({}) },
   sessionTypeLabel: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
   /** controls = session type + switches; details = facilitator/open join; all = everything */
@@ -369,12 +390,14 @@ const emit = defineEmits([
   'update:attendanceReminders',
   'update:groupMode',
   'update:signupOnly',
+  'update:signupInvitationEnabled',
   'update:facilitatorUserId',
   'update:coFacilitatorUserId',
   'update:inviteAudienceAllSupervised',
   'update:inviteAudienceGroupSupport',
   'update:presenterIds',
   'update:occurrencePresenters',
+  'update:occurrenceCancellations',
   'update:agendaItems',
   'update:goalDraftItems',
   'update:actionDraftItems'
@@ -400,6 +423,17 @@ const presenterIdSet = computed(() => new Set(
   (props.presenterIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)
 ));
 
+const presenterSearch = reactive({ single: '' });
+function filteredPresenters(key) {
+  const terms = String(presenterSearch[key] || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return props.presenterOptions.filter(p => terms.every(term => String(p.label).toLowerCase().includes(term)));
+}
+function toggleCanceled(date, canceled) {
+  const next = { ...props.occurrenceCancellations };
+  if (canceled) next[date] = '';
+  else delete next[date];
+  emit('update:occurrenceCancellations', next);
+}
 function presentersForDate(date, index) {
   const allowed = new Set(props.presenterOptions.map(opt => Number(opt.id)));
   return (props.occurrencePresenters[date] ?? (index === 0 ? props.presenterIds : []))
@@ -466,6 +500,7 @@ function updateAttendanceReminders(tier, reminders) {
   emit('update:attendanceReminders', {
     mandatory: props.attendanceReminders?.mandatory ?? fallback,
     optional: props.attendanceReminders?.optional ?? fallback,
+    presenter: props.attendanceReminders?.presenter ?? [10080, 2880, 1440, 180, 60],
     [tier]: reminders
   });
 }
@@ -642,7 +677,10 @@ function updateAttendanceReminders(tier, reminders) {
 }
 .supb-icon-btn:hover { color: #b91c1c; }
 .supb-empty { margin: 0; font-size: 0.8rem; }
+.supb-occurrence { margin: 12px 0; padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; }
 .supb-presenter-picker {
+  max-height: 180px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;

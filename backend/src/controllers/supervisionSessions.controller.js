@@ -1,8 +1,10 @@
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { rescheduleSupervisionOccurrences } from '../services/supervisionReschedule.service.js';
 import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { setMeetingTranscription } from './meetingTranscription.controller.js';
-import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
+import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, hasActiveSupervisionMembership, activeMeetingAgencyIds, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
@@ -713,7 +715,7 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
 
   const role = String(req.user?.role || '').toLowerCase();
   if (existingSession && [existingSession.supervisor_user_id, existingSession.co_facilitator_user_id].map(Number).includes(actorId)
-      && await hasActiveMeetingMembership(existingSession.agency_id, actorId)) return true;
+      && await hasActiveSupervisionMembership(existingSession, actorId)) return true;
   if (['admin', 'super_admin', 'support', 'clinical_practice_assistant'].includes(role)) {
     return true;
   }
@@ -836,6 +838,7 @@ function deriveInviteScope({ audienceAllSupervised = false, audienceGroupSupport
 }
 
 const ACTIVE_SUPERVISION_USER_SQL = `
+  AND COALESCE(u.is_demo,0)=0
   AND (u.is_active IS NULL OR u.is_active = TRUE)
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
   AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
@@ -897,7 +900,7 @@ async function isAssignedSuperviseeInAgency({ supervisorUserId, superviseeUserId
 async function canFacilitateSupervisionRow(req, row) {
   const actorId = Number(req.user?.id || 0);
   if (!actorId || !row) return false;
-  if (!await hasActiveMeetingMembership(row.agency_id, actorId)) return false;
+  if (!await hasActiveSupervisionMembership(row, actorId)) return false;
   if (actorId === Number(row.supervisor_user_id || 0)) return true;
   if (actorId === Number(row.co_facilitator_user_id || 0)) return true;
   const sid = Number(row.id || 0);
@@ -924,7 +927,10 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
   const role = String(req.user?.role || '').toLowerCase();
   const actorId = Number(req.user?.id || 0);
   const aId = Number(agencyId);
-  if (!await hasActiveMeetingMembership(aId, actorId)) return false;
+  if (!await hasActiveMeetingMembership(aId, actorId)) {
+    const invitedSession = sessionId ? await SupervisionSession.findById(sessionId) : null;
+    return !!invitedSession && await canJoinSupervision(invitedSession, actorId);
+  }
 
   if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff' || role === 'clinical_practice_assistant' || role === 'provider_plus') {
     // Must share agency with both (best-effort)
@@ -3693,26 +3699,25 @@ export const createSupervisionSession = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!(await assertCanManageGroupSupervision(req, res, { sessionType }))) return;
 
-    const { supOk, svOk } = await requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId });
-    if (!supOk) return res.status(400).json({ error: { message: 'Supervisor does not belong to this agency' } });
-    if (!isSignupOnly && !svOk) return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
-    if (coFacilitatorUserId) {
-      const coMap = await getUsersInAgencyMap({ agencyId, userIds: [coFacilitatorUserId] });
-      if (!coMap[coFacilitatorUserId]) {
-        return res.status(400).json({ error: { message: 'Co-facilitator does not belong to this agency' } });
-      }
+    const actorAgencies = req.body?.allAgencies === true && sessionType === 'group'
+      ? await User.getAgencies(req.user.id) : [{ id: agencyId }];
+    const audienceAgencyIds = await activeMeetingAgencyIds(actorAgencies.map(a => Number(a.id)), req.user.id);
+    if (!audienceAgencyIds.includes(Number(agencyId))) return res.status(403).json({ error: { message: 'Access denied for the host agency.' } });
+    const { supOk } = await requireUsersInAgency({ agencyId, supervisorUserId, superviseeUserId });
+    if (!supOk) return res.status(400).json({ error: { message: 'Facilitator must belong to the host agency.' } });
+    const allExtraAttendees = Array.from(new Set([...additionalAttendeeUserIds, ...requiredAttendeeUserIds, ...optionalAttendeeUserIds, ...presenterUserIds]));
+    const invited = [...new Set([supervisorUserId, coFacilitatorUserId, ...(isSignupOnly ? [] : [superviseeUserId, ...allExtraAttendees])].filter(Boolean))];
+    const [eligible] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+      WHERE u.id IN (${invited.map(() => '?').join(',')}) AND ua.agency_id IN (${audienceAgencyIds.map(() => '?').join(',')})
+        AND ua.is_active=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+        AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED','PROSPECTIVE')`, [...invited, ...audienceAgencyIds]);
+    if (invited.some(id => !eligible.some(u => Number(u.id) === Number(id)))) {
+      return res.status(400).json({ error: { message: 'An invitee is no longer active in your selected agencies. Refresh the participant list.' } });
     }
-    const allExtraAttendees = Array.from(new Set([
-      ...additionalAttendeeUserIds,
-      ...requiredAttendeeUserIds,
-      ...optionalAttendeeUserIds
-    ]));
-    if (allExtraAttendees.length) {
-      const agencyMap = await getUsersInAgencyMap({ agencyId, userIds: allExtraAttendees });
-      const missing = allExtraAttendees.filter((uid) => !agencyMap[uid]);
-      if (missing.length) {
-        return res.status(400).json({ error: { message: 'One or more additional attendees do not belong to this agency', userIds: missing } });
-      }
+    const canceled = req.body?.canceled === true;
+    const cancelReason = String(req.body?.cancelReason || '').trim().slice(0,500);
+    if (canceled && (!req.body?.recurrenceSeriesId || !cancelReason || sessionType !== 'group')) {
+      return res.status(400).json({ error: { message: 'A canceled series date needs a cancellation reason.' } });
     }
 
     const supervisor = await User.findById(supervisorUserId);
@@ -3752,6 +3757,8 @@ export const createSupervisionSession = async (req, res, next) => {
     );
     const meetingReminderMinutes = normalizeMeetingReminder(req.body?.reminderMinutes);
     const reminderSettings = {
+      signupInvitationEnabled: isSignupOnly && req.body?.signupInvitationEnabled === true,
+      audienceAgencyIds, mandatoryAttendeeUserIds: requiredAttendeeUserIds,
       ...(req.body?.reminderOffsets === undefined ? {} : {reminders:normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders}),
       ...(req.body?.attendanceReminders === undefined ? {} : {attendanceReminders:normalizeAttendanceReminders(req.body.attendanceReminders)})
     };
@@ -3772,6 +3779,8 @@ export const createSupervisionSession = async (req, res, next) => {
       createdByUserId: req.user.id,
       waitingRoomEnabled,
       notifyParticipants,
+      initialStatus: canceled ? 'CANCELLED' : 'SCHEDULED',
+      requiredAttendeeUserIds, presenterUserIds,
       recurrenceSeriesId,
       recurrenceFrequency,
       recurrenceIndex,
@@ -3783,7 +3792,7 @@ export const createSupervisionSession = async (req, res, next) => {
 
     await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=?,meeting_settings_json=?,recurrence_policy=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,Object.keys(reminderSettings).length ? JSON.stringify(reminderSettings) : null,req.body?.recurrencePolicy === 'INDEFINITE' ? 'INDEFINITE' : 'FINITE',created.id]);
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
-    if (!isSignupOnly) {
+    if (!isSignupOnly && !canceled && (await User.getAgencies(superviseeUserId)).some(a => Number(a.id) === Number(agencyId))) {
       await SupervisorAssignment.ensure(
         supervisorUserId,
         superviseeUserId,
@@ -3813,6 +3822,7 @@ export const createSupervisionSession = async (req, res, next) => {
     } else {
     const isGroupSession = String(sessionType || '').trim().toLowerCase() === 'group';
     const allSuperviseeIds = Array.from(new Set([
+      ...presenterUserIds,
       superviseeUserId,
       ...additionalAttendeeUserIds,
       ...optionalAttendeeUserIds,
@@ -3830,7 +3840,7 @@ export const createSupervisionSession = async (req, res, next) => {
       optionalSet = new Set(optionalAttendeeUserIds.filter((uid) => !requiredSet.has(uid)));
     }
     const superviseeIds = Array.from(new Set([...requiredSet, ...optionalSet]));
-    const validPresenterIds = presenterUserIds.filter((uid) => superviseeIds.includes(uid) || uid === superviseeUserId);
+    const validPresenterIds = (canceled ? [] : presenterUserIds).filter((uid) => superviseeIds.includes(uid) || uid === superviseeUserId);
     const compensableMap = await User.getAgencySupervisionCompensableMap(agencyId, superviseeIds);
     await SupervisionSession.upsertAttendees(created.id, [
       {
@@ -3848,7 +3858,7 @@ export const createSupervisionSession = async (req, res, next) => {
         status: 'INVITED'
       }] : []),
       ...superviseeIds.map((uid) => {
-        const isRequired = requiredSet.has(uid);
+        const isRequired = requiredSet.has(uid) || validPresenterIds.includes(uid);
         const isPresenter = validPresenterIds.includes(uid);
         const profileCompensable = !!compensableMap[uid];
         const isCompensableSnapshot = profileCompensable && (
@@ -3863,7 +3873,7 @@ export const createSupervisionSession = async (req, res, next) => {
         };
       })
     ]);
-    await SupervisionSession.setPresenters({
+    if (!canceled) await SupervisionSession.setPresenters({
       sessionId: created.id,
       presenterUserIds: validPresenterIds,
       assignedByUserId: req.user.id
@@ -3879,7 +3889,7 @@ export const createSupervisionSession = async (req, res, next) => {
     }
 
     // Announce a recurring series once; occurrence reminders remain separate.
-    if (notifyParticipants && (!recurrenceSeriesId || Number(recurrenceIndex || 0) === 0)) {
+    if (!canceled && notifyParticipants && (!recurrenceSeriesId || Number(recurrenceIndex || 0) === 0)) {
       try {
         const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
         const actorId = Number(req.user?.id || 0);
@@ -3918,6 +3928,11 @@ export const createSupervisionSession = async (req, res, next) => {
         console.warn('[supervision] schedule notify skipped', notifyErr?.message || notifyErr);
       }
     }
+    }
+
+    if (canceled) {
+      await pool.execute('UPDATE supervision_sessions SET cancel_reason=?,notify_participants=0 WHERE id=?', [cancelReason, created.id]);
+      return res.status(201).json({ ok: true, session: await SupervisionSession.findById(created.id) });
     }
 
     // Best-effort: sync to Google Calendar on supervisor calendar
@@ -4022,6 +4037,14 @@ export const patchSupervisionSession = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
+    const actorId = Number(req.user?.id || 0);
+    const isFacilitator = [row.supervisor_user_id, row.co_facilitator_user_id].map(Number).includes(actorId);
+    const isAgencyManager = ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(String(req.user?.role || '').toLowerCase())
+      && await hasActiveMeetingMembership(row.agency_id, actorId);
+    if (row.session_type === 'group' && !isFacilitator && !isAgencyManager) {
+      return res.status(403).json({ error: { message: 'Only a host, cohost, or agency administrator can change this group session.' } });
+    }
+
     const supervisionTimeZone = String(req.body?.timeZone || row.event_timezone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
     const startWall = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
     const endWall = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
@@ -4106,7 +4129,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     const nextStart = startAt !== undefined ? startAt : row.start_at;
     const nextEnd = endAt !== undefined ? endAt : row.end_at;
     if (!nextStart || !nextEnd) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
-    if (String(nextEnd) <= String(nextStart)) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
+    if (+parseUtcDate(nextEnd) <= +parseUtcDate(nextStart)) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
 
     const nextReminderMinutes = req.body?.reminderMinutes === undefined ? undefined : normalizeMeetingReminder(req.body.reminderMinutes);
     const nextReminderOffsets = req.body?.reminderOffsets === undefined ? undefined : normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders;
@@ -4134,32 +4157,18 @@ export const patchSupervisionSession = async (req, res, next) => {
       if (!rowsToUpdate.length) rowsToUpdate = [row];
     }
 
-    const { applyClockTimesToOccurrence } = await import('../utils/seriesTimeShift.js');
-    const timingChanged = startAt !== undefined || endAt !== undefined;
+    const timingChanged = (startAt !== undefined && +parseUtcDate(startAt)!==+parseUtcDate(row.start_at)) || (endAt !== undefined && +parseUtcDate(endAt)!==+parseUtcDate(row.end_at));
+    if (timingChanged) {
+      const moved = await rescheduleSupervisionOccurrences({id,startAt:nextStart,endAt:nextEnd,timeZone:supervisionTimeZone,scope});
+      rowsToUpdate = moved.previous;
+    }
     let updated = null;
-
     for (const occ of rowsToUpdate) {
       const occId = Number(occ.id || 0);
       if (!occId) continue;
-      let occStart = startAt !== undefined ? startAt : undefined;
-      let occEnd = endAt !== undefined ? endAt : undefined;
-      if (timingChanged && scope === 'future' && occId !== id) {
-        const shifted = applyClockTimesToOccurrence({
-          occurrenceStartRaw: occ.start_at,
-          newStartRaw: nextStart,
-          newEndRaw: nextEnd
-        });
-        if (!shifted) continue;
-        occStart = shifted.startAt;
-        occEnd = shifted.endAt;
-      } else if (timingChanged && occId === id) {
-        occStart = startAt !== undefined ? startAt : undefined;
-        occEnd = endAt !== undefined ? endAt : undefined;
-      }
       // eslint-disable-next-line no-await-in-loop
       const rowUpdated = await SupervisionSession.updateById(occId, {
-        startAt: occStart,
-        endAt: occEnd,
+
         ...(occId === id ? {
           sessionType,
           inviteScope,
@@ -4173,8 +4182,9 @@ export const patchSupervisionSession = async (req, res, next) => {
       });
       if (occId === id) updated = rowUpdated;
       if (nextReminderMinutes !== undefined) await pool.execute('UPDATE supervision_sessions SET reminder_minutes=? WHERE id=?',[nextReminderMinutes,occId]);
-      if (nextReminderOffsets !== undefined || nextAttendanceReminders !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings(occ.meeting_settings_json),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})}),occId]);
+      if (nextReminderOffsets !== undefined || nextAttendanceReminders !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings((await SupervisionSession.findById(occId)).meeting_settings_json),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})}),occId]);
       if (timingChanged) await pool.execute('UPDATE supervision_sessions SET event_timezone=? WHERE id=?',[supervisionTimeZone,occId]);
+      if (req.body?.signupInvitationEnabled !== undefined) await pool.execute("UPDATE supervision_sessions SET meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json,JSON_OBJECT()),'$.signupInvitationEnabled',CAST(? AS JSON)) WHERE id=?", [JSON.stringify(req.body.signupInvitationEnabled === true),occId]);
       if (req.body?.notifyParticipants !== undefined) await pool.execute('UPDATE supervision_sessions SET notify_participants=? WHERE id=?',[notifyParticipants?1:0,occId]);
     }
     if (!updated) updated = await SupervisionSession.updateById(id, {
@@ -4220,7 +4230,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     const summary = `Supervision — ${(supervisee?.first_name || '').trim()} ${(supervisee?.last_name || '').trim()}`.trim();
     const useVideo = isVideoConfigured();
 
-    for (const occ of rowsToUpdate) {
+    for (const occ of timingChanged ? [] : rowsToUpdate) {
       const occId = Number(occ.id || 0);
       if (!occId) continue;
       // eslint-disable-next-line no-await-in-loop
@@ -4269,11 +4279,12 @@ export const patchSupervisionSession = async (req, res, next) => {
     }
 
     const out = await SupervisionSession.findById(id);
+    let notificationDelivery = null;
     if (notifyParticipants && Number(out?.notify_participants ?? 1)!==0 && timingChanged) {
       const fresh = await Promise.all(rowsToUpdate.map(e=>SupervisionSession.findById(e.id)));
-      await sendMeetingScheduleChange(fresh.filter(row=>row && !Number(row.recurrence_horizon_held)),'updated');
+      notificationDelivery = await sendMeetingScheduleChange(fresh.filter(row=>row && row.status!=='CANCELLED' && !Number(row.recurrence_horizon_held)),'updated',{scope,previousEvents:rowsToUpdate});
     }
-    res.json({ ok: true, session: out });
+    res.json({ ok: true, session: out, notificationDelivery });
   } catch (e) {
     next(e);
   }
@@ -4305,7 +4316,7 @@ export const cancelSupervisionSession = async (req, res, next) => {
     }
 
     const scope = String(req.body?.scope || 'single').toLowerCase();
-    const result = await cancelMeetingOccurrences({ kind: 'supervision', eventId: id, scope, actorUserId: actorId });
+    const result = await cancelMeetingOccurrences({ kind: 'supervision', eventId: id, scope, actorUserId: actorId, cancelReason:req.body?.cancelReason });
     const cancelled = await SupervisionSession.findById(id);
 
     // Only suppress the cancellation email when explicitly opted out — default stays 'send'.
@@ -4316,8 +4327,8 @@ export const cancelSupervisionSession = async (req, res, next) => {
 
     // Calendar deletion is durably queued by cancellation. The normal worker
     // retries external failures without reactivating the canceled series.
-    if (notifyParticipants && result.rows.length) await sendMeetingScheduleChange(result.rows, 'cancelled');
-    res.json({ ok: true, session: cancelled, scope, cancelledCount: result.cancelledCount });
+    const notificationDelivery = notifyParticipants && result.rows.length ? await sendMeetingScheduleChange(result.rows, 'cancelled', {scope}) : null;
+    res.json({ ok: true, session: cancelled, scope, cancelledCount: result.cancelledCount, notificationDelivery });
   } catch (e) {
     next(e);
   }
@@ -4660,16 +4671,6 @@ export const getMyPresenterAssignments = async (req, res, next) => {
 
     const out = [];
     for (const row of rows || []) {
-      await SupervisionSession.ensurePresenterReminders({
-        presenterAssignmentId: row.presenter_assignment_id,
-        userId,
-        agencyId: row.agency_id,
-        sessionId: row.session_id,
-        sessionType: row.session_type,
-        supervisorName: row.supervisor_name,
-        startAt: row.start_at,
-        now
-      });
       const start = new Date(row.start_at || 0);
       const startsInMinutes = Number.isFinite(start.getTime())
         ? Math.round((start.getTime() - now.getTime()) / 60000)
@@ -4680,6 +4681,7 @@ export const getMyPresenterAssignments = async (req, res, next) => {
         agencyId: Number(row.agency_id),
         sessionType: String(row.session_type || 'group'),
         presenterRole: String(row.presenter_role || 'primary'),
+        preparationComplete: ['ready','presented'].includes(row.presentation_status),
         presenterStatus: String(row.presenter_status || 'assigned'),
         topicSummary: row.topic_summary || null,
         startAt: row.start_at,
@@ -4772,7 +4774,8 @@ export const setSupervisionAttendeeRequired = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const isRequired = req.body?.isRequired !== false;
+    const presenters = await SupervisionSession.listPresentersForSession(id);
+    const isRequired = presenters.some(p => Number(p.user_id) === userId) || req.body?.isRequired !== false;
     const updated = await SupervisionSession.setAttendeeRequired(id, userId, isRequired);
     if (!updated) {
       return res.status(404).json({ error: { message: 'This person is not an invited attendee on this session.' } });

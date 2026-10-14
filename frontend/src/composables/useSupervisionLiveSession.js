@@ -26,7 +26,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const myPresentation = ref(null);
   const availablePresentations = ref([]);
   const presentationError = ref('');
-  const canHandoffPresentation = computed(() => !viewAsAttendee.value && (props.isSupervisor || isMyDeckActive.value));
+  const canHandoffPresentation = computed(() => !viewAsAttendee.value && (props.isSupervisor || props.isPresenter || isMyDeckActive.value));
   const activity = ref([]);
   const pollTimer = ref(null);
   const lifecyclePosted = ref(false);
@@ -114,7 +114,6 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     && props.isPresenter
     && !!myPresentation.value?.id
     && !isMyDeckActive.value
-    && !presentation.value?.id
   ));
   const canStopPresenting = computed(() => (
     enablePresentation
@@ -349,6 +348,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   /** Make my own deck the one everyone sees, starting from its first slide. */
   async function presentMyDeck() {
     if (!canPresentMyDeck.value) return;
+    if (presentation.value?.id) return handoffPresentation(myPresentation.value.id);
     const firstSlide = (myPresentation.value.slides || [])[0] || null;
     try {
       await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
@@ -379,6 +379,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   async function handoffPresentation(id) {
     if (!canHandoffPresentation.value || presentationEditingGuardActive) return;
+    const target = availablePresentations.value.find(deck => Number(deck.id) === Number(id));
+    if (!props.isSupervisor && !isMyDeckActive.value && Number(target?.presenterUserId) !== Number(myPresentation.value?.presenterUserId || authStore.user?.id)) return;
+    if (presentation.value && !window.confirm(`Switch to ${target?.presenterName || 'this presenter'}? This replaces the presentation currently shown to everyone. Both saved presentations are kept.`)) return;
     presentationError.value = '';
     try {
       await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {

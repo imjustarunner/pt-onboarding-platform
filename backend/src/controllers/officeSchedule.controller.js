@@ -1,3 +1,4 @@
+import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import {indexPendingRoomRequest} from '../utils/officePendingRequests.js';
 import {readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
@@ -949,6 +950,7 @@ export const listLocationProviders = async (req, res, next) => {
 // Weekly room grid: Mon–Sun hourly 7am–9pm (end hour exclusive in UI)
 export const getWeeklyGrid = async (req, res, next) => {
   try {
+    res.setHeader('Cache-Control','no-store');
     const blocked = await userHasBlockingExpiredCredential(req.user.id);
     if (blocked) {
       return res.status(403).json({ error: { message: 'Scheduling is restricted due to an expired blocking credential' } });
@@ -1185,7 +1187,7 @@ export const getWeeklyGrid = async (req, res, next) => {
          FROM office_standing_assignments a
          JOIN users u ON u.id = a.provider_id
          WHERE a.office_location_id = ?
-           AND a.is_active = TRUE`,
+           AND a.is_active = TRUE AND ${activeOfficeProviderSql('u')}`,
         [officeLocationIdNum]
       );
       for (const row of await attachOfficeSchedulingPolicies(standingRows || [])) {

@@ -37,12 +37,13 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
       AND (? IS NULL OR id <> ?) LIMIT 1`,
     [row.providerUserId,row.providerUserId,row.endAt,row.startAt,row.officeEventId || null,row.officeEventId || null]);
   if (officeBookings.length) throw await fail(db, row, 'a client room reservation');
+  const excludedSupervisionIds = (row.excludeSupervisionIds || []).map(Number).filter(id => Number.isSafeInteger(id) && id > 0);
   const [supervision] = await db.execute(`SELECT s.id FROM supervision_sessions s WHERE s.status='SCHEDULED'
-    AND (? IS NULL OR s.id<>?) AND s.start_at<? AND s.end_at>?
-    AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=?
+    AND (? IS NULL OR s.id<>?) ${excludedSupervisionIds.length ? `AND s.id NOT IN (${excludedSupervisionIds.map(()=>'?')})` : ''} AND s.start_at<? AND s.end_at>?
+    AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR (s.session_type='individual' AND s.supervisee_user_id=?)
       OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=?
         AND a.is_required=1 AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN'))) LIMIT 1`,
-    [row.supervisionSessionId || null,row.supervisionSessionId || null,row.endAt,row.startAt,row.providerUserId,row.providerUserId,row.providerUserId,row.providerUserId]);
+    [row.supervisionSessionId || null,row.supervisionSessionId || null,...excludedSupervisionIds,row.endAt,row.startAt,row.providerUserId,row.providerUserId,row.providerUserId,row.providerUserId]);
   if (supervision.length) throw await fail(db, row, 'a supervision session');
   const busy = await readProviderCalendarBusy(db, { providerId: row.providerUserId, startAt: row.startAt, endAt: row.endAt,
     excludeEventId: row.providerScheduleEventId || null, timeZone: row.sourceTimezone || 'America/Denver', includeKind: true });

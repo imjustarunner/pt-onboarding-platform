@@ -1,3 +1,4 @@
+vi.mock('../../services/meetingJoinPolicy.service.js',()=>({canJoinSupervision:async()=>true,hasActiveMeetingMembership:async()=>true}));
 import { beforeEach, it, expect, vi } from 'vitest';
 const m = vi.hoisted(() => ({ session: vi.fn(), state: vi.fn(), find: vi.fn(), slide: vi.fn(), slides: vi.fn(), upsert: vi.fn(), presenters: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: async () => [[{ user_id: 7 }]] } }));
@@ -30,7 +31,7 @@ it('lets the active presenter advance their own slides, but not a foreign slide'
   m.slide.mockResolvedValue({id:3,presentation_id:12});
   expect((await request(7,{activePresentationId:11,currentSlideId:3})).status).toHaveBeenCalledWith(403);
 });
-it.each([1,2,7])('allows host/cohost/active presenter %i to hand off to presentation two', async id => {
+it.each([1,2,7,8])('allows host/cohost/current or incoming presenter %i to hand off to presentation two', async id => {
   await request(id,{activePresentationId:12,currentSlideId:999,handoff:true});
   expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({activePresentationId:12,currentSlideId:4,currentSlideOrder:0}));
 });

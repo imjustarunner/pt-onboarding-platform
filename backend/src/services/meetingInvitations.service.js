@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { meetingReplyTo, meetingParticipantRows, meetingEmailDetails } from './meetingParticipants.service.js';
 import pool from '../config/database.js';
@@ -34,35 +35,54 @@ export async function queueMeetingInvitations(event, userIds) {
 }
 
 // One change notice per person even when an entire series is moved/cancelled.
-export async function sendMeetingScheduleChange(rawEvents, action) {
+export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'single', previousEvents = [] } = {}) {
+  const previous = new Map(previousEvents.map(e => [Number(e.id),e]));
+  const delivery = { sent:0, skipped:0, failed:0 };
   try {
   const recipients = new Map();
   for (const raw of rawEvents) {
     const event = normalizeInvitationEvent(raw);
     const supervision = event.meeting_type === 'supervision';
     const [attendees] = await pool.execute(supervision
-      ? 'SELECT user_id FROM supervision_session_attendees WHERE session_id=?'
+      ? "SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('REMOVED','WITHDRAWN','CANCELLED')"
       : 'SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?',[event.id]);
-    for (const uid of new Set([event.provider_id,...attendees.map(a=>a.user_id)].map(Number).filter(Boolean))) {
+    for (const uid of new Set([event.provider_id,event.co_facilitator_user_id,event.supervisee_user_id,...attendees.map(a=>a.user_id)].map(Number).filter(Boolean))) {
       if (!recipients.has(uid)) recipients.set(uid,[]);
       recipients.get(uid).push(event);
     }
   }
   for (const [uid,events] of recipients) {
     try {
-      const [users] = await pool.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id=?',[uid]);
-      if (!users[0]?.email) continue;
+      const [users] = await pool.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND COALESCE(is_demo,0)=0',[uid]);
+      if (!users[0]) continue;
       const first = events[0];
+      const changeKey = createHash('sha256').update(JSON.stringify({action,scope,events:events.map(e=>[e.meeting_type,e.id,e.start_at,e.end_at,e.cancel_reason || '',previous.get(Number(e.id))?.start_at || null,previous.get(Number(e.id))?.end_at || null]).sort((a,b)=>a[1]-b[1])})).digest('hex');
       const recipientIdentity = await resolveMeetingRecipient({agencyId:first.agency_id,user:users[0]});
       const change = action === 'cancelled' ? 'cancelled' : 'updated';
       const joinUrl = change === 'cancelled' ? null : (await personalMeetingInvitation(first,uid)).url;
       const { parseUtcDate } = await import('../utils/officeEventDateTime.util.js');
-      const dates = events.map(e=>e.all_day ? String(e.start_date).slice(0,10) : new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at)));
-      const text = `${first.title || 'Meeting'} was ${change}.\n${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.\n${joinUrl ? `Your personal join link: ${joinUrl}` : 'These dates are no longer scheduled.'}`;
-      await sendNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(first),subject:`Meeting ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Join your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
-    } catch (error) { console.warn('[Meeting change] Delivery failed',uid,error.code || 'send_failed'); }
+      const format = e => e.all_day ? String(e.start_date).slice(0,10) : `${new Intl.DateTimeFormat('en-US',{weekday:'long',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at))}–${new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.end_at))}`;
+      const dates = events.map(e => `${format(e)}${e.cancel_reason && change==='cancelled' ? ` — ${e.cancel_reason}` : ''}`);
+      const old = previous.get(Number(first.id));
+      const heading = scope === 'future' ? `This and all future sessions in the series have been ${change}.` : `This session has been ${change}. Other dates in the series are unchanged.`;
+      const text = `${first.meeting_type==='supervision' ? 'AuricWell · ' : ''}${first.title || 'Meeting'}\n${heading}\n${old && change==='updated' ? `Previously: ${format(old)}\nNew schedule:\n` : ''}${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.\n${joinUrl ? `Your personal join link: ${joinUrl}` : 'The canceled dates will remain on your schedule for reference.'}`;
+      // An atomic claim also covers concurrent/retried requests. A transport
+      // failure is held for review instead of risking a second delivered email.
+      const [claim] = await pool.execute("INSERT IGNORE INTO meeting_schedule_change_deliveries (change_key,user_id) VALUES (?,?)",[changeKey,uid]);
+      if (!claim.affectedRows) { delivery.skipped++; continue; }
+      try {
+        const result = await sendNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(first),subject:`${scope==='future'?'Series':'Session'} ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Open your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
+        const status = result?.pendingApproval ? 'approval' : result?.redirected ? 'held' : result?.id || result?.messageId ? 'sent' : 'held';
+        await pool.execute('UPDATE meeting_schedule_change_deliveries SET delivery_status=? WHERE change_key=? AND user_id=?',[status,changeKey,uid]);
+        if (status==='sent') delivery.sent++; else if (status==='approval') delivery.skipped++; else delivery.failed++;
+      } catch(error) {
+        await pool.execute("UPDATE meeting_schedule_change_deliveries SET delivery_status='review' WHERE change_key=? AND user_id=?",[changeKey,uid]);
+        throw error;
+      }
+    } catch (error) { delivery.failed++; console.warn('[Meeting change] Delivery failed',uid,error.code || 'send_failed'); }
   }
-  } catch (error) { console.warn('[Meeting change] Recipient lookup failed',error.code || 'unknown'); }
+  } catch (error) { delivery.failed++; console.warn('[Meeting change] Recipient lookup failed',error.code || 'unknown'); }
+  return delivery;
 }
 
 // Re-check the live roster on every click/send. Removed invitees cannot reuse an old link.
@@ -79,7 +99,7 @@ export async function invitationEvents(invitation, { includeDeclined = false } =
         AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=? OR
           EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN (${includeDeclined ? '' : "'DECLINED',"}'REMOVED','CANCELLED','WITHDRAWN')))
         AND EXISTS(SELECT 1 FROM users u WHERE u.id=?
-          AND (u.role IN ('super_admin','superadmin') OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=s.agency_id AND ua.is_active=1))
+          AND (u.role IN ('super_admin','superadmin') OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND (ua.agency_id=s.agency_id OR JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.audienceAgencyIds'),CAST(ua.agency_id AS JSON))) AND ua.is_active=1))
           AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED'))
       ORDER BY s.start_at,s.id`,[invitation.event_id,invitation.agency_id,invitation.provider_id,invitation.user_id,invitation.user_id,invitation.user_id,invitation.user_id,invitation.user_id]);
     return rows.map(normalizeInvitationEvent);

@@ -16,7 +16,7 @@ export async function withRecurringScheduleEdit(work) {
   }
 }
 
-export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single', actorUserId = null }) {
+export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single', actorUserId = null, cancelReason = null }) {
   if (!['meeting', 'supervision'].includes(kind) || !['single', 'future', 'others'].includes(scope)
       || (kind === 'supervision' && scope === 'others')) {
     throw Object.assign(new Error('Choose this occurrence or this and all future occurrences.'), { status: 400 });
@@ -44,11 +44,13 @@ export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single'
       rows = rows.filter(row => !row.finalized_at && !row.meeting_completed_at
         && (String(row.status).toUpperCase() !== 'CANCELLED' || Number(row.recurrence_horizon_held)));
       const ids = rows.map(row => Number(row.id));
+      const reason = kind === 'supervision' ? String(cancelReason || 'Canceled by the host').trim().slice(0,500) : null;
       if (ids.length) await db.execute(`UPDATE ${table} SET status='CANCELLED', recurrence_horizon_held=0,
         recurrence_calendar_pending=1, updated_at=CURRENT_TIMESTAMP${kind === 'meeting' ? ', updated_by_user_id=?' : ''}
-        WHERE id IN (${ids.map(() => '?').join(',')})`, kind === 'meeting' ? [actorUserId, ...ids] : ids);
+        ${kind === 'supervision' ? ', cancel_reason=?' : ''}
+        WHERE id IN (${ids.map(() => '?').join(',')})`, kind === 'meeting' ? [actorUserId, ...ids] : [reason,...ids]);
       await db.commit();
-      return { rows, ids, cancelledCount: ids.length, seriesId: anchor.recurrence_series_id || null, scope };
+      return { rows: rows.map(row => ({...row,...(reason ? {cancel_reason:reason} : {})})), ids, cancelledCount: ids.length, seriesId: anchor.recurrence_series_id || null, scope };
     } catch (error) { await db.rollback(); throw error; }
   });
 }

@@ -7,9 +7,9 @@ const args={session:{id:1,session_type:'group'},recipientName:'Ada',hostNames:['
 describe('supervision email variants',()=>{
  it.each([true,false])('shows attendance classification in subject, HTML and plain text for a presenter (required=%s)',isRequired=>{
   const content=supervisionEmailBody({...args,isPresenter:true,isRequired});
-  const label=isRequired?'Mandatory · Compensated':'Optional · Not compensated';
+  const label='Mandatory · Compensated';
   expect(content.html).toContain(label);expect(content.text).toContain(label);
-  expect(content.subject).toContain(isRequired?'[Mandatory]':'[Optional]');
+  expect(content.subject).toContain('[Mandatory]');
   expect(content.html).toContain('Edit Your Presentation');expect(content.html).toContain('RSVP · Attending or not attending');
  });
  it('includes an RSVP action for hosts in HTML and plain text',()=>{
@@ -26,4 +26,10 @@ describe('supervision email variants',()=>{
 describe('attendance interpretation',()=>{
  it.each(["I can't attend today.","I'm unable to make it.","I have a dentist appointment at the same time.","I'm home sick today.","Please reschedule my supervision.","I have a family emergency.","Could we reschedule?","I am not feeling well.","I have a client session at that time."] )('infers nonattendance from %s',text=>expect(supervisionReplyIntent(text)).toBe('declined'));
  it.each(['Can we talk about scheduling?','I might have a conflict.',"I'm running late.","I have a dentist appointment but I will attend.","She can't attend.","I have no conflict.","I can't attend next week.",'Thanks!\nOn Tuesday Supervisor wrote:\n> I cannot attend'])('does not turn %s into a cancellation',text=>expect(supervisionReplyIntent(text)).not.toBe('declined'));
+});
+
+it('stops preparation prompts after completion and includes both presentations and discussion for this date',()=>{
+ const content=supervisionEmailBody({...args,isPresenter:true,preparationComplete:true,people:[...args.people,{name:'Second Presenter',isPresenter:true}]});
+ expect(content.html).toContain('preparation is marked complete');expect(content.html).not.toContain('add your slides');expect(content.html).not.toContain('Edit Your Presentation');
+ expect(content.text).toContain('Presentation — Pat');expect(content.text).toContain('Presentation — Second Presenter');expect(content.text).toContain('Open group processing');
 });

@@ -5,7 +5,7 @@
         <div class="sam-title">Mandatory / optional participants</div>
         <p class="sam-hint muted">
           Optional by default. Mandatory attendees are compensated when they attend.
-          Assigned presenters are compensated even when marked optional.
+          Presenters are automatically mandatory on the dates they present.
         </p>
       </div>
       <button type="button" class="btn btn-secondary btn-sm" @click="emit('close')">Done</button>
@@ -17,8 +17,8 @@
         <label class="sam-check">
           <input
             type="checkbox"
-            :checked="mandatorySet.has(row.id)"
-            :disabled="disabled"
+            :checked="mandatorySet.has(row.id) || presenterSet.has(row.id)"
+            :disabled="disabled || presenterSet.has(row.id)"
             @change="toggleMandatory(row.id, !!$event.target.checked)"
           />
           <span class="sam-name">{{ row.label }}</span>
@@ -27,9 +27,9 @@
           <span v-if="row.kind === 'primary'" class="sam-badge">Primary</span>
           <span
             class="sam-badge"
-            :class="mandatorySet.has(row.id) ? 'sam-badge--mandatory' : 'sam-badge--optional'"
+            :class="(mandatorySet.has(row.id) || presenterSet.has(row.id)) ? 'sam-badge--mandatory' : 'sam-badge--optional'"
           >
-            {{ mandatorySet.has(row.id) ? 'Mandatory' : 'Optional' }}
+            {{ (mandatorySet.has(row.id) || presenterSet.has(row.id)) ? 'Mandatory' : 'Optional' }}
           </span>
           <span v-if="presenterSet.has(row.id)" class="sam-badge sam-badge--presenter">Presenter</span>
         </span>

@@ -6,7 +6,7 @@ export async function saveSupervisionRsvp({sessionId,userId,response,now=new Dat
  const db=await pool.getConnection();
  try{await db.beginTransaction();
  const [rows]=await db.execute(`SELECT s.*,a.status attendee_status FROM supervision_sessions s JOIN supervision_session_attendees a ON a.session_id=s.id AND a.user_id=?
- WHERE s.id=? AND a.status NOT IN ('REMOVED','CANCELLED') AND EXISTS(SELECT 1 FROM user_agencies ua JOIN users u ON u.id=ua.user_id WHERE ua.user_id=? AND ua.agency_id=s.agency_id AND ua.is_active=1 AND u.is_active=1) FOR UPDATE`,[userId,sessionId,userId]);
+ WHERE s.id=? AND a.status NOT IN ('REMOVED','CANCELLED') AND EXISTS(SELECT 1 FROM user_agencies ua JOIN users u ON u.id=ua.user_id WHERE ua.user_id=? AND (ua.agency_id=s.agency_id OR JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.audienceAgencyIds'),CAST(ua.agency_id AS JSON))) AND ua.is_active=1 AND u.is_active=1) FOR UPDATE`,[userId,sessionId,userId]);
  const session=rows[0];
  if(!session||session.status!=='SCHEDULED'||parseUtcDate(session.start_at)<=now)throw Object.assign(new Error('This supervision RSVP is no longer available.'),{status:410});
  if(response==='accepted'&&session.enrollment_mode==='signup_only'&&!['SIGNED_UP','JOINED'].includes(session.attendee_status)&&!isSignupOpen(session,now))throw Object.assign(new Error('Registration for this session has closed.'),{status:409});

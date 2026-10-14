@@ -67,6 +67,9 @@
       </label>
 
       <div class="spc-actions">
+        <button type="button" class="btn btn-primary btn-sm" :disabled="saving || completionBusy" @click="togglePreparationComplete">
+          {{ presentationStatus === 'ready' ? 'Preparation complete ✓ · Reopen' : 'Mark preparation complete' }}
+        </button>
         <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveSlide">
           {{ saving ? 'Saving…' : 'Save section' }}
         </button>
@@ -92,6 +95,8 @@ const saving = ref(false);
 const error = ref('');
 const saveStatus = ref('');
 const presentationId = ref(0);
+const presentationStatus = ref('draft');
+const completionBusy = ref(false);
 const slides = ref([]);
 const slideId = ref(0);
 const bodyEditor = ref(null);
@@ -171,6 +176,7 @@ async function load() {
     });
     const presentation = data?.presentation || null;
     presentationId.value = Number(presentation?.id || 0);
+    presentationStatus.value = presentation?.status || 'draft';
     slides.value = Array.isArray(presentation?.slides) ? presentation.slides : [];
     slideId.value = Number(slides.value[0]?.id || 0);
     if (slideId.value) loadSlideDraft(slideId.value);
@@ -209,6 +215,16 @@ async function saveSlide() {
   }
 }
 
+async function togglePreparationComplete() {
+  await saveSlide();
+  if (error.value) return;
+  completionBusy.value = true;
+  try {
+    const { data } = await api.patch(`/supervision/presentations/${presentationId.value}`, { status: presentationStatus.value === 'ready' ? 'draft' : 'ready' });
+    presentationStatus.value = data.presentation.status;
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'Could not update preparation status.'; }
+  finally { completionBusy.value = false; }
+}
 watch(() => Number(props.sessionId || 0), () => { void load(); });
 onMounted(() => { void load(); });
 </script>

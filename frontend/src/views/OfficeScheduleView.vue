@@ -1260,7 +1260,9 @@ const goToPreviousWeek = async () => {
   await loadGrid();
 };
 
-const loadGrid = async () => {
+let gridRequestId=0;
+const loadGrid = async ({preserveSelection=false} = {}) => {
+  const requestId=++gridRequestId;
   if (!officeId.value) return;
   const hadGrid = !!grid.value;
   try {
@@ -1269,12 +1271,13 @@ const loadGrid = async () => {
     const normalizedWeekStart = startOfWeekForMode(weekStart.value, weekStartMode.value);
     weekStart.value = normalizedWeekStart;
     const resp = await api.get(`/office-schedule/locations/${officeId.value}/weekly-grid`, { params: { weekStart: normalizedWeekStart } });
+    if(requestId!==gridRequestId) return;
     grid.value = resp.data;
-    selectedSlotKeys.value = [];
+    if(!preserveSelection) selectedSlotKeys.value = [];
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load weekly grid';
+    if(requestId===gridRequestId) error.value = e.response?.data?.error?.message || 'Failed to load weekly grid';
   } finally {
-    loading.value = false;
+    if(requestId===gridRequestId) loading.value = false;
   }
 };
 
@@ -2871,15 +2874,28 @@ watch(() => officeId.value, async () => {
   if (canManageSchedule.value) await loadProviders();
 }, { immediate: true });
 
+let officeRefreshTimer;
+let lastVisibleRefresh = 0;
+const refreshVisibleGrid = () => {
+  if (document.visibilityState === 'hidden' || loading.value || saving.value || draggingSelection.value || Date.now()-lastVisibleRefresh<15000) return;
+  lastVisibleRefresh = Date.now();
+  void loadGrid({preserveSelection:true});
+};
 onMounted(loadGrid);
 onMounted(() => {
   if (canManageSchedule.value) void loadProviders();
   window.addEventListener('mouseup', onGlobalMouseUp);
+  window.addEventListener('focus', refreshVisibleGrid);
+  document.addEventListener('visibilitychange', refreshVisibleGrid);
+  officeRefreshTimer = setInterval(refreshVisibleGrid,45000);
 });
 onBeforeUnmount(() => {
   if (successToastTimer) clearTimeout(successToastTimer);
   if (suppressClickTimer) clearTimeout(suppressClickTimer);
   window.removeEventListener('mouseup', onGlobalMouseUp);
+  window.removeEventListener('focus', refreshVisibleGrid);
+  document.removeEventListener('visibilitychange', refreshVisibleGrid);
+  clearInterval(officeRefreshTimer);
 });
 
 watch([() => selectedSlots.value.length, draggingSelection, showModal], ([count, dragging, modalOpen]) => {

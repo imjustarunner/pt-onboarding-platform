@@ -6,6 +6,7 @@ import { recurringWindowEnd, nextRecurringWindow, recurringCalendarDate } from '
 import { utcToZonedMysqlWall, parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { withMeetingWindow } from './meetingWindowConflict.service.js';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 
 // Explicit allowlists: never copy recordings, consent, attendance, live-room
 // state, RSVP responses, join tokens, payroll completion, or presentation text.
@@ -31,11 +32,24 @@ export async function copyRecurringRoster(db, kind, oldId, newId) {
   if (kind === 'supervision') {
     await db.execute(`INSERT INTO supervision_session_attendees
       (session_id,user_id,participant_role,is_required,is_compensable_snapshot,status,invited_at)
-      SELECT ?,a.user_id,a.participant_role,a.is_required,
-        CASE WHEN a.is_required=1 AND a.participant_role='supervisee' THEN COALESCE(ua.supervision_is_compensable,0) ELSE 0 END,'INVITED',UTC_TIMESTAMP()
+      SELECT ?,a.user_id,a.participant_role,
+        CASE WHEN a.participant_role IN ('supervisor','co_facilitator') THEN 1
+          WHEN JSON_EXTRACT(s.meeting_settings_json,'$.mandatoryAttendeeUserIds') IS NOT NULL
+            THEN COALESCE(JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.mandatoryAttendeeUserIds'),CAST(a.user_id AS JSON)),0)
+          ELSE a.is_required END,
+        0,'INVITED',UTC_TIMESTAMP()
       FROM supervision_session_attendees a JOIN supervision_sessions s ON s.id=a.session_id
-      JOIN user_agencies ua ON ua.user_id=a.user_id AND ua.agency_id=s.agency_id
-      WHERE a.session_id=? AND ua.is_active=1 AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')`, [newId, oldId]);
+      JOIN users u ON u.id=a.user_id
+      WHERE a.session_id=? AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')
+        AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_archived,0)=0
+        AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED')
+        AND EXISTS(SELECT 1 FROM user_agencies ua JOIN agencies org ON org.id=ua.agency_id AND org.is_active=1
+          WHERE ua.user_id=a.user_id AND ua.is_active=1 AND (ua.agency_id=s.agency_id
+            OR JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.audienceAgencyIds'),CAST(ua.agency_id AS JSON))))`, [newId, oldId]);
+    await db.execute(`UPDATE supervision_session_attendees a JOIN supervision_sessions s ON s.id=a.session_id
+      LEFT JOIN user_agencies ua ON ua.user_id=a.user_id AND ua.agency_id=s.agency_id
+      SET a.is_compensable_snapshot=CASE WHEN a.is_required=1 AND a.participant_role='supervisee'
+        THEN COALESCE(ua.supervision_is_compensable,0) ELSE 0 END WHERE a.session_id=?`, [newId]);
   } else {
     await db.execute(`INSERT INTO provider_schedule_event_attendees (event_id,user_id)
       SELECT ?,a.user_id FROM provider_schedule_event_attendees a JOIN provider_schedule_events e ON e.id=a.event_id
@@ -55,7 +69,9 @@ async function withOccurrenceWindow(db, kind, row, window, restoring, work) {
     userIds = [row.provider_id];
   } else if (kind === 'supervision') {
     const [required] = await db.execute("SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND is_required=1 AND status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')", [row.id]);
-    userIds = [row.supervisor_user_id, row.co_facilitator_user_id, row.supervisee_user_id, ...required.map(a => a.user_id)];
+    const baseRequired = parseMeetingSettings(row.meeting_settings_json).mandatoryAttendeeUserIds;
+    const requiredIds = !restoring && Array.isArray(baseRequired) ? baseRequired : required.map(a => a.user_id);
+    userIds = [row.supervisor_user_id, row.co_facilitator_user_id, ...(row.session_type === 'group' ? [] : [row.supervisee_user_id]), ...requiredIds];
   } else {
     const [required] = await db.execute('SELECT user_id FROM meeting_participant_preferences WHERE event_id=? AND (is_required=1 OR is_cohost=1)', [row.id]);
     userIds = [row.provider_id, ...required.map(a => a.user_id)];
@@ -74,7 +90,11 @@ async function appendOccurrence(db, kind, template, window, index) {
     if (field === 'start_date') return window.startDate || null;
     if (field === 'end_date') return window.endDate || null;
     if (field === 'recurrence_index') return index;
-    const value = template[field] ?? null;
+    let value = template[field] ?? null;
+    if(field==='meeting_settings_json' && value){
+      const {recurrenceOriginalStartAt,recurrenceOriginalEndAt,...settings}=parseMeetingSettings(value);
+      value=settings;
+    }
     return field.endsWith('_json') && value && typeof value !== 'string' ? JSON.stringify(value) : value;
   });
   if (template.kind !== 'SCHEDULE_HOLD') {
@@ -108,8 +128,7 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
       rows.sort((a,b) => String(date(a)).localeCompare(String(date(b))) || String(a.start_at).localeCompare(String(b.start_at)) || a.id-b.id);
       const series = new Map();
       for (const row of rows) {
-        if (!series.has(key(row))) series.set(key(row), []);
-        series.get(key(row)).push(row);
+
         const boundary = recurringWindowEnd(now, row.event_timezone || 'America/Denver');
         const day = date(row);
         if (row.status === def.active && !row.finalized_at && !row.meeting_completed_at && day >= boundary) {
@@ -130,8 +149,19 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
             console.warn('[Recurring schedule] Restore deferred',kind,row.id,error.code || error.status || 'error');
           }
         }
+        // A one-date move remains an exception in the original recurrence.
+        // Retain its original position so renewal neither recreates that date
+        // nor starts another series on the exception's new weekday.
+        const settings=parseMeetingSettings(row.meeting_settings_json);
+        const recurringRow=settings.recurrenceOriginalStartAt ? {...row,start_at:settings.recurrenceOriginalStartAt,end_at:settings.recurrenceOriginalEndAt} : row;
+        if(!series.has(key(recurringRow))) series.set(key(recurringRow),[]);
+        series.get(key(recurringRow)).push(recurringRow);
       }
-      for (const items of series.values()) {
+      for (const seriesItems of series.values()) {
+        seriesItems.sort((a,b)=>+parseUtcDate(a.start_at)-+parseUtcDate(b.start_at) || a.id-b.id);
+        const continuation = parseMeetingSettings(seriesItems[seriesItems.length-1]?.meeting_settings_json).recurrenceContinuationFrom;
+        const items = continuation ? seriesItems.filter(row => +parseUtcDate(row.start_at) >= +parseUtcDate(continuation)) : seriesItems;
+        if (!items.length) continue;
         if (items.some(row => Number(row.recurrence_stopped))) continue;
         // The scheduling UI creates initial occurrences sequentially. Never
         // extend a series while that initial batch may still be arriving.

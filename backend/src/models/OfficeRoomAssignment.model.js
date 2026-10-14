@@ -1,3 +1,4 @@
+import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import pool from '../config/database.js';
 
 class OfficeRoomAssignment {
@@ -36,7 +37,7 @@ class OfficeRoomAssignment {
        FROM office_room_assignments a
        JOIN office_rooms r ON a.room_id = r.id
        JOIN users u ON a.assigned_user_id = u.id
-       WHERE r.location_id = ?
+       WHERE r.location_id = ? AND ${activeOfficeProviderSql('u')}
        AND a.start_at < ?
        AND (a.end_at IS NULL OR a.end_at > ?)`,
       [locationId, endAt, startAt]

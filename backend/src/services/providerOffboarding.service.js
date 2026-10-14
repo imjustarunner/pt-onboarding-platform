@@ -1,9 +1,9 @@
+import { inactiveOfficeProvider as inactive } from '../utils/officeProviderEligibility.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 
-const inactive = user => Number(user?.is_archived) === 1 || ['ARCHIVED','INACTIVE_EMPLOYEE'].includes(String(user?.status || '').toUpperCase());
 const reason = 'Provider archived or inactive; client remains active for reassignment';
 
 async function cleanSchedule(db, job) {
@@ -17,7 +17,7 @@ async function cleanSchedule(db, job) {
   };
   await db.beginTransaction();
   try {
-    const [[user]] = await db.execute('SELECT id,status,is_archived FROM users WHERE id=? FOR UPDATE', [uid]);
+    const [[user]] = await db.execute('SELECT id,status,is_archived,is_active FROM users WHERE id=? FOR UPDATE', [uid]);
     if (!inactive(user)) {
       await db.execute('UPDATE provider_offboarding_jobs SET completed_at=CURRENT_TIMESTAMP,last_error_code=NULL WHERE id=?', [job.id]);
       await db.commit();
@@ -136,7 +136,7 @@ export async function processProviderOffboarding(jobId) {
     }
     // Cross-database/external work has durable items and is safe to retry. Never
     // call client termination: the clients themselves remain active.
-    const [[currentUser]] = await db.execute('SELECT status,is_archived FROM users WHERE id=?', [job.provider_id]);
+    const [[currentUser]] = await db.execute('SELECT status,is_archived,is_active FROM users WHERE id=?', [job.provider_id]);
     // A retry must not cancel new sessions made after an administrator restored
     // the account. Old future sessions still need their cancellation mirrored.
     const restored = !inactive(currentUser);

@@ -1,0 +1,3 @@
+import {expect,it} from 'vitest';
+import {inactiveOfficeProvider,activeOfficeProviderSql} from '../officeProviderEligibility.js';
+it('uses active account state rather than clinical role',()=>{for(const role of ['provider','staff','admin','super_admin']){expect(inactiveOfficeProvider({role,is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE'})).toBe(false);}for(const patch of [{is_active:0},{is_archived:1},{status:'ARCHIVED'},{status:'INACTIVE'},{status:'INACTIVE_EMPLOYEE'},{status:'TERMINATED'}])expect(inactiveOfficeProvider({is_active:1,...patch})).toBe(true);expect(activeOfficeProviderSql('u')).not.toContain('role');});

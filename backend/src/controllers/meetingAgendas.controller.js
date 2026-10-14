@@ -8,6 +8,7 @@ import MeetingAgendaItem from '../models/MeetingAgendaItem.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import Task from '../models/Task.model.js';
+import { canJoinSupervision } from '../services/meetingJoinPolicy.service.js';
 
 const MEETING_TYPES = ['supervision_session', 'provider_schedule_event'];
 
@@ -65,7 +66,7 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
 
   if (meetingType === 'supervision_session') {
     const [rows] = await pool.execute(
-      `SELECT ss.id, ss.agency_id, ss.supervisor_user_id, ss.supervisee_user_id
+      `SELECT ss.id, ss.agency_id, ss.supervisor_user_id, ss.co_facilitator_user_id, ss.supervisee_user_id, ss.meeting_settings_json
        FROM supervision_sessions ss
        WHERE ss.id = ? AND ss.status != 'CANCELLED'
        LIMIT 1`,
@@ -74,10 +75,7 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
     const session = rows?.[0];
     if (!session) return false;
 
-    if (uid === Number(session.supervisor_user_id) || uid === Number(session.supervisee_user_id)) return true;
-
-    const attendee = await SupervisionSession.findAttendeeBySessionUser(mid, uid);
-    if (attendee) return true;
+    if (await canJoinSupervision(session, uid)) return true;
 
     const user = await User.findById(uid);
     const role = user?.role || '';

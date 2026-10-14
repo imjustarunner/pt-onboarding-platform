@@ -4,6 +4,7 @@
       <div class="spb__header-left">
         <button type="button" class="spb__back" @click="goBack">← Back</button>
         <div>
+          <span class="auricwell-supervision-brand"><img src="/auricwell/mark.svg" alt="" />AuricWell · Supervision</span>
           <h1>Edit Case Presentation</h1>
           <p class="spb__meta">
             Group Supervision
@@ -13,6 +14,9 @@
         </div>
       </div>
       <div class="spb__header-right">
+        <button v-if="presentation" type="button" class="btn btn-primary btn-sm" :disabled="saving || completionBusy" @click="togglePreparationComplete">
+          {{ presentation.status === 'ready' ? 'Preparation complete ✓ · Reopen' : 'Mark preparation complete' }}
+        </button>
         <router-link
           v-if="sessionId"
           class="btn btn-secondary btn-sm"
@@ -41,7 +45,7 @@
       <main class="spb__main">
         <p class="spb__intro hint">
           Fill in each section with your case content. Use bold, italic, and bullets as needed.
-          Slide titles are fixed for now; deck uploads and images will come later.
+          When your information is ready, mark preparation complete. Your session reminders will no longer ask you to prepare slides.
         </p>
 
         <div class="spb__workspace">
@@ -274,6 +278,16 @@ async function saveSlide() {
   return result;
 }
 
+const completionBusy = ref(false);
+async function togglePreparationComplete() {
+  if (!await saveSlide()) return;
+  completionBusy.value = true;
+  try {
+    const { data } = await api.patch(`/supervision/presentations/${presentation.value.id}`, { status: presentation.value.status === 'ready' ? 'draft' : 'ready' });
+    presentation.value = { ...presentation.value, ...data.presentation };
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'Could not update preparation status.'; }
+  finally { completionBusy.value = false; }
+}
 onBeforeRouteLeave(saveSlide);
 onBeforeRouteUpdate(saveSlide);
 function warnUnsaved(event) {
@@ -499,4 +513,9 @@ onUnmounted(() => { clearTimeout(saveTimer); window.removeEventListener('beforeu
 .spb__richtext :deep(ul), .spb__preview-body :deep(ul) { list-style: disc outside; padding-left: 1.5rem; }
 .spb__richtext :deep(ol), .spb__preview-body :deep(ol) { list-style: decimal outside; padding-left: 1.5rem; }
 .spb__richtext :deep(li), .spb__preview-body :deep(li) { display: list-item; }
+</style>
+
+<style scoped>
+.auricwell-supervision-brand { display:inline-flex; align-items:center; gap:6px; color:#52776c; font-size:12px; font-weight:700; letter-spacing:.06em; }
+.auricwell-supervision-brand img { width:22px; height:26px; }
 </style>

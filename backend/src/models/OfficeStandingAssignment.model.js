@@ -1,3 +1,4 @@
+import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import pool from '../config/database.js';
 import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpiry.service.js';
 import { standingOfficeConflict } from '../utils/officeMoveConflict.js';
@@ -438,7 +439,7 @@ class OfficeStandingAssignment {
        FROM office_standing_assignments a
        JOIN users u ON a.provider_id = u.id
        WHERE a.office_location_id = ?
-         AND a.is_active = TRUE`,
+         AND a.is_active = TRUE AND ${activeOfficeProviderSql('u')}`,
       [officeLocationId]
     );
     return rows || [];

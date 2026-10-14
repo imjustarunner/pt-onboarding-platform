@@ -3,9 +3,9 @@ import { supervisionAttendance, normalizeAttendanceReminders, supervisionReminde
 import { meetingReminderSchedule } from '../meetingReminderPolicy.js';
 const session = { session_type:'group', supervisor_user_id:1, co_facilitator_user_id:2, start_at:'2026-10-20 18:00:00', reminder_minutes:5 };
 describe('group supervision attendance notification policy', () => {
-  it('labels both tiers independently of presenter duties', () => {
+  it('always marks presenters mandatory, while other participants use their chosen tier', () => {
     expect(supervisionAttendance(session,{id:3,is_required:1,isPresenter:true})).toMatchObject({tier:'mandatory',label:'Mandatory · Compensated'});
-    expect(supervisionAttendance(session,{id:4,is_required:'0',isPresenter:true})).toMatchObject({tier:'optional',label:'Optional · Not compensated'});
+    expect(supervisionAttendance(session,{id:4,is_required:'0',isPresenter:true})).toMatchObject({tier:'mandatory',label:'Mandatory · Compensated'});
     expect(supervisionAttendance(session,{id:2})).toMatchObject({tier:'mandatory'});
   });
   it('does not alter individual supervision or huddle compensation messaging', () => {

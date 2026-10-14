@@ -105,3 +105,14 @@ it('reloads cancellation state under the shared lock before syncing a queued act
  m.remove.mockResolvedValue({ok:true});await syncRecurringCalendars();
  expect(m.google).not.toHaveBeenCalled();expect(m.remove).toHaveBeenCalledWith(expect.objectContaining({eventId:'remote',sendUpdates:'none'}));
 });
+it('does not extend the old weekday after a this-and-future move',async()=>{
+ const settings={recurrenceContinuationFrom:'2027-10-08 16:00:00'};
+ rows=[session({start_at:'2027-10-01 16:00:00',end_at:'2027-10-01 17:00:00',meeting_settings_json:settings})];
+ expect((await maintainRecurringScheduleWindow({now:new Date('2026-10-09T18:00:00Z')})).added).toBe(0);
+});
+it('extends from the original weekday after a single-date move without cloning the exception',async()=>{
+ rows=[session({start_at:'2027-10-02 18:00:00',end_at:'2027-10-02 19:00:00',meeting_settings_json:{recurrenceOriginalStartAt:'2027-10-01 16:00:00',recurrenceOriginalEndAt:'2027-10-01 17:00:00',reminders:[60]}})];
+ expect((await maintainRecurringScheduleWindow({now:new Date('2026-10-09T18:00:00Z')})).added).toBe(1);
+ const [,params]=m.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO supervision_sessions'));
+ expect(params).toContain('2027-10-08 16:00:00');expect(params).toContain('{"reminders":[60]}');expect(JSON.stringify(params)).not.toContain('recurrenceOriginalStartAt');
+});

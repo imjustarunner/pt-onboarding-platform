@@ -1,9 +1,11 @@
 import pool from '../config/database.js';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 
 // Room access follows the current account and roster, never the role of a URL.
 // Shared by access checks and agenda scope discovery. A directory affiliation is
 // not sufficient to open a private office; inactive organizations remain excluded.
 const activeMeetingMembershipSql = `COALESCE(u.is_active,1)=1
+      AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_archived,0)=0
       AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')
       AND (u.role IN ('super_admin','superadmin') OR EXISTS (
         SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=org.id AND ua.is_active=1))`;
@@ -36,7 +38,7 @@ export async function canJoinTeamMeeting(event, userId) {
 }
 
 export async function canJoinSupervision(session, userId, matchesOpenAudience) {
-  if (!await hasActiveMeetingMembership(session.agency_id, userId)) return false;
+  if (!await hasActiveSupervisionMembership(session, userId)) return false;
   if ([session.supervisor_user_id, session.co_facilitator_user_id]
     .some(id => Number(id) === Number(userId))) return true;
   const [attendees] = await pool.execute(
@@ -52,6 +54,18 @@ export async function canJoinSupervision(session, userId, matchesOpenAudience) {
     [session.id, userId]
   );
   return !!presenters?.length || !!(matchesOpenAudience && await matchesOpenAudience({ sessionRow: session, userId }));
+}
+
+// A cross-agency invitation grants access to this session only, never to its
+// host tenant. Membership in one of the explicitly authorized agencies is live.
+export async function hasActiveSupervisionMembership(session, userId) {
+  if (await hasActiveMeetingMembership(session.agency_id, userId)) return true;
+  const ids = parseMeetingSettings(session.meeting_settings_json).audienceAgencyIds || [];
+  if (!(await activeMeetingAgencyIds(ids, userId)).length) return false;
+  const [rows] = await pool.execute(`SELECT 1 FROM supervision_session_attendees a
+    JOIN agencies org ON org.id=? AND org.is_active=1 AND COALESCE(org.is_archived,0)=0
+    WHERE a.session_id=? AND a.user_id=? AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN') LIMIT 1`, [session.agency_id,session.id,userId]);
+  return !!rows.length;
 }
 
 export function roomUnavailable(row, type = 'team') {

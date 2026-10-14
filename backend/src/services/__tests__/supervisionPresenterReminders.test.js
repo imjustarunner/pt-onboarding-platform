@@ -17,3 +17,11 @@ describe('presenter reminder deadlines', () => {
     expect(duePresenterReminders(session, new Date(start.getTime() - 30 * 60000))).toEqual([]);
   });
 });
+
+it('honors a separate presenter schedule including disabling it',()=>{
+ const event={start_at:'2026-10-21 18:00:00',meeting_settings_json:{attendanceReminders:{presenter:[]}}};
+ expect(duePresenterReminders(event,new Date('2026-10-20T18:00:00Z'))).toEqual([]);
+ event.meeting_settings_json.attendanceReminders.presenter=[60];
+ expect(duePresenterReminders(event,new Date('2026-10-21T17:00:00Z'))).toEqual([60]);
+ expect(duePresenterReminders(event,new Date('2026-10-20T18:00:00Z'))).toEqual([]);
+});

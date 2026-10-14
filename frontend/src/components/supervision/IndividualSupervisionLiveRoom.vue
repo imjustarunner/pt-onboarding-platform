@@ -4,6 +4,7 @@
       <div class="isl__header-left">
         <BrandingLogo size="small" />
         <div>
+          <span class="auricwell-supervision-brand"><img src="/auricwell/mark.svg" alt="" />AuricWell · Supervision</span>
           <h1>{{ sessionTitle || 'Individual Supervision' }}</h1>
           <p class="isl__meta">
             <span>{{ scheduleLabel }}</span>
@@ -1347,4 +1348,9 @@ defineExpose({
     flex-wrap: wrap;
   }
 }
+</style>
+
+<style scoped>
+.auricwell-supervision-brand { display:inline-flex; align-items:center; gap:6px; color:#52776c; font-size:12px; font-weight:700; letter-spacing:.06em; }
+.auricwell-supervision-brand img { width:22px; height:26px; }
 </style>
