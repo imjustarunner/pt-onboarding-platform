@@ -1,6 +1,6 @@
 # ITSCO–PlotTwistCo / AuricWell Business Associate Agreement
 
-**DRAFT FOR LEGAL AND ORGANIZATIONAL REVIEW — NOT EXECUTED.** Prepared October 5, 2026. Complete bracketed fields and the schedules before signature. Proposed duties below are contractual commitments, not a certification that a product has been audited or that all safeguards are already implemented.
+**DRAFT FOR LEGAL AND ORGANIZATIONAL REVIEW — NOT EXECUTED.** Prepared October 5, 2026; scope updated October 14, 2026. Complete bracketed fields and the schedules before signature. Proposed duties below are contractual commitments, not a certification that a product has been audited or that all safeguards are already implemented.
 
 Principal (Covered Entity): **ITSCO, LLC**.
 
@@ -159,7 +159,12 @@ No contractual limitation excuses duties owed directly under law.
 ## Schedule A — complete the service and data scope
 
 - Service agreement title/date: [complete].
-- Approved functions and features: [list only enabled services].
+- Approved functions and features: [select only enabled services]: clinical records; documentation and required signing/cosigning; client enrollment and desired-provider/waitlist coordination; appointment and office scheduling; consent-based notifications; individual/group supervision scheduling, attendance, hours, agendas and presentations; admitted-guest video; authorized clearinghouse claim submission, remittance and eligibility workflows.
+- Plan and feature scope: [record selected plan and separate add-ons]. Supervision meeting management starts with Premium; required note signing remains available in Basic. Plan limits never reduce the BAA's safeguards or individual-rights duties.
+- Video and presentations: [identify approved vendor/account, admission controls, screen-sharing/presentation permissions, data locations and retention]. Recording/transcription remains disabled unless separately authorized with applicable acknowledgements and consent.
+- Communications: [identify permitted channels, minimum necessary notification content, recipient/consent preferences and authenticated-link rules]. Ordinary SMS must not be represented as a secure clinical record channel.
+- Clearinghouse: [identify approved Claim.MD account, covered practices/tax IDs, permitted claims/ERA/eligibility data, agreements and enrollment responsibilities]. Payer and clinical billing rules remain Customer responsibilities.
+- Metering: billing records use practice identifiers, transaction references and minimum necessary quantities; do not include clinical notes, diagnoses, presentation contents or client names in ordinary billing descriptions. Access and retention for metering evidence: [complete].
 - Data categories and recipients: [enumerate minimum required information].
 - Record systems and designated-record-set responsibilities: [identify].
 - Excluded information and disabled features: [list].

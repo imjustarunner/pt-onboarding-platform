@@ -1,0 +1,70 @@
+name: AuricWell pricing and agreement checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**/auricwellPricing*'
+      - 'backend/vitest.auricwell-pricing.config.js'
+      - 'frontend/src/config/auricwellPricing.js'
+      - 'frontend/src/components/billing/Auricwell*'
+      - 'frontend/src/components/billing/__tests__/Auricwell*'
+      - 'frontend/src/components/meetings/PlanComparisonTable.vue'
+      - 'frontend/src/components/ptco/PtcoProducts.vue'
+      - 'frontend/src/components/ptco/__tests__/PtcoProducts.test.js'
+      - 'frontend/src/auricwell/website/**'
+      - 'frontend/public/auricwell/legal/**'
+      - 'docs/legal/auricwell/**'
+      - 'scripts/plans/**'
+      - 'database/migrations/1624_auricwell_pricing_drafts.sql'
+      - '.github/workflows/auricwell-pricing.yml'
+  pull_request:
+    paths:
+      - 'backend/src/**/auricwellPricing*'
+      - 'frontend/src/**/Auricwell*'
+      - 'frontend/src/config/auricwellPricing.js'
+      - 'frontend/src/auricwell/website/**'
+      - 'frontend/public/auricwell/legal/**'
+      - 'docs/legal/auricwell/**'
+      - 'scripts/plans/**'
+      - 'database/migrations/1624_auricwell_pricing_drafts.sql'
+      - '.github/workflows/auricwell-pricing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pricing:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      SKIP_DB_CONNECT: '1'
+      AURICWELL_TEST_MYSQL_PORT: '3306'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend --ignore-scripts
+      - name: Verify rate cards and agreement copies
+        run: |
+          node scripts/plans/sync-auricwell-pricing.mjs --check
+          node scripts/plans/sync-feature-catalog.mjs --check
+      - name: Pricing rules and transactional draft persistence
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.auricwell-pricing.config.js
+      - name: Pricing screens
+        run: npm --prefix frontend test -- src/components/billing/__tests__/AuricwellPricing.test.js src/components/billing/__tests__/BillingCostPlanner.test.js src/components/meetings/__tests__/PlanComparisonTable.test.js src/components/ptco/__tests__/PtcoProducts.test.js
+      - name: Static website build
+        run: node frontend/scripts/build-auricwell-website.mjs

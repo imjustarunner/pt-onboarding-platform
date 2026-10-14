@@ -6,12 +6,14 @@
    <p class="ptco-eyebrow">{{product.audience}}</p><h3><router-link v-if="product.route" :to="product.route">{{ product.name }}</router-link><template v-else>{{product.name}}</template></h3><p>{{product.description}}</p>
    <ul><li v-for="feature in product.features" :key="feature">{{feature}}</li></ul>
    <p class="product-context">{{product.context}}</p><router-link v-if="product.id==='plottwisthq'" class="ptco-button" to="/p/ptco/hq">Explore Plot Twist HQ →</router-link><router-link v-else-if="product.route" class="ptco-button" :to="product.route">{{ product.actionLabel }} →</router-link><a v-else class="ptco-button" :href="product.url">Explore {{product.name}} ↗</a>
+   <p v-if="product.id === 'auricwell'" class="product-context">Practice plans start at ${{ AURICWELL_PLANS[0].baseCents / 100 }}/month, including one administrator and support staff, plus clinical seats and usage. <a :href="`${product.url}/product#plans`">Compare prices and included usage →</a></p>
    <a v-if="product.demo" class="ptco-text-link" :href="product.demo">{{ product.demoLabel }} ↗</a>
   </article></div>
   <p class="ptco-small">Your organization’s permissions, configured features, agreements and integrations determine access. For care-related products, the treating practice delivers care. Summit Stats supports fitness groups and competition, not clinical care. Product branding does not change the parties named in your agreements.</p>
  </div></section>
 </template>
 <script setup>
+import { AURICWELL_PLANS } from '../../config/auricwellPricing.js';
 import { CONVERSA_RELATIONSHIP } from '../../constants/conversa';
 import { ptcoProducts as products } from '../../constants/ptcoProducts';
 

@@ -1,3 +1,4 @@
+import {getAuricwellPricing,saveAuricwellPricing} from '../controllers/auricwellPricing.controller.js';
 import { requireMedicalBillingFinancialAccess } from '../middleware/medicalBilling.middleware.js';
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -87,6 +88,10 @@ router.get('/:agencyId/payment-methods/setup', authenticate, requireAgencyAdmin,
 router.get('/:agencyId/payment-methods', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, listAgencyBillingPaymentMethods);
 router.post('/:agencyId/payment-methods', authenticate, requireAgencyAdmin, createAgencyBillingPaymentMethod);
 router.post('/:agencyId/payment-methods/:paymentMethodId/default', authenticate, requireAgencyAdmin, setAgencyBillingPaymentMethodDefault);
+
+// AuricWell pricing review: saved drafts never activate or alter customer billing.
+router.get('/:agencyId/auricwell-pricing', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getAuricwellPricing);
+router.put('/:agencyId/auricwell-pricing', authenticate, requireSuperAdmin, saveAuricwellPricing);
 
 // Per-agency pricing (readable by agency access; writable by superadmin)
 router.get('/:agencyId/pricing', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getAgencyPricing);

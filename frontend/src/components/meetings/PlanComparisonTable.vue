@@ -5,6 +5,7 @@
       <h2 id="plans-title">A plan for your practice</h2>
       <p>Documentation Hub is included in every plan. Premium includes Basic; Premium Plus includes both.</p>
     </header>
+    <AuricwellPricingTable />
     <div class="plan-tools">
       <label>Find a feature<input v-model="search" type="search" placeholder="Search features" /></label>
       <label>Product<select v-model="product"><option value="all">All features</option><option value="auricwell">AuricWell</option><option value="platform">Platform</option></select></label>
@@ -38,6 +39,7 @@
 </template>
 <script setup>
 import { computed, ref } from 'vue';
+import AuricwellPricingTable from '../billing/AuricwellPricingTable.vue';
 import { PLAN_TIERS, PLAN_FEATURES } from '../../config/productPlanCatalog.js';
 const search = ref('');
 const product = ref('all');
