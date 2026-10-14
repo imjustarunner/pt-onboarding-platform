@@ -3,6 +3,23 @@ import Task from '../models/Task.model.js';
 import { validationResult } from 'express-validator';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
+function isFiledReference(task, template) {
+  const metadata = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+  return metadata?.referenceOnly === true && task.status === 'completed'
+    && template.is_user_specific === 1 && template.user_id === task.assigned_to_user_id;
+}
+
+async function readPrivateReference(task, template) {
+  const prefix = `secure-messages/employee-references/${task.assigned_to_agency_id}/${task.assigned_to_user_id}/`;
+  if (!String(template.file_path || '').startsWith(prefix) || template.file_path.includes('..')) {
+    throw new Error('Invalid private reference document path');
+  }
+  const StorageService = (await import('../services/storage.service.js')).default;
+  const bucket = await StorageService.getGCSBucket();
+  const [buffer] = await bucket.file(template.file_path).download();
+  return buffer;
+}
+
 export const recordAcknowledgment = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -178,6 +195,13 @@ export const viewAcknowledgedDocument = async (req, res, next) => {
       }
     }
     
+    if (isFiledReference(task, template)) {
+      const buffer = await readPrivateReference(task, template);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.send(buffer);
+    }
+
     // If template is PDF, serve the PDF file
     if (template.template_type === 'pdf' && template.file_path) {
       // Normalize template.file_path to a local disk filename under backend/uploads/templates.
@@ -259,15 +283,17 @@ export const downloadAcknowledgedDocument = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only view your own acknowledgments' } });
     }
 
-    // An administrator may file a reference document without asserting that the
-    // employee acknowledged or signed it. Keep the original PDF downloadable.
-    const metadata = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
-    const referenceOnly = metadata?.referenceOnly === true
-      && task.status === 'completed'
-      && template.is_user_specific === 1
-      && template.user_id === task.assigned_to_user_id;
-    const acknowledgment = referenceOnly ? null : await DocumentAcknowledgment.findByTaskAndUser(taskId, targetUserId);
-    if (!referenceOnly && !acknowledgment) {
+    // Filing a reference does not create an employee acknowledgment or signature.
+    if (isFiledReference(task, template)) {
+      const buffer = await readPrivateReference(task, template);
+      const filename = String(template.name || 'reference-document').replace(/[^\w\s\-().]/g, '').trim() || 'reference-document';
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.send(buffer);
+    }
+    const acknowledgment = await DocumentAcknowledgment.findByTaskAndUser(taskId, targetUserId);
+    if (!acknowledgment) {
       return res.status(404).json({ error: { message: 'Acknowledgment not found' } });
     }
 
@@ -286,13 +312,6 @@ export const downloadAcknowledgedDocument = async (req, res, next) => {
     } catch (e) {
       const StorageService = (await import('../services/storage.service.js')).default;
       originalBuffer = await StorageService.readTemplate(filename);
-    }
-
-    if (referenceOnly) {
-      const filename = String(template.name || 'reference-document').replace(/[^\w\s\-().]/g, '').trim() || 'reference-document';
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
-      return res.send(originalBuffer);
     }
 
     const originalPdf = await PDFDocument.load(originalBuffer);
