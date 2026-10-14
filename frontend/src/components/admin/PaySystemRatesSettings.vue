@@ -107,7 +107,7 @@
                   <th class="col-rate" title="Minimum workload / 90-day probationary Clinical Session Rate">Clinical Session Min / Probation</th>
                   <th class="col-rate" title="Direct Care Rate per hour equivalent; currently approved H-codes">Direct Care Rate $/hr</th>
                   <th class="col-rate" title="Minimum workload / probationary Direct Care Rate">Direct Care Min / Probation</th>
-                  <th class="col-rate">Indirect $/hr</th>
+                  <th v-if="hasTutoringRates" class="col-rate">Tutoring $/hr (4 units)</th><th v-if="hasTutoringRates" class="col-rate">H2014 override $/hr</th><th class="col-rate">Indirect $/hr</th>
                   <th class="col-rate">Support activity $/hr</th>
                   <th class="col-bonus" title="Tier performance bonus per productive credit/hour-eq (typically L3–L5)">Tier bonus $/cr</th>
                   <th class="col-bonus" title="Spanish-speaking bonus at T2/T3 when eligible">Spanish T2/T3</th>
@@ -142,6 +142,8 @@
                       <input v-model.number="draft[cat.id][lvl].hcodeRateProbation" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
                     </div>
                   </td>
+                  <td v-if="hasTutoringRates"><input v-model.number="draft[cat.id][lvl].tutoringRate" type="number" min="0.01" step="0.01" class="ps-input" aria-label="Tutoring hourly rate" /></td>
+                  <td v-if="hasTutoringRates"><input v-model.number="draft[cat.id][lvl].h2014Rate" type="number" min="0.01" step="0.01" class="ps-input" placeholder="Use Direct Care Rate" aria-label="H2014 hourly override" /></td>
                   <td class="col-rate">
                     <div class="ps-rate-input">
                       <span class="ps-prefix">$</span>
@@ -306,6 +308,7 @@ const roster = ref([]);
 const emptyLevel = () => ({
   creditRate: null,
   creditRateProbation: null,
+  tutoringRate: null, h2014Rate: null,
   hcodeRate: null,
   hcodeRateProbation: null,
   indirectRate: null,
@@ -324,6 +327,7 @@ const makeDraft = () => {
   }
   return d;
 };
+const hasTutoringRates = computed(() => Object.values(draft.value || {}).some(levels => Object.values(levels).some(row => row.tutoringRate != null)));
 const draft = ref(makeDraft());
 
 const applyRates = (rates) => {
@@ -335,6 +339,7 @@ const applyRates = (rates) => {
     next[cat][lvl] = {
       creditRate: row.creditRate != null ? Number(row.creditRate) : null,
       creditRateProbation: row.creditRateProbation != null ? Number(row.creditRateProbation) : null,
+      tutoringRate: row.tutoringRate ?? null, h2014Rate: row.h2014Rate ?? null,
       hcodeRate: row.hcodeRate != null ? Number(row.hcodeRate) : null,
       hcodeRateProbation: row.hcodeRateProbation != null ? Number(row.hcodeRateProbation) : null,
       indirectRate: row.indirectRate != null ? Number(row.indirectRate) : null,
@@ -467,6 +472,7 @@ const saveAll = async () => {
           level: lvl,
           creditRate: d.creditRate ?? null,
           creditRateProbation: d.creditRateProbation ?? null,
+          tutoringRate: d.tutoringRate ?? null, h2014Rate: d.h2014Rate ?? null,
           hcodeRate: d.hcodeRate ?? null,
           hcodeRateProbation: d.hcodeRateProbation ?? null,
           indirectRate: d.indirectRate ?? null,

@@ -1,3 +1,4 @@
+import { createTutoringPayrollDraft } from '../services/tutoringPayroll.service.js';
 import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
 import pool from '../config/database.js';
 import multer from 'multer';
@@ -280,6 +281,7 @@ export const startClassSession = async (req, res, next) => {
     if (String(session?.delivery_context || '').toLowerCase() === 'in_person') {
       const updated = await LearningClassSession.update(sessionId, {
         status: 'live',
+        actualStartedAt: session.actual_started_at || new Date(),
         startedByUserId: req.user.id,
         deliveryContext: 'in_person'
       });
@@ -298,6 +300,7 @@ export const startClassSession = async (req, res, next) => {
     const room = await createOrGetRoomByUniqueName(roomName);
     const updated = await LearningClassSession.update(sessionId, {
       status: 'live',
+      actualStartedAt: session.actual_started_at || new Date(),
       twilioRoomSid: room?.roomSid || session.twilio_room_sid,
       twilioRoomUniqueName: room?.uniqueName || roomName,
       startedByUserId: req.user.id
@@ -374,7 +377,7 @@ export const endClassSession = async (req, res, next) => {
 
     const updated = await LearningClassSession.update(sessionId, {
       status: 'ended',
-      endsAt: new Date(),
+      endsAt: session.status === 'ended' ? session.ends_at : new Date(),
       endedByUserId: req.user.id
     });
 
@@ -393,9 +396,12 @@ export const endClassSession = async (req, res, next) => {
       });
     }
 
+    let payrollDraft = null, payrollWarning = null;
+    try { payrollDraft = await createTutoringPayrollDraft(sessionId, req.user.id); }
+    catch (error) { payrollWarning = error.message; }
     await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: req.user.id });
     res.json({ 
-      session: updated, 
+      session: updated, payrollDraft, payrollWarning,
       message: freshSession?.session_subtype === 'tutoring'
         ? (String(freshSession?.delivery_context || '').toLowerCase() === 'in_person'
             ? 'In-person tutoring session ended. AI is analyzing tutor notes and saved responses for the progress summary and homework.'
@@ -426,8 +432,8 @@ export const getClassSessionVideoToken = async (req, res, next) => {
       const isTutor = String(actorRole || '').includes('presenter') || String(actorRole || '').includes('tutor');
       videoResponse = await LearningClassSession.getVideoToken(sessionId, `user-${req.user.id}`, isTutor);
       // Update status if scheduled
-      if (String(session.status || '').toLowerCase() === 'scheduled') {
-        await LearningClassSession.update(sessionId, { status: 'live' });
+      if (session.status === 'scheduled' || (session.status === 'live' && isTutor && !session.actual_started_at)) {
+        await LearningClassSession.update(sessionId, { status: 'live', ...(isTutor ? { actualStartedAt: session.actual_started_at || new Date() } : {}) });
       }
     } else {
       // Legacy group class path (Twilio/Vonage hybrid)
@@ -437,6 +443,7 @@ export const getClassSessionVideoToken = async (req, res, next) => {
       if (!session.twilio_room_sid || !session.twilio_room_unique_name || String(session.status || '').toLowerCase() === 'scheduled') {
         await LearningClassSession.update(sessionId, {
           status: String(session.status || '').toLowerCase() === 'scheduled' ? 'live' : session.status,
+          actualStartedAt: session.actual_started_at || new Date(),
           twilioRoomSid: room.roomSid,
           twilioRoomUniqueName: room.uniqueName
         });

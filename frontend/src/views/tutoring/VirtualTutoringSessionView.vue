@@ -1058,11 +1058,14 @@ const endSession = async () => {
   const idNum = Number(sessionId.value);
   if (Number.isFinite(idNum) && idNum > 0) {
     try {
-      await api.post(`/learning-class-sessions/sessions/${idNum}/end`, {
+      const { data } = await api.post(`/learning-class-sessions/sessions/${idNum}/end`, {
         transcriptText: '[Demo transcript captured in session. Replace with live speech-to-text from Vonage.]'
       });
+      if (data?.payrollWarning) alert(`Session saved. Payroll needs review: ${data.payrollWarning}`);
+      else if (data?.payrollDraft?.status === 'submitted') alert(`${Number(data.payrollDraft.units.toFixed(4))} tutoring units and the indirect allowance submitted for payroll review.`);
     } catch (e) {
-      console.warn('End session API failed:', e?.response?.data || e.message);
+      alert(e?.response?.data?.error?.message || 'Could not end the tutoring session. Please retry.');
+      return;
     }
   }
   alert('Session ended. AI summary and standards-aligned homework will appear in the guardian portal.');

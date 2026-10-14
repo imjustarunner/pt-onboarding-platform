@@ -43,6 +43,7 @@
               {{ categoryLabel }} L{{ activeProfile.level }}
               · Clinical Session Rate ${{ fmt(activeCreditRate) }}
               · Direct Care Rate ${{ fmt(activeHcodeRate) || '—' }}
+              <span v-if="activeProfile?.tutoringRate != null"> · Tutoring ${{ fmt(activeProfile.tutoringRate) }}/hour (4 units), plus indirect pay</span>
               · Indirect ${{ fmt(activeProfile.indirectRate) }}
             </span>
           </div>
@@ -434,6 +435,7 @@ const overlayProfile = () => {
   return {
     creditRate: row.creditRate,
     creditRateProbation: row.creditRateProbation,
+    tutoringRate: row.tutoringRate, h2014Rate: row.h2014Rate,
     hcodeRate: row.hcodeRate,
     hcodeRateProbation: row.hcodeRateProbation,
     indirectRate: row.indirectRate,

@@ -23,11 +23,11 @@ export function personalPayTypeDescriptions(s) {
  const automatic=[2,3].includes(Number(s.category));
  return payTypeDescriptions
   .replace(/<dt><strong>Probationary and minimum-workload rates<\/strong><\/dt><dd>[\s\S]*?<\/dd>/, s.probationWaived ? '<dt><strong>Minimum-workload rate and waiver</strong></dt><dd>The minimum-workload rate is waived for 60 calendar days from your amendment’s prospective effective date. After the waiver, it applies only when the handbook’s minimum-workload conditions are met.</dd>' : '$&')
-  .replace('Categories 2 and 3 also receive 10 minutes (10/60 hour) of indirect pay per direct-hour equivalent. Category 1 records actual indirect work separately.', automatic ? `You also receive ${Number(s.autoIndirectMinutes ?? 10)} minutes of indirect pay per direct-hour equivalent, paid at your indirect rate.` : 'Record your actual indirect work separately; no indirect allowance is added automatically.')
-  .replace('Category 1 submits actual time. Categories 2 and 3 receive the H-code allowance automatically and report additional compensable work without claiming the same work twice.', automatic ? 'Your H-code allowance is added automatically. Report other eligible indirect work separately without claiming the same work twice.' : 'Submit your actual eligible indirect time separately.')
+  .replace('Categories 2 and 3 also receive 10 minutes (10/60 hour) of indirect pay per direct-hour equivalent. Category 1 records actual indirect work separately.', automatic ? `You also receive ${Number(s.autoIndirectMinutes ?? 10)} minutes of indirect pay per direct-hour equivalent, paid at your indirect rate.` : s.h2014Rate != null ? 'H2014 receives 10 minutes of automatic indirect pay per direct-hour equivalent. For other H-codes, record actual indirect work separately unless the individual schedule states otherwise.' : 'Record your actual indirect work separately; no indirect allowance is added automatically.')
+  .replace('Category 1 submits actual time. Categories 2 and 3 receive the H-code allowance automatically and report additional compensable work without claiming the same work twice.', automatic ? 'Your H-code allowance is added automatically. Report other eligible indirect work separately without claiming the same work twice.' : s.h2014Rate != null ? 'The H2014 indirect allowance is added automatically. Report additional actual indirect work without duplicating the allowance.' : 'Submit your actual eligible indirect time separately.')
   .replace('A slash in the prior chart separated H-code and clinical rates; it did not combine them into one payment.', '')
   .replace(/<dt><strong>Levels and conditional bonuses<\/strong><\/dt><dd>[\s\S]*?<\/dd>/, Number(s.tier3LevelBonus)>0 ? `<dt><strong>Tier 3 conditional addition</strong></dt><dd>${CONDITIONAL_ADDITION_POLICY}</dd>` : '')
-  .replace(/<dt><strong>Clinical Session Rate<\/strong><\/dt><dd>[\s\S]*?<\/dd>/, s.clinicalEligible===false ? '' : '$&');
+  .replace(/<dt><strong>Clinical Session Rate<\/strong><\/dt><dd>[\s\S]*?<\/dd>/, s.clinicalEligible===false ? '' : '$&') + (s.tutoringRate != null ? '<p><strong>Tutoring:</strong> Each 15-minute unit pays one quarter of the tutoring hourly rate. Four units equal one hour. Add 10 minutes of indirect pay per hour-equivalent at the applicable indirect rate, proportionally (2.5 minutes per unit). Tutoring is a non-clinical service and uses the app’s internal tutoring record; this does not authorize an insurance claim. Record actual work and avoid duplicate indirect claims.</p>' : '');
 }
 
 export function personalRateTable(s) {
@@ -35,6 +35,8 @@ export function personalRateTable(s) {
   const rows = [
     ...(clinical ? [['Clinical Session Rate','per credit',s.creditRate,s.creditRateProbation,bonus]] : []),
     ['Direct Care Rate','per direct-hour equivalent',s.hcodeRate,s.hcodeRateProbation,Number(s.category)===1?bonus:0],
+    ...(s.tutoringRate != null ? [['Tutoring','per hour-equivalent (four 15-minute units)',s.tutoringRate,s.tutoringRate,0]] : []),
+    ...(s.h2014Rate != null ? [['H2014','per hour-equivalent (four 15-minute units)',s.h2014Rate,s.h2014Rate,0]] : []),
     ['Indirect pay','per hour',s.indirectRate,s.indirectRateProbation ?? s.indirectRate,0],
     ['Support activities','per hour',s.supportRate,s.supportRateProbation ?? s.supportRate,0]
   ];

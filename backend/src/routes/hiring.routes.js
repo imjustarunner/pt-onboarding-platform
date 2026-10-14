@@ -70,6 +70,7 @@ import {
   updateSignerRole,
   deleteSignerRole,
   sendPreHire,
+  candidatePrehireDraft,
   getCandidatePrehireLink,
   emailPrehirePortalLink,
   listPrehireCandidates,
@@ -195,6 +196,8 @@ router.delete('/candidates/:userId', deleteCandidate);
 router.post('/candidates/:userId/research', requestCandidateResearch);
 router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
+router.get('/candidates/:userId/prehire-draft', candidatePrehireDraft);
+router.put('/candidates/:userId/prehire-draft', candidatePrehireDraft);
 router.get('/candidates/:userId/prehire-link', getCandidatePrehireLink);
 router.post('/candidates/:userId/send-prehire', sendPreHire);
 router.post('/candidates/:userId/email-prehire-link', emailPrehirePortalLink);

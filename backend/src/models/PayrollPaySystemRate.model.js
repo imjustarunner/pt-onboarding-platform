@@ -45,6 +45,9 @@ function rowToProfile(row) {
     level: Number(row.level),
     creditRate: row.credit_rate != null ? Number(row.credit_rate) : null,
     creditRateProbation: row.credit_rate_probation != null ? Number(row.credit_rate_probation) : null,
+    supplementalRatesEffectiveOn: row.supplemental_rates_effective_on instanceof Date ? row.supplemental_rates_effective_on.toISOString().slice(0,10) : row.supplemental_rates_effective_on || null,
+    tutoringRate: row.tutoring_rate != null ? Number(row.tutoring_rate) : null,
+    h2014Rate: row.h2014_rate != null ? Number(row.h2014_rate) : null,
     hcodeRate: row.hcode_rate != null ? Number(row.hcode_rate) : null,
     hcodeRateProbation: row.hcode_rate_probation != null ? Number(row.hcode_rate_probation) : null,
     indirectRate: row.indirect_rate != null ? Number(row.indirect_rate) : null,
@@ -128,16 +131,18 @@ const PayrollPaySystemRate = {
     await pool.execute(
       `INSERT INTO payroll_pay_system_rates
          (agency_id, category, level,
-          credit_rate, credit_rate_probation, hcode_rate, hcode_rate_probation,
+          credit_rate, credit_rate_probation, hcode_rate, hcode_rate_probation, tutoring_rate, h2014_rate,
           indirect_rate, support_activity_rate, auto_indirect_minutes_per_hour,
           tier_bonus_json, tier_bonus_ffs_json, tier_bonus_hcode_json,
           spanish_bonus_json, location_bonus_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          credit_rate = VALUES(credit_rate),
          credit_rate_probation = VALUES(credit_rate_probation),
          hcode_rate = VALUES(hcode_rate),
          hcode_rate_probation = VALUES(hcode_rate_probation),
+         tutoring_rate = IF(? = 1, VALUES(tutoring_rate), tutoring_rate),
+         h2014_rate = IF(? = 1, VALUES(h2014_rate), h2014_rate),
          indirect_rate = VALUES(indirect_rate),
          support_activity_rate = VALUES(support_activity_rate),
          auto_indirect_minutes_per_hour = VALUES(auto_indirect_minutes_per_hour),
@@ -153,6 +158,8 @@ const PayrollPaySystemRate = {
         fields.creditRateProbation != null && fields.creditRateProbation !== '' ? Number(fields.creditRateProbation) : null,
         fields.hcodeRate != null && fields.hcodeRate !== '' ? Number(fields.hcodeRate) : null,
         fields.hcodeRateProbation != null && fields.hcodeRateProbation !== '' ? Number(fields.hcodeRateProbation) : null,
+        fields.tutoringRate != null && fields.tutoringRate !== '' ? Number(fields.tutoringRate) : null,
+        fields.h2014Rate != null && fields.h2014Rate !== '' ? Number(fields.h2014Rate) : null,
         fields.indirectRate != null && fields.indirectRate !== '' ? Number(fields.indirectRate) : null,
         fields.supportActivityRate != null && fields.supportActivityRate !== '' ? Number(fields.supportActivityRate) : null,
         fields.autoIndirectMinutesPerHour != null ? Number(fields.autoIndirectMinutesPerHour) : 10,
@@ -161,6 +168,8 @@ const PayrollPaySystemRate = {
         tierBonusHcodeJson,
         JSON.stringify(spanishBonus),
         JSON.stringify(locationBonus),
+        fields.tutoringRate !== undefined ? 1 : 0,
+        fields.h2014Rate !== undefined ? 1 : 0,
         updateFfs ? 1 : 0,
         updateHcode ? 1 : 0
       ]

@@ -4,6 +4,7 @@
       <div>
         <button type="button" class="sph-back" @click="goBack">← Applicants</button>
         <h1>Start pre-hire</h1>
+        <p role="status">{{ draftMessage }}</p><button v-if="draftSaveError" type="button" @click="flushDraft">Retry saving progress</button>
         <p class="muted">Prepare one step at a time. Review the complete pre-hire experience before sending the invitation.</p>
       </div>
     </header>
@@ -43,13 +44,18 @@
       </section>
 
       <section v-show="setupStep === 2" class="sph-card">
-        <h2>Employment contract and cosigners</h2>
+        <h2>Agreement and cosigners</h2>
         <p class="muted">Review the person’s information and compensation, then generate the agreement they will receive.</p>
-        <p><a :href="contractsPath" target="_blank" rel="noopener">Edit contract templates, clauses and pay settings ↗</a> <button type="button" @click="refreshContractLibrary">Refresh contract settings</button></p>
+        <p><a :href="contractsPath" target="_blank" rel="noopener">Manage standard agreement terms and pay settings ↗</a> <button type="button" @click="refreshContractLibrary">Refresh contract settings</button></p>
         <div v-if="!contractConfigs.length" class="sph-warn">
           Create a contract configuration in the Contract Generator, then refresh the settings here to prepare and preview this person’s agreement.
         </div>
-        <label v-if="contractConfigs.length" class="sph-config">
+        <template v-if="agreementBuilder">
+          <label class="sph-config">Agreement role<select v-model="agreementVariant" @change="applyAgreementVariant"><option v-for="option in agreementBuilder.options" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
+          <p class="muted">One ongoing agreement uses the standard terms, selected service focuses, role duties, and category/level compensation. Practicum and internship use the student training agreement with the same category/level pay system. Changes to compensation do not automatically require a replacement agreement.</p>
+          <p v-if="!contractConfigId" class="sph-warn">The standard terms for this agreement role are not configured. Refresh or update the agreement library.</p>
+        </template>
+        <label v-else-if="contractConfigs.length" class="sph-config">
           Contract config
           <select v-model.number="contractConfigId" class="input">
             <option :value="null">Choose a contract configuration</option>
@@ -65,9 +71,8 @@
             Include supervisor on the employment agreement
           </label>
           <label v-if="includeSupervisor">Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
-          <label>License required by <input v-model="contract.licenseBy" type="date" /></label>
-          <label>Min days / week <input v-model="contract.minDays" type="number" min="0" max="7" /></label>
-          <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" /></label>
+          <label v-if="!agreementBuilder || agreementVariant === 'provider'">License required by <input v-model="contract.licenseBy" type="date" /></label>
+          <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" step="any" /><span v-if="contract.minHours !== '' && Number.isFinite(Number(contract.minHours)) && Number(contract.minHours) >= 0" class="muted small">Required available-to-book time: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week. Expected to schedule: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week (25% more, rounded up, to account for no-shows and rescheduling).</span></label>
           <label>Pay category
             <select v-model="contract.compensationCategory">
               <option value="">Choose a category</option>
@@ -79,16 +84,31 @@
         </div>
         <div class="sph-grid">
           <label>Pay level<select v-model="contract.compensationLevel"><option value="">Choose a level</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{ level }}{{ levelLabel(level) }}</option></select></label>
-          <label>Assigned office<select v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><option v-for="office in offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></select></label>
+          <label>Assigned office<select v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><optgroup v-for="group in officeGroups" :key="group.city" :label="group.city"><option v-for="office in group.offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></optgroup></select></label>
         </div>
         <p v-if="officeSource" class="muted">{{ officeSource }}</p>
-        <p v-if="selectedCompensation">Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Direct: {{ money(selectedCompensation.direct_rate) }} / hour · Indirect: {{ money(selectedCompensation.indirect_rate) }} / hour · FFS base: {{ selectedCompensation.serviceRates?.length ? 'See service rates below' : money(selectedCompensation.ffs_rate) }}</p>
+        <p v-if="selectedCompensation">Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Direct: {{ money(selectedCompensation.direct_rate) }} / hour · Indirect: {{ money(selectedCompensation.indirect_rate) }} / hour · FFS base: {{ money(selectedCompensation.ffs_rate) }}</p>
         <p v-else class="sph-warn">Choose a category and level to review compensation. Configure missing rates in contract/pay settings.</p>
-        <table v-if="selectedCompensation?.serviceRates?.length"><thead><tr><th>Service code</th><th>Compensation</th><th>Unit</th></tr></thead><tbody><tr v-for="rate in selectedCompensation.serviceRates" :key="rate.serviceCode"><td>{{ rate.serviceCode }}</td><td>{{ money(rate.rateAmount) }}</td><td>{{ rate.rateUnit === 'per_hour' ? 'Per hour' : 'Per unit' }}</td></tr></tbody></table>
+        <template v-if="agreementBuilder || contractConfigs.find(c => Number(c.id) === Number(contractConfigId))?.pay_mode === 'ffs'">
+          <p v-if="selectedCompensation?.serviceRatesError" class="sph-warn">{{ selectedCompensation.serviceRatesError }}</p>
+          <table v-else-if="selectedCompensation?.serviceRates?.length">
+            <thead><tr><th>Service code</th><th>Base compensation</th><th v-if="selectedCompensation.serviceRates.some(rate => rate.reduced)">Probation / minimum-workload rate</th><th>Unit</th></tr></thead>
+            <tbody><tr v-for="rate in selectedCompensation.serviceRates" :key="rate.code"><td>{{ rate.code }}</td><td>{{ rate.rate }}<template v-if="rate.additionalIndirect"><br />{{ rate.additionalIndirect }}</template></td><td v-if="selectedCompensation.serviceRates.some(rate => rate.reduced)">{{ rate.reduced || rate.rate }}</td><td>{{ rate.unit }}</td></tr></tbody>
+          </table>
+        </template>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
         <h3>Contract details</h3>
         <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
-        <div class="sph-grid"><label v-for="field in contractFields" :key="field.key">{{ field.label }}<input v-model="contractOverrides[field.key]" /></label></div>
+        <div class="sph-grid">
+          <template v-for="field in contractFields" :key="field.key">
+            <ContractServiceFocusSelect v-if="field.key === 'SERVICE_FOCUS'" v-model="contractOverrides.SERVICE_FOCUS" :options="serviceFocusOptions" />
+            <label v-else>{{ field.label }}<input v-model="contractOverrides[field.key]" :readonly="['COMPANY_ADDRESS', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS'].includes(field.key) || (agreementBuilder && field.key === 'ROLE_LABEL')" /></label>
+          </template>
+          <label v-if="showSchoolDays">Expected school days / week <input v-model="contract.minDays" type="number" min="1" max="7" step="1" /><span class="muted small">Expected days present in the school. Each school day is approximately 8:00 a.m.–3:00 p.m., with roughly seven clients. Applies when school is all or part of the service focus.</span></label>
+          <label v-if="agreementBuilder && agreementVariant === 'student'">University / training institution<input v-model="contractOverrides.UNIVERSITY_NAME" /></label>
+          <label v-if="agreementBuilder && agreementVariant === 'student'">Starting training phase<select v-model="contractOverrides.TRAINING_START_PHASE"><option value="practicum">Practicum → internship</option><option value="internship">Direct-entry internship</option></select><span class="muted">One agreement covers both phases. Practicum continues into internship unless either party gives written notice of non-continuation, subject to academic requirements and the practicum review.</span></label>
+        </div>
+        <p v-if="!contractOverrides.COMPANY_ADDRESS" class="sph-warn">The agency’s place-of-business address is missing. Set it in agency settings, then refresh contract settings.</p>
         <p class="muted">Confirm these values against the candidate and your agency records.</p>
         <button type="button" class="btn btn-primary" :disabled="previewBusy || !contractConfigId" @click="previewContract">{{ previewBusy ? 'Preparing preview…' : 'Update contract preview' }}</button>
         <p v-if="previewError" role="alert" class="error">{{ previewError }}</p>
@@ -174,7 +194,7 @@
         <p>The invitation goes to <strong>{{ candidateEmail }}</strong>. Their portal includes:</p>
         <ol><li v-for="item in builtInSteps" :key="item">{{ item }}</li><li v-for="item in portalWorkflow.resources || []" :key="item.id">{{ item.title }} · {{ item.required === false ? 'Optional' : 'Required' }}</li><li v-for="doc in jobDocs.filter(d => d.selected && d.kind !== 'acknowledgement')" :key="doc.id">{{ doc.title }} · {{ docKindLabel(doc.kind) }}</li></ol>
         <HirePackageContents documents-only :package-id="prehirePackageId" :edit-url="packagesPath" />
-        <p>Contract: {{ contractConfigs.find(c => c.id === contractConfigId)?.name || 'Choose a configuration' }} · {{ contractReviewed ? 'Preview reviewed' : 'Preview must be reviewed' }}</p>
+        <p>Agreement: {{ agreementBuilder?.options.find(option => option.value === agreementVariant)?.label || contractConfigs.find(c => c.id === contractConfigId)?.name || 'Choose an agreement' }} · {{ contractReviewed ? 'Preview reviewed' : 'Preview must be reviewed' }}</p>
         <p>Compensation: Category {{ contract.compensationCategory || 'not selected' }}, Level {{ contract.compensationLevel || 'not selected' }}</p>
         <p v-if="!contractReviewed || !previewMatches" class="error">Return to Contract &amp; cosigners, update the preview, and confirm you reviewed it.</p>
         <p>Cosigners: {{ chosenSignerNames || 'None selected' }}</p>
@@ -206,10 +226,11 @@
 <script setup>
 import { isSupervisor } from '../../utils/helpers.js';
 import HirePackageContents from '../../components/hiring/HirePackageContents.vue';
+import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
 import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import api from '../../services/api';
 import { prehireInviteDeliveryMessage } from '../../utils/prehireInviteDelivery.js';
 import { useAgencyStore } from '../../store/agency';
@@ -233,10 +254,26 @@ const jobDocs = ref([]);
 const inferredPayLabel = ref('');
 const inferredCategory = ref(null);
 const compensationLevels = ref([]), offices = ref([]), officeLocationId = ref(null), officeSource = ref('');
+const officeGroups = computed(() => {
+  const groups = new Map();
+  for (const office of offices.value) {
+    const city = [office.city, office.state].filter(Boolean).join(', ') || 'Agency offices';
+    if (!groups.has(city)) groups.set(city, []);
+    groups.get(city).push(office);
+  }
+  return [...groups].map(([city, offices]) => ({ city, offices }));
+});
+const serviceFocusOptions = ref([]), schoolDaysEnabled = ref(false);
+const agreementBuilder = ref(null), agreementVariant = ref('');
+function applyAgreementVariant() {
+  const option = agreementBuilder.value?.options.find(option => option.value === agreementVariant.value);
+  contractConfigId.value = option?.configId || null;
+  if (option) contractOverrides.ROLE_LABEL = option.roleLabel;
+}
 const selectedCompensation = computed(() => compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === Number(contract.compensationLevel)));
 const money = value => value == null ? 'Not configured' : new Intl.NumberFormat('en-US', { style:'currency', currency:'USD' }).format(value);
 function levelLabel(level) { const row = compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === level); return row ? ` — ${row.label || money(row.ffs_rate ?? row.direct_rate)}` : ' — not configured'; }
-function applyOffice() { contractOverrides.ASSIGNED_OFFICE_ID = officeLocationId.value || '';  const office = offices.value.find(o => Number(o.id) === Number(officeLocationId.value)); contractOverrides.ASSIGNED_OFFICE_NAME = office?.name || ''; contractOverrides.ASSIGNED_OFFICE_ADDRESS = office?.address || ''; officeSource.value = office ? 'Selected office' : ''; }
+function applyOffice() { contractOverrides.ASSIGNED_OFFICE_ID = officeLocationId.value || ''; const office = offices.value.find(o => Number(o.id) === Number(officeLocationId.value)); contractOverrides.ASSIGNED_OFFICE_NAME = office?.name || ''; contractOverrides.ASSIGNED_OFFICE_ADDRESS = office?.address || ''; officeSource.value = office ? 'Selected office' : ''; }
 
 const signerAssignments = ref([]);
 const staffUsers = ref([]);
@@ -341,18 +378,21 @@ const goBack = () => router.push(orgPath('/admin/hiring/applicants'));
 const titleFromFilename = (name) =>
   String(name || 'Document').replace(/\.[^.]+$/, '').trim() || 'Document';
 
-const onExtraFiles = (e) => {
+const uploadingFiles = ref(false);
+const onExtraFiles = async (e) => {
   const picked = Array.from(e?.target?.files || []);
   if (!picked.length) return;
-  const next = [...extraFiles.value];
-  for (const file of picked) {
-    next.push({
-      file,
-      name: file.name,
-      title: titleFromFilename(file.name)
-    });
-  }
-  extraFiles.value = next;
+  uploadingFiles.value = true;
+  try {
+    for (const file of picked) {
+      const title = titleFromFilename(file.name);
+      const form = new FormData(); form.append('file', file); form.append('title', title); form.append('docType', 'prehire_upload');
+      const { data } = await api.post(`/users/${userId.value}/admin-docs/upload`, form);
+      extraFiles.value.push({ id: data?.id || data?.document?.id, name: file.name, title });
+    }
+    await flushDraft();
+  } catch (e) { draftSaveError.value = e.response?.data?.error?.message || 'Could not save the attached file. Select it again to retry.'; }
+  finally { uploadingFiles.value = false; }
   if (e?.target) e.target.value = '';
 };
 
@@ -380,6 +420,8 @@ const load = async () => {
     signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
     compensationLevels.value = wizardRes.data?.compensationLevels || [];
+    serviceFocusOptions.value = wizardRes.data?.serviceFocusOptions || [];
+    schoolDaysEnabled.value = wizardRes.data?.schoolDaysEnabled === true;
     offices.value = wizardRes.data?.offices || [];
     officeLocationId.value = wizardRes.data?.suggested?.officeLocationId || null;
     officeSource.value = wizardTokens.value.ASSIGNED_OFFICE_SOURCE || '';
@@ -387,16 +429,24 @@ const load = async () => {
     // Require a deliberate level choice; do not silently accept level 1.
     contract.compensationLevel = '';
     for (const field of contractFields) contractOverrides[field.key] = wizardTokens.value[field.key] || '';
+    contractOverrides.COMPANY_ADDRESS = wizardRes.data?.agency?.address || wizardTokens.value.COMPANY_ADDRESS || '';
+    contractOverrides.UNIVERSITY_NAME = wizardTokens.value.UNIVERSITY_NAME || wizardTokens.value.UNIVERSITY || '';
+    const defaultOfficeSource = officeSource.value;
+    applyOffice();
+    officeSource.value = defaultOfficeSource;
     contractOverrides.JOB_TITLE = wizardTokens.value.JOB_TITLE || jobTitle.value;
     currentPortalLink.value = (await api.get(`/hiring/candidates/${userId.value}/prehire-link`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))).data?.portalLink || '';
     contractConfigs.value = Array.isArray(wizardRes.data?.configs) ? wizardRes.data.configs : [];
     contractConfigId.value = wizardRes.data?.suggested?.configId
       || settings.value.default_contract_config_id
       || null;
+    agreementBuilder.value = wizardRes.data?.agreementBuilder || null;
+    if (agreementBuilder.value) { agreementVariant.value = agreementBuilder.value.suggestedVariant; contractOverrides.TRAINING_START_PHASE = agreementBuilder.value.suggestedTrainingStartPhase || 'internship'; applyAgreementVariant(); }
     libraryContractTemplateId.value = settings.value.default_contract_template_id || null;
     if (wizardTokens.value.START_DATE) contract.startDate = String(wizardTokens.value.START_DATE).slice(0, 10);
     if (wizardTokens.value.SUPERVISOR_NAME) contract.supervisor = wizardTokens.value.SUPERVISOR_NAME;
     if (wizardTokens.value.MIN_HOURS) contract.minHours = wizardTokens.value.MIN_HOURS;
+    if (wizardTokens.value.MIN_DAYS_PER_WEEK) contract.minDays = wizardTokens.value.MIN_DAYS_PER_WEEK;
     const jd = cand.data?.jobDescription || {};
     const jobConfig = jd.prehireConfig || { documents: [] };
     packetPackages.value = Array.isArray(packagesRes.data) ? packagesRes.data : [];
@@ -438,6 +488,7 @@ const load = async () => {
         }
       } catch { /* ignore */ }
     }
+    await restoreDraft();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load candidate';
   } finally {
@@ -452,7 +503,9 @@ const initiate = async () => {
   contractTaskId.value = null;
   sending.value = true;
   try {
-    for (const item of extraFiles.value) {
+    await flushDraft();
+    if (draftSaveError.value) throw new Error(draftSaveError.value);
+    for (const item of extraFiles.value.filter(item => item.file)) {
       const fd = new FormData();
       fd.append('file', item.file);
       fd.append('title', String(item.title || '').trim() || titleFromFilename(item.name));
@@ -525,20 +578,23 @@ const setupStep = ref(0), currentPortalLink = ref('');
 const builtInSteps = ['Background check authorization', 'Job description · review and sign', 'Employment agreement · review and sign', 'Pre-employment information', 'Professional headshot', 'Workplace handbook · review', 'Final review and submission'];
 const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'JOB_TITLE', label: 'Job title' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
 const contractOverrides = reactive({}), contractPreview = ref(null), contractReviewed = ref(false), previewBusy = ref(false), previewError = ref('');
+const showSchoolDays = computed(() => schoolDaysEnabled.value && /\bschools?\b/i.test(contractOverrides.SERVICE_FOCUS || ''));
+watch(showSchoolDays, visible => { if (!visible) contract.minDays = ''; });
 const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}`));
 const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId.value}&category=workflow&item=packages`));
 const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agencyId.value}`));
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
 const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverrides,
+  AGREEMENT_SELECTION_DRIVEN: agreementBuilder.value ? '1' : '0', AGREEMENT_VARIANT: agreementVariant.value,
   COMPENSATION_CATEGORY: contract.compensationCategory, COMPENSATION_LEVEL: contract.compensationLevel,
   START_DATE: contract.startDate, EXECUTION_DATE: contract.executionDate, EXPIRATION_DATE: contract.expirationDate,
   CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value,
   SUPERVISOR_NAME: includeSupervisor.value ? (assignedSupervisorName.value || contract.supervisor) : '', INCLUDE_SUPERVISION: includeSupervisor.value ? '1' : '0',
-  LICENSURE_DEADLINE: contract.licenseBy, MIN_DAYS_PER_WEEK: contract.minDays, MIN_HOURS: contract.minHours,
+  LICENSURE_DEADLINE: contract.licenseBy, MIN_DAYS_PER_WEEK: showSchoolDays.value ? contract.minDays : '', MIN_HOURS: contract.minHours,
   IS_SUPERVISOR: portalWorkflow.value.supervisorRole ? '1' : '0', SUPERVISOR_DUTIES: portalWorkflow.value.supervisorClause || '' }));
-const contractFieldKeys = ['START_DATE', 'EXECUTION_DATE', 'EXPIRATION_DATE', 'SUPERVISOR_NAME', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', ...contractFields.map(f => f.key)];
+const contractFieldKeys = computed(() => ['START_DATE', 'EXECUTION_DATE', 'EXPIRATION_DATE', 'SUPERVISOR_NAME', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', ...(agreementBuilder.value && agreementVariant.value === 'student' ? ['UNIVERSITY_NAME', 'UNIVERSITY', 'TRAINING_START_PHASE'] : []), ...contractFields.map(f => f.key)]);
 const compactToken = key => key.replaceAll('_', '').toUpperCase();
-const additionalContractFields = computed(() => (contractPreview.value?.unresolvedTokens || []).filter(key => !contractFieldKeys.some(known => compactToken(known) === compactToken(key))));
+const additionalContractFields = computed(() => (contractPreview.value?.unresolvedTokens || []).filter(key => !contractFieldKeys.value.some(known => compactToken(known) === compactToken(key))));
 function setAdditionalContractField(key, value) {
   const canonical = Object.keys(wizardTokens.value).find(known => known.includes('_') && compactToken(known) === compactToken(key)) || key;
   contractOverrides[key] = value;
@@ -549,11 +605,13 @@ const previewMatches = computed(() => lastPreviewInput.value === JSON.stringify(
 const previewInput = computed(() => ({ compensationLevel: contract.compensationLevel, officeLocationId: officeLocationId.value, configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: contractOverrides.LICENSE_TYPE || detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL }));
 watch(previewInput, () => { contractReviewed.value = false; }, { deep: true });
 const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.required !== false && !r.url)));
-const readyToSend = computed(() => !missingResources.value.length && contract.compensationCategory && contract.compensationLevel && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
+const readyToSend = computed(() => !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && contract.compensationCategory && contract.compensationLevel && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
 async function previewContract() {
   if (!contract.compensationCategory || !contract.compensationLevel) { previewError.value = 'Choose a pay category and level before previewing.'; return; }
-  if (offices.value.length && !officeLocationId.value) { previewError.value = 'Choose the assigned office for this job before preparing the agreement.'; return; }
+  if (!officeLocationId.value || !offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) { previewError.value = 'Select the assigned office before previewing.'; return; }
+  if (!contractOverrides.COMPANY_ADDRESS) { previewError.value = 'Set the agency’s place-of-business address in agency settings, then refresh contract settings.'; return; }
+  if (showSchoolDays.value && (!Number.isInteger(Number(contract.minDays)) || Number(contract.minDays) < 1 || Number(contract.minDays) > 7)) { previewError.value = 'Enter expected school days per week (1–7).'; return; }
   previewBusy.value = true; previewError.value = ''; contractReviewed.value = false;
   const input = JSON.stringify(previewInput.value);
   try { const { data } = await api.post(`/contracts/candidates/${userId.value}/preview`, JSON.parse(input), { params: { agencyId: agencyId.value } }); if (input === JSON.stringify(previewInput.value)) { contractPreview.value = data; lastPreviewInput.value = input; } }
@@ -561,7 +619,18 @@ async function previewContract() {
   finally { previewBusy.value = false; }
 }
 async function refreshContractLibrary() {
-  try { const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }); contractConfigs.value = data.configs || []; compensationLevels.value = data.compensationLevels || []; offices.value = data.offices || []; contractPreview.value = null; contractReviewed.value = false; }
+  try {
+    const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } });
+    contractConfigs.value = data.configs || []; compensationLevels.value = data.compensationLevels || []; offices.value = data.offices || [];
+    contractOverrides.COMPANY_ADDRESS = data.agency?.address || data.tokens?.COMPANY_ADDRESS || '';
+    if (!offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) officeLocationId.value = data.suggested?.officeLocationId || null;
+    applyOffice();
+    if (!officeLocationId.value) officeSource.value = data.tokens?.ASSIGNED_OFFICE_SOURCE || '';
+    serviceFocusOptions.value = data.serviceFocusOptions || []; schoolDaysEnabled.value = data.schoolDaysEnabled === true;
+    agreementBuilder.value = data.agreementBuilder || null;
+    if (agreementBuilder.value) { agreementVariant.value ||= agreementBuilder.value.suggestedVariant; contractOverrides.TRAINING_START_PHASE ||= agreementBuilder.value.suggestedTrainingStartPhase || 'internship'; applyAgreementVariant(); }
+    contractPreview.value = null; contractReviewed.value = false;
+  }
   catch (e) { previewError.value = 'Could not refresh contract settings.'; }
 }
 watch(() => contractOverrides.LICENSE_TYPE, async credential => {
@@ -572,6 +641,57 @@ watch(() => contractOverrides.LICENSE_TYPE, async credential => {
     contract.compensationCategory = String(data.compensationCategory || ''); contract.compensationLevel = '';
   } catch { previewError.value = 'Could not infer compensation. Select the category and level explicitly.'; }
 });
+
+const draftRevision = ref(0), draftReady = ref(false), draftSaving = ref(false), draftSaveError = ref('');
+const draftState = computed(() => ({ contract: { ...contract }, contractOverrides: { ...contractOverrides }, agreementVariant: agreementVariant.value,
+  contractConfigId: contractConfigId.value, officeLocationId: officeLocationId.value, includeSupervisor: includeSupervisor.value,
+  signerAssignments: signerAssignments.value, adhocSignerUserId: adhocSignerUserId.value,
+  prehirePackageId: prehirePackageId.value, packetTemplateId: packetTemplateId.value,
+  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value, extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), setupStep: setupStep.value }));
+const savedDraft = ref('');
+let draftTimer, savingDraft;
+const draftDirty = computed(() => draftReady.value && JSON.stringify(draftState.value) !== savedDraft.value);
+const draftMessage = computed(() => draftSaveError.value || (uploadingFiles.value ? 'Saving attached files…' : draftSaving.value ? 'Saving progress…' : draftDirty.value ? 'Unsaved changes' : draftReady.value ? 'Progress saved. You can return to this candidate later.' : 'Loading saved progress…'));
+async function restoreDraft() {
+  const { data } = await api.get(`/hiring/candidates/${userId.value}/prehire-draft`, { params: { agencyId: agencyId.value } });
+  const agencyAddress = contractOverrides.COMPANY_ADDRESS;
+  const d = data?.draft;
+  draftRevision.value = Number(data?.revision || 0);
+  if (d) {
+    if (d.contract) Object.assign(contract, d.contract);
+    if (d.contractOverrides) Object.assign(contractOverrides, d.contractOverrides);
+    for (const [key, target] of Object.entries({ agreementVariant, contractConfigId, officeLocationId, includeSupervisor, signerAssignments, adhocSignerUserId, prehirePackageId, packetTemplateId, portalWorkflow, jobDocs, extraFiles, setupStep })) {
+      if (d[key] !== undefined) target.value = d[key];
+    }
+    if (agreementBuilder.value) applyAgreementVariant();
+    // Always resolve source-owned office/address data against the current agency records.
+    contractOverrides.COMPANY_ADDRESS = agencyAddress;
+    if (!offices.value.some(o => Number(o.id) === Number(officeLocationId.value))) officeLocationId.value = null;
+    applyOffice();
+    contractPreview.value = null; contractReviewed.value = false;
+  }
+  await nextTick();
+  savedDraft.value = JSON.stringify(draftState.value); draftReady.value = true;
+}
+async function flushDraft() {
+  clearTimeout(draftTimer);
+  while (savingDraft) { await savingDraft; if (draftSaveError.value) return; }
+  if (!draftReady.value || JSON.stringify(draftState.value) === savedDraft.value) return;
+  const snapshot = JSON.stringify(draftState.value);
+  draftSaving.value = true; draftSaveError.value = '';
+  savingDraft = api.put(`/hiring/candidates/${userId.value}/prehire-draft`, { draft: JSON.parse(snapshot), revision: draftRevision.value }, { params: { agencyId: agencyId.value } })
+    .then(({ data }) => { draftRevision.value = data.revision; savedDraft.value = snapshot; })
+    .catch(e => { draftSaveError.value = e.response?.data?.error?.message || 'Progress could not be saved. Retry before leaving this page.'; })
+    .finally(() => { draftSaving.value = false; savingDraft = null; });
+  await savingDraft;
+  if (!draftSaveError.value && JSON.stringify(draftState.value) !== savedDraft.value) await flushDraft();
+}
+watch(draftState, () => { if (!draftReady.value) return; clearTimeout(draftTimer); draftTimer = setTimeout(flushDraft, 350); }, { deep: true });
+function warnUnsaved(event) { if (draftDirty.value || uploadingFiles.value || draftSaveError.value) { event.preventDefault(); event.returnValue = ''; } }
+onMounted(() => window.addEventListener('beforeunload', warnUnsaved));
+onBeforeUnmount(() => { clearTimeout(draftTimer); window.removeEventListener('beforeunload', warnUnsaved); void flushDraft(); });
+onBeforeRouteLeave(async () => { if (uploadingFiles.value) return false; await flushDraft(); return !draftSaveError.value; });
+
 onMounted(load);
 </script>
 

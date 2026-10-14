@@ -1,3 +1,4 @@
+import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
 import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
 import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
 import { isUnpaidInternActivity } from '../services/internMeetingPolicy.service.js';
@@ -19323,6 +19324,7 @@ async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard }) {
 
 export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null }) {
   const type = String(claim?.claim_type || '').toLowerCase();
+  if (type === 'tutoring_session') return tutoringClaimAmount(claim, approveCreditsHours);
   const payload = claim?.payload || {};
   const directRate = Number(rateCard?.direct_rate || 0);
   const indirectRate = await resolveLegacyIndirectHourlyRate({
@@ -19570,6 +19572,7 @@ export const patchTimeClaim = async (req, res, next) => {
       // Prefer payload bucket for dual-rate Log Time when admin did not explicitly pick direct/other_1.
       // Older UIs hard-coded bucket:'indirect', which would otherwise mis-post Other 1 claims.
       let bucket = normalizeTimeClaimBucket(bucketRaw);
+      if (claimTypeKeyForBucket === 'tutoring_session') bucket = claim.payload?.part === 'indirect' ? 'indirect' : 'direct';
       if (
         claimTypeKeyForBucket === 'indirect_time'
         && payloadBucketHint === 'other_1'
@@ -19607,7 +19610,7 @@ export const patchTimeClaim = async (req, res, next) => {
       // Default hours from totalMinutes for meeting / hourly indirect logs when admin leaves blank.
       if (creditsHoursRaw === null) {
         const claimTypeKey = String(claim.claim_type || '').toLowerCase();
-        if (claimTypeKey === 'indirect_time' || claimTypeKey === 'meeting_training' || claimTypeKey === 'mentor_cpa_meeting') {
+        if (claimTypeKey === 'tutoring_session' || claimTypeKey === 'indirect_time' || claimTypeKey === 'meeting_training' || claimTypeKey === 'mentor_cpa_meeting') {
           const mins = Number(claim?.payload?.totalMinutes || 0);
           if (Number.isFinite(mins) && (mins > 0 || correction)) {
             creditsHoursRaw = Math.round((mins / 60) * 1000000) / 1000000;
@@ -19638,7 +19641,7 @@ export const patchTimeClaim = async (req, res, next) => {
           computedDefaultAmount = null;
         }
       }
-      if(!Number.isFinite(override)&&!Number.isFinite(payloadAmountRaw)&&!Number.isFinite(computedDefaultAmount)&&claim.claim_type==='indirect_time'&&!isUnpaidMeetingClaim(claim))return res.status(409).json({error:{message:'Confirm this claim’s assigned rate and agreement before approving payment. No amount could be calculated.'}});
+      if(!Number.isFinite(override)&&!Number.isFinite(payloadAmountRaw)&&!Number.isFinite(computedDefaultAmount)&&['indirect_time','tutoring_session'].includes(claim.claim_type)&&!isUnpaidMeetingClaim(claim))return res.status(409).json({error:{message:'Confirm this claim’s assigned rate and agreement before approving payment. No amount could be calculated.'}});
       const appliedAmount = isUnpaidMeetingClaim(claim) ? 0 : Number.isFinite(override)
         ? override
         : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : (Number.isFinite(computedDefaultAmount) ? computedDefaultAmount : 0));

@@ -2,11 +2,11 @@
  <section class="expectations-editor">
   <h3>{{ title }}</h3><p>{{ description }}</p>
   <div class="expectation-fields">
-   <label>Contract role name<select :value="value.roleLabel || ''" @change="set('roleLabel',$event.target.value)"><option value="">Infer from role and credentials</option><option>Provider</option><option>Facilitator</option><option>Student</option><option>Employee</option></select></label>
-   <label>Service focus<input :value="value.serviceFocus" @input="set('serviceFocus',$event.target.value)" placeholder="e.g. School-based counseling" /></label>
+   <label v-if="showCoreFields">Contract role name<select :value="value.roleLabel || ''" @change="set('roleLabel',$event.target.value)"><option value="">Infer from role and credentials</option><option>Provider</option><option>Facilitator</option><option>Student</option><option>Employee</option></select></label>
+   <label v-if="showCoreFields">Service focus<input :value="value.serviceFocus" @input="set('serviceFocus',$event.target.value)" placeholder="e.g. School-based counseling" /></label>
    <label>Total work hours / week<input :value="value.expectedHours" @input="set('expectedHours',$event.target.value)" placeholder="e.g. 20, or 20–25" /></label>
-   <label>Direct service hours / week<input :value="value.directHours" @input="set('directHours',$event.target.value)" placeholder="e.g. 10" /></label>
-   <label>Days / week<input :value="value.daysPerWeek" @input="set('daysPerWeek',$event.target.value)" /></label>
+   <label v-if="showCoreFields">Direct service hours / week<input :value="value.directHours" @input="set('directHours',$event.target.value)" placeholder="e.g. 10" /></label>
+   <label v-if="showCoreFields">Days / week<input :value="value.daysPerWeek" @input="set('daysPerWeek',$event.target.value)" /></label>
    <label>Work schedule<input :value="value.schedule" @input="set('schedule',$event.target.value)" placeholder="Days, availability and individual arrangements" /></label>
    <label>Supervision<select :value="value.includeSupervision===undefined?'':String(value.includeSupervision)" @change="set('includeSupervision',$event.target.value===''?undefined:$event.target.value==='true')"><option value="">Use configuration / supervisor assignment</option><option value="true">Include clinical supervision</option><option value="false">Omit clinical supervision clause</option></select></label>
    <label>Assigned supervisor<input :value="value.supervisorName" @input="set('supervisorName',$event.target.value)" /></label>
@@ -24,7 +24,7 @@
 </template>
 <script setup>
 import {computed} from 'vue';
-const props=defineProps({modelValue:Object,title:{type:String,default:'Contract defaults'},description:{type:String,default:'Defaults for hires from this posting. You can override them for each person when preparing their agreement.'}});
+const props=defineProps({modelValue:Object,showCoreFields:{type:Boolean,default:true},title:{type:String,default:'Contract defaults'},description:{type:String,default:'Defaults for hires from this posting. You can override them for each person when preparing their agreement.'}});
 const emit=defineEmits(['update:modelValue']);const value=computed(()=>props.modelValue||{});
 function set(k,v){emit('update:modelValue',{...value.value,[k]:v});}
 function duty(i,k,v){set('additionalDuties',(value.value.additionalDuties||[]).map((d,n)=>n===i?{...d,[k]:v}:d));}

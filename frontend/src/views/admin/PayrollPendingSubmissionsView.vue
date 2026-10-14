@@ -216,7 +216,7 @@
                 <td>
                   <select
                     v-model="timeBucketById[c.id]"
-                    :disabled="busyId === `time-${c.id}`"
+                    :disabled="c.claim_type === 'tutoring_session' || busyId === `time-${c.id}`"
                     style="min-width: 100px;"
                   >
                     <option value="indirect">Indirect</option>
@@ -1267,7 +1267,7 @@ const claimHoursValue = (c) => {
   const stored = Number(c?.hours || c?.credits_hours || c?.requested_hours || 0);
   if (Number.isFinite(stored) && stored > 0) return stored;
   const mins = Number(c?.payload?.totalMinutes ?? c?.payload_json?.totalMinutes ?? 0);
-  if (Number.isFinite(mins) && mins > 0) return Math.round((mins / 60) * 100) / 100;
+  if (Number.isFinite(mins) && mins > 0) return c.claim_type === 'tutoring_session' ? mins / 60 : Math.round((mins / 60) * 100) / 100;
   return 0;
 };
 
@@ -1279,6 +1279,7 @@ const fmtHours = (c) => {
 const timeTypeLabel = (c) => {
   const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
+  if (t === 'tutoring_session') return c.payload?.part === 'indirect' ? 'Tutoring indirect allowance' : `Tutoring · ${Number(c.payload?.units || 0)} units`;
   if (t === 'indirect_time') {
     const cat = String(c?.payload?.categoryLabel || '').trim();
     if (cat) return `Log Time / ${cat}`;
@@ -1304,6 +1305,7 @@ const logTimeSummary = (c) => {
 };
 
 const timeClaimApproveBucket = (c) => {
+  if (c.claim_type === 'tutoring_session') return c.payload?.part === 'indirect' ? 'indirect' : 'direct';
   const fromUi = String(timeBucketById[c.id] || '').trim().toLowerCase();
   if (fromUi === 'other_1' || fromUi === 'direct' || fromUi === 'indirect') return fromUi;
   const payloadBucket = String(c?.payload?.bucket || '').trim().toLowerCase();
@@ -1334,6 +1336,8 @@ const timePayEstimateMoney = (c) => {
   const indirectRate = Number(pe.indirectRate || 0);
   const other1Rate = Number(pe.other1Rate || 0);
 
+  if (t === 'tutoring_session') return Number.isFinite(baseAmount) && baseHrs > 0 ? `$${((baseAmount * hrs) / baseHrs).toFixed(2)}` : '—';
+
   // Live preview: hours × selected bucket rate (so Direct vs Indirect updates immediately).
   if (bucket === 'direct' && directRate > 0) {
     return `$${(hrs * directRate).toFixed(2)}`;
@@ -1362,6 +1366,7 @@ const timePayEstimateMoney = (c) => {
 const timePayEstimateRateLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   const bucket = timeClaimApproveBucket(c);
+  if (t === 'tutoring_session') return c.payload?.part === 'indirect' ? 'Tutoring indirect rate' : 'Tutoring rate';
   if (bucket === 'direct') return 'Direct rate';
   if (bucket === 'other_1') return 'Other 1 rate';
   if (t === 'meeting_training' || t === 'mentor_cpa_meeting') {

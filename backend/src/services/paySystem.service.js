@@ -244,7 +244,14 @@ export function resolveUserPaySystemStatus({
 export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
   let payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
-  const qty = resolveQuantities({ serviceCode: code, quantity, rule });
+  const supplementalEffective = !rateProfile?.supplementalRatesEffectiveOn || String(status?.asOfDate || new Date().toISOString()).slice(0,10) >= String(rateProfile.supplementalRatesEffectiveOn).slice(0,10);
+  const tutoring = supplementalEffective && (String(rule?.category || payrollDefaultsForCode(code)?.category || '').toLowerCase() === 'tutoring' || /^TUTORING(?: |$)/.test(code)) && rateProfile?.tutoringRate != null;
+  const specialRate = tutoring ? Number(rateProfile.tutoringRate) : supplementalEffective && code === 'H2014' && rateProfile?.h2014Rate != null ? Number(rateProfile.h2014Rate) : null;
+  // Tutoring and the NLU H2014 override use the same unit/indirect path as H0004.
+  // Null fields preserve all other agencies' existing calculations.
+  if (specialRate != null) payType = 'hcode';
+  const effectiveRule = specialRate != null && (code === 'TUTORING 15 MIN' || code === 'H2014') ? { ...rule, pay_divisor: 4, credit_value: 0.25, duration_minutes: 15 } : rule;
+  const qty = resolveQuantities({ serviceCode: code, quantity, rule: effectiveRule });
   const reduced = !!status?.useReducedRates;
 
   let rate = 0;
@@ -264,19 +271,19 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     rateLabel = reduced ? 'credit_rate_probation' : 'credit_rate';
     amount = qty.hourEquivalent * rate;
   } else if (payType === 'hcode') {
-    const hRate = Number(reduced
+    const hRate = specialRate ?? (Number(reduced
       ? (rateProfile?.hcodeRateProbation ?? rateProfile?.hcodeRate ?? 0)
-      : (rateProfile?.hcodeRate ?? 0)) || 0;
+      : (rateProfile?.hcodeRate ?? 0)) || 0);
 
     if (hRate > 0) {
       rate = hRate;
-      rateLabel = reduced ? 'hcode_rate_probation' : 'hcode_rate';
+      rateLabel = tutoring ? 'tutoring_rate' : specialRate != null ? 'h2014_rate' : reduced ? 'hcode_rate_probation' : 'hcode_rate';
       const gross = qty.hourEquivalent * rate;
       amount = round2(gross);
       // H-code pay is the full H rate for face time; auto-indirect minutes are ADDED on top
       // (default 10 min per hour at the indirect rate).
       // Example: $32/hr H + $24/hr indirect → $32 + $4 (10 min) = $36 total.
-      const auto = applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent, status });
+      const auto = applyAutoIndirect({ rateProfile: specialRate != null ? { ...rateProfile, compensationPolicyVersion: null, autoIndirectMinutesPerHour: 10 } : rateProfile, hourEquivalent: qty.hourEquivalent, status });
       autoIndirectHours = auto.autoIndirectHours;
       autoIndirectAmount = auto.autoIndirectAmount;
     } else {
@@ -289,7 +296,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       amount = qty.hourEquivalent * rate;
       // Probation / MWR still get the 10-min auto-indirect add-on on that reduced rate.
       if (reduced || isServiceCreditPolicy(rateProfile?.compensationPolicyVersion)) {
-        const auto = applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent, status });
+        const auto = applyAutoIndirect({ rateProfile: specialRate != null ? { ...rateProfile, compensationPolicyVersion: null, autoIndirectMinutesPerHour: 10 } : rateProfile, hourEquivalent: qty.hourEquivalent, status });
         autoIndirectHours = auto.autoIndirectHours;
         autoIndirectAmount = auto.autoIndirectAmount;
       }
@@ -306,6 +313,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
 
   return {
     serviceCode: code,
+    fixedSupplementalRate: specialRate != null,
     compensationPolicyVersion: rateProfile?.compensationPolicyVersion || null,
     leaveAdminRatio: rateProfile?.leaveAdminRatio ?? 0,
     payType,
@@ -323,7 +331,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       : round2(amount),
     totalWithAutoIndirect: round2(amount + autoIndirectAmount),
     splitNote: autoIndirectAmount > 1e-9
-      ? `${round2(amount)} H-code + ${round2(autoIndirectAmount)} auto-indirect (${round2(autoIndirectHours)} h @ indirect rate) = ${round2(amount + autoIndirectAmount)}`
+      ? `${round2(amount)} ${tutoring ? 'tutoring' : 'H-code'} + ${round2(autoIndirectAmount)} auto-indirect (${round2(autoIndirectHours)} h @ indirect rate) = ${round2(amount + autoIndirectAmount)}`
       : null,
     hcodeFallbackToCredit
   };
@@ -439,7 +447,7 @@ export function decorateEstimateLine(result, rateProfile, extras = {}) {
     ...extras,
     kind,
     timeHours: hours,
-    bucketLabel: payType === 'hcode' && !result.hcodeFallbackToCredit ? 'H-code' : 'Direct',
+    bucketLabel: result.rateLabel === 'tutoring_rate' ? 'Tutoring' : payType === 'hcode' && !result.hcodeFallbackToCredit ? 'H-code' : 'Direct',
     directHours: hours,
     directRate,
     directAmount: round2(result.amount),
@@ -504,6 +512,7 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
   let baseAmount = 0;
   let autoIndirectTotal = 0;
   let productiveHours = 0;
+  let fixedSupplementalHours = 0;
   let ffsHours = 0;
   let hcodeHours = 0;
   let totalHourEquivalent = 0;
@@ -544,6 +553,7 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
     indirectHoursTotal += Number(decorated.indirectHours || 0);
     indirectPayTotal += Number(decorated.indirectAmount || 0);
 
+    if (decorated.fixedSupplementalRate) { fixedSupplementalHours += Number(decorated.hourEquivalent || 0); continue; }
     if (decorated.payType === 'credit' || decorated.hcodeFallbackToCredit) {
       productiveHours += Number(decorated.hourEquivalent || 0);
       ffsHours += Number(decorated.hourEquivalent || 0);
@@ -572,12 +582,12 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
       directPay: round2(directPayTotal),
       indirectHours: round2(indirectHoursTotal),
       indirectPay: round2(indirectPayTotal),
-      credits: round2(ffsHours + hcodeHours),
+      credits: round2(ffsHours + hcodeHours + fixedSupplementalHours),
       tierBonusAmount: bonuses.tierBonusAmount,
       spanishBonusAmount: bonuses.spanishBonusAmount,
       locationBonusAmount: bonuses.locationBonusAmount,
       totalBonusAmount: bonuses.totalBonusAmount,
-      productiveHourEquivalent: bonuses.productiveHourEquivalent,
+      productiveHourEquivalent: round2(bonuses.productiveHourEquivalent + fixedSupplementalHours),
       totalHourEquivalent: round2(totalHourEquivalent),
       grandTotal
     },
@@ -857,7 +867,7 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
       if (prior && !status.agreementPriorRateProfile) throw Object.assign(new Error(`Work dated ${date} for ${code} precedes the new pay terms. Review its historical rate separately; the current category/level matrix cannot price earlier work.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
       const lineStatus=resolveUserPaySystemStatus({...args,assignment:prior?status.agreementLegacyAssignment:args.assignment,asOfDate:date});
       const datedProfile=prior?status.agreementPriorRateProfile:profileWithDatedAddition(rateProfile,date);
-      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${datedProfile.conditionalAdditionPolicyId||''}`;
+      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}`;
       const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile};
       group.units+=Number(item.units??item.payable_units??0);groups.set(groupKey,group);
     }
@@ -881,6 +891,29 @@ export function applyPaySystemToBreakdown({
   shiftIndirectHours = 0,
   datedUnitsByCode = null
 }) {
+  const supplementalLines = {};
+  if (!status?.agreementBoundary && rateProfile?.supplementalRatesEffectiveOn) {
+    for (const [key, row] of Object.entries(breakdown || {})) {
+      if (!row || typeof row !== 'object' || key.startsWith('__')) continue;
+      const code = canonicalServiceCode(key, row);
+      if (!(code === 'H2014' && rateProfile.h2014Rate != null) && !(/^TUTORING(?: |$)/.test(code) && rateProfile.tutoringRate != null)) continue;
+      const units = Number(row.finalizedUnits ?? row.units ?? 0);
+      if (!(units > 0)) continue;
+      const dates = datedUnitsByCode?.get(code) || [];
+      if (!dates.length || Math.abs(dates.reduce((sum,d)=>sum+Number(d.units ?? d.payable_units ?? 0),0)-units)>1e-6) {
+        throw new Error(`Reconcile service dates and units for ${code} before applying the new tutoring/H2014 schedule.`);
+      }
+      delete breakdown[key];
+      dates.forEach((item,index)=>{
+        const raw = item.serviceDate || item.service_date;
+        const date = raw instanceof Date ? raw.toISOString().slice(0,10) : String(raw || '').slice(0,10);
+        const quantity = Number(item.units ?? item.payable_units);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(quantity) || quantity < 0) throw new Error(`Confirm service dates and units for ${code}.`);
+        const era = status?.rateChangeDate && date < status.rateChangeDate ? status.preCutoffStatus : status?.postCutoffStatus;
+        supplementalLines[`${key}__dated_${index}`] = scaleBreakdownRow(row, quantity, {displayServiceCode:code,rateEraStatus:{...status,...era,asOfDate:date}});
+      });
+    }
+  }
   if (status?.agreementBoundary) {
     if(Number(shiftDirectHours)>0 || Number(shiftIndirectHours)>0)throw Object.assign(new Error('Shift hours require a dated rate review during the compensation transition; aggregate hours cannot establish which pay terms apply.'),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCode});
@@ -893,9 +926,11 @@ export function applyPaySystemToBreakdown({
     });
   }
 
+  Object.assign(breakdown, supplementalLines);
   let servicePay = 0;
   let autoIndirectTotal = 0;
   let productiveHours = 0;
+  let fixedSupplementalHours = 0;
   let ffsHours = 0;
   let hcodeHours = 0;
   const lineResults = [];
@@ -955,7 +990,10 @@ export function applyPaySystemToBreakdown({
     }
     servicePay += result.amount;
 
-    if (result.payType === 'credit' || result.hcodeFallbackToCredit) {
+    if (result.fixedSupplementalRate) {
+      fixedSupplementalHours += result.hourEquivalent;
+      // Fixed tutoring/H2014 schedules do not inherit clinical conditional additions.
+    } else if (result.payType === 'credit' || result.hcodeFallbackToCredit) {
       productiveHours += result.hourEquivalent;
       ffsHours += result.hourEquivalent;
       collectBonus(row.agreementRateProfile||rateProfile,lineStatus,result.hourEquivalent,0);
@@ -1072,7 +1110,7 @@ export function applyPaySystemToBreakdown({
         spanishBonusAmount: bonuses.spanishBonusAmount,
         locationBonusAmount: bonuses.locationBonusAmount,
         totalBonusAmount: bonuses.totalBonusAmount,
-        productiveHourEquivalent: bonuses.productiveHourEquivalent,
+        productiveHourEquivalent: round2(bonuses.productiveHourEquivalent + fixedSupplementalHours),
         tierLevel: bonuses.tierLevel
       };
     }

@@ -1,4 +1,6 @@
 import { contractCompensationLevels } from './contractCompensation.service.js';
+import { jobOfficeOptions } from '../utils/contractPresentation.js';
+import { itscoAgreementBuilder } from './itscoAgreementBuilder.service.js';
 /**
  * Contract CRUD + generate/assign for pre-hire candidates.
  */
@@ -272,7 +274,7 @@ export async function getCandidateWizardContext({
   const [templates, configs, compensationLevels, agencyDefaults, tokens] = await Promise.all([
     listTemplates(agencyId),
     listConfigs(agencyId),
-    contractCompensationLevels(agencyId),
+    contractCompensationLevels(agencyId, { includeServiceRates: true }),
     getAgencyBuilderDefaults(agencyId),
     autofillTokensForCandidate({
       agencyId,
@@ -301,9 +303,12 @@ export async function getCandidateWizardContext({
     configs,
     compensationLevels: compensationLevels.filter((r) => r.serviceRates?.length || r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
     compensationCategories: COMPENSATION_CATEGORIES,
+    serviceFocusOptions: agencyDefaults.serviceFocusOptions,
+    schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
+    agreementBuilder: itscoAgreementBuilder({ agency: agencyDefaults.agency, configs, tokens }),
     jobDescClauses,
     agency: agencyDefaults.agency,
-    offices: agencyDefaults.offices,
+    offices: jobOfficeOptions(agencyDefaults.offices, { city: tokens.JOB_CITY, state: tokens.JOB_STATE }).offices,
     credentialOptions: agencyDefaults.credentialOptions,
     tokens,
     payInference,
@@ -339,10 +344,12 @@ export async function previewCandidateContract({
     officeLocationId: officeLocationId || tokens.ASSIGNED_OFFICE_ID || null
   });
   const merged = { ...autofill, ...tokens };
-  if (autofill.ASSIGNED_OFFICE_ID) {
-    merged.ASSIGNED_OFFICE_ID = autofill.ASSIGNED_OFFICE_ID;
-    merged.ASSIGNED_OFFICE_NAME = autofill.ASSIGNED_OFFICE_NAME;
-    merged.ASSIGNED_OFFICE_ADDRESS = autofill.ASSIGNED_OFFICE_ADDRESS;
+  if (Object.hasOwn(tokens, 'UNIVERSITY_NAME')) merged.UNIVERSITY = tokens.UNIVERSITY_NAME;
+  // Agency and office records own these fields. Blank or stale client tokens must
+  // never replace the place of business or an explicitly selected office.
+  for (const key of ['AGENCY_SLUG', 'COMPANY_ADDRESS', 'ASSIGNED_OFFICE_ID', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'ASSIGNED_OFFICE_SOURCE']) {
+    merged[key] = autofill[key] || '';
+    merged[key.replaceAll('_', '')] = merged[key];
   }
   if (compensationCategory != null) merged.COMPENSATION_CATEGORY = String(compensationCategory);
   if (compensationLevel != null) merged.COMPENSATION_LEVEL = String(compensationLevel);
@@ -353,7 +360,8 @@ export async function previewCandidateContract({
     tokens: merged,
     compensationCategory: compensationCategory || Number(merged.COMPENSATION_CATEGORY),
     compensationLevel: compensationLevel || Number(merged.COMPENSATION_LEVEL),
-    jobDescClauseKey: jobDescClauseKey || merged.JOB_DESC_CLAUSE_KEY
+    jobDescClauseKey: jobDescClauseKey || merged.JOB_DESC_CLAUSE_KEY,
+    includeAssignedOffice: true
   });
   const previewHash = createHash('sha256').update(JSON.stringify([agencyId, candidateUserId, configId, rendered.html])).digest('hex');
   return { ...rendered, tokens: rendered.tokens || merged, previewHash };

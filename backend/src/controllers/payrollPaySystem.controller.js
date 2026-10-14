@@ -135,9 +135,12 @@ export const savePaySystemRates = async (req, res, next) => {
       const cat = parseInt(row.category, 10);
       const lvl = parseInt(row.level, 10);
       if (!CATEGORY_IDS.includes(cat) || !LEVEL_IDS.includes(lvl)) continue;
+      for (const key of ['tutoringRate', 'h2014Rate']) if (row[key] != null && row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) <= 0)) return res.status(400).json({error:{message:`${key} must be a positive hourly rate.`}});
       await PayrollPaySystemRate.upsert(agencyId, cat, lvl, {
         creditRate: row.creditRate,
         creditRateProbation: row.creditRateProbation,
+        ...(row.tutoringRate !== undefined ? { tutoringRate: row.tutoringRate } : {}),
+        ...(row.h2014Rate !== undefined ? { h2014Rate: row.h2014Rate } : {}),
         hcodeRate: row.hcodeRate,
         hcodeRateProbation: row.hcodeRateProbation,
         indirectRate: row.indirectRate,
@@ -562,6 +565,7 @@ export const estimatePaySystem = async (req, res, next) => {
       rateProfile: {
         category: rateProfile.category,
         level: rateProfile.level,
+        tutoringRate: rateProfile.tutoringRate, h2014Rate: rateProfile.h2014Rate,
         creditRate: rateProfile.creditRate,
         creditRateProbation: rateProfile.creditRateProbation,
         hcodeRate: rateProfile.hcodeRate,
@@ -611,6 +615,7 @@ export const estimatePaySystemScenario = async (req, res, next) => {
         ...(rateProfile || {}),
         category,
         level,
+        tutoringRate: overlay.tutoringRate ?? rateProfile?.tutoringRate, h2014Rate: overlay.h2014Rate ?? rateProfile?.h2014Rate,
         creditRate: overlay.creditRate ?? rateProfile?.creditRate,
         creditRateProbation: overlay.creditRateProbation ?? rateProfile?.creditRateProbation,
         hcodeRate: overlay.hcodeRate ?? rateProfile?.hcodeRate,
@@ -658,6 +663,7 @@ export const estimatePaySystemScenario = async (req, res, next) => {
       rateProfile: {
         category: rateProfile.category,
         level: rateProfile.level,
+        tutoringRate: rateProfile.tutoringRate, h2014Rate: rateProfile.h2014Rate,
         creditRate: rateProfile.creditRate,
         creditRateProbation: rateProfile.creditRateProbation,
         hcodeRate: rateProfile.hcodeRate,

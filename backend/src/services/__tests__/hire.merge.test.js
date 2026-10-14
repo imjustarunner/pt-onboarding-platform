@@ -8,8 +8,94 @@ vi.mock('../../models/HiringResumeParse.model.js', () => ({ default: { findLates
 vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: { getForUser: vi.fn(async () => null), listForAgency: vi.fn(async () => []), getLevelRatesForAgency: vi.fn(async () => ({})) } }));
 import { applyContractTokens, inferCompensationFromCredential, buildPayTableHtml, loadContractBundle, renderContractHtml, autofillTokensForCandidate } from '../contractMerge.service.js';
 import { findContractPlaceholders } from '../../utils/contractPlaceholders.js';
+import { withWeeklyHoursExpectations } from '../../utils/contractServiceExpectations.js';
+import { buildJobDescClauseMarkdown } from '../jobDescriptionContractClause.service.js';
+import { ITSCO_CONTRACT_CLAUSES, mdToHtml } from '../../seeds/itscoContractClauseLibrary.js';
 beforeEach(() => vi.clearAllMocks());
 describe('contract merge validation', () => {
+  function mockServiceClause(body = '<p>Maintain {{MIN_HOURS}} direct service hours per week.</p>') {
+    db.execute.mockResolvedValueOnce([[{ is_active: 1, pay_mode: 'none', clause_keys_json: ['SERVICE_EXPECTATIONS'] }]])
+      .mockResolvedValueOnce([[{ clause_key: 'SERVICE_EXPECTATIONS', body_html: body }]]);
+  }
+  it('includes the assigned office for internship and other templates without an office clause', async () => {
+    mockServiceClause('<p>Student training agreement.</p>');
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, includeAssignedOffice: true, tokens: { ROLE_LABEL: 'Student', COMPANY_ADDRESS: '100 Headquarters Rd', ASSIGNED_OFFICE_NAME: 'Denver Office', ASSIGNED_OFFICE_ADDRESS: '200 Office St' } });
+    expect(result.html).toContain('Student is assigned to the Denver Office office at 200 Office St');
+    expect(result.html).toContain('principal place of business is 100 Headquarters Rd');
+    expect(result.unresolvedTokens).toEqual([]);
+  });
+  it('requires an office before a template without its own office clause can be assigned', async () => {
+    mockServiceClause('<p>Student training agreement.</p>');
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, includeAssignedOffice: true, tokens: { ROLE_LABEL: 'Student', COMPANY_ADDRESS: '100 Headquarters Rd' } });
+    expect(result.unresolvedTokens).toEqual(expect.arrayContaining(['ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS']));
+  });
+  it.each(['School-Based Counseling', 'Office-Based Counseling; School-Based Counseling'])('explains ITSCO school days for %s', async focus => {
+    mockServiceClause();
+    db.execute.mockResolvedValueOnce([[{ slug: 'itsco' }]]);
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MIN_HOURS: 6, SERVICE_FOCUS: focus, MIN_DAYS_PER_WEEK: 2 } });
+    expect(result.html).toContain('present in the assigned school for a minimum of 2 days per week');
+    expect(result.html).toContain('8:00 a.m.–3:00 p.m.');
+    expect(result.html).toContain('roughly seven clients per day');
+    expect(result.html).toContain('schedule at least 8 hours per week');
+    expect(result.unresolvedTokens).toEqual([]);
+  });
+  it.each(['', 0, 1.5, 8])('requires valid expected school days for an ITSCO school role (%s)', async days => {
+    mockServiceClause();
+    db.execute.mockResolvedValueOnce([[{ slug: 'itsco' }]]);
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MIN_HOURS: 6, SERVICE_FOCUS: 'School-Based Counseling', MIN_DAYS_PER_WEEK: days } });
+    expect(result.unresolvedTokens).toContain('MIN_DAYS_PER_WEEK');
+  });
+  it.each([['nlu', 'School-Based Counseling'], ['itsco', 'Office-Based Counseling']])('omits school-day expectations for %s / %s and clears stale values', async (slug, focus) => {
+    mockServiceClause();
+    if (focus.includes('School')) db.execute.mockResolvedValueOnce([[{ slug }]]);
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MIN_HOURS: 6, SERVICE_FOCUS: focus, MIN_DAYS_PER_WEEK: 3, MINDAYSPERWEEK: 3, schoolDaysEnabled: true } });
+    expect(result.html).not.toContain('School-based attendance');
+    expect(result.tokens.MIN_DAYS_PER_WEEK).toBe('');
+    expect(result.tokens.MINDAYSPERWEEK).toBe('');
+    expect(result.unresolvedTokens).toEqual([]);
+  });
+  it.each([[6, 8], [20, 25], [21, 27], [10, 13], [6.5, 9], [0, 0], ['Ten (10) Hours', 13], ['6 hours', 8]])('derives available-to-book and scheduled hours from %s hours without a second entry', async (goal, capacity) => {
+    mockServiceClause();
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: {
+      ROLE_LABEL: 'Provider', MIN_HOURS: goal, WEEKLY_SESSION_GOAL: 99,
+      MIN_AVAILABLE_HOURS: 999, MIN_SCHEDULED_HOURS: 999, MINSCHEDULEDHOURS: 999
+    } });
+    expect(result.html).toContain(`Maintain ${goal} direct service hours`);
+    expect(result.html).toContain(`maintain at least ${capacity} hours per week of client-bookable availability in the app`);
+    expect(result.html).toContain(`schedule at least ${capacity} hours per week`);
+    expect(result.html).toContain('compensation rate for the selected category and level');
+    expect(result.html.split('<body>')[1]).not.toContain('999');
+    expect(result.tokens.MIN_AVAILABLE_HOURS).toBe(String(capacity));
+    expect(result.tokens.MINSCHEDULEDHOURS).toBe(String(capacity));
+    expect(result.unresolvedTokens).toEqual([]);
+  });
+  it.each(['', -1, 'ten', Infinity, '6-10 hours'])('requires valid minimum hours to calculate scheduling (%s)', async goal => {
+    mockServiceClause();
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MIN_HOURS: goal } });
+    expect(result.unresolvedTokens).toContain('MIN_HOURS');
+    expect(result.tokens.MIN_AVAILABLE_HOURS).toBe('');
+  });
+  it('adds the expectation to imported minimum-hours fields and keeps repeated rendering idempotent', async () => {
+    const clause = withWeeklyHoursExpectations('<p>Weekly hours: {{MIN<em>HOURS}}</em>.</p>');
+    mockServiceClause(clause);
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MINHOURS: 21 } });
+    expect(result.html.match(/data-weekly-hours-expectations/g)).toHaveLength(1);
+    expect(result.html).toContain('schedule at least 27 hours per week');
+  });
+  it('covers seeded and dynamically generated minimum-hours clauses', () => {
+    const clauses = ITSCO_CONTRACT_CLAUSES.filter(clause => clause.body_md.includes('{{MIN_HOURS}}'));
+    expect(clauses.length).toBeGreaterThan(0);
+    const generated = buildJobDescClauseMarkdown({ includeServiceExpectations: true, responsibilityBullets: ['Provide care.'] });
+    for (const source of [...clauses.map(clause => clause.body_md), generated]) {
+      expect(withWeeklyHoursExpectations(mdToHtml(source))).toContain('data-weekly-hours-expectations');
+    }
+  });
+  it('does not add scheduling requirements to agreements without a minimum-hours clause', async () => {
+    mockServiceClause('<p>Acknowledge the job description.</p>');
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: {} });
+    expect(result.html).not.toContain('Weekly availability');
+    expect(result.unresolvedTokens).toEqual([]);
+  });
   it('classifies SWC as category 2 instead of licensed category 3', () => { expect(inferCompensationFromCredential({ credential: 'SWC', jobTitle: 'Mental Health Provider' }).compensationCategory).toBe(2); });
   it('preserves dollar signs and replacement-like text in a contract value', () => {
     expect(applyContractTokens('<p>{{EMPLOYEE_FULL_NAME}}: {{DIRECT_RATE}}</p>', { EMPLOYEE_FULL_NAME: '$& Partners', DIRECT_RATE: '$45.00' })).toBe('<p>$& Partners: $45.00</p>');
@@ -118,5 +204,5 @@ it('renders the current profile in the actual contract instead of a legacy direc
  ]]);
  const result=await renderContractHtml({agencyId:1,configId:1,compensationCategory:2,compensationLevel:1,tokens:{ROLE_LABEL:'Provider',MIN_HOURS:'8'}});
  expect(result.html).toContain('Category 2, Level 1');expect(result.html).toContain('$55.00');expect(result.html).not.toContain('Old salary');expect(result.html).not.toContain('$$');
- expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({key:'COMP_HOURLY',policyVersion:'category-level-employment-2026-10-11'})]));
+ expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({key:'COMP_HOURLY',policyVersion:'category-level-employment-2026-10-14'})]));
 });

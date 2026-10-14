@@ -1,3 +1,4 @@
+import { getPrehireDraft, savePrehireDraft } from '../services/prehireDraft.service.js';
 import { candidatePrehireProgress } from '../services/hireCandidateProgress.service.js';
 import { referenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
 import { listReferenceContacts, saveReferenceContact } from '../models/HiringReferenceContact.model.js';
@@ -4123,6 +4124,19 @@ export const getCandidatePrehireLink = async (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({ portalLink: valid ? buildPublicAppUrl(agency, `pre-hire/${user.passwordless_token}`) : null });
   } catch (e) { next(e); }
+};
+
+export const candidatePrehireDraft = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId || !(await ensureCandidateInAgency(candidateUserId, agencyId))) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    if (req.method === 'GET') return res.json(await getPrehireDraft(agencyId, candidateUserId));
+    const user = await User.findById(candidateUserId);
+    if (!['PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status)) return res.status(409).json({ error: { message: 'This pre-hire packet is closed.' } });
+    return res.json(await savePrehireDraft({ agencyId, candidateUserId, userId: req.user.id, draft: req.body.draft, revision: req.body.revision }));
+  } catch (error) { next(error); }
 };
 
 export const sendPreHire = async (req, res, next) => {

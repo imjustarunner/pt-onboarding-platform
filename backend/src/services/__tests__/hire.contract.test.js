@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), preview: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../contractMerge.service.js', () => ({
-  autofillTokensForCandidate: vi.fn(async () => ({ EMPLOYEE_FULL_NAME: 'New Employee' })),
+  autofillTokensForCandidate: vi.fn(async () => ({ EMPLOYEE_FULL_NAME: 'New Employee', COMPANY_ADDRESS: '100 Headquarters Rd', ASSIGNED_OFFICE_ID: '7', ASSIGNED_OFFICE_NAME: 'Selected Office', ASSIGNED_OFFICE_ADDRESS: '200 Office St' })),
   renderContractHtml: mocks.preview, getAgencyBuilderDefaults: vi.fn(), inferCompensationFromCredential: vi.fn()
 }));
 vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: {}, COMPENSATION_CATEGORIES: [] }));
@@ -21,6 +21,14 @@ function setup({ existing = [], failGeneration = false } = {}) {
   });
 }
 describe('contract assignment consistency', () => {
+  it('uses an edited training institution instead of a stale university alias', async () => {
+    await previewCandidateContract({ ...request, tokens: { UNIVERSITY_NAME: 'Current University', UNIVERSITY: 'Old University' } });
+    expect(mocks.preview.mock.calls[0][0].tokens).toMatchObject({ UNIVERSITY_NAME: 'Current University', UNIVERSITY: 'Current University' });
+  });
+  it('keeps agency and selected-office defaults authoritative over blank or stale form tokens', async () => {
+    await previewCandidateContract({ ...request, tokens: { COMPANY_ADDRESS: '', COMPANYADDRESS: 'Wrong agency', ASSIGNED_OFFICE_NAME: 'Old office', ASSIGNED_OFFICE_ADDRESS: 'Old address' } });
+    expect(mocks.preview.mock.calls[0][0]).toMatchObject({ includeAssignedOffice: true, tokens: { COMPANY_ADDRESS: '100 Headquarters Rd', COMPANYADDRESS: '100 Headquarters Rd', ASSIGNED_OFFICE_NAME: 'Selected Office', ASSIGNED_OFFICE_ADDRESS: '200 Office St' } });
+  });
   it('rejects a contract changed after staff reviewed its preview', async () => {
     const reviewed = await previewCandidateContract(request);
     mocks.preview.mockResolvedValue({ html: '<p>Changed compensation</p>', unresolvedTokens: [] });

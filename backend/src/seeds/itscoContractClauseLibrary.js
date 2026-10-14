@@ -3,6 +3,9 @@
  * Source: Google Sheets contract builder — full clause table from People Ops.
  */
 
+import { CATEGORY_LEVEL_COMPENSATION_PARAGRAPHS } from '../content/contractCategoryLevelCompensation.js';
+import { STUDENT_TRAINING_CLAUSES } from '../content/studentTrainingAgreement.js';
+
 export const ITSCO_TEMPLATE_NAME = 'ITSCO Standard';
 
 /**
@@ -66,6 +69,8 @@ function inlineFormat(s) {
 }
 
 export const ITSCO_CONTRACT_CLAUSES = [
+  { clause_key: 'COMP_CATEGORY_LEVEL', title: 'Ongoing Category and Level Compensation', body_md: CATEGORY_LEVEL_COMPENSATION_PARAGRAPHS.join('\n\n'), sort_hint: 40 },
+  ...STUDENT_TRAINING_CLAUSES.map(({ clause_key, title, body_md }, index) => ({ clause_key, title, body_md, sort_hint: 10 + index })),
   {
     clause_key: "INTRO",
     title: "",
@@ -642,6 +647,7 @@ export const ITSCO_CONTRACT_CONFIGS = [
     clause_keys: [
         "INTRO_INTERN",
         "TERM_AT_WILL",
+        "ASSIGNED_OFFICE",
         "JOB_DESC_INTERN",
         "COMP_PRAC",
         "BEN_INTERN",

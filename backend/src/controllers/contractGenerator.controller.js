@@ -14,7 +14,8 @@ import {
   getCandidateWizardContext,
   listContractBuilderCandidates
 } from '../services/contractGenerator.service.js';
-import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
+import { contractCompensationLevels } from '../services/contractCompensation.service.js';
+import { itscoAgreementBuilder } from '../services/itscoAgreementBuilder.service.js';
 import { getAgencyBuilderDefaults, inferCompensationFromCredential, formatLicenseTypeDisplay } from '../services/contractMerge.service.js';
 
 function parseAgencyId(req) {
@@ -31,7 +32,7 @@ export const getContractLibrary = async (req, res, next) => {
       listTemplates(agencyId),
       listClauses(agencyId),
       listConfigs(agencyId),
-      PayrollCompensationLevel.listForAgency(agencyId),
+      contractCompensationLevels(agencyId),
       getAgencyBuilderDefaults(agencyId)
     ]);
     res.json({
@@ -41,6 +42,9 @@ export const getContractLibrary = async (req, res, next) => {
       configs,
       compensationLevels: compensationLevels.filter((r) => r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
       agency: agencyDefaults.agency,
+      serviceFocusOptions: agencyDefaults.serviceFocusOptions,
+      schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
+      agreementBuilder: itscoAgreementBuilder({ agency: agencyDefaults.agency, configs }),
       offices: agencyDefaults.offices,
       credentialOptions: agencyDefaults.credentialOptions
     });

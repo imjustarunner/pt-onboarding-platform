@@ -2,7 +2,7 @@ import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
 import Agency from '../models/Agency.model.js';
 import { contractRoleLabel, jobContractExpectations, expectationsToTokens, expectationsFromTokens, renderAdditionalExpectations } from '../utils/contractExpectations.js';
-import { formatContractDate, jobLocationOffice } from '../utils/contractPresentation.js';
+import { formatContractDate, jobLocationOffice, jobOfficeOptions } from '../utils/contractPresentation.js';
 import { selectedContractCompensation, contractCompensationLevels } from './contractCompensation.service.js';
 /**
  * Employment contract merge + pay table renderer.
@@ -13,6 +13,12 @@ import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import appConfig from '../config/config.js';
 import { normalizeContractPlaceholders, findContractPlaceholders } from '../utils/contractPlaceholders.js';
+import { weeklyRequiredHours, withWeeklyHoursExpectations } from '../utils/contractServiceExpectations.js';
+import { contractServiceFocusSettings, hasSchoolServiceFocus, SCHOOL_DAY_EXPECTATION_HTML } from './contractServiceFocus.service.js';
+import { handbookTenant } from './handbookTenant.js';
+import { buildItscoAgreementPlan } from './itscoAgreementBuilder.service.js';
+import { CATEGORY_LEVEL_COMPENSATION_CLAUSE } from '../content/contractCategoryLevelCompensation.js';
+import { STUDENT_TRAINING_CLAUSES } from '../content/studentTrainingAgreement.js';
 import {
   classifyPayCategory,
   determineLicenseStatus
@@ -69,7 +75,7 @@ export function applyContractTokens(html, tokens = {}) {
   return replaceTokens(html, tokens);
 }
 
-const REQUIRED_CONTRACT_FIELDS = new Set(['EMPLOYEE_FULL_NAME', 'CANDIDATE_NAME', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'JOB_TITLE', 'ROLE_LABEL', 'SERVICE_FOCUS', 'LICENSE_TYPE', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'EXPIRATION_DATE', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', 'DIRECT_RATE', 'INDIRECT_RATE'].map(key => key.replaceAll('_', '')));
+const REQUIRED_CONTRACT_FIELDS = new Set(['EMPLOYEE_FULL_NAME', 'CANDIDATE_NAME', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'JOB_TITLE', 'ROLE_LABEL', 'SERVICE_FOCUS', 'LICENSE_TYPE', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'EXPIRATION_DATE', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', 'DIRECT_RATE', 'INDIRECT_RATE', 'UNIVERSITY_NAME', 'UNIVERSITY'].map(key => key.replaceAll('_', '')));
 
 export function missingContractFields(html, tokens = {}) {
   const values = normalizeTokens(tokens);
@@ -231,7 +237,7 @@ function resolveClauseKeys(rawKeys, jobDescClauseKey) {
   return keys.map((k) => (String(k).toUpperCase() === 'JOB_DESC_DYNAMIC' ? jdKey : k));
 }
 
-export async function loadContractBundle({ agencyId, configId, templateId, jobDescClauseKey }) {
+export async function loadContractBundle({ agencyId, configId, templateId, jobDescClauseKey, agreementVariant = null, tokens = {} }) {
   const [cfgRows] = await pool.execute(
     `SELECT * FROM contract_configs WHERE id = ? AND agency_id = ? LIMIT 1`,
     [configId, agencyId]
@@ -258,7 +264,14 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
   } catch {
     clauseKeys = [];
   }
-  clauseKeys = resolveClauseKeys(clauseKeys, jobDescClauseKey);
+  const agreementPlan = agreementVariant ? buildItscoAgreementPlan({ variant: agreementVariant, config, tokens, jobDescClauseKey }) : null;
+  if (agreementPlan) {
+    clauseKeys = agreementPlan.clauseKeys;
+    config.pay_mode = agreementPlan.payMode;
+    config.name = agreementPlan.name;
+    config.rate_config_key = null;
+    config.clause_keys_json = clauseKeys;
+  } else clauseKeys = resolveClauseKeys(clauseKeys, jobDescClauseKey);
   if (!Array.isArray(clauseKeys) || !clauseKeys.length) {
     throw Object.assign(new Error('Config has no clauses'), { status: 400 });
   }
@@ -266,34 +279,42 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
   const placeholders = clauseKeys.map(() => '?').join(',');
   const [clauseRows] = await pool.execute(
     `SELECT * FROM contract_clauses
-     WHERE agency_id = ? AND clause_key IN (${placeholders}) AND is_active = 1`,
+     WHERE agency_id = ? AND clause_key IN (${placeholders})`,
     [agencyId, ...clauseKeys]
   );
-  const byKey = new Map((clauseRows || []).map((c) => [c.clause_key, c]));
+  const byKey = new Map((clauseRows || []).filter(c => c.is_active == null || Number(c.is_active) === 1).map((c) => [c.clause_key, c]));
+  if (agreementPlan) for (const clause of [CATEGORY_LEVEL_COMPENSATION_CLAUSE, ...STUDENT_TRAINING_CLAUSES]) {
+    // Built-in defaults bridge library upgrades; explicitly disabled clauses stay disabled.
+    if (!(clauseRows || []).some(row => row.clause_key === clause.clause_key)) byKey.set(clause.clause_key, clause);
+  }
   const missing = clauseKeys.filter((key) => !byKey.has(key));
   if (missing.length) throw Object.assign(new Error(`Contract clauses are missing or inactive: ${missing.join(', ')}`), { status: 400 });
   const ordered = clauseKeys.map((k) => byKey.get(k));
 
-  return { config, template, clauses: ordered, clauseKeys };
+  return { config, template, clauses: ordered, clauseKeys, agreementPlan };
 }
 
 export async function getAgencyBuilderDefaults(agencyId) {
   const [agencyRows] = await pool.execute(
-    `SELECT id, name, street_address, city, state, postal_code FROM agencies WHERE id = ? LIMIT 1`,
+    `SELECT id, slug, name, street_address, city, state, postal_code FROM agencies WHERE id = ? LIMIT 1`,
     [agencyId]
   );
   const agency = agencyRows?.[0] || null;
-  let offices = [];
-  try {
-    offices = await OfficeLocation.findByAgencyMembership(agencyId, { physicalOnly: true });
-    if (!offices?.length) offices = await OfficeLocation.findByAgency(agencyId);
-  } catch {
-    offices = [];
+  const officeResults = await Promise.allSettled([
+    OfficeLocation.findByAgencyMembership(agencyId, { physicalOnly: true }), OfficeLocation.findByAgency(agencyId)
+  ]);
+  const officesById = new Map();
+  for (const result of officeResults) {
+    if (result.status === 'fulfilled') for (const office of result.value || []) officesById.set(Number(office.id), office);
   }
+  if (officeResults.every(result => result.status === 'rejected')) throw officeResults[0].reason;
+  const offices = [...officesById.values()];
   return {
+    ...await contractServiceFocusSettings(agency),
     agency: agency
       ? {
           id: agency.id,
+          slug: agency.slug,
           name: agency.name,
           address: formatAgencyAddress(agency)
         }
@@ -393,35 +414,20 @@ export async function autofillTokensForCandidate({
   const pay = await PayrollCompensationLevel.getForUser(agencyId, candidateUserId).catch(() => null);
 
   let assignedOffice = null;
+  const officeOptions = jobOfficeOptions(agencyDefaults.offices, jobDescriptionRow);
   const officeId = Number(officeLocationId) || null;
   if (officeId) {
-    assignedOffice = agencyDefaults.offices.find((o) => Number(o.id) === officeId) || null;
-    if (!assignedOffice) throw Object.assign(new Error('Select an office belonging to this agency.'), { status: 400 });
-  }
-  if (!assignedOffice) {
-    try {
-      const [officeRows] = await pool.execute(
-        `SELECT ol.id, ol.name, ol.street_address, ol.city, ol.state, ol.postal_code
-         FROM user_office_locations uol
-         JOIN office_locations ol ON ol.id = uol.office_location_id
-         WHERE uol.user_id = ? AND uol.is_active = 1
-         ORDER BY uol.is_primary DESC, uol.created_at DESC, uol.id DESC
-         LIMIT 1`,
-        [candidateUserId]
-      );
-      const row = officeRows?.[0];
-      if (row) {
-        assignedOffice = agencyDefaults.offices.find(o => Number(o.id) === Number(row.id)) || null;
-      }
-    } catch {
-      assignedOffice = null;
-    }
+    assignedOffice = officeOptions.offices.find((o) => Number(o.id) === officeId) || null;
+    if (!assignedOffice) throw Object.assign(new Error('Select an agency office in one of the job posting’s locations.'), { status: 400 });
   }
 
-  let officeSource = assignedOffice ? (officeId ? 'Selected office' : 'Candidate’s assigned office') : '';
+  let officeSource = assignedOffice ? 'Selected office' : '';
   if (!assignedOffice) {
     assignedOffice = jobLocationOffice(agencyDefaults.offices, jobDescriptionRow);
-    if (assignedOffice) officeSource = 'Defaulted from the job’s city and state';
+    if (assignedOffice) officeSource = 'Automatically selected the only matching agency office';
+    else officeSource = !officeOptions.offices.length ? 'No agency office is configured for this job location. Add an office in agency settings.'
+      : officeOptions.multipleCities ? 'This posting covers multiple cities. Select the office where this person will be assigned.'
+        : 'Multiple offices are available. Select the office where this person will be assigned.';
   }
   const today = new Date();
   const executionDate = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -451,6 +457,9 @@ export async function autofillTokensForCandidate({
     EMPLOYEE_EMAIL: user?.personal_email || user?.email || '',
     COMPANY_NAME: agency?.name || '',
     COMPANY_ADDRESS: agency?.address || '',
+    AGENCY_SLUG: String(agency?.slug || '').toLowerCase(),
+    JOB_CITY: jobDescriptionRow?.city || '',
+    JOB_STATE: jobDescriptionRow?.state || '',
     JOB_TITLE: jobTitle,
     JOB_DESCRIPTION: jobDescription,
     SERVICE_FOCUS: serviceFocus,
@@ -503,30 +512,52 @@ export async function renderContractHtml({
   tokens = {},
   compensationCategory,
   compensationLevel,
-  jobDescClauseKey
+  jobDescClauseKey,
+  includeAssignedOffice = false
 }) {
   const mergedInput = normalizeTokens(tokens);
   const jdKey = jobDescClauseKey || mergedInput.JOB_DESC_CLAUSE_KEY || 'JOB_DESC_LPC';
-  const { config, template, clauses: originalClauses } = await loadContractBundle({
+  const agreementVariant = mergedInput.AGREEMENT_SELECTION_DRIVEN === '1' && mergedInput.AGENCY_SLUG === 'itsco' ? mergedInput.AGREEMENT_VARIANT : null;
+  if (mergedInput.AGREEMENT_SELECTION_DRIVEN === '1' && mergedInput.AGENCY_SLUG === 'itsco' && !agreementVariant) throw Object.assign(new Error('Choose the agreement role before previewing.'), { status: 400 });
+  const { config, template, clauses: originalClauses, agreementPlan } = await loadContractBundle({
     agencyId,
     configId,
     templateId,
-    jobDescClauseKey: jdKey
+    jobDescClauseKey: jdKey,
+    agreementVariant,
+    tokens: mergedInput
   });
   const mergedTokens = {
     ...mergedInput,
     ROLE_LABEL: mergedInput.ROLE_LABEL || contractRoleLabel({jobTitle:mergedInput.JOB_TITLE,roleType:mergedInput.ROLE_TYPE,credential:mergedInput.CREDENTIAL}),
     RATE_CONFIG_KEY: mergedInput.RATE_CONFIG_KEY || config.rate_config_key || ''
   };
+  if (agreementPlan) Object.assign(mergedTokens, normalizeTokens({ ROLE_LABEL: agreementPlan.roleLabel,
+    TRAINING_START_PHASE: agreementPlan.trainingStartPhase || '',
+    TRAINING_START_PHASE_LABEL: agreementPlan.trainingStartPhase === 'practicum' ? 'Practicum' : agreementPlan.trainingStartPhase === 'internship' ? 'Internship' : '' }));
+  const requiredWeeklyHours = weeklyRequiredHours(mergedInput.MIN_HOURS ?? mergedInput.MINHOURS);
+  // Always derive these values server-side; stale preview tokens cannot override them.
+  Object.assign(mergedTokens, normalizeTokens({
+    MIN_AVAILABLE_HOURS: requiredWeeklyHours == null ? '' : String(requiredWeeklyHours),
+    MIN_SCHEDULED_HOURS: requiredWeeklyHours == null ? '' : String(requiredWeeklyHours)
+  }));
+  let schoolDaysRequired = false;
+  if (hasSchoolServiceFocus(mergedInput.SERVICE_FOCUS ?? mergedInput.SERVICEFOCUS)) {
+    const [agencyRows] = await pool.execute('SELECT slug FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
+    schoolDaysRequired = handbookTenant(agencyRows?.[0]) === 'itsco';
+  }
+  const days = mergedInput.MIN_DAYS_PER_WEEK ?? mergedInput.MINDAYSPERWEEK;
+  const validSchoolDays = String(days ?? '').trim() !== '' && Number.isInteger(Number(days)) && Number(days) >= 1 && Number(days) <= 7;
+  Object.assign(mergedTokens, normalizeTokens({ MIN_DAYS_PER_WEEK: schoolDaysRequired && validSchoolDays ? String(Number(days)) : '' }));
 
   const category = compensationCategory || Number(mergedTokens.COMPENSATION_CATEGORY) || 3;
   const level = compensationLevel || Number(mergedTokens.COMPENSATION_LEVEL) || 1;
-  const agency = await Agency.findById(agencyId) || {id:agencyId};
+  const agency = config.pay_mode !== 'none' ? await Agency.findById(agencyId) || {id:agencyId} : {id:agencyId};
   const clinicalRole = ['provider','facilitator','student'].includes(String(mergedTokens.ROLE_LABEL).toLowerCase());
   const currentLevels = config.pay_mode !== 'none' && clinicalRole ? await contractCompensationLevels(agencyId) : [];
   const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
   const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
-  const terms = categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name}) : null;
+  const terms = categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null;
   const clauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
   const compensation = terms ? {row:currentRow,rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
   if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
@@ -543,7 +574,7 @@ export async function renderContractHtml({
     mergedTokens.SUPERVISOR_NAME = '';
     mergedTokens.SUPERVISOR = '';
   }
-  const visibleClauses = (clauses || []).filter(c => {
+  const selectedClauses = (clauses || []).filter(c => {
     if(!c.body_html)return false;
     const key = String(c.clause_key || '').toUpperCase();
     const supervisionPay = key === 'SUP_COMP' || /supervision compensation/i.test(c.title || '');
@@ -551,8 +582,31 @@ export async function renderContractHtml({
     return includeSupervisor || !isSupervisorClause(c);
   });
 
-  const clauseManifest = clauses.map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:visibleClauses.includes(c),reason:c.policyReason || (visibleClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'),policyVersion:c.policyVersion}));
-  const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens);
+  const visibleClauses = selectedClauses.map(clause => ({
+    ...clause, body_html: withWeeklyHoursExpectations(clause.body_html)
+  }));
+  if (agreementPlan && String(mergedInput.MIN_HOURS ?? '').trim() && !visibleClauses.some(clause => findContractPlaceholders(clause.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
+    visibleClauses.splice(3, 0, { body_html: withWeeklyHoursExpectations('<p>The {{ROLE_LABEL}} is expected to maintain at least {{MIN_HOURS}} direct service hours per week.</p>') });
+  }
+  if (includeAssignedOffice && !visibleClauses.some(clause => {
+    const fields = findContractPlaceholders(clause.body_html).map(key => key.replaceAll('_', ''));
+    return fields.includes('ASSIGNEDOFFICENAME') && fields.includes('ASSIGNEDOFFICEADDRESS');
+  })) {
+    visibleClauses.splice(1, 0, { body_html: '<p><strong>Assigned office:</strong> The {{ROLE_LABEL}} is assigned to the {{ASSIGNED_OFFICE_NAME}} office at {{ASSIGNED_OFFICE_ADDRESS}}. This is the assigned work location; the employer’s principal place of business is {{COMPANY_ADDRESS}}.</p>' });
+  }
+  if (schoolDaysRequired) {
+    // Keep school-day expectations beside service expectations whenever possible.
+    const schoolClause = visibleClauses.find(c => findContractPlaceholders(c.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'));
+    if (schoolClause) schoolClause.body_html += `\n${SCHOOL_DAY_EXPECTATION_HTML}`;
+    else visibleClauses.push({ body_html: SCHOOL_DAY_EXPECTATION_HTML });
+  }
+
+  const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens)
+    .filter(key => schoolDaysRequired || key.replaceAll('_', '') !== 'MINDAYSPERWEEK');
+  if (requiredWeeklyHours == null && visibleClauses.some(c => findContractPlaceholders(c.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
+    missingFields.push('MIN_HOURS');
+  }
+  const clauseManifest = clauses.map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:selectedClauses.includes(c),reason:c.policyReason || (selectedClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'),policyVersion:c.policyVersion}));
   const bodyParts = visibleClauses.map((c) => {
     let body = replaceTokens(c.body_html, mergedTokens)
       // Imported Markdown occasionally leaves a single emphasis marker after a quoted role.

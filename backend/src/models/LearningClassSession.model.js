@@ -107,6 +107,7 @@ class LearningClassSession {
       deliveryContext: 'delivery_context',
       status: 'status',
       startsAt: 'starts_at',
+      actualStartedAt: 'actual_started_at',
       endsAt: 'ends_at',
       twilioRoomSid: 'twilio_room_sid',
       twilioRoomUniqueName: 'twilio_room_unique_name',
