@@ -14,6 +14,10 @@ vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { te
 vi.mock('../../../components/admin/MedicalBillingReportsPanel.vue', () => ({ default: { template: '<div>Company reports</div>' } }));
 vi.mock('../MedicalBillingView.vue', () => ({ default: { template: '<div>Company settings</div>' } }));
 vi.mock('../../../components/billing/RemittanceWorkspace.vue', () => ({default:{props:['agencyId','agencyName'],template:'<div data-testid="remittances">Payments for {{ agencyName }}</div>'}}));
+vi.mock('../../../components/admin/CallBillingQueue.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../components/admin/PlannedBillingServices.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../components/billing/PayerEftPanel.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../components/billing/BankFeedPanel.vue', () => ({ default: { template: '<div />' } }));
 const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { primary: '#23564f' }, counts: { ready: 4, submitted: 2 }, connection: { configured: true, mode: 'disabled' }, enrollments: [] }, { id: 3, name: 'Company Three', counts: { rejected: 2 }, connection: { configured: false }, enrollments: [] }], claims: [{ id: 8, agency_id: 1, client_id: 12, clinical_note_id: 10, claim_lifecycle: 'submitted', amount_cents: 10000 }], total: 1, capabilities: { claims: true, enrollments: true, paymentPosting: false }, updatedAt: '2026-09-24T12:00:00Z' });
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
 beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
@@ -32,7 +36,7 @@ describe('billing workspace', () => {
     expect(w.find('[data-testid="organization-scope"]').element.value).toBe('all');
     await button(w, 'Work in Company One').trigger('click'); await flushPromises();
     expect(api.get.mock.calls.filter(([path])=>path==='/medical-billing/workspace').at(-1)[1].params.agencyId).toBe('1');
-    expect(w.attributes('style')).toContain('--bw-brand: #23564f'); w.unmount();
+    expect(w.attributes('style')).toContain('--bw-brand: #1555b0'); expect(w.find('.brand-lockup').text()).toContain('AuricWell'); expect(w.find('.scope-context').text()).toContain('Company One'); w.unmount();
   });
   it('discards stale scope responses instead of replacing the current agency data', async () => {
     const w = mount(BillingWorkspaceView); await flushPromises();
@@ -49,6 +53,15 @@ describe('billing workspace', () => {
     await button(w, 'Payments').trigger('click'); await flushPromises();
     expect(w.find('[data-testid="remittances"]').text()).toContain('Company One');
     expect(w.text()).not.toContain('Payments for Company Three'); w.unmount();
+  });
+  it('honors the hub link to the existing claims section and practice', async () => {
+    mockRoute.query = { billingScope: '3', billingSection: 'claims' };
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    expect(api.get.mock.calls.filter(([path]) => path === '/medical-billing/workspace')[0][1].params.agencyId).toBe('3');
+    expect(w.find('h1').text()).toBe('Claims');
+    expect(w.find('[data-testid="organization-scope"]').element.value).toBe('3');
+    expect(w.find('.brand-lockup').text()).toContain('AuricWell');
+    w.unmount();
   });
   it('locks AuricWell to the server-selected practice',async()=>{
     mockRoute.meta={auricwellPreview:true};mockRoute.query={billingScope:'3'};

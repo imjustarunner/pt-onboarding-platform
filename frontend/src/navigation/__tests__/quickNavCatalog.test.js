@@ -197,3 +197,17 @@ describe('client billing discovery', () => {
     expect(searchQuickNav('stripe', buildQuickNavContext({ user: { role: 'staff', billingAgencyIds: [377] } })).flat.some(e => e.path?.includes('family-billing'))).toBe(true);
   });
 });
+
+
+describe('AuricWell billing discovery', () => {
+  it.each(['billing workspace', 'billing & claims', 'auricwell billing', 'submit claims', 'claim submission', 'claimmd', 'reconciliation'])('finds the actual workspace for %s', query => {
+    const ctx = buildQuickNavContext({ user: { role: 'staff', billingAgencyIds: [17], capabilities: {} } });
+    const result = searchQuickNav(query, ctx).flat.find(entry => entry.path === '/admin/medical-billing');
+    expect(result?.label).toBe('Billing Workspace');
+    expect(result?.description).toContain('AuricWell');
+  });
+  it('keeps billing search gated independently of payroll', () => {
+    const ctx = buildQuickNavContext({ user: { role: 'staff', payrollAgencyIds: [17], capabilities: { canManagePayroll: true } } });
+    expect(searchQuickNav('submit claims', ctx).flat.some(entry => entry.path === '/admin/medical-billing')).toBe(false);
+  });
+});

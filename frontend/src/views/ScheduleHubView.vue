@@ -66,6 +66,15 @@
       </div>
     </header>
 
+    <section v-if="clinicalShortcuts.length" class="hub-clinical" aria-label="AuricWell practice operations">
+      <div class="hub-clinical-brand"><AuricWellBrand context="Practice operations" /><span class="hub-practice-name">{{ agencyStore.currentAgency?.name }}</span></div>
+      <nav aria-label="AuricWell shortcuts">
+        <router-link v-for="card in clinicalShortcuts" :key="card.id" :to="card.to" :class="{ 'billing-shortcut': card.id === 'billing-workspace' }">
+          <span aria-hidden="true" v-html="card.icon" /><span>{{ card.title }}</span><span aria-hidden="true">→</span>
+        </router-link>
+      </nav>
+    </section>
+
     <div class="hub-layout" data-tour="schedule-hub-grid">
       <div class="hub-stage-wrap">
         <div
@@ -92,6 +101,7 @@
               :aria-label="activeSectionId ? `Return to all areas` : 'Workforce Operations hub'"
               @click="activeSectionId ? goToRoot() : null"
             >
+              <AuricWellBrand v-if="activeSection?.product" compact :context="activeSection.mixedProduct ? 'tools' : ''" />
               <div class="hub-center-icon" aria-hidden="true" v-html="centerIcon" />
               <div class="hub-center-title">{{ centerTitle }}</div>
               <p class="hub-center-desc">{{ centerDesc }}</p>
@@ -157,6 +167,7 @@
                 @focus="hoveredSectionId = node.id"
                 @click="selectSection(node.id)"
               >
+                <AuricWellBrand v-if="node.product" class="hub-product-badge" compact :context="node.mixedProduct ? 'tools' : ''" />
                 <div class="hub-satellite-icon" aria-hidden="true" v-html="node.icon" />
                 <div class="hub-satellite-title">{{ node.label }}</div>
                 <p class="hub-satellite-desc">{{ node.desc }}</p>
@@ -182,6 +193,7 @@
                 @mouseenter="hoveredCardId = node.id"
                 @focus="hoveredCardId = node.id"
               >
+                <AuricWellBrand v-if="node.product" class="hub-product-badge" compact :context="node.mixedProduct ? 'tools' : ''" />
                 <div class="hub-satellite-icon" aria-hidden="true" v-html="node.icon" />
                 <div class="hub-satellite-title">{{ node.title }}</div>
                 <p class="hub-satellite-desc">{{ node.shortDesc }}</p>
@@ -196,6 +208,7 @@
                 @mouseenter="hoveredCardId = node.id"
                 @focus="hoveredCardId = node.id"
               >
+                <AuricWellBrand v-if="node.product" class="hub-product-badge" compact :context="node.mixedProduct ? 'tools' : ''" />
                 <div class="hub-satellite-icon" aria-hidden="true" v-html="node.icon" />
                 <div class="hub-satellite-title">{{ node.title }}</div>
                 <p class="hub-satellite-desc">{{ node.shortDesc }}</p>
@@ -229,11 +242,13 @@
                     >
                       <span class="hub-preview-dot" />
                       {{ card.title }}
+                      <AuricWellBrand v-if="card.product" compact />
                       <span v-if="card.count > 0" class="hub-preview-count">{{ card.count }}</span>
                     </a>
                     <router-link v-else :to="card.to" class="hub-preview-link" @click="clearHover">
                       <span class="hub-preview-dot" />
                       {{ card.title }}
+                      <AuricWellBrand v-if="card.product" compact />
                       <span v-if="card.count > 0" class="hub-preview-count">{{ card.count }}</span>
                     </router-link>
                   </li>
@@ -303,6 +318,7 @@
       <section v-for="section in visibleSections" :key="section.id" class="hub-mobile-section">
         <h2>
           {{ section.label }}
+          <AuricWellBrand v-if="section.product" compact :context="section.mixedProduct ? 'tools' : ''" />
           <span v-if="sectionNotificationCount(section) > 0" class="hub-mobile-section-badge">
             {{ formatNotificationCount(sectionNotificationCount(section)) }}
           </span>
@@ -319,6 +335,7 @@
             >
               <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
               <div class="hub-mobile-icon" v-html="card.icon" />
+              <AuricWellBrand v-if="card.product" compact />
               <div class="hub-mobile-title">{{ card.title }}</div>
               <p>{{ card.desc }}</p>
             </a>
@@ -330,6 +347,7 @@
             >
             <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
             <div class="hub-mobile-icon" v-html="card.icon" />
+            <AuricWellBrand v-if="card.product" compact />
             <div class="hub-mobile-title">{{ card.title }}</div>
             <p>{{ card.desc }}</p>
           </router-link>
@@ -347,6 +365,8 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
+import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
+import { canAccessBillingWorkspace, canAccessMedicalBilling } from '../config/medicalBillingAccess.js';
 import HubTopCardsBar from '../components/admin/HubTopCardsBar.vue';
 import { useHubTopCards } from '../composables/useHubTopCards.js';
 import {
@@ -434,6 +454,17 @@ const hubSwitcherLinks = computed(() => {
     ...ctx,
     currentSurface: 'workforce'
   });
+});
+
+// Use the same billing gate as Quick Nav and the workspace route, independently of payroll.
+const canSeeBillingWorkspace = computed(() => canAccessBillingWorkspace(user.value));
+const billingTo = (section = 'workspace') => ({
+  path: orgTo('/admin/medical-billing'),
+  query: {
+    billingSection: section,
+    // Delegated billers may work for companies other than their login organization.
+    billingScope: canAccessMedicalBilling(user.value, agencyId.value) ? String(agencyId.value) : 'all'
+  }
 });
 
 const canSeePayrollManagement = computed(() => {
@@ -900,6 +931,23 @@ const allSections = computed(() => [
     ].filter((c) => c.show)
   },
   {
+    id: 'billing-claims',
+    label: 'Billing & Claims',
+    desc: 'Billing Workspace, claim submission, payers, payments, and reconciliation.',
+    product: 'auricwell',
+    tone: 'blue',
+    icon: icon.receipt,
+    cards: [
+      { id: 'billing-workspace', title: 'Billing Workspace', shortDesc: 'Your billing queues and next actions.', desc: 'Open the existing Billing Workspace for claim review, submission, payer enrollment, and payment follow-up.', section: 'workspace', icon: icon.receipt },
+      { id: 'billing-claims', title: 'Claims', shortDesc: 'Review, approve, and submit claims.', desc: 'Review claims and required approvals, submit through the configured clearinghouse, and follow responses and denials.', section: 'claims', icon: icon.docs },
+      { id: 'billing-payers', title: 'Payers & ERA', shortDesc: 'Payer connections and enrollment.', desc: 'Manage payer connections, claims and ERA enrollment, eligibility, and EFT status.', section: 'payers', icon: icon.building },
+      { id: 'billing-payments', title: 'Payments & Reconciliation', shortDesc: 'Remittances and patient balances.', desc: 'Match remittances, reconcile payments, and review patient balances in the billing workspace.', section: 'payments', icon: icon.dollar },
+      { id: 'billing-claim-reports', title: 'Claims Reports', shortDesc: 'Claim workload and performance.', desc: 'Review claim stages and export billing reports for the selected practice.', section: 'reports', icon: icon.clipboard }
+    ].filter(() => canSeeBillingWorkspace.value).map(card => ({
+      ...card, to: billingTo(card.section), product: 'auricwell', tone: 'blue', cta: 'Open →', count: 0
+    }))
+  },
+  {
     id: 'payroll-expenses',
     label: 'Payroll & Expenses',
     desc: 'Payroll runs, submissions, and expense reimbursements.',
@@ -937,7 +985,7 @@ const allSections = computed(() => [
   {
     id: 'billing-revenue',
     label: 'Billing & Revenue',
-    desc: 'Billing reports, receivables, medical billing, and revenue.',
+    desc: 'Payroll billing reports, receivables, and business revenue.',
     tone: 'teal',
     icon: icon.receipt,
     cards: [
@@ -1144,7 +1192,15 @@ const allSections = computed(() => [
   }
 ]);
 
-const visibleSections = computed(() => allSections.value.filter((s) => s.cards.length > 0));
+const clinicalCardIds = new Set(['clients', 'office-hub', 'office-clients', 'guardians', 'master-office-form', 'master-office-paper', 'credentialing', 'psychotherapy-compliance']);
+const visibleSections = computed(() => allSections.value.filter(s => s.cards.length > 0).map(section => {
+  const cards = section.cards.map(card => clinicalCardIds.has(card.id) ? { ...card, product: 'auricwell' } : card);
+  const clinical = cards.some(card => card.product === 'auricwell');
+  return { ...section, cards, product: clinical ? 'auricwell' : null, mixedProduct: clinical && cards.some(card => !card.product) };
+}));
+const clinicalShortcuts = computed(() => ['clients', 'billing-workspace', 'credentialing', 'psychotherapy-compliance']
+  .map(id => visibleSections.value.flatMap(section => section.cards).find(card => card.id === id))
+  .filter(Boolean));
 
 const allHubCards = computed(() => visibleSections.value.flatMap((section) => section.cards));
 
@@ -1175,6 +1231,8 @@ const orbitNodes = computed(() => {
     key: section.id,
     id: section.id,
     label: section.label,
+    product: section.product,
+    mixedProduct: section.mixedProduct,
     desc: section.desc,
     tone: section.tone,
     icon: section.icon,
@@ -1313,6 +1371,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.hub-clinical{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 22px;margin:0 0 16px;border:1px solid #dbe5f3;border-top:3px solid #c9a75a;border-radius:16px;background:#fff;color:#17375e}
+.hub-clinical-brand{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.hub-practice-name{font-size:13px;color:#526680}
+.hub-clinical nav{display:flex;flex-wrap:wrap;gap:8px}.hub-clinical nav a{display:inline-flex;align-items:center;gap:8px;padding:10px 13px;border:1px solid #dbe5f3;border-radius:9px;color:#174b8b;background:#f8fbff;text-decoration:none;font-size:13px;font-weight:650}.hub-clinical nav a.billing-shortcut{background:#1555b0;color:#fff;border-color:#1555b0}.hub-clinical nav a:hover{box-shadow:0 2px 8px #12356b20}.hub-clinical nav a:focus-visible{outline:3px solid #c9a75a;outline-offset:3px}.hub-clinical nav :deep(svg){width:18px;height:18px;display:block}
+.hub-product-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#fff;border:1px solid #dbe5f3;border-radius:20px;padding:3px 7px;box-shadow:0 2px 8px #12356b0c}
+.hub-mobile-section h2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hub-preview :deep(.auricwell-brand){margin-left:auto}
+@media(max-width:820px){.hub-header-actions{max-width:100%;min-width:0;justify-content:flex-start}.hub-switcher{flex-wrap:wrap;max-width:100%}}
+@media(max-width:600px){.hub-clinical{padding:16px}.hub-clinical nav{width:100%;display:grid;grid-template-columns:1fr 1fr}.hub-clinical nav a{padding:10px;font-size:12px}.hub-clinical-brand{gap:10px}}
+
 .wo-hub {
   --hub-ink: color-mix(in srgb, var(--primary, #1f6b4a) 22%, var(--app-ink, #0f172a));
   --hub-muted: var(--app-muted, #64748b);

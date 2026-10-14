@@ -793,7 +793,7 @@ function buildAppEntries() {
       label: 'Credentialing',
       description: 'Credentialing across authorized agencies — providers, group NPIs, payer connections, and follow-ups.',
       group: 'admin',
-      keywords: ['credentialing', 'credentialling', 'credentials', 'licenses', 'npi', 'payer credentialing'],
+      keywords: ['auricwell credentialing', 'credentialing', 'credentialling', 'credentials', 'licenses', 'npi', 'payer credentialing'],
       kind: 'path',
       path: '/admin/credentialing',
       rolesAny: ['admin', 'support', 'staff', 'super_admin'],

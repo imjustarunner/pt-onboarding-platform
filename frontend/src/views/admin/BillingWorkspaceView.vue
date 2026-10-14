@@ -1,13 +1,13 @@
 <template>
-  <div class="billing-shell" :style="billingBrand(scopedOrganization)">
+  <div class="billing-shell" style="--bw-brand: #1555b0; --bw-on-brand: #ffffff">
     <aside class="billing-nav" aria-label="Billing navigation">
-      <div class="brand-lockup"><img v-if="brandLogo" :src="brandLogo" alt="" /><span v-else class="brand-monogram">{{ initials(brandName) }}</span><div><strong>{{ brandName }}</strong><small>Billing workspace</small></div></div>
+      <div class="brand-lockup"><AuricWellBrand context="Billing & Claims" /></div>
       <nav><button v-for="item in navigation" :key="item.id" :class="{ active: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" @click="setSection(item.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path :d="item.icon" /></svg>{{ item.label }}</button></nav>
       <div class="nav-footer"><span class="access-dot"></span> Billing access only<small>{{ signedInName }}</small></div>
     </aside>
 
     <main class="billing-main">
-      <header class="workspace-header"><div><span class="eyebrow">REVENUE OPERATIONS</span><h1>{{ pageTitle }}</h1><p>{{ descriptions[section] }}</p></div><button class="secondary" :disabled="loading" @click="reload">{{ loading ? 'Refreshing…' : 'Refresh' }}</button></header>
+      <header class="workspace-header"><div><span class="eyebrow">AURICWELL · BILLING & CLAIMS</span><h1>{{ pageTitle }}</h1><p>{{ descriptions[section] }}</p></div><button class="secondary" :disabled="loading" @click="reload">{{ loading ? 'Refreshing…' : 'Refresh' }}</button></header>
       <section v-if="!route.meta?.auricwellPreview" class="scope-bar" aria-label="Organization scope">
         <label><span>Organization scope</span><select v-model="scopeId" data-testid="organization-scope"><option value="all">All Companies ({{ organizations.length }})</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label>
         <div class="scope-context"><strong>{{ scopeId === 'all' ? 'Your authorized billing organizations' : scopedOrganization?.name }}</strong><span>Signed in as {{ signedInName }} · Billing for {{ scopeId === 'all' ? 'multiple organizations' : scopedOrganization?.name }}</span></div>
@@ -84,6 +84,7 @@ import RemittanceWorkspace from '../../components/billing/RemittanceWorkspace.vu
 import BankFeedPanel from '../../components/billing/BankFeedPanel.vue';
 import PayerEftPanel from '../../components/billing/PayerEftPanel.vue';
 import BillingCostPlanner from '../../components/billing/BillingCostPlanner.vue';
+import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
 import AuricwellCostPlanner from '../../components/billing/AuricwellCostPlanner.vue';
 import AuricwellPracticePricing from '../../components/billing/AuricwellPracticePricing.vue';
 import EligibilityAutomationPanel from '../../components/billing/EligibilityAutomationPanel.vue';
@@ -129,8 +130,6 @@ const scopedOrganizations = computed(() => scopedOrganization.value ? [scopedOrg
 const visibleOrganizations = computed(() => scopedOrganizations.value.filter(o => o.name.toLowerCase().includes(companySearch.value.toLowerCase())));
 const totals = computed(() => billingTotals(scopedOrganizations.value));
 const signedInName = computed(() => [authStore.user?.first_name, authStore.user?.last_name].filter(Boolean).join(' ') || 'Billing staff');
-const brandName = computed(() => scopedOrganization.value?.name || agencyStore.currentAgency?.name || 'Billing operations');
-const brandLogo = computed(() => logoUrl(scopedOrganization.value?.logoUrl || (scopeId.value === 'all' ? agencyStore.currentAgency?.logo_url : null)));
 const pageTitle = computed(() => navigation.find(n => n.id === section.value)?.label);
 const editableClaim = computed(() => ['draft', 'ready', 'rejected'].includes(selectedClaim.value?.claim_lifecycle));
 const queueTabs = [{ id: 'all', label: 'All claims' }, { id: 'attention', label: 'Needs attention' }, { id: 'draft', label: 'Drafts' }, { id: 'ready', label: 'Ready for review' }, { id: 'in_progress', label: 'In progress' }, { id: 'rejected', label: 'Rejected' }, { id: 'denied', label: 'Denied' }, { id: 'paid', label: 'Marked paid' }];

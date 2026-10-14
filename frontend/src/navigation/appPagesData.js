@@ -207,7 +207,7 @@ export const APP_PAGES = [
     title: 'Credentialing',
     section: 'Workforce Ops › Compliance & Oversight',
     path: '/admin/credentialing',
-    keywords: ['credentialing', 'credentialling', 'credentials', 'licenses', 'verification', 'certifications', 'npi'],
+    keywords: ['credentialing', 'credentialling', 'auricwell credentialing', 'credentials', 'licenses', 'verification', 'certifications', 'npi'],
     desc: 'Agency credentialing workflows, licenses, and verifications.'
   },
   {
@@ -226,16 +226,16 @@ export const APP_PAGES = [
   },
   {
     title: 'Billing Workspace',
-    section: 'Workforce Ops › Billing & Revenue',
+    section: 'Workforce Ops › AuricWell Billing & Claims',
     path: '/admin/medical-billing', requiresBilling: true,
-    keywords: ['medical billing', 'medical', 'billing', 'claims', 'payers', 'ERA', 'payments'],
-    desc: 'Work billing queues, payer enrollment, and reports across authorized companies.'
+    keywords: ['auricwell', 'auricwell billing', 'billing and claims', 'billing & claims', 'billing workspace', 'medical billing', 'insurance billing', 'billing', 'claims', 'submit claims', 'claim submission', 'claim md', 'claimmd', 'payers', 'ERA', 'payments', 'reconciliation'],
+    desc: 'AuricWell Billing Workspace: review, approve and submit claims, manage payers, and reconcile payments for authorized practices.'
   },
   {
     title: 'Psychotherapy Compliance',
     section: 'Workforce Ops › Compliance & Oversight',
     path: '/admin/psychotherapy-compliance',
-    keywords: ['psychotherapy', 'compliance', 'cpt', 'billing compliance', 'therapy compliance'],
+    keywords: ['psychotherapy', 'compliance', 'cpt', 'billing compliance', 'therapy compliance', 'auricwell compliance'],
     desc: 'Psychotherapy CPT compliance tracking and uploads.'
   },
   {
