@@ -1,13 +1,29 @@
+import { agencyAvailability } from './providerAgencyAvailability.js';
+
+// Provider access grants permissions; only an active clinician's sees-clients
+// preference establishes membership in provider audiences for that agency.
+export function meetingProviderAgencyIds(user) {
+  if (String(user.status || '').toUpperCase() !== 'ACTIVE_EMPLOYEE') return [];
+  return (user.agencyIds || []).filter(agencyId => {
+    const policy = agencyAvailability(user.availabilityDetails, agencyId);
+    return policy ? policy.seesClients === true : [true, 1, '1'].includes(user.seesClients);
+  });
+}
+
 // Rebuild from the current authorized roster on each request. These groups never
 // store a stale list of people and cannot pull members from another tenant.
 export function meetingAudienceGroups(users, agencies, relationships = []) {
   const groups = [];
+  const providerInAgency = (u, aid) => {
+    const ids = meetingProviderAgencyIds(u);
+    return aid ? ids.includes(aid) : ids.length > 0;
+  };
   const definitions = [
-    ['providers', 'All providers', u => ['provider', 'provider_plus', 'clinician', 'supervisor', 'intern', 'intern_plus', 'facilitator', 'qbha'].includes(u.role) || u.hasProviderAccess === true],
+    ['providers', 'All providers', providerInAgency],
     ['staff', 'All staff', () => true],
     ['admin_staff', 'Admin / support staff', u => ['admin', 'assistant_admin', 'staff', 'support', 'clinical_practice_assistant', 'super_admin', 'superadmin'].includes(u.role)],
-    ['prelicensed', 'Prelicensed providers', (u, aid) => (u.prelicensedAgencyIds || []).some(id => !aid || id === aid)],
-    ['provider_plus', 'Provider Plus', u => u.role === 'provider_plus'],
+    ['prelicensed', 'Prelicensed providers', (u, aid) => providerInAgency(u, aid) && (u.prelicensedAgencyIds || []).some(id => (!aid || id === aid) && meetingProviderAgencyIds(u).includes(id))],
+    ['provider_plus', 'Provider Plus', (u, aid) => u.role === 'provider_plus' && providerInAgency(u, aid)],
     ['clinical_practice_assistant', 'Clinical practice assistants', u => u.role === 'clinical_practice_assistant'],
     ['supervisors', 'Supervisors', (u, aid) => relationships.some(r => Number(r.supervisor_id) === u.id && (!aid || Number(r.agency_id) === aid))],
     ['supervisees', 'Supervisees', (u, aid) => relationships.some(r => Number(r.supervisee_id) === u.id && (!aid || Number(r.agency_id) === aid))]

@@ -7396,10 +7396,14 @@ export const listUserMeetingCandidates = async (req, res, next) => {
            u.role,
            u.profile_photo_path,
            u.has_provider_access,
+           u.status,
+           u.sees_clients,
+           p.public_details_json AS availability_details,
            GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id ASC) AS agency_ids,
            GROUP_CONCAT(DISTINCT CASE WHEN ua.supervision_is_prelicensed=1 THEN ua.agency_id END) AS prelicensed_agency_ids
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
+         LEFT JOIN provider_public_profiles p ON p.user_id = u.id
          WHERE ua.agency_id IN (${placeholders})
            AND ua.is_active = 1
            AND u.id <> ?
@@ -7408,7 +7412,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'DELETED'))
            AND ${roleClause}
-         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access
+         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access, u.status, u.sees_clients, p.public_details_json
          ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
         [...scopedAgencyIds, userId, ...scheduleCoworkerRoleSqlParams()]
       );
@@ -7421,6 +7425,9 @@ export const listUserMeetingCandidates = async (req, res, next) => {
         role: String(r.role || '').trim().toLowerCase(),
         profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
         hasProviderAccess: Number(r.has_provider_access) === 1,
+        status: String(r.status || '').toUpperCase(),
+        seesClients: Number(r.sees_clients) === 1,
+        availabilityDetails: r.availability_details || null,
         prelicensedAgencyIds: String(r.prelicensed_agency_ids || '').split(',').map(Number).filter(Boolean),
         agencyIds: String(r.agency_ids || '')
           .split(',')
@@ -7444,6 +7451,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       `SELECT supervisor_id, supervisee_id, agency_id FROM supervisor_assignments WHERE agency_id IN (${scopedAgencyIds.map(() => '?').join(',')})`, scopedAgencyIds
     ) : [[]];
     const groups = meetingAudienceGroups(users, agencyRows, relationships);
+    users = users.map(({ availabilityDetails, ...user }) => user);
     const agencyName = id => agencyRows.find(a => Number(a.id) === Number(id))?.name || `Agency ${id}`;
     if (scopedAgencyIds.length) {
       const placeholders = scopedAgencyIds.map(() => '?').join(',');
