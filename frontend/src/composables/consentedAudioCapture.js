@@ -6,7 +6,7 @@ import {meetingAudioWav} from '../utils/meetingAudio';
 export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHint,onCapturing,onState,listeningHint='Transcription is on. Either participant can pause it.'}={}) {
   let wanted=false,timer=null,segmentTimer=null,recorder=null,stream=null,currentState=null,polling=false;
   let pending=Promise.resolve(),settleSegment=null,discard=false,queued=0;
-  const options={skipGlobalLoading:true,skipAuthRedirect:true};
+  const options={skipGlobalLoading:true,skipAuthRedirect:true,timeout:20000};
   function stopSegment(drop=false){discard ||= drop;if(segmentTimer)clearTimeout(segmentTimer);segmentTimer=null;if(recorder?.state==='recording')recorder.stop();}
   async function beginSegment(){
     if(!wanted||recorder||queued>=3||!currentState?.allowed||currentState.paused||currentState.stopped)return;

@@ -2903,6 +2903,8 @@ onUnmounted(() => {
 <style scoped>
 .join-session-layout--interview { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr) minmax(330px, 410px); }
 .join-session-layout--interview .join-workspace { background: #172332; }
+.join-session-layout--interview .join-video__stage:not(.join-video__stage--collapsed) { flex: 1 0 max(600px, 70dvh); min-height: max(600px, 70dvh); }
+.join-session-layout--interview .join-video__stage > :deep(.supervision-video-room) { height: 100%; min-height: 0; }
 .join-session-layout--interview .join-workspace__body > * { flex-shrink: 0; }
 .join-interview-support summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
 .join-interview-support[open] summary { margin-bottom: 12px; }

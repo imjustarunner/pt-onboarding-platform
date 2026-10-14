@@ -21,6 +21,28 @@ async function chatActor(req) {
   return { event, identity: `user-${req.user.id}`, userId: req.user.id, personId: req.user.id, roleLabel: 'Interviewer' };
 }
 
+export const getInterviewQuestion = async (req, res, next) => {
+  try {
+    const actor = await chatActor(req);
+    res.json({ question: await VideoMeetingActivity.latestInterviewQuestion(actor.event.id) });
+  } catch (e) { next(e); }
+};
+
+export const putInterviewQuestion = async (req, res, next) => {
+  try {
+    if (req.interviewApplicant) return res.status(403).json({ error: { message: 'Only interviewers can display questions.' } });
+    const actor = await chatActor(req);
+    if (typeof req.body?.text !== 'string' || req.body.text.trim().length > 2000) {
+      return res.status(400).json({ error: { message: 'Questions can contain up to 2,000 characters.' } });
+    }
+    const text = req.body.text.trim();
+    const id = await VideoMeetingActivity.create({ eventId: actor.event.id, userId: actor.userId,
+      participantIdentity: 'interview-question-display', activityType: 'question',
+      payload: { audience: 'interview_shared', text } });
+    res.json({ question: { id, text } });
+  } catch (e) { next(e); }
+};
+
 export const getInterviewSharedChat = async (req, res, next) => {
   try {
     const actor = await chatActor(req);

@@ -1,9 +1,10 @@
 vi.mock('../../services/speechTranscription.service.js',()=>({transcribeLongAudio:m.speech}));
 vi.mock('../../services/sessionAiPrivacy.service.js',()=>({requireSessionPrivacyConfiguration:m.privacy}));
 import {beforeEach,describe,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),event:vi.fn(),artifact:vi.fn(),ensure:vi.fn(),append:vi.fn(),participants:vi.fn(),speech:vi.fn(),privacy:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),event:vi.fn(),artifact:vi.fn(),ensure:vi.fn(),append:vi.fn(),participants:vi.fn(),speech:vi.fn(),privacy:vi.fn(),applicant:vi.fn(),admitted:vi.fn(),user:vi.fn()}));
+vi.mock('../../services/interviewApplicantAccess.service.js',()=>({interviewApplicantAccess:m.applicant,requireApplicantInRoom:m.admitted}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
-vi.mock('../../models/User.model.js',()=>({default:{}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:m.user}}));
 vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{findById:m.event,resolveByJoinRef:m.event,classifyJoinTokenRole:()=>null}}));
 vi.mock('../../models/ProviderScheduleEventAttendee.model.js',()=>({default:{}}));
 vi.mock('../../models/ProviderScheduleEventArtifact.model.js',()=>({default:{findByEventId:m.artifact,ensureTagged:m.ensure,appendTranscriptChunk:m.append}}));
@@ -90,5 +91,35 @@ describe('approved team audio transcription',()=>{
  });
  it('saves with a locked revision check and sends no transcript back in the upload response',async()=>{
   const res=response(),next=vi.fn();await appendTeamMeetingAudio(req(),res,next);expect(next).not.toHaveBeenCalled();expect(m.append).toHaveBeenCalledWith(expect.objectContaining({eventId:9,expectedRevision:2,updatedByUserId:7}));expect(res.json).toHaveBeenCalledWith({ok:true,saved:true});
+ });
+});
+
+describe('applicant capture boundary', () => {
+ const req=()=>({params:{eventId:'personal-invitation'},interviewApplicant:{},body:{revision:'2',speakerLabel:'Forged Host'},file:{buffer:Buffer.from('synthetic'),mimetype:'audio/wav'}});
+ beforeEach(()=>{
+  vi.clearAllMocks();m.privacy.mockReset();m.admitted.mockReset();m.applicant.mockReset();
+  m.applicant.mockResolvedValue({event:{id:9,kind:'TEAM_MEETING',meeting_subtype:'interview'},interview:{candidate_user_id:30},identity:'guest-iv-abc'});
+  m.artifact.mockResolvedValue({transcript_revision:2,transcript_paused:0});m.speech.mockResolvedValue('My answer');
+  m.user.mockResolvedValue({first_name:'Jamie',last_name:'Applicant'});
+ });
+ it('saves admitted applicant speech under server-resolved identity, returning no private transcript',async()=>{
+  const res=response(),next=vi.fn(); await appendTeamMeetingAudio(req(),res,next);
+  expect(next).not.toHaveBeenCalled();expect(m.admitted).toHaveBeenCalledTimes(2);
+  expect(m.append).toHaveBeenCalledWith({eventId:9,text:'[Jamie Applicant · Applicant] My answer',updatedByUserId:null,expectedRevision:2});
+  expect(res.json).toHaveBeenCalledWith({ok:true,saved:true});
+ });
+ it('blocks speech processing before admission',async()=>{
+  m.admitted.mockRejectedValue(Object.assign(new Error('Wait'),{status:403}));
+  const next=vi.fn();await appendTeamMeetingAudio(req(),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.speech).not.toHaveBeenCalled();
+ });
+ it.each([{transcript_paused:1},{transcript_stopped_at:'2026-10-14'},{transcript_revision:3}])('honors room transcription controls: %j',async patch=>{
+  m.artifact.mockResolvedValue({transcript_revision:2,...patch});const next=vi.fn();await appendTeamMeetingAudio(req(),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.speech).not.toHaveBeenCalled();
+ });
+ it('discards speech if applicant access ends while processing',async()=>{
+  m.speech.mockImplementation(async()=>{m.applicant.mockRejectedValue(Object.assign(new Error('Ended'),{status:410}));return 'Late audio';});
+  const next=vi.fn();await appendTeamMeetingAudio(req(),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:410}));expect(m.append).not.toHaveBeenCalled();
  });
 });

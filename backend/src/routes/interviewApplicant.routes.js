@@ -1,8 +1,9 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
+import multer from 'multer';
 import { interviewApplicantAccess } from '../services/interviewApplicantAccess.service.js';
-import { getTeamMeetingVideoToken, getTeamMeetingAdmissionStatus, postTeamMeetingJoinPresence } from '../controllers/teamMeetings.controller.js';
-import { getInterviewSharedChat, postInterviewSharedChat } from '../controllers/interviewSharedChat.controller.js';
+import { getTeamMeetingVideoToken, getTeamMeetingAdmissionStatus, postTeamMeetingJoinPresence, getTeamMeetingTranscriptionState, appendTeamMeetingAudio } from '../controllers/teamMeetings.controller.js';
+import { getInterviewSharedChat, postInterviewSharedChat, getInterviewQuestion } from '../controllers/interviewSharedChat.controller.js';
 
 const router = express.Router({ mergeParams: true });
 router.use(async (req, res, next) => {
@@ -30,5 +31,10 @@ router.get('/video-token', applicantReply(getTeamMeetingVideoToken));
 router.get('/admission-status', applicantReply(getTeamMeetingAdmissionStatus));
 router.post('/join-presence', applicantReply(postTeamMeetingJoinPresence));
 router.get('/chat', getInterviewSharedChat);
+router.get('/question', getInterviewQuestion);
+// Capture-only access: applicants never receive the transcript or staff workspace.
+router.get('/transcription', getTeamMeetingTranscriptionState);
+router.post('/transcription/audio', rateLimit({ windowMs: 60000, max: 20, standardHeaders: true, legacyHeaders: false }),
+  multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }).single('audio'), appendTeamMeetingAudio);
 router.post('/chat', rateLimit({ windowMs: 60000, max: 30, standardHeaders: true, legacyHeaders: false }), postInterviewSharedChat);
 export default router;

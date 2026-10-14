@@ -102,7 +102,7 @@
               'vsr__tile--speaking': isParticipantSpeaking({ key: r.streamId }),
               'vsr__tile--paged-hidden': !screenFocused && tileFocus === 'equal' && tileHiddenByPage('remote', r.streamId)
             }"
-            :style="!screenFocused && tileFocus === 'equal' ? { order: tileOrderFor('remote', r.streamId) } : null"
+            :style="tileStageStyle('remote', r.streamId)"
             @click="onTileActivate('remote', r.streamId)"
           >
             <div
@@ -172,13 +172,13 @@
               'vsr__tile--solo': isSoloStage && !screenFocused && tileFocus === 'equal',
               'vsr__tile--duo': isDuoStage && !screenFocused && tileFocus === 'equal',
               'vsr__tile--grid-local': isGridStage && !screenFocused && tileFocus === 'equal',
-              'vsr__tile--pip': screenFocused || tileFocus === 'remote' || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
+              'vsr__tile--pip': screenFocused || (tileFocus === 'remote' && !!focusedRemoteStreamId) || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
               'vsr__tile--featured': tileFocus === 'local' || (tileFocus === 'remote' && !focusedRemoteStreamId) || (tileFocus === 'speaker' && !featuredSpeakerStreamId),
               'vsr__tile--mini': tileFocus === 'collapsed' && !screenFocused,
               'vsr__tile--speaking': isParticipantSpeaking({ key: 'local' }),
               'vsr__tile--paged-hidden': !screenFocused && tileFocus === 'equal' && tileHiddenByPage('local', 'local')
             }"
-            :style="!screenFocused && tileFocus === 'equal' ? { order: tileOrderFor('local', 'local') } : null"
+            :style="tileStageStyle('local', 'local')"
             @click="onTileActivate('local')"
           >
             <div ref="localMediaStageEl" class="vsr__media" />
@@ -775,6 +775,26 @@ const stageSize = ref({ width: 960, height: 540 });
 const thumbnailSide = ref('bottom');
 const sideThumbnails = computed(()=>['left','right'].includes(thumbnailSide.value) && props.tileFocus==='remote' && !screenFocused.value && stageSize.value.width>=520);
 let stageResizeObserver = null;
+const thumbnailKeys = computed(() => {
+  if (!screenFocused.value && !['remote', 'local', 'speaker'].includes(props.tileFocus)) return [];
+  const featured = screenFocused.value ? null : props.tileFocus === 'remote'
+    ? (focusedRemoteStreamId.value || 'local') : props.tileFocus === 'speaker'
+      ? (featuredSpeakerStreamId.value || 'local') : 'local';
+  return [...remotes.value.filter(r => !useSplitCamOffLayout.value || r.hasVideo).map(r => r.streamId),
+    ...(showLocalOnStage.value ? ['local'] : [])].filter(key => key !== featured);
+});
+const thumbnailGrid = computed(() => {
+  const columns = Math.max(1, Math.min(thumbnailKeys.value.length, Math.floor(stageSize.value.width / 126)));
+  const side = Math.max(1, Math.min(120, Math.floor((stageSize.value.width - 6 * (columns + 1)) / columns)));
+  return { columns, side, rows: Math.ceil(thumbnailKeys.value.length / columns) };
+});
+function tileStageStyle(kind, key) {
+  if (!screenFocused.value && props.tileFocus === 'equal') return { order: tileOrderFor(kind, key) };
+  if (sideThumbnails.value) return null;
+  const index = thumbnailKeys.value.indexOf(key);
+  if (index < 0) return null;
+  return { gridColumn: 2 + index % thumbnailGrid.value.columns, gridRow: 2 + Math.floor(index / thumbnailGrid.value.columns) };
+}
 const stageGridStyle = computed(() => {
   if(sideThumbnails.value){
     const rail=Math.min(160,Math.floor(stageSize.value.width*.22));
@@ -783,20 +803,13 @@ const stageGridStyle = computed(() => {
       gridTemplateRows:`repeat(${count},minmax(90px,1fr))`,
       '--vsr-camera-side':`${Math.min(stageSize.value.width-rail-6,stageSize.value.height)}px`};
   }
-  if (screenFocused.value) {
-    const columns = Math.max(1, stageVideoCount.value);
-    const side = Math.max(1, Math.min(100, Math.floor((stageSize.value.width - 6 * (columns - 1)) / columns), Math.floor(stageSize.value.height * 0.22)));
-    return { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-      gridTemplateRows: `minmax(0, 1fr) ${side}px`, '--vsr-thumbnail-side': `${side}px` };
-  }
-  if (['remote', 'local', 'speaker'].includes(props.tileFocus)) {
-    const thumbnails = Math.max(0, stageVideoCount.value - (screenFocused.value ? 0 : 1));
-    const columns = Math.max(1, Math.min(thumbnails, Math.floor(stageSize.value.width / 144)));
-    const rows = Math.ceil(thumbnails / columns);
+  if (screenFocused.value || ['remote', 'local', 'speaker'].includes(props.tileFocus)) {
+    const { columns, side, rows } = thumbnailGrid.value;
     return {
-      '--vsr-camera-side': `${Math.max(1, Math.min(stageSize.value.width, Math.max(180, stageSize.value.height - rows * 106)))}px`,
-      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-      gridTemplateRows: `minmax(180px, 1fr)${rows ? ` repeat(${rows}, 100px)` : ''}`
+      '--vsr-camera-side': `${Math.max(1, Math.min(stageSize.value.width, Math.max(180, stageSize.value.height - rows * (side + 6))))}px`,
+      '--vsr-thumbnail-side': `${side}px`,
+      gridTemplateColumns: `minmax(0, 1fr) repeat(${columns}, ${side}px) minmax(0, 1fr)`,
+      gridTemplateRows: `minmax(180px, 1fr)${rows ? ` repeat(${rows}, ${side}px)` : ''}`
     };
   }
   if (props.lobbyMode || props.layout === 'strip' || props.tileFocus === 'collapsed') return null;

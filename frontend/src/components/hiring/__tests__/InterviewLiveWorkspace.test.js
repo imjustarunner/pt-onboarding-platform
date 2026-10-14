@@ -30,3 +30,18 @@ it('shows strengths alongside the resume and saves a rating from the visible sco
  expect(api.put).toHaveBeenCalledWith('/hiring/interview-hub/interviews/4/artifacts', expect.objectContaining({myRatings:{communication:4}}), {skipGlobalLoading:true});
  expect(wrapper.text()).toContain('Progress saved');
 });
+it('displays a guide question to the applicant, then replaces and removes it without ending the meeting', async () => {
+ const defaultGet=api.get.getMockImplementation();
+ api.get.mockImplementation(async url => url.includes('by-schedule-event') ? { data: { data: { interview: { id: 4 },
+  flow: { sections: [{key:'standard',label:'Questions',questions:[{key:'a',text:'First question?'},{key:'b',text:'Next question?'}]}] } } } } : defaultGet(url));
+ let id=0;
+ api.put.mockImplementation(async (url, body) => url.endsWith('/interview-question') ? {data:{question:{id:++id,text:body.text}}} : {data:{data:{}}});
+ wrapper=mount(InterviewLiveWorkspace,{props:{eventId:9}});await flushPromises();
+ await wrapper.get('[aria-label="Show question: First question?"]').trigger('click');await flushPromises();
+ expect(wrapper.get('.ilw-shared-question').text()).toContain('First question?');
+ await wrapper.get('[aria-label="Show question: Next question?"]').trigger('click');await flushPromises();
+ expect(wrapper.get('.ilw-shared-question').text()).not.toContain('First question?');
+ await wrapper.findAll('button').find(b=>b.text()==='Remove question').trigger('click');await flushPromises();
+ expect(wrapper.get('.ilw-shared-question').text()).not.toContain('Next question?');
+ expect(api.put.mock.calls.every(([url])=>!url.includes('end-guest-access'))).toBe(true);
+});

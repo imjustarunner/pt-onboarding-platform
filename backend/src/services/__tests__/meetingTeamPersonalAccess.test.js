@@ -14,3 +14,7 @@ it('rejects unrelated meeting IDs and general account actions',async()=>{const {
 it('rechecks the current roster on each request',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);m.canJoin.mockResolvedValue(false);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:9,action:'video-token'})).rejects.toMatchObject({status:403});});
 it('revokes a previously issued grant when its personal token rotates',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);invitation.join_token='r'.repeat(32);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:9,action:'video-token'})).rejects.toMatchObject({status:410});});
 it('allows calendar guest admission only through its own scoped meeting path',()=>{expect(teamMeetingRequest('POST','/9/calendar-guests/4/admit')).toEqual({eventId:9,action:'calendar-guests/4/admit'});});
+it('scopes question display requests to the invited meeting; controller still checks interviewer authority',()=>{
+ for(const method of ['GET','PUT'])expect(teamMeetingRequest(method,'/9/interview-question')).toEqual({eventId:9,action:'interview-question'});
+ expect(teamMeetingRequest('PUT','/9/interview-question/private')).toBeNull();
+});

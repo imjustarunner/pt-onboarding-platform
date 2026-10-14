@@ -8,6 +8,17 @@ import pool from '../config/database.js';
 import { encryptPayload, decryptPayload } from '../services/videoActivityEncryption.service.js';
 
 export default class VideoMeetingActivity {
+  // A reserved server-written identity separates the displayed interview question
+  // from participant Q&A and private staff material. Latest id wins, including clear.
+  static async latestInterviewQuestion(eventId) {
+    const [rows] = await pool.execute(`SELECT id, payload_json, payload_ciphertext, payload_iv,
+      payload_auth_tag, encryption_key_id FROM video_meeting_activity
+      WHERE event_id = ? AND activity_type = 'question'
+        AND participant_identity = 'interview-question-display'
+      ORDER BY id DESC LIMIT 1`, [eventId]);
+    const row = rows[0];
+    return row ? { id: Number(row.id), text: decryptPayload(row, {}).text || '' } : { id: 0, text: '' };
+  }
   /**
    * Insert a chat/poll/Q&A activity.
    * @param {{ sessionId?: number, eventId?: number, userId?: number, participantIdentity: string, activityType: string, payload: object }}

@@ -2618,9 +2618,17 @@ export const putMeetingParticipantPreferences = async (req,res,next) => {
 
 
 async function secureTeamTranscriptionContext(req) {
-  const eventId = Number(req.params.eventId);
-  const event = await ProviderScheduleEvent.findById(eventId);
-  if (!event || !['TEAM_MEETING','HUDDLE'].includes(String(event.kind).toUpperCase()) || !await canAccessTeamMeeting(req,event)) {
+  // Revalidate the invitation on every check, including after speech processing,
+  // so ending applicant access invalidates an upload already in flight.
+  let applicant = null;
+  if (req.interviewApplicant) {
+    const { interviewApplicantAccess, requireApplicantInRoom } = await import('../services/interviewApplicantAccess.service.js');
+    applicant = await interviewApplicantAccess(req.params.eventId);
+    await requireApplicantInRoom(applicant);
+  }
+  const event = applicant?.event || await ProviderScheduleEvent.findById(Number(req.params.eventId));
+  const eventId = event?.id;
+  if (!event || !['TEAM_MEETING','HUDDLE'].includes(String(event.kind).toUpperCase()) || (!applicant && !await canAccessTeamMeeting(req,event))) {
     throw Object.assign(new Error('Meeting not found or access denied.'),{status:403});
   }
   requireSessionPrivacyConfiguration();
@@ -2630,7 +2638,7 @@ async function secureTeamTranscriptionContext(req) {
   await ProviderScheduleEventArtifact.ensureTagged({eventId});
   const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
   const manual = String(event.kind).toUpperCase()==='TEAM_MEETING' && String(event.meeting_subtype || 'general').toLowerCase()==='general';
-  return {event,artifact,state:{allowed:!manual || !!artifact?.transcript_started_at,requested:!manual || !!artifact?.transcript_started_at,
+  return {event,artifact,applicant,state:{allowed:!manual || !!artifact?.transcript_started_at,requested:!manual || !!artifact?.transcript_started_at,
     paused:!!Number(artifact?.transcript_paused),stopped:!!artifact?.transcript_stopped_at,revision:Number(artifact?.transcript_revision || 0),
     reason:manual && !artifact?.transcript_started_at ? 'The host must start transcription.' : null}};
 }
@@ -2639,7 +2647,7 @@ export const getTeamMeetingTranscriptionState = async(req,res,next) => {
 };
 export const appendTeamMeetingAudio = async(req,res,next) => {
   try {
-    const {event,state} = await secureTeamTranscriptionContext(req);
+    const {event,state,applicant} = await secureTeamTranscriptionContext(req);
     const revision=Number(req.body?.revision);
     const ensure = current => {
       if (!current.allowed || current.paused || current.stopped || !Number.isInteger(revision) || current.revision!==revision) {
@@ -2652,8 +2660,10 @@ export const appendTeamMeetingAudio = async(req,res,next) => {
     }
     const text=String(await transcribeLongAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,languageCode:'en-US'})).trim();
     ensure((await secureTeamTranscriptionContext(req)).state);
+    const speaker = applicant ? await User.findById(applicant.interview.candidate_user_id) : req.user;
+    const name = `${displayNameFromUser(speaker) || 'Participant'}${applicant ? ' · Applicant' : ''}`;
     if(text)await ProviderScheduleEventArtifact.appendTranscriptChunk({eventId:event.id,
-      text:`[${displayNameFromUser(req.user) || 'Participant'}] ${text}`,updatedByUserId:req.user.id,expectedRevision:revision});
+      text:`[${name}] ${text}`,updatedByUserId:applicant ? null : req.user.id,expectedRevision:revision});
     res.json({ok:true,saved:true});
   }catch(error){next(error);}
 };

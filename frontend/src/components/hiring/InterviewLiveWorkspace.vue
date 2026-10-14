@@ -103,6 +103,14 @@
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
         </div>
+        <div class="ilw-shared-question" aria-live="polite">
+          <template v-if="sharedQuestion.text">
+            <strong>On the applicant’s screen</strong><p>{{ sharedQuestion.text }}</p>
+            <button class="ilw-btn" :disabled="questionSending" @click="displayQuestion('')">Remove question</button>
+          </template>
+          <p v-else>Use “Show question” to display one question to the applicant. A new question replaces the previous one.</p>
+          <p v-if="questionError" role="alert">{{ questionError }}</p>
+        </div>
         <div v-for="section in flowSections" :key="section.key" class="ilw-flow-section">
           <div class="ilw-flow-title">
             <span>{{ section.label }}</span>
@@ -133,6 +141,9 @@
               {{ isComplete(section.key, q.key || qIdx) ? '✓' : '' }}
             </button>
             <div class="ilw-q-text">{{ q.text || q.prompt || q }}</div>
+            <button class="ilw-btn ilw-show-question" :disabled="questionSending || guestAccessEnded"
+              :aria-label="`Show question: ${q.text || q.prompt || q}`"
+              @click="displayQuestion(String(q.text || q.prompt || q))">Show question</button>
           </div>
           <div v-if="!sectionQuestions(section).length && section.prompt" class="ilw-q">
             <div class="ilw-q-text muted">{{ section.prompt }}</div>
@@ -252,6 +263,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { buildQuickResumeBullets } from '../../utils/hiringResumeSummaryBullets.js';
 import { digestPreScreenReport } from '../../utils/hiringPreScreenDigest.js';
+import { useInterviewQuestion } from '../../composables/useInterviewQuestion';
 
 const props = defineProps({
   eventId: { type: [Number, String], required: true },
@@ -279,6 +291,10 @@ const saving = ref(false);
 const finalizing = ref(false);
 const endingGuest = ref(false);
 const guestAccessEnded = ref(false);
+const { question: sharedQuestion, error: questionError, sending: questionSending, display: displayQuestion } = useInterviewQuestion({
+  endpoint: computed(() => `/team-meetings/${props.eventId}/interview-question`),
+  enabled: computed(() => !!props.eventId && !guestAccessEnded.value)
+});
 const error = ref('');
 const interviewId = ref(null);
 const flowSections = ref([]);
@@ -752,7 +768,11 @@ function formatWhen(v) {
   flex-shrink: 0;
 }
 .ilw-q.done .ilw-check { background: rgba(34, 197, 94, 0.2); border-color: #22c55e; }
-.ilw-q-text { font-size: 13px; line-height: 1.4; }
+.ilw-q-text { font-size: 13px; line-height: 1.4; flex: 1 1 150px; min-width: 0; }
+.ilw-q { flex-wrap: wrap; }
+.ilw-show-question { margin-left: auto; font-size: .72rem; color: #cbbdff; }
+.ilw-shared-question { padding: 12px; border: 1px solid #65558d; border-radius: 10px; background: #8b5cf610; margin: 12px 0; font-size: .8rem; }
+.ilw-shared-question p { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
 .ilw-textarea, .ilw-input {
   width: 100%;
   border-radius: 8px;

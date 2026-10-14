@@ -33,5 +33,5 @@ export async function requireApplicantInRoom({ event, identity }) {
       AND (?=0 OR EXISTS (SELECT 1 FROM provider_schedule_event_video_admissions a
         WHERE a.event_id=p.event_id AND a.join_identity=p.join_identity)) LIMIT 1`,
   [event.id, identity, waitingRoomEnabled ? 1 : 0]);
-  if (!rows.length) throw fail(403, 'Join the interview and wait for admission before using chat.');
+  if (!rows.length) throw fail(403, 'Join the interview and wait for admission first.');
 }

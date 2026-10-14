@@ -2,7 +2,7 @@
   <section class="interview-shared-chat" aria-label="Chat with applicant">
     <h2>Chat with applicant</h2>
     <p>Everyone in this interview can see these messages.</p>
-    <div class="messages" role="log" aria-live="polite">
+    <div ref="messageLog" class="messages" role="log" aria-live="polite" aria-label="Interview messages" tabindex="0">
       <p v-for="message in messages" :key="message.id"><strong>{{ message.authorName }} · {{ message.roleLabel }}</strong><br>{{ message.text }}</p>
       <p v-if="!messages.length">No messages yet.</p>
     </div>
@@ -15,16 +15,26 @@
   </section>
 </template>
 <script setup>
-import { onMounted, onBeforeUnmount, ref, useId } from 'vue';
+import { nextTick, onMounted, onBeforeUnmount, ref, useId } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ endpoint: { type: String, required: true } });
 const inputId = useId(), messages = ref([]), draft = ref(''), error = ref(''), sending = ref(false);
+const messageLog = ref(null);
 const options = { skipAuthRedirect: true, skipGlobalLoading: true, timeout: 15000 };
 let timer, stopped = false, loading = false;
 async function refresh() {
   if (loading || stopped) return;
   loading = true;
-  try { const { data } = await api.get(props.endpoint, options); if (!stopped) messages.value = data.messages || []; }
+  try {
+    const { data } = await api.get(props.endpoint, options);
+    if (!stopped) {
+      const el = messageLog.value;
+      const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 36;
+      messages.value = data.messages || []; error.value = '';
+      await nextTick();
+      if (atBottom && messageLog.value) messageLog.value.scrollTop = messageLog.value.scrollHeight;
+    }
+  }
   catch (e) { if (!stopped) error.value = e.response?.data?.error?.message || 'Chat is temporarily unavailable.'; }
   finally { loading = false; }
 }
@@ -40,7 +50,7 @@ onMounted(() => { void refresh(); timer = setInterval(refresh, 4000); });
 onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
 </script>
 <style scoped>
-.interview-shared-chat{padding:16px;background:#172332;color:#f4f7fb;border-radius:12px;min-width:0}
-h2{font-size:1rem;margin:0}p{font-size:.9rem;white-space:pre-wrap;overflow-wrap:anywhere}.messages{max-height:180px;overflow:auto}
+.interview-shared-chat{padding:12px 16px;background:#172332;color:#f4f7fb;border-radius:12px;min-width:0;box-sizing:border-box;flex:0 0 220px;height:220px;display:flex;flex-direction:column;gap:6px;overflow:hidden}
+h2{font-size:1rem;margin:0;color:#f4f7fb}p{font-size:.85rem;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}.messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.messages p{margin:0 0 10px}form{flex-shrink:0}
 form{display:flex;gap:8px}input{flex:1;min-width:0;padding:10px;border-radius:6px}button{padding:8px 14px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 </style>

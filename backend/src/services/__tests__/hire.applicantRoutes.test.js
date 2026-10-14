@@ -1,23 +1,25 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 const m = vi.hoisted(() => ({ access: vi.fn(), room: vi.fn(), actor: vi.fn(), event: vi.fn(), interview: vi.fn(),
-  list: vi.fn(), create: vi.fn(), user: vi.fn(), requireStaff: vi.fn() }));
+  list: vi.fn(), create: vi.fn(), question: vi.fn(), user: vi.fn(), requireStaff: vi.fn() }));
 vi.mock('../interviewApplicantAccess.service.js', () => ({ interviewApplicantAccess: m.access, requireApplicantInRoom: m.room }));
 vi.mock('../hiringInterviewAccess.service.js', () => ({ requireHiringInterviewAccess: m.requireStaff }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: m.user } }));
 vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { findById: m.event } }));
 vi.mock('../../models/HiringInterview.model.js', () => ({ default: { findByScheduleEventId: m.interview } }));
-vi.mock('../../models/VideoMeetingActivity.model.js', () => ({ default: { list: m.list, create: m.create } }));
+vi.mock('../../models/VideoMeetingActivity.model.js', () => ({ default: { list: m.list, create: m.create, latestInterviewQuestion: m.question } }));
 vi.mock('../meetingCalendarGuest.service.js',()=>({calendarMeeting:async()=>({id:7,title:'Interview',meeting_subtype:'interview'})}));
 vi.mock('../../controllers/teamMeetings.controller.js', () => ({
   getTeamMeetingVideoToken: (req, res) => { m.actor(req.user); res.json({ token: 'video', sessionId: 'room', displayName: 'Jamie', roleLabel: 'Applicant', roomMode: 'lobby', hostJoinUrl: 'secret', meetingSettings: { private: true } }); },
   getTeamMeetingAdmissionStatus: (req, res) => { m.actor(req.user); res.json({ admitted: true, token: 'admitted-video', roomMode: 'main', goals: ['private'], agenda: ['private'], transcriptState: { private: true } }); },
-  postTeamMeetingJoinPresence: (req, res) => { m.actor(req.user); res.json({ ok: true }); }
+  postTeamMeetingJoinPresence: (req, res) => { m.actor(req.user); res.json({ ok: true }); },
+  getTeamMeetingTranscriptionState: (req, res) => { m.actor(req.user); res.json({ allowed: true, revision: 1 }); },
+  appendTeamMeetingAudio: (req, res) => { m.actor(req.user); res.json({ ok: true, saved: true }); }
 }));
 import routes from '../../routes/interviewApplicant.routes.js';
 import calendarRoutes from '../../routes/meetingCalendar.routes.js';
 import { interviewCalendarReference } from '../../utils/interviewCalendarLink.js';
-import { getInterviewSharedChat, postInterviewSharedChat } from '../../controllers/interviewSharedChat.controller.js';
+import { getInterviewSharedChat, postInterviewSharedChat, getInterviewQuestion, putInterviewQuestion } from '../../controllers/interviewSharedChat.controller.js';
 let server, base;
 beforeAll(async () => {
   const app = express(); app.use(express.json());
@@ -26,6 +28,7 @@ beforeAll(async () => {
   app.use('/applicant/:eventId', routes);
   app.use('/calendar',calendarRoutes);
   app.get('/staff/:eventId/chat', getInterviewSharedChat); app.post('/staff/:eventId/chat', postInterviewSharedChat);
+  app.get('/staff/:eventId/question', getInterviewQuestion); app.put('/staff/:eventId/question', putInterviewQuestion);
   app.use((e, req, res, next) => res.status(e.status || 500).json({ error: { message: e.message } }));
   server = app.listen(0, '127.0.0.1'); await new Promise((resolve,reject) => { server.once('listening', resolve); server.once('error', reject); });
   base = `http://127.0.0.1:${server.address().port}`;
@@ -37,6 +40,7 @@ beforeEach(() => {
   m.room.mockResolvedValue(); m.user.mockResolvedValue({ first_name: 'Jamie', last_name: 'Applicant' });
   m.event.mockResolvedValue({ id: 7, meeting_subtype: 'interview' }); m.interview.mockResolvedValue({ id: 9 });
   m.requireStaff.mockResolvedValue(); m.create.mockResolvedValue(42);
+  m.question.mockResolvedValue({ id: 10, text: 'What interests you about this role?' });
   m.list.mockResolvedValue([
     { id: 1, activityType: 'chat', payload: { text: 'Legacy private message' } },
     { id: 2, activityType: 'chat', payload: { audience: 'interview_shared', text: 'Welcome', authorName: 'Interviewer', roleLabel: 'Interviewer' } },
@@ -85,5 +89,30 @@ describe('HTTP applicant boundary and shared chat', () => {
   it('checks interviewer authority before shared chat access too', async () => {
     m.requireStaff.mockRejectedValue(Object.assign(new Error('Access denied'), { status: 403 }));
     expect((await fetch(`${base}/staff/7/chat`)).status).toBe(403); expect(m.list).not.toHaveBeenCalled();
+  });
+  it('returns only the current shared question to an admitted applicant and disallows changing it', async () => {
+    const response = await fetch(`${base}/applicant/token/question`);
+    expect(await response.json()).toEqual({ question: { id: 10, text: 'What interests you about this role?' } });
+    expect(m.room).toHaveBeenCalled(); expect(m.list).not.toHaveBeenCalled();
+    expect((await fetch(`${base}/applicant/token/question`, { method: 'PUT' })).status).toBe(404);
+    m.room.mockRejectedValue(Object.assign(new Error('Wait'), { status: 403 }));
+    expect((await fetch(`${base}/applicant/token/question`)).status).toBe(403);
+  });
+  it('allows authorized staff to replace or clear the question without changing meeting lifecycle', async () => {
+    for (const text of ['First question?', 'Replacement?', '']) {
+      const response = await fetch(`${base}/staff/7/question`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      expect(await response.json()).toEqual({ question: { id: 42, text } });
+      expect(m.create).toHaveBeenLastCalledWith(expect.objectContaining({ eventId: 7, userId: 99,
+        participantIdentity: 'interview-question-display', activityType: 'question', payload: { audience: 'interview_shared', text } }));
+    }
+    m.requireStaff.mockRejectedValue(Object.assign(new Error('Access denied'), { status: 403 }));
+    expect((await fetch(`${base}/staff/7/question`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Forbidden' }) })).status).toBe(403);
+    expect(m.create).toHaveBeenCalledTimes(3);
+  });
+  it('exposes only capture state to the applicant and rejects ended invitations', async () => {
+    expect(await (await fetch(`${base}/applicant/token/transcription`)).json()).toEqual({ allowed: true, revision: 1 });
+    expect(m.actor).toHaveBeenCalledWith(undefined);
+    m.access.mockRejectedValue(Object.assign(new Error('Interview ended'), { status: 410 }));
+    expect((await fetch(`${base}/applicant/token/transcription`)).status).toBe(410);
   });
 });

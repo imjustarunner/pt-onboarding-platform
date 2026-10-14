@@ -126,7 +126,9 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.findAll('.vsr__tile--featured')).toHaveLength(1);
     expect(wrapper.find('.vsr__tile--featured').text()).toContain('candidate');
     expect(wrapper.findAll('.vsr__tile--remote.vsr__tile--pip')).toHaveLength(2);
-    expect(wrapper.find('.vsr__stage').attributes('style')).toContain('100px');
+    expect(wrapper.find('.vsr__stage').attributes('style')).toContain('repeat(3, 120px)');
+    const thumbnailColumns = wrapper.findAll('.vsr__tile--pip').map(tile => Number(tile.element.style.gridColumn)).sort();
+    expect(thumbnailColumns).toEqual([2, 3, 4]);
     expect(videoSdk.session.subscribe.mock.calls.every(call => call[2].fitMode === 'contain')).toBe(true);
     // Candidate keeps the same position when the camera is disabled or re-enabled.
     videoSdk.session._handlers.streamPropertyChanged({stream: {streamId:'candidate'}, changedProperty:'hasVideo', newValue:false});
