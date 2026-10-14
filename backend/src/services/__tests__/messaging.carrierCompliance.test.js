@@ -57,6 +57,12 @@ describe('message content attributes', () => {
     expect(formatRegisteredSms('Please stop at the front desk.', 'ITSCO')).toContain('Reply STOP to opt out.');
     expect(formatRegisteredSms('Reply STOP to opt out.', 'ITSCO').match(/STOP/g)).toHaveLength(1);
   });
+  it('keeps one opt-out instruction in subscription confirmations', () => {
+    const body = 'You subscribed to workforce notifications. Reply HELP for help, STOP to opt out.';
+    const formatted = formatRegisteredSms(body, 'ITSCO');
+    expect(formatted).toBe(`ITSCO: ${body}`);
+    expect(formatRegisteredSms(formatted, 'ITSCO')).toBe(formatted);
+  });
 });
 
 describe('live read-only checks', () => {
