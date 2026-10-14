@@ -1,3 +1,4 @@
+import {resolveOfficeRequestPreferences,readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import {enrichAvailabilityRoster} from '../services/providerAvailabilityRoster.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import pool from '../config/database.js';
@@ -1383,7 +1384,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       if (bad.length) return res.status(400).json({ error: { message: 'One or more selected offices are not available for this agency.' } });
     }
 
-    const normalizedSlots = [];
+    let normalizedSlots = [];
     for (const s of slots) {
       const weekday = parseIntSafe(s?.weekday);
       const startHour = parseIntSafe(s?.startHour);
@@ -1398,6 +1399,9 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     if (normalizedSlots.length === 0) {
       return res.status(400).json({ error: { message: 'At least one day/time slot is required.' } });
     }
+
+    const preferences = await resolveOfficeRequestPreferences(pool, {agencyId,officeIds,slots:normalizedSlots,preferredRoomIds:req.body?.preferredRoomIds,preferredRoomId:req.body?.preferredRoomId});
+    normalizedSlots = preferences.slots;
 
     // When replacing a prior request (date/time/frequency changed), cancel that pending
     // request so soft-holds clear and the new series can be submitted.
@@ -1489,6 +1493,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     } catch (insertErr) {
       if (insertErr?.code === 'ER_BAD_FIELD_ERROR' || insertErr?.errno === 1054) {
         await conn.rollback();
+        conn.release();
         conn = null;
         return res.status(409).json({
           error: {
@@ -1499,6 +1504,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       throw insertErr;
     }
     const requestId = result.insertId;
+    if(preferences.preferredRooms.length) await conn.execute('UPDATE provider_office_availability_requests SET preferred_rooms_json=? WHERE id=?',[JSON.stringify(preferences.preferredRooms),requestId]);
 
     for (const s of normalizedSlots) {
       await conn.execute(
@@ -1510,6 +1516,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     }
 
     await conn.commit();
+    conn.release();
     conn = null;
 
     // Notify admin/CPA/provider_plus/staff who can approve
@@ -2408,6 +2415,7 @@ export const listOfficeAvailabilityRequests = async (req, res, next) => {
         providerId: r.provider_id,
         providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
         preferredOfficeIds: prefIds,
+        preferredRooms: readPreferredRooms(r.preferred_rooms_json),
         officeLocationId: primaryOfficeId,
         officeName: primaryOfficeName,
         notes: r.notes || '',

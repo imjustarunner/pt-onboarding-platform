@@ -1,3 +1,5 @@
+import {indexPendingRoomRequest} from '../utils/officePendingRequests.js';
+import {readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
 import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
@@ -1750,15 +1752,14 @@ export const getWeeklyGrid = async (req, res, next) => {
       return { frequency: null, frequencyLabel: null, frequencyBadge: null };
     };
 
-    // Pending office availability requests: show "Requested" so others don't duplicate
+    // Specific-room requests retain their soft hold; requests needing a room appear once in the building queue.
     const officeAgencies = await OfficeLocationAgency.listAgenciesForOffice(officeLocationIdNum);
     const officeAgencyIds = (officeAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
-    const pendingBySlot = new Map(); // key: `${date}:${hour}` or `${date}:${hour}:${roomId}` -> [{ providerName }]
+    const pendingBySlot = new Map();
+    const unassignedRoomRequests = new Map();
     if (officeAgencyIds.length > 0) {
       const [reqRows] = await pool.execute(
-        `SELECT r.id, r.provider_id, r.preferred_office_ids_json,
-                r.requested_frequency, r.requested_occurrence_count, r.requested_start_date, r.created_at,
-                u.first_name, u.last_name
+        `SELECT r.*, u.first_name, u.last_name
          FROM provider_office_availability_requests r
          JOIN users u ON u.id = r.provider_id
          WHERE r.agency_id IN (${officeAgencyIds.map(() => '?').join(',')})
@@ -1800,22 +1801,18 @@ export const getWeeklyGrid = async (req, res, next) => {
           })) {
             continue;
           }
-          for (let h = sh; h < eh; h++) {
-            const baseKey = `${dateForWeekday}:${h}`;
-            const keys = roomId ? [`${baseKey}:${roomId}`] : [baseKey];
-            for (const k of keys) {
-              if (!pendingBySlot.has(k)) pendingBySlot.set(k, []);
-              pendingBySlot.get(k).push({ providerName });
-            }
-          }
+          indexPendingRoomRequest(pendingBySlot,unassignedRoomRequests,{
+            id:Number(req.id),providerId:Number(req.provider_id),providerName,roomId,
+            date:dateForWeekday,startHour:sh,endHour:eh,frequency:requestedFrequency,
+            preferredRooms:readPreferredRooms(req.preferred_rooms_json)
+          });
         }
       }
     }
     for (const s of slots) {
       const roomId = Number(s.roomId || 0) || null;
       const pkSpecific = `${s.date}:${s.hour}:${roomId}`;
-      const pkAny = `${s.date}:${s.hour}`;
-      const pending = pendingBySlot.get(pkSpecific) || pendingBySlot.get(pkAny) || [];
+      const pending = pendingBySlot.get(pkSpecific) || [];
       const uniqueNames = [...new Set(pending.map((p) => p.providerName))];
       s.pendingRequestCount = uniqueNames.length;
       s.pendingRequestNames = uniqueNames.length > 0 ? uniqueNames : null;
@@ -1956,6 +1953,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         photo_url: r.photo_url || null
       })),
       slots: privacySlots.map(compact),
+      unassignedRoomRequests: [...unassignedRoomRequests.values()],
       cancelledGoogleEvents,
       diagnostics: {
         duplicateRoomSlotConflictCount: conflictSlotsByKey.size,

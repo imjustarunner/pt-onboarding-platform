@@ -199,8 +199,10 @@
               </div>
               <div v-if="selected.agencyName"><dt>Tenant</dt><dd>{{ selected.agencyName }}</dd></div>
               <div><dt>Approve as</dt><dd>{{ assignDisplay.office }} · {{ assignDisplay.room }}</dd></div>
+              <div v-if="selected.preferredRooms?.length"><dt>Room preferences (in order)</dt><dd>{{ selected.preferredRooms.map((room,i)=>`${i+1}. ${room.officeName} · ${room.label}`).join(' → ') }}</dd></div>
               <div v-if="selected.notes"><dt>Notes</dt><dd>{{ selected.notes }}</dd></div>
             </dl>
+            <p v-if="scheduleOfficeId" class="oa-hint"><router-link :to="{path:orgTo('/buildings/schedule'),query:{officeId:scheduleOfficeId}}" target="_blank" rel="noopener">Open building master grid ↗</router-link> to compare all rooms before approving.</p>
             <p v-if="assignIncomplete" class="oa-hint warn">
               Pick an available office/room on the right to complete approval.
             </p>

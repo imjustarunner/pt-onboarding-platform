@@ -40,6 +40,7 @@
           </div>
         </template>
       </div>
+      <p v-if="request?.preferredRooms?.length" class="hint">Room preferences: {{ request.preferredRooms.map((room,i)=>`${i+1}. ${room.label}`).join(' → ') }}. Assign one room.</p>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
         <button

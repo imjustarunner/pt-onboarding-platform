@@ -254,29 +254,34 @@
                   </select>
                 </div>
                 <div class="ahf-field ahf-field--rooms">
-                  <span class="ahf-label">Open rooms for this series</span>
+                  <span class="ahf-label">{{ multipleRoomPreferences ? 'Room preferences · choose up to 3' : 'Preferred room' }}</span>
+                  <p v-if="multipleRoomPreferences" class="ahf-preference-help">Choose in order of preference. Staff will assign one room after reviewing the building schedule.</p>
+                  <input v-if="preferredRoomOptions.length > 6" v-model="roomPreferenceSearch" type="search" class="ahf-input ahf-room-search" aria-label="Search room preferences" placeholder="Search room number or name…" :disabled="disabled" />
                   <div v-if="preferredRoomOptions.length" class="ahf-room-list">
                     <button
                       type="button"
                       class="ahf-room-chip"
-                      :class="{ on: !Number(preferredRoomId) }"
+                      :class="{ on: !roomPreferenceIds.length }"
+                      :aria-pressed="!roomPreferenceIds.length"
                       :disabled="disabled"
-                      @click="emit('update:preferredRoomId', 0)"
+                      @click="chooseRoomPreference(0)"
                     >
                       Any open room
                     </button>
                     <div
-                      v-for="r in preferredRoomOptions"
+                      v-for="r in filteredRoomPreferenceOptions"
                       :key="`ahf-pr-${r.id || r.roomId}`"
                       class="ahf-room-row"
-                      :class="{ on: Number(preferredRoomId) === Number(r.id || r.roomId), off: r.requestable === false }"
+                      :class="{ on: roomPreferenceIds.includes(Number(r.id || r.roomId)), off: r.requestable === false }"
                     >
                       <button
                         type="button"
                         class="ahf-room-chip"
-                        :disabled="disabled || r.requestable === false"
-                        @click="emit('update:preferredRoomId', Number(r.id || r.roomId))"
+                        :disabled="disabled || r.requestable === false || (multipleRoomPreferences && roomPreferenceIds.length >= 3 && !roomPreferenceIds.includes(Number(r.id || r.roomId)))"
+                        :aria-pressed="roomPreferenceIds.includes(Number(r.id || r.roomId))"
+                        @click="chooseRoomPreference(Number(r.id || r.roomId))"
                       >
+                        <span v-if="multipleRoomPreferences && roomPreferenceIds.includes(Number(r.id || r.roomId))" class="ahf-preference-rank">{{ roomPreferenceIds.indexOf(Number(r.id || r.roomId)) + 1 }}</span>
                         <span v-if="roomNumberOf(r)" class="ahf-room-num">#{{ roomNumberOf(r) }}</span>
                         <span>{{ roomNameOf(r) }}</span>
                         <span v-if="r.stateLabel" class="ahf-room-state">{{ r.stateLabel }}</span>
@@ -307,6 +312,7 @@
                   </select>
                 </div>
               </div>
+              <p v-if="multipleRoomPreferences" class="ahf-preference-summary" aria-live="polite">{{ roomPreferenceIds.length ? roomPreferenceSummary : 'Any open room — staff will choose one' }}. This sends one request; it does not book these rooms.</p>
               <p v-if="preferredRoomsHint" class="ahf-office-hint muted">{{ preferredRoomsHint }}</p>
               <div v-if="roomPhotoPreviewUrl" class="ahf-photo-lightbox" @click="roomPhotoPreviewUrl = ''">
                 <img :src="roomPhotoPreviewUrl" alt="Room photo" @click.stop />
@@ -590,6 +596,18 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 
+const roomPreferenceSearch = ref('');
+const filteredRoomPreferenceOptions = computed(() => props.preferredRoomOptions.filter(r => `${roomNumberOf(r)} ${roomNameOf(r)}`.toLowerCase().includes(roomPreferenceSearch.value.trim().toLowerCase())));
+const roomPreferenceSummary = computed(() => roomPreferenceIds.value.map((id,index) => { const room=props.preferredRoomOptions.find(r => Number(r.id || r.roomId)===id); return `${index+1}. ${room ? [roomNumberOf(room)?`#${roomNumberOf(room)}`:'',roomNameOf(room)].filter(Boolean).join(' ') : `Room ${id}`}`; }).join(' → '));
+const roomPreferenceIds = computed(() => props.multipleRoomPreferences ? props.preferredRoomIds.map(Number) : Number(props.preferredRoomId) > 0 ? [Number(props.preferredRoomId)] : []);
+function chooseRoomPreference(id) {
+  if (!props.multipleRoomPreferences) return emit('update:preferredRoomId',id);
+  const current=roomPreferenceIds.value;
+  if (!id) return emit('update:preferredRoomIds',[]);
+  if (current.includes(id)) return emit('update:preferredRoomIds',current.filter(value=>value!==id));
+  if(current.length<3) emit('update:preferredRoomIds',[...current,id]);
+}
+
 const props = defineProps({
   showVirtualOptions: { type: Boolean, default: false },
   dateYmd: { type: String, default: '' },
@@ -638,6 +656,8 @@ const props = defineProps({
   officeLocationsLoading: { type: Boolean, default: false },
   officeLocationId: { type: Number, default: 0 },
   preferredRoomId: { type: Number, default: 0 },
+  multipleRoomPreferences: { type: Boolean, default: false },
+  preferredRoomIds: { type: Array, default: () => [] },
   preferredRoomOptions: { type: Array, default: () => [] },
   preferredRoomsHint: { type: String, default: '' },
   tenantIconUrl: { type: String, default: '' },
@@ -694,6 +714,7 @@ const emit = defineEmits([
   'update:bookedUntil',
   'update:officeLocationId',
   'update:preferredRoomId',
+  'update:preferredRoomIds',
   'update:tenantServiceId',
   'update:primaryServiceCode',
   'update:addonServiceCodes',
@@ -817,6 +838,7 @@ function roomOptionLabel(r) {
 
 
 const officeRoomHelpText = computed(() => {
+  if (props.multipleRoomPreferences) return 'Request a room for the selected time or recurring series. This reserves space only after approval; it does not create a client appointment.';
   if (String(props.modality || '') === 'TELEHEALTH') {
     return 'Use this if you want to work from the office or need a room. This does not change the session modality — the client stays virtual.';
   }
@@ -852,6 +874,10 @@ function nudgeEnd(deltaMin) {
 </script>
 
 <style scoped>
+.ahf-preference-help { margin: 0 0 10px; color: #536577; font-size: .85rem; line-height: 1.5; }
+.ahf-preference-summary { padding: 12px 14px; margin: 12px 0 0; border: 1px solid #b7dbc7; border-radius: 10px; background: #eef8f2; color: #20543b; font-size: .86rem; line-height: 1.5; }
+.ahf-preference-rank { display: inline-grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: #176448; color: white; font-size: 12px; font-weight: 700; }
+
 .ahf {
   display: flex;
   flex-direction: column;
@@ -1214,7 +1240,8 @@ function nudgeEnd(deltaMin) {
   margin: 0;
   font-size: 0.8rem;
 }
-.ahf-field--rooms { flex-basis: 100%; }
+.ahf-office-fields .ahf-field--rooms { flex: 1 1 100%; }
+.ahf-room-search { margin-bottom: 8px; }
 .ahf-room-list {
   display: flex;
   flex-direction: column;

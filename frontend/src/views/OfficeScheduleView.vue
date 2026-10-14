@@ -30,6 +30,8 @@
     <div v-else-if="loading && !grid" class="loading">Loading…</div>
     <div v-if="successToast" class="success-toast">{{ successToast }}</div>
 
+    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? '/admin/office-approvals' : ''" />
+
     <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="legend" data-tour="buildings-schedule-legend">
         <div class="legend-item"><span class="dot open"></span> Open</div>
@@ -871,6 +873,7 @@
 </template>
 
 <script setup>
+import UnassignedOfficeRequests from '../components/schedule/UnassignedOfficeRequests.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';

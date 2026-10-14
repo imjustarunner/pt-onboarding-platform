@@ -248,3 +248,21 @@ it('opens each compact toolbar settings panel directly and toggles it closed', a
   await flushPromises();
   expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(false);
 });
+
+it('submits ranked room preferences and the editor building from the provider request form', async () => {
+  const api=(await import('../../../services/api')).default;
+  api.post.mockResolvedValue({data:{ok:true,id:99}});
+  const state=await mount();
+  await wrapper.setProps({agencyId:2});
+  state.requestType='office_request_only';
+  state.modalDay='Tuesday';state.modalHour=17;state.modalEndHour=18;
+  await flushPromises();
+  state.modalStartHour=17;state.editorOfficeLocationId=1;
+  state.editorPreferredRoomIds=[5,7];
+  await state.submitRequest();
+  const call=api.post.mock.calls.find(([url])=>url==='/availability/office-requests');
+  expect(call, state.modalError).toBeTruthy();
+  expect(call[1]).toMatchObject({agencyId:2,officeLocationIds:[1],preferredRoomIds:[5,7],requestedStartDate:'2026-10-13',slots:[{weekday:2,startHour:17,endHour:18}]});
+  expect(call[1].slots[0].roomId).toBeUndefined();
+  expect(call[1]).not.toHaveProperty('clientId');
+});

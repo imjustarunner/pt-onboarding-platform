@@ -42,6 +42,7 @@
                   <span v-if="!(Array.isArray(r.preferredOfficeIds) && r.preferredOfficeIds.length)">Any</span>
                   <span v-else>{{ (Array.isArray(r.preferredOfficeIds) ? r.preferredOfficeIds : []).map((id) => officeName(id)).join(', ') }}</span>
                 </div>
+                <div class="meta" v-if="r.preferredRooms?.length">Room preferences: {{ r.preferredRooms.map((room,i)=>`${i+1}. ${room.label}`).join(' → ') }}</div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">
                   <span v-if="r.requestedStartDate">Starting <strong>{{ fmtDate(r.requestedStartDate) }}</strong>&nbsp;·&nbsp;</span>

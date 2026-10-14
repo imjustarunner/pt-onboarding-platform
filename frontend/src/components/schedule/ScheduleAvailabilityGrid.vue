@@ -1930,6 +1930,8 @@
           :office-locations-loading="editorOfficeLocationsLoading"
           :office-location-id="Number(editorOfficeLocationId || 0)"
           :preferred-room-id="Number(editorPreferredRoomId || 0)"
+          :multiple-room-preferences="requestType === 'office_request_only'"
+          :preferred-room-ids="editorPreferredRoomIds"
           :preferred-room-options="editorPreferredOpenRoomOptions"
           :preferred-rooms-hint="editorPreferredRoomsHint"
           :show-service="editorIsClinical && !!editorPracticeCategory && String(editorPracticeCategory || '') !== 'mental_health'"
@@ -1974,6 +1976,7 @@
           @update:bookedUntil="onEditorBookedUntil"
           @update:officeLocationId="onEditorOfficeLocationId"
           @update:preferredRoomId="editorPreferredRoomId = $event"
+          @update:preferredRoomIds="editorPreferredRoomIds = $event"
           @update:tenantServiceId="onEditorTenantServiceId"
           @update:primaryServiceCode="bookingServiceCode = $event"
           @update:addonServiceCodes="editorAddonServiceCodes = $event"
@@ -13583,6 +13586,12 @@ const editorAcceptingNewClientsHint = computed(() => {
 const editorAttachOfficeRequest = ref(false);
 const editorOfficeLocationId = ref(0);
 const editorPreferredRoomId = ref(0);
+const editorAdditionalPreferredRoomIds = ref([]);
+const editorPreferredRoomIds = computed({
+  get: () => Number(editorPreferredRoomId.value) > 0 ? [Number(editorPreferredRoomId.value), ...editorAdditionalPreferredRoomIds.value] : [],
+  set: ids => { editorPreferredRoomId.value = Number(ids[0]) || 0; editorAdditionalPreferredRoomIds.value = ids.slice(1).map(Number); }
+});
+watch(editorPreferredRoomId, id => { if (!id) editorAdditionalPreferredRoomIds.value = []; }, {flush:'sync'});
 /** Last pending office request from this editor — cancelled when series is re-requested after a change. */
 const editorLastOfficeAvailabilityRequestId = ref(0);
 const editorLastOfficeBookingRequestId = ref(0);
@@ -15061,6 +15070,7 @@ async function loadEditorOpenRoomsForWindow() {
       const bookedRoomIds = new Set(
         findProviderOfficeBookingsForEditorWindow().map((b) => Number(b?.roomId || 0)).filter((n) => n > 0)
       );
+      editorAdditionalPreferredRoomIds.value = editorAdditionalPreferredRoomIds.value.filter(id => rooms.some(r => Number(r.id || r.roomId) === id));
       const stillOk = !priorRoomId
         || rooms.some((r) => Number(r.id || r.roomId) === priorRoomId)
         || bookedRoomIds.has(priorRoomId);
@@ -21987,7 +21997,7 @@ const submitRequest = async () => {
           ))
         : null;
       if (occurrenceCount) officeBookingOccurrenceCount.value = occurrenceCount;
-      const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
+      const baseRoomId = editorPreferredRoomIds.value.length === 1 ? editorPreferredRoomIds.value[0] : 0;
       const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
       // Soft-hold slots are hour-granular; cover every hour the request window touches.
       const coverStartHour = Math.floor(((h * 60) + startMinute) / 60);
@@ -22051,13 +22061,14 @@ const submitRequest = async () => {
         providerId: scheduleActorUserId.value,
         agencyId: effectiveAgencyId.value,
         notes: notesWithTime || '',
-        officeLocationIds: Number(selectedOfficeLocationId.value || editorOfficeLocationId.value || 0)
-          ? [Number(selectedOfficeLocationId.value || editorOfficeLocationId.value)]
+        officeLocationIds: Number(editorOfficeLocationId.value || 0)
+          ? [Number(editorOfficeLocationId.value)]
           : [],
         recurrence,
         ...(occurrenceCount ? { bookedOccurrenceCount: occurrenceCount } : {}),
         requestedStartDate: baseDateYmd,
         slots,
+        preferredRoomIds: editorPreferredRoomIds.value,
         preferredRoomId: Number(editorPreferredRoomId.value || singleRoomId || 0) || undefined
       });
       forceRefreshSummary = true;

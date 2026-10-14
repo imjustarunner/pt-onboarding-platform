@@ -147,3 +147,8 @@ it.each(['2027-10-14', ''])('submits a seven-hour weekly assignment with end dat
     hour:7,endHour:14,assignedUserId:2,recurrenceFrequency:'WEEKLY',recurringUntilDate:until
   }));
 });
+
+it('shows an any-room request once above the master grid without marking every room requested',async()=>{
+ responseGrid={...grid,rooms:[...grid.rooms,{id:5,name:'Counseling'}],slots:[...grid.slots,...grid.slots.map(s=>({...s,roomId:5}))],unassignedRoomRequests:[{id:867,providerName:'Randy Menegatti',date:days[0],startHour:17,endHour:18,frequency:'ONCE',preferredRooms:[]}]};
+ await setup();expect(wrapper.findAll('.room-request-queue li')).toHaveLength(1);expect(wrapper.get('.room-request-queue').text()).toContain('Any open room');expect(wrapper.findAll('.cell.slot.requested')).toHaveLength(0);
+});

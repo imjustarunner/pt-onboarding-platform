@@ -2,6 +2,7 @@
   <div class="office-week-wrap" data-tour="my-schedule-office-layout">
     <div v-if="!grid" class="hint">No office grid loaded.</div>
     <div v-else class="office-week">
+      <UnassignedOfficeRequests :requests="grid.unassignedRoomRequests || []" />
       <div v-for="dateYmd in days" :key="`day-${dateYmd}`" class="day-section">
         <div class="day-head" :class="{ today: isToday(dateYmd) }">
           <div class="day-title">
@@ -66,6 +67,7 @@
 </template>
 
 <script setup>
+import UnassignedOfficeRequests from './UnassignedOfficeRequests.vue';
 import { computed } from 'vue';
 import OfficeRoomPhotoButton from './OfficeRoomPhotoButton.vue';
 
