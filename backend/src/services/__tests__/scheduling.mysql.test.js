@@ -88,7 +88,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,
       `ALTER TABLE provider_schedule_events ADD COLUMN agency_id INT, ADD COLUMN client_id INT, ADD COLUMN kind VARCHAR(32), ADD COLUMN recurrence_series_id VARCHAR(64), ADD COLUMN updated_by_user_id INT, ADD COLUMN meeting_completed_at DATETIME`,
-      `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(32),recurrence_series_id VARCHAR(64),finalized_at DATETIME,updated_at DATETIME)`
+      `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,session_type VARCHAR(32) DEFAULT 'individual',start_at DATETIME,end_at DATETIME,status VARCHAR(32),cancel_reason VARCHAR(500),recurrence_series_id VARCHAR(64),finalized_at DATETIME,updated_at DATETIME)`
     ];
     for (const sql of lifecycleDdl) await pool.query(sql);
     await pool.query('ALTER TABLE office_standing_assignments ADD UNIQUE KEY uniq_office_standing_assignment_slot (room_id,provider_id,weekday,hour,assigned_frequency)');
@@ -107,7 +107,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   }, 20000);
   beforeEach(async () => {
     for (const table of ['self_pay_service_rates', 'agency_self_pay_settings', 'appointment_change_waivers', 'appointment_billing', 'clinical_record_refs', 'clients', 'users', 'practitioner_session_credit_ledger', 'practitioner_client_package_entitlements', 'practitioner_session_packages', 'appointment_change_workflows', 'office_events', 'appointments', 'provider_schedule_events', 'office_booking_plans', 'office_standing_assignments', 'booking_packages', 'booking_package_entitlements', 'booking_package_ledger']) await pool.query(`DELETE FROM ${table}`);
-    for (const table of ['client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
+    for (const table of ['client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_session_attendees','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
     await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.query('DELETE FROM office_rooms');
     await pool.query('INSERT INTO office_rooms VALUES (4), (5)');
@@ -246,6 +246,15 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
     const [[ent]] = await pool.query('SELECT * FROM booking_package_entitlements WHERE id = 6');
     expect(ent).toMatchObject({ sessions_remaining: 0, sessions_reserved: 1 });
+  });
+  it('keeps optional group supervision bookable and blocks a required attendee', async () => {
+    await pool.query(`INSERT INTO supervision_sessions (id,agency_id,supervisor_user_id,session_type,start_at,end_at,status)
+      VALUES (7,1,90,'group','2099-01-06 18:00:00','2099-01-06 19:00:00','SCHEDULED')`);
+    await pool.query("INSERT INTO supervision_session_attendees VALUES (7,9,0,'INVITED')");
+    const window = { providerUserId: 9, startAt: '2099-01-06 18:00:00', endAt: '2099-01-06 19:00:00' };
+    await expect(withAppointmentWindow(pool, window, null, async () => 'available')).resolves.toBe('available');
+    await pool.query('UPDATE supervision_session_attendees SET is_required=1 WHERE session_id=7');
+    await expect(withAppointmentWindow(pool, window, null, async () => 'available')).rejects.toMatchObject({ code: 'PROVIDER_TIME_CONFLICT' });
   });
   it('consumes once under concurrent completion and does not refund a consumed session on cancellation', async () => {
     const input = { entitlementId: 6, agencyId: 1, appointmentId: 10 };
@@ -416,7 +425,9 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       (2,1,9,'2099-01-08 16:00:00','2099-01-08 17:00:00','SCHEDULED','s'),
       (3,1,9,'2099-01-15 16:00:00','2099-01-15 17:00:00','CANCELLED','s')`);
     await pool.query('UPDATE supervision_sessions SET recurrence_horizon_held=1 WHERE id=3');
-    expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2})).cancelledCount).toBe(1);
+    expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2,cancelReason:'Holiday break'})).cancelledCount).toBe(1);
+    const [[cancelled]] = await pool.query('SELECT cancel_reason FROM supervision_sessions WHERE id=2');
+    expect(cancelled.cancel_reason).toBe('Holiday break');
     let [rows]=await pool.query('SELECT status,recurrence_stopped FROM supervision_sessions ORDER BY id');
     expect(rows[0].status).toBe('SCHEDULED'); expect(rows[1].recurrence_stopped).toBe(0);
     expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2,scope:'future'})).cancelledCount).toBe(1);
