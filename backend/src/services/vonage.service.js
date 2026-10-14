@@ -28,6 +28,13 @@ class VonageService {
   static async sendSms(options) {
     const delivery = await prepareSmsDelivery(options);
     await verifyCarrierSmsDelivery(delivery);
+    // A combined enrollment confirmation still checks consent and live carrier
+    // approval for every selected type before making one outbound request.
+    for (const purpose of new Set(options.confirmationPurposes || [])) {
+      if (purpose === options.purpose) continue;
+      const additional = await prepareSmsDelivery({ ...options, purpose });
+      await verifyCarrierSmsDelivery(additional);
+    }
     const { to, from, body } = delivery;
     const vonage = this.getClient();
     const result = await vonage.sms.send({ to, from, text: body });

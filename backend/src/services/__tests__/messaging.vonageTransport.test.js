@@ -39,6 +39,21 @@ describe('Vonage transport', () => {
       expect(VonageService.validateWebhook({ params: { ...params, text: 'START' }, signature })).toBe(false);
     } finally { vi.unstubAllEnvs(); }
   });
+  it('checks every selected type before sending one combined confirmation', async () => {
+    prepareSmsDelivery.mockImplementation(async options => options);
+    const send=vi.fn().mockResolvedValue({messages:[{status:'0','message-id':'combined'}]});
+    vi.spyOn(VonageService,'getClient').mockReturnValue({sms:{send}});
+    await VonageService.sendSms({to:'+13035550101',from:'+13035550100',body:'Selected staff texts',purpose:'workforce',confirmationPurposes:['workforce','polling']});
+    expect(verifyCarrierSmsDelivery.mock.calls.map(([delivery])=>delivery.purpose)).toEqual(['workforce','polling']);
+    expect(send).toHaveBeenCalledOnce();
+  });
+  it.each(['consent','carrier'])('does not send a combined confirmation if polling fails its %s check',async gate=>{
+    prepareSmsDelivery.mockImplementation(async options=>{if(gate==='consent'&&options.purpose==='polling')throw Error('polling unavailable');return options;});
+    verifyCarrierSmsDelivery.mockImplementation(async delivery=>{if(gate==='carrier'&&delivery.purpose==='polling')throw Error('polling unavailable');});
+    const getClient=vi.spyOn(VonageService,'getClient');
+    await expect(VonageService.sendSms({purpose:'workforce',confirmationPurposes:['workforce','polling']})).rejects.toThrow('polling unavailable');
+    expect(getClient).not.toHaveBeenCalled();
+  });
 });
 
 describe('Vonage number provisioning',()=>{

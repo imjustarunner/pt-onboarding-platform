@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import pool from '../config/database.js';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
 import { getSmsSender } from './smsCompliance.service.js';
-import { enrollSmsRecipient } from './smsEnrollment.service.js';
+import { enrollSmsRecipient, enrollSmsRecipientBatch } from './smsEnrollment.service.js';
 import { buildSmsConsentDisclosure } from '../utils/smsConsentDisclosure.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { smsPolicyError, validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
@@ -141,6 +141,20 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
         }
       }
       return {reviewed:true,results};
+    }
+    if (savedStaff) {
+      // This request represents one registered campaign, even when staff select
+      // both notifications and polls. Keep separate grants, with one confirmation.
+      const pending = Object.entries(signed.choices).filter(([purpose]) => !results[purpose]?.activated);
+      const enrolled = await enrollSmsRecipientBatch({ from: sender.phone_number, phone: row.phone, actorUserId, sendConfirmation,
+        enrollments: pending.map(([purpose, choice]) => ({ purpose, status: choice === 'yes' ? 'opted_in' : 'opted_out',
+          evidence: { source: 'web_form', reference: `sms_consent_request:${row.id}`, disclosure: signed.disclosure.text,
+            collectedAt: signed.signedAt, disclosureHash: row.disclosure_hash, signatureReference: `sms_consent_request:${row.id}`,
+            signerVerified: true, staffCommunicationReference: signed.staffCommunicationReference } })) });
+      for (const enrollment of enrolled) results[enrollment.purpose] = { activated: true, choice: signed.choices[enrollment.purpose],
+        confirmationMessageId: enrollment.confirmationMessageId, reviewedBy: actorUserId, reviewedAt: new Date().toISOString() };
+      if (enrolled.length) await pool.execute('UPDATE sms_consent_requests SET activation_json = ? WHERE id = ?', [JSON.stringify(results), row.id]);
+      return { reviewed: true, results };
     }
     for (const [purpose, choice] of Object.entries(signed.choices)) {
       if (results[purpose]?.activated) continue;

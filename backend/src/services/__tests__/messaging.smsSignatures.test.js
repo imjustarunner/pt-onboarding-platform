@@ -7,7 +7,7 @@ vi.mock('../chatEncryption.service.js', () => ({
   decryptChatText: vi.fn((value) => value.ciphertextB64.replace('encrypted:', ''))
 }));
 vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn() }));
-vi.mock('../smsEnrollment.service.js', () => ({ enrollSmsRecipient: vi.fn() }));
+vi.mock('../smsEnrollment.service.js', () => ({ enrollSmsRecipient: vi.fn(), enrollSmsRecipientBatch: vi.fn() }));
 import pool from '../../config/database.js';
 import { isChatEncryptionConfigured, encryptChatText } from '../chatEncryption.service.js';
 import { getSmsSender } from '../smsCompliance.service.js';

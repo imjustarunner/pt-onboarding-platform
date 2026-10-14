@@ -4,10 +4,9 @@ import { smsPolicyError, validateSmsRegistration, validateSmsConsentEvidence } f
 import { staffCommunicationKey, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
-export async function enrollSmsRecipient({ from, phone, purpose, status, evidence, actorUserId, sendConfirmation }) {
+async function prepareEnrollment({ from, phone, purpose, status, evidence, actorUserId }) {
   const errors = validateSmsConsentEvidence({ purpose, status, evidence });
   if (errors.length) throw smsPolicyError('sms_consent_evidence_required', errors.join('; '));
-  if (status === 'opted_in' && !sendConfirmation) throw new Error('Enrollment requires a confirmation sender');
   const sender = await getSmsSender(from);
   if (validateSmsRegistration(sender.registration).length || !sender.registration.purposes.includes(purpose)) {
     throw smsPolicyError('sms_campaign_not_ready', 'Configure an approved campaign for this purpose first');
@@ -34,23 +33,48 @@ export async function enrollSmsRecipient({ from, phone, purpose, status, evidenc
       staffNotificationKind=kind;
     }
   }
-  await recordSmsPermission({ scope: sender.scope, phone, purpose, status,
-    evidence: { ...evidence, source: evidence?.source || 'recorded_opt_out', actorUserId } });
-  let confirmationMessageId = null;
-  if (status === 'opted_in') {
-    if (!sendConfirmation) throw new Error('Enrollment requires a confirmation sender');
-    const descriptions = { care: 'care-team messages', reminders: 'appointment reminders', workforce: 'workforce notifications', billing: 'billing-account notifications', marketing: 'optional program offers', account_security: 'account security messages', polling: 'optional polls and surveys' };
-    try {
-      const sent = await sendConfirmation({ to: phone, from: sender.phone_number, purpose, agencyId: sender.agency_id, staffNotificationKind,
-        body: `You subscribed to ${descriptions[purpose]}. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.` });
-      confirmationMessageId = sent?.sid || null;
-    } catch (error) {
-      await recordSmsPermission({ scope: sender.scope, phone, purpose, status: 'opted_out',
-        evidence: { source: 'confirmation_failed', reference: evidence.reference, actorUserId } });
-      throw error;
-    }
+  return { sender, phone, purpose, status, evidence, actorUserId, staffNotificationKind };
+}
+
+export async function enrollSmsRecipientBatch({ from, phone, enrollments, actorUserId, sendConfirmation }) {
+  if (!Array.isArray(enrollments) || new Set(enrollments.map(e => e.purpose)).size !== enrollments.length) {
+    throw smsPolicyError('sms_consent_evidence_required', 'Each message type must have one signed choice');
   }
-  return { status, purpose, confirmationMessageId };
+  if (enrollments.some(e => e.status === 'opted_in') && !sendConfirmation) throw new Error('Enrollment requires a confirmation sender');
+  const prepared = [];
+  for (const enrollment of enrollments) prepared.push(await prepareEnrollment({ ...enrollment, from, phone, actorUserId }));
+  if (new Set(prepared.map(e => e.sender.scope)).size > 1) throw smsPolicyError('sms_campaign_changed', 'The campaign changed during enrollment; retry review');
+  const accepted = prepared.filter(e => e.status === 'opted_in');
+  const granted = [];
+  let confirmationMessageId = null;
+  try {
+    for (const entry of prepared) {
+      await recordSmsPermission({ scope: entry.sender.scope, phone, purpose: entry.purpose, status: entry.status,
+        evidence: { ...entry.evidence, source: entry.evidence?.source || 'recorded_opt_out', actorUserId } });
+      if (entry.status === 'opted_in') granted.push(entry);
+    }
+    if (accepted.length) {
+      const first = accepted.find(e => e.purpose === 'workforce') || accepted[0];
+      const descriptions = { care: 'care-team messages', reminders: 'appointment reminders', workforce: 'workforce notifications', billing: 'billing-account notifications', marketing: 'optional program offers', account_security: 'account security messages', polling: 'optional polls and surveys' };
+      const selected = accepted.map(e => descriptions[e.purpose]).join(' and ');
+      const sent = await sendConfirmation({ to: phone, from: first.sender.phone_number, purpose: first.purpose,
+        agencyId: first.sender.agency_id, staffNotificationKind: first.staffNotificationKind,
+        confirmationPurposes: accepted.map(e => e.purpose),
+        body: `You subscribed to ${selected}. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.` });
+      confirmationMessageId = sent?.sid || null;
+    }
+  } catch (error) {
+    // If the single confirmation fails, none of its newly accepted types remain active.
+    for (const entry of granted) await recordSmsPermission({ scope: entry.sender.scope, phone, purpose: entry.purpose, status: 'opted_out',
+      evidence: { source: 'confirmation_failed', reference: entry.evidence.reference, actorUserId } });
+    throw error;
+  }
+  return prepared.map(({status, purpose}) => ({ status, purpose, confirmationMessageId: status === 'opted_in' ? confirmationMessageId : null }));
+}
+
+export async function enrollSmsRecipient({ purpose, status, evidence, ...options }) {
+  const [result] = await enrollSmsRecipientBatch({ ...options, enrollments: [{purpose, status, evidence}] });
+  return result;
 }
 
 export async function saveSmsRegistration({ numberId, registration, actorUserId }) {

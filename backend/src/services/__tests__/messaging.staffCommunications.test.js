@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:
 vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(),getAgencies:vi.fn()}}));
 vi.mock('../smsCampaignPacket.service.js',()=>({getAgencyCampaignPacket:vi.fn()}));
 vi.mock('../smsCompliance.service.js',()=>({recordSmsPermission:vi.fn(),getSmsSender:vi.fn(async()=>({scope:'campaign:C123'})),isSmsSuppressed:vi.fn()}));
-vi.mock('../smsEnrollment.service.js',()=>({enrollSmsRecipient:vi.fn()}));
+vi.mock('../smsEnrollment.service.js',()=>({enrollSmsRecipient:vi.fn(),enrollSmsRecipientBatch:vi.fn()}));
 vi.mock('../chatEncryption.service.js',()=>({isChatEncryptionConfigured:vi.fn(()=>true),encryptChatText:vi.fn(s=>({cipher:s})),decryptChatText:vi.fn(e=>e.cipher)}));
 vi.mock('../securityEvidence.service.js',()=>({appendSecurityEvidence:vi.fn(async()=> 'evidence-1')}));
 import pool from '../../config/database.js';

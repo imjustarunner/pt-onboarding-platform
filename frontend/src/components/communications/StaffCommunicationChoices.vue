@@ -22,6 +22,7 @@
           <label><input type="radio" :name="`${id}-${requestChoice.key}`" :value="true" required v-model="accessRequests[requestChoice.key]" /> Yes</label>
         </fieldset>
         <h3>Optional texts to my personal phone</h3>
+        <p v-if="sharedStaffProgram">Staff notifications and optional polls share one texting program. Choose the types you want below. You will receive one subscription confirmation for your selected types.</p>
 
         <p class="hint">Texts use your personal mobile number in Contact & Address. Review that section before opting in. Choosing No does not require a phone number.</p>
         <fieldset v-for="choice in data.disclosure.choices.filter(c=>c.key!=='exchangeMatches')" :key="choice.key" class="choice">
@@ -55,12 +56,13 @@
   </section>
 </template>
 <script setup>
-import {ref,watch,onMounted,useId} from 'vue';
+import {ref,watch,onMounted,useId,computed} from 'vue';
 import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null},initial:{type:Object,default:null},externalSave:Boolean,readonly:Boolean,busy:Boolean});
 const emit=defineEmits(['save','saved']);
 const root=ref(null),arrivalEmail=ref(null),exchangeEmail=ref(null),appointmentReplyMode=ref('all');
 const id=useId(),agencies=ref([]),selectedAgency=ref(props.agencyId||''),data=ref(null),choices=ref({}),accessRequests=ref({}),phone=ref(''),signerName=ref(''),acknowledged=ref(false),usageAcknowledged=ref(false),loading=ref(false),saving=ref(false),error=ref(''),notice=ref('');let request=0;
+const sharedStaffProgram=computed(()=>data.value?.disclosure.programs?.some(p=>p.purposes?.includes('workforce')&&p.purposes?.includes('polling')));
 function apply(value){data.value=value;appointmentReplyMode.value=value.appointmentReplyMode||'all';choices.value=Object.fromEntries(value.disclosure.choices.map(c=>[c.key,(value.answeredChoices||[]).includes(c.key)?value.choices[c.key]:null]));accessRequests.value=Object.fromEntries(value.disclosure.accessRequests.map(c=>[c.key,typeof value.accessRequests?.[c.key]==='boolean'&&value.reviewedAt?value.accessRequests[c.key]:null]));arrivalEmail.value=value.arrivalEmail??null;exchangeEmail.value=value.exchangeEmail??null;phone.value=value.phone||'';acknowledged.value=false;usageAcknowledged.value=false;signerName.value='';}
 watch(()=>props.initial,value=>{if(value)apply(value)},{immediate:true});
 watch(()=>props.agencyId,value=>{if(value)selectedAgency.value=value});
