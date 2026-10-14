@@ -1,4 +1,4 @@
-import { mount, flushPromises } from '@vue/test-utils';
+import { mount, shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import BillingWorkspaceView from '../BillingWorkspaceView.vue';
 import api from '../../../services/api';
@@ -10,7 +10,7 @@ vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'support', first_name: 'Test', last_name: 'Biller' } }) }));
 const mockRoute = vi.hoisted(() => ({query:{},meta:{}}));
 vi.mock('vue-router', () => ({ useRoute: () => mockRoute, useRouter: () => ({ replace: vi.fn() }) }));
-vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { template: '<div>Claim tools</div>', methods: { showHistory: vi.fn() } } }));
+vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { props: ['agencyId'], template: '<div data-testid="claim-tools">Claim tools for {{ agencyId }}</div>', methods: { showHistory: vi.fn() } } }));
 vi.mock('../../../components/admin/MedicalBillingReportsPanel.vue', () => ({ default: { template: '<div>Company reports</div>' } }));
 vi.mock('../MedicalBillingView.vue', () => ({ default: { template: '<div>Company settings</div>' } }));
 vi.mock('../../../components/billing/RemittanceWorkspace.vue', () => ({default:{props:['agencyId','agencyName'],template:'<div data-testid="remittances">Payments for {{ agencyName }}</div>'}}));
@@ -28,6 +28,57 @@ describe('billing workspace', () => {
     expect(w.text()).toContain('Cross-company work queue'); expect(w.text()).toContain('Company Three');
     expect(w.text()).toContain('Accepted does not mean paid'); expect(w.text()).not.toContain('Payments posted');
     expect(w.text()).toContain('Signed in as Test Biller'); w.unmount();
+  });
+  it('opens the sole authorized agency directly, even when it differs from the login agency', async () => {
+    const payload = data(); payload.organizations = [payload.organizations[1]];
+    payload.claims = [{ ...payload.claims[0], agency_id: 3 }];
+    api.get.mockResolvedValue({ data: payload });
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    expect(api.get.mock.calls.filter(([path]) => path === '/medical-billing/workspace').map(([, options]) => options.params.agencyId)).toEqual([undefined, '3']);
+    expect(w.find('[data-testid="organization-scope"]').exists()).toBe(false);
+    expect(w.find('.company-panel').exists()).toBe(false);
+    expect(w.find('.scope-context').text()).toContain('Company Three');
+    expect(w.find('.scope-context').text()).toContain('Signed in as Test Biller');
+    expect(w.text()).toContain('Claim work queue');
+    expect(w.text()).not.toContain('Cross-company');
+    expect(w.findAll('th').map(th => th.text())).not.toContain('Organization');
+    await button(w, 'Claims').trigger('click'); await flushPromises();
+    expect(w.find('[data-testid="claim-tools"]').text()).toContain('Claim tools for 3');
+    await button(w, 'Payments').trigger('click'); await flushPromises();
+    expect(w.find('[data-testid="remittances"]').text()).toContain('Company Three');
+    w.unmount();
+  });
+  it('opens single-agency settings without another company chooser', async () => {
+    const payload = data(); payload.organizations = [payload.organizations[0]];
+    api.get.mockResolvedValue({ data: payload });
+    mockRoute.query = { billingSection: 'settings', billingScope: 'all' };
+    const w = shallowMount(BillingWorkspaceView); await flushPromises();
+    expect(w.findAll('select')).toHaveLength(0);
+    expect(w.find('medical-billing-view-stub').attributes('billing-agency-id')).toBe('1');
+    expect(w.text()).not.toContain('Choose a company');
+    w.unmount();
+  });
+  it('keeps an old all-company saved view scoped to the sole authorized agency', async () => {
+    localStorage.setItem('billing-views:5', JSON.stringify([{ id: 1, name: 'Old all-company view', scope: 'all', status: 'all' }]));
+    const payload = data(); payload.organizations = [payload.organizations[0]];
+    api.get.mockResolvedValue({ data: payload });
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    await button(w, 'Reports').trigger('click'); await flushPromises();
+    api.get.mockClear();
+    await button(w, 'Old all-company view').trigger('click'); await flushPromises();
+    expect(w.find('[data-testid="claim-tools"]').text()).toContain('Claim tools for 1');
+    expect(api.get.mock.calls.filter(([path]) => path === '/medical-billing/workspace').every(([, options]) => options.params.agencyId === '1')).toBe(true);
+    w.unmount();
+  });
+  it('clears the sole agency if its scoped refresh is denied', async () => {
+    const payload = data(); payload.organizations = [payload.organizations[0]];
+    api.get.mockResolvedValueOnce({ data: payload }).mockRejectedValue({ response: { data: { error: { message: 'Access denied' } } } });
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    expect(w.text()).toContain('Access denied');
+    expect(w.text()).not.toContain('Company One');
+    expect(w.text()).not.toContain('Claim #8');
+    expect(w.find('.scope-bar').exists()).toBe(false);
+    w.unmount();
   });
   it('identifies the billing manager without changing the treating company or signed-in identity', async () => {
     const payload = data(); payload.organizations[0].billingManager = {id:17,name:'Plot Twist Co'};
