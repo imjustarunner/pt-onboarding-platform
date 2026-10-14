@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import { getSmsSender, recordSmsPermission, isSmsSuppressed } from './smsCompliance.service.js';
 import { smsPolicyError, validateSmsRegistration, validateSmsConsentEvidence } from '../utils/smsCompliancePolicy.js';
-import { staffCommunicationKey } from '../utils/staffCommunicationChoices.js';
+import { staffCommunicationKey, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
 export async function enrollSmsRecipient({ from, phone, purpose, status, evidence, actorUserId, sendConfirmation }) {
@@ -19,31 +19,38 @@ export async function enrollSmsRecipient({ from, phone, purpose, status, evidenc
   if (status === 'opted_in' && purpose === 'workforce') {
     const digits = normalizeSmsPhone(phone)?.slice(1);
     const local = digits?.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
-    const [staff] = await pool.execute(`SELECT JSON_EXTRACT(p.notification_categories, ?) AS notifications_enabled
+    const [staff] = await pool.execute(`SELECT JSON_EXTRACT(p.notification_categories, ?) AS staff_choices
       FROM users u JOIN user_agencies ua ON ua.user_id = u.id JOIN user_preferences p ON p.user_id = u.id
       WHERE ua.agency_id = ? AND (REGEXP_REPLACE(COALESCE(u.personal_phone,''),'[^0-9]','') IN (?,?)
         OR REGEXP_REPLACE(COALESCE(u.work_phone,''),'[^0-9]','') IN (?,?)
         OR REGEXP_REPLACE(COALESCE(u.phone_number,''),'[^0-9]','') IN (?,?))`,
-      [`$.${staffCommunicationKey(sender.agency_id)}.choices.notifications`, sender.agency_id, digits, local, digits, local, digits, local]);
+      [`$.${staffCommunicationKey(sender.agency_id)}.choices`, sender.agency_id, digits, local, digits, local, digits, local]);
     // A staff member may choose message alerts without general notifications.
     // The delivery gate still checks the selected category and phone fingerprint.
-    if (staff.some(row => ![true, 1, 'true'].includes(row.notifications_enabled))) staffNotificationKind = 'messageAlerts';
+    if (staff.length) {
+      const states=staff.map(row=>typeof row.staff_choices==='string'?JSON.parse(row.staff_choices):row.staff_choices);
+      const kind=staffDeliveryKinds(states[0]||{}).find(key=>states.every(choices=>choices?.[key]===true));
+      if (!kind) throw smsPolicyError('sms_staff_choice_off','No enabled staff text category matches this phone');
+      staffNotificationKind=kind;
+    }
   }
   await recordSmsPermission({ scope: sender.scope, phone, purpose, status,
     evidence: { ...evidence, source: evidence?.source || 'recorded_opt_out', actorUserId } });
+  let confirmationMessageId = null;
   if (status === 'opted_in') {
     if (!sendConfirmation) throw new Error('Enrollment requires a confirmation sender');
     const descriptions = { care: 'care-team messages', reminders: 'appointment reminders', workforce: 'workforce notifications', billing: 'billing-account notifications', marketing: 'optional program offers', account_security: 'account security messages', polling: 'optional polls and surveys' };
     try {
-      await sendConfirmation({ to: phone, from: sender.phone_number, purpose, agencyId: sender.agency_id, staffNotificationKind,
+      const sent = await sendConfirmation({ to: phone, from: sender.phone_number, purpose, agencyId: sender.agency_id, staffNotificationKind,
         body: `You subscribed to ${descriptions[purpose]}. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.` });
+      confirmationMessageId = sent?.sid || null;
     } catch (error) {
       await recordSmsPermission({ scope: sender.scope, phone, purpose, status: 'opted_out',
         evidence: { source: 'confirmation_failed', reference: evidence.reference, actorUserId } });
       throw error;
     }
   }
-  return { status, purpose };
+  return { status, purpose, confirmationMessageId };
 }
 
 export async function saveSmsRegistration({ numberId, registration, actorUserId }) {

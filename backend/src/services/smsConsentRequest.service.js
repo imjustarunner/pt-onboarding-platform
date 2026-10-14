@@ -1,3 +1,4 @@
+import { currentStaffEnrollmentEvidence } from './staffSmsEnrollmentBridge.service.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import pool from '../config/database.js';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
@@ -86,12 +87,14 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   const [rows] = await pool.execute('SELECT * FROM sms_consent_requests WHERE id = ? AND agency_id = ?', [requestId, agencyId]);
   const row = rows[0];
   if (!row?.signed_at || !row.signed_payload_json) throw smsPolicyError('sms_signature_missing', 'The recipient must sign before activation');
-  const signed = JSON.parse(decryptChatText(parse(row.signed_payload_json)));
+  let signed = JSON.parse(decryptChatText(parse(row.signed_payload_json)));
+  const savedStaff = parse(row.disclosure_json)?.enrollmentCategory === 'staff_communications';
   const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [row.number_id, agencyId]);
   if (!numbers[0]) throw invalid();
   const sender = await getSmsSender(numbers[0].phone_number);
+  if (savedStaff) signed = await currentStaffEnrollmentEvidence(row, sender.registration);
   const currentDisclosure = JSON.stringify(buildSmsConsentDisclosure(sender.registration, { signerRole: row.signer_role, enrollmentCategory: signed.disclosure.enrollmentCategory }));
-  if (hash(currentDisclosure) !== row.disclosure_hash) throw smsPolicyError('sms_disclosure_changed', 'The program disclosure changed; issue a fresh consent request');
+  if (!savedStaff && hash(currentDisclosure) !== row.disclosure_hash) throw smsPolicyError('sms_disclosure_changed', 'The program disclosure changed; issue a fresh consent request');
   const [newer] = await pool.execute(
     `SELECT id FROM sms_consent_requests WHERE agency_id = ? AND number_id = ? AND phone = ?
      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(disclosure_json,'$.enrollmentCategory')),'staff') = ?
@@ -102,7 +105,15 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   const reviewToken = randomBytes(32).toString('hex');
   const [claim] = await pool.execute('UPDATE sms_consent_requests SET review_token = ? WHERE id = ? AND review_token IS NULL', [reviewToken, row.id]);
   if (claim.affectedRows !== 1) throw smsPolicyError('sms_review_in_progress', 'This consent request is already being reviewed');
+  const staffLock = savedStaff ? `staff-communications-${Number(agencyId)}-${Number(parse(row.disclosure_json).userId)}` : null;
+  let staffConnection;
   try {
+    if (staffLock) {
+      staffConnection = await pool.getConnection();
+      const [[lock]] = await staffConnection.execute('SELECT GET_LOCK(?, 5) AS acquired',[staffLock]);
+      if (!Number(lock.acquired)) throw smsPolicyError('sms_review_in_progress','Communication choices are being updated. Please retry.');
+      signed = await currentStaffEnrollmentEvidence(row, sender.registration, staffConnection);
+    }
     const [claimedRows] = await pool.execute('SELECT activation_json FROM sms_consent_requests WHERE id = ?', [row.id]);
     const results = parse(claimedRows[0]?.activation_json) || {};
     if (signed.disclosure.enrollmentCategory === 'hiring') {
@@ -133,16 +144,18 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
     }
     for (const [purpose, choice] of Object.entries(signed.choices)) {
       if (results[purpose]?.activated) continue;
-      await enrollSmsRecipient({ from: sender.phone_number, phone: row.phone, purpose,
+      const enrollment = await enrollSmsRecipient({ from: sender.phone_number, phone: row.phone, purpose,
         status: choice === 'yes' ? 'opted_in' : 'opted_out', actorUserId, sendConfirmation,
         evidence: { source: 'web_form', reference: `sms_consent_request:${row.id}`, disclosure: signed.disclosure.text,
           collectedAt: signed.signedAt, disclosureHash: row.disclosure_hash, signatureReference: `sms_consent_request:${row.id}`, signerVerified: true,
+          ...(savedStaff ? {staffCommunicationReference:signed.staffCommunicationReference} : {}),
           separateMarketingConsent: purpose === 'marketing' && choice === 'yes' } });
-      results[purpose] = { activated: true, choice, reviewedBy: actorUserId, reviewedAt: new Date().toISOString() };
+      results[purpose] = { activated: true, choice, confirmationMessageId: enrollment?.confirmationMessageId || null, reviewedBy: actorUserId, reviewedAt: new Date().toISOString() };
       await pool.execute('UPDATE sms_consent_requests SET activation_json = ? WHERE id = ?', [JSON.stringify(results), row.id]);
     }
     return { reviewed: true, results };
   } finally {
+    if (staffConnection) { try { await staffConnection.execute('SELECT RELEASE_LOCK(?)',[staffLock]); } finally { staffConnection.release(); } }
     await pool.execute('UPDATE sms_consent_requests SET review_token = NULL WHERE id = ? AND review_token = ?', [row.id, reviewToken]);
   }
 }

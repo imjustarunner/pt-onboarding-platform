@@ -1592,6 +1592,17 @@ if (!isBootstrap) {
     } finally { trainingNoticesBusy = false; }
   };
   setInterval(processTrainingNotices, 60 * 1000).unref();
+  let staffSmsEnrollmentBusy = false;
+  setInterval(async () => {
+    if (staffSmsEnrollmentBusy) return;
+    staffSmsEnrollmentBusy = true;
+    try {
+      const { processStaffSmsEnrollments } = await import('./services/staffSmsEnrollmentAutomation.service.js');
+      await processStaffSmsEnrollments();
+    } catch (e) { console.warn('[staffSmsEnrollment]', e?.code || e?.message); }
+    finally { staffSmsEnrollmentBusy = false; }
+  }, 60 * 1000).unref();
+
   let providerUpdateRemindersBusy = false;
   const processProviderUpdateReminders = async () => {
     if (providerUpdateRemindersBusy) return;

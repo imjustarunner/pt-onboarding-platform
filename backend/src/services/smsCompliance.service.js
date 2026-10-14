@@ -143,6 +143,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     staffAssistantReplies.delete(staffAssistantReply);
     return {to:recipient,from:sender.phone_number,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
   }
+  const staffStates = [];
   if (['workforce','polling'].includes(purpose)) {
     const digits=recipient.slice(1), local=digits.length===11&&digits.startsWith('1')?digits.slice(1):digits;
     const [staff]=await pool.execute(`SELECT JSON_EXTRACT(p.notification_categories, ?) AS choices
@@ -152,6 +153,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
       [`$.${staffCommunicationKey(sender.agency_id)}`,sender.agency_id,digits,local,digits,local,digits,local]);
     for (const row of staff) {
       const state=row.choices?json(row.choices):null;
+      if(state)staffStates.push(state);
       const kind=purpose==='polling'?'polling':staffNotificationKind;
       if(state && (state.phoneHash!==phoneFingerprint(recipient)||!STAFF_COMMUNICATION_CHOICES.some(choice=>choice.key===kind)||state.choices?.[kind]!==true))
         throw smsPolicyError('sms_staff_choice_off','This staff member has not enabled this personal-phone text category');
@@ -164,6 +166,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
   const evidence = permissions[0].evidence_json ? json(permissions[0].evidence_json) : null;
+  if (evidence?.staffCommunicationReference && staffStates.some(state => state.reference !== evidence.staffCommunicationReference)) {
+    throw smsPolicyError('sms_consent_review_required', 'Updated signed choices are awaiting administrator review');
+  }
   if (['workforce', 'polling'].includes(purpose) && String(evidence?.reference || '').startsWith('staff_communications:')) {
     throw smsPolicyError('sms_consent_review_required', 'Staff preferences require administrator-reviewed SMS enrollment before delivery');
   }

@@ -1,3 +1,4 @@
+import { queueStaffSmsEnrollment } from './staffSmsEnrollmentBridge.service.js';
 import { ITSCO_STAFF_ASSISTANT_NUMBER, STAFF_SMS_COMMAND_VERSION, STAFF_ASSISTANT_EXAMPLES } from '../utils/staffSmsAssistant.js';
 import { staffCommunicationAgreement } from '../utils/staffCommunicationAgreement.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -14,7 +15,7 @@ const parse=v=>typeof v==='string'?JSON.parse(v):(v||{});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const digest=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 
-async function reviewedStaffPermission(program, phone, purpose, agencyId) {
+async function reviewedStaffPermission(program, phone, purpose, agencyId, reference) {
   const sender = await getSmsSender(program.phone_number);
   if (await isSmsSuppressed(sender, phone)) return false;
   const [rows] = await pool.execute(`SELECT 1 FROM sms_recipient_permissions p
@@ -22,8 +23,11 @@ async function reviewedStaffPermission(program, phone, purpose, agencyId) {
     WHERE p.scope_key = ? AND p.phone = ? AND p.purpose = ? AND p.status = 'opted_in'
       AND (p.expires_at IS NULL OR p.expires_at > UTC_TIMESTAMP())
       AND r.agency_id = ? AND r.phone = p.phone AND r.signed_at IS NOT NULL
-      AND JSON_EXTRACT(r.activation_json, ?) = TRUE LIMIT 1`,
-    [`campaign:${program.campaign_id}`, phone, purpose, agencyId, `$.${purpose}.activated`]);
+      AND JSON_EXTRACT(r.activation_json, ?) = TRUE
+      AND (JSON_UNQUOTE(JSON_EXTRACT(r.disclosure_json,'$.enrollmentCategory')) IS NULL
+        OR JSON_UNQUOTE(JSON_EXTRACT(r.disclosure_json,'$.enrollmentCategory')) <> 'staff_communications'
+        OR JSON_UNQUOTE(JSON_EXTRACT(r.disclosure_json,'$.sourceReference')) = ?) LIMIT 1`,
+    [`campaign:${program.campaign_id}`, phone, purpose, agencyId, `$.${purpose}.activated`, reference || null]);
   return rows.length > 0;
 }
 
@@ -66,7 +70,7 @@ export async function getStaffCommunicationChoices({userId,agencyId}) {
     if (!['active', 'pending_review'].includes(item.status)) return item;
     const program = c.programs.find(p => p.campaign_id === item.campaignId);
     if (!program || validateSmsRegistration(program.registration).length) return {...item,status:'pending_campaign'};
-    const active = await reviewedStaffPermission(program, c.phone, item.purpose, agencyId);
+    const active = await reviewedStaffPermission(program, c.phone, item.purpose, agencyId, c.state?.reference);
     return {...item,status:active?'active':'pending_review'};
   }));
   return {agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,phone:c.phone,
@@ -104,6 +108,7 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});
     state.evidenceId=evidenceId;
     await writeState(connection,userId,agencyId,state);
+    if(anyYes)await queueStaffSmsEnrollment({userId,agencyId,state,phone,programs:c.programs,database:connection});
     await connection.execute(`INSERT INTO user_notification_type_preferences (user_id,notification_type,in_app_enabled,email_enabled)
       VALUES (?,'kiosk_checkin',1,?) ON DUPLICATE KEY UPDATE in_app_enabled=1,email_enabled=VALUES(email_enabled)`,[userId,input.arrivalEmail?1:0]);
     await connection.execute(`INSERT INTO user_notification_type_preferences (user_id,notification_type,in_app_enabled,email_enabled,sms_enabled)
@@ -129,7 +134,7 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
         if(validateSmsRegistration(program.registration).length) {state.activation.push({campaignId:program.campaign_id,purpose,status:'pending_campaign'});continue;}
         // The registered flow promises administrator review. Saving personal
         // preferences never self-approves enrollment or overwrites its evidence.
-        const reviewed = await reviewedStaffPermission(program, target, purpose, agencyId);
+        const reviewed = await reviewedStaffPermission(program, target, purpose, agencyId, state.reference);
         state.activation.push({campaignId:program.campaign_id,purpose,status:reviewed?'active':'pending_review'});
       }
     }

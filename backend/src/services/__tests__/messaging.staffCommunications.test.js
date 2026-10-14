@@ -1,4 +1,5 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
+vi.mock('../staffSmsEnrollmentBridge.service.js',()=>({queueStaffSmsEnrollment:vi.fn(async()=>[17])}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(),getAgencies:vi.fn()}}));
 vi.mock('../smsCampaignPacket.service.js',()=>({getAgencyCampaignPacket:vi.fn()}));
@@ -7,6 +8,7 @@ vi.mock('../smsEnrollment.service.js',()=>({enrollSmsRecipient:vi.fn()}));
 vi.mock('../chatEncryption.service.js',()=>({isChatEncryptionConfigured:vi.fn(()=>true),encryptChatText:vi.fn(s=>({cipher:s})),decryptChatText:vi.fn(e=>e.cipher)}));
 vi.mock('../securityEvidence.service.js',()=>({appendSecurityEvidence:vi.fn(async()=> 'evidence-1')}));
 import pool from '../../config/database.js';
+import {queueStaffSmsEnrollment} from '../staffSmsEnrollmentBridge.service.js';
 import User from '../../models/User.model.js';
 import {getAgencyCampaignPacket} from '../smsCampaignPacket.service.js';
 import {enrollSmsRecipient} from '../smsEnrollment.service.js';
@@ -98,4 +100,11 @@ it('requires a saved phone for assistant-only consent and records the command ve
  await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form});
  expect(stored.staff_communications_2.staffAssistantVersion).toBe('2026-10-09.commands1');
  expect(stored.staff_communications_2.accessRequests.staffSmsAssistant).toBe(true);
+});
+
+it('queues the original signed choices for activation without a second signature',async()=>{
+ programs=[{id:4,phone_number:'+13035550100',campaign_id:'C123',registration_json:registration}];
+ await saveStaffCommunicationChoices({userId:7,agencyId:2,input:await input({notifications:true,messageAlerts:false,polling:false})});
+ expect(queueStaffSmsEnrollment).toHaveBeenCalledWith(expect.objectContaining({userId:7,agencyId:2,state:expect.objectContaining({envelope:expect.any(Object),reference:expect.stringMatching(/^staff_communications:/)}),database:conn}));
+ expect(enrollSmsRecipient).not.toHaveBeenCalled();
 });

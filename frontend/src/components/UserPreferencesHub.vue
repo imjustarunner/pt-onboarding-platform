@@ -1724,6 +1724,7 @@ onMounted(async () => {
   await load();
   await loadClubSummitContext();
   await loadClaimBillingMode();
+  if (window.location.hash === '#prefs-enrollment') scrollToSection('prefs-enrollment');
 });
 
 onBeforeUnmount(() => {

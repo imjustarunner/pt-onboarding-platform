@@ -26,3 +26,9 @@ it('retries failures and closes without acknowledging or editing an update', asy
   expect(w.get('[role="alert"]').text()).toContain('could not be loaded'); await w.get('[role="alert"] button').trigger('click'); await flushPromises();
   expect(w.text()).toContain('November 2026'); await w.get('header button').trigger('click'); expect(w.emitted('close')).toHaveLength(1); w.unmount();
 });
+it('opens the exact linked edition and exposes other updates in its side panel',async()=>{
+ const w=mount(History,{props:{agencyId:2,initialDigestId:1}});await flushPromises();
+ expect(w.text()).toContain('Original October wording');expect(w.get('aside').text()).toContain('November 2026');
+ expect(w.get('[aria-label="Changes in this edition"] a').attributes('href')).toBe('#update-1');
+ expect(w.get('article').attributes('id')).toBe('update-1');w.unmount();
+});

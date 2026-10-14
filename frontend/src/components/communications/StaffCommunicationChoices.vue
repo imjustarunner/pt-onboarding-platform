@@ -49,7 +49,7 @@
         <label class="ack"><input type="checkbox" v-model="acknowledged" required /> I reviewed these choices, control my saved personal mobile number if opting in, and electronically sign my selections. I can choose No for every category.</label>
         <button type="submit" :disabled="!acknowledged || !usageAcknowledged || !signerName.trim()">{{ busy || saving ? 'Saving…' : 'Sign and save my choices' }}</button>
       </fieldset>
-      <p v-if="data.activation.some(a=>a.status.startsWith('pending'))" role="status">Your choices are saved. Some selected texts are not active yet. Your organization must complete campaign/number setup and review your signed SMS enrollment before activation. An administrator can send you the enrollment form through Texting Numbers → Consent requests. Saving these preferences does not override STOP. You can keep using the app.</p>
+      <p v-if="data.activation.some(a=>a.status.startsWith('pending'))" role="status">Your signed choices are saved and queued for activation. Selected texts are not active yet. You do not need to sign another enrollment form. Selected texts can begin once your organization verifies the program and your saved choices. Your No choices and any STOP request remain in effect. You can keep using the app.</p>
       <p v-else-if="data.reviewedAt && data.activation.some(a=>a.status==='active')" role="status">Your selected categories are enrolled. Delivery also follows your notification settings and any STOP request.</p>
     </form>
   </section>

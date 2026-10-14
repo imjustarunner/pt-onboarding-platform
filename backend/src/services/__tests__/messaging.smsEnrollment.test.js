@@ -18,7 +18,7 @@ beforeEach(() => {
 describe('signed enrollment', () => {
   it('confirms administrator-reviewed message alerts without enabling general notifications', async () => {
     getSmsSender.mockResolvedValue({ agency_id: 2, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
-    pool.execute.mockResolvedValue([[{ notifications_enabled: false }]]);
+    pool.execute.mockResolvedValue([[{ staff_choices: {notifications:false,messageAlerts:true} }]]);
     const sendConfirmation = vi.fn();
     await enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation });
     expect(sendConfirmation).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 2, staffNotificationKind: 'messageAlerts' }));
