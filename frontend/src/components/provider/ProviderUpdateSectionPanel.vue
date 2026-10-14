@@ -129,8 +129,10 @@
 
     <!-- Contact -->
     <div v-else-if="section.key === 'contact_info'" class="pu-panel">
-      <label v-for="field in contactFields" :key="field.key" class="field"><span>{{field.label}}</span><input v-model="contact[field.key]" class="input" :autocomplete="field.autocomplete" /></label>
-      <button class="pu-btn primary" :disabled="saving" @click="markComplete({contact:{...contact}})">Save &amp; confirm contact</button>
+      <p>A personal email address is required to complete this section. Adding it does not change your email notification choices. You can save your progress and return later.</p>
+      <label v-for="field in contactFields" :key="field.key" class="field"><span>{{field.label}}{{field.key === 'personalEmail' ? ' (required)' : ''}}</span><input v-model="contact[field.key]" class="input" :type="field.key === 'personalEmail' ? 'email' : 'text'" :required="field.key === 'personalEmail'" :autocomplete="field.autocomplete" /></label>
+      <p v-if="localError" class="err" role="alert">{{localError}}</p>
+      <button type="button" class="pu-btn primary" :disabled="saving" @click="saveContact">Save &amp; confirm contact</button>
     </div>
 
     <!-- Credential display -->
@@ -283,6 +285,7 @@
 </template>
 
 <script setup>
+import {isValidPersonalEmail} from '../../navigation/providerUpdateContact.js';
 import CredentialPicker from '../CredentialPicker.vue';
 import ProviderUpdateTrainingGuides from './ProviderUpdateTrainingGuides.vue';
 import ProviderSessionLanguages from './ProviderSessionLanguages.vue';
@@ -353,6 +356,13 @@ const credential = ref('');
 const displayLabel = ref('');
 const publicGender = ref('');
 const sessionLanguages=ref([]),languageError=ref('');
+function saveContact(){
+ if(!isValidPersonalEmail(contact.personalEmail)){
+  localError.value='Enter a valid personal email address to complete Contact & Address.';
+  return;
+ }
+ return markComplete({contact:{...contact,personalEmail:contact.personalEmail.trim()}});
+}
 function saveCredentialDisplay(){languageError.value='';try{validateSessionLanguages(sessionLanguages.value);}catch(e){languageError.value=e.message;return;}markComplete({credential:credential.value,displayLabel:displayLabel.value,publicGender:publicGender.value,sessionLanguages:sessionLanguages.value});}
 const emailPreference=ref({});
 const preferredDays = ref([]);

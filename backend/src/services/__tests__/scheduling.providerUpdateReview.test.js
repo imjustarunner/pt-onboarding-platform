@@ -180,3 +180,10 @@ it('ignores personal-reminder fields from an old page for staff retaining Google
  await persistReviewSection({...recipient,section_config_json:{notification_prefs:true}},'notification_prefs',data,true);
  expect(saveStaffCommunicationChoices).toHaveBeenCalledOnce();expect(updateCommunicationPrefs).not.toHaveBeenCalled();expect(data.emailReminderPreferences).toBeUndefined();
 });
+
+
+it('allows an unfinished contact draft without requiring an email or updating account records',async()=>{
+ const {saveProviderReviewProfile}=await import('../providerUpdateRecords.service.js');
+ await expect(persistReviewSection({...recipient,section_config_json:{contact_info:true}},'contact_info',{contact:{personalEmail:''}},false)).resolves.toBeUndefined();
+ expect(saveProviderReviewProfile).not.toHaveBeenCalled();
+});

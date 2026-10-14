@@ -1,3 +1,4 @@
+import {isValidPersonalEmail} from '../../../frontend/src/navigation/providerUpdateContact.js';
 import {getProviderUpdateSignIn} from './providerUpdateSignIn.service.js';
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import {providerUpdateAuditBcc} from './providerUpdateAuditCopy.js';
@@ -744,6 +745,10 @@ export async function getRecipientBundle(recipient) {
         section.completed=false;
       }
     }
+    if(section.key==='contact_info'&&!recipient.locked_at&&!isValidPersonalEmail(records.contact?.personalEmail)){
+      if(section.completed)section.status='in_progress';
+      section.completed=false;
+    }
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
   if(audience.license?.mode==='auto' && !records.license?.number && !records.license?.hasUpload && !/\b(?:LPC|LPCC|LCSW|LSW|SWC|LMFT|MFTC|LMHC|LCPC|LP|PsyD)\b/i.test(records.credential||'')){const index=sectionList.findIndex(s=>s.key==='license');if(index>=0)sectionList.splice(index,1);}
@@ -911,7 +916,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments','office_review','specialties'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments','office_review','specialties','contact_info'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,

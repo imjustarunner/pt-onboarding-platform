@@ -9,7 +9,7 @@ vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationCho
 vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({}))}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({id:2,slug:'itsco'}))}}));
 import pool from '../../config/database.js';
-import {getRecipientBundle} from '../providerUpdate.service.js';
+import {getRecipientBundle,finalizeRecipient} from '../providerUpdate.service.js';
 import {getProviderUpdateRecords} from '../providerUpdateRecords.service.js';
 import {getStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import {PROVIDER_UPDATE_SECTION_KEYS} from '../../constants/providerUpdateSections.js';
@@ -45,4 +45,27 @@ it('keeps an explicitly waived specialty section complete',async()=>{
  progress=[{section_key:'specialties',status:'completed',completed:1,data_json:{}}];
  getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[{key:'specialties',options:['Anxiety','Depression','Grief']}],clinicalFocus:{top:{specialties:[]},excluded:{specialties:[]},waived:{specialties:true}}});
  const bundle=await getRecipientBundle(recipient);expect(bundle.sections.find(s=>s.key==='specialties').completed).toBe(true);
+});
+
+const contactConfig=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,k==='contact_info']));
+function contactRecords(personalEmail){getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[],contact:{personalEmail}});}
+it.each(['','invalid'])('reopens unfinished contact completion with invalid personal email %j',async email=>{
+ contactRecords(email);progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{}}];
+ const bundle=await getRecipientBundle({...recipient,section_config_json:contactConfig});
+ expect(bundle.sections[0]).toMatchObject({key:'contact_info',completed:false,status:'in_progress'});
+});
+it('does not mark untouched contact as started or reopen finalized contact',async()=>{
+ contactRecords('');const r={...recipient,section_config_json:contactConfig};
+ expect((await getRecipientBundle(r)).sections[0]).toMatchObject({completed:false,status:'not_started'});
+ progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{}}];
+ expect((await getRecipientBundle({...r,locked_at:'2026-10-14'})).sections[0].completed).toBe(true);
+});
+it('keeps valid contact complete',async()=>{
+ contactRecords('person@example.test');progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{}}];
+ expect((await getRecipientBundle({...recipient,section_config_json:contactConfig})).sections[0].completed).toBe(true);
+});
+it('prevents final submission bypassing the new contact requirement with an old completed flag',async()=>{
+ contactRecords('');progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{contact:{personalEmail:'draft@example.test'}}}];
+ pool.execute.mockImplementation(async sql=>sql.includes('provider_update_recipients')?[[{...recipient,token:'real-token'}]]:sql.includes('provider_update_pushes')?[[{id:2,section_config_json:contactConfig}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);
+ await expect(finalizeRecipient({recipientId:1})).rejects.toMatchObject({status:400,details:{missing:['contact_info']}});
 });

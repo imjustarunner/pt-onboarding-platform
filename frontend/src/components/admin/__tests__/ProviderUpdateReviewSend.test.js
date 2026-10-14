@@ -35,3 +35,22 @@ it.each(['pending','sent','delivered'])('moves %s invitations below unsent staff
 it.each(['failed','bounced'])('keeps %s invitations with staff still needing attention',async status=>{
  m.recipients=[{provider_user_id:465,last_delivery_status:status}];const w=await render();expect(w.findAll('tbody tr')[0].attributes('data-person-id')).toBe('465');w.unmount();
 });
+
+it('copies only the selected person’s existing invitation without preparing or sending anything',async()=>{
+ const writeText=vi.fn(async()=>{});Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}});
+ const publicUrl='https://example.test/itsco/provider-update/personal-token';m.recipients=[{provider_user_id:465,token:'personal-token',publicUrl}];
+ const w=await render();expect(w.find('[data-person-id="466"] .row-copy').exists()).toBe(false);
+ await w.get('[data-person-id="465"] .row-copy').trigger('click');await flushPromises();
+ expect(writeText).toHaveBeenCalledWith(publicUrl);expect(m.post).not.toHaveBeenCalled();expect(w.text()).toContain('Aunya’s update link copied');w.unmount();
+});
+it('shows a selectable private link beside the correct person if clipboard access fails',async()=>{
+ Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:vi.fn(async()=>{throw new Error('denied');})}});
+ const publicUrl='https://example.test/itsco/provider-update/personal-token';m.recipients=[{provider_user_id:465,publicUrl}];
+ const w=await render();await w.get('[data-person-id="465"] .row-copy').trigger('click');await flushPromises();
+ const input=w.get('[data-person-id="465"] .manual-copy input');expect(input.element.value).toBe(publicUrl);expect(input.attributes('readonly')).toBeDefined();
+ expect(w.find('[data-person-id="466"] .manual-copy').exists()).toBe(false);expect(m.post).not.toHaveBeenCalled();w.unmount();
+});
+it('never offers a read-only preview as a personal update link',async()=>{
+ m.recipients=[{provider_user_id:465,token:'preview_abc',publicUrl:'https://example.test/itsco/provider-update/preview_abc'}];
+ const w=await render();expect(w.find('.row-copy').exists()).toBe(false);w.unmount();
+});

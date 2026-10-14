@@ -1,7 +1,7 @@
 import {describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{}}));
-vi.mock('../../models/UserInfoValue.model.js',()=>({default:{}}));
+vi.mock('../../models/UserInfoValue.model.js',()=>({default:{createOrUpdate:vi.fn()}}));
 import pool from '../../config/database.js';
 import Profile from '../../models/ProviderPublicProfile.model.js';
 vi.mock('../providerDisplayRole.service.js',()=>({getProviderDisplayRole:vi.fn(async()=>({label:'Counselor',currentLabel:'Counselor',fixed:false})),DISPLAY_ROLE_OPTIONS:['Counselor']}));
@@ -34,4 +34,16 @@ it('keeps LPSC when saving a provider’s existing credential display',async()=>
  pool.execute.mockResolvedValue([{affectedRows:1}]);
  await saveProviderReviewProfile({provider_user_id:7,agency_id:2},'credential_display',{credential:'MA, LPC, LPSC',displayLabel:'Counselor'});
  expect(pool.execute).toHaveBeenCalledWith('UPDATE users SET credential=? WHERE id=?',['MA, LPC, LPSC',7]);
+});
+
+const contact = {phone:'',street:'',line2:'',city:'',state:'',postalCode:'',personalEmail:''};
+it.each(['', '   ', 'invalid', 'person@'])('rejects missing or invalid personal email %j before any contact writes', async personalEmail => {
+ pool.execute.mockClear();
+ await expect(saveProviderReviewProfile({provider_user_id:7,agency_id:2},'contact_info',{contact:{...contact,personalEmail}})).rejects.toMatchObject({status:400,message:expect.stringContaining('personal email')});
+ expect(pool.execute).not.toHaveBeenCalled();
+});
+it('persists a trimmed personal email when contact is confirmed',async()=>{
+ pool.execute.mockClear();pool.execute.mockResolvedValueOnce([[{id:42}]]).mockResolvedValue([{affectedRows:1}]);
+ await saveProviderReviewProfile({provider_user_id:7,agency_id:2},'contact_info',{contact:{...contact,personalEmail:' person@example.test '}});
+ expect(pool.execute).toHaveBeenLastCalledWith(expect.stringContaining('personal_email=?'),['','','','','','','person@example.test',7]);
 });

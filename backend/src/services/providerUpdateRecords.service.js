@@ -1,3 +1,4 @@
+import {isValidPersonalEmail} from '../../../frontend/src/navigation/providerUpdateContact.js';
 import {saveProviderClinicalFocus} from './providerClinicalFocus.service.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
@@ -55,7 +56,7 @@ export async function saveProviderReviewProfile(recipient,key,data){
  if(key==='contact_info'){
   const c=data.contact||{};const fields=['phone','street','line2','city','state','postalCode','personalEmail'];
   if(fields.some(k=>typeof c[k]!=='string'||c[k].length>255))throw Object.assign(new Error('Check your contact details.'),{status:400});
-  if(c.personalEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.personalEmail))throw Object.assign(new Error('Enter a valid personal email.'),{status:400});
+  if(!isValidPersonalEmail(c.personalEmail))throw Object.assign(new Error('Enter a valid personal email address to complete Contact & Address.'),{status:400});
   let [[emergencyDef]]=await pool.execute("SELECT id FROM user_info_field_definitions WHERE field_key='emergency_contact' AND agency_id=? LIMIT 1",[aid]);
   if(!emergencyDef){const [created]=await pool.execute("INSERT INTO user_info_field_definitions(agency_id,field_key,field_label,field_type,is_required) VALUES(?,'emergency_contact','Emergency contact','text',0)",[aid]);emergencyDef={id:created.insertId};}
   await UserInfoValue.createOrUpdate(uid,emergencyDef.id,String(c.emergency||'').trim().slice(0,1000));

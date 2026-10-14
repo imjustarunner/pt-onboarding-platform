@@ -77,9 +77,9 @@
       </table>
 
       <div v-if="selectedPush" class="detail">
-        <h3>{{ selectedPush.title }} — recipients &amp; testing tokens</h3>
+        <h3>{{ selectedPush.title }} — recipients &amp; update links</h3>
         <p class="muted">
-          Sections on: {{ (selectedPush.enabledKeys || []).join(', ') }}. Open a token link to experience that
+          Sections on: {{ (selectedPush.enabledKeys || []).join(', ') }}. Open an individual link to view that
           provider’s Update (Hogwarts / Demo / CPA / Provider+ included when sent).
         </p>
         <div class="toolbar">
@@ -98,7 +98,7 @@
               <th>Sections</th>
               <th>Minutes</th>
               <th>Texting choices</th>
-              <th>Token link</th>
+              <th>Individual update link</th>
             </tr>
           </thead>
           <tbody>
@@ -119,7 +119,7 @@
               <td>{{ communicationSummary(r.communication_review_json) }}</td>
               <td class="row-actions">
                 <a v-if="r.publicUrl" class="btn sm" :href="r.publicUrl" target="_blank" rel="noopener">Open</a>
-                <button v-if="r.publicUrl" type="button" class="btn sm" @click="copyText(r.publicUrl)">Copy</button>
+                <button v-if="r.publicUrl" type="button" class="btn sm" @click="copyText(r.publicUrl)">{{ String(r.token || '').startsWith('preview_') ? 'Copy preview link' : 'Copy update link' }}</button>
               </td>
             </tr>
             <tr v-if="!filteredRecipients.length">
