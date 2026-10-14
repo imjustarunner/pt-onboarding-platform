@@ -23,13 +23,13 @@
       <div class="lib-card__foot">
         <span class="lib-card__date">{{ formatDate(item.updatedAt) }}</span>
         <div class="lib-card__actions">
-          <button v-if="!isGuide(item)" type="button" class="lib-card__action lib-card__fav" :aria-label="`${item.isFavorite ? 'Remove from' : 'Add to'} favorites: ${item.name}`" :aria-pressed="!!item.isFavorite" @click.stop="$emit('toggle-favorite', item)">
+          <button v-if="!isGuide(item) && !item.clinicalFormKey" type="button" class="lib-card__action lib-card__fav" :aria-label="`${item.isFavorite ? 'Remove from' : 'Add to'} favorites: ${item.name}`" :aria-pressed="!!item.isFavorite" @click.stop="$emit('toggle-favorite', item)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z" /></svg>
           </button>
           <button v-if="showDetails" type="button" class="lib-card__action" :aria-label="`Details for ${item.name}`" @click.stop="$emit('details', item)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></svg>
           </button>
-          <button v-if="!isGuide(item) && (canManage || (showOwnerMenu && item.isMine))" type="button" class="lib-card__action" :aria-label="`More actions for ${item.name}`" @click.stop="$emit('menu', item, $event)">
+          <button v-if="!isGuide(item) && !item.clinicalFormKey && (canManage || (showOwnerMenu && item.isMine))" type="button" class="lib-card__action" :aria-label="`More actions for ${item.name}`" @click.stop="$emit('menu', item, $event)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
           </button>
         </div>
@@ -57,9 +57,10 @@ function typeKey(item) {
   return item.fileType || 'file';
 }
 function typeShort(item) {
-  return { video: 'VIDEO', guide: 'READ', document: 'DOC', google: 'GDOC', link: 'LINK', pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'IMG', text: 'TXT' }[typeKey(item)] || 'FILE';
+  return { form:'FORM', video: 'VIDEO', guide: 'READ', document: 'DOC', google: 'GDOC', link: 'LINK', pdf: 'PDF', word: 'DOCX', spreadsheet: 'XLSX', presentation: 'PPTX', image: 'IMG', text: 'TXT' }[typeKey(item)] || 'FILE';
 }
 function typeLabel(item) {
+  if (item.clinicalFormKey) return 'Clinical form';
   if (item.fileType === 'video') return 'Video link';
   if (isGuide(item)) return item.guideKey === 'workplace-handbook' ? 'Handbook' : 'Guide';
   if (item.resourceType === 'branded_doc') return 'Document';

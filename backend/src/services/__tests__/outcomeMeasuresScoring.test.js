@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { applyScreenerReference } from '../safetyPlans/guideReference.js';
 import { readFileSync } from 'node:fs';
 import { getOutcomeMeasure, outcomeMeasures, measureRights } from '../../data/outcomeMeasures.js';
 import { scoreOutcomeMeasure, measureItemVisible } from '../outcomeMeasureScoring.js';
@@ -12,10 +13,11 @@ describe('reviewed instrument catalog', () => {
     for (const m of outcomeMeasures) { expect(m.rights.status).toBe('enabled'); expect(m.rights.attribution).toBeTruthy(); expect(m.rights.rightsUrl).toMatch(/^https:/); expect(m.version).toMatch(/^[a-f0-9]{20}$/); expect(new Set(m.items.map(i => i.key)).size).toBe(m.items.length); }
   });
   it.each(['itsco','nlu','isi'])('keeps all 33 %s guide anchors and links only enabled forms', agency => {
-    const guide = JSON.parse(readFileSync(new URL(`../../content/provider-guides/${agency}.json`, import.meta.url)));
+    const guide = applyScreenerReference(JSON.parse(readFileSync(new URL(`../../content/provider-guides/${agency}.json`, import.meta.url))),agency);
     expect(guide.sections.find(s => s.slug === 'appendix-a').body_html).toContain('9 of the 33');
     for (const entry of measureRights) {
-      const section = guide.sections.find(s => s.slug === entry.guideSlug); expect(section).toBeTruthy(); expect(section.body_html).toContain(entry.status === 'enabled' ? 'Available in the app' : entry.status === 'permission_required' ? 'Permission required' : 'clarification');
+      const section = guide.sections.find(s => s.slug === entry.guideSlug); expect(section).toBeTruthy(); expect(section.body_html).toContain(entry.status === 'clinical_form' ? 'Available in Clinical forms' : entry.status === 'enabled' ? 'Available in the app' : entry.status === 'permission_required' ? 'Permission required' : 'clarification');
+      if(entry.status==='clinical_form')expect(section.body_html).toContain(`/${agency}/clinical-forms?form=cssrs-screener`);
       expect(section.body_html.includes(`/outcome-measures?measure=${entry.id}`)).toBe(entry.status === 'enabled');
     }
   });

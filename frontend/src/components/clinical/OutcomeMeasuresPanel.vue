@@ -10,12 +10,13 @@
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <template v-if="catalog.measures.length">
       <div class="catalog-heading"><h3>{{ clientId ? 'Choose a measure' : 'Browse the instruments' }}</h3><input v-model="search" type="search" aria-label="Search outcome measures" placeholder="Search name or clinical area" /></div>
+      <ClinicalScreenerLink :search="search" :client-id="clientId" />
       <div class="measure-cards">
         <button v-for="measure in filtered" :key="measure.id" type="button" :disabled="saving || (clientId && !clientAuthorized)" :aria-pressed="selected?.id === measure.id" @click="select(measure)">
           <span class="eyebrow">{{ measure.domain }}{{ measure.kind === 'original_pilot' ? ' · Not validated' : '' }}</span><strong>{{ measure.title }}</strong><span>{{ measure.summary }}</span><small>{{ measure.timeframe }} · {{ measure.scoreRange }}</small><b>{{ clientId ? 'Record responses' : 'View blank instrument' }} ↗</b>
         </button>
       </div>
-      <p v-if="!filtered.length">No measures match this search.</p>
+      <p v-if="!filtered.length && !matchesSuicideScreener(search)">No measures match this search.</p>
     </template>
     <section v-if="selected" ref="formElement" class="administration" tabindex="-1" :aria-label="selected.title">
       <div class="section-heading"><div><p class="eyebrow">{{ clientId ? 'New administration' : 'Instrument preview' }}</p><h3>{{ selected.title }}</h3></div><button type="button" :disabled="saving" @click="close">Close</button></div>
@@ -55,12 +56,14 @@
         <details v-else class="review-form"><summary>Record clinical review</summary><form @submit.prevent="review(response)"><label>Clinical interpretation and next steps<textarea v-model="reviewNotes[response.id]" rows="3" maxlength="4000" required :disabled="saving" /></label><label v-if="response.result.flags.some(f => f.urgent)" class="confirmation"><input v-model="safetyConfirmed[response.id]" type="checkbox" required :disabled="saving" />I completed direct safety follow-up and documented the actions taken above.</label><button class="primary" :disabled="saving || !reviewNotes[response.id]?.trim()" type="submit">Save clinical review</button></form></details>
       </article>
     </section>
-    <details v-if="catalog.rights.length" class="rights-register"><summary>Appendix A · Availability &amp; reuse sources <span>{{ catalog.reviewedCount }} references reviewed</span></summary><p>Nine instruments have published terms supporting reuse without a separate permission request or fee. Other entries need permission or clarification of the exact version or commercial digital use. Free clinical access alone does not settle that question. Checked {{ catalog.checkedAt }}.</p><div v-for="entry in catalog.rights" :key="entry.id" class="rights-entry"><div><strong>{{ entry.name }}</strong><span>{{ statusLabel(entry.status) }}</span></div><p>{{ entry.reason }}</p><a :href="entry.rightsUrl" target="_blank" rel="noopener noreferrer">Reuse / source reference ↗</a></div></details>
+    <details v-if="catalog.rights.length" class="rights-register"><summary>Appendix A · Availability &amp; reuse sources <span>{{ catalog.reviewedCount }} references reviewed</span></summary><p>The sources below describe reuse terms for each instrument. Other entries need permission or clarification of the exact version or commercial digital use. Free clinical access alone does not settle that question. Checked {{ catalog.checkedAt }}.</p><div v-for="entry in catalog.rights" :key="entry.id" class="rights-entry"><div><strong>{{ entry.name }}</strong><span>{{ statusLabel(entry.status) }}</span></div><p>{{ entry.reason }}</p><a :href="entry.rightsUrl" target="_blank" rel="noopener noreferrer">Reuse / source reference ↗</a></div></details>
   </section>
 </template>
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import {matchesSuicideScreener} from '../../utils/clinicalScreeners';
+import ClinicalScreenerLink from './ClinicalScreenerLink.vue';
 import NluLearningProgress from './NluLearningProgress.vue';
 import OutcomeMeasureForm from './OutcomeMeasureForm.vue';
 import { outcomeItemVisible, outcomeResponseLabel } from '../../utils/outcomeMeasureFields.js';
@@ -82,7 +85,7 @@ watch(dirty, value => emit('dirty', value));
 const progress = computed(() => { const items = (selected.value?.items || []).filter(i => !i.optional && outcomeItemVisible(i, answers.value)); return { required: items.length, answered: items.filter(i => { const v = answers.value[i.key]; return Array.isArray(v) ? v.length : v != null && String(v).trim() !== ''; }).length }; });
 const message = e => e.response?.data?.error?.message || 'The request could not be completed. Your unsaved responses remain here; try again.';
 const when = date => new Date(date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-const statusLabel = status => ({ enabled: 'Available in the app', permission_required: 'Permission required', rights_review: 'Digital reuse needs clarification', version_review: 'Exact version needs clarification' }[status]);
+const statusLabel = status => ({ clinical_form:'Available in Clinical forms', enabled: 'Available in the app', permission_required: 'Permission required', rights_review: 'Digital reuse needs clarification', version_review: 'Exact version needs clarification' }[status]);
 const domainLabel = key => ({ adhd: 'Prescription ADHD medication', opioids: 'Prescription opioids', sedatives: 'Anxiety / sleep medication', other: 'Other drugs · follow-up flag' }[key] || key.charAt(0).toUpperCase() + key.slice(1));
 function canLeave() { return !saving.value && (!dirty.value || window.confirm('Leave without saving these measure responses or review notes?')); }
 defineExpose({ canLeave });

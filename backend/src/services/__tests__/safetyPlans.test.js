@@ -26,6 +26,7 @@ let state,backup,failSnapshot;
 function rows(value){return [value];}
 async function execute(sql,p=[]){
  if(sql.startsWith('SELECT * FROM clinical_form_records WHERE id'))return rows(state.plans.filter(r=>r.id===Number(p[0])));
+ if(sql.includes('AND created_by_user_id=? AND client_id IS NULL'))return rows(state.plans.filter(r=>r.agency_id===Number(p[0])&&r.created_by_user_id===p[1]&&!r.client_id));
  if(sql.startsWith('SELECT * FROM clinical_form_records WHERE agency'))return rows(state.plans.filter(r=>r.agency_id===Number(p[0])&&(sql.includes('AND client_id=?')?r.client_id===Number(p[1]):r.created_by_user_id===p[1]||(!r.client_id&&p[2]===1))));
  if(sql.startsWith('INSERT INTO clinical_form_records(')){const id=state.plans.length+1;state.plans.push({id,agency_id:p[0],client_id:p[1],created_by_user_id:p[2],document_key:p[3],current_version:1});return [{insertId:id}];}
  if(sql.startsWith('UPDATE clinical_form_records SET current_version')){state.plans.find(r=>r.id===p[1]).current_version=p[0];return [{affectedRows:1}];}
@@ -103,4 +104,34 @@ describe('information updates awaiting review',()=>{
  it('rejects a stale submission and a different recipient',async()=>{const p=await createUpdate();const request={...signature(),version:1,contentHash:p.contentHash,data:p.data};await expect(records.portalSubmitUpdate({...clientUser,id:99},1,request)).rejects.toMatchObject({status:404});await records.portalSubmitUpdate(clientUser,1,request);await expect(records.portalSubmitUpdate(clientUser,1,request)).rejects.toMatchObject({status:409});});
  it('does not submit changes through a withdrawn request or without consent',async()=>{const p=await createUpdate();await expect(records.portalSubmitUpdate(clientUser,1,{...signature(),consent:false,version:1,contentHash:p.contentHash,data:p.data})).rejects.toMatchObject({status:400});expect(state.versions).toHaveLength(1);await records.revokeSigner(staff,p.id,1,{version:1});await expect(records.portalSubmitUpdate(clientUser,1,{...signature(),version:1,contentHash:p.contentHash,data:p.data})).rejects.toMatchObject({status:404});});
  it('records staff review separately and preserves the signed response',async()=>{const p=await createUpdate();await records.portalSubmitUpdate(clientUser,1,{...signature(),version:1,contentHash:p.contentHash,data:p.data});await expect(records.reviewUpdate(staff,p.id,{version:2})).rejects.toMatchObject({status:400});const reviewed=await records.reviewUpdate(staff,p.id,{version:2,reviewed:true});expect(reviewed.reviewStatus).toBe('reviewed');expect((await records.readPlan(staff,p.id,2)).signers[0].signedAt).toBeTruthy();expect(main.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});
+});
+
+
+describe('standalone C-SSRS records',()=>{
+ const screen=()=>({personLabel:'Synthetic individual',planDate:'2026-10-14',cssrs_1:'no',cssrs_2:'no',cssrs_6:'no',administeredBy:'Synthetic provider',followUp:'Synthetic clinical review and follow-up.',fitConfirmed:'yes',screenStatus:'completed'});
+ const unlinked=(data=screen())=>({agencyId:2,documentKey:'cssrs-screener',allowUnlinked:true,overrideReason:'Client import pending',data});
+ it('saves an encrypted unlinked screening, reopens it and links its unchanged responses later',async()=>{
+  const saved=await records.savePlan(staff,unlinked());
+  expect(saved).toMatchObject({documentKey:'cssrs-screener',clientId:null,data:{screenStatus:'completed',cssrs_1:'no'}});
+  expect(state.versions[0].payload_encrypted).not.toContain('Synthetic individual');
+  await expect(records.readPlan({...staff,id:8},saved.id)).rejects.toMatchObject({status:403});
+  const linked=await records.linkPlan(staff,saved.id,{version:1,clientId:41,confirmIdentity:true});
+  expect(linked.clientId).toBe(41);expect(linked.data).toEqual(saved.data);
+ });
+ it('keeps incomplete screens as drafts and requires every applicable answer and clinical review for completion',async()=>{
+  await expect(records.savePlan(staff,unlinked({personLabel:'Synthetic',screenStatus:'draft'}))).resolves.toMatchObject({data:{screenStatus:'draft'}});
+  for(const patch of [{cssrs_2:'yes'},{cssrs_6:'yes'},{cssrs_1:''},{followUp:''},{fitConfirmed:''},{cssrs_1:'maybe'}])await expect(records.savePlan(staff,unlinked({...screen(),...patch}))).rejects.toMatchObject({status:400});
+  const saved=await records.savePlan(staff,unlinked({...screen(),cssrs_2:'yes',cssrs_3:'no',cssrs_4:'no',cssrs_5:'no',cssrs_6:'yes',cssrs_6_recent:'no'}));expect(saved.data.screenStatus).toBe('completed');
+ });
+ it('removes stale hidden answers without treating unanswered questions as No',async()=>{
+  const saved=await records.savePlan(staff,unlinked({...screen(),cssrs_3:'yes',cssrs_4:'yes',cssrs_5:'yes',cssrs_6_recent:'yes'}));
+  expect(saved.data).toMatchObject({cssrs_3:'',cssrs_4:'',cssrs_5:'',cssrs_6_recent:''});
+  const draft=await records.savePlan(staff,unlinked({personLabel:'Synthetic'}));expect(draft.data.cssrs_1).toBe('');
+ });
+ it('My files only lists the current author’s unlinked records even for an admin',async()=>{
+  const saved=await records.savePlan(staff,unlinked());
+  await records.savePlan({...staff,id:8},unlinked());
+  await records.savePlan(staff,{...unlinked(),clientId:41});
+  expect((await records.listPlans({...staff,role:'admin'},{agencyId:2,mine:'1'})).plans.map(p=>p.id)).toEqual([saved.id]);
+ });
 });

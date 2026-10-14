@@ -1,3 +1,4 @@
+import { applyScreenerReference } from './safetyPlans/guideReference.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { handbookTenant } from './handbookTenant.js';
@@ -225,7 +226,7 @@ export function referenceSource(agency, key, { packageAssigned = false } = {}) {
     source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
     return source;
   }
-  const source = structuredClone(sources[tenant || 'isi']);
+  const source = applyScreenerReference(structuredClone(sources[tenant || 'isi']), tenant);
   if (tenant) {
     applyFacilitatorProviderReference(source);
     const related = source.sections.find(s => s.slug === '6-relationship-to-other-documents');

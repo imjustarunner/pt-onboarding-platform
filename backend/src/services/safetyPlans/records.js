@@ -56,12 +56,13 @@ export async function readPlan(user,id,version){
  await event(pool,row,user,'viewed',v.version);
  return {id:row.id,agencyId:row.agency_id,clientId:row.client_id,version:v.version,documentKey:row.document_key,currentVersion:row.current_version,contentHash:v.content_hash,...decode(v.payload_encrypted),revocation:decode((await versionById(pool,row)).payload_encrypted).revocation||null,signers:signers.map(signerView),history,recipients:await recipientOptions(user,row)};
 }
-export async function listPlans(user,{agencyId,clientId}){
+export async function listPlans(user,{agencyId,clientId,mine}){
  staffRole(user);let rows;
  if(clientId){const client=await clientAccess(user,clientId);[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND client_id=? ORDER BY updated_at DESC LIMIT 100',[client.agency_id,client.id]);}
+ else if(mine==='1'){await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND created_by_user_id=? AND client_id IS NULL ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id]);}
  else{await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND (created_by_user_id=? OR (client_id IS NULL AND ?=1)) ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id,['admin','super_admin'].includes(user.role)?1:0]);}
  const plans=[];
- for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,reviewStatus:data.reviewStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
+ for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,reviewStatus:data.reviewStatus,screenStatus:data.data.screenStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
  return {plans};
 }
 export async function linkPlan(user,id,input){

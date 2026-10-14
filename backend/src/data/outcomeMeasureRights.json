@@ -68,14 +68,14 @@
     "id": "c-ssrs",
     "guideSlug": "measure-c-ssrs",
     "name": "C-SSRS: Columbia-Suicide Severity Rating Scale",
-    "checkedAt": "2026-10-10",
-    "scope": "English instrument in a commercial multi-company clinical web application",
-    "status": "permission_required",
-    "version": "Exact licensed digital version not established",
-    "reason": "Electronic implementations have a licensing/certification route through Clario. Clinical/community paper availability does not establish permission for this commercial app; confirm applicable setting and existing agreements.",
-    "rightsUrl": "https://clario.com/about/legal-and-privacy/c-ssrs-licensing-application/",
-    "sourceUrl": "https://clario.com/about/legal-and-privacy/c-ssrs-licensing-application/",
-    "attribution": ""
+    "checkedAt": "2026-10-14",
+    "scope": "Staff-administered screening in a healthcare EHR; excludes research eC-SSRS licensing",
+    "status": "clinical_form",
+    "version": "Screen Version – Recent (2026)",
+    "reason": "Available in Clinical forms. Columbia Lighthouse Project expressly permits healthcare EHR embedding. Research electronic implementations have separate terms.",
+    "rightsUrl": "https://cssrs.columbia.edu/the-columbia-scale-c-ssrs/cssrs-for-communities-and-healthcare/",
+    "sourceUrl": "https://cssrs.columbia.edu/wp-content/uploads/C-SSRS-Screener-with-triage-points-2026.pdf",
+    "attribution": "Columbia Lighthouse Project"
   },
   {
     "id": "cage-aid",

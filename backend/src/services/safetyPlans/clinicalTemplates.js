@@ -1,8 +1,10 @@
+import {cssrsTemplate,validateCssrsComplete} from './cssrs.js';
 import {buildCounselingSelfEnSteps} from '../../data/counselingIntakeSelfEn.js';
 import AgencyOfficeIntakeMaster from '../../models/AgencyOfficeIntakeMaster.model.js';
 import {safetyPlanTemplate,normalizeSafetyPlan,validateReady,fail} from './template.js';
 const field=(key,label,type='textarea',options)=>[key,label,{type,...(options?{options}: {})}];
 export const clinicalFormCatalog=[
+ {key:'cssrs-screener',title:'C-SSRS · Suicide ideation screener'},
  {key:'safety-plan',title:'Safety plan'},
  {key:'release-of-information',title:'Release of information'},
  {key:'client-information-update',title:'Client information update'},
@@ -22,6 +24,7 @@ const attendance={key:'attendance-verification',version:'2026-10-11.1',title:'Ap
 // Reuse contact questions from the existing clinical enrollment, never a new clinical assessment.
 const updateKeys=new Set(['legal_first_name','legal_last_name','preferred_name','date_of_birth','phone_number','email_address','preferred_language','address_street','address_zip','address_city','address_state','preferred_contact_method','best_time_to_contact','emergency_contact_name','emergency_contact_relationship','emergency_contact_phone']);
 export async function getClinicalTemplate(key='safety-plan',agencyId){
+ if(key==='cssrs-screener')return cssrsTemplate;
  if(key==='safety-plan')return safetyPlanTemplate;
  if(key==='release-of-information')return roi;
  if(key==='attendance-verification')return attendance;
@@ -38,17 +41,20 @@ export function normalizeClinicalData(input,template){
  if(!input||typeof input!=='object'||Array.isArray(input))fail(400,'Complete the form.');
  const out={personLabel:clean(input.personLabel,200),planDate:clean(input.planDate,10)};
  for(const section of template.sections)for(const [key,,spec={}] of section.fields||[]){
+  if(spec.showIf&&input[spec.showIf.fieldKey]!==spec.showIf.equals){out[key]='';continue;}
   const options=(spec.options||[]).map(o=>typeof o==='string'?o:String(o.value));
   if(spec.type==='multi'){if(input[key]!=null&&!Array.isArray(input[key]))fail(400,'Choose the applicable options.');out[key]=[...new Set(input[key]||[])];if(out[key].some(v=>!options.includes(v)))fail(400,'Select a listed option.');}
-  else {out[key]=clean(input[key]);if(spec.type==='select'&&out[key]&&!options.includes(out[key]))fail(400,'Select a listed option.');if(spec.type==='date'&&out[key]&&!validDate(out[key]))fail(400,'Enter a valid date.');if(spec.type==='time'&&out[key]&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(out[key]))fail(400,'Enter a valid time.');}
+  else {out[key]=clean(input[key]);if(['select','radio'].includes(spec.type)&&out[key]&&!options.includes(out[key]))fail(400,'Select a listed option.');if(spec.type==='date'&&out[key]&&!validDate(out[key]))fail(400,'Enter a valid date.');if(spec.type==='time'&&out[key]&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(out[key]))fail(400,'Enter a valid time.');}
  }
  if(out.planDate&&!validDate(out.planDate))fail(400,'Enter a valid date.');
+ if(template.key==='cssrs-screener'&&out.screenStatus==='completed')validateCssrsComplete(out);
  return out;
 }
 function validDate(v){return /^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(+new Date(v))&&new Date(v).toISOString().slice(0,10)===v;}
 export function validateClinicalReady(data,template){
  if(template.key==='safety-plan')return validateReady(data);
  if(!data.personLabel||!data.planDate)fail(400,'Enter the client name and document date.');
+ if(template.key==='cssrs-screener')validateCssrsComplete(data);
  if(template.key==='release-of-information'){
   if(!data.recipientName||!(data.recipientPhone||data.recipientEmail||data.recipientAddress)||!data.purpose||!data.direction?.length||!data.information?.length||!(data.expirationDate||data.expirationEvent))fail(400,'Complete the recipient, contact, purpose, information, direction, and expiration before signing.');
   if(data.expirationDate&&data.expirationDate<new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()))fail(400,'This authorization has expired. Create a current authorization.');

@@ -59,6 +59,7 @@
 
     <!-- Assessments -->
     <div v-show="activeTab === 'assessments'" class="grid" role="tabpanel">
+      <ClinicalScreenerLink v-if="filterCategory!=='non_clinical'" :search="search" />
       <ToolCard
         v-for="tool in filteredAssessments"
         :key="tool.id"
@@ -79,7 +80,7 @@
         @edit="openEdit('assessment', tool)"
         @duplicate="duplicateAssessment(tool)"
       />
-      <p v-if="!filteredAssessments.length" class="empty">No assessments match your filters.</p>
+      <p v-if="!filteredAssessments.length && !(filterCategory!=='non_clinical' && matchesSuicideScreener(search))" class="empty">No assessments match your filters.</p>
     </div>
 
     <!-- Games -->
@@ -187,6 +188,8 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import {matchesSuicideScreener} from '../../utils/clinicalScreeners';
+import ClinicalScreenerLink from '../../components/clinical/ClinicalScreenerLink.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';

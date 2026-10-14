@@ -190,3 +190,29 @@ it('shows broad category folders, supports Show all and cross-folder search, and
   await router.push('/itsco/library?category=3&folder=5'); await flushPromises();
   expect(wrapper.get('[aria-label="Subfolders"]').text()).toContain('Coloring books');
 });
+
+
+it.each(['suicide','suicidal ideation','Columbia','C-SSRS','cssrs'])('providers can find the standalone screener by %s and open the current agency form',async query=>{
+ const router=await render();
+ await wrapper.get('input[aria-label="Search documents"]').setValue(query);
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ const row=wrapper.findAll('.lib-list__row').find(r=>r.text().includes('C-SSRS'));
+ expect(row).toBeTruthy();expect(row.find('.lib-list__fav').exists()).toBe(false);
+ await row.get('.lib-list__open').trigger('click');await flushPromises();
+ expect(router.currentRoute.value.path).toBe('/itsco/clinical-forms');
+ expect(router.currentRoute.value.query.form).toBe('cssrs-screener');
+ expect(service.fetchLibraryResource).not.toHaveBeenCalled();
+});
+it('links My files to private unlinked clinical records without loading clinical answers into the shared library',async()=>{
+ await render('/itsco/library?section=mine');
+ const link=wrapper.find('a.private-clinical-link');expect(link.exists()).toBe(true);
+ expect(link.attributes('href')).toContain('/itsco/clinical-forms?mine=1&form=cssrs-screener');
+ expect(api.get.mock.calls.some(([path])=>path.startsWith('/clinical-forms'))).toBe(false);
+});
+
+it('finds the screener from a search started inside an unrelated library folder',async()=>{
+ await render('/itsco/library?section=files&folder=9&category=3');
+ await wrapper.get('input[aria-label="Search documents"]').setValue('suicide');
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(wrapper.findAll('.lib-list__row').some(r=>r.text().includes('C-SSRS'))).toBe(true);
+});
