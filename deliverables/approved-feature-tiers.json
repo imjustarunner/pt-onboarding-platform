@@ -33,7 +33,7 @@
     },
     {
       "key": "office_booking",
-      "feature": "Office and room reservations",
+      "feature": "AuricWell Office and kiosk",
       "minimumTier": "premium_plus"
     },
     {
@@ -63,18 +63,18 @@
     },
     {
       "key": "supervision",
-      "feature": "Supervision scheduling and history",
-      "minimumTier": "basic"
+      "feature": "Supervision scheduling and tracking",
+      "minimumTier": "premium"
     },
     {
       "key": "supervision_manual",
       "feature": "Manual and in-person supervision",
-      "minimumTier": "basic"
+      "minimumTier": "premium"
     },
     {
       "key": "supervision_agreements",
       "feature": "Supervision agreements",
-      "minimumTier": "basic"
+      "minimumTier": "premium"
     },
     {
       "key": "client_records",
@@ -265,6 +265,11 @@
       "key": "summerProgramManagement",
       "feature": "Summer program management",
       "minimumTier": "separate"
+    },
+    {
+      "key": "workplaceDocumentLibrary",
+      "feature": "Company document library",
+      "minimumTier": "basic"
     }
   ],
   "sharedFeatureScope": "agency"

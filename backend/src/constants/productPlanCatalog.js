@@ -135,10 +135,10 @@ export const PLAN_FEATURES = Object.freeze([
   },
   {
     "key": "supervision",
-    "label": "Supervision scheduling and history",
-    "description": "Supervisor/supervisee sessions, history and tracked attendance.",
+    "label": "Supervision scheduling and tracking",
+    "description": "Individual and group supervision video meetings, recurring booking, presentations, agendas, reminders, attendance and hours tracking.",
     "category": "Supervision",
-    "minimumTier": "basic",
+    "minimumTier": "premium",
     "products": [
       "platform",
       "auricwell"
@@ -150,7 +150,7 @@ export const PLAN_FEATURES = Object.freeze([
     "label": "Manual and in-person supervision",
     "description": "Log off-platform supervision with reasons and in-person transcription.",
     "category": "Supervision",
-    "minimumTier": "basic",
+    "minimumTier": "premium",
     "products": [
       "platform",
       "auricwell"
@@ -162,7 +162,7 @@ export const PLAN_FEATURES = Object.freeze([
     "label": "Supervision agreements",
     "description": "Onboarding agreements and supervisor countersignatures.",
     "category": "Supervision",
-    "minimumTier": "basic",
+    "minimumTier": "premium",
     "products": [
       "platform",
       "auricwell"

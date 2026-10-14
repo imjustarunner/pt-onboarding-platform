@@ -3,16 +3,16 @@ ai_note_aid,Documentation Hub,Clinical,AI assistance for drafting notes; clinici
 private_office,Private virtual office,Meetings,"Permanent office URL, photo review and individual admission; one guest.",backend/src/services/privateVirtualOffice.service.js,premium,Platform + AuricWell
 multiple_office_guests,Multiple private-office guests,Meetings,Individually admit additional guests for couples and families.,backend/src/services/privateVirtualOffice.service.js,premium_plus,Platform + AuricWell
 schedule,Calendar and scheduling,Scheduling,"Schedule appointments and meetings, recurring dates, availability and reminders.",frontend/src/views/MyScheduleView.vue,basic,Platform + AuricWell
-calendar_sync,Google Calendar integration,Scheduling,Calendar invitations and external busy time.,backend/src/services/googleCalendar.service.js,premium,Platform + AuricWell
-office_booking,Office and room reservations,Scheduling,"Physical rooms, office availability and booking.",frontend/src/views/OfficeScheduleView.vue,premium_plus,Platform + AuricWell
+calendar_sync,Google Calendar integration,Scheduling,Optional Google calendar invitations and external busy time. App scheduling and office kiosks work independently.,backend/src/services/googleCalendar.service.js,premium,Platform + AuricWell
+office_booking,AuricWell Office and kiosk,Scheduling,"Buildings, bookable office spaces, recurring assignments, appointment-linked bookings, client check-in and provider arrival alerts. Google Calendar is optional.",frontend/src/views/OfficeScheduleView.vue,premium_plus,Platform + AuricWell
 video_meetings,Scheduled video meetings,Meetings,"Video, square camera tiles, screen sharing and waiting rooms.",frontend/src/components/video/VideoSessionRoom.vue,basic,Platform + AuricWell
 personal_join,Personal meeting invitations,Meetings,Individual email links and attendance identity.,backend/src/services/meetingInvitations.service.js,basic,Platform + AuricWell
 recording_transcription,Recording and transcription,Meetings,Consent-gated session audio transcription.,backend/src/controllers/meetingTranscription.controller.js,premium,Platform + AuricWell
 transcript_notes,Notes from session transcripts,Clinical,Create draft clinical notes using signed-consent session transcripts.,backend/src/controllers/counselingTranscriptNote.controller.js,premium,Platform + AuricWell
 meeting_notes,Meeting notes and summaries,Meetings,"Personal notes, summaries and meeting history.",frontend/src/views/MyMeetingsView.vue,basic,Platform + AuricWell
-supervision,Supervision scheduling and history,Supervision,"Supervisor/supervisee sessions, history and tracked attendance.",backend/src/controllers/supervisionSessions.controller.js,basic,Platform + AuricWell
-supervision_manual,Manual and in-person supervision,Supervision,Log off-platform supervision with reasons and in-person transcription.,backend/src/controllers/supervisionManual.controller.js,basic,Platform + AuricWell
-supervision_agreements,Supervision agreements,Supervision,Onboarding agreements and supervisor countersignatures.,backend/src/controllers/supervisionAgreement.controller.js,basic,Platform + AuricWell
+supervision,Supervision scheduling and tracking,Supervision,"Individual and group supervision video meetings, recurring booking, presentations, agendas, reminders, attendance and hours tracking.",backend/src/controllers/supervisionSessions.controller.js,premium,Platform + AuricWell
+supervision_manual,Manual and in-person supervision,Supervision,Log off-platform supervision with reasons and in-person transcription.,backend/src/controllers/supervisionManual.controller.js,premium,Platform + AuricWell
+supervision_agreements,Supervision agreements,Supervision,Onboarding agreements and supervisor countersignatures.,backend/src/controllers/supervisionAgreement.controller.js,premium,Platform + AuricWell
 client_records,Client charts and records,Clinical,Practice-scoped client records and treatment information.,frontend/src/views/admin/ClientManagementView.vue,basic,Platform + AuricWell
 clinical_signing,Clinical documentation and signatures,Clinical,"Structured notes, signing and cosigning.",auricwell/src/NoteWorkspace.vue,basic,Platform + AuricWell
 intake,Intake and digital forms,Clinical,"Client intake, digital waivers and signatures.",auricwell/src/Intake.vue,basic,Platform + AuricWell
@@ -51,3 +51,4 @@ gamesPlatformEnabled,Games Platform,Platform catalog,Access to the mental health
 focusPackage,Focus Package,Platform catalog,"Focus Music playlists plus Focus Session (timeline focus mode, quote images, and session audio).",backend/src/services/billingPricing.service.js,premium,Platform
 focusMusic,Focus Music (legacy),Platform catalog,Legacy Focus Music add-on; superseded by Focus Package.,backend/src/services/billingPricing.service.js,premium,Platform
 summerProgramManagement,Summer program management,Platform catalog,"Custom project billing for registration, kiosk check-ins, staffing, and operational setup.",backend/src/services/billingPricing.service.js,separate,Platform
+workplaceDocumentLibrary,Company document library,People Operations,"Plot Twist CO workplace handbook templates, company branding, section editing, search and versioned company editions.",backend/src/services/workplaceDocumentLibrary.service.js,basic,Platform

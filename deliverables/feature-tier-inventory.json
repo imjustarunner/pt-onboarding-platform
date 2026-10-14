@@ -39,16 +39,16 @@
     "key": "calendar_sync",
     "feature": "Google Calendar integration",
     "category": "Scheduling",
-    "description": "Calendar invitations and external busy time.",
+    "description": "Optional Google calendar invitations and external busy time. App scheduling and office kiosks work independently.",
     "source": "backend/src/services/googleCalendar.service.js",
     "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
     "key": "office_booking",
-    "feature": "Office and room reservations",
+    "feature": "AuricWell Office and kiosk",
     "category": "Scheduling",
-    "description": "Physical rooms, office availability and booking.",
+    "description": "Buildings, bookable office spaces, recurring assignments, appointment-linked bookings, client check-in and provider arrival alerts. Google Calendar is optional.",
     "source": "frontend/src/views/OfficeScheduleView.vue",
     "minimumTier": "premium_plus",
     "products": "Platform + AuricWell"
@@ -100,11 +100,11 @@
   },
   {
     "key": "supervision",
-    "feature": "Supervision scheduling and history",
+    "feature": "Supervision scheduling and tracking",
     "category": "Supervision",
-    "description": "Supervisor/supervisee sessions, history and tracked attendance.",
+    "description": "Individual and group supervision video meetings, recurring booking, presentations, agendas, reminders, attendance and hours tracking.",
     "source": "backend/src/controllers/supervisionSessions.controller.js",
-    "minimumTier": "basic",
+    "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
@@ -113,7 +113,7 @@
     "category": "Supervision",
     "description": "Log off-platform supervision with reasons and in-person transcription.",
     "source": "backend/src/controllers/supervisionManual.controller.js",
-    "minimumTier": "basic",
+    "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
@@ -122,7 +122,7 @@
     "category": "Supervision",
     "description": "Onboarding agreements and supervisor countersignatures.",
     "source": "backend/src/controllers/supervisionAgreement.controller.js",
-    "minimumTier": "basic",
+    "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
@@ -465,6 +465,15 @@
     "description": "Custom project billing for registration, kiosk check-ins, staffing, and operational setup.",
     "source": "backend/src/services/billingPricing.service.js",
     "minimumTier": "separate",
+    "products": "Platform"
+  },
+  {
+    "key": "workplaceDocumentLibrary",
+    "source": "backend/src/services/workplaceDocumentLibrary.service.js",
+    "feature": "Company document library",
+    "category": "People Operations",
+    "description": "Plot Twist CO workplace handbook templates, company branding, section editing, search and versioned company editions.",
+    "minimumTier": "basic",
     "products": "Platform"
   }
 ]

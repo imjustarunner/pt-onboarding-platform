@@ -7,7 +7,7 @@ describe('approved product plan policy', () => {
   it('matches every user-approved assignment and both deployment catalogs', () => {
     const approved = JSON.parse(readFileSync(new URL('../../../../deliverables/approved-feature-tiers.json', import.meta.url), 'utf8'));
     expect(PLAN_FEATURES.map(({ key, label, minimumTier }) => ({ key, feature: label, minimumTier }))).toEqual(approved.features);
-    expect(PLAN_FEATURES).toHaveLength(52);
+    expect(PLAN_FEATURES).toHaveLength(53);
     expect(readFileSync(new URL('../../constants/productPlanCatalog.js', import.meta.url), 'utf8'))
       .toBe(readFileSync(new URL('../../../../frontend/src/config/productPlanCatalog.js', import.meta.url), 'utf8'));
   });
@@ -22,6 +22,16 @@ describe('approved product plan policy', () => {
     expect(planIncludesFeature({ agencyTier: 'basic', individualTier: 'premium' }, 'private_office')).toBe(true);
     expect(planIncludesFeature({ individualTier: 'premium' }, 'multiple_office_guests')).toBe(false);
     expect(planIncludesFeature({ individualTier: 'premium_plus' }, 'multiple_office_guests')).toBe(true);
+  });
+  it('includes the supervision package only in Premium and Premium Plus agency plans', () => {
+    for (const key of ['supervision', 'supervision_manual', 'supervision_agreements']) {
+      expect(planIncludesFeature({ agencyTier: 'basic', individualTier: 'premium_plus' }, key)).toBe(false);
+      expect(planIncludesFeature({ agencyTier: 'premium', individualTier: 'basic' }, key)).toBe(true);
+      expect(planIncludesFeature({ agencyTier: 'premium_plus', individualTier: 'basic' }, key)).toBe(true);
+    }
+    expect(planIncludesFeature({ agencyTier: 'basic' }, 'schedule')).toBe(true);
+    expect(planIncludesFeature({ agencyTier: 'basic' }, 'video_meetings')).toBe(true);
+    expect(planIncludesFeature({ agencyTier: 'basic' }, 'workplaceDocumentLibrary')).toBe(true);
   });
   it('keeps separate features outside every tier, including grandfathered Premium Plus', () => {
     for (const feature of PLAN_FEATURES.filter(f => f.minimumTier === 'separate')) {
