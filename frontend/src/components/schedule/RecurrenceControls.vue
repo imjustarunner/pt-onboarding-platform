@@ -40,7 +40,7 @@
       Repeats on the same day of each month (e.g. the 15th). Shorter months clamp to the last day.
     </p>
 
-    <div v-if="isRecurring && !openSlotHint" class="rec-row">
+    <div v-if="isRecurring && !openSlotHint && endModes.length > 1" class="rec-row">
       <label class="rec-label">Ends</label>
       <select
         class="rec-select"
@@ -48,13 +48,13 @@
         :disabled="disabled"
         @change="emit('update:endMode', String($event.target.value || 'count'))"
       >
-        <option value="count">After N occurrences</option>
-        <option value="until">On end date</option>
-        <option value="indefinite">No end date</option>
+        <option v-if="endModes.includes('count')" value="count">After N occurrences</option>
+        <option v-if="endModes.includes('until')" value="until">On end date</option>
+        <option v-if="endModes.includes('indefinite')" value="indefinite">No end date</option>
       </select>
     </div>
 
-    <div v-if="isRecurring && !openSlotHint && endMode === 'count'" class="rec-row">
+    <div v-if="isRecurring && !openSlotHint && endModes.includes('count') && endMode === 'count'" class="rec-row">
       <label class="rec-label">Occurrences</label>
       <input
         class="rec-select"
@@ -67,7 +67,7 @@
       />
     </div>
 
-    <div v-if="isRecurring && !openSlotHint && endMode === 'until'" class="rec-row">
+    <div v-if="isRecurring && !openSlotHint && endModes.includes('until') && endMode === 'until'" class="rec-row">
       <label class="rec-label">Until</label>
       <input
         class="rec-select"
@@ -97,6 +97,7 @@ import {
 const props = defineProps({
   frequency: { type: String, default: 'ONCE' },
   endMode: { type: String, default: 'count' },
+  endModes: { type: Array, default: () => ['count', 'until', 'indefinite'] },
   occurrenceCount: { type: Number, default: 4 },
   untilDate: { type: String, default: '' },
   weekdays: { type: Array, default: () => [] },

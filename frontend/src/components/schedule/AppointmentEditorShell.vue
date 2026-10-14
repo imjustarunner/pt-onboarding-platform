@@ -57,6 +57,7 @@
           v-if="bookSessionLayout && showRecurrence && recurrenceFrequency !== 'ONCE'"
           :frequency="recurrenceFrequency"
           :end-mode="recurrenceEndMode"
+          :end-modes="recurrenceEndModes"
           :occurrence-count="recurrenceOccurrenceCount"
           :until-date="recurrenceUntilDate"
           :weekdays="recurrenceWeekdays"
@@ -101,6 +102,7 @@
       v-if="showRecurrence && !bookSessionLayout"
       :frequency="recurrenceFrequency"
       :end-mode="recurrenceEndMode"
+      :end-modes="recurrenceEndModes"
       :occurrence-count="recurrenceOccurrenceCount"
       :until-date="recurrenceUntilDate"
       :weekdays="recurrenceWeekdays"
@@ -154,6 +156,7 @@ const props = defineProps({
   showRecurrence: { type: Boolean, default: true },
   recurrenceFrequency: { type: String, default: 'ONCE' },
   recurrenceEndMode: { type: String, default: 'count' },
+  recurrenceEndModes: { type: Array, default: () => ['count', 'until', 'indefinite'] },
   recurrenceOccurrenceCount: { type: Number, default: 4 },
   recurrenceUntilDate: { type: String, default: '' },
   recurrenceWeekdays: { type: Array, default: () => [] },

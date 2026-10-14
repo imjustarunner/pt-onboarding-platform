@@ -1885,6 +1885,7 @@
           :show-recurrence="editorShowRecurrence"
           :recurrence-frequency="editorRecurrenceFrequency"
           :recurrence-end-mode="editorRecurrenceEndMode"
+          :recurrence-end-modes="requestType === 'office_request_only' ? (editorRecurrenceFrequency === 'WEEKLY' ? [] : ['count']) : undefined"
           :recurrence-occurrence-count="editorRecurrenceOccurrenceCount"
           :recurrence-until-date="editorRecurrenceUntilDate"
           :recurrence-weekdays="editorRecurrenceWeekdays"
@@ -13681,7 +13682,7 @@ const editorMeetLink = computed(() => {
 });
 const editorPlatformLink = computed(() => editorVirtualLink.value);
 const editorShowRecurrence = computed(() => (
-  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value
+  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value || requestType.value === 'office_request_only'
 ));
 const editorRecurrenceFrequency = computed({
   get: () => {
@@ -13699,6 +13700,7 @@ const editorRecurrenceFrequency = computed({
 });
 const editorRecurrenceEndMode = computed({
   get: () => {
+    if (requestType.value === 'office_request_only') return editorRecurrenceFrequency.value === 'WEEKLY' ? 'indefinite' : 'count';
     if (editorIsSupervision.value) return String(supervisionRecurrenceEndMode.value || 'count');
     return String(scheduleEventRecurrenceEndMode.value || 'count');
   },
@@ -13754,6 +13756,9 @@ const editorBookedUntilLabel = computed(() => {
   return label || '—';
 });
 const editorRecurrenceOccurrenceLabel = computed(() => {
+  if (requestType.value === 'office_request_only') return editorRecurrenceFrequency.value === 'WEEKLY'
+    ? 'After approval, weekly room reservations continue until changed or released.'
+    : `Each selected day is reviewed separately${editorRecurrenceFrequency.value === 'ONCE' ? '.' : ` for ${editorRecurrenceOccurrenceCount.value} occurrences.`}`;
   if (editorIsOpenSlot.value) return 'Ongoing weekly availability';
   const freq = editorRecurrenceFrequency.value;
   const lastLabel = formatEditorDateLabel(editorLastOccurrenceYmd.value);
@@ -13766,7 +13771,7 @@ const editorRecurrenceOccurrenceLabel = computed(() => {
   if (lastLabel) return `Booked until ${lastLabel}`;
   return `Books ${editorRecurrenceOccurrenceCount.value} time(s)`;
 });
-const editorShowOccurrenceCount = computed(() => !editorIsOpenSlot.value && editorRecurrenceFrequency.value !== 'ONCE');
+const editorShowOccurrenceCount = computed(() => requestType.value !== 'office_request_only' && !editorIsOpenSlot.value && editorRecurrenceFrequency.value !== 'ONCE');
 const editorOccurrenceCountLabel = computed(() => {
   const lastLabel = formatEditorDateLabel(editorLastOccurrenceYmd.value);
   if (editorRecurrenceFrequency.value === 'ONCE') return lastLabel || '1 time';
@@ -14569,7 +14574,7 @@ const editorRoomOptions = computed(() => {
   return mergeEditorRoomOptionsWithBookings(base);
 });
 const editorShowBookedUntil = computed(() => (
-  !editorIsOpenSlot.value && editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
+  requestType.value !== 'office_request_only' && !editorIsOpenSlot.value && editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
 ));
 const editorShowOfficeRequestCta = computed(() => {
   // Open-slot: the rich chip-list panel expands when attach is checked (officeRequestActive).
@@ -22019,7 +22024,7 @@ const submitRequest = async () => {
       // Prefer unified editor recurrence controls when present.
       const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
-      const endMode = String(scheduleEventRecurrenceEndMode.value || 'count');
+      const endMode = editorRecurrenceEndMode.value;
       const occurrenceMax = recurrence === 'WEEKLY' ? 6 : 104;
       const occurrenceCount = recurringRecurrences.includes(recurrence)
         ? (endMode === 'indefinite'

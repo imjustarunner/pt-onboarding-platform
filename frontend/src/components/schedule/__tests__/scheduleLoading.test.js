@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { flushPromises, shallowMount } from '@vue/test-utils';
+import { flushPromises, shallowMount, mount as mountComponent } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
@@ -9,6 +9,7 @@ vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
 import Grid from '../ScheduleAvailabilityGrid.vue';
+import RecurrenceControls from '../RecurrenceControls.vue';
 import { clearScheduleSummaryCache, getScheduleSummaryStale, setScheduleSummary } from '../../../utils/scheduleSummaryCache.js';
 
 const summary = { providerId: 7, weekStart: '2026-10-12', scheduleEvents: [], scheduleAgencyIds: [] };
@@ -272,11 +273,13 @@ it('submits every chosen office weekday with the edited time range and recurrenc
   await wrapper.setProps({agencyId:2});
   m.post.mockResolvedValue({data:{id:1,requestIds:[1,2]}});
   state.requestType = 'office_request_only';
+  expect(state.editorShowRecurrence).toBe(true);
   state.modalDay = 'Tuesday';
   state.modalHour = 17;
   state.modalStartHour = 17;
   state.modalEndHour = 19;
-  state.scheduleEventRecurrence = 'WEEKLY';
+  state.editorRecurrenceFrequency = 'WEEKLY';
+  expect(state.editorRecurrenceEndMode).toBe('indefinite');
   state.scheduleEventOccurrenceCount = 6;
   state.editorRecurrenceWeekdays = ['Tue','Wed'];
   await state.submitRequest();
@@ -284,4 +287,14 @@ it('submits every chosen office weekday with the edited time range and recurrenc
     recurrence:'WEEKLY', requestedStartDate:'2026-10-13',
     slots:[{weekday:2,startHour:17,endHour:19,roomId:undefined},{weekday:3,startHour:17,endHour:19,roomId:undefined}]
   }));
+});
+
+it('offers weekday choices for ongoing room requests without an unsupported end date',async()=>{
+ const controls=mountComponent(RecurrenceControls,{props:{frequency:'WEEKLY',endMode:'indefinite',endModes:[],weekdays:['Tue']}});
+ expect(controls.find('.rec-weekdays').exists()).toBe(true);
+ expect(controls.find('input[type=date]').exists()).toBe(false);
+ expect(controls.find('input[type=number]').exists()).toBe(false);
+ await controls.findAll('.rec-day').find(b=>b.attributes('aria-pressed')==='false' && b.text().startsWith('W')).trigger('click');
+ expect(controls.emitted('update:weekdays')[0][0]).toEqual(['Tue','Wed']);
+ controls.unmount();
 });
