@@ -2,9 +2,16 @@
   <Teleport to="body">
     <dialog ref="dialog" class="business-cards-dialog" :class="{ 'self-service-dialog': singlePerson }" aria-labelledby="business-cards-title" @close="$emit('close')">
       <header>
-        <div><h2 id="business-cards-title">{{ selfOnly ? 'My business cards' : 'Business cards' }}</h2><p>Avery 35702 · 2.5 × 2.5 inches · Nine matching cards per selection</p></div>
+        <div><h2 id="business-cards-title">{{ selfOnly ? 'My business cards' : 'Business cards' }}</h2><p>Avery {{ layout.id }} · {{ layout.dimensions }} · {{ layout.count }} matching cards per selection</p></div>
         <button class="btn btn-secondary" aria-label="Close business cards" @click="dialog.close()">Close</button>
       </header>
+      <fieldset class="card-format-toggle" aria-label="Card shape">
+        <legend>Choose your card stock</legend>
+        <button v-for="option in layouts" :key="option.id" type="button" :disabled="busy" :aria-pressed="format === option.id" @click="format = option.id">
+          <strong>{{ option.label }}</strong><span>Avery {{ option.id }} · {{ option.dimensions }} · {{ option.count }} per sheet</span>
+        </button>
+      </fieldset>
+      <p v-if="format === '8870'" class="card-stock-note">Avery 8870 cards share cut lines. This design uses a small white border so neighboring colors stay separate. Alignment is saved separately from square cards.</p>
       <div class="card-toolbar">
         <label v-if="agencies.length > 1">Organization<select v-model="agencyId" aria-label="Organization" :disabled="busy"><option value="">Choose an organization</option><option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
         <p v-else class="card-organization"><strong>{{ agencies[0]?.name || 'No affiliated agency' }}</strong></p>
@@ -28,12 +35,12 @@
           <label>Default extension<input v-model="organization.extension" maxlength="12" /></label>
           <label>Office address<textarea v-model="organization.address" rows="3" maxlength="160" /></label>
           <label>QR destination<input v-model="organization.qrUrl" :placeholder="organization.website || 'https://your-website.org'" maxlength="300" /></label><label>Back caption<input v-model="organization.backCaption" maxlength="80" /></label></fieldset>
-          <details><summary>Printer alignment</summary><p>Offsets in inches. Positive values move right / down. Print at 100% on Letter paper. Bleed extends colors beyond the cut edges.</p>
+          <details><summary>Printer alignment</summary><p>Offsets in inches. Positive values move right / down. Print at 100% on Letter paper. <template v-if="format === '35702'">Bleed extends colors beyond the cut edges.</template></p>
             <label>Horizontal offset<input v-model.number="printSettings.offsetX" type="number" min="-0.125" max="0.125" step="0.005" /></label>
             <label>Vertical offset<input v-model.number="printSettings.offsetY" type="number" min="-0.125" max="0.125" step="0.005" /></label>
-            <label>Top row vertical adjustment<input v-model.number="printSettings.topRowOffsetY" type="number" min="-0.125" max="0.125" step="0.005" /></label>
-            <label>Bleed (top and sides)<input v-model.number="printSettings.bleed" type="number" min="0" max="0.125" step="0.005" /></label>
-            <label>Bottom bleed<input v-model.number="printSettings.bottomBleed" type="number" min="0" max="0.125" step="0.005" /></label>
+            <label v-if="format === '35702'">Top row vertical adjustment<input v-model.number="printSettings.topRowOffsetY" type="number" min="-0.125" max="0.125" step="0.005" /></label>
+            <label v-if="format === '35702'">Bleed (top and sides)<input v-model.number="printSettings.bleed" type="number" min="0" max="0.125" step="0.005" /></label>
+            <label v-if="format === '35702'">Bottom bleed<input v-model.number="printSettings.bottomBleed" type="number" min="0" max="0.125" step="0.005" /></label>
             <label>Back horizontal adjustment<input v-model.number="printSettings.backOffsetX" type="number" min="-0.125" max="0.125" step="0.005" /></label>
             <label>Back vertical adjustment<input v-model.number="printSettings.backOffsetY" type="number" min="-0.125" max="0.125" step="0.005" /></label>
             <label class="check"><input v-model="guides" type="checkbox" /> Show card outlines for a test print</label>
@@ -41,7 +48,7 @@
           <button v-if="canManage" class="btn btn-primary" :disabled="busy" @click="saveTemplate">{{ saving ? 'Saving…' : 'Save organization template' }}</button>
         </section>
         <section v-if="!singlePerson" class="card-people" aria-label="Card selection">
-          <h3>Choose cards</h3><p>{{ selected.length }} selected · {{ selected.length * 9 }} cards</p>
+          <h3>Choose cards</h3><p>{{ selected.length }} selected · {{ selected.length * layout.count }} cards</p>
           <label>Card type<select v-model="cardType" aria-label="Card type"><option value="people">Employees &amp; providers</option><option v-if="canManage" value="groups">Groups &amp; departments</option></select></label>
           <p v-if="cardType === 'groups'">Choose a general organization card or a configured group email or department. Review the contact details before printing.</p>
           <label>{{ cardType === 'groups' ? 'Find a group or department' : 'Find an employee' }}<input v-model="search" type="search" :placeholder="cardType === 'groups' ? 'Name or group email' : 'Name or credentials'" /></label>
@@ -53,7 +60,7 @@
           </div>
         </section>
         <section v-if="editing" class="card-editor" aria-label="Individual card editor">
-          <h3>Edit once, print nine</h3>
+          <h3>Edit once, print {{ layout.count }}</h3>
           <p>{{ editing.kind ? 'Filled from the organization’s group or department settings. Edits apply to this card draft.' : 'Filled from this employee’s profile, organization contact settings, and primary office assignment.' }}</p>
           <p class="phone-source">Office: <strong>{{ resolvedPreview.phone || 'Not configured for this agency' }}{{ resolvedPreview.phone && resolvedPreview.extension ? ` ext. ${resolvedPreview.extension}` : '' }}</strong></p>
           <p class="phone-source" v-if="editing.workLine">Work number: <strong>{{ editing.workLine.number }}</strong> · {{ editing.workLine.canCall ? (editing.workLine.canText ? 'Call / Text' : 'Call') : 'Text' }}</p>
@@ -62,8 +69,8 @@
           <p v-if="!editing.kind">Choose your QR destination before printing the back. Stock with an agency QR already printed keeps that destination; use blank backs for your profile QR.</p>
           <div class="selection-actions"><button class="btn btn-secondary btn-sm" @click="previewSide = 'front'">Front preview</button><button class="btn btn-secondary btn-sm" @click="previewSide = 'back'">QR back preview</button></div>
           <p v-if="previewError" class="card-error">{{ previewError }}</p>
-          <img v-if="preview" class="card-preview" :src="preview" :alt="`Card preview for ${editing.name}`" />
-          <p class="preview-note">Preview is enlarged. Printed cards are 2.5 inches square.</p>
+          <img v-if="preview" class="card-preview" :style="{ aspectRatio: `${layout.cardWidth} / ${layout.cardHeight}` }" :src="preview" :alt="`Card preview for ${editing.name}`" />
+          <p class="preview-note">Preview is enlarged. Printed cards are {{ layout.dimensions }}.</p>
           <p v-if="editing.loadError" class="card-error">{{ editing.loadError }} Reopen the generator to retry loading this employee.</p>
           <p v-if="missingProfileFields.length" class="card-data-note">Missing details: {{ missingProfileFields.join(', ') }}. Review before printing.</p>
           <label>Office to print<select v-model="editing.officeId" aria-label="Office to print">
@@ -92,10 +99,11 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-import { cardSvg, svgDataUrl, employeeCardDefaults, groupCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, CARD_FIELDS } from '../../utils/businessCards';
+import { svgDataUrl, employeeCardDefaults, groupCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, CARD_FIELDS } from '../../utils/businessCards';
 import { providerProfileUrl } from '../../utils/providerProfileLinks';
-import { cardBackSvg, cardQrUrl } from '../../utils/businessCardBack';
-import { printSettingsDefaults, normalizePrintSettings, printableCardsHtml } from '../../utils/businessCardPrint';
+import { cardQrUrl } from '../../utils/businessCardBack';
+import { BUSINESS_CARD_LAYOUTS, businessCardLayout } from '../../utils/businessCardLayouts';
+import { renderCardFace, printSettingsDefaults, normalizePrintSettings, printableCardsHtml } from '../../utils/businessCardPrint';
 import { businessCardsPdf, downloadCardFile, embedCardLogo } from '../../utils/businessCardsExport';
 import { loadBusinessCardFonts } from '../../utils/businessCardFonts';
 
@@ -107,7 +115,11 @@ const dialog = ref(null), agencyId = ref(String(initialAgency)), people = ref([]
 const organization = reactive(organizationCardDefaults());
 const loading = ref(false), exporting = ref(false), error = ref(''), notice = ref(''), search = ref('');
 const cardType = ref('people');
-const printSettings = reactive(printSettingsDefaults()), guides = ref(false), canManage = ref(false), saving = ref(false);
+const format = ref('35702'), layouts = Object.values(BUSINESS_CARD_LAYOUTS);
+const layout = computed(() => businessCardLayout(format.value));
+const printFormats = reactive({ '35702': printSettingsDefaults(), '8870': printSettingsDefaults({}, '8870') });
+const printSettings = computed(() => printFormats[format.value]);
+const guides = ref(false), canManage = ref(false), saving = ref(false);
 const previewSide = ref('front'), printSide = ref('front');
 const pageCount = computed(() => selected.value.length * (printSide.value === 'both' ? 2 : 1));
 const busy = computed(() => loading.value || exporting.value || saving.value);
@@ -121,7 +133,7 @@ const missingProfileFields = computed(() => editing.value ? [
 ] : []);
 const fonts = ref({});
 const resolvedPreview = computed(() => resolveCard(editing.value || {}, organization));
-const previewResult = computed(() => { try { return { url: svgDataUrl((previewSide.value === 'back' ? cardBackSvg : cardSvg)(resolvedPreview.value, fonts.value)), error: '' }; } catch (err) { return { url: '', error: err.message }; } });
+const previewResult = computed(() => { try { return { url: svgDataUrl(renderCardFace(resolvedPreview.value, previewSide.value, format.value, fonts.value)), error: '' }; } catch (err) { return { url: '', error: err.message }; } });
 const preview = computed(() => previewResult.value.url), previewError = computed(() => previewResult.value.error);
 const visiblePeople = computed(() => people.value.filter(p => (cardType.value === 'groups' ? Boolean(p.kind) : !p.kind) && `${p.name} ${p.credentials} ${p.email}`.toLowerCase().includes(search.value.toLowerCase())));
 watch(cardType, () => {
@@ -148,7 +160,8 @@ async function loadOrganization(id) {
   cardType.value = 'people';
   canManage.value = false;
   Object.assign(organization, organizationCardDefaults());
-  Object.assign(printSettings, printSettingsDefaults());
+  Object.assign(printFormats['35702'], printSettingsDefaults());
+  Object.assign(printFormats['8870'], printSettingsDefaults({}, '8870'));
   if (!id) { loading.value = false; return; }
   loading.value = true;
   try {
@@ -158,7 +171,8 @@ async function loadOrganization(id) {
     canManage.value = Boolean(response.data.canManage);
     Object.assign(organization, organizationCardDefaults(agency), template?.organization || {});
     if (template?.organization && !Object.hasOwn(template.organization, 'logoCrop')) organization.logoCrop = '';
-    Object.assign(printSettings, printSettingsDefaults(agency), template?.print || {});
+    Object.assign(printFormats['35702'], printSettingsDefaults(agency), template?.print || {});
+    Object.assign(printFormats['8870'], printSettingsDefaults(agency, '8870'), template?.printFormats?.['8870'] || {});
     const rawLogo = template?.organization ? organization.logo : organization.logo || (agency.logo_path ? toUploadsUrl(agency.logo_path) : agency.logo_url || '');
     try { const logo = await embedCardLogo(rawLogo); if (version === generation) organization.logo = logo; }
     catch { if (version === generation) notice.value = 'The organization logo could not be embedded. Upload a PNG or JPEG logo, or use the organization name.'; }
@@ -225,7 +239,7 @@ async function uploadLogo(event) {
 }
 
 function saveDraft() {
-  downloadCardFile(JSON.stringify({ version: 1, organizationId: agencyId.value, organization: { ...organization }, print: { ...printSettings }, people: people.value.map(p => ({ id: p.id, officeId: p.officeId, selected: p.selected, ...Object.fromEntries(CARD_FIELDS.map(k => [k, p[k]])) })) }, null, 2), 'application/json', `business-cards-${agencyId.value}-draft.json`);
+  downloadCardFile(JSON.stringify({ version: 1, organizationId: agencyId.value, organization: { ...organization }, format: format.value, print: { ...printFormats['35702'] }, printFormats: { '8870': { ...printFormats['8870'] } }, people: people.value.map(p => ({ id: p.id, officeId: p.officeId, selected: p.selected, ...Object.fromEntries(CARD_FIELDS.map(k => [k, p[k]])) })) }, null, 2), 'application/json', `business-cards-${agencyId.value}-draft.json`);
 }
 
 async function loadDraft(event) {
@@ -240,7 +254,12 @@ async function loadDraft(event) {
       if (person[field.key].length > limit) throw new Error(`The saved ${field.label.toLowerCase()} is too long.`);
     }
     if (canManage.value) Object.assign(organization, draft.organization);
-    if (draft.print) Object.assign(printSettings, normalizePrintSettings(draft.print));
+    const draftFormat = businessCardLayout(draft.format).id;
+    const square = normalizePrintSettings({ ...draft.print, format: '35702' });
+    const rectangle = normalizePrintSettings({ ...draft.printFormats?.['8870'], format: '8870' });
+    Object.assign(printFormats['35702'], square);
+    Object.assign(printFormats['8870'], rectangle);
+    format.value = draftFormat;
     const byId = new Map(draft.people.map(p => [p.id, p]));
     people.value.forEach(p => {
       if (!byId.has(p.id)) { p.selected = false; return; }
@@ -258,16 +277,17 @@ async function loadDraft(event) {
 async function saveTemplate() {
   error.value = ''; saving.value = true;
   try {
-    const print = normalizePrintSettings(printSettings);
+    const print = normalizePrintSettings({ ...printFormats['35702'], format:'35702' });
+    const rectanglePrint = normalizePrintSettings({ ...printFormats['8870'], format:'8870' });
     const organizationSettings = { ...organization, logo: await embedCardLogo(organization.logo), watermarkLogo: await embedCardLogo(organization.watermarkLogo) };
     if (organization.qrUrl) organizationSettings.qrUrl = cardQrUrl(organization);
-    await api.put(`/agencies/${agencyId.value}/business-cards`, { version: 1, organization: organizationSettings, print });
+    await api.put(`/agencies/${agencyId.value}/business-cards`, { version: 1, organization: organizationSettings, print, printFormats: { '8870': rectanglePrint } });
     notice.value = 'Organization template saved. Staff will use it when opening their business cards.';
   } catch (err) { error.value = err.response?.data?.error?.message || err.message || 'Could not save the card template.'; }
   finally { saving.value = false; }
 }
 
-async function exportCards(format) {
+async function exportCards(fileType) {
   error.value = ''; exporting.value = true;
   try {
     fonts.value = await loadBusinessCardFonts();
@@ -286,9 +306,9 @@ async function exportCards(format) {
     const logo = await embedCardLogo(organization.logo);
     const watermarkLogo = await embedCardLogo(organization.watermarkLogo);
     cards.forEach(c => { c.logo = logo; c.watermarkLogo = watermarkLogo; });
-    const filename = `business-cards-${agencyId.value}-avery-35702`;
-    if (format === 'pdf') downloadCardFile(await businessCardsPdf(cards, { ...printSettings, guides: guides.value, side: printSide.value }), 'application/pdf', `${filename}.pdf`);
-    else downloadCardFile(printableCardsHtml(cards, { ...printSettings, guides: guides.value, side: printSide.value }, fonts.value), 'text/html', `${filename}.html`);
+    const filename = `business-cards-${agencyId.value}-avery-${format.value}`;
+    if (fileType === 'pdf') downloadCardFile(await businessCardsPdf(cards, { ...printSettings.value, format: format.value, guides: guides.value, side: printSide.value }), 'application/pdf', `${filename}.pdf`);
+    else downloadCardFile(printableCardsHtml(cards, { ...printSettings.value, format: format.value, guides: guides.value, side: printSide.value }, fonts.value), 'text/html', `${filename}.html`);
     notice.value = `Downloaded ${pageCount.value} pages for ${cards.length} selections.`;
   } catch (err) { error.value = err.message || 'Could not export cards. Please check the logo and card details.'; }
   finally { exporting.value = false; }
@@ -296,6 +316,13 @@ async function exportCards(format) {
 </script>
 
 <style scoped>
+.card-format-toggle { display:flex; gap:12px; margin:20px 0 8px; flex-wrap:wrap; }
+.card-format-toggle legend { font-weight:700; margin-bottom:10px; }
+.card-format-toggle button { flex:1; min-width:220px; text-align:left; border:2px solid #d3dfdf; border-radius:10px; padding:14px; background:#fff; color:#19373b; cursor:pointer; }
+.card-format-toggle button[aria-pressed="true"] { border-color:#24786b; background:#edf8f4; box-shadow:0 0 0 1px #24786b; }
+.card-format-toggle strong,.card-format-toggle span { display:block; }.card-format-toggle strong { font-size:17px; margin-bottom:6px; }.card-format-toggle span { font-size:12px; }
+.card-stock-note { background:#f2f6f5; padding:10px 14px; border-radius:8px; }
+
 .business-cards-dialog { width: min(1220px, 96vw); max-height: 94vh; margin: auto; border: 1px solid #d3dfdf; border-radius: 16px; padding: 24px; background: #fff; color: #19373b; }
 .business-cards-dialog.self-service-dialog { width: min(800px, 96vw); }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }

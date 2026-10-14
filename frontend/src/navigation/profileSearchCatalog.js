@@ -7,7 +7,7 @@
  */
 
 export const PROFILE_SEARCH_TARGETS = [
-  { id: 'business-cards', tabId: 'account', sectionId: 'profile-business-cards', label: 'Business cards', aliases: ['business card', 'print cards', 'Avery', '35702', 'square cards', 'QR code', 'agency branding'] },
+  { id: 'business-cards', tabId: 'account', sectionId: 'profile-business-cards', label: 'Business cards', aliases: ['business card', 'print cards', 'Avery', '35702', '8870', 'square cards', 'rectangle cards', 'rectangular cards', 'QR code', 'agency branding'] },
   { id: 'payroll-hcbs-classification', tabId: 'account', sectionId: 'payroll-hcbs-classification', label: 'Payroll & HCBS classification', aliases: ['HCBS', 'bachelors', 'masters', 'prelicensed', 'hourly worker'] },
   { id: 'application-history', tabId: 'account', sectionId: 'application-history', label: 'Application history', aliases: ['applications', 'hiring', 'interview'] },
   { id: 'tasks', tabId: 'tasks', sectionId: '', label: 'Tasks', aliases: ['assigned tasks', 'to do', 'checklist', 'pending tasks'] },

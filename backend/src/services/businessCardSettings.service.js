@@ -50,5 +50,17 @@ export function normalizeBusinessCardSettings(raw) {
     const y = .875 + row * 3.375 + p.offsetY + (row === 0 ? p.topRowOffsetY : 0) + (back ? p.backOffsetY : 0);
     if (x - p.bleed < 0 || x + 2.5 + p.bleed > 8.5 || y - p.bleed < 0 || y + 2.5 + p.bottomBleed > 11) fail('Combined print adjustments extend beyond the Letter page.');
   }
+  // Rectangle stock is edge-to-edge between cards; keep its calibration independent.
+  if (raw.printFormats !== undefined && (!raw.printFormats || typeof raw.printFormats !== 'object' || Array.isArray(raw.printFormats) || Object.keys(raw.printFormats).some(key => key !== '8870'))) fail('Invalid card print formats.');
+  const rectangle = raw.printFormats?.['8870'];
+  if (rectangle !== undefined && (!rectangle || typeof rectangle !== 'object' || Array.isArray(rectangle))) fail('Invalid rectangle print settings.');
+  const rect = {};
+  for (const key of ['offsetX','offsetY','backOffsetX','backOffsetY','topRowOffsetY','bleed','bottomBleed']) {
+    const value = rectangle?.[key] ?? 0;
+    if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > .125) fail(`Invalid rectangle ${key} print adjustment.`);
+    if (['topRowOffsetY','bleed','bottomBleed'].includes(key) && value !== 0) fail('Avery 8870 requires zero bleed and whole-sheet alignment.');
+    rect[key] = value;
+  }
+  if (rectangle !== undefined) result.printFormats = { '8870': rect };
   return result;
 }

@@ -115,7 +115,7 @@ function lines(value, width, measure) {
   });
 }
 
-function textBlock(value, x, y, width, size, maxLines, color, weight, family, measureText) {
+export function textBlock(value, x, y, width, size, maxLines, color, weight, family, measureText) {
   const measure = value => measureText ? measureText(value, size, family, weight) : value.length * size * 0.46;
   let rows = lines(value, width, measure);
   // Reduce type to accommodate full text; the editor limits field lengths.
@@ -124,20 +124,20 @@ function textBlock(value, x, y, width, size, maxLines, color, weight, family, me
   return { size, lines: rows.length, bottom: y + Math.max(0, rows.length - 1) * size * lineHeight, markup: rows.map((row, i) => `<text x="${x}" y="${y + i * size * lineHeight}" font-family="${family}, sans-serif" font-size="${size}" font-weight="${weight}" fill="${color}">${escape(row)}</text>`).join('') };
 }
 
-function singleLine(value, x, y, width, size, color, weight, family, measureText, field) {
+export function singleLine(value, x, y, width, size, color, weight, family, measureText, field) {
   const content = text(value).replace(/\s+/g, ' ');
   const measured = measureText ? measureText(content, size, family, weight) : content.length * size * 0.6;
   const fittedSize = measured > width ? size * width / measured : size;
   return `<text data-card-field="${field}" x="${x}" y="${y}" font-family="${family}, sans-serif" font-size="${fittedSize}" font-weight="${weight}" fill="${color}">${escape(content)}</text>`;
 }
 
-function ink(background) {
+export function ink(background) {
   const rgb = background.slice(1).match(/../g).map(v => parseInt(v, 16) / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
   return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.36 ? '#163638' : '#ffffff';
 }
 
 // Vector contact marks stay crisp in previews and print without an icon font.
-function contactIcon(kind, x, y, size, color = '#162f32') {
+export function contactIcon(kind, x, y, size, color = '#162f32') {
   const paths = {
     email: '<rect x="2" y="4" width="20" height="16" rx="1.5"/><path d="m3 5 9 7 9-7M3 19l6-6m12 6-6-6"/>',
     office: '<path d="M3 22h18M5 22V3h14v19M10 22v-5h4v5M8 7h1m6 0h1M8 11h1m6 0h1"/>',
@@ -253,5 +253,5 @@ export function readCardDraft(raw, organizationId) {
   organization.logoCrop = safeLogoCrop(organization.logoCrop);
   organization.primary = safeColor(organization.primary, '#a1dce1'); organization.accent = safeColor(organization.accent, '#b9d84e');
   for (const key of ['primaryText', 'accentText']) organization[key] = /^(auto|#[0-9a-f]{6})$/i.test(organization[key]) ? organization[key] : 'auto';
-  return { organization, print: draft.print, people: draft.people.map(p => ({ ...pick(p, CARD_FIELDS), id: text(p.id), selected: p.selected === true, ...('officeId' in p ? { officeId: text(p.officeId) } : {}) })) };
+  return { organization, print: draft.print, format: draft.format, printFormats: draft.printFormats, people: draft.people.map(p => ({ ...pick(p, CARD_FIELDS), id: text(p.id), selected: p.selected === true, ...('officeId' in p ? { officeId: text(p.officeId) } : {}) })) };
 }

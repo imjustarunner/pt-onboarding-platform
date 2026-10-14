@@ -1,4 +1,5 @@
-import { AVERY_35702, svgDataUrl, safeLogo } from './businessCards';
+import { svgDataUrl, safeLogo } from './businessCards';
+import { businessCardLayout } from './businessCardLayouts';
 import { cardSheetPlan, normalizePrintSettings } from './businessCardPrint';
 import { loadBusinessCardFonts } from './businessCardFonts';
 
@@ -26,19 +27,20 @@ export async function businessCardsPdf(cards, options = {}) {
   const fonts = await loadBusinessCardFonts();
   const { PDFDocument, rgb } = await import('pdf-lib');
   const pdf = await PDFDocument.create();
-  pdf.setTitle('Business cards · Avery 35702');
+  const layout = businessCardLayout(settings.format);
+  pdf.setTitle(`Business cards · Avery ${layout.id}`);
   const { bleed, bottomBleed } = settings;
-  const artworkWidth = AVERY_35702.card + 2 * bleed;
-  const artworkHeight = AVERY_35702.card + bleed + bottomBleed;
+  const artworkWidth = layout.cardWidth + 2 * bleed;
+  const artworkHeight = layout.cardHeight + bleed + bottomBleed;
   for (const sheet of cardSheetPlan(cards, settings, fonts)) {
     const img = new Image(); img.src = svgDataUrl(sheet.svg);
     await img.decode();
     const canvas = document.createElement('canvas'); canvas.width = Math.round(artworkWidth * 400); canvas.height = Math.round(artworkHeight * 400);
     canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
     const artwork = await pdf.embedPng(canvas.toDataURL('image/png'));
-    const page = pdf.addPage([AVERY_35702.width * 72, AVERY_35702.height * 72]);
+    const page = pdf.addPage([layout.width * 72, layout.height * 72]);
     for (const p of sheet.positions) {
-      const bounds = { x: p.x * 72, y: (AVERY_35702.height - p.y - AVERY_35702.card) * 72, width: 180, height: 180 };
+      const bounds = { x: p.x * 72, y: (layout.height - p.y - layout.cardHeight) * 72, width: layout.cardWidth * 72, height: layout.cardHeight * 72 };
       page.drawImage(artwork, { x: bounds.x - bleed * 72, y: bounds.y - bottomBleed * 72, width: artworkWidth * 72, height: artworkHeight * 72 });
       if (settings.guides) page.drawRectangle({ ...bounds, borderWidth: 0.4, borderColor: rgb(0.4, 0.4, 0.4), borderDashArray: [2, 2] });
     }

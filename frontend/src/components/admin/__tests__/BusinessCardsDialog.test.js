@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import BusinessCardsDialog from '../BusinessCardsDialog.vue';
 import { businessCardsPdf, downloadCardFile } from '../../../utils/businessCardsExport';
 import { nextTick } from 'vue';
-const api=vi.hoisted(()=>({get:vi.fn()}));
+const api=vi.hoisted(()=>({get:vi.fn(),put:vi.fn(async()=>({data:{}}))}));
 vi.mock('../../../services/api',()=>({default:api}));
 vi.mock('../../../utils/businessCardFonts',()=>({loadBusinessCardFonts:vi.fn(async()=>({}))}));
 vi.mock('../../../utils/businessCardsExport',()=>({embedCardLogo:vi.fn(async()=>''),businessCardsPdf:vi.fn(),downloadCardFile:vi.fn()}));
@@ -73,4 +73,23 @@ describe('group and department cards',()=>{
   const w=mount(BusinessCardsDialog,{props:{agencies:[{id:2,name:'Tenant'}],selfOnly:true},attachTo:document.body});wrappers.push(w);await flushPromises();
   expect(document.querySelector('[aria-label="Card type"]')).toBeNull();
  });
+ it('switches stock without losing edits, exports ten-card layouts, and saves both calibrations',async()=>{
+  await setup({slug:'itsco'});
+  document.querySelector('.person-row input').click();await nextTick();
+  const squareOffset=[...document.querySelectorAll('label')].find(el=>el.textContent.includes('Horizontal offset')).querySelector('input');
+  squareOffset.value='.03';squareOffset.dispatchEvent(new Event('input',{bubbles:true}));await nextTick();
+  await clickButton('Rectangle');
+  expect(document.querySelector('.card-format-toggle [aria-pressed="true"]').textContent).toContain('8870');
+  expect(document.querySelector('.card-people').textContent).toContain('10 cards');
+  expect(document.querySelector('.card-editor').textContent).toContain('print 10');
+  const offset=[...document.querySelectorAll('label')].find(el=>el.textContent.includes('Horizontal offset')).querySelector('input');
+  expect(offset.value).toBe('0');offset.value='-.02';offset.dispatchEvent(new Event('input',{bubbles:true}));await nextTick();
+  await clickButton('Download PDF');expect(businessCardsPdf.mock.calls[0][1]).toMatchObject({format:'8870',offsetX:-.02,bleed:0,topRowOffsetY:0});
+  await clickButton('Save organization template');expect(api.put.mock.calls[0][1]).toMatchObject({print:{offsetX:.03,topRowOffsetY:.0625},printFormats:{'8870':{offsetX:-.02,bleed:0}}});
+  await clickButton('Save editable draft');const draft=JSON.parse(downloadCardFile.mock.calls.find(c=>c[1]==='application/json')[0]);expect(draft).toMatchObject({format:'8870',print:{offsetX:.03},printFormats:{'8870':{offsetX:-.02}}});
+  await clickButton('Square');expect([...document.querySelectorAll('label')].find(el=>el.textContent.includes('Horizontal offset')).querySelector('input').value).toBe('0.03');
+  const input=document.querySelector('.file-label input');Object.defineProperty(input,'files',{configurable:true,value:[{size:100,text:async()=>JSON.stringify(draft)}]});input.dispatchEvent(new Event('change',{bubbles:true}));await flushPromises();
+  expect(document.querySelector('.card-format-toggle [aria-pressed="true"]').textContent).toContain('8870');
+ });
+
 });

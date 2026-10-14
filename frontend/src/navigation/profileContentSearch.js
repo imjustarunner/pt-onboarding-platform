@@ -31,7 +31,7 @@ const accountContent = {
   'public-profile': 'public profile biography bio directory specialties approaches insurance accepted self pay rates language gender ethnicity website',
   'employment-dates': 'hire date termination date employment status start date manager job title department position',
   'access-permissions': 'staff provider supervisor privileges administrative permissions billing hiring outreach medical records games',
-  'agency-assignments': 'tenant agency affiliation organization relationship role title position client services business cards Avery 35702 QR code print',
+  'agency-assignments': 'tenant agency affiliation organization relationship role title position client services business cards Avery 35702 8870 rectangle square QR code print',
   'building-offices': 'assigned office location building address room',
 };
 export function adminSearchTargets(tabs, { fields = [], canPrintCards = false, categories = [] } = {}) {
@@ -47,7 +47,7 @@ export function accountSearchTargets({ isClub = false, canSeeKudos = false, canM
   const flags = { workforce: !isClub, kudos: canSeeKudos, availability: !isClub && canManageAvailability };
   const sections = ACCOUNT_SECTIONS.filter(s => !s.visibleKey || flags[s.visibleKey]);
   const targets = sections.map(s => ({ id: `my-${s.id}`, tabId: 'my', mySection: s.id, label: s.navLabel, kind: 'Page', breadcrumb: `My Account › ${s.navLabel}`, content: [s.description, s.title, s.statHint, s.tag].join(' ') }));
-  if (canPrintCards) targets.push({ id: 'my-business-cards', tabId: 'my', mySection: 'account', sectionId: 'my-business-cards', label: 'My business cards', kind: 'Section', breadcrumb: 'My Account › Account Info', content: 'Print Avery 35702 square cards 2.5 x 2.5 QR code agency logo nine cards per sheet' });
+  if (canPrintCards) targets.push({ id: 'my-business-cards', tabId: 'my', mySection: 'account', sectionId: 'my-business-cards', label: 'My business cards', kind: 'Section', breadcrumb: 'My Account › Account Info', content: 'Print Avery 35702 square cards 2.5 x 2.5 nine per sheet or Avery 8870 rectangle cards 3.5 x 2 ten per sheet QR code agency logo' });
   const details = [
     ['my-profile-photo', 'Profile photo', 'avatar picture upload'], ['my-contact-info', 'Contact information', accountContent['account-info']],
     ['my-home-address', 'Home address', 'street mailing city state zip postal'], ['my-account-security', 'Account security', 'password login authentication biometric security'],

@@ -74,3 +74,16 @@ describe('card artwork settings',()=>{
   for(const patch of [{watermarkLogo:'javascript:bad'},{logoCrop:'0 0 500 500 100 100'},{logoCrop:'0 0 100 100 100 100" onload="bad'}])expect(()=>normalizeBusinessCardSettings({...draft,organization:{...draft.organization,...patch}})).toThrow();
  });
 });
+
+describe('rectangle card calibration',()=>{
+ it('preserves square settings and separately saves rectangle offsets',()=>{
+  const raw={...template(),printFormats:{'8870':{offsetX:.025,offsetY:-.015,backOffsetX:.01}}};
+  const saved=normalizeBusinessCardSettings(raw);expect(saved.print).toEqual(raw.print);
+  expect(saved.printFormats['8870']).toEqual({offsetX:.025,offsetY:-.015,backOffsetX:.01,backOffsetY:0,topRowOffsetY:0,bleed:0,bottomBleed:0});
+  expect(normalizeBusinessCardSettings(saved)).toEqual(saved);
+ });
+ it('rejects rectangle bleed, individual row shifting, invalid offsets and unknown stock',()=>{
+  for(const rect of [{bleed:.01},{bottomBleed:.1},{topRowOffsetY:.025},{offsetX:NaN},{offsetY:2}])expect(()=>normalizeBusinessCardSettings({...template(),printFormats:{'8870':rect}})).toThrow();
+  expect(()=>normalizeBusinessCardSettings({...template(),printFormats:{'unknown':{}}})).toThrow();
+ });
+});
