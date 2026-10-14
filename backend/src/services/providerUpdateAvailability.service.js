@@ -1,3 +1,4 @@
+import {openWaitlistedPublication} from './availabilityPublicationStatus.service.js';
 import {publishOfficeAvailability} from './publishOfficeAvailability.service.js';
 import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 import pool from '../config/database.js';
@@ -75,7 +76,7 @@ export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) 
 }
 export async function addUpdateVirtualOpening(ids, input) {
   const context=await writableContext(ids);
-  if(!agencyFormatAllowed(context.policy,'VIRTUAL') && input.enableVirtualOpen!==true)throw fail('Confirm that virtual appointments should be Open before publishing.',409);
+  if(!agencyFormatAllowed(context.policy,'VIRTUAL') && agencyIntakeStatus(context.policy||context.preferences,'VIRTUAL')!=='waitlist' && input.enableVirtualOpen!==true)throw fail('Confirm that virtual appointments should be Open before publishing.',409);
   const timeZone = await Availability.resolveAgencyTimeZone(ids);
   const opening = virtualOpening(input,timeZone);
   const calendar = await Availability.computeWeekAvailability({...ids,weekStartYmd:opening.date,intakeOnly:true,includePrivateCalendar:true,materializeOfficeEvents:false});
@@ -94,10 +95,11 @@ export async function addUpdateVirtualOpening(ids, input) {
       (agency_id,provider_id,day_of_week,start_time,end_time,session_type,available_for_intake,available_for_session,frequency,start_date,end_date,purpose,excluded_dates_json,care_types_json)
       VALUES (?,?,?,?,?,'BOTH',1,1,?,?,?,?, '[]',NULL)`,
       [ids.agencyId,ids.providerId,opening.dayOfWeek,opening.startTime,opening.endTime,opening.frequency,opening.date,opening.frequency==='ONCE'?opening.date:null,opening.frequency==='ONCE'?'INTAKE':'ONGOING']);
-    if(input.enableVirtualOpen===true){
+    if(input.enableVirtualOpen===true && agencyIntakeStatus(context.policy||context.preferences,'VIRTUAL')!=='waitlist'){
       const p=context.preferences;
       await saveAgencyAvailability(db,{...ids,actor:{id:ids.providerId,role:'provider'},body:{...p,virtual:true,acceptingNewClients:true,intakeStatusByFormat:{IN_PERSON:agencyIntakeStatus(p,'IN_PERSON'),VIRTUAL:'accepting',SCHOOL:agencyIntakeStatus(p,'SCHOOL')},applyToAll:false}});
     }
+    await openWaitlistedPublication(db,{...ids,formats:['VIRTUAL']});
     await invalidateAvailabilityReminders(db,ids.providerId);
     await db.commit();
     return {ok:true,id:result.insertId};
@@ -115,7 +117,7 @@ export async function openUpdateOfficeHours(ids,{eventId,assignmentId,inPerson,v
   if(!['WEEKLY','BIWEEKLY','EVERY_4_WEEKS'].includes(frequency))throw fail('Choose recurring office availability: weekly, every other week, or every four weeks.');
   const {policy} = await writableContext(ids);
   if (typeof inPerson!=='boolean'||typeof virtual!=='boolean') throw fail('Choose the formats to publish.');
-  if ((inPerson&&!agencyFormatAllowed(policy,'IN_PERSON'))||(virtual&&!agencyFormatAllowed(policy,'VIRTUAL'))) throw fail('Enable the selected formats and accepting new clients in your profile availability settings first.',409);
+  if ((inPerson&&!agencyFormatAllowed(policy,'IN_PERSON')&&agencyIntakeStatus(policy,'IN_PERSON')!=='waitlist')||(virtual&&!agencyFormatAllowed(policy,'VIRTUAL')&&agencyIntakeStatus(policy,'VIRTUAL')!=='waitlist')) throw fail('Enable the selected formats and accepting new clients in your profile availability settings first.',409);
   // Older updater clients keep their established assignment-level behavior.
   if(!eventId)return setOfficeAssignmentBookingAvailability({...ids,assignmentId:Number(assignmentId),inPerson,virtual,...(inPerson && policy?.officeIds ? {allowedOfficeIds:policy.officeIds}: {})});
   const [[event]]=await pool.execute(`SELECT e.* FROM office_events e LEFT JOIN office_standing_assignments a ON a.id=e.standing_assignment_id

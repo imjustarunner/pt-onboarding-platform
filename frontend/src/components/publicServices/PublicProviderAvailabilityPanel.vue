@@ -13,11 +13,11 @@
     <template v-if="schedule && f.key!=='school'">
      <h5>Next available appointments</h5>
      <p v-if="!slotsFor(f).length">{{emptyMessage(f)}}</p>
-     <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">These times show this provider’s {{f.key==='virtual'?'virtual':'in-person'}} availability; online time selection is not enabled. Inquire with our team to arrange a time.</p>
-     <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><small>{{availabilityLabel(slot)}}</small><small>{{f.key==='virtual'?'Virtual':slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name}}</small><button v-if="schedule.onlineScheduling" type="button" @click="openCalendar(f,slot)">Request time</button></div></div></div></div>
+     <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">These times show this provider’s {{f.key==='virtual'?'virtual':'in-person'}} availability; online booking is off. Select a preferred time to include in enrollment. It will not be reserved.</p>
+     <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><small>{{availabilityLabel(slot)}}</small><small>{{f.key==='virtual'?'Virtual':slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name}}</small><button type="button" :disabled="selecting" @click="schedule.onlineScheduling?openCalendar(f,slot):selectPreference(f,slot)">{{schedule.onlineScheduling?'Reserve time':'Select preferred time'}}</button></div></div></div></div>
      <p v-if="slotsFor(f).length" class="timezone">Times shown in {{schedule.timeZone}}. Our team confirms placement.</p>
      <button v-if="slotsFor(f).length && (schedule.onlineScheduling || daysFor(f).length>6)" type="button" class="calendar-toggle" :aria-expanded="calendar===f.value || expanded===f.value" @click="toggleCalendar(f)">{{calendar===f.value || expanded===f.value?'Hide calendar':'View all '+f.label.toLowerCase()+' availability →'}}</button>
-     <PublicProviderSlotPicker v-if="calendar===f.value" :key="f.value+calendarWeek+calendarOffice" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="calendarOffice" :office-locations="assignedOffices" :fixed-format="f.value" :initial-week="calendarWeek" :time-zone="schedule.timeZone" @hold="$emit('hold',$event)"/>
+     <PublicProviderSlotPicker v-if="calendar===f.value" :key="f.value+calendarWeek+calendarOffice" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="calendarOffice" :office-locations="assignedOffices" :fixed-format="f.value" :initial-week="calendarWeek" :time-zone="schedule.timeZone" @hold="selection=$event;$emit('hold',$event)"/>
     </template>
     <section v-if="f.key==='inPerson' && typicalAvailability.length" class="typical-availability"><h5>Typical in-office availability</h5><ul><li v-for="item in typicalAvailability" :key="item">{{item}}</li></ul></section>
     <template v-if="schedule && f.key==='school'">
@@ -29,6 +29,8 @@
     <button v-if="schedule?.waitlistEnabled && waitlistFormats.some(item=>item.value===f.value)" type="button" class="waitlist-button" @click="openWaitlist(f)">Join {{f.label.toLowerCase()}} waitlist</button>
     <router-link class="contact-link" :to="formatContactPath(f)">Inquire with our team →</router-link>
    </section>
+   <section v-if="selection" class="scheduling-note" role="status"><strong>{{selection.token?'Time reserved pending confirmation':'Preferred time selected — not reserved'}}</strong><p>{{day(selection.startAt)}} · {{time(selection.startAt)}} · {{availabilityLabel(selection)}}</p><router-link :to="enrollmentPath">Continue enrollment with this time →</router-link></section>
+   <p v-if="selectionError" role="alert">{{selectionError}}</p>
    <template v-if="schedule">
     <form v-if="waitlistOpen" ref="waitlistForm" @submit.prevent="joinWaitlist">
      <h4>Join {{provider.firstName||provider.displayName}}’s waitlist</h4><p>The team will follow up about your request. Joining does not reserve an appointment.</p>
@@ -60,6 +62,17 @@ const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:S
 const emit=defineEmits(['hold','loaded']);
 const selectedOffice=ref('');
 const schedule=ref(null),loading=ref(false),error=ref(''),calendar=ref(''),expanded=ref(''),calendarWeek=ref(''),calendarOffice=ref(''),waitlistOpen=ref(false),sending=ref(false),waitlistError=ref(''),receipt=ref(null);
+const selection=ref(null),selecting=ref(false),selectionError=ref('');
+const enrollmentPath=computed(()=>({path:`/join/${encodeURIComponent(props.agencySlug)}/${props.agencySlug==='nlu'&&props.serviceType==='tutoring'?'learning':props.serviceType}`,query:{providerId:props.provider.id,serviceType:props.serviceType}}));
+async function selectPreference(f,slot){
+ selecting.value=true;selectionError.value='';
+ try{
+  const key=`provider-hold:${props.agencySlug}`;let previous;try{previous=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
+  if(previous?.token)await api.post(`/public/agency-services/${encodeURIComponent(props.agencySlug)}/release-hold`,{token:previous.token},{skipAuthRedirect:true});
+  const value={providerId:Number(props.provider.id),serviceType:props.serviceType,modality:f.value,startAt:slot.startAt,endAt:slot.endAt,frequency:slot.frequency,purpose:slot.purpose,timeZone:schedule.value.timeZone,buildingId:slot.buildingId||null,preferenceOnly:true};
+  sessionStorage.setItem(key,JSON.stringify(value));selection.value=value;emit('hold',value);
+ }catch{selectionError.value='Could not save this preference. Please try again.';}finally{selecting.value=false;}
+}
 const waitlistForm=ref(null);
 async function openWaitlist(f){contact.value.format=f.value;waitlistOpen.value=true;await nextTick();waitlistForm.value?.querySelector('input')?.focus();}
 const contact=ref({name:'',email:'',phone:'',message:'',format:'IN_PERSON',phiAcknowledged:false,website:''});
@@ -90,7 +103,7 @@ const mapUrl=l=>`https://www.google.com/maps/search/?api=1&query=${encodeURIComp
 const day=value=>new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',timeZone:schedule.value?.timeZone}).format(new Date(value));
 const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit',timeZone:schedule.value?.timeZone}).format(new Date(value));
 let generation=0;
-async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;
+async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;selection.value=null;
  try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});if(id!==generation)return;schedule.value=data;contact.value.format=waitlistFormats.value[0]?.value||'IN_PERSON';emit('loaded',data);}
  catch(e){if(id===generation)error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
  finally{if(id===generation)loading.value=false;}}

@@ -1234,8 +1234,9 @@ export const getProviderDetail = async (req, res, next) => {
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
 
-    const heldSlots = onlineScheduling ? await getHeldSlotStartsForProvider(agency.id, providerId) : [];
-    const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
+    const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
+    // Showing safe public openings is independent of accepting online bookings.
+    const summary = await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true });
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId, agencyId:agency.id }) || {};
     profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
@@ -1433,7 +1434,7 @@ async function sendNewBookingNotification({ agencyId, agencyName, created, servi
 // Staff/current-client scheduling uses authenticated availability endpoints.
 export const getProviderSlots = (req, res, next) => getProviderDetail(req, {
   status: code => res.status(code),
-  json: data => res.json({ok:true,weekStart:data.availability.weekStart,slots:data.availability.slots.filter(s=>slotAllowsCare(s,req.query.care))})
+  json: data => res.json({ok:true,onlineScheduling:data.provider.onlineScheduling,weekStart:data.availability.weekStart,slots:data.availability.slots.filter(s=>slotAllowsCare(s,req.query.care))})
 }, next);
 
 // ---------------------------------------------------------------------------
@@ -2045,7 +2046,7 @@ export const createProviderSlotHold = async (req, res, next) => {
         let data, status = 200;
         await getProviderDetail({ _liveAvailability:true, params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', officeId:modality==='IN_PERSON'?Number(req.body.officeId)||undefined:undefined, weekStart: req.body.startAt.slice(0, 10) } },
           { status(code) { status = code; return this; }, json(value) { data = value; } }, (error) => { throw error; });
-        const valid = status === 200 && data?.availability?.slots?.find((s) =>
+        const valid = status === 200 && data?.provider?.onlineScheduling === true && data?.availability?.slots?.find((s) =>
           slotAllowsCare(s,req.body.careType) && +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt) && (!req.body.frequency || s.frequency === req.body.frequency) && (!req.body.purpose || s.purpose === req.body.purpose));
         if (!valid) throw holdError('This opening is no longer available. Please refresh and choose another time.');
         return valid;

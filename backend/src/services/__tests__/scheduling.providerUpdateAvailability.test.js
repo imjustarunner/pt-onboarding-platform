@@ -53,9 +53,9 @@ it('saves independent format statuses without granting a new care assignment or 
  await saveUpdateAvailabilitySettings(ids,{inPersonStatus:'unavailable',virtualStatus:'unavailable'});
  expect(m.save).toHaveBeenLastCalledWith(db,expect.objectContaining({body:expect.objectContaining({seesClients:true,acceptingNewClients:false,inPerson:true,virtual:true})}));
 });
-it('refuses publishing into a closed or waitlisted format even while another format is open',async()=>{
+it('publishes into a waitlisted format without requiring a separate profile change',async()=>{
  m.profile.mockResolvedValue({agencyAvailability:{seesClients:true,scheduleAgencyId:2,inPerson:true,virtual:true,acceptingNewClients:true,intakeStatusByFormat:{IN_PERSON:'accepting',VIRTUAL:'waitlist'}}});
- await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();
+ await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).resolves.toMatchObject({ok:true});expect(db.commit).toHaveBeenCalledOnce();
 });
 it('explicitly opening virtual appointments publishes a four-week slot and opens only that format atomically',async()=>{
  m.profile.mockResolvedValue({agencyAvailability:{seesClients:true,scheduleAgencyId:2,inPerson:true,virtual:false,acceptingNewClients:false,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'unavailable',SCHOOL:'unavailable'}}});

@@ -1,4 +1,4 @@
-import {getServices,putServices,getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders} from '../controllers/providerAvailabilitySettings.controller.js';
+import {getServices,putServices,getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders,enableWaitlist} from '../controllers/providerAvailabilitySettings.controller.js';
 import express from 'express';
 import {getWorkspace,deletePublication,movePublication} from '../controllers/providerAvailabilityWorkspace.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -64,6 +64,7 @@ router.get('/providers/:providerId/public-settings', getSettings);
 router.put('/providers/:providerId/public-settings', saveSettings);
 router.post('/providers/:providerId/public-settings/check', checkSettings);
 router.post('/providers/:providerId/public-settings/snooze', snoozeReminder);
+router.post('/providers/:providerId/public-settings/waitlist', enableWaitlist);
 
 
 router.get('/me/pending', getMyAvailabilityPending);

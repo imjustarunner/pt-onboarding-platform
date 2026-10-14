@@ -1,3 +1,4 @@
+import {openWaitlistedPublication} from './availabilityPublicationStatus.service.js';
 import {wallMysqlToUtcMysql} from '../utils/zonedWallTime.util.js';
 import {officePublicationMatches} from './publishOfficeAvailability.service.js';
 import pool from '../config/database.js';
@@ -40,13 +41,17 @@ async function insertHours(db,r,agencyId,providerId){
 export async function editAvailabilityPublication({agencyId,providerId,kind,id,...options},database=pool){
  const table=tables[kind];if(!table||!Number.isSafeInteger(id)||id<1)throw fail('Invalid published availability.');
  const db=await database.getConnection();try{await db.beginTransaction();
+ await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
  const [rows]=await db.execute(`SELECT *,DATE_FORMAT(${kind==='weekly'?'start_date':'start_at'},'%Y-%m-%d') occurrence_date ${kind==='weekly'?",DATE_FORMAT(start_date,'%Y-%m-%d') start_date,DATE_FORMAT(end_date,'%Y-%m-%d') end_date":''} FROM ${table} WHERE id=? AND agency_id=? AND provider_id=? ${kind==='weekly'?'':'AND is_active=1'} FOR UPDATE`,[id,agencyId,providerId]);
  const row=rows[0];if(!row)throw fail('Opening no longer exists. Refresh the schedule.',404);
  if(kind==='weekly'){
   const plan=planWeeklyEdit(row,options);
   if(plan.removeOriginal)await db.execute(`DELETE FROM ${table} WHERE id=?`,[id]);
   else await db.execute(`UPDATE ${table} SET end_date=?,excluded_dates_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,[plan.endDate,JSON.stringify(plan.excludedDates),id]);
-  if(plan.replacement)await insertHours(db,plan.replacement,agencyId,providerId);
+  if(plan.replacement){
+   await insertHours(db,plan.replacement,agencyId,providerId);
+   if(plan.replacement.available_for_intake)await openWaitlistedPublication(db,{providerId,agencyId,formats:['VIRTUAL']});
+  }
  }else{
   if(!['single','future'].includes(options.scope)||!['delete','move'].includes(options.action))throw fail('Choose an edit scope.');
   let linked=[row];
@@ -91,6 +96,7 @@ export async function editAvailabilityPublication({agencyId,providerId,kind,id,.
    for(const {original:r,target:t} of moves)await (kind==='virtual'?Virtual:InPerson).upsertSlot({database:db,agencyId,providerId,officeLocationId:t.office_location_id,roomId:t.room_id,startAt:t.start_at,endAt:t.end_at,sourceEventId:t.id,availableForIntake:!!r.available_for_intake,availableForSession:!!r.available_for_session,frequency:options.scope==='single'?'ONCE':r.frequency,purpose:r.purpose,seriesId:series,careTypes:normalizedCare===undefined?careTypes(r.care_types_json):normalizedCare});
   }
  }
+ if(kind!=='weekly' && options.action==='move' && row.available_for_intake)await openWaitlistedPublication(db,{providerId,agencyId,formats:[kind==='virtual'?'VIRTUAL':'IN_PERSON']});
  await invalidateAvailabilityReminders(db,providerId);
  await db.commit();return {ok:true};
  }catch(e){await db.rollback();throw e;}finally{db.release();}

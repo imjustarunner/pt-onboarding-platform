@@ -56,3 +56,7 @@ it('rechecks freshness under the lock so another tab can satisfy the request',as
  const h=fixture();h.connection.query.mockImplementation(async()=>{for(const r of h.rows)r.isFresh=1;return [[{acquired:1}]];});
  expect(await h.readMyAvailabilityReminders(9)).toHaveLength(2);expect(h.Availability.computeWeekAvailability).not.toHaveBeenCalled();
 });
+it('immediately hides a fresh reminder after its format switches to waitlist',async()=>{
+ const h=fixture({fresh:true});for(const r of h.rows)r.availabilityDetails={availabilityByAgency:{2:{seesClients:true,acceptingNewClients:true,inPerson:true,virtual:true,intakeStatusByFormat:{IN_PERSON:'accepting',VIRTUAL:'waitlist'}}}};
+ expect((await h.readMyAvailabilityReminders(9)).map(r=>r.format)).toEqual(['IN_PERSON']);expect(h.Availability.computeWeekAvailability).not.toHaveBeenCalled();
+});

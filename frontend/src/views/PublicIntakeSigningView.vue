@@ -4791,7 +4791,7 @@ function saveOpeningPreference(hold) {
   if (!intakeResponses.submission) intakeResponses.submission = {};
   intakeResponses.submission.requested_opening_preference = hold ? {
     providerId: hold.providerId, startAt: hold.startAt, endAt: hold.endAt, modality: hold.modality,
-    recurring:hold.recurring!==false,frequency:hold.frequency,purpose:hold.purpose,timeZone: hold.timeZone, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
+    serviceType:hold.serviceType,preferenceOnly:!hold.token,recurring:hold.recurring!==false,frequency:hold.frequency,purpose:hold.purpose,timeZone: hold.timeZone, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
   } : null;
 }
 const providerHoldChangeError=ref('');
@@ -4805,8 +4805,8 @@ async function setSelectedOfficeProviderIds(ids) {
     const slug=referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '';
     const key=`provider-hold:${slug}`;
     let held;try{held=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
-    if(held?.token && !cur.includes(String(held.providerId))) {
-      await api.post(`/public/agency-services/${encodeURIComponent(slug)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
+    if(held && !cur.includes(String(held.providerId))) {
+      if(held.token) await api.post(`/public/agency-services/${encodeURIComponent(slug)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
       sessionStorage.removeItem(key);saveOpeningPreference(null);
     }
   }catch{providerHoldChangeError.value='Could not release the previous held opening. Please try again before changing providers.';return;}

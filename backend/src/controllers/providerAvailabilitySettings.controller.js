@@ -1,3 +1,4 @@
+import {agencyIntakeStatus} from '../utils/providerAgencyAvailability.js';
 import {availabilityEditingContext,saveAgencyAvailability} from '../services/providerAgencyAvailability.service.js';
 import {readProviderServices,saveProviderServices} from '../services/providerServiceOfferings.service.js';
 import pool from '../config/database.js';
@@ -42,3 +43,22 @@ export async function getMyReminders(req,res,next){try{
 
 export async function getServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await readProviderServices(ids.providerId,ids.agencyId));}catch(e){next(e);}}
 export async function putServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await saveProviderServices(ids.providerId,ids.agencyId,req.body.services,req.body.onlineScheduling));}catch(e){if(e.status===400)return res.status(400).json({error:{message:e.message}});next(e);}}
+
+export async function enableWaitlist(req,res,next){try{
+ const ids=await authorize(req,res);if(!ids)return;
+ const format=String(req.body?.format||'');
+ if(!['IN_PERSON','VIRTUAL'].includes(format))return res.status(400).json({error:{message:'Choose in-person or virtual availability.'}});
+ const db=await pool.getConnection();
+ try {
+  await db.beginTransaction();
+  await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[ids.providerId]);
+  const prior=await readProviderAvailabilitySettings(ids.providerId,ids.agencyId);
+  const p=prior.preferences;
+  if(!p.seesClients || !p[format==='VIRTUAL'?'virtual':'inPerson'])throw Object.assign(new Error('Enable this appointment format before using its waitlist.'),{status:409});
+  const statuses=Object.fromEntries(['IN_PERSON','VIRTUAL','SCHOOL'].map(f=>[f,agencyIntakeStatus(p,f)]));
+  statuses[format]='waitlist';
+  await saveAgencyAvailability(db,{...ids,actor:req.user,body:{...p,waitlistEnabled:true,acceptingNewClients:Object.values(statuses).includes('accepting'),intakeStatusByFormat:statuses,applyToAll:false}});
+  await db.commit();
+ }catch(e){await db.rollback();throw e;}finally{db.release();}
+ res.json({ok:true,format,status:'waitlist'});
+}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}}

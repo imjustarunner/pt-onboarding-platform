@@ -60,7 +60,8 @@ export function expandWeeklyHold(hold, from, to) {
   first.setUTCHours(0,0,0,0);
   for(let day=+first;day<+new Date(to)+86400000;day+=86400000) {
     const d = new Date(day);
-    if(d.getUTCDay() !== weekday || Math.round((day-anchor)/86400000)%step!==0) continue;
+    if(d.getUTCDay() !== weekday) continue;
+    if(frequency==='MONTHLY' ? Math.floor((d.getUTCDate()-1)/7)!==Math.floor((base.day-1)/7) : Math.round((day-anchor)/86400000)%step!==0) continue;
     const occurrence = wallDate({...base,year:d.getUTCFullYear(),month:d.getUTCMonth()+1,day:d.getUTCDate()},timeZone);
     if(occurrence) occurrence.setUTCMilliseconds(start.getUTCMilliseconds());
     if(!occurrence || +occurrence < +start) continue;

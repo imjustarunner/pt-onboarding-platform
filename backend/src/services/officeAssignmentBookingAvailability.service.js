@@ -1,3 +1,4 @@
+import {openWaitlistedPublication} from './availabilityPublicationStatus.service.js';
 import pool from '../config/database.js';
 import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
@@ -10,6 +11,7 @@ export async function publishOfficeAssignmentEvent(assignment, event, db = pool,
   if (appointments.length) return;
   const agencyId = Number(assignment.booking_agency_id);
   if (!agencyId) throw fail('Choose the booking agency before opening this office time.');
+  let published=false;
   for (const [flag, table] of [['bookable_in_person', 'provider_in_person_slot_availability'], ['bookable_virtual', 'provider_virtual_slot_availability']]) {
     if (assignment[flag] == null) continue;
     if(!replaceOverrides){
@@ -26,7 +28,9 @@ export async function publishOfficeAssignmentEvent(assignment, event, db = pool,
       VALUES (?, ?, ?, ?, ${inPerson ? '' : "'BOTH',"} ?, ?, TRUE, TRUE, TRUE, 'OFFICE_EVENT', ?, ?)
       ON DUPLICATE KEY UPDATE ${inPerson ? '' : "session_type = 'BOTH',"} is_active = TRUE, available_for_intake = TRUE, available_for_session = TRUE, source_event_id = VALUES(source_event_id), updated_at = CURRENT_TIMESTAMP`,
       [agencyId, assignment.provider_id, assignment.office_location_id, assignment.room_id, event.start_at, event.end_at, event.id, actorUserId || assignment.provider_id]);
+    published=true;
   }
+  return published;
 }
 
 export async function setOfficeAssignmentBookingAvailability({ assignmentId, providerId, agencyId, allowedOfficeIds, inPerson, virtual }) {
@@ -34,6 +38,7 @@ export async function setOfficeAssignmentBookingAvailability({ assignmentId, pro
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
     const [[assignment]] = await conn.execute('SELECT * FROM office_standing_assignments WHERE id = ? FOR UPDATE', [assignmentId]);
     if (!assignment || !assignment.is_active || Number(assignment.provider_id) !== Number(providerId)) throw fail('Office assignment not found for this provider.', 403);
     if (agencyId != null && Number(assignment.booking_agency_id) !== Number(agencyId)) throw fail('This reservation belongs to another agency.', 403);
@@ -42,7 +47,9 @@ export async function setOfficeAssignmentBookingAvailability({ assignmentId, pro
     if (!membership.length) throw fail('This reservation needs a valid provider and office agency before it can be opened.');
     await conn.execute('UPDATE office_standing_assignments SET bookable_in_person = ?, bookable_virtual = ? WHERE id = ?', [Number(inPerson), Number(virtual), assignmentId]);
     const [events] = await conn.execute("SELECT * FROM office_events WHERE standing_assignment_id = ? AND end_at > UTC_TIMESTAMP() AND status <> 'CANCELLED' FOR UPDATE", [assignmentId]);
-    for (const event of events) await publishOfficeAssignmentEvent({ ...assignment, bookable_in_person: Number(inPerson), bookable_virtual: Number(virtual) }, event, conn, providerId, true);
+    let published=false;
+    for (const event of events) published=(await publishOfficeAssignmentEvent({ ...assignment, bookable_in_person: Number(inPerson), bookable_virtual: Number(virtual) }, event, conn, providerId, true))||published;
+    if(published)await openWaitlistedPublication(conn,{providerId,agencyId:assignment.booking_agency_id,formats:[...(inPerson?['IN_PERSON']:[]),...(virtual?['VIRTUAL']:[])]});
     await invalidateAvailabilityReminders(conn,providerId);
     await conn.commit();
     return { ok: true, inPerson, virtual };

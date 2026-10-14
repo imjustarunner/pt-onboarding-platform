@@ -1,3 +1,4 @@
+import {openWaitlistedPublication} from './availabilityPublicationStatus.service.js';
 import {randomUUID} from 'node:crypto';
 import {careTypes as normalizeCareTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
@@ -22,6 +23,7 @@ export async function publishOfficeAvailability({event,agencyId,providerId,frequ
  purpose=frequency==='ONCE'?(purpose==='MEETING'?'MEETING':'INTAKE'):'ONGOING';
  const conn=await pool.getConnection();
  try {await conn.beginTransaction();
+  await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
   if(event.standing_assignment_id){const [[assignment]]=await conn.execute('SELECT provider_id,booking_agency_id,is_active FROM office_standing_assignments WHERE id=? FOR UPDATE',[event.standing_assignment_id]);if(!assignment||!assignment.is_active||Number(assignment.provider_id)!==Number(providerId)||Number(assignment.booking_agency_id)!==Number(agencyId))throw Object.assign(new Error('This reservation changed. Refresh before publishing.'),{status:409});}
   const [locations]=await conn.execute('SELECT timezone FROM office_locations WHERE id=?',[event.office_location_id]);const timeZone=locations[0]?.timezone||'America/Denver';
   const [events]=await conn.execute(`SELECT e.*,EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) has_appointment
@@ -44,6 +46,7 @@ export async function publishOfficeAvailability({event,agencyId,providerId,frequ
     }
     for(const model of format==='PRIVATE'?[]:format==='BOTH'?[Virtual,InPerson]:[format==='VIRTUAL'?Virtual:InPerson])await model.upsertSlot({database:conn,agencyId,providerId,officeLocationId:e.office_location_id,roomId:e.room_id,startAt:e.start_at,endAt:e.end_at,availableForIntake,availableForSession,frequency,purpose,seriesId,careTypes:normalizeCareTypes(careTypes),sourceEventId:e.id,createdByUserId:actorId});
   }
+  if(availableForIntake && open.length)await openWaitlistedPublication(conn,{providerId,agencyId,formats:format==='BOTH'?['IN_PERSON','VIRTUAL']:[format]});
   await invalidateAvailabilityReminders(conn,providerId);
   await conn.commit();return {publishedCount:open.length,skippedAppointments:candidates.length-open.length,publishedThrough:open.at(-1)?.start_at,frequency,purpose};
  }catch(e){await conn.rollback();throw e;}finally{conn.release();}

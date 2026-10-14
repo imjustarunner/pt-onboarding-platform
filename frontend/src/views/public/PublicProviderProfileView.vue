@@ -20,7 +20,7 @@
     <aside class="profile-panel profile-availability">
      <PublicProviderAvailabilityPanel :agency-slug="slug" :provider="{...provider,details:profile.details}" :service-type="service" :office-id="route.query.officeId||''" @hold="hold=$event" @loaded="schedule=$event"/>
      <router-link class="profile-continue" :to="joinPath">{{ hold ? 'Continue enrollment with this preference' : 'Continue to enrollment' }} →</router-link>
-     <p class="profile-note">A selected time stays on hold until placement is resolved. The team must confirm appointments.</p>
+     <p class="profile-note">{{hold?.token?'Your selected time is reserved until staff confirm placement or release it.':'A preferred time can be included in enrollment. It is not reserved unless online booking is enabled and a hold is confirmed.'}}</p>
     </aside>
    </div>
   </main>

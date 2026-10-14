@@ -1,3 +1,4 @@
+import {openWaitlistedPublication} from '../services/availabilityPublicationStatus.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
 import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
@@ -220,23 +221,30 @@ class ProviderVirtualWorkingHours {
       assignments.push('frequency = ?');
       values.push(normFrequency(frequency));
     }
-    const [result] = await pool.execute(
-      `UPDATE provider_virtual_working_hours SET ${assignments.join(', ')}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND agency_id = ? AND provider_id = ?`,
-      [...values, rowId, aid, pid]
-    );
-    if (!result?.affectedRows) {
-      const err = new Error('Virtual working hours row not found');
-      err.status = 404;
-      throw err;
-    }
-    await invalidateAvailabilityReminders(pool, pid);
-    return {
-      id: rowId,
-      dayOfWeek: day,
-      startTime: String(start).slice(0, 5),
-      endTime: String(end).slice(0, 5)
-    };
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[pid]);
+      const [result] = await conn.execute(
+        `UPDATE provider_virtual_working_hours SET ${assignments.join(', ')}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND agency_id = ? AND provider_id = ?`,
+        [...values, rowId, aid, pid]
+      );
+      if (!result?.affectedRows) {
+        const err = new Error('Virtual working hours row not found');
+        err.status = 404;
+        throw err;
+      }
+      if(normalized.availableForIntake)await openWaitlistedPublication(conn,{providerId:pid,agencyId:aid,formats:['VIRTUAL']});
+      await invalidateAvailabilityReminders(conn, pid);
+      await conn.commit();
+      return {
+        id: rowId,
+        dayOfWeek: day,
+        startTime: String(start).slice(0, 5),
+        endTime: String(end).slice(0, 5)
+      };
+    } catch(error) {await conn.rollback();throw error;} finally {conn.release();}
   }
 
   static async replaceForProvider({ agencyId, providerId, rows }) {
@@ -248,6 +256,7 @@ class ProviderVirtualWorkingHours {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
+      await conn.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[pid]);
       await conn.execute(
         `DELETE FROM provider_virtual_working_hours WHERE agency_id = ? AND provider_id = ?`,
         [aid, pid]
@@ -276,6 +285,7 @@ class ProviderVirtualWorkingHours {
           throw e;
         }
       }
+      if(normalized.some(r=>r.availableForIntake))await openWaitlistedPublication(conn,{providerId:pid,agencyId:aid,formats:['VIRTUAL']});
       await invalidateAvailabilityReminders(conn, pid);
       await conn.commit();
       return normalized.map((r) => ({

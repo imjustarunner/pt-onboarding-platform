@@ -10,10 +10,10 @@ export function stripIneligibleProviderPreference(link,intakeData) {
  const bag=intakeData?.responses?.submission;if(!bag)return;
  for(const key of ['preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','preferredProviderUserId','preferredProviderId'])delete bag[key];
 }
-// Quick interest submissions never select a provider or reserve appointment time,
-// including stale clients or requests forged outside the browser UI.
+// Strip unverified provider selections. Explicit opening preferences are separately
+// validated by the enrollment service; only a server-side hold reserves time.
 export function withoutQuickProviderSelection(payload={}) {
  const clean={...payload,preferences:{...payload.preferences}};
- for(const bag of [clean,clean.preferences])for(const key of ['preferredProviderUserId','preferredProviderId','providerId','preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','requestedOpening','providerHoldToken'])delete bag[key];
+ for(const bag of [clean,clean.preferences])for(const key of ['preferredProviderUserId','preferredProviderId','providerId','preferred_office_provider_ids','preferred_office_provider_summary','requested_opening_preference','requestedOpening','requestedOpeningPreference','providerHoldToken'])delete bag[key];
  return clean;
 }

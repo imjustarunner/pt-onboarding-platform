@@ -1,15 +1,17 @@
 <template>
   <section class="opening-picker" aria-label="Available times">
     <h2>Find a time that works</h2>
-    <p>Choose an opening to hold this time at the displayed frequency until the team resolves your placement. This is not a confirmed appointment.</p>
+    <p v-if="bookingEnabled">Choose an opening to reserve this time at the displayed frequency until the team confirms placement or releases it. This is not a confirmed appointment.</p>
+    <p v-else>Select a preferred time for enrollment. Online booking is off, so this preference does not reserve the time.</p>
     <PublicProviderOpeningCalendar :days="days" :week="week" :min-date="today" :format="format" :fixed-format="!!fixedFormat" :office-id="selectedOffice" :office-locations="officeLocations" :time-zone="timezone" :loading="loading" :disabled="busy || active" @update:week="week = $event; load()" @update:format="format = $event; load()" @update:office-id="selectedOffice = $event" @select="select">
     <p v-if="needsOffice" role="status">Choose an office location to see appointment times.</p>
     <p v-if="loading" role="status">Checking current openings…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
     <div v-if="hold" class="opening-held" role="status">
-      <strong>{{ active ? 'Time held for your intake' : 'This hold has been resolved' }}</strong>
+      <strong>{{ hold.preferenceOnly ? 'Preferred time selected — not reserved' : active ? 'Time held for your intake' : 'This hold has been resolved' }}</strong>
       <p>{{ availabilityLabel(hold) }} · {{ weeklyTime(hold) }}</p><p>First opening: {{ dateTime(hold.startAt) }}</p>
-      <p>{{ active ? `${availabilityLabel(hold)} in ${hold.timeZone || timezone} until placement is resolved or the hold is released. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
+      <p>{{ hold.preferenceOnly ? 'This time preference will be included in your enrollment for staff review. It is not reserved.' : active ? `${availabilityLabel(hold)} in ${hold.timeZone || timezone} until placement is resolved or the hold is released. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
+      <button v-if="hold.preferenceOnly" type="button" @click="save(null)">Clear preference</button>
       <button v-if="active" type="button" :disabled="busy" @click="release">Release this time</button>
     </div>
     </PublicProviderOpeningCalendar>
@@ -29,7 +31,8 @@ const today = new Date().toLocaleDateString('en-CA',{timeZone:timezone});
 const selectedOffice=ref(String(props.officeId||''));
 const needsOffice=computed(()=>format.value==='IN_PERSON'&&props.officeLocations.length>0&&!props.officeLocations.some(o=>String(o.id)===selectedOffice.value));
 const week = ref(props.initialWeek||today), format = ref(props.fixedFormat||'IN_PERSON'), loading = ref(false), busy = ref(false), error = ref(''), slots = ref([]), hold = ref(null), clock = ref(Date.now());
-const active = computed(() => !!hold.value && !hold.value.resolved && (!hold.value.expiresAt || +new Date(hold.value.expiresAt) > clock.value));
+const bookingEnabled=ref(false);
+const active = computed(() => !!hold.value?.token && !hold.value.resolved && (!hold.value.expiresAt || +new Date(hold.value.expiresAt) > clock.value));
 const key = computed(() => `provider-hold:${props.agencySlug}`);
 const base = computed(() => `/public/agency-services/${encodeURIComponent(props.agencySlug)}`);
 const days = computed(() => {
@@ -51,7 +54,7 @@ async function load() {
   const id = ++generation; loading.value = true; error.value = ''; slots.value = [];
   try {
     const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: {care:props.careType||undefined, serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT',officeId:format.value==='IN_PERSON'?selectedOffice.value||undefined:undefined }, skipAuthRedirect: true, skipGlobalLoading: true, timeout: 60000 });
-    if (id === generation) slots.value = data.slots || [];
+    if (id === generation) {slots.value = data.slots || [];bookingEnabled.value=data.onlineScheduling===true;}
   } catch (e) { if (id === generation) error.value = e.response?.data?.error?.message || 'Could not check openings.'; }
   finally { if (id === generation) loading.value = false; }
 }
@@ -68,6 +71,9 @@ async function select(slot) {
     // Only one held selection per browser/agency. Never put its bearer token in a URL.
     let previous; try { previous = JSON.parse(sessionStorage.getItem(key.value) || 'null'); } catch {}
     if (previous?.token) await api.post(`${base.value}/release-hold`, { token: previous.token }, { skipAuthRedirect: true });
+    if(!bookingEnabled.value){
+      save({providerId:props.providerId,serviceType:props.serviceType,modality:format.value,startAt:slot.startAt,endAt:slot.endAt,frequency:slot.frequency,purpose:slot.purpose,timeZone:timezone,buildingId:slot.buildingId||null,preferenceOnly:true});return;
+    }
     const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, {careType:props.careType||undefined, startAt: slot.startAt, endAt: slot.endAt, frequency:slot.frequency, purpose:slot.purpose, modality: format.value, serviceType: props.serviceType, officeId:format.value==='IN_PERSON'?slot.buildingId||selectedOffice.value||undefined:undefined }, { skipAuthRedirect: true });
     save(data.hold); await load();
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not hold this opening. Please refresh availability.'; }
@@ -84,7 +90,7 @@ async function verifyHold() {
 watch(() => [props.agencySlug, props.providerId, props.serviceType,props.careType], () => {
   hold.value = null;
   try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType) { hold.value = saved; format.value = props.fixedFormat || saved.modality || 'IN_PERSON'; } } catch {}
-  emit('hold', active.value ? hold.value : null); verifyHold(); load();
+  emit('hold', active.value || hold.value?.preferenceOnly ? hold.value : null); verifyHold(); load();
 }, { immediate: true });
 const statusTimer = setInterval(verifyHold, 60000);
 const timer = setInterval(() => { clock.value = Date.now(); }, 1000);

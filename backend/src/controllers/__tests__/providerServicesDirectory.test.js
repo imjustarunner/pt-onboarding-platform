@@ -2,7 +2,7 @@ import {describe,it,expect,vi,beforeEach} from 'vitest';
 import pool from '../../config/database.js';
 import Availability from '../../services/providerAvailability.service.js';
 import * as Snapshots from '../../services/publicAvailabilitySnapshot.service.js';
-import {listTutors,listCounselors,createBookingRequest,createProviderSlotHold,joinProviderWaitlist,getProviderScheduleSummary} from '../publicAgencyServices.controller.js';
+import {listTutors,listCounselors,createBookingRequest,createProviderSlotHold,joinProviderWaitlist,getProviderScheduleSummary,getProviderDetail,getProviderSlots} from '../publicAgencyServices.controller.js';
 import Profile from '../../models/ProviderPublicProfile.model.js';
 import {createPublicAgencySupportTicket} from '../../services/publicAgencySupport.service.js';
 import {readPublicProviderSchedule} from '../../services/publicProviderSchedule.service.js';
@@ -134,4 +134,29 @@ it('does not reintroduce free-text profile insurance after credential filtering'
 it('does not let a waitlist in one format authorize another closed format',async()=>{
  Profile.getForProvider.mockResolvedValue({agencyAvailability:{seesClients:true,inPerson:true,virtual:true,waitlistEnabled:true,acceptingNewClients:false,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'unavailable'}},details:{waitlistEnabled:true}});
  const res=response(),next=vi.fn();await joinProviderWaitlist({...request(),params:{agencySlug:'test',providerId:'9'},body:{serviceType:'counseling',format:'VIRTUAL'}},res,next);expect(res.status).toHaveBeenCalledWith(409);expect(createPublicAgencySupportTicket).not.toHaveBeenCalled();
+});
+
+it('shows virtual openings for a directory-only provider with booking off while rejecting holds and requests',async()=>{
+ bookingEnabled=false;active=false;
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM users\n')?[[{id:9,first_name:'Example',last_name:'Provider',provider_accepting_new_clients:1}]]:original(sql,...args));
+ const slot={startAt:'2035-01-04T16:00:00Z',endAt:'2035-01-04T17:00:00Z',sessionType:'INTAKE'};
+ Availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[slot],inPersonSlots:[]});
+ const req={params:{agencySlug:'test',providerId:'9'},query:{programType:'VIRTUAL',weekStart:'2035-01-01',serviceType:'counseling'}},res=response(),next=vi.fn();
+ await getProviderDetail(req,res,next);expect(next).not.toHaveBeenCalled();
+ expect(res.json.mock.calls[0][0]).toMatchObject({provider:{onlineScheduling:false},availability:{thisWeekCount:1,slots:[expect.objectContaining(slot)]}});
+ const slots=response();await getProviderSlots(req,slots,next);expect(slots.json.mock.calls[0][0].slots).toHaveLength(1);
+ for(const write of [createBookingRequest,createProviderSlotHold]){
+  const blocked={...response(),setHeader:vi.fn()};await write({...req,body:{providerId:9,serviceType:'counseling',modality:'VIRTUAL',...slot}},blocked,next);expect(blocked.status).toHaveBeenCalledWith(403);
+ }
+});
+
+it('does not reserve a visible opening when the provider has not enabled booking',async()=>{
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM users\n')?[[{id:9,first_name:'Example',last_name:'Provider',provider_accepting_new_clients:1}]]:original(sql,...args));
+ const slot={startAt:'2030-01-08T16:00:00Z',endAt:'2030-01-08T17:00:00Z'};
+ Availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[slot],inPersonSlots:[]});
+ const res={...response(),setHeader:vi.fn()},next=vi.fn();
+ await createProviderSlotHold({params:{agencySlug:'test',providerId:'9'},body:{serviceType:'counseling',modality:'VIRTUAL',...slot}},res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);expect(res.status).not.toHaveBeenCalledWith(201);
 });

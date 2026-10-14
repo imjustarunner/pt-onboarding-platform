@@ -531,6 +531,7 @@
         <p class="ai-page-lead">Confirm the details below. Our team will follow up within 1–2 business days.</p>
         <div class="ai-help-card" style="margin-bottom: 1rem;">
           <p><strong>For:</strong> {{ whoForLabel }}</p>
+          <p v-if="readOpeningSelection()"><strong>Selected appointment time:</strong> {{ new Date(readOpeningSelection().startAt).toLocaleString(undefined, {dateStyle:'medium',timeStyle:'short',timeZone:readOpeningSelection().timeZone}) }} · {{ readOpeningSelection().modality === 'VIRTUAL' ? 'Virtual' : 'In person' }} · {{ (readOpeningSelection().frequency || 'WEEKLY').replaceAll('_',' ').toLowerCase() }}<br/>{{ readOpeningSelection().token ? 'Reserved pending staff confirmation; checked again when you submit.' : 'Preference only — not reserved. Included for staff review.' }}</p>
           <p><strong>Contact:</strong> {{ form.respondent.firstName }} {{ form.respondent.lastName }} · {{ form.respondent.email }} · {{ form.respondent.phone }}</p>
           <p v-if="isDependentWhoFor">
             <strong>Dependent 1:</strong> {{ form.client.firstName }} {{ form.client.middleName }} {{ form.client.lastName }}
@@ -1049,8 +1050,8 @@ async function selectPreferredProvider(id,skip=false) {
   try {
     const key=`provider-hold:${agencySlug.value}`;
     let held;try{held=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
-    if(held?.token && Number(held.providerId)!==Number(id)) {
-      await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
+    if(held && Number(held.providerId)!==Number(id)) {
+      if(held.token) await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
       sessionStorage.removeItem(key);
     }
     form.preferredProviderUserId=id;
@@ -1059,8 +1060,8 @@ async function selectPreferredProvider(id,skip=false) {
   finally{changingProvider=false;}
 }
 
-function readProviderHoldToken() {
-  try { const hold = JSON.parse(sessionStorage.getItem(`provider-hold:${agencySlug.value}`) || 'null'); return hold?.providerId === Number(form.preferredProviderUserId) ? hold.token : null; } catch { return null; }
+function readOpeningSelection() {
+  try { const hold = JSON.parse(sessionStorage.getItem(`provider-hold:${agencySlug.value}`) || 'null'); return hold?.providerId === Number(form.preferredProviderUserId) && hold.serviceType === resolvedServiceType.value ? hold : null; } catch { return null; }
 }
 const selectedLearningPackage=computed(()=>providers.value.find(p=>Number(p.id)===Number(form.preferredProviderUserId))?.tutoringProfile?.packages?.find(p=>p.id===learningForm.value.packageId));
 const preferredProviderLabel = computed(() => {
@@ -1707,6 +1708,8 @@ async function submitQuick() {
 
     const { data } = await api.post(`/public/adaptive-intake/${agencySlug.value}/quick`, {
       serviceType: serviceType.value || config.value?.activeService?.serviceType || null,
+      requestedOpeningPreference: readOpeningSelection(),
+      providerHoldToken: readOpeningSelection()?.token || undefined,
       createdViaDevFill: devFillUsed.value && canDevFill.value,
       whoFor: form.whoFor,
       respondent: {

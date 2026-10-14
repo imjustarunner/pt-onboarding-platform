@@ -1,3 +1,4 @@
+import {agencyAvailability} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -24,7 +25,7 @@ async function readProviderAvailabilitySettings(providerId, agencyId) {
   preferences.virtual ||= Boolean(published.hasVirtual);
   preferences.acceptingNewClients ||= Boolean(published.inPerson||published.hasVirtual||published.school);
  }
- return {preferences:{school:true,scheduleAgencyId:Number(agencyId),officeIds:null,...preferences},reminders:reminders.filter(r=>r.is_missing && preferences.seesClients && preferences.acceptingNewClients).map(r=>({
+ return {preferences:{school:true,scheduleAgencyId:Number(agencyId),officeIds:null,...preferences},reminders:reminders.filter(r=>r.is_missing && missingAvailabilityFormats(preferences,{}).includes(r.format)).map(r=>({
   id:r.id,format:r.format,taskId:r.task_id,notificationId:r.notification_id,checkedAt:r.checked_at,
   snoozedUntil:r.snoozed_until,snoozed:Boolean(r.snoozed_until && new Date(r.snoozed_until).getTime()>Date.now())
  })),checkedAt:reminders[0]?.checked_at || null};
@@ -89,14 +90,15 @@ async function checkProviderAvailability(providerId, agencyId, {onlyIfStale=fals
 async function readMyAvailabilityReminders(providerId) {
  const read=async()=>{
   const [rows]=await pool.execute(`SELECT r.agency_id AS agencyId,r.provider_id AS providerId,r.format,r.task_id AS taskId,
-   a.name AS agencyName,r.checked_at AS checkedAt,
+   a.name AS agencyName,r.checked_at AS checkedAt,p.public_details_json AS availabilityDetails,u.sees_clients AS seesClients,u.provider_accepting_new_clients AS acceptsNewClients,
    (r.checked_at>DATE_SUB(NOW(),INTERVAL 5 MINUTE)) AS isFresh
    FROM provider_availability_reminders r JOIN agencies a ON a.id=r.agency_id JOIN users u ON u.id=r.provider_id
    JOIN user_agencies ua ON ua.user_id=r.provider_id AND ua.agency_id=r.agency_id
+   LEFT JOIN provider_public_profiles p ON p.user_id=r.provider_id
    LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
-   WHERE r.provider_id=? AND r.is_missing=1 AND u.sees_clients=1 AND COALESCE(u.provider_accepting_new_clients,1)=1
+   WHERE r.provider_id=? AND r.is_missing=1
    AND COALESCE(ua.is_active,1)=1 AND (nur.snoozed_until IS NULL OR nur.snoozed_until<=NOW())`,[providerId]);
-  return rows;
+  return rows.filter(r=>{const p=agencyAvailability(r.availabilityDetails,r.agencyId);return p?missingAvailabilityFormats(p,{}).includes(r.format):![false,0,'0'].includes(r.seesClients??true)&&![false,0,'0'].includes(r.acceptsNewClients??true);});
  };
  const rows=await read();
  const staleAgencies=[...new Set(rows.filter(r=>Number(r.isFresh)!==1).map(r=>r.agencyId))];
@@ -108,7 +110,7 @@ async function readMyAvailabilityReminders(providerId) {
  }
  const current=staleAgencies.length?await read():rows;
  // An unavailable calendar or an in-flight check is not evidence of no openings.
- return current.filter(r=>Number(r.isFresh)===1).map(({isFresh,...row})=>row);
+ return current.filter(r=>Number(r.isFresh)===1).map(({isFresh,availabilityDetails,seesClients,acceptsNewClients,...row})=>row);
 }
 let running=false;
 async function runProviderAvailabilityReminderTick(){

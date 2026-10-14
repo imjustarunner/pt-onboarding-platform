@@ -23,3 +23,13 @@ it('coalesces focus and polling while a check is in flight',async()=>{
 it('does not leave an old no-openings claim visible if refresh fails',async()=>{
  render();await flushPromises();api.get.mockRejectedValue(Error('offline'));window.dispatchEvent(new Event('focus'));await flushPromises();expect(wrapper.find('aside').exists()).toBe(false);
 });
+it('enables only the selected format waitlist and refreshes the banner',async()=>{
+ render();await flushPromises();api.post.mockResolvedValue({data:{ok:true}});api.get.mockResolvedValue({data:{reminders:[]}});
+ await wrapper.findAll('button').find(b=>b.text()==='Enable virtual waitlist').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/availability/providers/9/public-settings/waitlist',{agencyId:2,format:'VIRTUAL'},{skipGlobalLoading:true});expect(wrapper.find('aside').exists()).toBe(false);
+});
+it('keeps the reminder visible and reports a failed waitlist change',async()=>{
+ render();await flushPromises();api.post.mockRejectedValue(Error('offline'));
+ await wrapper.findAll('button').find(b=>b.text()==='Enable virtual waitlist').trigger('click');await flushPromises();
+ expect(wrapper.find('aside').exists()).toBe(true);expect(wrapper.get('[role="alert"]').text()).toContain('Could not enable');
+});

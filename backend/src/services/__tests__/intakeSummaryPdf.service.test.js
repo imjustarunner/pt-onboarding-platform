@@ -67,6 +67,7 @@ test('quick spec uses confirmation fields without a cover page', () => {
       whoForLabel: 'Myself',
       contactName: 'Ada Lovelace',
       contactEmail: 'ada@example.com',
+      requestedOpeningSummary: 'Thursday 8 AM — Virtual — Preference only, not reserved',
       concerns: ['Anxiety'],
       acknowledgments: ['I understand this is an interest form.']
     }
@@ -76,6 +77,8 @@ test('quick spec uses confirmation fields without a cover page', () => {
   const html = buildIntakeSummaryDocumentHtml(spec);
   assert.doesNotMatch(html, /<section class="packet-cover/);
   assert.match(html, /ABC123/);
+  assert.match(html, /Thursday 8 AM/);
+  assert.match(html, /Preference only, not reserved/);
 });
 
 test('pdf filename stays download-safe', () => {

@@ -1,6 +1,7 @@
+import { resolveEnrollmentOpeningPreference, describeEnrollmentOpening } from './enrollmentOpeningPreference.service.js';
 import {withoutQuickProviderSelection} from '../utils/intakeProviderPreference.js';
 import {resolveLearningInquiry,validateLearningProviderSelection} from './learningEnrollment.service.js';
-import { hashHoldToken, createPublicProviderHoldService } from './publicProviderHold.service.js';
+import { createPublicProviderHoldService } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 import * as ClientExchange from './clientExchange.service.js';
 import {
@@ -912,22 +913,11 @@ async function provisionQuickProspectiveAccess({
 }
 
 export async function submitQuickProspective({ agencySlugOrId, payload = {}, req }) {
+  const selectedOpening = payload.requestedOpeningPreference;
+  const selectedHoldToken = payload.providerHoldToken;
   payload=withoutQuickProviderSelection(payload);
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
-
-  let requestedOpening = null;
-  if (payload.providerHoldToken) {
-    const [held] = await pool.execute(
-      `SELECT provider_id, service_type, modality, start_at, end_at, expires_at,
-              released_at IS NULL AS active
-       FROM public_provider_slot_holds WHERE agency_id = ? AND provider_id = ? AND token_hash = ? LIMIT 1`,
-      [agencyRow.id, Number(payload.preferredProviderUserId || 0), hashHoldToken(payload.providerHoldToken)]);
-    if (held[0]) requestedOpening = { providerId: held[0].provider_id, serviceType: held[0].service_type,
-      modality: held[0].modality, startAt: held[0].start_at, endAt: held[0].end_at,
-      holdExpiresAt: held[0].expires_at, holdWasActiveAtSubmission: !!held[0].active,
-      status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION' };
-  }
 
   const intakeServices = await listIntakeServices(agencyRow);
   const requestedServiceType = String(payload.serviceType || '').trim().toLowerCase();
@@ -937,6 +927,11 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   if (intakeServices.length > 1 && !activeService) {
     throw new Error('Please choose a service before submitting.');
   }
+
+  const requestedOpening = await resolveEnrollmentOpeningPreference(pool, {
+    agencyId: agencyRow.id, preference: selectedOpening, holdToken: selectedHoldToken,
+    serviceType: activeService?.serviceType || requestedServiceType
+  });
 
   const vertical = activeService
     ? verticalFromServiceType(activeService.serviceType, agencyRow.organization_type)
@@ -1011,6 +1006,16 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     }
   });
 
+  if (selectedHoldToken && requestedOpening?.reserved) {
+    const attached = await createPublicProviderHoldService(pool).attach({ agencyId: agencyRow.id,
+      providerId: requestedOpening.providerId, token: selectedHoldToken, clientId: client.id });
+    if (!attached) {
+      requestedOpening.reserved = false;
+      requestedOpening.holdWasActiveAtSubmission = false;
+      requestedOpening.status = 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION';
+    }
+  }
+
   const meta = {
     requestedOpening,
     pathway: 'quick_prospective',
@@ -1047,7 +1052,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     address: addressInfo,
     birthdate,
     notes: payload.notes || null,
-    preferredProviderUserId: payload.preferredProviderUserId || preferences.preferredProviderUserId || null,
+    preferredProviderUserId: requestedOpening?.providerId || null,
     learning,
     source: 'ADAPTIVE_QUICK_PROSPECTIVE',
     conversionStatus: 'not_converted',
@@ -1067,11 +1072,6 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) {
       throw err;
     }
-  }
-
-  if (payload.providerHoldToken && requestedOpening?.holdWasActiveAtSubmission) {
-    await createPublicProviderHoldService(pool).attach({agencyId: agencyRow.id,
-      providerId: requestedOpening.providerId, token: payload.providerHoldToken, clientId: client.id});
   }
 
   // Enrich preferences JSON with adaptive fields
@@ -1440,8 +1440,9 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
             : [],
         insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment || null,
         serviceType: activeService?.displayName || activeService?.serviceType || null,
-        preferredProvider: payload.preferredProviderUserId
-          ? 'Preferred provider selected'
+        requestedOpeningSummary: describeEnrollmentOpening(requestedOpening),
+        preferredProvider: requestedOpening?.providerId
+          ? `Selected provider #${requestedOpening.providerId}`
           : 'Let the team choose / first available',
         acknowledgments
       },

@@ -290,6 +290,7 @@ const preferenceRows = computed(() => {
   return [
     s.serviceType ? { label: 'Service', value: s.serviceType } : null,
     s.preferredProvider ? { label: 'Provider', value: s.preferredProvider } : null,
+    s.requestedOpeningSummary ? { label: 'Selected appointment time', value: s.requestedOpeningSummary } : null,
     s.preferredModality ? { label: 'Preferred format', value: s.preferredModality } : null,
     s.preferredTimeOfDay ? { label: 'Preferred time', value: s.preferredTimeOfDay } : null,
     Array.isArray(s.preferredDays) && s.preferredDays.length

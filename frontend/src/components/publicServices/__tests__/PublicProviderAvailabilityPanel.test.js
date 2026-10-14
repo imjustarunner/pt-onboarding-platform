@@ -32,9 +32,9 @@ describe('public availability and waitlist',()=>{
   expect(api.get).toHaveBeenCalledWith(expect.stringContaining('schedule-summary'),expect.objectContaining({params:{serviceType:'counseling'}}));w.unmount();
  });
  it('displays typical hours and Maps links even when booking is disabled',async()=>{const w=render();await flushPromises();expect(w.text()).toContain('Saturday mornings');expect(w.text()).toContain('No appointment times are posted');expect(w.find('a[target="_blank"]').attributes('href')).toContain('query=Example%20Office%2C%20Denver%2C%20CO');expect(w.findComponent({name:'PublicProviderSlotPicker'}).exists()).toBe(false);w.unmount();});
- it('shows availability without time selection when online booking is disabled',async()=>{
-  api.get.mockResolvedValue({data:{...summary,slots:[{format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-01T16:00:00Z'}]}});
-  const w=render();await flushPromises();expect(w.find('.next-openings').text()).toContain('Example Office');expect(w.text()).toContain('online time selection is not enabled');expect(w.find('.next-openings button').exists()).toBe(false);w.unmount();
+ it('selects a non-reserving enrollment preference when online booking is disabled',async()=>{
+  api.get.mockResolvedValue({data:{...summary,slots:[{format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-01T16:00:00Z',endAt:'2030-01-01T17:00:00Z'}]}});
+  const w=render();await flushPromises();expect(w.find('.next-openings').text()).toContain('Example Office');expect(w.text()).toContain('online booking is off');await w.find('.next-openings button').trigger('click');await flushPromises();expect(w.text()).toContain('Preferred time selected — not reserved');expect(w.emitted('hold').at(-1)[0]).toMatchObject({providerId:9,preferenceOnly:true});expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('Continue enrollment with this time');w.unmount();
  });
  it('does not show the typical-hours fallback when appointments are posted',async()=>{
   api.get.mockResolvedValue({data:{...summary,slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
@@ -42,7 +42,7 @@ describe('public availability and waitlist',()=>{
  });
  it('offers selectable times only for enabled booking',async()=>{
   api.get.mockResolvedValue({data:{...summary,onlineScheduling:true,slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
-  const w=render();await flushPromises();expect(w.find('.format-virtual').text()).toContain('Request time');await w.find('.format-virtual .next-openings button').trigger('click');expect(w.findComponent({name:'PublicProviderSlotPicker'}).props('fixedFormat')).toBe('VIRTUAL');w.unmount();
+  const w=render();await flushPromises();expect(w.find('.format-virtual').text()).toContain('Reserve time');await w.find('.format-virtual .next-openings button').trigger('click');expect(w.findComponent({name:'PublicProviderSlotPicker'}).props('fixedFormat')).toBe('VIRTUAL');w.unmount();
  });
  it('opens the local calendar date for an evening opening that falls on the next UTC day',async()=>{
   api.get.mockResolvedValue({data:{...summary,onlineScheduling:true,slots:[{format:'VIRTUAL',startAt:'2030-01-07T02:00:00Z'}]}});

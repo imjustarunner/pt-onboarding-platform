@@ -57,7 +57,7 @@
    </template>
    <p v-else-if="selected.kind==='busy'">This time is blocked by a commitment or an unavailable room. Existing appointments are managed in your regular schedule.</p>
    <template v-else-if="selected.office">
-    <p>Make this reserved office hour OPEN for online booking when it has no client appointment. Repeating choices use your existing recurring room reservation.</p>
+    <p>Make this reserved office hour OPEN for online booking when it has no client appointment. Repeating choices use your existing recurring room reservation. Publishing an opening switches the selected format from Waitlist to Open.</p>
     <p v-if="!selected.assignmentId" class="notice">This is a one-time reservation. Only recurring office reservations can be opened in this updater.</p>
     <fieldset :disabled="!canEdit||busy||loading||!selected.assignmentId"><label>Offer this office hour<select v-model="officeFormat"><option value="private">Keep private / occupied</option><option v-if="inPersonOpen" value="inPerson">In person</option><option v-if="virtualOpen" value="virtual">Virtual</option><option v-if="inPersonOpen &amp;&amp; virtualOpen" value="both">In person or virtual</option></select></label><label>Repeat<select v-model="officeFrequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label><button type="button" class="primary" @click="saveOffice">Save this availability</button></fieldset>
     <p class="muted">“Keep private” removes the public opening, keeping your room reservation. Future openings remain subject to client bookings and calendar conflicts.</p>
@@ -108,7 +108,7 @@ async function openSchoolReview(requestChange=false,all=false){schoolReview.valu
 const selectedOfficeName=computed(()=>calendar.value?.offices?.find(o=>String(o.id)===String(requestLocation.value))?.name||'Selected office');
 const selectedRoom=computed(()=>rooms.value.find(r=>String(r.id)===String(requestRoom.value)));
 const opening=reactive({date:'',startTime:'09:00',frequency:'WEEKLY'}),settings=reactive({inPersonStatus:'unavailable',virtualStatus:'unavailable'});
-const inPersonOpen=computed(()=>settings.inPersonStatus==='accepting'),virtualOpen=computed(()=>settings.virtualStatus==='accepting');
+const inPersonOpen=computed(()=>['accepting','waitlist'].includes(settings.inPersonStatus)),virtualOpen=computed(()=>['accepting','waitlist'].includes(settings.virtualStatus));
 const profileService=ref('counseling');
 const canEdit=computed(()=>!props.readonly&&!!calendar.value?.canEdit);
 const canRequestRooms=computed(()=>!props.readonly && !!(calendar.value?.canRequestRooms??calendar.value?.canEdit));
