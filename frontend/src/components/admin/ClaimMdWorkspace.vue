@@ -12,6 +12,7 @@
       <a href="https://www.claim.md/" target="_blank" rel="noopener noreferrer">Open Claim.MD</a>
     </div>
     </template>
+    <ProviderBillingRollout v-if="section !== 'detail'" :key="agencyId" :fetch-policy="fetchRollout" :save-entry="saveRollout" />
     <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <ClaimServiceChangesPanel v-if="historyClaimId || review?.claimId || draft?.claim?.id" :agency-id="agencyId" :claim-id="Number(historyClaimId || review?.claimId || draft?.claim?.id)" @updated="review=null; approved=false; emit('updated')" />
@@ -156,10 +157,13 @@
 
 <script setup>
 import ClaimServiceChangesPanel from './ClaimServiceChangesPanel.vue';
+import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' } });
 const emit = defineEmits(['updated']);
+const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;
+const saveRollout = async input => (await api.put('/medical-billing/provider-rollout', { ...input, agencyId: props.agencyId })).data;
 const busy = ref(false), error = ref(''), notice = ref('');
 const payerRequests=ref([]), requestedPayer=ref(''), setupSearch=ref('');
 const decoded = (value, fallback) => { if (typeof value !== 'string') return value || fallback; try { return JSON.parse(value) || fallback; } catch { return fallback; } };

@@ -11,6 +11,7 @@
 import pool from '../config/database.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import User from '../models/User.model.js';
+import { providerBillingNpi } from './providerBillingNpi.service.js';
 
 export async function getProviderClaimBillingMode({ agencyId, providerUserId }) {
   const aid = Number(agencyId || 0);
@@ -203,7 +204,7 @@ export async function resolveClaimProviders({
   let billingNpi = null;
   if (renderingUserId) {
     try {
-      renderingNpi = npiFromUser(await User.findById(renderingUserId));
+      renderingNpi = await providerBillingNpi({ agencyId: aid, userId: renderingUserId, coreNpi: npiFromUser(await User.findById(renderingUserId)) });
     } catch {
       renderingNpi = null;
     }
@@ -212,7 +213,7 @@ export async function resolveClaimProviders({
     billingNpi = renderingNpi;
   } else if (billingUserId) {
     try {
-      billingNpi = npiFromUser(await User.findById(billingUserId));
+      billingNpi = await providerBillingNpi({ agencyId: aid, userId: billingUserId, coreNpi: npiFromUser(await User.findById(billingUserId)) });
     } catch {
       billingNpi = null;
     }

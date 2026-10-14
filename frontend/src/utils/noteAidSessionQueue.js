@@ -122,6 +122,7 @@ export function suggestPsychotherapyCodeForDuration(minutes) {
  */
 export function defaultDurationMinutesForServiceCode(code) {
   const c = String(code || '').trim().toUpperCase();
+  if (c === 'H0002') return null;
   if (c === '90832') return 30;
   if (isExtendedEncounterCode(c)) return 75;
   if (c === '90834') return 45;

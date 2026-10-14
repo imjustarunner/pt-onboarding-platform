@@ -1,5 +1,7 @@
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import crypto from 'node:crypto';
+import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
+import { providerBillingRolloutReview } from '../services/providerBillingRollout.service.js';
 import { hasPendingClaimChange,previouslyTransmitted,claimChangeRequests,resolveServiceChange } from '../services/claimServiceChanges.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
@@ -44,13 +46,18 @@ export async function prepareClaimReview(agencyId, claimId) {
   const documentation = await claimDocumentation(agencyId, claim);
   documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
   const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
-  const providerId = Number(session?.rendering_provider_user_id || session?.provider_user_id);
+  const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
+  const rollout = await providerBillingRolloutReview({ agencyId, providerUserId: providerId, payerId: insurance?.primary?.payerId, serviceDate: claim.date_of_service });
+  if (!rollout.ready) readiness.blockers.push(rollout.reason);
   const policy = await resolveDocumentationPolicy(agencyId, providerId);
   const [users] = await pool.execute('SELECT id,first_name,last_name,npi,license_type FROM users WHERE id IN (?,?)', [providerId,policy.supervisorUserId || 0]);
+  await Promise.all(users.map(async u => { u.npi = await providerBillingNpi({ agencyId, userId: u.id, coreNpi: u.npi }); }));
   const person = id => { const u=users.find(r=>Number(r.id)===Number(id)); return u?{id:Number(u.id),firstName:u.first_name,lastName:u.last_name,npi:u.npi || null}:null; };
   const configuredPayerPolicy = await loadPayerPolicy(agencyId, insurance?.primary?.payerId, insurance?.primary?.planType);
   const payerPolicy = { ...configuredPayerPolicy, coloradoMedicaid: configuredPayerPolicy?.coloradoMedicaid === true || insurance?.primary?.payerId === 'COCHA' };
   const supervision = evaluateSupervisedBilling({ policy,payerPolicy,dateOfService:claim.date_of_service,serviceProvider:person(providerId),supervisor:person(policy.supervisorUserId),note:documentation.note });
+  if (rollout.entry?.requiresSupervision && (Number(policy.supervisorUserId) !== Number(rollout.entry.supervisorUserId) || policy.billingMode !== 'billing_supervisor' || !supervision.rule?.mappingVerified))
+    readiness.blockers.push('Complete the provider’s assigned supervisor and dated payer billing rule before submission.');
   if (policy.billingMode === 'billing_supervisor') {
     supervision.payerCredentialEligibility = await checkSuperviseePayerEligibility({ agencyId, supervisorId: policy.supervisorUserId, payerId: insurance?.primary?.payerId });
     if (!supervision.payerCredentialEligibility.allowed) supervision.blockers.push(supervision.payerCredentialEligibility.reason);
@@ -86,8 +93,8 @@ export async function prepareClaimReview(agencyId, claimId) {
   if(previouslyTransmitted(claim))readiness.blockers.push('Previously transmitted claim: reconcile payer status and use the payer-specific correction workflow; do not send another original.');
   readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
   readiness.ready=readiness.blockers.length===0;
-  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, appliedOverrides:overrides?.applied || [],
-    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,coverageReviewId:coverageEvidence.review?.id||null,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
+  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, appliedOverrides:overrides?.applied || [],
+    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
 }
 
 export async function createSecondaryClaim(req,res,next) {

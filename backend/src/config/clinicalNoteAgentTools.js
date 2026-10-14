@@ -171,6 +171,18 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     maxOutputTokens: 1400
   },
   {
+    id: 'clinical_screening_review',
+    name: 'Screening Review + H0002 Draft',
+    description: 'Document screening for eligibility and fit for services using intake history and PSC-17, GAD-7 or PHQ results; no therapy appointment required.',
+    category: baseCategory,
+    systemPrompt: 'Prepare a clinical screening review draft using only the supplied intake and clinician observations. Preserve which person completed each questionnaire and the exact instrument/version, completeness and supplied scores. Do not invent answers, scores, diagnoses, service dates, assessments, outcomes or signatures. An incomplete questionnaire is not a negative screen. Distinguish self-report from clinician findings. Preserve any stated safety follow-up needs; never imply follow-up occurred unless documented. H0002 is a requested billing review, not a determination that the service is covered or billable. Leave missing clinical assessment, disposition/follow-up and service details explicitly awaiting clinician completion. Do not infer an ICD-10 diagnosis from a screening score.',
+    outputInstructions: 'Use sections: Reported concerns and functioning; Screening findings; Clinical assessment; Outcome and follow-up; Items requiring clinician completion. In Clinical assessment, document the clinician\'s supplied determination of eligibility and fit for services, treatment needs and recommended options. H0002 is distinct from H0023: do not generate case-management or therapy-session activities. An appointment is not a prerequisite for this draft; do not invent attendance or duration. Leave the determination awaiting clinician completion when it has not been supplied.',
+    includeKnowledgeBase: true,
+    kbFolders: ['shared', 'H0002_psc17'],
+    temperature: 0.1,
+    maxOutputTokens: 1800
+  },
+  {
     id: 'clinical_pcp_note',
     name: 'PCP Documentation Hub',
     description: 'Parent-Child Partnership progress note or goal.',

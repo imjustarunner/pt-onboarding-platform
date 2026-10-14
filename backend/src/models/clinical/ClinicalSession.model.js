@@ -66,6 +66,20 @@ class ClinicalSession {
     return rows?.[0] || null;
   }
 
+  static async findNoteAidDraftSession({ agencyId, clientId, providerUserId, serviceDate, serviceCode }) {
+    // A screening and a therapy visit on the same day are separate services.
+    // Reuse only this author's unfinished encounter for this exact service.
+    const [rows] = await clinicalPool.execute(`SELECT s.* FROM clinical_sessions s
+      WHERE s.agency_id = ? AND s.client_id = ? AND s.provider_user_id = ?
+        AND s.office_event_id IS NULL AND s.billing_encounter_id IS NULL
+        AND DATE(s.scheduled_start_at) = ? AND s.service_code = ?
+        AND s.encounter_status NOT IN ('cancelled', 'canceled', 'voided', 'no_show')
+        AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.clinical_session_id = s.id)
+        AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id = s.id AND n.provider_signed_at IS NOT NULL)
+      ORDER BY s.id DESC LIMIT 1`, [agencyId, clientId, providerUserId, serviceDate, serviceCode]);
+    return rows?.[0] || null;
+  }
+
   static async attachBillingEncounter({ sessionId, billingEncounterId, serviceCode = null, providerUserId = null }) {
     const sid = Number(sessionId || 0);
     const beId = Number(billingEncounterId || 0);

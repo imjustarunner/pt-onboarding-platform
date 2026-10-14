@@ -327,7 +327,7 @@ function resolveClinicalToolId({ serviceCode, programId }) {
   if (sc === 'H0004') return 'clinical_h0004_note';
   if (sc === 'H0031') return 'clinical_h0031_intake';
   if (sc === 'H0032') return 'clinical_h0032_plan_development';
-  if (sc === 'H0002') return 'clinical_psc_17';
+  if (sc === 'H0002') return 'clinical_screening_review';
   if (sc === '90791') return 'clinical_90791_intake_plan';
   if (sc === '90832' || sc === '90834' || sc === '90837' || sc === '90839') return 'clinical_psychotherapy_note';
   if (sc === '90846' || sc === '90847') return 'clinical_family_note';
@@ -726,19 +726,24 @@ export const createClinicalNoteDraft = async (req, res, next) => {
           session = await ClinicalSession.findByOfficeEventAndClient({ officeEventId, clientId });
         }
         if (!session && serviceCode) {
-          session = await ClinicalSession.findUnbilledByClientDateCode({
+          session = await ClinicalSession.findNoteAidDraftSession({
             agencyId,
             clientId,
+            providerUserId: req.user.id,
             serviceDate: dateOfService,
             serviceCode
           });
         }
-        if (!session) {
+        if (!session && !serviceCode) {
           const [existingRows] = await clinicalPool.execute(
-            `SELECT * FROM clinical_sessions
-             WHERE agency_id = ? AND client_id = ? AND DATE(scheduled_start_at) = ?
-             ORDER BY id DESC LIMIT 1`,
-            [agencyId, clientId, dateOfService]
+            `SELECT s.* FROM clinical_sessions s
+             WHERE s.agency_id = ? AND s.client_id = ? AND s.provider_user_id = ? AND DATE(s.scheduled_start_at) = ?
+               AND s.office_event_id IS NULL AND s.billing_encounter_id IS NULL
+               AND TRIM(COALESCE(s.service_code, '')) = ''
+               AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.clinical_session_id = s.id)
+               AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id = s.id AND n.provider_signed_at IS NOT NULL)
+             ORDER BY s.id DESC LIMIT 1`,
+            [agencyId, clientId, req.user.id, dateOfService]
           );
           session = existingRows?.[0] || null;
         }

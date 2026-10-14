@@ -3806,6 +3806,7 @@ const quickSessionServiceLabel = computed(() => actualServiceCode.value || '—'
 const sessionDurationHint = computed(() => {
   if (chartNoteReadOnly.value) return '';
   const code = actualServiceCode.value || '';
+  if (code === 'H0002') return 'Record the screening date and determination of fit for services. No therapy appointment or default session duration is required.';
   const def = defaultDurationMinutesForServiceCode(code);
   if (showSessionContextStrip.value || sessionScheduledStart.value || sessionScheduledEnd.value) {
     return `Confirm duration — most sessions do not last exactly the ${def}-minute code default. You can change duration and/or start–end times.`;

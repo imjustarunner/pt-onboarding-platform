@@ -5,6 +5,17 @@ import { unpackAgencyTaxId } from './agencyTaxId.service.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
 
+// Group NPIs entered on Credentialing belong to the mapped agency-owned office.
+// Use that identity when available; never choose between multiple group NPIs.
+async function credentialingGroupNpi(agencyId, officeId, officeNpi) {
+  const [groups] = await pool.execute(`SELECT npi_number FROM agency_group_npis
+    WHERE agency_id = ? AND office_location_id = ? AND is_active = 1`, [agencyId, officeId]);
+  const npis = [...new Set(groups.map(g => String(g.npi_number || '').trim()).filter(Boolean))];
+  if (npis.length > 1 || (npis.length === 1 && officeNpi && String(officeNpi).trim() !== npis[0]))
+    throw fail('Credentialing and the billing office have conflicting group NPIs. Review the office mapping.');
+  return npis[0] || String(officeNpi || '').trim();
+}
+
 // An office's clinical visibility/shared scheduling access does not grant use of
 // another tenant's legal billing identity. Only agency-owned offices qualify.
 export async function listClaimMdBillingProfiles(agencyId) {
@@ -18,6 +29,7 @@ export async function getClaimMdBillingProfile(agencyId, officeId, { requireComp
   const [[office]] = await pool.execute(`SELECT id, agency_id, name, practice_name, practice_npi, street_address, city, state, postal_code, phone
     FROM office_locations WHERE id = ? AND agency_id = ? AND is_active = 1 AND use_as_billing_address = 1`, [officeId, agencyId]);
   if (!office) throw fail('The billing office is unavailable or belongs to another agency.');
+  office.practice_npi = await credentialingGroupNpi(agencyId, office.id, office.practice_npi);
   if (requireComplete && !/^\d{10}$/.test(String(office.practice_npi || ''))) throw fail('Save the billing office’s group NPI before using Claim.MD.');
   const agency = await Agency.findById(agencyId);
   if (!agency) throw fail('Agency not found.');

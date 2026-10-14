@@ -9,6 +9,7 @@ import { getClientInsurance, saveClientInsurance } from '../controllers/clientIn
 import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
 import { createSecondaryClaim } from '../controllers/claimMdWorkflow.controller.js';
 import express from 'express';
+import { getProviderBillingRollout, putProviderBillingRollout } from '../controllers/providerBillingRollout.controller.js';
 import { getAppointmentBilling, getPlannedBillingServices } from '../controllers/appointmentBilling.controller.js';
 import { payerSetupRequests } from '../controllers/payerSetupRequest.controller.js';
 import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
@@ -104,6 +105,8 @@ router.get('/planned-services', ...claimsGate, requireMedicalBillingFinancialAcc
 router.get('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.get('/workspace', getBillingWorkspace);
+router.get('/provider-rollout', ...claimMdGate, getProviderBillingRollout);
+router.put('/provider-rollout', ...claimMdGate, putProviderBillingRollout);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
 router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);
 router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);

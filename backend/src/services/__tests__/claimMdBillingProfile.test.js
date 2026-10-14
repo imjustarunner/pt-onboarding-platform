@@ -13,6 +13,18 @@ beforeEach(() => {
   mocks.agency.mockResolvedValue({ tax_id: '123456789', tax_id_type: 'ein', name: 'Agency label', street_address: 'Wrong agency address' });
 });
 describe('Claim.MD office billing identity', () => {
+  it('uses the credentialing group NPI mapped to the selected office without requiring re-entry', async () => {
+    const base = mocks.main.getMockImplementation();
+    mocks.main.mockImplementation(async (sql, args) => sql.includes('FROM agency_group_npis') ? [[{ npi_number: '1306688650' }]]
+      : sql.includes('FROM office_locations') ? [[{ ...office, practice_npi: null }]] : base(sql, args));
+    expect((await getClaimMdBillingProfile(377, 8)).billingNpi).toBe('1306688650');
+    expect(mocks.main).toHaveBeenCalledWith(expect.stringContaining('FROM agency_group_npis'), [377, 8]);
+  });
+  it('blocks conflicting credentialing group NPIs instead of silently switching billing identity', async () => {
+    const base = mocks.main.getMockImplementation();
+    mocks.main.mockImplementation(async (sql, args) => sql.includes('FROM agency_group_npis') ? [[{ npi_number: '1972246940' }]] : base(sql, args));
+    await expect(getClaimMdBillingProfile(377, 8)).rejects.toThrow('conflicting group NPIs');
+  });
   it('uses the selected office legal name/address and agency tax identity', async () => {
     const p = await resolveClaimMdBillingProfile(377, 10);
     expect(p.billingNpi).toBe('1306688650');

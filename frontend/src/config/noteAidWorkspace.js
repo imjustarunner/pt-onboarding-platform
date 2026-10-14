@@ -306,6 +306,13 @@ export const NOTE_AID_CATEGORIES = [
     label: 'Additional aids',
     aids: [
       {
+        id: 'h0002_screening',
+        label: 'H0002 — Screening and fit for services',
+        toolId: 'clinical_screening_review',
+        serviceCode: 'H0002',
+        guidance: 'Review the intake and screening findings, document the determination of fit, treatment needs and next steps. No therapy appointment is required.'
+      },
+      {
         id: 'h0002',
         label: 'H0002 — Behavioral Health Screening (PSC-17)',
         toolId: 'clinical_psc_17',
