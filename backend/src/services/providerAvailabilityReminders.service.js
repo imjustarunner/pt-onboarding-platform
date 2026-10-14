@@ -30,12 +30,17 @@ async function readProviderAvailabilitySettings(providerId, agencyId) {
  })),checkedAt:reminders[0]?.checked_at || null};
 }
 
-async function checkProviderAvailability(providerId, agencyId) {
+async function checkProviderAvailability(providerId, agencyId, {onlyIfStale=false}={}) {
  const connection=await pool.getConnection();
  const lock=`provider-availability:${agencyId}:${providerId}`;
  try {
   const [[result]]=await connection.query('SELECT GET_LOCK(?,0) AS acquired',[lock]);
   if(!result.acquired)return;
+  if(onlyIfStale) {
+   const [stale]=await pool.execute(`SELECT id FROM provider_availability_reminders WHERE provider_id=? AND agency_id=?
+    AND (checked_at IS NULL OR checked_at<=DATE_SUB(NOW(),INTERVAL 5 MINUTE)) LIMIT 1`,[providerId,agencyId]);
+   if(!stale.length)return;
+  }
   const user=await User.findById(providerId);
   const profile=await Profile.getForProvider({providerUserId:providerId,agencyId});
   const preferences=providerAvailabilityPreferences(user,profile);
@@ -47,7 +52,7 @@ async function checkProviderAvailability(providerId, agencyId) {
    const monday=new Date();monday.setUTCHours(12,0,0,0);monday.setUTCDate(monday.getUTCDate()-((monday.getUTCDay()+6)%7));
    for(let week=0;week<4;week++) {
     const day=new Date(monday.getTime()+week*7*86400000);
-    const result=await Availability.computeWeekAvailability({agencyId,providerId,weekStartYmd:day.toISOString().slice(0,10),includeGoogleBusy:true,intakeOnly:true});
+    const result=await Availability.computeWeekAvailability({agencyId,providerId,weekStartYmd:day.toISOString().slice(0,10),includeGoogleBusy:false,intakeOnly:true});
     if(!result)throw new Error('Availability could not be checked');
     slots.inPersonSlots.push(...unheld(result.inPersonSlots));slots.virtualSlots.push(...unheld(result.virtualSlots));
     if(!missingAvailabilityFormats(preferences,slots).length)break;
@@ -63,13 +68,13 @@ async function checkProviderAvailability(providerId, agencyId) {
     let task=row.task_id?await Task.findById(row.task_id):null;
     if(!task) {
      const [[existing]]=await pool.execute("SELECT id FROM tasks WHERE source_ref_type='provider_availability' AND source_ref_id=? ORDER BY id DESC LIMIT 1",[String(row.id)]);
-     task=existing?await Task.findById(existing.id):await Task.create({taskType:'custom',title:`Add ${label} availability`,description:`You are accepting ${label} clients but have no published new-client openings in the next four schedule weeks. Add openings or update your availability settings: ${destination}`,assignedToUserId:providerId,assignedToAgencyId:agencyId,assignedByUserId:providerId,sourceRefType:'provider_availability',sourceRefId:row.id,metadata:{kind:'provider_availability',format,providerId,agencyId,url:destination},isPrivate:true});
+     task=existing?await Task.findById(existing.id):await Task.create({taskType:'custom',title:`Add ${label} availability`,description:`You are accepting ${label} clients but have no bookable new-client openings in the next four schedule weeks. Saved hours may be occupied by appointments, school assignments, or schedule blocks. Review openings or update your availability settings: ${destination}`,assignedToUserId:providerId,assignedToAgencyId:agencyId,assignedByUserId:providerId,sourceRefType:'provider_availability',sourceRefId:row.id,metadata:{kind:'provider_availability',format,providerId,agencyId,url:destination},isPrivate:true});
     }
     if(!row.is_missing && ['completed','overridden'].includes(task.status))await Task.updateStatus(task.id,'pending');
     let notificationId=row.notification_id;
     if(!notificationId) {
      const [[existing]]=await pool.execute("SELECT id FROM notifications WHERE user_id=? AND related_entity_type='provider_availability' AND related_entity_id=? ORDER BY id DESC LIMIT 1",[providerId,row.id]);
-     const notification=existing||await Notification.create({type:'custom_task_assigned',severity:'warning',title:`Add ${label} availability`,message:`You are open for ${label} clients, but no new-client slots are published in the next four schedule weeks. Open your Public Provider Profile settings or the assigned task to add times.`,userId:providerId,agencyId,relatedEntityType:'provider_availability',relatedEntityId:row.id,actorSource:'provider_availability'});
+     const notification=existing||await Notification.create({type:'custom_task_assigned',severity:'warning',title:`Add ${label} availability`,message:`You are open for ${label} clients, but no bookable new-client slots were found in the next four schedule weeks. Open your Public Provider Profile settings or the assigned task to add times.`,userId:providerId,agencyId,relatedEntityType:'provider_availability',relatedEntityId:row.id,actorSource:'provider_availability'});
      notificationId=notification.id;
     } else if(!row.is_missing)await Notification.setViewerState(notificationId,providerId,{dismissed:false,read:false,snoozedUntil:null});
     await pool.execute('UPDATE provider_availability_reminders SET is_missing=1,task_id=?,notification_id=?,checked_at=NOW() WHERE id=?',[task.id,notificationId,row.id]);
@@ -80,6 +85,30 @@ async function checkProviderAvailability(providerId, agencyId) {
    }
   }
  } finally {try{await connection.query('SELECT RELEASE_LOCK(?)',[lock]);}finally{connection.release();}}
+}
+async function readMyAvailabilityReminders(providerId) {
+ const read=async()=>{
+  const [rows]=await pool.execute(`SELECT r.agency_id AS agencyId,r.provider_id AS providerId,r.format,r.task_id AS taskId,
+   a.name AS agencyName,r.checked_at AS checkedAt,
+   (r.checked_at>DATE_SUB(NOW(),INTERVAL 5 MINUTE)) AS isFresh
+   FROM provider_availability_reminders r JOIN agencies a ON a.id=r.agency_id JOIN users u ON u.id=r.provider_id
+   JOIN user_agencies ua ON ua.user_id=r.provider_id AND ua.agency_id=r.agency_id
+   LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
+   WHERE r.provider_id=? AND r.is_missing=1 AND u.sees_clients=1 AND COALESCE(u.provider_accepting_new_clients,1)=1
+   AND COALESCE(ua.is_active,1)=1 AND (nur.snoozed_until IS NULL OR nur.snoozed_until<=NOW())`,[providerId]);
+  return rows;
+ };
+ const rows=await read();
+ const staleAgencies=[...new Set(rows.filter(r=>Number(r.isFresh)!==1).map(r=>r.agencyId))];
+ // Only recheck stale warnings, not every agency/calendar on every poll. The
+ // database lock and second freshness check coalesce concurrent browser tabs.
+ for(const agencyId of staleAgencies) {
+  try {await checkProviderAvailability(providerId,agencyId,{onlyIfStale:true});}
+  catch(e) {console.warn('[availability-reminders] refresh failed',providerId,e.code||e.message);}
+ }
+ const current=staleAgencies.length?await read():rows;
+ // An unavailable calendar or an in-flight check is not evidence of no openings.
+ return current.filter(r=>Number(r.isFresh)===1).map(({isFresh,...row})=>row);
 }
 let running=false;
 async function runProviderAvailabilityReminderTick(){
@@ -95,6 +124,6 @@ async function runProviderAvailabilityReminderTick(){
  }finally{running=false;}
 }
 
-return {readProviderAvailabilitySettings,checkProviderAvailability,runProviderAvailabilityReminderTick};
+return {readProviderAvailabilitySettings,checkProviderAvailability,readMyAvailabilityReminders,runProviderAvailabilityReminderTick};
 }
-export const {readProviderAvailabilitySettings,checkProviderAvailability,runProviderAvailabilityReminderTick}=createProviderAvailabilityReminders({pool,User,Profile,Task,Notification,Availability});
+export const {readProviderAvailabilitySettings,checkProviderAvailability,readMyAvailabilityReminders,runProviderAvailabilityReminderTick}=createProviderAvailabilityReminders({pool,User,Profile,Task,Notification,Availability});

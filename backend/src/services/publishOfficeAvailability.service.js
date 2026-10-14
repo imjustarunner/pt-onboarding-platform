@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {careTypes as normalizeCareTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
+import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 import Virtual from '../models/ProviderVirtualSlotAvailability.model.js';
 import InPerson from '../models/ProviderInPersonSlotAvailability.model.js';
 import {availabilityOccursOn} from '../utils/availabilityRecurrence.js';
@@ -43,6 +44,7 @@ export async function publishOfficeAvailability({event,agencyId,providerId,frequ
     }
     for(const model of format==='PRIVATE'?[]:format==='BOTH'?[Virtual,InPerson]:[format==='VIRTUAL'?Virtual:InPerson])await model.upsertSlot({database:conn,agencyId,providerId,officeLocationId:e.office_location_id,roomId:e.room_id,startAt:e.start_at,endAt:e.end_at,availableForIntake,availableForSession,frequency,purpose,seriesId,careTypes:normalizeCareTypes(careTypes),sourceEventId:e.id,createdByUserId:actorId});
   }
+  await invalidateAvailabilityReminders(conn,providerId);
   await conn.commit();return {publishedCount:open.length,skippedAppointments:candidates.length-open.length,publishedThrough:open.at(-1)?.start_at,frequency,purpose};
  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }

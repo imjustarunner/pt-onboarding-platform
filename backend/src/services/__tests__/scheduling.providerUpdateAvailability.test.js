@@ -25,7 +25,10 @@ it('adds a virtual window without replacing other openings, appointments, or mee
  await addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY',purpose:'MEETING'});
  const insert=db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT'));
  expect(insert[0]).toContain('INSERT INTO provider_virtual_working_hours');expect(insert[1]).toEqual([2,465,'Monday','09:00','10:00','WEEKLY','2026-10-12',null,'ONGOING']);expect(db.commit).toHaveBeenCalledOnce();
- expect(db.execute.mock.calls.some(([sql])=>/^(DELETE|UPDATE|INSERT INTO (appointments|office_events|company_events))/.test(sql))).toBe(false);
+ expect(db.execute.mock.calls.some(([sql])=>/^(DELETE|UPDATE|INSERT INTO (appointments|office_events|company_events))/.test(sql) && !sql.startsWith('UPDATE provider_availability_reminders'))).toBe(false);
+ expect(db.execute).toHaveBeenCalledWith('UPDATE provider_availability_reminders SET checked_at=NULL WHERE provider_id=?',[465]);
+ const invalidation=db.execute.mock.calls.findIndex(([sql])=>sql.startsWith('UPDATE provider_availability_reminders'));
+ expect(db.execute.mock.invocationCallOrder[invalidation]).toBeLessThan(db.commit.mock.invocationCallOrder[0]);
 });
 it.each(['busyBlocks','officeReservations'])('refuses a conflicting %s hour',async key=>{m.compute.mockResolvedValue({[key]:[{startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'}]});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
 it('asks for school-hours approval before publishing and does not change availability or assignments',async()=>{

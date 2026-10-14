@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const db = vi.hoisted(() => ({ execute: vi.fn() }));
+const db = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: db }));
 import VirtualHours from '../ProviderVirtualWorkingHours.model.js';
 beforeEach(() => { vi.clearAllMocks(); });
@@ -25,4 +25,13 @@ it('preserves single-agency callers and tenant restrictions on a legacy schema',
     expect(sql).toContain('WHERE agency_id IN (?) AND provider_id = ?');
     expect(params).toEqual([2, 7]);
   }
+});
+
+it('invalidates reminders in the same transaction as replacing published hours', async () => {
+  const conn={beginTransaction:vi.fn(),execute:vi.fn(async()=>[{}]),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};
+  db.getConnection.mockResolvedValue(conn);
+  await VirtualHours.replaceForProvider({agencyId:2,providerId:7,rows:[{dayOfWeek:'Thursday',startTime:'08:00',endTime:'09:00',sessionType:'INTAKE'}]});
+  const index=conn.execute.mock.calls.findIndex(([sql])=>sql.startsWith('UPDATE provider_availability_reminders'));
+  expect(index).toBeGreaterThan(-1);expect(conn.execute.mock.calls[index][1]).toEqual([7]);
+  expect(conn.execute.mock.invocationCallOrder[index]).toBeLessThan(conn.commit.mock.invocationCallOrder[0]);
 });

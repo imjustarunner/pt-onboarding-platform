@@ -1,4 +1,5 @@
 import {publishOfficeAvailability} from './publishOfficeAvailability.service.js';
+import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 import pool from '../config/database.js';
 import Availability from './providerAvailability.service.js';
 import Hours from '../models/ProviderVirtualWorkingHours.model.js';
@@ -97,6 +98,7 @@ export async function addUpdateVirtualOpening(ids, input) {
       const p=context.preferences;
       await saveAgencyAvailability(db,{...ids,actor:{id:ids.providerId,role:'provider'},body:{...p,virtual:true,acceptingNewClients:true,intakeStatusByFormat:{IN_PERSON:agencyIntakeStatus(p,'IN_PERSON'),VIRTUAL:'accepting',SCHOOL:agencyIntakeStatus(p,'SCHOOL')},applyToAll:false}});
     }
+    await invalidateAvailabilityReminders(db,ids.providerId);
     await db.commit();
     return {ok:true,id:result.insertId};
   } catch(e) {await db.rollback();throw e;} finally {db.release();}

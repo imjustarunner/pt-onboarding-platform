@@ -3,7 +3,7 @@ import {readProviderServices,saveProviderServices} from '../services/providerSer
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
-import {readProviderAvailabilitySettings,checkProviderAvailability} from '../services/providerAvailabilityReminders.service.js';
+import {readProviderAvailabilitySettings,checkProviderAvailability,readMyAvailabilityReminders} from '../services/providerAvailabilityReminders.service.js';
 async function authorize(req,res){
  const providerId=Number(req.params.providerId),agencyId=Number(req.query.agencyId||req.body?.agencyId);
  if(!Number.isSafeInteger(providerId)||providerId<1||!Number.isSafeInteger(agencyId)||agencyId<1){res.status(400).json({error:{message:'Valid provider and agency are required'}});return null;}
@@ -37,12 +37,7 @@ export async function snoozeReminder(req,res,next){try{
  res.json(await readProviderAvailabilitySettings(ids.providerId,ids.agencyId));
 }catch(e){next(e);}}
 export async function getMyReminders(req,res,next){try{
- const [rows]=await pool.execute(`SELECT r.agency_id AS agencyId,r.provider_id AS providerId,r.format,r.task_id AS taskId,a.name AS agencyName
- FROM provider_availability_reminders r JOIN agencies a ON a.id=r.agency_id JOIN users u ON u.id=r.provider_id
- JOIN user_agencies ua ON ua.user_id=r.provider_id AND ua.agency_id=r.agency_id
- LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
- WHERE r.provider_id=? AND r.is_missing=1 AND u.sees_clients=1 AND COALESCE(u.provider_accepting_new_clients,1)=1 AND COALESCE(ua.is_active,1)=1 AND (nur.snoozed_until IS NULL OR nur.snoozed_until<=NOW())`,[req.user.id]);
- res.json({reminders:rows});
+ res.json({reminders:await readMyAvailabilityReminders(req.user.id)});
 }catch(e){next(e);}}
 
 export async function getServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await readProviderServices(ids.providerId,ids.agencyId));}catch(e){next(e);}}

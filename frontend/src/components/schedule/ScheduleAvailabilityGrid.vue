@@ -11461,7 +11461,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       kind: 'portal',
       shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt)}`,
       virtualSlice: virtualAvailabilityCellSlice(st, et, hour, minute, showQuarterDetail.value ? 15 : 60),
-      title: `Published weekly hours${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public page excludes appointments and conflicts saved in the app.`,
+      title: `Published weekly hours${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. These are saved availability hours. Public booking excludes appointments, school assignments, and app schedule blocks. A room reservation alone does not block virtual booking.`,
       agencyId,
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
@@ -12001,7 +12001,7 @@ const isCellPickExpanded = (dayName, hour, minute) => (
 const cellBlockKindLabel = (block) => {
   const kind = String(block?.kind || '');
   if (block?.isOfficeBlock) return 'Office booking';
-  if (kind === 'portal') return 'Open slot for booking';
+  if (kind === 'portal') return 'Published virtual hours';
   if (kind === 'school') return 'School assignment';
   if (kind === 'request') return 'Office request';
   if (kind === 'supv-signup') return 'Open group supervision';

@@ -1,5 +1,6 @@
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
+import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_SET = new Set(DAY_ORDER);
@@ -229,6 +230,7 @@ class ProviderVirtualWorkingHours {
       err.status = 404;
       throw err;
     }
+    await invalidateAvailabilityReminders(pool, pid);
     return {
       id: rowId,
       dayOfWeek: day,
@@ -274,6 +276,7 @@ class ProviderVirtualWorkingHours {
           throw e;
         }
       }
+      await invalidateAvailabilityReminders(conn, pid);
       await conn.commit();
       return normalized.map((r) => ({
         dayOfWeek: r.dayOfWeek,
@@ -296,4 +299,3 @@ class ProviderVirtualWorkingHours {
 }
 
 export default ProviderVirtualWorkingHours;
-

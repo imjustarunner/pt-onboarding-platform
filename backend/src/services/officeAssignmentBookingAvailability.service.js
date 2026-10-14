@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
 export async function publishOfficeAssignmentEvent(assignment, event, db = pool, actorUserId = null, replaceOverrides = false) {
@@ -42,6 +43,7 @@ export async function setOfficeAssignmentBookingAvailability({ assignmentId, pro
     await conn.execute('UPDATE office_standing_assignments SET bookable_in_person = ?, bookable_virtual = ? WHERE id = ?', [Number(inPerson), Number(virtual), assignmentId]);
     const [events] = await conn.execute("SELECT * FROM office_events WHERE standing_assignment_id = ? AND end_at > UTC_TIMESTAMP() AND status <> 'CANCELLED' FOR UPDATE", [assignmentId]);
     for (const event of events) await publishOfficeAssignmentEvent({ ...assignment, bookable_in_person: Number(inPerson), bookable_virtual: Number(virtual) }, event, conn, providerId, true);
+    await invalidateAvailabilityReminders(conn,providerId);
     await conn.commit();
     return { ok: true, inPerson, virtual };
   } catch (error) { await conn.rollback(); throw error; }

@@ -1,6 +1,7 @@
 import {wallMysqlToUtcMysql} from '../utils/zonedWallTime.util.js';
 import {officePublicationMatches} from './publishOfficeAvailability.service.js';
 import pool from '../config/database.js';
+import {invalidateAvailabilityReminders} from '../utils/invalidateAvailabilityReminders.js';
 import {availabilityOccursOn} from '../utils/availabilityRecurrence.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import {addDaysYmd} from '../utils/scheduleRecurrence.js';
@@ -90,6 +91,7 @@ export async function editAvailabilityPublication({agencyId,providerId,kind,id,.
    for(const {original:r,target:t} of moves)await (kind==='virtual'?Virtual:InPerson).upsertSlot({database:db,agencyId,providerId,officeLocationId:t.office_location_id,roomId:t.room_id,startAt:t.start_at,endAt:t.end_at,sourceEventId:t.id,availableForIntake:!!r.available_for_intake,availableForSession:!!r.available_for_session,frequency:options.scope==='single'?'ONCE':r.frequency,purpose:r.purpose,seriesId:series,careTypes:normalizedCare===undefined?careTypes(r.care_types_json):normalizedCare});
   }
  }
+ await invalidateAvailabilityReminders(db,providerId);
  await db.commit();return {ok:true};
  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }

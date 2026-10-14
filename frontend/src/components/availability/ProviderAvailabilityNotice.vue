@@ -1,9 +1,24 @@
-<template><aside v-if="reminders.length" class="opening-notice" aria-label="Availability reminders"><div v-for="r in reminders" :key="`${r.agencyId}-${r.format}`"><span>{{r.agencyName}}: no {{r.format==='IN_PERSON'?'in-person':'virtual'}} new-client openings published.</span> <router-link :to="{path:`/admin/users/${r.providerId}`,query:{agencyId:r.agencyId,section:'public-profile'}}">Review availability</router-link> <button type="button" :disabled="busy" @click="snooze(r)">Snooze 7 days</button></div><p v-if="error" role="alert">{{error}}</p></aside></template>
+<template>
+ <aside v-if="reminders.length" class="opening-notice" aria-label="Availability reminders">
+  <div v-for="r in reminders" :key="`${r.agencyId}-${r.format}`">
+   <span>{{r.agencyName}}: no bookable {{r.format==='IN_PERSON'?'in-person':'virtual'}} new-client openings found in the next four schedule weeks.</span>
+   <router-link :to="{path:`/admin/users/${r.providerId}`,query:{agencyId:r.agencyId,section:'public-profile'}}">Review availability</router-link>
+   <button type="button" :disabled="busy" @click="snooze(r)">Snooze 7 days</button>
+   <small v-if="r.checkedAt">Last checked {{new Date(r.checkedAt).toLocaleString()}}.</small>
+  </div>
+  <p>Published hours may still be occupied by appointments, school assignments, or schedule blocks.</p>
+  <p v-if="error" role="alert">{{error}}</p>
+ </aside>
+</template>
 <script setup>
 import {ref,onMounted,onUnmounted} from 'vue';
 import api from '../../services/api';
-const reminders=ref([]),busy=ref(false),error=ref('');let timer,active=true;
-async function load(){try{const{data}=await api.get('/availability/me/opening-reminders',{skipGlobalLoading:true,skipAuthRedirect:true});if(active)reminders.value=data.reminders||[];}catch{/* Preserve the app if availability checks are temporarily unavailable. */}}
+const reminders=ref([]),busy=ref(false),error=ref('');let timer,active=true,pending;
+function load(){
+ if(pending)return pending;
+ pending=(async()=>{try{const{data}=await api.get('/availability/me/opening-reminders',{skipGlobalLoading:true,skipAuthRedirect:true});if(active)reminders.value=data.reminders||[];}catch{if(active)reminders.value=[];}finally{pending=null;}})();
+ return pending;
+}
 async function snooze(r){busy.value=true;error.value='';try{await api.post(`/availability/providers/${r.providerId}/public-settings/snooze`,{agencyId:r.agencyId,format:r.format},{skipGlobalLoading:true});await load();}catch{error.value='Could not snooze this reminder. Please try again.';}finally{busy.value=false;}}
 onMounted(()=>{load();timer=setInterval(load,60000);window.addEventListener('focus',load);});onUnmounted(()=>{active=false;clearInterval(timer);window.removeEventListener('focus',load);});
 </script>
