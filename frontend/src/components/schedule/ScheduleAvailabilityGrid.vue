@@ -208,28 +208,38 @@
           </div>
         </div>
 
-        <div v-if="calendarSettingsOpen" class="sched-command__filters" role="tablist" aria-label="Calendar settings sections">
-          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('people')">
+        <div v-if="calendarSettingsOpen" class="sched-command__filters" role="group" aria-label="Calendar settings sections">
+          <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-command__filter"
+            :class="{ on: activeSettingsSection === 'people' }" :aria-expanded="activeSettingsSection === 'people'"
+            aria-controls="sched-settings-people" @click="toggleSettingsSection('people')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             People
             <span aria-hidden="true">▾</span>
           </button>
-          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('office')">
+          <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-command__filter"
+            :class="{ on: activeSettingsSection === 'office' }" :aria-expanded="activeSettingsSection === 'office'"
+            aria-controls="sched-settings-office" @click="toggleSettingsSection('office')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
             Office
             <span aria-hidden="true">▾</span>
           </button>
-          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('feeds')">
+          <button v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled" type="button" class="sched-command__filter"
+            :class="{ on: activeSettingsSection === 'feeds' }" :aria-expanded="activeSettingsSection === 'feeds'"
+            aria-controls="sched-settings-feeds" @click="toggleSettingsSection('feeds')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             Feeds
             <span aria-hidden="true">▾</span>
           </button>
-          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('layout')">
+          <button type="button" class="sched-command__filter"
+            :class="{ on: activeSettingsSection === 'layout' }" :aria-expanded="activeSettingsSection === 'layout'"
+            aria-controls="sched-settings-layout" @click="toggleSettingsSection('layout')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             Layout
             <span aria-hidden="true">▾</span>
           </button>
-          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('more')">
+          <button type="button" class="sched-command__filter"
+            :class="{ on: activeSettingsSection === 'more' }" :aria-expanded="activeSettingsSection === 'more'"
+            aria-controls="sched-settings-more" @click="toggleSettingsSection('more')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
             More
             <span aria-hidden="true">▾</span>
@@ -437,7 +447,7 @@
         class="sched-calendar-settings"
         :class="{ 'sched-calendar-settings--command': compactPageChrome, 'sched-calendar-settings--open': calendarSettingsOpen }"
         data-testid="my-schedule-calendar-settings"
-        :open="calendarSettingsOpen"
+        :open="calendarSettingsOpen && (!compactPageChrome || !!activeSettingsSection)"
         @toggle="onCalendarSettingsToggle"
       >
         <summary
@@ -450,7 +460,7 @@
         </summary>
         <div class="sched-calendar-settings__body">
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" class="sched-tool-cluster" title="Ways to see other people’s calendars">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" v-show="!compactPageChrome || activeSettingsSection === 'people'" class="sched-tool-cluster" title="Ways to see other people’s calendars">
           <span class="sched-tool-cluster__label">People</span>
           <button
             type="button"
@@ -475,7 +485,7 @@
           </router-link>
         </div>
 
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" class="sched-tool-cluster" title="Filter your office rooms by building">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" v-show="!compactPageChrome || activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">
           <span class="sched-tool-cluster__label">Office</span>
           <select
             v-model.number="selectedOfficeLocationId"
@@ -513,7 +523,7 @@
 
         <div
           v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled"
-          id="sched-settings-feeds"
+          id="sched-settings-feeds" v-show="!compactPageChrome || activeSettingsSection === 'feeds'"
           class="sched-tool-cluster"
           title="Google Calendar for this SSO account."
         >
@@ -568,7 +578,7 @@
           </button>
         </div>
 
-        <div id="sched-settings-layout" class="sched-tool-cluster" title="How the week grid is laid out">
+        <div id="sched-settings-layout" v-show="!compactPageChrome || activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
           <span class="sched-tool-cluster__label">Display</span>
           <button
             type="button"
@@ -667,7 +677,7 @@
         </button>
       </div>
 
-      <div id="sched-settings-more" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
+      <div id="sched-settings-more" v-show="!compactPageChrome || activeSettingsSection === 'more'" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
         <div class="sched-more-tools__heading">More tools</div>
         <div class="sched-more-tools__body">
           <div class="sched-tool-cluster sched-tool-cluster--wrap">
@@ -6212,6 +6222,7 @@ const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
 const calendarSettingsOpen = ref(false);
+const activeSettingsSection = ref('');
 const hubTitleSwitchRef = ref(null);
 const hubViewMenuOpen = ref(false);
 const compactHubViews = computed(() =>
@@ -6238,15 +6249,13 @@ function onHubTitleDocClick(e) {
 function toggleCalendarSettings() {
   calendarSettingsOpen.value = !calendarSettingsOpen.value;
 }
-function scrollToSettingsSection(id) {
+function toggleSettingsSection(id) {
   calendarSettingsOpen.value = true;
-  requestAnimationFrame(() => {
-    const el = document.getElementById(`sched-settings-${id}`);
-    if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
+  activeSettingsSection.value = activeSettingsSection.value === id ? '' : id;
 }
 function onCalendarSettingsToggle(ev) {
-  calendarSettingsOpen.value = !!(ev?.target?.open);
+  // The compact toolbar controls each panel; native details only controls the legacy layout.
+  if (!props.compactPageChrome && ev.target === ev.currentTarget) calendarSettingsOpen.value = !!ev.target.open;
 }
 
 /** Availability Hours for quiet-hour shading (mirrors availabilityWindow defaults). */
@@ -26850,6 +26859,8 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-radius: 8px;
 }
 .sched-command__filter:hover { background: #f3f4f6; }
+.sched-command__filter.on { background: #e8f2ed; color: #166534; box-shadow: inset 0 0 0 1px #b9d7c5; }
+.sched-command__filter.on > span:last-child { transform: rotate(180deg); }
 @media (max-width: 1100px) {
   .sched-command__actions { margin-left: 0; }
 }

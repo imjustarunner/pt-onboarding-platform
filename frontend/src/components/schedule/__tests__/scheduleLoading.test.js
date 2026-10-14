@@ -219,3 +219,32 @@ it('keeps usable actions ahead of a preferred but unavailable school action, inc
   expect(state.displayedChooserActions[0].id).toBe('school');
   expect(state.slotActionPrefs.order[0]).toBe('school');
 });
+
+it('opens each compact toolbar settings panel directly and toggles it closed', async () => {
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500); await flushPromises();
+  await wrapper.setProps({ compactPageChrome: true });
+  state.summary = { ...summary, googleCalendarEnabled: true };
+  await wrapper.find('[data-testid="schedule-command-settings"]').trigger('click');
+  const settings = wrapper.find('[data-testid="my-schedule-calendar-settings"]');
+  expect(settings.attributes('open')).toBeUndefined();
+  for (const section of ['people', 'office', 'feeds', 'layout', 'more']) {
+    const button = wrapper.find(`[aria-controls="sched-settings-${section}"]`);
+    await button.trigger('click');
+    expect(button.attributes('aria-expanded')).toBe('true');
+    expect(settings.attributes('open')).toBeDefined();
+    expect(wrapper.find(`#sched-settings-${section}`).element.style.display).not.toBe('none');
+    for (const other of ['people', 'office', 'feeds', 'layout', 'more'].filter(id => id !== section)) {
+      expect(wrapper.find(`#sched-settings-${other}`).element.style.display).toBe('none');
+    }
+  }
+  await wrapper.find('[aria-controls="sched-settings-more"]').trigger('click');
+  expect(settings.attributes('open')).toBeUndefined();
+  expect(state.calendarSettingsOpen).toBe(true);
+  // Nested disclosure toggle events must not collapse the toolbar itself.
+  await settings.trigger('toggle');
+  expect(state.calendarSettingsOpen).toBe(true);
+  state.summary = { ...summary, googleCalendarEnabled: false };
+  await flushPromises();
+  expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(false);
+});
