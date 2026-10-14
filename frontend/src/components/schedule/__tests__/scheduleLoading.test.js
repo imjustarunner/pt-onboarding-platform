@@ -195,3 +195,27 @@ it('toggles personal reservations independently of available-room counts and rem
   await vi.advanceTimersByTimeAsync(500); await flushPromises();
   expect(restored.cellBlocks('Monday', 10).map(b => b.kind)).toEqual(expect.arrayContaining(['oa','ob']));
 });
+
+it('keeps usable actions ahead of a preferred but unavailable school action, including under More', async () => {
+  const state = await mount();
+  state.modalDay = 'Tuesday'; state.modalHour = 15; state.modalEndHour = 20;
+  state.slotActionPrefs = { order: ['school', 'schedule_hold', 'personal_event'], usage: { school: 999 } };
+  await flushPromises();
+  expect(state.availableQuickActions.find(a => a.id === 'school').disabledReason).toBeTruthy();
+  expect(state.displayedChooserActions.map(a => a.id)).toEqual(expect.arrayContaining(['schedule_hold', 'personal_event']));
+  expect(state.displayedChooserActions.every(a => !a.disabledReason)).toBe(true);
+  expect(state.displayedChooserActions[0].id).toBe('schedule_hold');
+  expect(state.moreQuickActions.find(a => a.id === 'school')).toBeTruthy();
+  state.showMoreSlotActions = true;
+  await flushPromises();
+  const expanded = state.displayedChooserActions;
+  const firstDisabled = expanded.findIndex(a => a.disabledReason);
+  expect(firstDisabled).toBeGreaterThan(0);
+  expect(expanded.slice(firstDisabled).every(a => a.disabledReason)).toBe(true);
+  // Changing the selected time makes the action usable again and restores its preferred position.
+  state.modalEndHour = 17;
+  await flushPromises();
+  expect(state.availableQuickActions.find(a => a.id === 'school').disabledReason).toBe('');
+  expect(state.displayedChooserActions[0].id).toBe('school');
+  expect(state.slotActionPrefs.order[0]).toBe('school');
+});

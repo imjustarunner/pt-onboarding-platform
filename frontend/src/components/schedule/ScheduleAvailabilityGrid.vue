@@ -3040,7 +3040,7 @@
           <div class="nr-chooser-intro">
             <div>
               <div class="nr-chooser-title">What would you like to do?</div>
-              <p class="nr-chooser-help">Choose an option to manage this time slot. Most-used actions rise to the top.</p>
+              <p class="nr-chooser-help">Available actions come first, in your preferred order. Unavailable options stay under More Actions.</p>
             </div>
             <button
               type="button"
@@ -13021,6 +13021,9 @@ const sortQuickActionsSmart = (rows) => {
   const usage = slotActionPrefs.value.usage || {};
   const orderIndex = new Map(order.map((id, i) => [String(id), i]));
   return [...rows].sort((a, b) => {
+    // Saved order and usage must never promote an unavailable action over a usable one.
+    const availability = Number(!!a?.disabledReason) - Number(!!b?.disabledReason);
+    if (availability) return availability;
     const aid = String(a?.id || '');
     const bid = String(b?.id || '');
     const ao = orderIndex.has(aid) ? orderIndex.get(aid) : 1000;
@@ -13074,7 +13077,7 @@ const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
   const occupiedOffice = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
   // Date/time/provider edit lives in the top bar — keep Advanced assign in More for occupied slots.
-  const rows = chooserCardActions.value.filter((r) => !(occupiedOffice && r.id === 'admin_assign'));
+  const rows = chooserCardActions.value.filter((r) => !r.disabledReason && !(occupiedOffice && r.id === 'admin_assign'));
   const isEmptyOffice = modalActionSource.value === 'office_block' && state === 'ASSIGNED_AVAILABLE';
   if (isEmptyOffice) {
     const byId = new Map(rows.map((r) => [String(r.id), r]));
