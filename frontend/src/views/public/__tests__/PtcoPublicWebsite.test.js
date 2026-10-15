@@ -34,7 +34,7 @@ describe('Plot Twist Co service discovery', () => {
     expect(wrapper.text()).toContain('New contracts starting in 2027');
     expect(wrapper.text()).toContain('Both options are quote-only');
     expect(wrapper.text()).not.toMatch(/\d+%/);
-    expect(wrapper.find('a[href="https://plottwisthq.com/auricwell"]').text()).toContain('Explore AuricWell');
+    expect(wrapper.find('a[href="https://auricwell.com"]').text()).toContain('Explore AuricWell');
     await wrapper.find('.ptco-quote-card .ptco-button').trigger('click');
     await flushPromises();
     expect(wrapper.findComponent(Intake).props()).toMatchObject({service:'medical-billing',path:'operations'});

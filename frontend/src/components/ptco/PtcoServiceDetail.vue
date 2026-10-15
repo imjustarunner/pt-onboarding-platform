@@ -11,7 +11,7 @@
       <p class="ptco-eyebrow">Two ways to work with us</p><h2>Medical billing, in the EHR that fits.</h2>
       <div class="ptco-option-grid">
         <article class="ptco-card"><span class="ptco-service-tag">Keep your current system</span><h3>Billing in your existing EHR</h3><p>Plot Twist Co. works within your current EHR and billing workflow. We review the system, access, claim volume, and payer mix with you before quoting the engagement.</p><router-link :to="intake">Discuss your EHR <PtcoIcon name="arrow"/></router-link></article>
-        <article class="ptco-card"><span class="ptco-service-tag">New contracts starting in 2027</span><h3>Billing through AuricWell</h3><p>Use our EHR, AuricWell, with medical billing support from Plot Twist Co. AuricWell is accepting new contracts starting in 2027; talk with us about your scope and transition timeline.</p><router-link :to="intake">Plan your 2027 transition <PtcoIcon name="arrow"/></router-link><a href="https://plottwisthq.com/auricwell">Explore AuricWell <span aria-hidden="true">↗</span></a></article>
+        <article class="ptco-card"><span class="ptco-service-tag">New contracts starting in 2027</span><h3>Billing through AuricWell</h3><p>Use our EHR, AuricWell, with medical billing support from Plot Twist Co. AuricWell is accepting new contracts starting in 2027; talk with us about your scope and transition timeline.</p><router-link :to="intake">Plan your 2027 transition <PtcoIcon name="arrow"/></router-link><a href="https://auricwell.com">Explore AuricWell <span aria-hidden="true">↗</span></a></article>
       </div>
       <p class="ptco-small">Both options are quote-only. Medical billing can be purchased on its own or included in a broader management partnership.</p>
     </div></section>

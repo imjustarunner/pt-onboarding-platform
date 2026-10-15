@@ -14,7 +14,7 @@ describe('Plot Twist product family',()=>{
     expect(plotline.find('.ptco-text-link').attributes('href')).toBe('https://plotlinepo.com/product');
     const ehr = wrapper.find('#auricwell');
     expect(ehr.text()).toContain('Practice plans start at $49/month');
-    expect(ehr.find('a[href="https://plottwisthq.com/auricwell/product#plans"]').text()).toContain('Compare prices');
+    expect(ehr.find('a[href="https://auricwell.com/product#plans"]').text()).toContain('Compare prices');
     const product = wrapper.find('#sstc');
     expect(product.text()).toContain('Fitness clubs & community groups');
     expect(product.text()).toContain('web application');

@@ -51,7 +51,7 @@ const faqs = [
 
     <section id="conversa-workspaces" class="conversa-product__section" aria-labelledby="conversa-workspaces-title">
       <p class="conversa-product__eyebrow">A Plot Twist Co. product</p><h2 id="conversa-workspaces-title">Connected to the workspace you use.</h2>
-      <div class="conversa-product__workspaces"><article><h3>Conversa in AuricWell</h3><p>Secure care conversations, email, and care-team coordination inside the clinical workspace.</p><a href="https://plottwisthq.com/auricwell">Explore AuricWell <span aria-hidden="true">↗</span></a></article><article><h3>Conversa in Plot Twist HQ</h3><p>Email, team conversations, texts, polls, and communication management alongside everyday operations.</p><router-link to="/p/ptco/hq#conversa-features">Explore Plot Twist HQ <span aria-hidden="true">→</span></router-link></article></div>
+      <div class="conversa-product__workspaces"><article><h3>Conversa in AuricWell</h3><p>Secure care conversations, email, and care-team coordination inside the clinical workspace.</p><a href="https://auricwell.com">Explore AuricWell <span aria-hidden="true">↗</span></a></article><article><h3>Conversa in Plot Twist HQ</h3><p>Email, team conversations, texts, polls, and communication management alongside everyday operations.</p><router-link to="/p/ptco/hq#conversa-features">Explore Plot Twist HQ <span aria-hidden="true">→</span></router-link></article></div>
     </section>
 
     <section class="conversa-product__section conversa-product__faq" aria-labelledby="conversa-faq-title"><h2 id="conversa-faq-title">More about Conversa</h2><details v-for="[question, answer] in faqs" :key="question"><summary>{{ question }}</summary><p>{{ answer }}</p></details></section>
