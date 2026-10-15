@@ -85,7 +85,7 @@ export async function addChild(session, id, body) {
   return familyTransaction(async db => {
     await lockHousehold(db, session, id, true);
     const email = `family-${crypto.randomUUID()}@members.invalid`;
-    const [user] = await db.execute("INSERT INTO users (email,username,role,status,first_name,last_name) VALUES (?,?,NULL,?,?,?)", [email, email, status, name, '']);
+    const [user] = await db.execute("INSERT INTO users (email,username,role,status,first_name,last_name,sees_clients,has_provider_access,in_office_available,provider_accepting_new_clients) VALUES (?,?,NULL,?,?,?,0,0,0,0)", [email, email, status, name, '']);
     await db.execute('INSERT INTO family_members (household_id,user_id,role,display_name,color,photo_url) VALUES (?,?,?,?,?,?)', [id, user.insertId, ['parent', 'pet'].includes(body.role) ? body.role : 'member', name, color, photo]);
     return { id: user.insertId };
   });

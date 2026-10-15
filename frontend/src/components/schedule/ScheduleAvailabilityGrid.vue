@@ -5834,6 +5834,7 @@ import MeetingSettingsEditor from './MeetingSettingsEditor.vue';
 import TeamMeetingBody from './TeamMeetingBody.vue';
 import VirtualLinkControls from './VirtualLinkControls.vue';
 import SupervisionBody from './SupervisionBody.vue';
+import { isWorkplaceSchedulePerson } from '../../utils/workplacePeople';
 import SupervisionAttendeeMandatoryPanel from './SupervisionAttendeeMandatoryPanel.vue';
 import SupervisionSignupCountdown from './SupervisionSignupCountdown.vue';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
@@ -9215,7 +9216,7 @@ const loadBookingProviderDirectory = async () => {
   try {
     bookingProvidersLoading.value = true;
     const resp = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
-    bookingProvidersRaw.value = Array.isArray(resp?.data) ? resp.data : [];
+    bookingProvidersRaw.value = Array.isArray(resp?.data) ? resp.data.filter(isWorkplaceSchedulePerson) : [];
   } catch {
     bookingProvidersRaw.value = [];
   } finally {
@@ -16867,6 +16868,7 @@ const supervisionMandatoryParticipantRows = computed(() => (
   (selectedSupervisionParticipantChips.value || []).map((chip) => ({
     id: Number(chip?.id || 0),
     kind: chip?.kind || 'additional',
+    professionalDetails: chip.row?.professionalDetails || null,
     label: supervisionParticipantLabel(chip.row || { id: chip.id })
   })).filter((row) => row.id > 0)
 ));
@@ -23537,7 +23539,8 @@ const loadSupvParticipantHoursRoster = async () => {
       id: Number(row?.userId || 0),
       name: String(row?.name || '').trim(),
       isPresenter: !!row?.isPresenter,
-      isRequired: row?.isRequired !== false
+      isRequired: row?.isRequired !== false,
+      declineReason: row?.declineReason || ''
     }))
     .filter((row) => row.id > 0);
   if (!supervisees.length) {

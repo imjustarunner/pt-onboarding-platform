@@ -5,7 +5,7 @@ const render=props=>mount(SupervisionBody,{props:{section:'controls',groupMode:t
 describe('separate supervision notification settings',()=>{
   it('updates mandatory reminders without changing optional reminders',async()=>{
     const wrapper=render();const editors=wrapper.findAllComponents({name:'MeetingReminderEditor'});
-    expect(editors).toHaveLength(3);expect(wrapper.text()).toContain('Mandatory attendees · Compensated');
+    expect(editors).toHaveLength(3);expect(wrapper.text()).toContain('Mandatory attendees');expect(wrapper.text()).toContain('Interns attend unpaid');
     editors[0].vm.$emit('update:modelValue',[180]);
     expect(wrapper.emitted('update:attendanceReminders')[0]).toEqual([{mandatory:[180],optional:[1440],presenter:[10080,2880,1440,180,60]}]);wrapper.unmount();
   });

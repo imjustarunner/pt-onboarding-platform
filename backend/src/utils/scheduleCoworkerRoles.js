@@ -1,3 +1,5 @@
+import { isPrivateFamilyProfile } from './workplacePeople.js';
+
 /**
  * Roles excluded from schedule coworker pickers (peer busy overlay, team meetings, etc.).
  * Aligns with /staff/coworkers — not guardians, school portal users, clients, or kiosk accounts.
@@ -20,7 +22,7 @@ export function isPlatformSuperadminRole(role) {
 
 export function isScheduleCoworkerRole(role) {
   const r = String(role || '').trim().toLowerCase();
-  if (!r) return true;
+  if (!r) return false;
   return !SCHEDULE_COWORKER_EXCLUDED_ROLES.includes(r);
 }
 
@@ -30,7 +32,7 @@ export function isMeetingAttendeeEligible({
   actorRole,
   hostRole = null
 } = {}) {
-  if (!attendeeRow) return false;
+  if (!attendeeRow || isPrivateFamilyProfile(attendeeRow) || !isScheduleCoworkerRole(attendeeRow.role)) return false;
   if (Number(attendeeRow?.in_agency || 0) === 1) return true;
   if (!agencyId) return false;
   const actorIsSuperAdmin = isPlatformSuperadminRole(actorRole) || isPlatformSuperadminRole(hostRole);
@@ -40,7 +42,7 @@ export function isMeetingAttendeeEligible({
 
 export function scheduleCoworkerRoleSqlClause(columnExpr = 'u.role') {
   const placeholders = SCHEDULE_COWORKER_EXCLUDED_ROLES.map(() => '?').join(', ');
-  return `LOWER(COALESCE(${columnExpr}, '')) NOT IN (${placeholders})`;
+  return `LOWER(COALESCE(${columnExpr}, '')) <> '' AND LOWER(COALESCE(${columnExpr}, '')) NOT IN (${placeholders})`;
 }
 
 export function scheduleCoworkerRoleSqlParams() {

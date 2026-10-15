@@ -4,7 +4,7 @@
       <div>
         <div class="sam-title">Mandatory / optional participants</div>
         <p class="sam-hint muted">
-          Optional by default. Mandatory attendees are compensated when they attend.
+          Optional by default. Interns attend unpaid and record indirect internship hours. Compensation for other attendees follows their eligibility.
           Presenters are automatically mandatory on the dates they present.
         </p>
       </div>
@@ -21,7 +21,9 @@
             :disabled="disabled || presenterSet.has(row.id)"
             @change="toggleMandatory(row.id, !!$event.target.checked)"
           />
-          <span class="sam-name">{{ row.label }}</span>
+          <span class="sam-person"><span class="sam-name">{{ row.label }}</span>
+            <small class="sam-qualifications">{{ row.professionalDetails?.educationLabel || 'Education not recorded' }} · {{ row.professionalDetails?.hcbsCategory ? `HCBS ${row.professionalDetails.hcbsCategory} — ${row.professionalDetails.hcbsCategoryLabel}` : 'HCBS level not recorded' }}<template v-if="row.professionalDetails?.isIntern"> · Intern · Unpaid indirect hours</template></small>
+          </span>
         </label>
         <span class="sam-badges">
           <span v-if="row.kind === 'primary'" class="sam-badge">Primary</span>
@@ -123,11 +125,13 @@ function toggleMandatory(userId, checked) {
   min-width: 0;
 }
 
+.sam-person { display: grid; min-width: 0; gap: 4px; }
+.sam-qualifications { color: #475569; white-space: normal; }
 .sam-name {
   font-size: 0.92rem;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .sam-badges {

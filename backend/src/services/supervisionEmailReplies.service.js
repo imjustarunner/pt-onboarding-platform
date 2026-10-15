@@ -3,7 +3,6 @@ import pool from '../config/database.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 import { freshSupervisionReply, supervisionReplyIntent } from '../utils/supervisionReplyIntent.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
-import { saveSupervisionRsvp } from './supervisionRsvp.service.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { ensurePersonalMailbox } from './personalMailbox.service.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
@@ -33,7 +32,7 @@ export async function ingestSupervisionReply({identityId,fromEmail,inReplyTo,ref
  const text=freshSupervisionReply(bodyText);if(!text)return {ingested:false};
  const fromDomain=String(fromEmail).split('@')[1]?.toLowerCase();
  const authenticated=String(authenticationResults).split(';').some(part=>/\bdmarc=pass\b/i.test(part)&&part.toLowerCase().match(/header\.from=([a-z0-9.-]+)/)?.[1]===fromDomain);
- const response=authenticated?supervisionReplyIntent(text):null;
+ const response=huddle && authenticated ? supervisionReplyIntent(text) : null;
  let newReply=false;
  const cohosts=huddle?(await pool.execute('SELECT user_id FROM meeting_participant_preferences WHERE event_id=? AND is_cohost=1',[session.id]))[0]:[];
  for(const hostId of new Set([session.supervisor_user_id,session.co_facilitator_user_id,...cohosts.map(p=>p.user_id)].map(Number).filter(Boolean))){
@@ -48,7 +47,7 @@ export async function ingestSupervisionReply({identityId,fromEmail,inReplyTo,ref
   await pool.execute(`INSERT IGNORE INTO supervision_reply_forwards(message_id,host_user_id,session_id,participant_user_id,conversation_id,received_at,interpreted_rsvp,meeting_type) VALUES(?,?,?,?,?,?,?,?)`,[stored.messageId,hostId,session.id,user.id,stored.conversationId,receivedAt,response,meetingType]);
  }
  if(newReply&&response&&session.status===(huddle?'ACTIVE':'SCHEDULED')&&parseUtcDate(session.start_at)>new Date()){
-  try{if(huddle) await saveHuddleReplyRsvp({eventId:session.id,userId:user.id,response});else await saveSupervisionRsvp({sessionId:session.id,userId:user.id,response});}
+  try{if(huddle) await saveHuddleReplyRsvp({eventId:session.id,userId:user.id,response});}
   catch(error){if(![409,410].includes(error.status))throw error;}
  }
  return {ingested:true,response};

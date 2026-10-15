@@ -110,7 +110,8 @@
       </div>
 
       <div v-if="showNotifyOption && notifyParticipants && showControls && groupMode && !signupOnly">
-        <h4>Mandatory attendees · Compensated</h4>
+        <h4>Mandatory attendees</h4>
+        <p class="supb-hint">Interns attend unpaid and record indirect internship hours. Other compensation follows eligibility.</p>
         <MeetingReminderEditor :model-value="attendanceReminders?.mandatory ?? reminderOffsets ?? (reminderMinutes == null ? [] : [1440, reminderMinutes])" :disabled="disabled"
           @update:model-value="updateAttendanceReminders('mandatory', $event)" />
         <h4>Optional attendees · Not compensated</h4>

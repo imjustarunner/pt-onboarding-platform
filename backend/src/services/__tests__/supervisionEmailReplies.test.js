@@ -19,7 +19,7 @@ beforeEach(()=>{vi.clearAllMocks();m.persist.mockResolvedValue({messageId:100,co
  if(sql.startsWith('SELECT conversation_id'))return [[]];
  return [{affectedRows:1}];
 });});
-it('stores an authenticated excuse only in the host inbox and declines the participant',async()=>{expect(await ingestSupervisionReply(reply)).toEqual({ingested:true,response:'declined'});expect(m.persist).toHaveBeenCalledWith(expect.objectContaining({ownerUserId:3,agencyId:2,bodyText:reply.bodyText}));expect(m.rsvp).toHaveBeenCalledWith({sessionId:10,userId:8,response:'declined'});expect(m.send).not.toHaveBeenCalled();});
+it('stores an authenticated excuse in the host inbox without changing supervision RSVP',async()=>{expect(await ingestSupervisionReply(reply)).toEqual({ingested:true,response:null});expect(m.persist).toHaveBeenCalledWith(expect.objectContaining({ownerUserId:3,agencyId:2,bodyText:reply.bodyText}));expect(m.rsvp).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();});
 it('keeps an unverified reply for the host without changing attendance',async()=>{await ingestSupervisionReply({...reply,authenticationResults:'dmarc=fail header.from=itsco.health'});expect(m.persist).toHaveBeenCalled();expect(m.rsvp).not.toHaveBeenCalled();});
 it('does not accept a different sender or ambiguous session',async()=>{expect((await ingestSupervisionReply({...reply,fromEmail:'stranger@itsco.health'})).ingested).toBe(false);expect(m.persist).not.toHaveBeenCalled();});
 it('does not replay an old decline over a newer manual RSVP',async()=>{m.persist.mockResolvedValue({messageId:100,conversationId:200,duplicate:true});await ingestSupervisionReply(reply);expect(m.rsvp).not.toHaveBeenCalled();});

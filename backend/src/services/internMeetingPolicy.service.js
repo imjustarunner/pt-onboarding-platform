@@ -1,13 +1,7 @@
 import pool from '../config/database.js';
-import { isInternRoleOrCredential } from '../utils/credentialNormalization.js';
+import { isStudentIntern } from '../utils/studentIntern.js';
+export { isStudentIntern } from '../utils/studentIntern.js';
 
-// Clinical interns may have the platform role "provider" and a BA credential.
-// Do not classify all bachelor's-level staff or prelicensed clinicians as interns.
-export function isStudentIntern(user = {}) {
-  return isInternRoleOrCredential(user)
-    || ['intern', 'internship', 'practicum'].includes(String(user.employment_type || '').trim().toLowerCase())
-    || /\b(intern|internship|practicum)\b/i.test(String(user.title || '')) && !/\b(mentor|supervisor|coordinator|director)\b/i.test(String(user.title || ''));
-}
 export async function loadMeetingPayIdentity(userId, db = pool) {
   const [rows] = await db.execute('SELECT role, credential, title, employment_type FROM users WHERE id = ? LIMIT 1', [userId]);
   return rows[0] || {};

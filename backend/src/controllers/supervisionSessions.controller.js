@@ -1,3 +1,5 @@
+import { workplacePersonSql } from '../utils/workplacePeople.js';
+import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { rescheduleSupervisionOccurrences } from '../services/supervisionReschedule.service.js';
 import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
@@ -837,12 +839,23 @@ function deriveInviteScope({ audienceAllSupervised = false, audienceGroupSupport
   return hasNamedInvites ? 'open_and_invited' : 'open_to_all';
 }
 
+
+async function attachSupervisionParticipantDetails(providers) {
+  if (!providers.length) return;
+  const [rows] = await pool.execute(`SELECT id,role,credential,title,employment_type,is_hourly_worker FROM users WHERE id IN (${providers.map(()=>'?').join(',')}) AND ${workplacePersonSql('users')}`, providers.map(p=>p.id));
+  for (const person of providers) {
+    const row=rows.find(r=>Number(r.id)===Number(person.id));
+    person.professionalDetails=supervisionParticipantDetails(row || {});
+  }
+}
+
 const ACTIVE_SUPERVISION_USER_SQL = `
   AND COALESCE(u.is_demo,0)=0
   AND (u.is_active IS NULL OR u.is_active = TRUE)
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
   AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
-  AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+  AND ${workplacePersonSql('u')}
+  AND LOWER(COALESCE(u.role, '')) NOT IN ('','client_guardian','guardian','school_staff','school_support','client','parent','kiosk')
 `;
 
 async function getAgencySupervisionAudienceFlags({ agencyId, userId }) {
@@ -1729,7 +1742,8 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
              AND (u.is_active IS NULL OR u.is_active = TRUE)
              AND (u.is_archived IS NULL OR u.is_archived = FALSE)
              AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
-             AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
+             AND ${workplacePersonSql('u')}
+  AND LOWER(COALESCE(u.role, '')) NOT IN ('','client_guardian','guardian','school_staff','school_support','client','parent','kiosk')
            ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
           [agencyId]
         );
@@ -1741,6 +1755,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
           role: String(r.role || '').trim().toLowerCase()
         }));
       }
+      await attachSupervisionParticipantDetails(providers);
       let facilitators = [];
       try {
         const [facRows] = await pool.execute(
@@ -1809,6 +1824,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       role: String(r.role || '').trim().toLowerCase()
     }));
 
+    await attachSupervisionParticipantDetails(providers);
     let facilitators = [];
     try {
       const [facRows] = await pool.execute(
@@ -3709,7 +3725,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const invited = [...new Set([supervisorUserId, coFacilitatorUserId, ...(isSignupOnly ? [] : [superviseeUserId, ...allExtraAttendees])].filter(Boolean))];
     const [eligible] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id
       WHERE u.id IN (${invited.map(() => '?').join(',')}) AND ua.agency_id IN (${audienceAgencyIds.map(() => '?').join(',')})
-        AND ua.is_active=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+        AND ${workplacePersonSql('u')} AND ua.is_active=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
         AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED','PROSPECTIVE')`, [...invited, ...audienceAgencyIds]);
     if (invited.some(id => !eligible.some(u => Number(u.id) === Number(id)))) {
       return res.status(400).json({ error: { message: 'An invitee is no longer active in your selected agencies. Refresh the participant list.' } });
@@ -4738,6 +4754,7 @@ export const getSessionAttendees = async (req, res, next) => {
         participantRole: String(a.participant_role || a.participantRole || '').trim() || null,
         isRequired: Number(a.is_required || a.isRequired || 0) === 1,
         status: String(a.status || '').trim() || null,
+        ...([row.supervisor_user_id,row.co_facilitator_user_id].some(id => Number(id) === Number(req.user.id)) && a.decline_reason ? { declineReason: a.decline_reason } : {}),
         isPresenter: presenterIds.has(userId)
       };
     });

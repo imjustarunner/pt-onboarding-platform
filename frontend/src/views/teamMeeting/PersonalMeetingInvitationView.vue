@@ -6,7 +6,9 @@
       <p>{{ meeting.attendance.description }}</p>
       <p>RSVP confirms your plans; it does not record attendance time.</p>
     </section>
-    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Decline</button></section>
+    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button v-if="meeting?.attendance?.tier !== 'optional'" class="btn btn-secondary" :disabled="saving" @click="declining = true">Decline</button>
+      <div v-if="declining"><label for="decline-reason">Reason for not attending<span v-if="meeting?.attendance?.tier === 'mandatory'"> (required)</span></label><textarea id="decline-reason" v-model="declineReason" maxlength="2000" rows="3" /><button class="btn btn-primary" :disabled="saving || (meeting?.attendance?.tier === 'mandatory' && !declineReason.trim())" @click="respond('declined')">Confirm decline</button></div>
+    </section>
     <p v-if="rsvpSaved" role="status">Your response has been saved: {{ rsvpSaved === 'accepted' ? 'Attending' : 'Declined' }}.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <RouterLink v-if="signInRequired" :to="{path:'/login',query:{redirect:route.fullPath}}">Sign in to open this invitation</RouterLink>
@@ -15,7 +17,7 @@
       <p>{{ meeting.when }}</p>
       <p v-if="meeting.location">{{ meeting.location }}</p>
       <template v-if="route.query.details">
-        <ul><li v-for="person in meeting.participants" :key="person.name">{{ person.name }} · {{ person.status === 'SIGNED_UP' ? 'Confirmed' : person.status === 'DECLINED' ? 'Not attending' : person.status || 'Host' }}{{ person.isPresenter ? ' · Presenter' : '' }}{{ person.isRequired ? ' · Required' : '' }}</li></ul>
+        <ul><li v-for="person in meeting.participants" :key="person.name">{{ person.name }} · {{ person.status === 'SIGNED_UP' ? 'Confirmed' : person.status === 'DECLINED' ? 'Not attending' : person.status || 'Host' }}{{ person.isPresenter ? ' · Presenter' : '' }}{{ person.isRequired ? ' · Required' : '' }}<p v-if="person.declineReason">Reason: {{ person.declineReason }}</p></li></ul>
         <RouterLink :to="route.path">Open session</RouterLink>
       </template>
       <RouterLink v-else-if="route.query.rsvp" :to="route.path">Open session</RouterLink>
@@ -33,8 +35,8 @@ import { saveTeamMeetingAccess } from '../../utils/teamMeetingInvitationAccess';
 import { saveSupervisionAccess } from '../../utils/supervisionInvitationAccess';
 const route = useRoute(), router = useRouter(), error = ref('');
 const meeting = ref(null), rsvpSaved=ref(''),saving=ref(false);
-const signInRequired = ref(false);
-async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
+const signInRequired = ref(false), declining=ref(false), declineReason=ref('');
+async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response,reason:declineReason.value});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
 onMounted(async () => {
   if(route.name === 'InterviewRsvp')return;
   try {

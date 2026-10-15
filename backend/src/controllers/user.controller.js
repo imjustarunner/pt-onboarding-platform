@@ -1,3 +1,5 @@
+import { isPrivateFamilyProfile, workplacePersonSql } from '../utils/workplacePeople.js';
+import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
 import { getStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
@@ -866,7 +868,7 @@ export const getAllUsers = async (req, res, next) => {
       // Ignore if column doesn't exist yet.
     }
 
-    res.json(users);
+    res.json(users.filter(user => !isPrivateFamilyProfile(user)));
   } catch (error) {
     next(error);
   }
@@ -7396,6 +7398,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
            u.role,
            u.profile_photo_path,
            u.has_provider_access,
+           u.credential, u.title, u.employment_type, u.is_hourly_worker,
            u.status,
            u.sees_clients,
            p.public_details_json AS availability_details,
@@ -7406,13 +7409,14 @@ export const listUserMeetingCandidates = async (req, res, next) => {
          LEFT JOIN provider_public_profiles p ON p.user_id = u.id
          WHERE ua.agency_id IN (${placeholders})
            AND ua.is_active = 1
+           AND ${workplacePersonSql('u')}
            AND u.id <> ?
            AND COALESCE(u.is_demo, 0) = 0
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'DELETED'))
            AND ${roleClause}
-         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access, u.status, u.sees_clients, p.public_details_json
+         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access, u.credential, u.title, u.employment_type, u.is_hourly_worker, u.status, u.sees_clients, p.public_details_json
          ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
         [...scopedAgencyIds, userId, ...scheduleCoworkerRoleSqlParams()]
       );
@@ -7424,6 +7428,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
         email: String(r.email || '').trim().toLowerCase(),
         role: String(r.role || '').trim().toLowerCase(),
         profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
+        professionalDetails: supervisionParticipantDetails(r),
         hasProviderAccess: Number(r.has_provider_access) === 1,
         status: String(r.status || '').toUpperCase(),
         seesClients: Number(r.sees_clients) === 1,

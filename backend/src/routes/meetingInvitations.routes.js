@@ -49,7 +49,7 @@ router.post('/:token/rsvp', authenticate, async (req,res,next) => {
     if(rows[0]?.meeting_type==='supervision') {
       const [occurrences]=await pool.execute(`SELECT s.id FROM supervision_sessions s JOIN supervision_sessions anchor ON anchor.id=? WHERE s.agency_id=? AND s.supervisor_user_id=? AND (s.id=anchor.id OR (anchor.recurrence_series_id IS NOT NULL AND s.recurrence_series_id=anchor.recurrence_series_id)) AND s.id=?`,[rows[0].event_id,rows[0].agency_id,rows[0].provider_id,req.body.eventId]);
       if(!occurrences.length)return res.status(404).json({error:{message:'Invitation not found'}});
-      return res.json(await saveSupervisionRsvp({sessionId:req.body.eventId,userId:req.user.id,response:req.body.response}));
+      return res.json(await saveSupervisionRsvp({sessionId:req.body.eventId,userId:req.user.id,response:req.body.response,reason:req.body.reason}));
     }
     if(!rows[0] || rows[0].meeting_type!=='team_meeting')return res.status(404).json({error:{message:'Invitation not found'}});
     const events=await invitationEvents(rows[0]);const event=events.find(e=>Number(e.id)===Number(req.body.eventId));
@@ -81,7 +81,8 @@ router.get('/:token', async (req,res,next) => {
       const tz=event.event_timezone||'America/Denver';
       const recipient=people.find(p=>Number(p.id)===Number(req.user.id));
       const attendance=recipient ? supervisionAttendance(event,recipient) : null;
-      return res.json({meeting:{attendance,title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter}))}});
+      const canSeeDeclineReasons = rows[0].meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(req.user.id));
+      return res.json({meeting:{attendance,title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter,...(canSeeDeclineReasons && p.decline_reason ? {declineReason:p.decline_reason} : {})}))}});
     }
     res.json(await resolvePersonalMeetingInvitation(req.params.token,req.user.id));
   }

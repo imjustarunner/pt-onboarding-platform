@@ -1,3 +1,4 @@
+import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
 import pool, { onTableWrite } from '../config/database.js';
 import crypto from 'crypto';
@@ -484,7 +485,7 @@ class User {
     
     // passwordless_token is already in the base query above
     
-    query += ' FROM users WHERE id = ?';
+    query += ` FROM users WHERE id = ? AND ${workplacePersonSql('users')}`;
     const [rows] = await pool.execute(query, [id]);
     return rows[0] || null;
   }
@@ -637,8 +638,9 @@ class User {
       LEFT JOIN user_agencies ua ON u.id = ua.user_id AND (ua.is_active = TRUE OR ua.is_active IS NULL)
       LEFT JOIN agencies a ON ua.agency_id = a.id
     `;
+    query += ` WHERE ${workplacePersonSql('u')}`;
     if (!includeArchived) {
-      query += ' WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)';
+      query += ' AND (u.is_archived = FALSE OR u.is_archived IS NULL)';
     }
     let groupByFields = 'u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.is_active, u.first_name, u.last_name, u.title, u.credential, u.service_focus, u.created_at';
     if (hasSupervisorPrivilegesField) {

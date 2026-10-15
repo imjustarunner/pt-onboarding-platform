@@ -51,6 +51,8 @@ jobs:
           backend/src/services/__tests__/meetingConfiguredReminders.test.js
           backend/src/services/__tests__/meetingReminders.test.js
           backend/src/controllers/__tests__/scheduling.plannedOuts.test.js
+      - name: Supervision RSVP, internship messaging, and family privacy
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.supervision-safety.config.js
       - name: Planned-out presence boundaries
         env:
           NODE_ENV: test
@@ -82,6 +84,9 @@ jobs:
         run: >-
           npm test --
           src/components/schedule/__tests__/supervisionScheduler.test.js
+          src/components/schedule/__tests__/SupervisionAttendeeMandatoryPanel.test.js
+          src/components/schedule/__tests__/supervisionNotificationSettings.test.js
+          src/views/teamMeeting/__tests__/personalInvitation.test.js
           src/components/schedule/__tests__/scheduleBlocks.test.js
           src/components/schedule/__tests__/scheduleOverlap.test.js
           src/components/schedule/__tests__/scheduleLoading.test.js

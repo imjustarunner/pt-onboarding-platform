@@ -33,3 +33,15 @@ it('stops preparation prompts after completion and includes both presentations a
  expect(content.html).toContain('preparation is marked complete');expect(content.html).not.toContain('add your slides');expect(content.html).not.toContain('Edit Your Presentation');
  expect(content.text).toContain('Presentation — Pat');expect(content.text).toContain('Presentation — Second Presenter');expect(content.text).toContain('Open group processing');
 });
+
+it.each(['intern','provider'])('uses unpaid indirect-hour language for interns with role %s',role=>{
+ const content=supervisionEmailBody({...args,isRequired:true,recipient:{role,title:'Counseling Intern',credential:'BA'}});
+ expect(content.html).toContain('Unpaid internship time');expect(content.text).toContain('master’s internship requirements');
+ expect(content.text).not.toContain('Mandatory · Compensated');expect(content.html).not.toContain('mandatory and compensated');
+ expect(content.text).toContain('Include a reason');expect(content.text).not.toContain('Reply to this email');
+});
+it('shows optional attendees an attending-only action with no explanation required',()=>{
+ const content=supervisionEmailBody({...args,isRequired:false,recipient:{role:'intern'}});
+ expect(content.html).toContain('RSVP · I’m attending');expect(content.html).not.toContain('Attending or not attending');
+ expect(content.text).toContain('No response or reason is needed');
+});

@@ -7,9 +7,10 @@ describe('group supervision attendance notification policy', () => {
     expect(supervisionAttendance(session,{id:3,is_required:1,isPresenter:true})).toMatchObject({tier:'mandatory',label:'Mandatory · Compensated'});
     expect(supervisionAttendance(session,{id:4,is_required:'0',isPresenter:true})).toMatchObject({tier:'mandatory',label:'Mandatory · Compensated'});
     expect(supervisionAttendance(session,{id:2})).toMatchObject({tier:'mandatory'});
+    expect(supervisionAttendance(session,{id:2,is_required:0})).toMatchObject({tier:'mandatory'});
   });
-  it('does not alter individual supervision or huddle compensation messaging', () => {
-    expect(supervisionAttendance({...session,session_type:'individual'},{is_required:1})).toBeNull();
+  it('marks individual supervision expected while leaving huddles separate', () => {
+    expect(supervisionAttendance({...session,session_type:'individual'},{is_required:1})).toMatchObject({tier:'mandatory'});
     expect(supervisionAttendance({...session,kind:'HUDDLE'},{is_required:1})).toBeNull();
   });
   it('validates both lists, supports no reminders, and removes duplicates', () => {

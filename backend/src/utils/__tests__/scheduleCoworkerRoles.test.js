@@ -8,6 +8,7 @@ import {
 
 describe('scheduleCoworkerRoles', () => {
   it('excludes guardians, school staff, clients, and kiosk accounts', () => {
+    expect(isScheduleCoworkerRole(null)).toBe(false);
     expect(isScheduleCoworkerRole('provider')).toBe(true);
     expect(isScheduleCoworkerRole('staff')).toBe(true);
     expect(isScheduleCoworkerRole('admin')).toBe(true);
@@ -33,6 +34,11 @@ describe('scheduleCoworkerRoles', () => {
       actorRole: 'super_admin',
       hostRole: 'super_admin'
     })).toBe(false);
+  });
+
+  it('rejects private family profiles even if accidentally linked to an agency',()=>{
+    expect(isMeetingAttendeeEligible({attendeeRow:{role:'provider',email:'family-id@members.invalid',in_agency:1},agencyId:2,actorRole:'super_admin'})).toBe(false);
+    expect(isMeetingAttendeeEligible({attendeeRow:{role:null,in_agency:1},agencyId:2,actorRole:'super_admin'})).toBe(false);
   });
 
   it('builds SQL clause and params for excluded roles', () => {

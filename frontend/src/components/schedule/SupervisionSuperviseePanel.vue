@@ -40,6 +40,7 @@
               </span>
             </span>
           </div>
+          <p v-if="row.declineReason" class="ssp-person-meta">Not attending: {{ row.declineReason }}</p>
           <div v-if="row.loading" class="muted ssp-person-meta">Loading hours…</div>
           <div v-else-if="row.error" class="error ssp-person-meta">{{ row.error }}</div>
           <div v-else-if="row.enabled === false" class="muted ssp-person-meta">

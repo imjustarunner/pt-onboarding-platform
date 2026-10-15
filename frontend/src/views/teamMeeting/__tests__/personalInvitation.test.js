@@ -10,15 +10,22 @@ const render=()=>mount(PersonalMeetingInvitationView,{global:{stubs:{RouterLink:
 describe('personal meeting entry',()=>{
   it.each(['Mandatory · Compensated','Optional · Not compensated'])('loads %s before asking for an RSVP',async label=>{
     m.query={rsvp:'1',eventId:'19'};
-    m.get.mockResolvedValue({data:{meeting:{title:'Group supervision',when:'Tomorrow',attendance:{label,description:'Attendance policy'}}}});
+    m.get.mockResolvedValue({data:{meeting:{title:'Group supervision',when:'Tomorrow',attendance:{label,tier:label.startsWith('Optional')?'optional':'mandatory',description:'Attendance policy'}}}});
     m.post.mockResolvedValue({data:{ok:true}});
     const wrapper=render();expect(wrapper.findAll('button')).toHaveLength(0);await flushPromises();
     expect(m.get).toHaveBeenCalledWith('/meeting-invitations/personal',{skipAuthRedirect:true,params:{details:1,eventId:'19'}});
+    expect(wrapper.findAll('button')).toHaveLength(label.startsWith('Optional') ? 1 : 2);expect(wrapper.find('textarea').exists()).toBe(false);
     expect(wrapper.text()).toContain(label);expect(wrapper.text()).toContain('does not record attendance time');
     expect(wrapper.text()).not.toContain('no online video link');
     await wrapper.get('button').trigger('click');await flushPromises();
-    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'accepted'});
+    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'accepted',reason:''});
     expect(wrapper.text()).toContain('Your response has been saved: Attending');expect(m.replace).not.toHaveBeenCalled();wrapper.unmount();
+  });
+  it('requires a reason before declining mandatory supervision',async()=>{
+    m.query={rsvp:'1',eventId:'19'};m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},title:'Supervision'}}});m.post.mockResolvedValue({data:{ok:true}});
+    const wrapper=render();await flushPromises();await wrapper.findAll('button')[1].trigger('click');
+    expect(wrapper.findAll('button')[2].element.disabled).toBe(true);await wrapper.get('textarea').setValue('School examination');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
+    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'School examination'});wrapper.unmount();
   });
   it('requires sign-in before displaying protected RSVP details',async()=>{
     m.query={rsvp:'1',eventId:'19'};m.get.mockRejectedValue({response:{status:401,data:{error:{message:'Sign in required'}}}});

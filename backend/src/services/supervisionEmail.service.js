@@ -1,3 +1,4 @@
+import { isStudentIntern } from '../utils/studentIntern.js';
 import { sharedCalendarJoinUrl } from '../utils/meetingCalendarLink.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -40,7 +41,7 @@ export async function supervisionEmailPeople(session) {
   return rows.map(r=>({...r,name:[r.first_name,r.last_name].filter(Boolean).join(' '),status:r.rsvp==='declined'?'DECLINED':r.rsvp==='accepted'?'SIGNED_UP':'INVITED',participant_role:Number(r.id)===Number(session.provider_id)?'host':'supervisee',isPresenter:false}));
  }
 
- const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.email,u.work_email,a.status,a.is_required,a.participant_role,
+ const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.email,u.work_email,u.role,u.credential,u.title,u.employment_type,a.status,a.is_required,a.participant_role,a.decline_reason,
  (SELECT cp.status FROM supervision_case_presentations cp WHERE cp.session_id=a.session_id AND cp.presenter_user_id=u.id LIMIT 1) presentationStatus,
  EXISTS(SELECT 1 FROM supervision_session_presenters p WHERE p.session_id=? AND p.user_id=u.id) isPresenter
  FROM users u LEFT JOIN supervision_session_attendees a ON a.user_id=u.id AND a.session_id=?
@@ -55,7 +56,7 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
   const mailboxes = await ensureTenantMessageMailboxes(session.agency_id);
   const base = await tenantMeetingBase(session.agency_id);
   const when = new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:session.event_timezone || 'America/Denver'}).format(parseUtcDate(session.start_at));
-  const text = `Hi ${user.first_name || ''},\n\nOptional group supervision is available ${when} (${session.event_timezone || 'America/Denver'}). Participation is optional and not compensated.\n\nOpen My Schedule and select this group supervision to sign up. Registration closes one hour before the session; the session is canceled if nobody signs up.\n\n${base}/dashboard?tab=my_schedule\n\nThis is your one signup invitation for this date. You have not been registered automatically.`;
+  const text = `Hi ${user.first_name || ''},\n\nOptional group supervision is available ${when} (${session.event_timezone || 'America/Denver'}). Participation is optional and not compensated.${isStudentIntern(user) ? ' Record attended supervision as indirect hours toward your master’s internship requirements.' : ''} RSVP only if you plan to attend; no decline or reason is needed.\n\nOpen My Schedule and select this group supervision to sign up. Registration closes one hour before the session; the session is canceled if nobody signs up.\n\n${base}/dashboard?tab=my_schedule\n\nThis is your one signup invitation for this date. You have not been registered automatically.`;
   return {to:identity.email,senderIdentityId:mailboxes.notifications.id,replyToOverride:`leadership@${mailboxes.domain || mailboxes.notifications.from_email.split('@')[1]}`,
    subject:`Optional group supervision — sign up for ${when}`,text,html:`<p>${esc(text).replace(/\n/g,'<br>')}</p><p><a href="${esc(base)}/dashboard?tab=my_schedule">Open My Schedule to sign up</a></p>`,
    agencyId:session.agency_id,userId:user.id,templateType:'meeting_invited',source:'auto'};
@@ -84,7 +85,7 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const detailsUrl=`${personal}?details=1&eventId=${session.id}`;
  const content=supervisionEmailBody({session:huddle?{...session,session_type:people.length>2?'group':'individual'}:session,meetingTitle:huddle?huddleTitle(session,hostRole):null,hostLabel:huddle?(huddleTitle(session,hostRole)==='CPA Meeting'?'Clinical Practice Assistant':'Internship Mentor'):null,people,recipientName:user.first_name||recipient.name,hostNames:hosts.map(p=>p.name),calendar,joinUrl:personal,
  rsvpUrl:`${personal}?rsvp=1&eventId=${session.id}`,presentationUrl:`${base}/supervision/sessions/${session.id}/presentation`,detailsUrl,
- preparationComplete:['ready','presented'].includes(recipient.presentationStatus),
+ recipient,preparationComplete:['ready','presented'].includes(recipient.presentationStatus),
  isRequired:recipient.isPresenter || (recipient.is_required == null ? hostIds.includes(Number(user.id)) : !!Number(recipient.is_required)),isPresenter:recipient.isPresenter,isHost:hostIds.includes(Number(user.id)),kind,leadershipReplyTo});
  return {...content,to:recipientIdentity.email,senderIdentityId:mailboxes.notifications.id,replyToOverride:leadershipReplyTo || `"${hosts.map(p=>p.name).join(" & ").replace(/[\r\n"<>]/g, "")} via the app" <${replyMailbox.from_email}>`,
  attachments:[{filename:huddle?'huddle.ics':'supervision.ics',contentType:'text/calendar; charset=utf-8',contentBase64:Buffer.from(calendar.ics).toString('base64')}],
@@ -114,7 +115,7 @@ export async function sendSupervisionDayAheadReminders(now=new Date()) {
  for(const session of sessions){
   if (session.enrollment_mode === 'signup_only') {
    if (signupInvitationDue(session,now)) {
-    const [candidates] = await pool.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.last_name FROM users u
+    const [candidates] = await pool.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.last_name,u.role,u.credential,u.title,u.employment_type FROM users u
       JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
       JOIN agencies org ON org.id=ua.agency_id AND org.is_active=1
       WHERE COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
