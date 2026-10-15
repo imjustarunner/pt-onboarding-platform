@@ -499,11 +499,11 @@ class SupervisionSession {
         (session_id, user_id, first_joined_at, last_left_at, total_seconds, segment_count, is_finalized)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         first_joined_at = VALUES(first_joined_at),
-         last_left_at = VALUES(last_left_at),
-         total_seconds = VALUES(total_seconds),
-         segment_count = VALUES(segment_count),
-         is_finalized = VALUES(is_finalized),
+         first_joined_at = IF(manual_correction_id IS NULL, VALUES(first_joined_at), first_joined_at),
+         last_left_at = IF(manual_correction_id IS NULL, VALUES(last_left_at), last_left_at),
+         total_seconds = IF(manual_correction_id IS NULL, VALUES(total_seconds), total_seconds),
+         segment_count = IF(manual_correction_id IS NULL, VALUES(segment_count), segment_count),
+         is_finalized = IF(manual_correction_id IS NULL, VALUES(is_finalized), is_finalized),
          updated_at = CURRENT_TIMESTAMP`,
       [
         sid,

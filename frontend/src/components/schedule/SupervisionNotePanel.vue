@@ -70,14 +70,6 @@
           <p class="snp-duration">{{ attendanceLabel }}</p>
         </section>
 
-        <section class="snp-section">
-          <h4 class="snp-label">Session transcript</h4>
-          <p v-if="loading" class="muted">Loading session transcript…</p>
-          <pre v-else-if="transcript" class="snp-readonly">{{ transcript }}</pre>
-          <p v-else class="muted snp-empty">
-            No transcript saved yet. Transcription must be started in the meeting with the required consent.
-          </p>
-        </section>
 
         <section class="snp-section">
           <h4 class="snp-label">AI summary</h4>
@@ -94,6 +86,16 @@
             No summary yet. Summary is generated automatically after the session is finalized.
           </p>
         </section>
+
+        <details class="snp-section">
+          <summary class="snp-label">Full session transcript</summary>
+          <p v-if="loading" class="muted">Loading session transcript…</p>
+          <pre v-else-if="transcript" class="snp-readonly">{{ transcript }}</pre>
+          <p v-else class="muted snp-empty">
+            No transcript saved yet. Transcription must be started in the meeting with the required consent.
+          </p>
+        </details>
+
 
         <section class="snp-section">
           <h4 class="snp-label">Meeting chat</h4>

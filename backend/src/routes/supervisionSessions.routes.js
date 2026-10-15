@@ -1,4 +1,5 @@
 import {startReviewActivity,pulseReviewActivity,submitReviewActivity,listReviewActivities} from '../controllers/cosignReviewActivity.controller.js';
+import {getRecord,submitCorrection,reviewCorrection,syncCorrections} from '../controllers/supervisionTimeCorrection.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
 import {listManualSupervision,createManualSupervision,finishManualSupervision} from '../controllers/supervisionManual.controller.js';
 import { requirePersonalSupervisionInvitation } from '../services/meetingJoinPolicy.service.js';
@@ -82,6 +83,10 @@ router.post('/sessions/:id/join-presence', authenticateSupervisionSession, postS
 router.post('/sessions/:id/connection-events', authenticateSupervisionSession, postSupervisionConnectionEvent);
 
 router.use(authenticateSupervisionSession);
+router.get('/sessions/:id/record',getRecord);
+router.post('/sessions/:id/time-corrections',requireActiveStatus,submitCorrection);
+router.post('/sessions/:id/time-corrections/:correctionId/review',requireActiveStatus,reviewCorrection);
+router.post('/sessions/:id/time-corrections/sync',requireActiveStatus,syncCorrections);
 router.get('/manual-entries',listManualSupervision);
 router.post('/manual-entries',requireActiveStatus,createManualSupervision);
 router.post('/manual-entries/:id/finish',requireActiveStatus,finishManualSupervision);

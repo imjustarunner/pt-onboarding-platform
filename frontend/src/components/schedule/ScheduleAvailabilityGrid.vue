@@ -1765,6 +1765,18 @@
             </button>
           </div>
 
+          <SupervisionRecordPanel
+            v-if="editorIsSupervision && Number(selectedSupvSessionId) > 0"
+            v-show="['info','attendance'].includes(editorWorkspaceTab)"
+            :key="selectedSupvSessionId"
+            :session-id="Number(selectedSupvSessionId)"
+            :timezone="scheduleMeetingTimeZone()"
+            :compact="editorWorkspaceTab !== 'attendance'"
+            @record="applySupervisionRecord"
+            @changed="refreshSupervisionRecord"
+            @open-attendance="editorWorkspaceTab = 'attendance'"
+            @open-notes="editorWorkspaceTab = 'note'"
+          />
           <div
             v-show="editorWorkspaceTab === 'info'"
             class="supv-info-layout"
@@ -1780,9 +1792,9 @@
               :type-label="editorInfoTypeLabel"
               :status-label="editorIsMeeting ? '' : editorStatus"
               :modality-label="editorInfoModalityLabel"
-              :tenant-label="modalTenantLabel"
+              :tenant-label="editorIsSupervision ? supervisionRecordAgencyName || modalTenantLabel : modalTenantLabel"
               :tenant-icon-url="editorTenantIconUrl"
-              :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
+              :provider-label="editorIsSupervision ? 'Supervisor' : isAppointmentEditMode ? 'Booked for' : 'Provider'"
               :provider-name="bookingTargetUserLabel"
               :provider-user-id="Number(bookingTargetUserId || props.userId || 0)"
               :can-open-provider="canOpenScheduleUserProfile"
@@ -5767,6 +5779,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
+import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
 import { getScheduleSummary, getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
 import {
@@ -14000,7 +14013,8 @@ const editorWorkspaceTabs = computed(() => {
       const insertAt = tabs.findIndex((t) => t.id === 'edit');
       tabs.splice(insertAt >= 0 ? insertAt : 1, 0, { id: 'goals', label: 'Goals', icon: '◎' });
     }
-    tabs.push({ id: 'note', label: 'Note', icon: '✎' });
+    tabs.push({ id: 'attendance', label: 'Attendance & time', icon: '◷' });
+    tabs.push({ id: 'note', label: 'Notes & summary', icon: '✎' });
     if (canEditSupervisionPresenterCase.value) {
       tabs.push({ id: 'presentation', label: 'Case', icon: '◈' });
     }
@@ -23691,6 +23705,20 @@ const toggleSupvParticipantRequired = async (userId, nextRequired) => {
   }
 };
 
+const supervisionRecordAgencyName = ref('');
+watch(selectedSupvSessionId, () => { supervisionRecordAgencyName.value = ''; });
+const applySupervisionRecord = (record) => {
+  if (Number(record?.session?.id) !== Number(selectedSupvSessionId.value)) return;
+  supervisionRecordAgencyName.value = record.session.agencyName || '';
+  editorStatus.value = record.session.status === 'FINALIZED' ? 'completed' : String(record.session.status || 'scheduled').toLowerCase();
+  const actor = (record.participants || []).find(p => Number(p.userId) === Number(authStore.user?.id));
+  supvAttendanceSeconds.value = actor?.totalSeconds == null ? null : Number(actor.totalSeconds);
+};
+const refreshSupervisionRecord = () => {
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  invalidateScheduleSummaryCacheForUser(authStore.user?.id);
+};
+
 const loadSupvArtifact = async (sessionId) => {
   const sid = Number(sessionId || 0);
   if (!sid) {
@@ -23705,21 +23733,12 @@ const loadSupvArtifact = async (sessionId) => {
     supvArtifactError.value = '';
     const [resp, sessionResp] = await Promise.all([
       api.get(`/supervision/sessions/${sid}/artifacts`),
-      api.get(`/supervision/sessions/${sid}`, { skipGlobalLoading: true }).catch(() => ({ data: null }))
+      api.get(`/supervision/sessions/${sid}/record`, { skipGlobalLoading: true }).catch(() => ({ data: null }))
     ]);
     const artifact = resp?.data?.artifact || null;
     supvTranscriptText.value = String(artifact?.transcript_text || '');
     supvSummaryText.value = String(artifact?.summary_text || '');
-    const session = sessionResp?.data?.session || sessionResp?.data || {};
-    const fromSession = Number(
-      session.totalSeconds
-      || session.total_seconds
-      || session.attendanceTotalSeconds
-      || session.attendance_total_seconds
-      || 0
-    );
-    const fromSelected = Number(selectedSupvSession.value?.totalSeconds || selectedSupvSession.value?.total_seconds || 0);
-    supvAttendanceSeconds.value = fromSession || fromSelected || null;
+    if (Number(selectedSupvSessionId.value) === sid && sessionResp?.data?.session) applySupervisionRecord(sessionResp.data);
   } catch (e) {
     supvArtifactError.value = e.response?.data?.error?.message || e.message || 'Failed to load transcript/summary';
   } finally {
@@ -25677,6 +25696,7 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
     kind: 'supervision',
     id: Number(selectedSupvSessionId.value || 0),
     defaults: {
+      status: first?.status || 'scheduled',
       modality: first?.joinUrl || first?.googleMeetLink ? 'TELEHEALTH' : 'IN_PERSON',
       workspaceTab: isPresenterOpen ? 'presentation' : 'info'
     }

@@ -1,5 +1,6 @@
 import multer from 'multer';
 import pool from '../config/database.js';
+import { supervisionSpeakerLabel } from '../utils/supervisionSpeakerLabels.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import { assertLastMeetingHost } from '../services/meetingEndPermission.service.js';
 import { isGroupSupervision, acceptGroupTranscriptionConsent } from '../services/groupSupervisionConsent.service.js';
@@ -19,8 +20,9 @@ export async function meetingTranscriptionContext(req) {
   const inPerson=String(session.modality).toUpperCase()==='IN_PERSON';
   if(!inPerson){const[admitted]=await pool.execute('SELECT 1 FROM supervision_session_video_admissions WHERE session_id=? AND user_id=?',[session.id,req.user.id]);if(!admitted.length)fail('Join the main room before transcribing.');}
   if(['CANCELLED','MISSED','RESCHEDULED'].includes(String(session.status).toUpperCase()))fail('This session is unavailable.',410);
+  const [[profile]] = await pool.execute('SELECT first_name,last_name,preferred_name FROM users WHERE id=?',[req.user.id]);
   return {type:'supervision',session,userId:req.user.id,isHost,inPerson,role:isHost?'supervisor':'supervisee',speakerKey:`user-${req.user.id}`,
-    speakerLabel:inPerson?'In-person supervision':`${isHost?'Supervisor':'Supervisee'} · ${[req.user.first_name,req.user.last_name].filter(Boolean).join(' ')||req.user.id}`};
+    speakerLabel:inPerson?'In-person supervision':supervisionSpeakerLabel(profile, isHost?'Supervisor':'Supervisee')};
 }
 async function participantTranscriptionState(context) {
   const state = await transcriptionState(context);

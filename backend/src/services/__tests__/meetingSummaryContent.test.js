@@ -23,6 +23,13 @@ describe('complete meeting summaries',()=>{
     const prompt=meetingSummaryPrompt('Evidence','CPA');
     for(const section of ['Topics discussed','Facts','Processes and procedures','Tasks by person','Suggested next steps','Unassigned'])expect(prompt).toContain(section);
   });
+  it('focuses supervision summaries on substantive topics and does not infer an unrecorded phone conversation',()=>{
+    const prompt=meetingSummaryPrompt('Hello. Can you hear me? Let’s try by phone.','supervision');
+    expect(prompt).toContain('Omit greetings, small talk');
+    expect(prompt).toContain('no substantive discussion was captured');
+    expect(prompt).toContain('Never infer what happened later by phone');
+    expect(prompt).toContain('never numeric account IDs');
+  });
   it('does not publish an empty or truncated summary as complete',async()=>{
     mocks.call.mockResolvedValueOnce({text:'partial',finishReason:'MAX_TOKENS'});
     await expect(generateMeetingSummaryContent('evidence','CPA')).rejects.toThrow('did not finish');

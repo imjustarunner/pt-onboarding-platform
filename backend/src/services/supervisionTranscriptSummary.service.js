@@ -6,6 +6,8 @@
 import { generateMeetingSummaryContent } from './meetingSummaryContent.service.js';
 import { enqueueMeetingSummary } from './meetingSummaryJobs.service.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
+import pool from '../config/database.js';
+import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
 
 function mysqlNowDateTime() {
   const d = new Date();
@@ -28,7 +30,10 @@ export async function generateSupervisionSummaryFromTranscript(sessionId) {
     return { ok: false };
   }
 
-  const summaryResp = await generateMeetingSummaryContent(transcriptText, 'supervision');
+  const [participants] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.preferred_name FROM users u
+    JOIN supervision_sessions s ON s.id=? WHERE u.id IN (s.supervisor_user_id,s.co_facilitator_user_id,s.supervisee_user_id)
+    OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=u.id)`, [sid]);
+  const summaryResp = await generateMeetingSummaryContent(normalizeSupervisionSpeakerLabels(transcriptText, participants), 'supervision');
   const summaryText = String(summaryResp?.text || '').trim();
   const summaryModel = String(summaryResp?.modelName || '').trim() || null;
 

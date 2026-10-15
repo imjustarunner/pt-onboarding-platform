@@ -1,3 +1,4 @@
+import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
 import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -3385,6 +3386,11 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
         transcriptStoppedByName: artifact.transcript_stopped_by_name || null
       }
       : null;
+
+    if (payload) {
+      payload.transcript_text = normalizeSupervisionSpeakerLabels(payload.transcript_text);
+      payload.summary_text = normalizeSupervisionSpeakerLabels(payload.summary_text);
+    }
 
     const summaryStatus = await meetingSummaryStatus('supervision', id, artifact);
     if (payload && hasUnresolvedMeetingReferences(payload.summary_text)) {

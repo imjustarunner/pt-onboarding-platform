@@ -1,3 +1,4 @@
+import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
 import pool from '../config/database.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
@@ -102,6 +103,10 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
   const meeting = await requireAttendedMeeting(type,id,userId,actor);
   const s = sources[type];
   const artifact = type === 'team' ? await TeamArtifact.findByEventId(id) : await SupervisionArtifact.findBySessionId(id);
+  if (type === 'supervision' && artifact) {
+    artifact.transcript_text = normalizeSupervisionSpeakerLabels(artifact.transcript_text);
+    artifact.summary_text = normalizeSupervisionSpeakerLabels(artifact.summary_text);
+  }
   const interviewArtifact = meetingCategory(type, meeting) === 'interview' && meeting.interview_id
     ? await HiringInterviewArtifact.findByInterviewId(meeting.interview_id) : null;
   const [agenda] = await pool.execute(`SELECT i.id,i.title,i.notes,i.status FROM meeting_agenda_items i

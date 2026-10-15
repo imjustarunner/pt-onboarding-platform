@@ -53,6 +53,13 @@ jobs:
           backend/src/controllers/__tests__/scheduling.plannedOuts.test.js
       - name: Supervision RSVP, internship messaging, and family privacy
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.supervision-safety.config.js
+      - name: Supervision records, actual time corrections, and concise summaries
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.meeting-launch.config.js
+          backend/src/services/__tests__/meetingSupervisionRecord.test.js
+          backend/src/services/__tests__/meetingSupervisionSpeakerLabels.test.js
+          backend/src/services/__tests__/meetingSummaryContent.test.js
       - name: Personal meeting links without app login
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
@@ -110,6 +117,7 @@ jobs:
         run: >-
           npm test --
           src/components/schedule/__tests__/supervisionScheduler.test.js
+          src/components/schedule/__tests__/SupervisionRecordPanel.test.js
           src/components/schedule/__tests__/SupervisionAttendeeMandatoryPanel.test.js
           src/components/schedule/__tests__/supervisionNotificationSettings.test.js
           src/views/teamMeeting/__tests__/personalInvitation.test.js
@@ -178,3 +186,4 @@ jobs:
           backend/src/services/__tests__/scheduling.providerOffboarding.mysql.test.js
           backend/src/services/__tests__/scheduling.mysql.test.js
           backend/src/services/__tests__/scheduling.officeReconciliation.mysql.test.js
+          backend/src/services/__tests__/scheduling.supervisionTimeCorrection.mysql.test.js
