@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS appointment_cancellation_deliveries (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  appointment_id INT UNSIGNED NOT NULL,
+  agency_id INT NOT NULL,
+  client_id INT NOT NULL,
+  channel VARCHAR(16) NOT NULL,
+  delivery_status VARCHAR(24) NOT NULL DEFAULT 'pending',
+  notification_json JSON NOT NULL,
+  recipient_address VARCHAR(320) NULL,
+  communication_id INT NULL,
+  external_message_id VARCHAR(255) NULL,
+  error_message VARCHAR(500) NULL,
+  created_by_user_id INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_appointment_cancel_recipient (appointment_id, client_id, channel),
+  KEY idx_cancel_delivery_pending (delivery_status, created_at),
+  KEY idx_cancel_delivery_client (agency_id, client_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -23,6 +23,9 @@ export function useAppointmentChange() {
     initiator: '',
     reasons: [],
     reasonOther: '',
+    clientFacingReason: '',
+    followUpAction: 'client_contact_support',
+    followUpMessage: '',
     outreach: [],
     reasonKnown: null,
     replacementAppointmentId: null,
@@ -58,6 +61,9 @@ export function useAppointmentChange() {
     facts.initiator = '';
     facts.reasons = [];
     facts.reasonOther = '';
+    facts.clientFacingReason = '';
+    facts.followUpAction = 'client_contact_support';
+    facts.followUpMessage = '';
     facts.outreach = [];
     facts.reasonKnown = null;
     facts.replacementAppointmentId = null;
@@ -139,6 +145,9 @@ export function useAppointmentChange() {
       initiator: facts.initiator || null,
       reasons: [...facts.reasons],
       reasonOther: facts.reasonOther || null,
+      clientFacingReason: facts.clientFacingReason || null,
+      followUpAction: facts.followUpAction || 'client_contact_support',
+      followUpMessage: facts.followUpMessage || null,
       outreach: [...facts.outreach],
       reasonKnown: facts.reasonKnown,
       clientId: context.clientId || null,
@@ -188,6 +197,8 @@ export function useAppointmentChange() {
     if (n === 2) {
       if (facts.eventType === 'void') return !!String(facts.reasonOther || '').trim();
       if (facts.eventType === 'rescheduled' && !Number(facts.replacementAppointmentId)) return false;
+      if (['canceled', 'rescheduled'].includes(facts.eventType) && !String(facts.clientFacingReason || '').trim()) return false;
+      if (facts.followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) return false;
       if (facts.eventType === 'no_show') {
         if (!facts.outreach.length) return false;
         if (facts.reasonKnown === true && !facts.reasons.length) return false;
@@ -264,7 +275,7 @@ export function useAppointmentChange() {
       const response = await api.get('/appointments', { params: { agencyId: appointment.agencyId, clientId: context.clientId,
         windowStart: start, windowEnd: end.toISOString().slice(0, 10) }, skipGlobalLoading: true });
       replacements.value = (response.data?.appointments || []).filter((a) => Number(a.id) !== appointmentId.value
-        && ['scheduled', 'confirmed', 'client_confirmed', 'draft'].includes(a.status)).map((a) => {
+        && ['scheduled', 'confirmed', 'client_confirmed'].includes(a.status)).map((a) => {
         const raw = String(a.startAt || '');
         const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
         return { id: a.id, label: `${date.toLocaleString([], { timeZone: a.sourceTimezone || 'America/Denver', dateStyle: 'medium', timeStyle: 'short' })} — ${a.title || 'Session'}` };
@@ -285,12 +296,22 @@ export function useAppointmentChange() {
     } finally { saving.value = false; }
   }
 
+  async function retryNotification(deliveryId) {
+    saving.value = true; error.value = '';
+    try {
+      const { data } = await api.post(`/appointments/${appointmentId.value}/cancellation-notifications/${deliveryId}/retry`, {}, { skipGlobalLoading: true });
+      if (workflow.value?.result) workflow.value.result.notificationDelivery = data.notificationDelivery;
+    } catch (e) { error.value = e.response?.data?.error?.message || 'Could not retry this notification. Check its delivery record before contacting the client again.'; }
+    finally { saving.value = false; }
+  }
+
   return {
     open,
     workflow,
     replacements,
     signatureConfirmed,
     saveDraft,
+    retryNotification,
     step,
     loading,
     saving,

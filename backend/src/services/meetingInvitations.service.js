@@ -6,6 +6,7 @@ import { generateJoinToken, joinUrlForTeamMeeting, joinUrlForSupervision } from 
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { invitationKey, meetingInvitationContent, escapeMeetingHtml } from './meetingInvitationPolicy.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+import { sendScheduleNotificationEmail } from './scheduleNotificationEmail.service.js';
 
 export function normalizeInvitationEvent(event) {
   if (event.supervisor_user_id) return {...event,meeting_type:'supervision',provider_id:event.supervisor_user_id,title:'Supervision',event_timezone:event.event_timezone || 'America/Denver'};
@@ -61,7 +62,7 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
       const change = action === 'cancelled' ? 'cancelled' : 'updated';
       const joinUrl = change === 'cancelled' ? null : (await personalMeetingInvitation(first,uid)).url;
       const { parseUtcDate } = await import('../utils/officeEventDateTime.util.js');
-      const format = e => e.all_day ? String(e.start_date).slice(0,10) : `${new Intl.DateTimeFormat('en-US',{weekday:'long',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at))}–${new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.end_at))}`;
+      const format = e => Number(e.all_day) === 1 ? (e.start_date instanceof Date ? e.start_date.toISOString().slice(0,10) : String(e.start_date).slice(0,10)) : `${new Intl.DateTimeFormat('en-US',{weekday:'long',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at))}–${new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.end_at))}`;
       const dates = events.map(e => `${format(e)}${e.cancel_reason && change==='cancelled' ? ` — ${e.cancel_reason}` : ''}`);
       const old = previous.get(Number(first.id));
       const heading = scope === 'future' ? `This and all future sessions in the series have been ${change}.` : `This session has been ${change}. Other dates in the series are unchanged.`;
@@ -71,8 +72,8 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
       const [claim] = await pool.execute("INSERT IGNORE INTO meeting_schedule_change_deliveries (change_key,user_id) VALUES (?,?)",[changeKey,uid]);
       if (!claim.affectedRows) { delivery.skipped++; continue; }
       try {
-        const result = await sendNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(first),subject:`${scope==='future'?'Series':'Session'} ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Open your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
-        const status = result?.pendingApproval ? 'approval' : result?.redirected ? 'held' : result?.id || result?.messageId ? 'sent' : 'held';
+        const result = await sendScheduleNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,subject:`${scope==='future'?'Series':'Session'} ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Open your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
+        const status = result?.pendingApproval ? 'approval' : result?.redirected || result?.queued || result?.blocked || result?.skipped ? 'held' : result?.id || result?.messageId ? 'sent' : 'held';
         await pool.execute('UPDATE meeting_schedule_change_deliveries SET delivery_status=? WHERE change_key=? AND user_id=?',[status,changeKey,uid]);
         if (status==='sent') delivery.sent++; else if (status==='approval') delivery.skipped++; else delivery.failed++;
       } catch(error) {

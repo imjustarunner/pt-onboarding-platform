@@ -92,6 +92,8 @@ export const listAppointments = async (req, res, next) => {
 export const getAppointment = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const { default: appointmentStaffTools } = await import('../services/appointmentStaffTools.service.js');
+    await appointmentStaffTools.authorize(req.user, id);
     const bundle = await getAppointmentBundle(id);
     if (!bundle) return res.status(404).json({ error: { message: 'Appointment not found' } });
     if (!(await assertAgencyAccess(req, bundle.agencyId))) {
@@ -276,6 +278,9 @@ export const cancelAppointmentHandler = async (req, res, next) => {
       actorRole: req.user?.role || 'staff',
       notes: req.body?.notes ?? null,
       reason: req.body?.reason || req.body?.cancellationReason || null,
+      clientFacingReason: req.body?.clientFacingReason || null,
+      followUpAction: req.body?.followUpAction || 'client_contact_support',
+      followUpMessage: req.body?.followUpMessage || null,
       clientId: req.body?.clientId || null,
       waive: req.body?.waive === true,
       waiverReason: req.body?.waiverReason || null
@@ -319,7 +324,7 @@ export const settleAppointmentHandler = async (req, res, next) => {
   }
 };
 
-async function assertAppointmentChangeAccess(req, appointment) {
+export async function assertAppointmentChangeAccess(req, appointment) {
   if (!(await assertAgencyAccess(req, appointment.agencyId))) {
     throw Object.assign(new Error('Access denied'), { status: 403 });
   }
@@ -352,7 +357,7 @@ export const saveAppointmentChangeDraftHandler = async (req, res, next) => {
     const { saveAppointmentChangeDraft } = await import('../services/appointmentChangeWorkflow.service.js');
     // Only workflow facts are stored; discard client-supplied results, amounts and signatures.
     const keys = ['eventType', 'initiator', 'reasons', 'reasonOther', 'outreach', 'reasonKnown', 'clientId',
-      'replacementAppointmentId', 'waiver', 'additionalComments'];
+      'replacementAppointmentId', 'waiver', 'additionalComments', 'clientFacingReason', 'followUpAction', 'followUpMessage'];
     const facts = Object.fromEntries(keys.filter((k) => req.body?.[k] !== undefined).map((k) => [k, req.body[k]]));
     res.json(await schedulingResponseForUser(req.user, appointment.agencyId,
       { ok: true, workflow: await saveAppointmentChangeDraft(appointment.id, facts, req.user.id) }));
@@ -397,6 +402,17 @@ export const completeAppointmentChangeHandler = async (req, res, next) => {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);
   }
+};
+
+export const retryCancellationNotificationHandler = async (req, res, next) => {
+  try {
+    const appointment = await Appointment.findById(Number(req.params.id));
+    if (!appointment) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    await assertAppointmentChangeAccess(req, appointment);
+    const { retryCancellationNotification } = await import('../services/appointmentCancellationNotification.service.js');
+    const notificationDelivery = await retryCancellationNotification(appointment.id, Number(req.params.deliveryId));
+    res.json({ ok: true, notificationDelivery });
+  } catch (error) { next(error); }
 };
 
 export const listAppointmentWaiversHandler = async (req, res, next) => {

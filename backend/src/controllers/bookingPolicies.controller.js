@@ -13,6 +13,7 @@ import {
   scheduleRemindersForAppointment
 } from '../services/appointmentReminder.service.js';
 import Appointment from '../models/Appointment.model.js';
+import appointmentStaffTools from '../services/appointmentStaffTools.service.js';
 
 async function assertAgencyAccess(req, agencyId) {
   const aid = Number(agencyId || 0);
@@ -130,11 +131,7 @@ export const resolvePolicyPreview = async (req, res, next) => {
 export const getAppointmentTimeline = async (req, res, next) => {
   try {
     const appointmentId = parseInt(req.params.id, 10);
-    const appt = await Appointment.findById(appointmentId);
-    if (!appt) return res.status(404).json({ error: { message: 'Appointment not found' } });
-    if (!(await assertAgencyAccess(req, appt.agencyId))) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
+    await appointmentStaffTools.authorize(req.user, appointmentId);
     const [reminders, communications] = await Promise.all([
       listReminders(appointmentId),
       listCommunications(appointmentId)

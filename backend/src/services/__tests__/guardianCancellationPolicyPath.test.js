@@ -10,6 +10,7 @@ vi.mock('../bookingCancellationPolicy.service.js',()=>({evaluateCancel:m.evaluat
 vi.mock('../appointmentReminder.service.js',()=>({cancelPendingReminders:m.reminders,listReminders:vi.fn(async()=>[]),listCommunications:vi.fn(async()=>[])}));
 vi.mock('../appointmentServiceSetting.service.js',()=>({resolveAppointmentServiceSetting:vi.fn(async()=>null)}));
 vi.mock('../appointmentCalendarMaintenance.service.js',()=>({releaseAppointmentCalendar:m.release}));
+vi.mock('../appointmentCancellationNotification.service.js',()=>({cancellationClientDetails:vi.fn(),notifyAppointmentCancellation:vi.fn(async()=>({sent:1})),isCanceledAppointmentStatus:status=>['canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'].includes(status)}));
 import {cancelAppointment,updateAppointment} from '../appointment.service.js';
 beforeEach(()=>{
  vi.resetAllMocks();m.find.mockResolvedValue({id:1,agencyId:2,providerUserId:7,status:'scheduled',startAt:'2027-01-01 16:00:00',endAt:'2027-01-01 17:00:00'});

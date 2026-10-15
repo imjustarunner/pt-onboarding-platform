@@ -4,6 +4,15 @@ import api from '../../services/api.js';
 import { useAppointmentChange } from '../useAppointmentChange.js';
 beforeEach(() => { vi.clearAllMocks(); api.get.mockResolvedValue({ data: { workflow: null } }); });
 describe('appointment change workflow', () => {
+  it('requires a separate client-facing reason and includes reviewed follow-up instructions', async () => {
+    const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4 });
+    Object.assign(change.facts, { eventType: 'canceled', initiator: 'provider', reasons: ['illness'], reasonOther: 'Internal detail' });
+    expect(change.canContinueFromStep(2)).toBe(false);
+    change.facts.clientFacingReason = 'Your provider is unavailable.'; change.facts.followUpMessage = 'Please contact support this week.';
+    expect(change.canContinueFromStep(2)).toBe(true);
+    api.put.mockResolvedValue({ data: { ok: true } }); await change.saveDraft();
+    expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft', expect.objectContaining({ clientFacingReason: 'Your provider is unavailable.', followUpAction: 'client_contact_support', followUpMessage: 'Please contact support this week.' }), expect.anything());
+  });
   it('saves facts on the server and restores a draft when reopened', async () => {
     const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4, context: { clientId: 8 } });
     change.facts.eventType = 'canceled'; change.facts.initiator = 'client'; change.facts.reasons = ['illness'];

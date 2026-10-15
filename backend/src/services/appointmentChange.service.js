@@ -18,6 +18,7 @@ import {
   updateAppointment
 } from './appointment.service.js';
 import { applyMissedSessionPolicy } from './practitionerPackage.service.js';
+import { cancellationClientDetails, notifyAppointmentCancellation } from './appointmentCancellationNotification.service.js';
 
 /**
  * Hard rule: not-occurring appointments never create a primary session insurance claim.
@@ -310,11 +311,13 @@ function classifyEvent({ eventType, evaluation, initiator }) {
   if (et === 'void') return { classification: 'void', isLate: false, isMissed: false };
   if (et === 'no_show') return { classification: 'no_show', isLate: true, isMissed: true };
   if (et === 'rescheduled') {
-    const isLate = !!evaluation?.isLate;
+    const providerCaused = isProviderCausedInitiator(initiator);
+    const isLate = !!evaluation?.isLate && !providerCaused;
     return {
       classification: isLate ? 'late_cancel_reschedule' : 'advance_reschedule',
       isLate,
-      isMissed: isLate
+      isMissed: isLate,
+      providerCaused
     };
   }
   // canceled
@@ -686,7 +689,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     const replacementParticipants = replacement ? await Appointment.listParticipants(replacement.id) : [];
     if (!replacement || replacement.id === bundle.id || Number(replacement.agencyId) !== Number(bundle.agencyId)
       || !replacementParticipants.some((p) => Number(p.clientId) === clientId)
-      || !['scheduled', 'confirmed', 'client_confirmed', 'draft'].includes(replacement.status)) {
+      || !['scheduled', 'confirmed', 'client_confirmed'].includes(replacement.status)) {
       throw Object.assign(new Error('Replacement must be another active appointment for this client in this agency'), { status: 400 });
     }
     nextAppointment = { id: replacement.id, startAt: replacement.startAt, displayWhen: formatApptWhen(replacement.startAt) };
@@ -804,7 +807,7 @@ async function applyAppointmentChange(
         : ['client', 'caregiver'].includes(facts.initiator) ? 'canceled_by_client'
           : ['agency', 'facility_school'].includes(facts.initiator) ? 'canceled_by_organization' : 'canceled_by_provider';
   resultBundle = await updateAppointment(appointmentId, {
-    status, cancellationReason: facts.reasonOther || (facts.reasons || []).join(', ') || eventType,
+    status, cancellationReason: ['canceled', 'rescheduled'].includes(eventType) ? facts.clientFacingReason : facts.reasonOther || (facts.reasons || []).join(', ') || eventType,
     cancellationFeeCents: noConsequence ? 0 : Number(preview.consequence.feeCents || 0),
     canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '), canceledByUserId: actorUserId,
     cancellationRecommendationJson: { workflow: 'appointment_change', preview, facts }
@@ -928,6 +931,7 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
   if (!['canceled', 'rescheduled', 'no_show', 'void'].includes(facts.eventType)) {
     throw Object.assign(new Error('Choose an appointment change event'), { status: 400 });
   }
+  if (['canceled', 'rescheduled'].includes(facts.eventType)) cancellationClientDetails(facts);
   if (facts.eventType !== 'void' && facts.eventType !== 'no_show' && (!facts.initiator || !facts.reasons?.length)) {
     throw Object.assign(new Error('Initiator and cancellation reason are required'), { status: 400 });
   }
@@ -964,11 +968,12 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
         if (instant > new Date()) throw Object.assign(new Error('A future appointment cannot be marked no-show'), { status: 400 });
       }
       if (preview.appointment.packageEntitlementId && preview.evaluation.recommendedPackageAction === 'review'
-        && preview.isLate && !['waive', 'waived'].includes(facts.waiver?.action)) {
+        && preview.isLate && !preview.providerCaused && !['waive', 'waived'].includes(facts.waiver?.action)) {
         throw Object.assign(new Error('This package consequence requires administrative review before completion'), { status: 409 });
       }
       return preview;
-    }, applyChange: applyAppointmentChange
+    }, applyChange: applyAppointmentChange,
+    notifyChange: (id, signedFacts, signerId) => notifyAppointmentCancellation(id, signedFacts, signerId)
   });
 }
 

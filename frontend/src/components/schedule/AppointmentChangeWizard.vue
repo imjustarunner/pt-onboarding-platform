@@ -155,6 +155,27 @@
                 <span>Please specify (required)</span>
                 <input v-model="change.facts.reasonOther" type="text" class="acw-input" />
               </label>
+              <fieldset v-if="['canceled', 'rescheduled'].includes(change.facts.eventType)" class="acw-client-notice">
+                <legend>Client notification</legend>
+                <p class="muted">The client receives the message below. Keep personal or clinical details in the internal note.</p>
+                <label class="acw-field">
+                  <span>Reason to share with the client (required)</span>
+                  <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500" placeholder="Your provider is unavailable due to illness." />
+                </label>
+                <label class="acw-field">
+                  <span>Next step</span>
+                  <select v-model="change.facts.followUpAction" class="acw-input">
+                    <option value="client_contact_support">Ask the client to contact support to reschedule</option>
+                    <option value="replacement_booked" :disabled="!change.facts.replacementAppointmentId">A replacement appointment is already booked</option>
+                    <option value="none">No action needed; other appointments stay scheduled</option>
+                  </select>
+                </label>
+                <label class="acw-field">
+                  <span>Additional client follow-up instructions (optional)</span>
+                  <textarea v-model="change.facts.followUpMessage" class="acw-textarea" rows="2" maxlength="1000" />
+                </label>
+                <p class="muted">Email comes from your agency’s notifications address, with replies to support. Delivery results are saved with the client and session; unavailable contact channels need staff follow-up.</p>
+              </fieldset>
             </div>
 
             <aside class="acw-side">
@@ -317,6 +338,26 @@
               </div>
               <p class="muted">This note is attached to the session and is nonbillable. Signing does not create an insurance claim.</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
+              <div v-if="['canceled', 'rescheduled'].includes(change.facts.eventType) && change.facts.clientFacingReason" class="acw-client-notice">
+                <h4 class="acw-h4">Client message to review</h4>
+                <p>Your appointment scheduled for {{ change.context.whenLabel || change.preview.value?.appointment?.displayWhen }} has been canceled.</p>
+                <p><strong>Reason:</strong> {{ change.facts.clientFacingReason }}</p>
+                <p>{{ followUpLabel }}</p>
+                <p v-if="change.facts.followUpMessage">{{ change.facts.followUpMessage }}</p>
+                <p class="muted">Replies go to support. Internal note comments are kept in the session record.</p>
+              </div>
+              <div v-if="change.workflow.value?.result?.notificationDelivery" role="status" class="acw-info">
+                <strong>Cancellation notifications</strong>
+                <p>{{ change.workflow.value.result.notificationDelivery.sent }} sent.</p>
+                <p v-if="deliveryNeedsAttention">Some notifications need staff follow-up. Review the session Communications tab for each recipient and delivery result.</p>
+                <ul v-if="deliveryNeedsAttention">
+                  <li v-for="delivery in change.workflow.value.result.notificationDelivery.deliveries" :key="delivery.id">
+                    Client #{{ delivery.clientId }} · {{ delivery.channel }} · {{ delivery.status }}
+                    <span v-if="delivery.reason">— {{ delivery.reason }}</span>
+                    <button v-if="['failed', 'skipped'].includes(delivery.status)" class="acw-btn" type="button" :disabled="change.saving.value" @click="change.retryNotification(delivery.id)">Recheck and retry</button>
+                  </li>
+                </ul>
+              </div>
               <label v-if="!change.workflow.value || change.workflow.value.status === 'draft'" class="acw-field">
                 <span>Additional comments (optional)</span>
                 <textarea v-model="change.facts.additionalComments" class="acw-textarea" rows="3" @change="onCommentsChange" />
@@ -429,6 +470,16 @@ const timingLabel = computed(() => {
   if (props.change.facts.eventType === 'no_show') return 'Did not attend';
   return p.isLate ? 'Late' : 'Advance / within notice';
 });
+const followUpLabel = computed(() => ({
+  client_contact_support: 'Please contact our support team to arrange another appointment.',
+  replacement_booked: 'A replacement appointment has been scheduled. Please review its separate confirmation.',
+  support_will_contact: 'Our support team will contact you to arrange another appointment.',
+  none: 'No action is required. Other scheduled appointments remain unchanged.'
+}[props.change.facts.followUpAction || 'client_contact_support']));
+const deliveryNeedsAttention = computed(() => {
+  const result = props.change.workflow.value?.result?.notificationDelivery;
+  return result && (result.failed || result.held || result.skipped || result.pending);
+});
 
 const showWaiverUi = computed(() => {
   const w = props.change.preview.value?.waiverOptions;
@@ -460,12 +511,14 @@ async function onSign() {
   const result = await props.change.complete();
   if (result?.ok) {
     emit('completed', result);
-    props.change.closeWizard();
+    props.change.workflow.value = { status: 'completed', result, facts: { ...props.change.facts }, narrative: result.narrative };
   }
 }
 </script>
 
 <style scoped>
+.acw-client-notice { margin-top: 18px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; }
+.acw-client-notice legend { font-weight: 700; }
 .acw-overlay {
   position: fixed;
   inset: 0;

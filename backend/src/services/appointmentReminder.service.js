@@ -7,6 +7,7 @@ import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import TenantService from '../models/TenantService.model.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 
 const DEFAULT_REMINDERS = [
   { channel: 'email', offsetMinutes: 1440 },
@@ -76,6 +77,10 @@ export async function logCommunication({
   reminderId = null,
   createdByUserId = null
 } = {}) {
+  const encryptedCancellation = kind === 'cancellation';
+  const storedMetadata = encryptedCancellation
+    ? maybeEncryptNotePayload(JSON.stringify({ ...(metadata || {}), bodyPreview }))
+    : metadata ? JSON.stringify(metadata) : null;
   await pool.execute(
     `INSERT INTO appointment_communications
       (appointment_id, agency_id, direction, channel, kind, body_preview, metadata_json, reminder_id, created_by_user_id)
@@ -86,8 +91,8 @@ export async function logCommunication({
       direction,
       channel,
       kind,
-      bodyPreview ? String(bodyPreview).slice(0, 500) : null,
-      metadata ? JSON.stringify(metadata) : null,
+      encryptedCancellation ? 'Cancellation notification — view recorded message' : bodyPreview ? String(bodyPreview).slice(0, 500) : null,
+      storedMetadata,
       reminderId || null,
       createdByUserId || null
     ]
@@ -102,18 +107,21 @@ export async function listCommunications(appointmentId) {
      LIMIT 200`,
     [Number(appointmentId)]
   );
-  return (rows || []).map((r) => ({
+  return (rows || []).map((r) => {
+    const raw = typeof r.metadata_json === 'string' ? r.metadata_json : JSON.stringify(r.metadata_json);
+    const metadata = parseJson(r.kind === 'cancellation' ? maybeDecryptNotePayload(raw) : raw, null);
+    return ({
     id: Number(r.id),
     appointmentId: Number(r.appointment_id),
     direction: r.direction,
     channel: r.channel,
     kind: r.kind,
-    bodyPreview: r.body_preview,
-    metadata: parseJson(r.metadata_json, null),
+    bodyPreview: metadata?.bodyPreview || r.body_preview,
+    metadata,
     reminderId: r.reminder_id == null ? null : Number(r.reminder_id),
     createdByUserId: r.created_by_user_id == null ? null : Number(r.created_by_user_id),
     createdAt: r.created_at
-  }));
+  }); });
 }
 
 export async function listReminders(appointmentId) {

@@ -9,6 +9,9 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
+    <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
+      :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
+      @close="cancelDayDate = ''" @saved="onDayCancelled" />
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
     </div>
@@ -799,6 +802,7 @@
           My office rooms · {{ showMyRooms ? 'On' : 'Off' }}
         </button>
         <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" />
+        <ScheduleHelp />
       </div>
 
       <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridError" class="error" style="margin-top: 10px;">
@@ -1052,6 +1056,7 @@
           <div class="sched-agenda__when">
             <strong>{{ agendaDayTitle }}</strong>
             <span class="muted">{{ agendaDaySub }}</span>
+            <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(agendaDayName)">Cancel day…</button>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="shiftFocusedDay(1)">
             Next day →
@@ -1081,8 +1086,8 @@
             :style="agendaItemStyle(item)"
             role="button"
             tabindex="0"
-            @click="onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
-            @keydown.enter="onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
+            @click="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
+            @keydown.enter="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
           >
             <div class="sched-agenda__time">{{ item.timeLabel }}</div>
             <div class="sched-agenda__body">
@@ -1093,6 +1098,7 @@
                   :src="agendaItemLogo(item)"
                   alt=""
                 />
+                <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(item)}`" :title="`Staff only: ${staffAlertForBlock(item)}`">⚑</span>
                 <div class="sched-agenda__title">
                   <span
                     v-if="item.confirmationState === 'confirmed'"
@@ -1152,6 +1158,14 @@
         </div>
         <div class="sched-day-timeline__title">
           {{ mobileTimelineDay }} · {{ dayDateLabel(mobileTimelineDay) }}
+          <button type="button" class="sched-hours-toggle" :aria-pressed="showAllHours" @click="showAllHours = !showAllHours">{{ showAllHours ? 'Auto hours' : 'Show 24h' }}</button>
+          <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(mobileTimelineDay)">Cancel day…</button>
+        </div>
+        <div v-if="allDayBlocksForDay(mobileTimelineDay).length" class="sched-mobile-all-day">
+          <span class="sched-all-day-label">All day</span>
+          <button v-for="block in allDayBlocksForDay(mobileTimelineDay)" :key="block.key" type="button"
+            class="sched-all-day-item" :style="cellBlockStyle(block)" :title="block.title"
+            @click="openAllDayBlock($event, block, mobileTimelineDay)">{{ block.shortLabel }}</button>
         </div>
         <div class="sched-day-timeline__hours">
           <div
@@ -1194,6 +1208,7 @@
                   :src="blockAgencyIconUrl(b)"
                   alt=""
                 />
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`" :title="`Staff only: ${staffAlertForBlock(b)}`">⚑</span>
                 <div class="sched-day-card__body">
                   <div class="sched-day-card__title">
                     <template v-if="b.kind === 'supv-signup'">
@@ -1257,6 +1272,9 @@
       <div v-else-if="summary || loading" class="sched-grid-wrap" :class="{ 'sched-grid-wrap--hidden-mobile-day': false }">
       <div class="sched-grid" :style="gridStyle">
         <div class="sched-head-cell sched-head-cell-corner" :class="{ 'sched-head-cell-corner--loading': !!scheduleCornerLoadingLabel }">
+          <button type="button" class="sched-hours-toggle" :aria-pressed="showAllHours"
+            :title="showAllHours ? 'Show normal hours, including all scheduled items' : 'Show all 24 hours'"
+            @click="showAllHours = !showAllHours">{{ showAllHours ? '↥ Auto' : '↕ 24h' }}</button>
           <span
             v-if="scheduleCornerLoadingLabel"
             class="sched-corner-loading"
@@ -1282,29 +1300,18 @@
         >
           <div class="sched-head-day">
             <div class="sched-head-dow">{{ d }} {{ dayDateLabel(d) }}</div>
+            <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click.stop="openDayCancellation(d)"
+              @keydown.stop :aria-label="`Cancel appointments for ${d} ${dayDateLabel(d)}`">Cancel day…</button>
           </div>
         </div>
 
-        <!-- ▲ Before-band overflow row: events that start before the visible hour range -->
-        <template v-if="!showAllHours && hasAnyBeforeBandEvents">
-          <div class="sched-hour sched-overflow-label sched-overflow-label--before">
-            <span class="sched-overflow-label__text" aria-hidden="true">↑</span>
-          </div>
-          <div
-            v-for="d in visibleDays"
-            :key="`obefore-${d}`"
-            class="sched-overflow-row sched-overflow-row--before"
-            :class="{ 'sched-overflow-row--has-events': (outOfBandCountsByDay.get(d)?.before || 0) > 0 }"
-          >
-            <button
-              v-if="(outOfBandCountsByDay.get(d)?.before || 0) > 0"
-              type="button"
-              class="sched-overflow-badge sched-overflow-badge--before"
-              :title="`${outOfBandCountsByDay.get(d).before} event${outOfBandCountsByDay.get(d).before > 1 ? 's' : ''} before ${hourLabel(gridMinHour)} — click to show full day`"
-              @click.stop="showAllHours = true"
-            >
-              <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8V2"/><path d="M2 5l3-3 3 3"/></svg>
-              {{ outOfBandCountsByDay.get(d).before }}
+        <template v-if="hasVisibleAllDayItems">
+          <div class="sched-all-day-label">All day</div>
+          <div v-for="d in visibleDays" :key="`all-day-${d}`" class="sched-all-day-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
+            <button v-for="block in allDayBlocksForDay(d)" :key="block.key" type="button"
+              class="sched-all-day-item" :class="{ 'sched-all-day-item--cancelled': block.isCancelled }"
+              :style="cellBlockStyle(block)" :title="block.title" @click="openAllDayBlock($event, block, d)">
+              {{ block.shortLabel }}
             </button>
           </div>
         </template>
@@ -1337,6 +1344,7 @@
               'sched-cell-drop-target': isAppointmentDropTarget(d, slot.hour, slot.minute),
               'sched-cell--quiet': isQuietHourCell(d, slot.hour, slot.minute)
             }"
+            :title="canBookFromGrid ? `${hourLabel(slot.hour)}: click to schedule, or click and drag to select hours` : undefined"
             data-sched-cell="1"
             :data-day="d"
             :data-hour="slot.hour"
@@ -1358,18 +1366,8 @@
             >
               <span class="sched-now-line__dot" aria-hidden="true"></span>
             </div>
-            <button
-              v-if="canBookFromGrid && slot.minute === 0"
-              type="button"
-              class="cell-plus-btn"
-              title="Add or edit this hour"
-              aria-label="Add or edit this hour"
-              @mousedown.stop
-              @pointerdown.stop
-              @click.stop="onScheduleCellPlusClick(d, slot.hour, $event)"
-            >
-              +
-            </button>
+            <ScheduleQuarterHourPicker v-if="canBookFromGrid && slot.minute === 0" :hour="slot.hour"
+              @select="onScheduleCellPlusClick(d, slot.hour, null, $event)" />
             <div v-if="availabilityClass(d, slot.hour, slot.minute)" class="cell-avail" :class="availabilityClass(d, slot.hour, slot.minute)"></div>
             <div
               v-if="isOfficeScopeSpecific && showOfficeOverlay && slot.minute === 0 && officeOverlay(d, slot.hour) && !cellBlocks(d, slot.hour, slot.minute).length"
@@ -1455,6 +1453,7 @@
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`" :title="`Staff only: ${staffAlertForBlock(b)}`">⚑</span>
                 <!-- Top resize handle — any draggable block -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
@@ -1557,29 +1556,7 @@
           </div>
         </template>
 
-        <!-- ▼ After-band overflow row: events that end/start after the visible hour range -->
-        <template v-if="!showAllHours && hasAnyAfterBandEvents">
-          <div class="sched-hour sched-overflow-label sched-overflow-label--after">
-            <span class="sched-overflow-label__text" aria-hidden="true">↓</span>
-          </div>
-          <div
-            v-for="d in visibleDays"
-            :key="`oafter-${d}`"
-            class="sched-overflow-row sched-overflow-row--after"
-            :class="{ 'sched-overflow-row--has-events': (outOfBandCountsByDay.get(d)?.after || 0) > 0 }"
-          >
-            <button
-              v-if="(outOfBandCountsByDay.get(d)?.after || 0) > 0"
-              type="button"
-              class="sched-overflow-badge sched-overflow-badge--after"
-              :title="`${outOfBandCountsByDay.get(d).after} event${outOfBandCountsByDay.get(d).after > 1 ? 's' : ''} after ${hourLabel(gridMaxHour - 1)} — click to show full day`"
-              @click.stop="showAllHours = true"
-            >
-              {{ outOfBandCountsByDay.get(d).after }}
-              <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v6"/><path d="M2 5l3 3 3-3"/></svg>
-            </button>
-          </div>
-        </template>
+
       </div>
       </div>
     </template>
@@ -1843,6 +1820,7 @@
               @open-note="editorWorkspaceTab = 'note'"
               @join="startTrackedSupvMeet"
             />
+            <AppointmentStaffTools v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
             <MeetingParticipantsDetails v-if="editorIsMeeting && Number(scheduleEventEditId || 0)" :event-id="scheduleEventEditId" />
             <aside
               v-if="showSupervisionAgendaWorkspace"
@@ -2580,6 +2558,9 @@
             <p v-else class="muted">Supervisee progress is available for supervision sessions.</p>
           </div>
 
+          <div v-if="editorWorkspaceTab === 'communications' && Number(editorAppointmentId || 0) > 0" class="appt-workspace-panel">
+            <AppointmentCommunicationsPanel :appointment-id="Number(editorAppointmentId)" />
+          </div>
           <div v-show="editorWorkspaceTab === 'notifications'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentRemindersPanel
               :appointment-id="editorAppointmentId"
@@ -5857,9 +5838,15 @@ import RecurrenceControls from './RecurrenceControls.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
+import AppointmentCommunicationsPanel from './AppointmentCommunicationsPanel.vue';
 import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
 import MyRoomLobbyDialog from './MyRoomLobbyDialog.vue';
 import ScheduleColorLegend from './ScheduleColorLegend.vue';
+import ScheduleHelp from './ScheduleHelp.vue';
+import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
+import DayCancellationDialog from './DayCancellationDialog.vue';
+import AppointmentStaffTools from './AppointmentStaffTools.vue';
+import { allDayItemOccursOn, isAllDayScheduleItem, visibleScheduleHours } from '../../utils/scheduleVisibleHours';
 import {
   APPOINTMENT_EDITOR_STATUS_OPTIONS,
   appointmentEditorTitleForKind,
@@ -6146,61 +6133,72 @@ const dayIdxFromWeekStartMonday = (dayName) => {
   return Math.max(0, ALL_DAYS.indexOf(name));
 };
 
-// Default working-hours band; Full day (24h) expands to 0–23 (12 AM–11 PM).
+// Keep the normal day band, expanding it whenever a visible scheduled item needs more space.
 const showAllHours = ref(false);
 const hours = computed(() => {
-  if (showAllHours.value) {
-    return Array.from({ length: 24 }, (_, i) => i); // 0..23 full 24h
+  const s = summary.value || {};
+  const dates = visibleDays.value.map(day => addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day)));
+  const items = [...(s.scheduleEvents || []), ...(s.supervisionSessions || [])];
+  if (showMyRooms.value) items.push(...(s.officeEvents || []));
+  for (const userId of peerBusySelectedIds.value) {
+    const peer = peerBusySummariesByUserId.value[userId] || {};
+    for (const key of ['scheduleEvents', 'supervisionSessions', 'officeEvents', 'busyBlocks', 'googleBusy', 'externalBusy']) items.push(...(peer[key] || []));
+    for (const calendar of peer.externalCalendars || []) items.push(...(calendar.busy || []));
   }
-  if (props.hideOfficeAndCalendarIntegration) {
-    return Array.from({ length: 18 }, (_, i) => 5 + i); // 5..22 club / early starts
+  if (showGoogleEvents.value) items.push(...(s.googleEvents || []));
+  if (showGoogleBusy.value) items.push(...(s.googleBusy || []));
+  if (showExternalBusy.value) {
+    for (const calendar of s.externalCalendars || []) {
+      if (selectedExternalCalendarIdSet.value.size && !selectedExternalCalendarIdSet.value.has(Number(calendar.id))) continue;
+      items.push(...(calendar.busy || []));
+    }
   }
-  return Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21 default clinical day
+  for (const day of visibleDays.value) {
+    const date = addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
+    for (const row of [...(s.schoolAssignments || []), ...(s.virtualWorkingHours || [])]) {
+      if (row.dayOfWeek !== day || !availabilityOccursOn(row, date)) continue;
+      if (row.startTime && row.endTime) items.push({ startAt: `${date}T${row.startTime}`, endAt: `${date}T${row.endTime}` });
+    }
+  }
+  return visibleScheduleHours({
+    dates, items, showAllHours: showAllHours.value,
+    startHour: props.hideOfficeAndCalendarIntegration ? 5 : 7,
+    endHour: props.hideOfficeAndCalendarIntegration ? 23 : 22
+  });
 });
-const gridMinHour = computed(() => (hours.value?.length ? Math.min(...hours.value) : 7));
-const gridMaxHour = computed(() => (hours.value?.length ? Math.max(...hours.value) + 1 : 22));
-
-// Per-day count of events that fall outside the visible hour band.
-// Used to render the ↑ before-band and ↓ after-band overflow indicator rows.
-const outOfBandCountsByDay = computed(() => {
-  const result = new Map();
-  if (showAllHours.value) return result;
-  const minH = gridMinHour.value;
-  const maxH = gridMaxHour.value;
-  const ws = summary.value?.weekStart || weekStart.value;
-  if (!ws) return result;
-  const vDays = visibleDays.value || [];
-  // Build dayName → YYYY-MM-DD for each visible day
-  const dayToYmd = {};
-  for (const d of vDays) {
-    dayToYmd[d] = addDaysYmd(ws, dayIdxFromWeekStartMonday(d));
+const gridMinHour = computed(() => hours.value[0] ?? 7);
+const gridMaxHour = computed(() => (hours.value.at(-1) ?? 21) + 1);
+const cancelDayDate = ref('');
+const openDayCancellation = (day) => {
+  cancelDayDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
+};
+const onDayCancelled = async () => {
+  cancelDayDate.value = '';
+  await load({ forceRefresh: true });
+};
+const allDayBlocksForDay = (day) => {
+  const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
+  const blocks = (summary.value?.scheduleEvents || []).filter(ev => allDayItemOccursOn(ev, date)).map(ev => ({
+    key: `sevt-${ev.kind}-${ev.id || ev.title}`, kind: 'sevt', eventKind: ev.kind,
+    eventId: Number(ev.id) || null, agencyId: ev.agencyId || ev._agencyId,
+    allDay: true, isCancelled: isScheduleEventCancelled(ev),
+    shortLabel: ev.title || scheduleKindLabel(ev.kind, ev),
+    title: `${ev.title || scheduleKindLabel(ev.kind, ev)} · All day`,
+    canEdit: ev.canEdit !== false && !isScheduleEventCancelled(ev)
+  }));
+  if (showGoogleEvents.value) {
+    for (const ev of summary.value?.googleEvents || []) {
+      if (!allDayItemOccursOn(ev, date) || knownAppGoogleEventIdSet.value.has(String(ev.id || ''))) continue;
+      blocks.push({ key: `gevt-${ev.id}`, kind: 'gevt', allDay: true, shortLabel: ev.summary || 'Google event', title: `${ev.summary || 'Google event'} · All day`, googleEvent: ev });
+    }
   }
-  for (const ev of (summary.value?.scheduleEvents || [])) {
-    const raw = ev.startAt || ev.start_at;
-    if (!raw) continue;
-    const evYmd = String(raw).slice(0, 10);
-    const dayName = vDays.find((d) => dayToYmd[d] === evYmd);
-    if (!dayName) continue;
-    const s = parseLocalDateTime(raw);
-    if (!s) continue;
-    const sh = s.getHours();
-    const endRaw = ev.endAt || ev.end_at;
-    const e = endRaw ? parseLocalDateTime(endRaw) : null;
-    const eh = e ? e.getHours() : sh + 1;
-    const em = e ? e.getMinutes() : 0;
-    if (!result.has(dayName)) result.set(dayName, { before: 0, after: 0 });
-    const entry = result.get(dayName);
-    if (sh < minH) entry.before++;
-    if (sh >= maxH || eh > maxH || (eh === maxH && em > 0)) entry.after++;
-  }
-  return result;
-});
-const hasAnyBeforeBandEvents = computed(() =>
-  !showAllHours.value && [...outOfBandCountsByDay.value.values()].some((v) => v.before > 0)
-);
-const hasAnyAfterBandEvents = computed(() =>
-  !showAllHours.value && [...outOfBandCountsByDay.value.values()].some((v) => v.after > 0)
-);
+  return blocks;
+};
+const hasVisibleAllDayItems = computed(() => visibleDays.value.some(day => allDayBlocksForDay(day).length));
+const openAllDayBlock = (event, block, day) => {
+  if (block.googleEvent) { openGoogleEventModal(block.googleEvent); return; }
+  onCellBlockClick(event, block, day, gridMinHour.value, 0, true);
+};
 
 const loading = ref(false);
 const error = ref('');
@@ -6476,7 +6474,7 @@ const mobileDayCardsForHour = (hour) => {
 };
 const CELL_PLUS_HIT_RESERVE_PX = 24;
 
-const onScheduleCellPlusClick = (dayName, hour, event) => {
+const onScheduleCellPlusClick = (dayName, hour, event, minute = 0) => {
   event?.preventDefault?.();
   event?.stopPropagation?.();
   selectedBlockKey.value = '';
@@ -6484,6 +6482,7 @@ const onScheduleCellPlusClick = (dayName, hour, event) => {
   openSlotActionModal({
     dayName,
     hour,
+    minute,
     preserveSelectionRange: false,
     actionSource: 'plus_or_blank'
   });
@@ -7851,7 +7850,7 @@ const displayTimeSlots = computed(() => {
 const gridStyle = computed(() => {
   const cols = visibleDays.value.length;
   const dayMin = 120;
-  const timeCol = 90;
+  const timeCol = showQuarterDetail.value ? 64 : 56;
   return {
     gridTemplateColumns: `${timeCol}px repeat(${cols}, minmax(${dayMin}px, 1fr))`,
     minWidth: `${timeCol + cols * dayMin}px`
@@ -10008,6 +10007,38 @@ watch(hideWeekend, () => {
   saveHideWeekendPref();
 });
 
+// Staff alerts are fetched separately from calendar/public payloads and never block the schedule.
+const scheduleStaffAlerts = ref([]);
+let staffAlertLoadVersion = 0;
+const loadScheduleStaffAlerts = async () => {
+  const version = ++staffAlertLoadVersion;
+  const providerId = Number(props.userId || 0);
+  const start = summary.value?.weekStart || weekStart.value;
+  if (!summary.value || !providerId || !start) { scheduleStaffAlerts.value = []; return; }
+  const agencies = effectiveAgencyIds.value.map(Number).filter(id => id > 0);
+  const results = await Promise.allSettled(agencies.map(agencyId => api.get('/appointments/staff-alerts', {
+    params: { providerId, agencyId, windowStart: new Date(`${start}T00:00:00`).toISOString(), windowEnd: new Date(`${addDaysYmd(start, 7)}T00:00:00`).toISOString() },
+    skipGlobalLoading: true
+  })));
+  if (version !== staffAlertLoadVersion) return;
+  scheduleStaffAlerts.value = results.flatMap(result => result.status === 'fulfilled' && Array.isArray(result.value?.data?.alerts) ? result.value.data.alerts : []);
+};
+const scheduleStaffAlertLookup = computed(() => {
+  const map = new Map();
+  for (const alert of scheduleStaffAlerts.value) {
+    if (!String(alert.text || '').trim()) continue;
+    if (alert.appointmentId) map.set(`appointment:${alert.appointmentId}`, alert.text);
+    if (alert.providerScheduleEventId) map.set(`sevt:${alert.providerScheduleEventId}`, alert.text);
+    if (alert.officeEventId) map.set(`office:${alert.officeEventId}`, alert.text);
+  }
+  return map;
+});
+const staffAlertForBlock = block => scheduleStaffAlertLookup.value.get(`appointment:${block?.appointmentId}`)
+  || scheduleStaffAlertLookup.value.get(`${block?.isOfficeBlock ? 'office' : block?.kind}:${block?.eventId}`) || '';
+watch([rawSummary, () => props.userId], () => { scheduleStaffAlerts.value = []; void loadScheduleStaffAlerts(); });
+onMounted(() => window.addEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts));
+onUnmounted(() => { staffAlertLoadVersion += 1; window.removeEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts); });
+
 watch(showAllHours, () => {
   if (props.mode !== 'self') return;
   saveShowAllHoursPref();
@@ -10063,8 +10094,8 @@ const agendaDaySub = computed(() => (
 const agendaItems = computed(() => {
   const day = agendaDayName.value;
   if (!day || !summary.value) return [];
-  const seen = new Set();
-  const items = [];
+  const items = allDayBlocksForDay(day).map(block => ({ ...block, hour: gridMinHour.value, timeLabel: 'All day', sortKey: '' }));
+  const seen = new Set(items.map(item => item.key));
   for (const h of (hours.value || [])) {
     for (const b of (cellBlocks(day, h, 0) || [])) {
       if (!b || b.kind === 'more') continue;
@@ -10481,11 +10512,8 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   for (const ev of list) {
     // Always show app-native events. Google titles overlay is filtered separately so
     // synced rows are not duplicated / steal clicks into the Google-only modal.
-    if (ev?.allDay) {
-      const startDate = String(ev?.startDate || '').slice(0, 10);
-      const endDate = String(ev?.endDate || '').slice(0, 10);
-      if (!startDate || !endDate) continue;
-      if (cellDate >= startDate && cellDate < endDate) hits.push(ev);
+    if (isAllDayScheduleItem(ev)) {
+      if (allDayItemOccursOn(ev, cellDate)) hits.push(ev);
       continue;
     }
     const stRaw = String(ev?.startAt || '').trim();
@@ -10969,6 +10997,7 @@ const googleEventsInCell = (dayName, hour, minute = 0) => {
     const gid = String(ev?.id || '').trim();
     // Hide Google copies of app-native events — open those in the app editor instead.
     if (gid && knownAppIds.has(gid)) continue;
+    if (isAllDayScheduleItem(ev)) continue;
     const st = parseScheduleInstant(ev.startAt);
     const en = parseScheduleInstant(ev.endAt);
     if (!st || !en) continue;
@@ -11599,7 +11628,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
   }
 
   // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
-  const scheduleHits = scheduleEventsInCell(dayName, hour, minute);
+  const scheduleHits = scheduleEventsInCell(dayName, hour, minute).filter(ev => !isAllDayScheduleItem(ev));
   for (const ev of scheduleHits) {
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
     if (!expanded && (segmentClass === 'middle' || segmentClass === 'end')) continue;
@@ -11657,10 +11686,6 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       // Allow drag gesture for snap-back UX; permission checked on drop.
       draggable: !isScheduleEventCancelled(ev) && Number(ev?.id || 0) > 0
     });
-  }
-  const scheduleExtra = Math.max(0, scheduleEventsInCell(dayName, hour, minute).length - scheduleHits.length);
-  if (scheduleExtra) {
-    blocks.push({ key: 'sevt-more', kind: 'more', shortLabel: `+${scheduleExtra}`, title: `${scheduleExtra} more schedule events in this hour` });
   }
 
   // Pending request — one block per agency
@@ -14027,6 +14052,7 @@ const editorWorkspaceTabs = computed(() => {
   if (editorIsClinical.value) tabs.push({ id: 'session', label: 'Session note', icon: '✎' });
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
+  if (Number(editorAppointmentId.value || 0) > 0) tabs.push({ id: 'communications', label: 'Communications', icon: '✉' });
   tabs.push({ id: 'notifications', label: 'Notifications', icon: '🔔' });
   if (isSelectedSupvReadOnlyView.value) {
     return tabs.filter((t) => !['edit', 'notifications'].includes(t.id));
@@ -18567,6 +18593,7 @@ const onAvailabilityRemoved = async () => {
 const openSlotActionModal = async ({
   dayName,
   hour,
+  minute = 0,
   roomId = 0,
   slot = null,
   dateYmd = null,
@@ -18803,6 +18830,10 @@ const openSlotActionModal = async ({
     scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';
     officeBookingRecurrence.value=scheduleEventRecurrence.value;
     scheduleEventRecurrenceEndMode.value='indefinite';
+  }
+  if (!sourceOpenSlot && Number(minute) > 0) {
+    modalStartMinute.value = snapQuarterMinute(Number(minute));
+    modalEndMinute.value = Number(modalEndHour.value) < 24 ? modalStartMinute.value : 0;
   }
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
@@ -28312,7 +28343,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   justify-content: center;
 }
 .sched-head-cell-corner {
-  padding: 8px 6px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 2px;
   min-height: 44px;
 }
 .sched-head-cell-corner--loading {
@@ -28388,7 +28421,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-hour {
   position: relative;
-  padding: 8px 10px;
+  white-space: nowrap;
+  text-align: right;
+  padding: 8px 5px;
   font-weight: 650;
   font-size: 12px;
   color: #64748b;
@@ -28476,7 +28511,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   cursor: pointer;
 }
 .sched-cell.clickable:hover {
-  background: rgba(148, 163, 184, 0.06);
+  background: rgba(99, 102, 241, 0.07);
+  outline: 1px solid rgba(99, 102, 241, 0.35);
+  outline-offset: -1px;
 }
 .sched-cell--quiet.clickable:hover {
   background: #e2e8f0;
@@ -28508,7 +28545,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   z-index: 12;
   pointer-events: auto;
 }
-.sched-cell:has(.cell-plus-btn) .cell-blocks {
+.sched-cell:has(.schedule-quarter-picker) .cell-blocks {
   padding-right: 22px;
   box-sizing: border-box;
 }
@@ -28523,6 +28560,17 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   transform: translateY(-50%);
   box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35);
 }
+.cell-staff-alert { position: absolute; right: 3px; top: 3px; z-index: 8; padding: 1px 4px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 12px; line-height: 1.2; }
+.cell-staff-alert--inline { position: static; align-self: flex-start; }
+.sched-hours-toggle { border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #475569; padding: 4px; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.sched-day-cancel { border: 0; background: transparent; color: #64748b; font-size: 10px; cursor: pointer; padding: 3px; }
+.sched-day-cancel:hover { color: #b91c1c; text-decoration: underline; }
+.sched-all-day-label { padding: 6px 4px; font-size: 10px; font-weight: 600; color: #64748b; text-align: right; border-bottom: 1px solid var(--sched-line); background: #fff; }
+.sched-all-day-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 3px 4px; border-left: 1px solid var(--sched-line); border-bottom: 1px solid var(--sched-line); background: #f8fafc; }
+.sched-all-day-item { display: block; width: 100%; min-width: 0; border: 1px solid var(--blockBorder, #cbd5e1); border-radius: 5px; background: var(--blockFill, rgba(148,163,184,.16)); padding: 3px 6px; color: var(--blockText, #334155); font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; cursor: pointer; }
+.sched-all-day-item--cancelled { text-decoration: line-through; opacity: .65; }
+.sched-mobile-all-day { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 5px; }
+.sched-mobile-all-day .sched-all-day-item { width: auto; max-width: 100%; }
 .selection-toolbar {
   margin-top: 10px;
   margin-bottom: 10px;

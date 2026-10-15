@@ -10,6 +10,20 @@ async function setup(workflow = null) {
   return { change, wrapper: mount(AppointmentChangeWizard, { props: { change }, global: { stubs: { teleport: true } } }) };
 }
 describe('appointment change wizard controls', () => {
+  it('shows the client message separately from the internal note before signing', async () => {
+    const { wrapper, change } = await setup();
+    change.step.value = 4; change.facts.eventType = 'canceled'; change.facts.clientFacingReason = 'Your provider is unavailable.';
+    change.facts.followUpAction = 'client_contact_support'; await flushPromises();
+    expect(wrapper.text()).toContain('Client message to review'); expect(wrapper.text()).toContain('Your provider is unavailable.');
+    expect(wrapper.text()).toContain('contact our support team'); wrapper.unmount();
+  });
+  it('keeps completion visible with notification failures and a safe retry option', async () => {
+    const { wrapper, change } = await setup(); change.step.value = 4; change.signatureConfirmed.value = true; await flushPromises();
+    api.post.mockResolvedValue({ data: { ok: true, narrative: 'Signed.', notificationDelivery: { sent: 0, skipped: 1, deliveries: [{ id: 5, clientId: 8, channel: 'email', status: 'skipped', reason: 'No email consent' }] } } });
+    await wrapper.findAll('button').find(b => b.text().includes('Sign & Complete')).trigger('click'); await flushPromises();
+    expect(change.open.value).toBe(true); expect(wrapper.text()).toContain('need staff follow-up'); expect(wrapper.text()).toContain('Recheck and retry');
+    expect(wrapper.text()).not.toContain('Sign & Complete'); wrapper.unmount();
+  });
   it('Save Draft performs a save before closing', async () => {
     const { wrapper, change } = await setup(); api.put.mockResolvedValue({ data: { ok: true } });
     await wrapper.findAll('button').find((b) => b.text() === 'Save Draft').trigger('click'); await flushPromises();

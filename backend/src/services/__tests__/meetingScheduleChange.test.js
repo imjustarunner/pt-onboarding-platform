@@ -2,6 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:m.send}));
+vi.mock('../scheduleNotificationEmail.service.js',()=>({sendScheduleNotificationEmail:m.send}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email})}));
 vi.mock('../meetingParticipants.service.js',()=>({meetingReplyTo:async()=> 'support@example.test',meetingParticipantRows:vi.fn(),meetingEmailDetails:vi.fn()}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://agency.example.test'}));

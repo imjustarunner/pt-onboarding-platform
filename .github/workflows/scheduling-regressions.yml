@@ -61,6 +61,18 @@ jobs:
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
           --config backend/vitest.recurring-reservations.config.js
+      - name: Signed and whole-day cancellations, notification delivery, and sender identity
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.meeting-launch.config.js
+          backend/src/services/__tests__/scheduling.dayCancellation.test.js
+          backend/src/services/__tests__/scheduling.changeWorkflow.test.js
+          backend/src/services/__tests__/scheduling.changeService.test.js
+          backend/src/services/__tests__/scheduling.cancellationNotifications.test.js
+          backend/src/services/__tests__/scheduling.cancellationStorage.test.js
+          backend/src/services/__tests__/scheduling.notificationSender.test.js
+      - name: Internal appointment alerts and staff communication access
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.appointment-staff-tools.config.js
       - name: Calendar conflicts and Google overlays
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
@@ -90,6 +102,14 @@ jobs:
           src/components/schedule/__tests__/scheduleBlocks.test.js
           src/components/schedule/__tests__/scheduleOverlap.test.js
           src/components/schedule/__tests__/scheduleLoading.test.js
+          src/components/schedule/__tests__/scheduleDayLayout.test.js
+          src/components/schedule/__tests__/scheduleQuarterHourPicker.test.js
+          src/components/schedule/__tests__/dayCancellationDialog.test.js
+          src/components/schedule/__tests__/AppointmentStaffTools.test.js
+          src/components/schedule/__tests__/AppointmentCommunicationsPanel.test.js
+          src/composables/__tests__/AppointmentChangeWizard.test.js
+          src/composables/__tests__/useAppointmentChange.test.js
+          src/utils/__tests__/scheduleVisibleHours.test.js
           src/utils/__tests__/scheduleSummaryRequests.test.js
           src/utils/__tests__/officeRequestWindows.test.js
           src/views/__tests__/DashboardScheduleStartup.test.js

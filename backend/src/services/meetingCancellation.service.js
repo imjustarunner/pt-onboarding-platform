@@ -15,6 +15,8 @@ import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+import { sendScheduleNotificationEmail } from './scheduleNotificationEmail.service.js';
+import { escapeMeetingHtml } from './meetingInvitationPolicy.js';
 
 function fmtTime(d) {
   if (!d) return '';
@@ -50,15 +52,15 @@ async function emailOneCancellation({
     (when ? ` scheduled for ${when}` : '') +
     `.${reasonLine}\n\nNo action is needed on your end.`;
   const html =
-    `<p><strong>${cancelledByName}</strong> cancelled the meeting ` +
-    `<strong>"${meetingTitle}"</strong>` +
+    `<p><strong>${escapeMeetingHtml(cancelledByName)}</strong> cancelled the meeting ` +
+    `<strong>"${escapeMeetingHtml(meetingTitle)}"</strong>` +
     (when ? ` scheduled for <strong>${when}</strong>` : '') +
     `.</p>` +
-    (reason ? `<p><em>Reason:</em> ${reason}</p>` : '') +
+    (reason ? `<p><em>Reason:</em> ${escapeMeetingHtml(reason)}</p>` : '') +
     `<p>No action is needed on your end.</p>`;
 
   try {
-    const result = await sendNotificationEmail({
+    const result = await sendScheduleNotificationEmail({
       agencyId,
       triggerKey: 'meeting_cancelled',
       to: recipientUser.email,
@@ -70,7 +72,7 @@ async function emailOneCancellation({
       templateType: 'meeting_cancelled',
       templateId: null
     });
-    return !result?.skipped;
+    return Boolean(result?.id || result?.messageId) && !result?.skipped && !result?.queued && !result?.pendingApproval && !result?.redirected && !result?.blocked;
   } catch (e) {
     const msg = String(e?.message || '');
     if (!msg.includes('trigger') && !msg.includes('sender')) {

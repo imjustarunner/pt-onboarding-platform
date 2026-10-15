@@ -22,7 +22,7 @@ import { evaluateCancel } from '../bookingCancellationPolicy.service.js';
 import { applyMissedSessionPolicy } from '../practitionerPackage.service.js';
 import { previewAppointmentChange, completeAppointmentChange } from '../appointmentChange.service.js';
 const actor = { actorUserId: 9, actorRole: 'provider' };
-const canceled = { eventType: 'canceled', clientId: 3, initiator: 'client', reasons: ['illness'], signatureConfirmed: true };
+const canceled = { eventType: 'canceled', clientId: 3, initiator: 'client', reasons: ['illness'], clientFacingReason: 'Requested cancellation due to illness.', signatureConfirmed: true };
 let appointment, packageRow;
 beforeEach(() => {
   vi.clearAllMocks();readClientInsurance.mockResolvedValue(null);
@@ -65,6 +65,8 @@ describe('appointment change consequences and completion', () => {
     await expect(completeAppointmentChange(1, { ...canceled, eventType: 'rescheduled' }, actor)).rejects.toThrow('replacement');
     Appointment.findById.mockResolvedValue({ id: 99, agencyId: 77 });
     await expect(previewAppointmentChange(1, { ...canceled, replacementAppointmentId: 99 }, actor)).rejects.toThrow('another active appointment');
+    Appointment.findById.mockResolvedValue({ id: 99, agencyId: 2, status: 'draft' });
+    await expect(previewAppointmentChange(1, { ...canceled, replacementAppointmentId: 99, followUpAction: 'replacement_booked' }, actor)).rejects.toThrow('another active appointment');
   });
   it('releases a provider-canceled package reservation with no client fee', async () => {
     appointment.packageEntitlementId = 7; appointment.clinicalSessionId = null;
@@ -72,6 +74,17 @@ describe('appointment change consequences and completion', () => {
     const result = await completeAppointmentChange(1, { ...canceled, initiator: 'provider' }, actor);
     expect(BookingPackage.applyAppointmentUsage).toHaveBeenCalledWith(expect.objectContaining({ mode: 'release', entitlementId: 7 }));
     expect(result.appointment.cancellationFeeCents).toBe(0); expect(releaseAppointmentCalendar).toHaveBeenCalledOnce();
+    expect(result.appointment.cancellationReason).toBe(canceled.clientFacingReason);
+    expect(result.preview).toMatchObject({ providerCaused: true, isMissed: false });
+  });
+  it('does not impose a late fee or strike for a provider-caused reschedule', async () => {
+    Appointment.findById.mockImplementation(async id => id === 2 ? { ...appointment, id: 2 } : appointment);
+    const result = await previewAppointmentChange(1, { ...canceled, eventType: 'rescheduled', initiator: 'provider', replacementAppointmentId: 2 }, actor);
+    expect(result).toMatchObject({ providerCaused: true, isLate: false, isMissed: false, consequence: { feeCents: 0 } });
+  });
+  it('requires a reviewed public cancellation reason before signing', async () => {
+    await expect(completeAppointmentChange(1, { ...canceled, clientFacingReason: '', reasonOther: 'Private medical details' }, actor)).rejects.toThrow('share with the client');
+    expect(runSignedAppointmentChange).not.toHaveBeenCalled();
   });
   it('forfeits a selected booking package once without invoking automatic settlement too', async () => {
     appointment.packageEntitlementId = 7; appointment.clinicalSessionId = null; packageRow = { id: 7, sessions_remaining: 5 };

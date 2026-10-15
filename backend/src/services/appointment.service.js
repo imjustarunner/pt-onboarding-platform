@@ -520,6 +520,9 @@ export async function cancelAppointment(appointmentId, {
   actorRole = 'staff',
   notes = null,
   reason = null,
+  clientFacingReason = null,
+  followUpAction = 'client_contact_support',
+  followUpMessage = null,
   clientId = null,
   waive = false,
   waiverReason = null
@@ -535,6 +538,12 @@ export async function cancelAppointment(appointmentId, {
     await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
   }
   if (!String(reason || notes || '').trim()) throw Object.assign(new Error('Cancellation reason is required'), { status: 400 });
+  const { cancellationClientDetails, notifyAppointmentCancellation, isCanceledAppointmentStatus } = await import('./appointmentCancellationNotification.service.js');
+  const notificationFacts = { eventType: 'canceled', clientFacingReason: clientFacingReason || reason || notes,
+    followUpAction, followUpMessage };
+  cancellationClientDetails(notificationFacts);
+  if (isCanceledAppointmentStatus(existing.status)) return { ...(await getAppointmentBundle(appointmentId)), alreadyCanceled: true,
+    notificationDelivery: await notifyAppointmentCancellation(appointmentId, { ...notificationFacts, clientFacingReason: existing.cancellationReason || notificationFacts.clientFacingReason }, actorUserId) };
   if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
     throw Object.assign(new Error('Invalid cancellation status'), { status: 400 });
   }
@@ -550,6 +559,13 @@ export async function cancelAppointment(appointmentId, {
     clientId: billingClientId,
     waive: !!waive
   });
+  const providerCaused = !['client', 'client_guardian', 'guardian'].includes(String(actorRole).toLowerCase())
+    && (!status || ['canceled_by_provider', 'canceled_by_organization'].includes(status));
+  if (providerCaused) {
+    evaluation.recommendedFeeCents = 0;
+    evaluation.recommendedPackageAction = 'release';
+    evaluation.statusSuggestion = status || 'canceled_by_provider';
+  }
   if (!evaluation.allowed) {
     throw Object.assign(new Error(evaluation.blockReason || 'Cancel not allowed'), {
       status: 403,
@@ -592,7 +608,7 @@ export async function cancelAppointment(appointmentId, {
     cancelDeadlineAt: evaluation.cancelDeadlineAt
       ? toMysqlDateTime(evaluation.cancelDeadlineAt)
       : existing.cancelDeadlineAt,
-    cancellationReason: reason || notes || null,
+    cancellationReason: notificationFacts.clientFacingReason,
     cancellationFeeCents: waive ? 0 : evaluation.recommendedFeeCents,
     cancellationRecommendationJson: evaluation,
     canceledAt: toMysqlDateTime(new Date()),
@@ -631,7 +647,8 @@ export async function cancelAppointment(appointmentId, {
   await releaseAppointmentCalendar(existing, actorUserId);
 
   await recordGuardianAppointmentApproval(appointmentId, actorUserId);
-  return { ...bundle, cancellationEvaluation: evaluation };
+  const notificationDelivery = await notifyAppointmentCancellation(appointmentId, notificationFacts, actorUserId);
+  return { ...bundle, cancellationEvaluation: evaluation, notificationDelivery };
 }
 
 /**

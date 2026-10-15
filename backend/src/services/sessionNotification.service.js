@@ -356,14 +356,14 @@ export async function putClientPreferences(agencyId, clientId, body = {}, guardi
   return getClientPreferences(agencyId, clientId, guardianUserId);
 }
 
-async function loadClientConsent(clientId, agencyId) {
+export async function loadClientConsent(clientId, agencyId) {
   if (!clientId) return { email: true, sms: false, phone: false };
   try {
     const [rows] = await pool.execute(
       `SELECT session_email_opt_in, session_sms_opt_in, session_phone_opt_in,
               email, phone, guardian_email, guardian_phone
-       FROM clients WHERE id = ? LIMIT 1`,
-      [Number(clientId)]
+       FROM clients WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [Number(clientId), Number(agencyId)]
     );
     const c = rows?.[0];
     if (!c) return { email: true, sms: false, phone: false, emailAddress: null, phoneNumber: null };
@@ -1194,7 +1194,9 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
 
   // Also drain change buffer
   const bufferResult = await processDueChangeNotifications({ limit: 20 });
-  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult };
+  const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');
+  const cancellations = await processDueCancellationNotifications({ limit: 20 });
+  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations };
 }
 
 // ── Provider-pushed buffered updates ─────────────────────────────────────────

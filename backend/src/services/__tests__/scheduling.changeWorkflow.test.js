@@ -64,6 +64,16 @@ describe('durable appointment change', () => {
     expect(await run()).toMatchObject({ ok: true, noteId: 3 });
     expect(applyChange).toHaveBeenCalledOnce(); expect(previewChange).toHaveBeenCalledOnce();
   });
+  it('sends cancellation notifications only after the signed client note is stored', async () => {
+    const notifyChange = vi.fn(async () => ({ sent: 1 }));
+    attachAppointmentChangeNotes.mockRejectedValueOnce(new Error('note unavailable'));
+    await expect(runSignedAppointmentChange(1, facts, actor, { previewChange, applyChange, notifyChange })).rejects.toThrow('note unavailable');
+    expect(notifyChange).not.toHaveBeenCalled();
+    const result = await runSignedAppointmentChange(1, facts, actor, { previewChange, applyChange, notifyChange });
+    expect(result.notificationDelivery).toEqual({ sent: 1 });
+    expect(notifyChange).toHaveBeenCalledWith(1, facts, actor.actorUserId);
+    expect(applyChange).toHaveBeenCalledOnce();
+  });
   it('retries queue creation after signing without applying the consequence again', async () => {
     queueAppointmentWaiver.mockRejectedValueOnce(new Error('queue storage unavailable'));
     await expect(run()).rejects.toThrow('queue storage unavailable');
@@ -78,5 +88,9 @@ describe('durable appointment change', () => {
   it('preserves a completed clinical session', async () => {
     Appointment.findById.mockResolvedValue({ id: 1, agencyId: 2, status: 'completed' });
     await expect(run()).rejects.toThrow('final outcome'); expect(applyChange).not.toHaveBeenCalled();
+  });
+  it('allows a reviewed cancellation request to go through signing instead of treating it as final', async () => {
+    Appointment.findById.mockResolvedValue({ id: 1, agencyId: 2, status: 'cancellation_requested' });
+    expect(await run()).toMatchObject({ ok: true }); expect(applyChange).toHaveBeenCalledOnce();
   });
 });

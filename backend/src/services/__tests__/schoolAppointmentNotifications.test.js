@@ -43,6 +43,7 @@ beforeEach(() => {
     if (sql.includes('FROM clients WHERE')) return [[client]];
     if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
+    if (sql.includes('FROM appointment_cancellation_deliveries')) return [[]];
     return [{ affectedRows: 1, insertId: 3 }];
   });
 });

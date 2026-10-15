@@ -1,7 +1,12 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
 class UserCommunication {
+  static hydrateBody(row) {
+    return row?.template_type === 'session_cancellation' && row.body != null
+      ? { ...row, body: maybeDecryptNotePayload(row.body) } : row;
+  }
   /**
    * Generate a short URL-safe token used by the open-tracking pixel.
    * Hex (16 bytes -> 32 chars) keeps it well under VARCHAR(64) and avoids URL-encoding pitfalls.
@@ -44,7 +49,7 @@ class UserCommunication {
         templateId || null,
         channel,
         subject || null,
-        body,
+        templateType === 'session_cancellation' ? maybeEncryptNotePayload(body) : body,
         recipientAddress || null,
         deliveryStatus,
         externalMessageId || null,
@@ -183,7 +188,7 @@ class UserCommunication {
        WHERE uc.id = ?`,
       [id]
     );
-    return rows[0] || null;
+    return this.hydrateBody(rows[0]) || null;
   }
 
   static async findByUser(userId, filters = {}) {
@@ -224,7 +229,7 @@ class UserCommunication {
     }
 
     const [rows] = await pool.execute(query, params);
-    return rows;
+    return rows.map(row => this.hydrateBody(row));
   }
 
   static async countByUser(userId, filters = {}) {

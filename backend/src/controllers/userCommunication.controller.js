@@ -6,6 +6,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import EmailService from '../services/email.service.js';
 import StorageService from '../services/storage.service.js';
+import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import {
   countMultiAgencyCommunicationQualityIssues,
@@ -70,6 +71,7 @@ const COMMUNICATION_DETAIL_JOINS = `
 `;
 
 function enrichCommunicationRow(row) {
+  if (row?.template_type === 'session_cancellation') row = UserCommunication.hydrateBody(row);
   const meta = parseMetadata(row?.metadata);
   const fromEmail = meta.fromEmail || meta.from_email || row?.sender_from_email || null;
   const fromDisplayName = row?.sender_display_name || meta.fromDisplayName || meta.from_display_name || null;
@@ -1070,7 +1072,7 @@ async function applyCommunicationDraftUpdates(comm, body = {}) {
   }
   if (body.body !== undefined) {
     updates.push('body = ?');
-    values.push(String(body.body || ''));
+    values.push(comm.template_type === 'session_cancellation' ? maybeEncryptNotePayload(String(body.body || '')) : String(body.body || ''));
   }
   if (body.recipient_address !== undefined) {
     updates.push('recipient_address = ?');

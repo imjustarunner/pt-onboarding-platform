@@ -1,3 +1,4 @@
+import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
 import express from 'express';
@@ -12,6 +13,7 @@ import {
   settleAppointmentHandler,
   previewAppointmentChangeHandler,
   completeAppointmentChangeHandler,
+  retryCancellationNotificationHandler,
   getAppointmentChangeHandler,
   saveAppointmentChangeDraftHandler,
   listAppointmentWaiversHandler,
@@ -38,6 +40,7 @@ const router = express.Router();
 router.use(authenticate, requireActiveStatus);
 router.use((req,res,next)=>{if(req.method!=='GET'&&['client_guardian','guardian'].includes(req.user?.role))return res.status(403).json({error:{message:'Please request appointment changes through your guardian portal for provider approval.'}});next();});
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
+router.get('/staff-alerts', listAppointmentStaffAlerts);
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
 router.use('/:id', async (req, res, next) => {
@@ -56,6 +59,8 @@ router.post('/', createAppointmentHandler);
 router.get('/:id/guardian-requests', guardianAppointments.providerList);
 router.post('/:id/guardian-requests/:requestId/decline', guardianAppointments.providerDecline);
 router.get('/:id', getAppointment);
+router.get('/:id/staff-tools', getAppointmentStaffTools);
+router.put('/:id/staff-alert', saveAppointmentStaffAlert);
 router.post('/:id/context', getAppointmentContext);
 router.patch('/:id', updateAppointmentHandler);
 router.post('/:id/cancel', cancelAppointmentHandler);
@@ -65,6 +70,7 @@ router.get('/:id/change', getAppointmentChangeHandler);
 router.put('/:id/change/draft', saveAppointmentChangeDraftHandler);
 router.post('/:id/change/preview', previewAppointmentChangeHandler);
 router.post('/:id/change/complete', completeAppointmentChangeHandler);
+router.post('/:id/cancellation-notifications/:deliveryId/retry', retryCancellationNotificationHandler);
 router.post('/:id/evaluate-cancel', evaluateAppointmentCancel);
 router.get('/:id/timeline', getAppointmentTimeline);
 router.post('/:id/reminders/reschedule', rescheduleAppointmentReminders);
