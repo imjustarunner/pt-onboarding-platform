@@ -1,5 +1,6 @@
 <template>
   <div class="ptco-service-detail">
+    <PtcoBrandPortfolio v-if="service.id === 'website'" />
     <section class="ptco-band"><div class="ptco-wrap ptco-detail-layout">
       <div><p class="ptco-eyebrow">{{ service.id === 'full-service' ? 'A partnership built around you' : 'What we help with' }}</p><h2>{{ service.id === 'full-service' ? 'One team behind your mission' : 'Practical support. Clear responsibilities.' }}</h2>
         <ul class="ptco-included"><li v-for="item in service.includes" :key="item"><PtcoIcon name="check"/><span>{{ item }}</span></li></ul>
@@ -33,6 +34,7 @@ import { computed } from 'vue';
 import { ptcoServices, ptcoServicePath } from '../../constants/ptcoWebsite';
 import { PLOTLINE_WEBSITE_URL } from '../../utils/plotline';
 import PtcoIcon from './PtcoIcon.vue';
+import PtcoBrandPortfolio from './PtcoBrandPortfolio.vue';
 const props = defineProps({ service: { type: Object, required: true } });
 const intake = computed(() => `/p/ptco/start?path=operations&service=${props.service.id}`);
 const related = computed(() => (props.service.related || []).map(id => ptcoServices.find(s => s.id === id)).filter(Boolean));

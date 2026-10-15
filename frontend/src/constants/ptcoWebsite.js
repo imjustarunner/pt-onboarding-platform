@@ -31,7 +31,7 @@ export const ptcoServices = [
   {
     id:'website', title:'Website & Brand Management', icon:'screen', label:'A clearer public presence',
     body:'Responsive websites, branding, content, and connected intake experiences.',
-    detail:'Build a public presence that makes your organization easy to understand and easier to reach. We connect your message, visual identity, website, and intake experience.',
+    detail:'Explore the brands and websites created by Plot Twist Co., then let’s build a public presence of your own. We bring your identity, website, content, and intake experience together.',
     includes:['Website planning and responsive design','Brand messaging and visual consistency','Service pages and useful content','Connected contact and intake experiences','Website updates and ongoing content care','Coordination with marketing and outreach'],
     process:['Clarify your audience, services, and brand.','Build the pages and paths your visitors need.','Keep the experience current as your organization grows.'],
     pricing:'Request a quote for a focused website project, ongoing management, or website support within a full-service partnership.',

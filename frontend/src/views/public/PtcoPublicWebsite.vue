@@ -100,6 +100,7 @@ const activeService=computed(()=>section.value === 'services' ? [...ptcoServices
 const serviceLanding=computed(()=>!section.value || (section.value === 'services' && !route.params.service));
 const knownSection=computed(()=>route.params.service ? Boolean(activeService.value) : ['','about','services','products','conversa','hq','industries','resources','start','contact'].includes(section.value));
 const serviceHero=computed(()=>{
+ if(activeService.value?.id === 'website') return {kicker:'Websites & identities by Plot Twist Co.',title:activeService.value.title,body:activeService.value.detail,primary:{label:'Explore our work',to:{path:route.path,hash:'#brand-portfolio'}},secondary:{label:'Request a custom quote',to:'/p/ptco/start?path=operations&service=website'}};
  if(activeService.value) return {kicker:'Plot Twist Co. services',title:activeService.value.title,body:activeService.value.detail,primary:{label:'Request a custom quote',to:`/p/ptco/start?path=operations&service=${activeService.value.id}`},secondary:{label:'Explore all services',to:'/p/ptco/services'}};
  return {kicker:'Full-service back-office support',title:'Everything behind your mission.',accent:'Forward.',body:'Medical billing, credentialing, people, finances, and operations. Choose the support you need, or let Plot Twist Co. build a complete plan for your organization.',primary:{label:'View all services',to:{path:route.path,query:route.query,hash:'#services'}},secondary:{label:'Get a custom plan',to:'/p/ptco/start?path=operations&service=full-service'}};
 });

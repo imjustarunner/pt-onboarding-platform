@@ -1,0 +1,395 @@
+[
+  {
+    "id": "plottwistco",
+    "name": "Plot Twist Co.",
+    "category": "Business & technology",
+    "website": "https://plottwistco.com",
+    "description": "The people, systems, and support behind mission-driven organizations.",
+    "logo": "/assets/ptco/logo-flat.webp",
+    "icon": "/assets/ptco/logo-flat.png",
+    "colors": [
+      "#970E22",
+      "#151A30",
+      "#FFFEFA"
+    ],
+    "assets": [
+      "/assets/ptco/logo-flat.webp",
+      "/assets/ptco/logo-flat.png",
+      "/assets/ptco/logo.webp"
+    ],
+    "typography": "Georgia and Inter",
+    "source": "frontend/src/styles/ptcoWebsite.css"
+  },
+  {
+    "id": "plottwisthq",
+    "name": "Plot Twist HQ",
+    "category": "Business & technology",
+    "website": "https://plottwisthq.com",
+    "description": "A connected workspace for client care and business operations.",
+    "logo": "/assets/ptco/logo-flat.webp",
+    "icon": "/assets/ptco/logo-flat.png",
+    "colors": [
+      "#B80016",
+      "#1D2633",
+      "#F6F7F9"
+    ],
+    "assets": [
+      "/assets/ptco/logo-flat.webp",
+      "/assets/ptco/logo-flat.png"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/config/platformBrand.js",
+    "note": "Plot Twist HQ uses the shared Plot Twist Co. mark."
+  },
+  {
+    "id": "auricwell",
+    "name": "AuricWell",
+    "category": "Business & technology",
+    "website": "https://auricwell.com",
+    "description": "A focused EHR and clinical workspace for therapy practices.",
+    "logo": "/auricwell/logo.png",
+    "icon": "/auricwell/mark.svg",
+    "colors": [
+      "#0649CE",
+      "#112044",
+      "#E3EAF3"
+    ],
+    "assets": [
+      "/auricwell/logo.png",
+      "/auricwell/mark.svg",
+      "/auricwell/mark.png"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/auricwell/website/website.css"
+  },
+  {
+    "id": "plotline",
+    "name": "Plotline",
+    "category": "Business & technology",
+    "website": "https://plotlinepo.com",
+    "description": "People operations, from the first application to what comes next.",
+    "logo": "/assets/plotline/website/brand/logos/plotline-primary-transparent.webp",
+    "icon": "/assets/plotline/icon.svg",
+    "colors": [
+      "#0F2D24",
+      "#6B8F7A",
+      "#D89B7F"
+    ],
+    "assets": [
+      "/assets/plotline/website/brand/logos/plotline-primary-transparent.webp",
+      "/assets/plotline/icon.svg",
+      "/assets/plotline/website/brand/logos/plotline-primary-transparent.png",
+      "/assets/plotline/website/brand/logos/plotline-wordmark-editable.svg",
+      "/assets/plotline/website/brand/logos/plotline-wordmark-white-transparent.png",
+      "/assets/plotline/website/brand/tokens/plotline-colors.json",
+      "/assets/plotline/website/brand/tokens/plotline-theme.css"
+    ],
+    "typography": "Sora",
+    "source": "frontend/public/assets/plotline/website/brand/tokens/plotline-colors.json"
+  },
+  {
+    "id": "fundthred",
+    "name": "FundThred",
+    "category": "Business & technology",
+    "website": "https://fundtred.com",
+    "description": "Financial organization for nonprofits and mission-driven teams.",
+    "logo": "/assets/fundthred/wordmark.svg",
+    "icon": "/assets/fundthred/icon.svg",
+    "colors": [
+      "#0C9D8C",
+      "#526E8C",
+      "#F9F7F2"
+    ],
+    "assets": [
+      "/assets/fundthred/wordmark.svg",
+      "/assets/fundthred/icon.svg"
+    ],
+    "typography": "See the current website for typography",
+    "source": "frontend/src/styles/fundthredWebsite.css"
+  },
+  {
+    "id": "conversa",
+    "name": "Conversa",
+    "category": "Business & technology",
+    "website": "https://plottwistco.com/conversa",
+    "description": "Messages, care conversations, and team communication in one identity.",
+    "logo": "/assets/conversa/brand/conversa-logo-horizontal.svg",
+    "icon": "/assets/conversa/brand/conversa-mark.svg",
+    "colors": [
+      "#0047B3",
+      "#0F2D6B",
+      "#D4A017"
+    ],
+    "assets": [
+      "/assets/conversa/brand/conversa-logo-horizontal.svg",
+      "/assets/conversa/brand/conversa-mark.svg",
+      "/assets/conversa/icons/message-types/chat.svg",
+      "/assets/conversa/icons/message-types/email.svg",
+      "/assets/conversa/icons/message-types/secure-message.svg"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/styles/conversa.css"
+  },
+  {
+    "id": "schoolcarebridge",
+    "name": "SchoolCareBridge",
+    "category": "Business & technology",
+    "website": "https://schoolcarebridge.org",
+    "description": "Connecting schools, care teams, and families around student support.",
+    "logo": "/assets/schoolcarebridge/logo.png",
+    "icon": "/assets/schoolcarebridge/logo.png",
+    "colors": [
+      "#102E53",
+      "#008C9A",
+      "#F4BC41"
+    ],
+    "assets": [
+      "/assets/schoolcarebridge/logo.png"
+    ],
+    "typography": "See the current website for typography",
+    "source": "frontend/src/styles/schoolCareBridgeWebsite.css"
+  },
+  {
+    "id": "itsco",
+    "name": "ITSCO",
+    "category": "Care & community",
+    "website": "https://www.itsco.health",
+    "description": "In The School Counselors: care connected to students and schools.",
+    "logo": "/assets/itsco/logo.png",
+    "icon": "/assets/itsco/logo.png",
+    "colors": [
+      "#075B46",
+      "#103C3D",
+      "#536C70"
+    ],
+    "assets": [
+      "/assets/itsco/logo.png"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/styles/itsco-public.css"
+  },
+  {
+    "id": "nlu",
+    "name": "Next Level Up",
+    "category": "Care & community",
+    "website": "https://nextleveluplcc.com",
+    "description": "Learning and counseling, brought together for the next step.",
+    "logo": "/assets/nlu/logo.png",
+    "icon": "/assets/nlu/icon.png",
+    "colors": [
+      "#092E58",
+      "#008591",
+      "#CF9B39"
+    ],
+    "assets": [
+      "/assets/nlu/logo.png",
+      "/assets/nlu/icon.png",
+      "/assets/nlu/logo-teal.png",
+      "/assets/branding/NLUWatermark.png"
+    ],
+    "typography": "Outfit and Caveat",
+    "source": "frontend/src/styles/nluWebsite.css"
+  },
+  {
+    "id": "tisi",
+    "name": "The Inner Strength Institute",
+    "category": "Care & community",
+    "website": "https://theinnerstrengthinstitute.com",
+    "description": "A distinctive identity for counseling, growth, and inner strength.",
+    "logo": "/assets/branding/innerstrength-mark.png",
+    "icon": "/assets/branding/innerstrength-favicon-v2.png",
+    "colors": [
+      "#0B1F3A",
+      "#2F6B3A",
+      "#F7F8FA"
+    ],
+    "assets": [
+      "/assets/branding/innerstrength-mark.png",
+      "/assets/branding/innerstrength-favicon-v2.png",
+      "/assets/branding/innerstrength-footer-mark-black.png"
+    ],
+    "typography": "See the current website for typography",
+    "source": "frontend/src/views/public/PublicMarketingLandingTisiView.vue"
+  },
+  {
+    "id": "mh4kidz",
+    "name": "MH4Kidz",
+    "category": "Care & community",
+    "website": "https://mh4kidz.org",
+    "description": "Stronger kids. Brighter tomorrows. A welcoming home for youth support.",
+    "logo": "/assets/mh4kidz/logo.webp",
+    "icon": "/assets/favicons/mh4kidz-circle-v1.png",
+    "colors": [
+      "#08263E",
+      "#317E32",
+      "#00799E"
+    ],
+    "assets": [
+      "/assets/mh4kidz/logo.webp",
+      "/assets/favicons/mh4kidz-circle-v1.png",
+      "/assets/mh4kidz/logo.png",
+      "/assets/mh4kidz/logo-white.webp"
+    ],
+    "typography": "Avenir Next and the supplied MHBrush display face",
+    "source": "frontend/src/styles/mh4kidzWebsite.css"
+  },
+  {
+    "id": "range",
+    "name": "Mental Range Collective",
+    "category": "Care & community",
+    "website": "https://mentalrange.org",
+    "description": "A shared identity and public presence for a mental health community.",
+    "logo": "/assets/range/logo.svg",
+    "icon": "/assets/favicons/mental-range-v1.svg",
+    "colors": [
+      "#105B3D",
+      "#0B222C",
+      "#91D096"
+    ],
+    "assets": [
+      "/assets/range/logo.svg",
+      "/assets/favicons/mental-range-v1.svg"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/styles/mentalRangeWebsite.css"
+  },
+  {
+    "id": "rise",
+    "name": "Rise Revive",
+    "category": "Care & community",
+    "website": "https://risereviveco.com",
+    "description": "Counseling and coaching with a grounded, human presence.",
+    "logo": "/assets/rise/logo.webp",
+    "icon": "/assets/rise/logo.webp",
+    "colors": [
+      "#123F2E",
+      "#101E24",
+      "#B16A14"
+    ],
+    "assets": [
+      "/assets/rise/logo.webp"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/styles/riseWebsite.css"
+  },
+  {
+    "id": "latinx",
+    "name": "Latinx Therapist Project CO",
+    "category": "Care & community",
+    "website": "https://latinxtherapistproject.org",
+    "description": "Community, connection, and pathways into the mental health profession.",
+    "logo": "/assets/ptco/portfolio/latinx-brand-board.png",
+    "icon": "/assets/ptco/portfolio/latinx-brand-board.png",
+    "colors": [
+      "#631957",
+      "#C392D6",
+      "#E1A83B"
+    ],
+    "assets": [
+      "/assets/ptco/portfolio/latinx-brand-board.png",
+      "/assets/ptco/portfolio/latinx-logo-board.png"
+    ],
+    "typography": "See the supplied brand boards",
+    "source": "frontend/src/views/public/ProviderDirectoryView.vue",
+    "artwork": "latinx",
+    "note": "The package includes the original supplied brand and logo boards. Keep their artwork intact."
+  },
+  {
+    "id": "kimi",
+    "name": "Kimi Cain Life Coaching",
+    "category": "Coaching & everyday life",
+    "website": "https://kimicain.com",
+    "description": "A personal coaching brand centered on clarity and the next chapter.",
+    "logo": "/assets/kimi/logo.svg",
+    "icon": "/assets/kimi/logo.svg",
+    "colors": [
+      "#4E624B",
+      "#23312C",
+      "#B9796C"
+    ],
+    "assets": [
+      "/assets/kimi/logo.svg",
+      "/assets/kimi/logo-print.png"
+    ],
+    "typography": "Georgia and Arial",
+    "source": "frontend/src/views/public/KimiPublicWebsite.vue"
+  },
+  {
+    "id": "michael",
+    "name": "Michael V. Mendez",
+    "category": "Coaching & everyday life",
+    "website": "https://michaelvmendez.com",
+    "description": "Consulting and coaching with a personal, purposeful identity.",
+    "logo": "/assets/michael/logo-horizontal.png",
+    "icon": "/assets/michael/logo-seal.png",
+    "colors": [
+      "#0B1E31",
+      "#89602E",
+      "#F7F6F2"
+    ],
+    "assets": [
+      "/assets/michael/logo-horizontal.png",
+      "/assets/michael/logo-seal.png",
+      "/assets/michael/logo-navy.png"
+    ],
+    "typography": "See the current website for typography",
+    "source": "frontend/src/michael/site.css",
+    "logoLayout": "wide"
+  },
+  {
+    "id": "rmmentors",
+    "name": "Rocky Mountain Mentors",
+    "category": "Coaching & everyday life",
+    "website": "https://rmmentors.com",
+    "description": "A mountain-inspired identity for mentoring and personal growth.",
+    "logo": "/assets/rmmentors/logo.jpeg",
+    "icon": "/assets/rmmentors/logo.jpeg",
+    "colors": [
+      "#726244"
+    ],
+    "assets": [
+      "/assets/rmmentors/logo.jpeg"
+    ],
+    "typography": "See the supplied logo",
+    "source": "database/migrations/1450_public_website_relationships_and_chat.sql",
+    "status": "Website coming soon"
+  },
+  {
+    "id": "sstc",
+    "name": "Summit Stats Team Challenge",
+    "category": "Coaching & everyday life",
+    "website": "https://summitstatstc.com",
+    "description": "A bold home for fitness clubs, community, and friendly competition.",
+    "logo": "/assets/sstc/logo.png",
+    "icon": "/assets/sstc/logo.png",
+    "colors": [
+      "#142F3A",
+      "#CFF765",
+      "#25719C"
+    ],
+    "assets": [
+      "/assets/sstc/logo.png"
+    ],
+    "typography": "Barlow Condensed and DM Sans",
+    "source": "frontend/src/sstc/website/site.css"
+  },
+  {
+    "id": "family",
+    "name": "Family Command Center",
+    "category": "Coaching & everyday life",
+    "website": "https://familycommandcenterhub.com",
+    "description": "A calmer place for family plans, shared tasks, and everyday life.",
+    "logo": "/family-home.svg",
+    "icon": "/family-home.svg",
+    "colors": [
+      "#575174",
+      "#333348",
+      "#FBF8F1"
+    ],
+    "assets": [
+      "/family-home.svg"
+    ],
+    "typography": "Inter",
+    "source": "frontend/src/views/public/FamilyWebsite.vue"
+  }
+]

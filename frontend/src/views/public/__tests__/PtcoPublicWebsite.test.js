@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import Website from '../PtcoPublicWebsite.vue';
 import Intake from '../../../components/ptco/PtcoBusinessIntake.vue';
 import api from '../../../services/api';
+import brands from '../../../content/ptcoBrandPortfolio.json';
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 const wrappers = [];
 async function setup(path = '/p/ptco') {
@@ -20,6 +21,41 @@ beforeEach(() => {
 });
 afterEach(() => wrappers.splice(0).forEach(wrapper => wrapper.unmount()));
 describe('Plot Twist Co service discovery', () => {
+  it('shows the complete brand portfolio before website service details, with website and package links', async () => {
+    const { wrapper } = await setup('/p/ptco/services/website');
+    const portfolio = wrapper.find('#brand-portfolio');
+    expect(portfolio.exists()).toBe(true);
+    expect(wrapper.find('.ptco-service-detail').element.firstElementChild.id).toBe('brand-portfolio');
+    expect(portfolio.findAll('[data-brand]')).toHaveLength(19);
+    for (const brand of brands) {
+      const card = portfolio.find(`[data-brand="${brand.id}"]`);
+      expect(card.find('h3').text()).toBe(brand.name);
+      if (brand.status) {
+        expect(card.text()).toContain(brand.status);
+        expect(card.find('a[target="_blank"]').exists()).toBe(false);
+      } else expect(card.find('a[target="_blank"]').attributes('href')).toBe(brand.website);
+      expect(card.find('a[download]').attributes('href')).toBe(`/assets/ptco/brand-packages/${brand.id}.zip`);
+    }
+    expect(portfolio.find('[data-brand="auricwell"] a').attributes('href')).toBe('https://auricwell.com');
+    expect(portfolio.find('[data-brand="fundthred"] a').attributes('href')).toBe('https://fundtred.com');
+    expect(wrapper.find('.ptco-service-hero .ptco-button').text()).toContain('Explore our work');
+  });
+  it('filters the portfolio by category and restores all brands', async () => {
+    const { wrapper, router } = await setup('/p/ptco/services/website');
+    const filters = wrapper.findAll('.ptco-portfolio-filters button');
+    await filters.find(button => button.text().includes('Care & community')).trigger('click');
+    expect(wrapper.findAll('[data-brand]')).toHaveLength(7);
+    expect(wrapper.find('[data-brand="itsco"]').exists()).toBe(true);
+    expect(wrapper.find('[data-brand="auricwell"]').exists()).toBe(false);
+    expect(wrapper.find('.ptco-portfolio-toolbar [role="status"]').text()).toBe('7 brands');
+    await filters[0].trigger('click');
+    expect(wrapper.findAll('[data-brand]')).toHaveLength(19);
+    await wrapper.find('.ptco-portfolio-closing a').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.service).toBe('website');
+    await router.push('/p/ptco/services/medical-billing');
+    expect(wrapper.find('#brand-portfolio').exists()).toBe(false);
+  });
   it('leads with billing and opens a dedicated page from the catalog', async () => {
     const { wrapper,router } = await setup();
     expect(wrapper.findAll('.ptco-service-card')).toHaveLength(8);
