@@ -592,7 +592,7 @@ async function listWaitingLobbyPresence(sessionId) {
   // possible, otherwise BINARY compare join_identity (no collation coercion).
   const [rows] = await pool.execute(
     `SELECT p.join_identity, p.display_name, p.is_guest, p.joined_at, p.last_seen_at,
-            u.first_name, u.last_name, u.email
+            COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name, u.last_name, u.email
      FROM supervision_session_join_presence p
      LEFT JOIN users u
        ON p.join_identity LIKE 'user-%'
@@ -767,8 +767,8 @@ async function buildSupervisionSessionTitle(sessionId, row) {
   if (!sessionId || !row) return null;
   const [nameRows] = await pool.execute(
     `SELECT
-       CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name,
-       CONCAT(COALESCE(sv.first_name,''), ' ', COALESCE(sv.last_name,'')) AS supervisee_name,
+       CONCAT(COALESCE(NULLIF(TRIM(sup.preferred_name), ''), sup.first_name, ''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name,
+       CONCAT(COALESCE(NULLIF(TRIM(sv.preferred_name), ''), sv.first_name, ''), ' ', COALESCE(sv.last_name,'')) AS supervisee_name,
        ss.session_type
      FROM supervision_sessions ss
      JOIN users sup ON sup.id = ss.supervisor_user_id
@@ -1735,7 +1735,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       // Privilege-based supervisors only see their assigned supervisees (empty if none).
       if (providers.length === 0 && actorIsAdminLike) {
         const [rows] = await pool.execute(
-          `SELECT u.id, u.first_name, u.last_name, u.email, u.role
+          `SELECT u.id, COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name, u.last_name, u.email, u.role
            FROM user_agencies ua
            JOIN users u ON u.id = ua.user_id
            WHERE ua.agency_id = ?
@@ -1803,7 +1803,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT DISTINCT
          u.id,
-         u.first_name,
+         COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,
          u.last_name,
          u.email,
          u.role
@@ -1830,7 +1830,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       const [facRows] = await pool.execute(
         `SELECT DISTINCT
            u.id,
-           u.first_name,
+           COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,
            u.last_name,
            u.email,
            u.role,
@@ -2405,7 +2405,7 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
       try {
         const placeholders = missingNameIds.map(() => '?').join(',');
         const [nameRows] = await pool.execute(
-          `SELECT id, first_name, last_name, email FROM users WHERE id IN (${placeholders})`,
+          `SELECT id, COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name, last_name, email FROM users WHERE id IN (${placeholders})`,
           missingNameIds
         );
         for (const nr of nameRows || []) {
@@ -2745,7 +2745,7 @@ export const getLobbyParticipants = async (req, res, next) => {
       if (p.userId) {
         try {
           const [rows] = await pool.execute(
-            'SELECT first_name, last_name, profile_photo_path FROM users WHERE id = ? LIMIT 1',
+            'SELECT COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name, last_name, profile_photo_path FROM users WHERE id = ? LIMIT 1',
             [p.userId]
           );
           const u = rows?.[0];
@@ -3968,7 +3968,7 @@ export const createSupervisionSession = async (req, res, next) => {
       ? 'Group supervision — signup open'
       : (sessionType === 'group'
         ? `Group supervision (${participantCount})`
-        : `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim());
+        : `Supervision — ${(supervisee.preferred_name || supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim());
     const desc = notes ? String(notes) : null;
     const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
@@ -4243,7 +4243,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     const hostEmail = String(row.google_host_email || supervisor?.email || '').trim().toLowerCase();
     const attendeeEmail = String(supervisee?.email || '').trim().toLowerCase();
 
-    const summary = `Supervision — ${(supervisee?.first_name || '').trim()} ${(supervisee?.last_name || '').trim()}`.trim();
+    const summary = `Supervision — ${(supervisee?.preferred_name || supervisee?.first_name || '').trim()} ${(supervisee?.last_name || '').trim()}`.trim();
     const useVideo = isVideoConfigured();
 
     for (const occ of timingChanged ? [] : rowsToUpdate) {

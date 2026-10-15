@@ -27,3 +27,10 @@ it('keeps the new search when clearing a previously selected person', async () =
   expect(wrapper.get('input').element.value).toBe('michael');
   expect(wrapper.findAll('[role="option"]')).toHaveLength(1);
 });
+it('displays a preferred name while accepting either preferred or legal name searches', async () => {
+  wrapper = mount(PersonSearchSelect, { props: { options: [{ id: 1157, first_name: 'Lauryn', preferred_name: 'Ryn', last_name: 'Pantoya' }] } });
+  for (const query of ['Ryn', 'Lauryn']) {
+    await wrapper.get('input').setValue(query);
+    expect(wrapper.get('[role="option"]').text()).toBe('Pantoya, Ryn');
+  }
+});

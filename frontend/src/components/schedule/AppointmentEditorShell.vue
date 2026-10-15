@@ -25,6 +25,8 @@
       @update:bookedUntil="emit('update:bookedUntil', $event)"
       @update:officeLocationId="emit('update:officeLocationId', $event)"
       @update:preferredRoomId="emit('update:preferredRoomId', $event)"
+      @update:preferredRoomIds="emit('update:preferredRoomIds', $event)"
+      @update:roomPreferenceAcknowledged="emit('update:roomPreferenceAcknowledged', $event)"
       @update:tenantServiceId="emit('update:tenantServiceId', $event)"
       @update:primaryServiceCode="emit('update:primaryServiceCode', $event)"
       @update:addonServiceCodes="emit('update:addonServiceCodes', $event)"
@@ -208,6 +210,9 @@ const props = defineProps({
   officeLocationsLoading: { type: Boolean, default: false },
   officeLocationId: { type: Number, default: 0 },
   preferredRoomId: { type: Number, default: 0 },
+  preferredRoomIds: { type: Array, default: () => [] },
+  multipleRoomPreferences: { type: Boolean, default: false },
+  roomPreferenceAcknowledged: { type: Boolean, default: false },
   preferredRoomOptions: { type: Array, default: () => [] },
   preferredRoomsHint: { type: String, default: '' },
   tenantIconUrl: { type: String, default: '' },
@@ -256,6 +261,8 @@ const emit = defineEmits([
   'update:bookedUntil',
   'update:officeLocationId',
   'update:preferredRoomId',
+  'update:preferredRoomIds',
+  'update:roomPreferenceAcknowledged',
   'update:tenantServiceId',
   'update:primaryServiceCode',
   'update:addonServiceCodes',
@@ -327,6 +334,9 @@ const headerProps = computed(() => ({
   officeLocationsLoading: props.officeLocationsLoading,
   officeLocationId: props.officeLocationId,
   preferredRoomId: props.preferredRoomId,
+  preferredRoomIds: props.preferredRoomIds,
+  multipleRoomPreferences: props.multipleRoomPreferences,
+  roomPreferenceAcknowledged: props.roomPreferenceAcknowledged,
   preferredRoomOptions: props.preferredRoomOptions,
   preferredRoomsHint: props.preferredRoomsHint,
   tenantIconUrl: props.tenantIconUrl,

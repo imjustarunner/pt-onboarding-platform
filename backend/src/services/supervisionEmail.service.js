@@ -37,11 +37,11 @@ export function supervisionCalendar(session, joinUrl) {
 }
 export async function supervisionEmailPeople(session) {
  if(session.kind==='HUDDLE'){
-  const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.email,u.work_email,u.role,COALESCE(p.is_required,1) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp FROM users u LEFT JOIN meeting_participant_preferences p ON p.user_id=u.id AND p.event_id=? WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?)`,[session.id,session.provider_id,session.id]);
+  const [rows]=await pool.execute(`SELECT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.email,u.work_email,u.role,COALESCE(p.is_required,1) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp FROM users u LEFT JOIN meeting_participant_preferences p ON p.user_id=u.id AND p.event_id=? WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?)`,[session.id,session.provider_id,session.id]);
   return rows.map(r=>({...r,name:[r.first_name,r.last_name].filter(Boolean).join(' '),status:r.rsvp==='declined'?'DECLINED':r.rsvp==='accepted'?'SIGNED_UP':'INVITED',participant_role:Number(r.id)===Number(session.provider_id)?'host':'supervisee',isPresenter:false}));
  }
 
- const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.email,u.work_email,u.role,u.credential,u.title,u.employment_type,a.status,a.is_required,a.participant_role,a.decline_reason,
+ const [rows]=await pool.execute(`SELECT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.email,u.work_email,u.role,u.credential,u.title,u.employment_type,a.status,a.is_required,a.participant_role,a.decline_reason,
  (SELECT cp.status FROM supervision_case_presentations cp WHERE cp.session_id=a.session_id AND cp.presenter_user_id=u.id LIMIT 1) presentationStatus,
  EXISTS(SELECT 1 FROM supervision_session_presenters p WHERE p.session_id=? AND p.user_id=u.id) isPresenter
  FROM users u LEFT JOIN supervision_session_attendees a ON a.user_id=u.id AND a.session_id=?
@@ -115,7 +115,7 @@ export async function sendSupervisionDayAheadReminders(now=new Date()) {
  for(const session of sessions){
   if (session.enrollment_mode === 'signup_only') {
    if (signupInvitationDue(session,now)) {
-    const [candidates] = await pool.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.last_name,u.role,u.credential,u.title,u.employment_type FROM users u
+    const [candidates] = await pool.execute(`SELECT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.role,u.credential,u.title,u.employment_type FROM users u
       JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
       JOIN agencies org ON org.id=ua.agency_id AND org.is_active=1
       WHERE COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0

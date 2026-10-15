@@ -13,7 +13,7 @@ export async function sendConfiguredMeetingReminders(now=new Date()) {
     AND start_at>UTC_TIMESTAMP() AND start_at<DATE_ADD(UTC_TIMESTAMP(),INTERVAL 8 DAY)`);
   for(const event of events)for(const reminder of meetingReminderSchedule(event)) {
     if(reminder.at>now || now-reminder.at>180000)continue;
-    const [users]=await pool.execute(`SELECT DISTINCT u.id,u.email,u.work_email,u.first_name,u.last_name,hi.guest_join_token FROM users u LEFT JOIN hiring_interviews hi ON hi.candidate_user_id=u.id AND hi.provider_schedule_event_id=? WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?) OR hi.id IS NOT NULL`,[event.id,event.provider_id,event.id]);
+    const [users]=await pool.execute(`SELECT DISTINCT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,hi.guest_join_token FROM users u LEFT JOIN hiring_interviews hi ON hi.candidate_user_id=u.id AND hi.provider_schedule_event_id=? WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?) OR hi.id IS NOT NULL`,[event.id,event.provider_id,event.id]);
     const host=users.find(u=>Number(u.id)===Number(event.provider_id));
     for(const user of users) {
       if(!user.email || (!event.meeting_settings_json && !user.guest_join_token))continue;const db=await pool.getConnection();const lock=`meeting-reminder:${event.id}:${user.id}:${reminder.key}`;let acquired=false;

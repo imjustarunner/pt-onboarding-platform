@@ -260,6 +260,7 @@ it('submits ranked room preferences and the editor building from the provider re
   await flushPromises();
   state.modalStartHour=17;state.editorOfficeLocationId=1;
   state.editorPreferredRoomIds=[5,7];
+  state.editorRecurrenceFrequency='WEEKLY';
   await state.submitRequest();
   const call=api.post.mock.calls.find(([url])=>url==='/availability/office-requests');
   expect(call, state.modalError).toBeTruthy();
@@ -282,7 +283,12 @@ it('submits every chosen office weekday with the edited time range and recurrenc
   expect(state.editorRecurrenceEndMode).toBe('indefinite');
   state.scheduleEventOccurrenceCount = 6;
   state.editorRecurrenceWeekdays = ['Tue','Wed'];
+  await flushPromises();
+  state.modalStartHour = 17;state.modalEndHour = 19;
+  state.editorRecurrenceFrequency = 'WEEKLY';state.editorRecurrenceWeekdays = ['Tue','Wed'];
+  state.editorRoomPreferenceAcknowledged = true;
   await state.submitRequest();
+  expect(state.modalError).toBe('');
   expect(m.post).toHaveBeenCalledWith('/availability/office-requests', expect.objectContaining({
     recurrence:'WEEKLY', requestedStartDate:'2026-10-13',
     slots:[{weekday:2,startHour:17,endHour:19,roomId:undefined},{weekday:3,startHour:17,endHour:19,roomId:undefined}]
@@ -297,4 +303,13 @@ it('offers weekday choices for ongoing room requests without an unsupported end 
  await controls.findAll('.rec-day').find(b=>b.attributes('aria-pressed')==='false' && b.text().startsWith('W')).trigger('click');
  expect(controls.emitted('update:weekdays')[0][0]).toEqual(['Tue','Wed']);
  controls.unmount();
+});
+
+it('keeps a one-time room request unsent when the user cancels confirmation', async () => {
+ const state=await mount();await wrapper.setProps({agencyId:2});
+ state.requestType='office_request_only';state.modalDay='Tuesday';state.modalHour=17;
+ await flushPromises();state.modalStartHour=17;state.modalEndHour=18;
+ state.editorOfficeLocationId=1;state.editorPreferredRoomIds=[7];state.editorRecurrenceFrequency='ONCE';
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ try {await state.submitRequest();expect(confirm).toHaveBeenCalled();expect(m.post.mock.calls.some(([url])=>url==='/availability/office-requests')).toBe(false);}finally{confirm.mockRestore();}
 });

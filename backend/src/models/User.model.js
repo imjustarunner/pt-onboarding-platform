@@ -626,7 +626,7 @@ class User {
         u.terminated_at, 
         u.status_expires_at, 
         u.is_active, 
-        u.first_name, 
+        u.first_name, u.preferred_name,
         u.last_name, 
         u.title,
         u.credential,
@@ -642,7 +642,7 @@ class User {
     if (!includeArchived) {
       query += ' AND (u.is_archived = FALSE OR u.is_archived IS NULL)';
     }
-    let groupByFields = 'u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.is_active, u.first_name, u.last_name, u.title, u.credential, u.service_focus, u.created_at';
+    let groupByFields = 'u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.is_active, u.first_name, u.preferred_name, u.last_name, u.title, u.credential, u.service_focus, u.created_at';
     if (hasSupervisorPrivilegesField) {
       groupByFields += ', u.has_supervisor_privileges';
     }

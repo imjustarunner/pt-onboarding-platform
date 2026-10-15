@@ -1936,6 +1936,7 @@
           :office-location-id="Number(editorOfficeLocationId || 0)"
           :preferred-room-id="Number(editorPreferredRoomId || 0)"
           :multiple-room-preferences="requestType === 'office_request_only'"
+          :room-preference-acknowledged="editorRoomPreferenceAcknowledged"
           :preferred-room-ids="editorPreferredRoomIds"
           :preferred-room-options="editorPreferredOpenRoomOptions"
           :preferred-rooms-hint="editorPreferredRoomsHint"
@@ -1982,6 +1983,7 @@
           @update:officeLocationId="onEditorOfficeLocationId"
           @update:preferredRoomId="editorPreferredRoomId = $event"
           @update:preferredRoomIds="editorPreferredRoomIds = $event"
+          @update:roomPreferenceAcknowledged="editorRoomPreferenceAcknowledged = $event"
           @update:tenantServiceId="onEditorTenantServiceId"
           @update:primaryServiceCode="bookingServiceCode = $event"
           @update:addonServiceCodes="editorAddonServiceCodes = $event"
@@ -5834,6 +5836,7 @@ import MeetingSettingsEditor from './MeetingSettingsEditor.vue';
 import TeamMeetingBody from './TeamMeetingBody.vue';
 import VirtualLinkControls from './VirtualLinkControls.vue';
 import SupervisionBody from './SupervisionBody.vue';
+import { confirmOneTimeRoom, ANY_ROOM_NOTE } from '../../utils/officeRequestConfirmation';
 import { isWorkplaceSchedulePerson } from '../../utils/workplacePeople';
 import SupervisionAttendeeMandatoryPanel from './SupervisionAttendeeMandatoryPanel.vue';
 import SupervisionSignupCountdown from './SupervisionSignupCountdown.vue';
@@ -7127,7 +7130,7 @@ const loadPeerBusyCandidates = async () => {
     const rows = Array.isArray(r?.data?.users) ? r.data.users : [];
     peerBusyCandidates.value = rows.map((u) => {
       const id = Number(u.id || 0);
-      const first = String(u.firstName || u.first_name || '').trim();
+      const first = String(u.preferredName || u.preferred_name || u.firstName || u.first_name || '').trim();
       const last = String(u.lastName || u.last_name || '').trim();
       const email = String(u.email || '').trim();
       const agencyIds = parsePeerAgencyIds(u.agencyIds ?? u.agency_ids);
@@ -13613,6 +13616,8 @@ const editorAcceptingNewClientsHint = computed(() => {
 const editorAttachOfficeRequest = ref(false);
 const editorOfficeLocationId = ref(0);
 const editorPreferredRoomId = ref(0);
+const editorRoomPreferenceAcknowledged = ref(false);
+watch([modalDay, modalHour, requestType], () => { editorRoomPreferenceAcknowledged.value = false; });
 const editorAdditionalPreferredRoomIds = ref([]);
 const editorPreferredRoomIds = computed({
   get: () => Number(editorPreferredRoomId.value) > 0 ? [Number(editorPreferredRoomId.value), ...editorAdditionalPreferredRoomIds.value] : [],
@@ -14492,7 +14497,7 @@ const editorSuperviseeDisplayName = computed(() => {
   if (session) {
     if (sessionRole === 'supervisee') {
       const u = authStore.user || {};
-      const selfName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
+      const selfName = `${u.preferredName || u.preferred_name || u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
       if (selfName) return selfName;
     }
     const superviseeName = String(session.superviseeName || '').trim();
@@ -20018,9 +20023,9 @@ const adminAssignPersonResults = computed(() => {
   const q = (adminAssignPersonSearch.value || '').trim().toLowerCase();
   if (!q) return list.slice(0, 30);
   return list.filter((p) =>
-    `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase().includes(q) ||
-    `${p.last_name || ''}, ${p.first_name || ''}`.toLowerCase().includes(q) ||
-    `${p.last_name || ''} ${p.first_name || ''}`.toLowerCase().includes(q)
+    `${p.preferred_name || p.first_name || ''} ${p.last_name || ''}`.toLowerCase().includes(q) ||
+    `${p.last_name || ''}, ${p.preferred_name || p.first_name || ''}`.toLowerCase().includes(q) ||
+    `${p.last_name || ''} ${p.preferred_name || p.first_name || ''}`.toLowerCase().includes(q)
   ).slice(0, 30);
 });
 
@@ -20343,7 +20348,7 @@ const applyAssignedOfficeForPerson = async (userId) => {
 
 const selectAdminAssignPerson = async (p) => {
   adminAssignPersonId.value = Number(p.id);
-  adminAssignPersonName.value = `${p.last_name || ''}, ${p.first_name || ''}`.trim();
+  adminAssignPersonName.value = `${p.last_name || ''}, ${p.preferred_name || p.first_name || ''}`.trim();
   adminAssignPersonSearch.value = adminAssignPersonName.value;
   adminAssignShowDropdown.value = false;
   // Person-first: if no office yet, pick their assigned office.
@@ -20357,6 +20362,7 @@ const onAdminAssignPersonBlur = () => {
 };
 
 const submitAdminAssign = async () => {
+  if (!confirmOneTimeRoom(adminAssignRecurrence.value)) return;
   try {
     adminAssignLoading.value = true;
     adminAssignError.value = '';
@@ -20451,7 +20457,7 @@ watch(adminAssignProviders, (newList) => {
   if (adminAssignPersonId.value && !adminAssignPersonName.value) {
     const p = newList.find((x) => Number(x.id) === Number(adminAssignPersonId.value));
     if (p) {
-      adminAssignPersonName.value = `${p.last_name || ''}, ${p.first_name || ''}`.trim();
+      adminAssignPersonName.value = `${p.last_name || ''}, ${p.preferred_name || p.first_name || ''}`.trim();
       adminAssignPersonSearch.value = adminAssignPersonName.value;
     }
   }
@@ -20475,6 +20481,7 @@ const closeOfficeAssignModal = () => {
 };
 
 const submitOfficeAssign = async () => {
+  if (!confirmOneTimeRoom('ONCE')) return;
   try {
     officeAssignLoading.value = true;
     officeAssignError.value = '';
@@ -21205,6 +21212,14 @@ const submitRequest = async () => {
     modalError.value = 'School daytime availability must be on weekdays between 6 AM and 6 PM.';
     return;
   }
+
+  const isRoomRequest = requestType.value === 'office_request_only';
+  if (isRoomRequest && !editorPreferredRoomIds.value.length && !editorRoomPreferenceAcknowledged.value) {
+    modalError.value = 'Choose up to three preferred rooms, or explicitly select “Any available room”.';
+    return;
+  }
+  const attachesRoom = ['portal_intake','attach_open_for_booking'].includes(requestType.value) && (editorAttachOfficeRequest.value || sessionAlsoRequestOffice.value);
+  if ((isRoomRequest || attachesRoom) && !confirmOneTimeRoom(scheduleEventRecurrence.value || officeBookingRecurrence.value)) return;
 
   // Intake confirmation step (in-person office assigned slots only)
   if (requestType.value === 'intake_inperson_on' && !intakeConfirmStep.value) {
@@ -22057,7 +22072,7 @@ const submitRequest = async () => {
       await api.post('/availability/office-requests', {
         providerId: scheduleActorUserId.value,
         agencyId: effectiveAgencyId.value,
-        notes: notesWithTime || '',
+        notes: [notesWithTime, editorPreferredRoomIds.value.length ? '' : ANY_ROOM_NOTE].filter(Boolean).join('\n'),
         officeLocationIds: Number(editorOfficeLocationId.value || 0)
           ? [Number(editorOfficeLocationId.value)]
           : [],
@@ -23006,7 +23021,7 @@ const applySupvAppVideoTokenPayload = (data, sid) => {
   supvAppVideoLobbyEnabled.value = !!(data.lobbyEnabledForSession ?? data.waitingRoomEnabled);
   supvAppVideoJoinIdentity.value = String(data.identity || '').trim();
   const u = authStore.user || {};
-  const authName = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
+  const authName = `${u.preferredName || u.preferred_name || u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim()
     || u.email
     || '';
   const fromApi = String(data.displayName || '').trim();

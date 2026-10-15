@@ -7392,7 +7392,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       const [rows] = await pool.execute(
         `SELECT
            u.id,
-           u.first_name,
+           u.first_name, u.preferred_name,
            u.last_name,
            u.email,
            u.role,
@@ -7416,14 +7416,14 @@ export const listUserMeetingCandidates = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'DELETED'))
            AND ${roleClause}
-         GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access, u.credential, u.title, u.employment_type, u.is_hourly_worker, u.status, u.sees_clients, p.public_details_json
+         GROUP BY u.id, u.first_name, u.preferred_name, u.last_name, u.email, u.role, u.profile_photo_path, u.has_provider_access, u.credential, u.title, u.employment_type, u.is_hourly_worker, u.status, u.sees_clients, p.public_details_json
          ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
         [...scopedAgencyIds, userId, ...scheduleCoworkerRoleSqlParams()]
       );
 
       users = (rows || []).map((r) => ({
         id: Number(r.id || 0),
-        firstName: String(r.first_name || '').trim(),
+        firstName: String(r.preferred_name || r.first_name || '').trim(),
         lastName: String(r.last_name || '').trim(),
         email: String(r.email || '').trim().toLowerCase(),
         role: String(r.role || '').trim().toLowerCase(),

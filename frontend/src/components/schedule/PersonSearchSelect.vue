@@ -104,7 +104,7 @@ const isSearching = ref(false);
 const selectedId = computed(() => Number(props.modelValue) || 0);
 
 const personInitials = (p) => {
-  const f = String(p?.first_name || '').trim();
+  const f = String(p?.preferred_name || p?.first_name || '').trim();
   const l = String(p?.last_name || '').trim();
   const a = (f[0] || '').toUpperCase();
   const b = (l[0] || '').toUpperCase();
@@ -113,7 +113,7 @@ const personInitials = (p) => {
 
 const enrich = (p) => {
   if (!p) return null;
-  const first = String(p.first_name || '').trim();
+  const first = String(p.preferred_name || p.first_name || '').trim();
   const last = String(p.last_name || '').trim();
   const displayName = `${last}${last && first ? ', ' : ''}${first}`.trim()
     || String(p.email || '').trim()
@@ -188,7 +188,7 @@ const filteredOptions = computed(() => {
   }
 
   const scored = base.map((p) => {
-    const searchText = `${p.first_name || ''} ${p.last_name || ''}${q.includes('@') ? ` ${p.email || ''}` : ''}`.toLowerCase();
+    const searchText = `${p.preferred_name || ''} ${p.first_name || ''} ${p.last_name || ''}${q.includes('@') ? ` ${p.email || ''}` : ''}`.toLowerCase();
     const displayForMatch = p.displayName.toLowerCase();
     const { score: scoreFull } = fuzzyMatch(searchText, q);
     const { score, matchedIndices } = fuzzyMatch(displayForMatch, q);

@@ -53,7 +53,7 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
   }
   for (const [uid,events] of recipients) {
     try {
-      const [users] = await pool.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND COALESCE(is_demo,0)=0',[uid]);
+      const [users] = await pool.execute('SELECT id,email,work_email,COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name,last_name FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND COALESCE(is_demo,0)=0',[uid]);
       if (!users[0]) continue;
       const first = events[0];
       const changeKey = createHash('sha256').update(JSON.stringify({action,scope,events:events.map(e=>[e.meeting_type,e.id,e.start_at,e.end_at,e.cancel_reason || '',previous.get(Number(e.id))?.start_at || null,previous.get(Number(e.id))?.end_at || null]).sort((a,b)=>a[1]-b[1])})).digest('hex');
@@ -165,7 +165,7 @@ export async function sendDueMeetingInvitations() {
         await db.execute("UPDATE meeting_email_invitations SET delivery_status='cancelled' WHERE id=?",[invitation.id]);
         continue;
       }
-      const [users] = await db.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id IN (?,?)',[invitation.user_id,invitation.provider_id]);
+      const [users] = await db.execute('SELECT id,email,work_email,COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name,last_name FROM users WHERE id IN (?,?)',[invitation.user_id,invitation.provider_id]);
       const recipient = users.find(u=>Number(u.id)===Number(invitation.user_id));
       const host = users.find(u=>Number(u.id)===Number(invitation.provider_id));
       if (!recipient?.email) continue;

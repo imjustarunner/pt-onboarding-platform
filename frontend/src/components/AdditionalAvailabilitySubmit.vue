@@ -49,6 +49,8 @@
               <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
             </select>
 
+            <label class="lbl">Recurring</label><select v-model="officeForm.recurrence" class="select"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="ONCE">One time only</option></select>
+            <p>Each window below requests one room. Staff will confirm the room with you before approval; include any room preferences in Notes.</p>
             <label class="lbl" style="margin-top: 10px;">Requested day/time windows</label>
             <div class="slots">
               <div v-for="(s, idx) in officeForm.slots" :key="idx" class="slot-row">
@@ -231,6 +233,7 @@
 </template>
 
 <script setup>
+import { confirmOneTimeRoom } from '../utils/officeRequestConfirmation';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../services/api';
 import {
@@ -310,6 +313,7 @@ const officeNamesFor = (ids) => {
 
 const officeForm = reactive({
   preferredOfficeIds: [],
+  recurrence: 'WEEKLY',
   slots: [{ weekday: 1, startHour: 14, endHour: 17 }],
   notes: ''
 });
@@ -538,11 +542,13 @@ const refresh = async () => {
 };
 
 const submitOffice = async () => {
+  if (!confirmOneTimeRoom(officeForm.recurrence)) return;
   try {
     saving.value = true;
     error.value = '';
     await api.post('/availability/office-requests', {
       agencyId: props.agencyId,
+      recurrence: officeForm.recurrence,
       preferredOfficeIds: officeForm.preferredOfficeIds.map((x) => Number(x)),
       notes: officeForm.notes,
       slots: officeForm.slots

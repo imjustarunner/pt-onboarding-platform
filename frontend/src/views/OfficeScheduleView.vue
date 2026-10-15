@@ -33,7 +33,7 @@
     <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? '/admin/office-approvals' : ''" />
 
     <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
-      <div class="legend" data-tour="buildings-schedule-legend">
+      <div class="office-schedule-legend" data-tour="buildings-schedule-legend">
         <div class="legend-item"><span class="dot open"></span> Open</div>
         <div class="legend-item"><span class="dot requested"></span> Requested (pending)</div>
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned</div>
@@ -873,6 +873,7 @@
 </template>
 
 <script setup>
+import { confirmOneTimeRoom } from '../utils/officeRequestConfirmation';
 import UnassignedOfficeRequests from '../components/schedule/UnassignedOfficeRequests.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -949,7 +950,8 @@ const officeTimezoneIana = computed(() => {
   return tz || 'America/Denver';
 });
 const officeTimezoneLabel = computed(() => timezoneLabelFor(officeTimezoneIana.value));
-const weekStart = ref(new Date().toISOString().slice(0, 10));
+const initialWeek = String(route.query.weekStart || route.query.date || '');
+const weekStart = ref(/^\d{4}-\d{2}-\d{2}$/.test(initialWeek) ? initialWeek : new Date().toISOString().slice(0, 10));
 
 const searching = ref(false);
 const searchError = ref('');
@@ -1589,7 +1591,8 @@ const canSubmitRescheduleConflict = computed(() => {
 const canAssignSubmit = computed(() => {
   if (!modalSlot.value?.roomId) return false;
   if (assignMode.value === 'company_hold') {
-    if (assignRecurrenceFreq.value !== 'ONCE') {
+    if (assignRecurrenceFreq.value === 'ONCE' && !confirmOneTimeRoom(assignRecurrenceFreq.value)) return;
+  if (assignRecurrenceFreq.value !== 'ONCE') {
       return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
     }
     return true;
@@ -2446,6 +2449,7 @@ const submitRescheduleConflict = async () => {
 
 const bookSlot = async () => {
   if (!officeId.value) return;
+  if (!confirmOneTimeRoom(bookFreq.value)) return;
   try {
     saving.value = true;
     const bookingSelection = normalizeBookingSelectionPayload();
@@ -2996,7 +3000,9 @@ input[type='date'] {
   font-weight: 700;
   font-size: 13px;
 }
-.legend {
+.office-schedule-legend {
+  flex-direction: row;
+  justify-content: flex-start;
   display: flex;
   gap: 10px;
   align-items: center;

@@ -148,8 +148,8 @@ const RISE_SMS = {
 
 export const TENANT_SMS_IMAGES = {
   kimi: { home: '/assets/kimi/kimisms.png', join: '/assets/kimi/kimisms.png', support: '/assets/kimi/kimisms.png' },
-  itsco: { ...ITSCO_SMS, home: '/assets/SMSAssets/itscosmsnew.png' },
-  nlu: { ...NLU_SMS, home: '/assets/nlu/family.png' },
+  itsco: { ...ITSCO_SMS, home: '/assets/SMSAssets/itsco-link-preview-wide.png' },
+  nlu: { ...NLU_SMS, home: '/assets/SMSAssets/nlu-link-preview-wide.png' },
   innerstrength: { ...INNER_SMS, home: sms('', 'innerstrengthwebsite.png') },
   mh4kidz: { ...MH4_SMS, home: sms('', 'mh4kizqwebsite.png') },
   plottwistco: { ...PTC_SMS, home: sms('', 'plottwistcowebsite.png') },

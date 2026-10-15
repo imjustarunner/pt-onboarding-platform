@@ -126,6 +126,7 @@
                   </div>
                 </div>
                 <span class="oa-status-pill">Pending</span>
+                <div class="oa-room-context">{{ roomPreferenceContext(r) }}</div>
               </button>
             </template>
           </div>
@@ -166,7 +167,7 @@
         </aside>
 
         <!-- Center: summary + day schedule -->
-        <section v-if="selected" class="oa-col oa-center">
+        <section v-if="selected" ref="requestDetailsEl" class="oa-col oa-center" tabindex="-1">
           <div class="oa-summary-card">
             <div class="oa-summary-top">
               <div>
@@ -190,7 +191,8 @@
 
             <dl class="oa-dl">
               <div><dt>Request ID</dt><dd>REQ-{{ selected.id }}</dd></div>
-              <div><dt>Recurrence</dt><dd>{{ requestedRecurrenceLabel(selected) }}</dd></div>
+              <div><dt>Recurrence</dt><dd>{{ requestedRecurrenceLabel(selected) }}<template v-if="selected.requestedFrequency !== 'ONCE'"> · {{ selected.requestedFrequency === 'WEEKLY' || !selected.requestedOccurrenceCount ? 'Ongoing' : `${selected.requestedOccurrenceCount} occurrences` }}</template></dd></div>
+              <div><dt>Room preference</dt><dd>{{ roomPreferenceContext(selected) }}</dd></div>
               <div><dt>Requested on</dt><dd>{{ fmtDateTime(selected.createdAt) || '—' }}</dd></div>
               <div><dt>Date</dt><dd>{{ requestDateLabel(selected) }}</dd></div>
               <div><dt>Time slot</dt><dd>{{ slotTimeOnly(selected) }}</dd></div>
@@ -206,7 +208,9 @@
               <div v-if="selected.preferredRooms?.length"><dt>Room preferences (in order)</dt><dd>{{ selected.preferredRooms.map((room,i)=>`${i+1}. ${room.officeName} · ${room.label}`).join(' → ') }}</dd></div>
               <div v-if="selected.notes"><dt>Notes</dt><dd>{{ selected.notes }}</dd></div>
             </dl>
-            <p v-if="scheduleOfficeId" class="oa-hint"><router-link :to="{path:orgTo('/buildings/schedule'),query:{officeId:scheduleOfficeId}}" target="_blank" rel="noopener">Open building master grid ↗</router-link> to compare all rooms before approving.</p>
+            <p class="oa-hint">Pending means no room has been reserved. Requests without a chosen room appear in the building’s unassigned-request queue, not in every room.</p>
+            <p v-if="!requestRoomLabel(selected) && !selected.preferredRooms?.length" class="oa-hint warn">Confirm the room choice with the provider if no preference was recorded. Review all requested hours and future recurring dates before approving.</p>
+            <p v-if="scheduleOfficeId" class="oa-hint"><router-link :to="{path:orgTo('/buildings/schedule'),query:{officeId:scheduleOfficeId,weekStart:mondayWeekStart(requestTargetDate || scheduleDate),date:requestTargetDate}}" target="_blank" rel="noopener">Open building master grid ↗</router-link> to compare all rooms before approving.</p>
             <p v-if="assignIncomplete" class="oa-hint warn">
               Pick an available office/room on the right to complete approval.
             </p>
@@ -385,6 +389,7 @@
 </template>
 
 <script setup>
+import { roomPreferenceContext } from '../../utils/officeRequestConfirmation';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1190,6 +1195,7 @@ const onScheduleDateChange = () => {
   // v-model already updated
 };
 
+const requestDetailsEl = ref(null);
 const selectRequest = async (id) => {
   selectedId.value = id;
   actionError.value = '';
@@ -1197,6 +1203,7 @@ const selectRequest = async (id) => {
   const r = officeRequests.value.find((x) => x.id === id);
   if (!r) return;
   hydrateFormFromRequest(r);
+  if (window.innerWidth < 1100) setTimeout(() => requestDetailsEl.value?.scrollIntoView?.({behavior:'smooth',block:'start'}),0);
   scheduleDate.value = (() => {
     const slot = firstSlot(r);
     const start = String(r.requestedStartDate || todayYmd()).slice(0, 10);
@@ -1929,14 +1936,13 @@ button.oa-alt-card.selected {
   box-sizing: border-box;
 }
 
+.oa-room-context { grid-column: 1 / -1; font-size: 12px; color: #854d0e; text-align: left; padding-left: 42px; }
 @media (max-width: 1100px) {
   .oa-workspace {
     grid-template-columns: 1fr;
   }
-  .oa-queue-list,
-  .oa-alt-list {
-    max-height: none;
-  }
+  .oa-queue-list { max-height: 34vh; overflow-y: auto; }
+  .oa-alt-list { max-height: none; }
   .oa-dl {
     grid-template-columns: 1fr;
   }

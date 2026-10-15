@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildShareMeta, injectShareMetaIntoHtml } from '../sharePreview.js';
 
@@ -54,7 +55,7 @@ describe('sharePreview', () => {
 });
 
 describe('public website SMS artwork',()=>{
- for(const [slug,file,name] of [['itsco','itscosmsnew','ITSCO'],['tisi','innerstrengthwebsite','Inner Strength'],['rise','riserevivewebsite','Rise'],['ptco','plottwistcowebsite','Plot Twist'],['mh4kidz','mh4kizqwebsite','MH4Kidz'],['range','mentalrangewebsite','Mental Range']]) {
+ for(const [slug,file,name] of [['itsco','itsco-link-preview-wide','ITSCO'],['tisi','innerstrengthwebsite','Inner Strength'],['rise','riserevivewebsite','Rise'],['ptco','plottwistcowebsite','Plot Twist'],['mh4kidz','mh4kizqwebsite','MH4Kidz'],['range','mentalrangewebsite','Mental Range']]) {
   it(`injects ${slug} artwork into crawler HTML without requiring a tenant or JavaScript`,()=>{
    const meta=buildShareMeta({host:'plottwisthq.com',path:`/p/${slug}/about`});
    expect(meta.name).toContain(name);expect(meta.image).toBe(`https://plottwisthq.com/assets/SMSAssets/${file}.png`);
@@ -101,5 +102,15 @@ it('does not impose AuricWell on tenant office previews or reveal visit identifi
   const meta=buildShareMeta({host,path:'/join/my-room/private-slug?token=private-token'});
   expect(meta.title).toContain('My Virtual Office');
   expect(JSON.stringify(meta)).not.toMatch(/AuricWell|auricwell|private-slug|private-token/);
+ }
+});
+
+it('keeps the shipped SPA title placeholders compatible with nginx tenant replacements', () => {
+ const html=readFileSync('index.html','utf8');
+ const nginx=readFileSync('nginx.conf','utf8');
+ expect(nginx).toContain("sub_filter '<title>Portal</title>' '<title>$page_share_name</title>'");
+ expect(nginx).toContain("sub_filter 'content=\"Portal\"' 'content=\"$page_share_name\"'");
+ for(const tag of ['<title>Portal</title>','property="og:title" content="Portal"','name="twitter:title" content="Portal"']) {
+  expect(html).toContain(tag);
  }
 });

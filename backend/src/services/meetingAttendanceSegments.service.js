@@ -397,7 +397,7 @@ export async function listSegmentsForEvent(eventId) {
   const eid = Number(eventId || 0);
   if (!eid) return [];
   const [rows] = await pool.execute(
-    `SELECT s.*, u.first_name, u.last_name, u.email, u.role
+    `SELECT s.*, COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name, u.last_name, u.email, u.role
      FROM provider_schedule_event_attendance_segments s
      JOIN users u ON u.id = s.user_id
      WHERE s.event_id = ?
@@ -535,7 +535,7 @@ export async function listAttendanceSummary(eventId) {
     const hostId = Number(event.provider_id || 0);
     if (hostId && !byUser.has(hostId)) {
       const [hostRows] = await pool.execute(
-        `SELECT id, first_name, last_name, email, role FROM users WHERE id = ? LIMIT 1`,
+        `SELECT id, COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name, last_name, email, role FROM users WHERE id = ? LIMIT 1`,
         [hostId]
       );
       const h = hostRows?.[0];
@@ -551,11 +551,11 @@ export async function listAttendanceSummary(eventId) {
       }
     }
     const [attRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.role
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name, u.last_name, u.email, u.role
        FROM provider_schedule_event_attendees a
        JOIN users u ON u.id = a.user_id
        WHERE a.event_id = ?
-       UNION SELECT u.id,u.first_name,u.last_name,u.email,u.role
+       UNION SELECT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.email,u.role
        FROM hiring_interviews hi JOIN users u ON u.id=hi.candidate_user_id
        WHERE hi.provider_schedule_event_id=?`,
       [eid,eid]

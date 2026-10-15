@@ -348,7 +348,7 @@ class SupervisionSession {
     if (!sid) return [];
     const [rows] = await pool.execute(
       `SELECT ssa.*,
-              u.first_name,
+              COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,
               u.last_name,
               u.email
        FROM supervision_session_attendees ssa
@@ -412,7 +412,7 @@ class SupervisionSession {
          ss.modality,
          ss.notes,
          ss.supervisor_user_id,
-         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
+         CONCAT(COALESCE(NULLIF(TRIM(sup.preferred_name), ''), sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
          ssa.id AS attendee_id,
          ssa.user_id AS attendee_user_id,
          ssa.participant_role,
@@ -670,9 +670,9 @@ class SupervisionSession {
          ssar.is_finalized,
          ssa.participant_role,
          ssa.is_required,
-         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS participant_name,
+         CONCAT(COALESCE(NULLIF(TRIM(u.preferred_name), ''), u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS participant_name,
          u.email AS participant_email,
-         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
+         CONCAT(COALESCE(NULLIF(TRIM(sup.preferred_name), ''), sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
          sup.email AS supervisor_email
        FROM supervision_session_attendance_rollups ssar
        JOIN supervision_sessions ss ON ss.id = ssar.session_id
@@ -767,7 +767,7 @@ class SupervisionSession {
          ss.end_at,
          ss.status AS session_status,
          ss.google_meet_link,
-         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name
+         CONCAT(COALESCE(NULLIF(TRIM(sup.preferred_name), ''), sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name
        FROM supervision_session_presenters sp
        JOIN supervision_sessions ss ON ss.id = sp.session_id
        JOIN users sup ON sup.id = ss.supervisor_user_id
@@ -796,7 +796,7 @@ class SupervisionSession {
          sp.assigned_at,
          sp.confirmed_at,
          sp.presented_at,
-         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS presenter_name,
+         CONCAT(COALESCE(NULLIF(TRIM(u.preferred_name), ''), u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS presenter_name,
          u.email AS presenter_email
        FROM supervision_session_presenters sp
        JOIN users u ON u.id = sp.user_id
@@ -1023,10 +1023,10 @@ class SupervisionSession {
       `SELECT
          ss.*,
          DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS start_date_ymd,
-         sup.first_name AS supervisor_first_name,
+         COALESCE(NULLIF(TRIM(sup.preferred_name), SPACE(0)), sup.first_name) AS supervisor_first_name,
          sup.last_name AS supervisor_last_name,
          sup.email AS supervisor_email,
-         sv.first_name AS supervisee_first_name,
+         COALESCE(NULLIF(TRIM(sv.preferred_name), SPACE(0)), sv.first_name) AS supervisee_first_name,
          sv.last_name AS supervisee_last_name,
          sv.email AS supervisee_email,
          (
@@ -1038,7 +1038,7 @@ class SupervisionSession {
          ) AS viewer_is_required,
          (
            SELECT GROUP_CONCAT(
-             TRIM(CONCAT(COALESCE(u2.first_name, ''), ' ', COALESCE(u2.last_name, '')))
+             TRIM(CONCAT(COALESCE(NULLIF(TRIM(u2.preferred_name), ''), u2.first_name, ''), ' ', COALESCE(u2.last_name, '')))
              ORDER BY u2.last_name ASC, u2.first_name ASC
              SEPARATOR ', '
            )
@@ -1064,7 +1064,7 @@ class SupervisionSession {
          ) AS viewer_presenter_status,
          (
            SELECT GROUP_CONCAT(
-             TRIM(CONCAT(COALESCE(u3.first_name, ''), ' ', COALESCE(u3.last_name, '')))
+             TRIM(CONCAT(COALESCE(NULLIF(TRIM(u3.preferred_name), ''), u3.first_name, ''), ' ', COALESCE(u3.last_name, '')))
              ORDER BY CASE WHEN ssp2.presenter_role = 'primary' THEN 0 ELSE 1 END, ssp2.id ASC
              SEPARATOR ', '
            )
@@ -1119,10 +1119,10 @@ class SupervisionSession {
         `SELECT
            ss.*,
            DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS start_date_ymd,
-           sup.first_name AS supervisor_first_name,
+           COALESCE(NULLIF(TRIM(sup.preferred_name), SPACE(0)), sup.first_name) AS supervisor_first_name,
            sup.last_name AS supervisor_last_name,
            sup.email AS supervisor_email,
-           sv.first_name AS supervisee_first_name,
+           COALESCE(NULLIF(TRIM(sv.preferred_name), SPACE(0)), sv.first_name) AS supervisee_first_name,
            sv.last_name AS supervisee_last_name,
            sv.email AS supervisee_email,
            (
@@ -1191,10 +1191,10 @@ class SupervisionSession {
         `SELECT
            ss.*,
            DATE_FORMAT(ss.start_at, '%Y-%m-%d') AS start_date_ymd,
-           sup.first_name AS supervisor_first_name,
+           COALESCE(NULLIF(TRIM(sup.preferred_name), SPACE(0)), sup.first_name) AS supervisor_first_name,
            sup.last_name AS supervisor_last_name,
            sup.email AS supervisor_email,
-           sv.first_name AS supervisee_first_name,
+           COALESCE(NULLIF(TRIM(sv.preferred_name), SPACE(0)), sv.first_name) AS supervisee_first_name,
            sv.last_name AS supervisee_last_name,
            sv.email AS supervisee_email,
            (
@@ -1299,7 +1299,7 @@ class SupervisionSession {
          ss.modality,
          ss.notes,
          ss.supervisor_user_id,
-         CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
+         CONCAT(COALESCE(NULLIF(TRIM(sup.preferred_name), ''), sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
          ssa2.transcript_url,
          ssa2.transcript_text,
          ssa2.summary_text,
@@ -1429,7 +1429,7 @@ class SupervisionSession {
          ss.notes,
          ss.supervisor_user_id,
          ss.supervisee_user_id,
-         CONCAT(COALESCE(se.first_name, ''), ' ', COALESCE(se.last_name, '')) AS supervisee_name,
+         CONCAT(COALESCE(NULLIF(TRIM(se.preferred_name), ''), se.first_name, ''), ' ', COALESCE(se.last_name, '')) AS supervisee_name,
          ssa2.transcript_url,
          ssa2.transcript_text,
          ssa2.summary_text,

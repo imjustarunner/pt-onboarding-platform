@@ -14,7 +14,7 @@
             @change="emit('update:agencyId', Number($event.target.value || 0))"
           >
             <option v-for="opt in tenantOptions" :key="`ahf-t-${opt.id}`" :value="Number(opt.id)">
-              {{ opt.label }}
+              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
             </option>
           </select>
           <span v-else class="ahf-value">{{ tenantLabel || '—' }}</span>
@@ -80,7 +80,7 @@
           </div>
         </div>
         <div v-if="bookSessionLayout && showInlineRecurrence" class="ahf-field ahf-field--repeats">
-          <span class="ahf-label">Repeats</span>
+          <span class="ahf-label">Recurring</span>
           <select
             class="ahf-input"
             :value="recurrenceFrequency"
@@ -88,7 +88,7 @@
             @change="emit('update:recurrenceFrequency', String($event.target.value || 'ONCE'))"
           >
             <option v-for="opt in recurrenceFrequencyOptions" :key="`ahf-rf-${opt.value}`" :value="opt.value">
-              {{ opt.label }}
+              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
             </option>
           </select>
         </div>
@@ -255,18 +255,18 @@
                 </div>
                 <div class="ahf-field ahf-field--rooms">
                   <span class="ahf-label">{{ multipleRoomPreferences ? 'Room preferences · choose up to 3' : 'Preferred room' }}</span>
-                  <p v-if="multipleRoomPreferences" class="ahf-preference-help">Choose in order of preference. Staff will assign one room after reviewing the building schedule.</p>
+                  <p v-if="multipleRoomPreferences" class="ahf-preference-help">Choose up to three rooms in order of preference, or select “Any available room” if you truly have no preference. Staff assigns one room after reviewing the building schedule. For repeated scheduling, choose Recurring above.</p>
                   <input v-if="preferredRoomOptions.length > 6" v-model="roomPreferenceSearch" type="search" class="ahf-input ahf-room-search" aria-label="Search room preferences" placeholder="Search room number or name…" :disabled="disabled" />
                   <div v-if="preferredRoomOptions.length" class="ahf-room-list">
                     <button
                       type="button"
                       class="ahf-room-chip"
-                      :class="{ on: !roomPreferenceIds.length }"
-                      :aria-pressed="!roomPreferenceIds.length"
+                      :class="{ on: !roomPreferenceIds.length && (!multipleRoomPreferences || roomPreferenceAcknowledged) }"
+                      :aria-pressed="!roomPreferenceIds.length && (!multipleRoomPreferences || roomPreferenceAcknowledged)"
                       :disabled="disabled"
                       @click="chooseRoomPreference(0)"
                     >
-                      Any open room
+                      Any available room
                     </button>
                     <div
                       v-for="r in filteredRoomPreferenceOptions"
@@ -301,6 +301,7 @@
                       </button>
                     </div>
                   </div>
+                  <button v-else-if="multipleRoomPreferences" type="button" class="ahf-input" :disabled="disabled" @click="chooseRoomPreference(0)">Any available room</button>
                   <select
                     v-else
                     class="ahf-input"
@@ -312,7 +313,7 @@
                   </select>
                 </div>
               </div>
-              <p v-if="multipleRoomPreferences" class="ahf-preference-summary" aria-live="polite">{{ roomPreferenceIds.length ? roomPreferenceSummary : 'Any open room — staff will choose one' }}. This sends one request; it does not book these rooms.</p>
+              <p v-if="multipleRoomPreferences" class="ahf-preference-summary" aria-live="polite">{{ roomPreferenceIds.length ? roomPreferenceSummary : roomPreferenceAcknowledged ? 'Any available room — staff will choose one' : 'Choose preferred rooms or explicitly choose any available room' }}. This sends one request; it does not book these rooms.</p>
               <p v-if="preferredRoomsHint" class="ahf-office-hint muted">{{ preferredRoomsHint }}</p>
               <div v-if="roomPhotoPreviewUrl" class="ahf-photo-lightbox" @click="roomPhotoPreviewUrl = ''">
                 <img :src="roomPhotoPreviewUrl" alt="Room photo" @click.stop />
@@ -348,7 +349,7 @@
             @change="emit('update:appointmentType', String($event.target.value || ''))"
           >
             <option v-for="opt in typeOptions" :key="`ahf-type-${opt.value}`" :value="opt.value">
-              {{ opt.label }}
+              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
             </option>
           </select>
         </div>
@@ -447,7 +448,7 @@
             @change="emit('update:status', String($event.target.value || ''))"
           >
             <option v-for="opt in statusOptions" :key="`ahf-st-${opt.value}`" :value="opt.value">
-              {{ opt.label }}
+              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
             </option>
           </select>
           <span v-else class="ahf-value">{{ status || 'Scheduled' }}</span>
@@ -601,6 +602,7 @@ const filteredRoomPreferenceOptions = computed(() => props.preferredRoomOptions.
 const roomPreferenceSummary = computed(() => roomPreferenceIds.value.map((id,index) => { const room=props.preferredRoomOptions.find(r => Number(r.id || r.roomId)===id); return `${index+1}. ${room ? [roomNumberOf(room)?`#${roomNumberOf(room)}`:'',roomNameOf(room)].filter(Boolean).join(' ') : `Room ${id}`}`; }).join(' → '));
 const roomPreferenceIds = computed(() => props.multipleRoomPreferences ? props.preferredRoomIds.map(Number) : Number(props.preferredRoomId) > 0 ? [Number(props.preferredRoomId)] : []);
 function chooseRoomPreference(id) {
+  emit('update:roomPreferenceAcknowledged',true);
   if (!props.multipleRoomPreferences) return emit('update:preferredRoomId',id);
   const current=roomPreferenceIds.value;
   if (!id) return emit('update:preferredRoomIds',[]);
@@ -657,6 +659,7 @@ const props = defineProps({
   officeLocationId: { type: Number, default: 0 },
   preferredRoomId: { type: Number, default: 0 },
   multipleRoomPreferences: { type: Boolean, default: false },
+  roomPreferenceAcknowledged: { type: Boolean, default: false },
   preferredRoomIds: { type: Array, default: () => [] },
   preferredRoomOptions: { type: Array, default: () => [] },
   preferredRoomsHint: { type: String, default: '' },
@@ -715,6 +718,7 @@ const emit = defineEmits([
   'update:officeLocationId',
   'update:preferredRoomId',
   'update:preferredRoomIds',
+  'update:roomPreferenceAcknowledged',
   'update:tenantServiceId',
   'update:primaryServiceCode',
   'update:addonServiceCodes',

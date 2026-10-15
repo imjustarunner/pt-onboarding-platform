@@ -9,10 +9,10 @@ import { isCompensationClaimMeeting } from './meetingCompensationClaims.service.
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 export async function meetingParticipantRows(event,{includeCompensation=false}={}) {
   if(event.meeting_type==='supervision') {
-    const [people]=await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name FROM users u WHERE u.id=? OR u.id=? OR u.id IN (SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('DECLINED','REMOVED','CANCELLED'))`,[event.provider_id,event.co_facilitator_user_id||null,event.id]);
+    const [people]=await pool.execute(`SELECT DISTINCT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name FROM users u WHERE u.id=? OR u.id=? OR u.id IN (SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('DECLINED','REMOVED','CANCELLED'))`,[event.provider_id,event.co_facilitator_user_id||null,event.id]);
     return people.map(u=>({...u,name:[u.first_name,u.last_name].filter(Boolean).join(' '),rsvp:'pending'}));
   }
-  const [rows]=await pool.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.last_name,u.role,u.has_supervisor_privileges,
+  const [rows]=await pool.execute(`SELECT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.role,u.has_supervisor_privileges,
     EXISTS(SELECT 1 FROM hiring_interviews h WHERE h.provider_schedule_event_id=pse.id AND h.candidate_user_id=u.id) isInterviewCandidate,
     COALESCE(p.is_required,1) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp
     FROM users u JOIN provider_schedule_events pse ON pse.id=? LEFT JOIN meeting_participant_preferences p ON p.user_id=u.id AND p.event_id=?
@@ -43,9 +43,9 @@ export async function meetingParticipantRows(event,{includeCompensation=false}={
 }
 export async function meetingReplyTo(event) {
   if(event.meeting_type==='supervision') {
-    const [hosts]=await pool.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id IN (?,?)',[event.provider_id,event.co_facilitator_user_id||null]);return (await Promise.all(hosts.map(user=>resolveMeetingRecipient({agencyId:event.agency_id,user})))).map(u=>u.email).filter(Boolean).join(', ');
+    const [hosts]=await pool.execute('SELECT id,email,work_email,COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name,last_name FROM users WHERE id IN (?,?)',[event.provider_id,event.co_facilitator_user_id||null]);return (await Promise.all(hosts.map(user=>resolveMeetingRecipient({agencyId:event.agency_id,user})))).map(u=>u.email).filter(Boolean).join(', ');
   }
-  const [rows]=await pool.execute(`SELECT DISTINCT u.id,u.email,u.work_email,u.first_name,u.last_name FROM users u WHERE u.id=? OR u.id IN (SELECT p.user_id FROM meeting_participant_preferences p JOIN provider_schedule_event_attendees a ON a.event_id=p.event_id AND a.user_id=p.user_id WHERE p.event_id=? AND p.is_cohost=1)`,[event.provider_id,event.id]);
+  const [rows]=await pool.execute(`SELECT DISTINCT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name FROM users u WHERE u.id=? OR u.id IN (SELECT p.user_id FROM meeting_participant_preferences p JOIN provider_schedule_event_attendees a ON a.event_id=p.event_id AND a.user_id=p.user_id WHERE p.event_id=? AND p.is_cohost=1)`,[event.provider_id,event.id]);
   return (await Promise.all(rows.map(user=>resolveMeetingRecipient({agencyId:event.agency_id,user})))).map(u=>u.email).filter(Boolean).join(', ');
 }
 

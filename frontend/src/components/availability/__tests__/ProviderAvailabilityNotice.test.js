@@ -10,6 +10,8 @@ beforeEach(()=>{vi.resetAllMocks();vi.useFakeTimers();api.get.mockResolvedValue(
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 it('describes conflict-free openings and the check window rather than claiming no hours were published',async()=>{
  render();await flushPromises();expect(wrapper.text()).toContain('no bookable virtual new-client openings found in the next four schedule weeks');
+ expect(wrapper.text()).not.toContain('Published hours may still be occupied');
+ await wrapper.get('[aria-controls="availability-reminder-details"]').trigger('click');
  expect(wrapper.text()).toContain('Published hours may still be occupied');expect(wrapper.text()).toContain('Last checked');expect(wrapper.text()).not.toContain('no virtual new-client openings published');
 });
 it('clears the banner when a new check finds openings without blocking the schedule',async()=>{
@@ -32,4 +34,10 @@ it('keeps the reminder visible and reports a failed waitlist change',async()=>{
  render();await flushPromises();api.post.mockRejectedValue(Error('offline'));
  await wrapper.findAll('button').find(b=>b.text()==='Enable virtual waitlist').trigger('click');await flushPromises();
  expect(wrapper.find('aside').exists()).toBe(true);expect(wrapper.get('[role="alert"]').text()).toContain('Could not enable');
+});
+
+it('snoozes the selected reminder for seven days',async()=>{
+ render();await flushPromises();api.post.mockResolvedValue({data:{ok:true}});api.get.mockResolvedValue({data:{reminders:[]}});
+ await wrapper.findAll('button').find(b=>b.text()==='Snooze 7 days').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/availability/providers/9/public-settings/snooze',{agencyId:2,format:'VIRTUAL'},{skipGlobalLoading:true});expect(wrapper.find('aside').exists()).toBe(false);
 });
