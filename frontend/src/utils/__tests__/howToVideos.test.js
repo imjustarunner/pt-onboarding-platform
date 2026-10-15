@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableHowToVideos, isHowToVideoRelevant, parseHowToVideoUrl } from '../howToVideos';
-import { HOW_TO_VIDEOS } from '../../config/howToVideos';
+import { availableHowToVideos, parseHowToVideoUrl } from '../howToVideos';
 
 describe('Curated how-to videos', () => {
   it.each([
@@ -27,11 +26,5 @@ describe('Curated how-to videos', () => {
     expect(availableHowToVideos([video], { role: 'admin', agencyId: 42 })).toHaveLength(0);
     expect(availableHowToVideos([video], { role: 'provider', agencyId: 43 })).toHaveLength(0);
     expect(availableHowToVideos([{ ...video, url: 'invalid' }], { role: 'provider', agencyId: 42 })).toHaveLength(0);
-  });
-  it('highlights My Account query routes and only complete path segments', () => {
-    expect(isHowToVideoRelevant(HOW_TO_VIDEOS[0], { path: '/itsco/dashboard', query: { tab: 'my' } })).toBe(true);
-    expect(isHowToVideoRelevant(HOW_TO_VIDEOS[0], { path: '/itsco/dashboard', query: { tab: 'schedule' } })).toBe(false);
-    expect(isHowToVideoRelevant({ pathPrefixes: ['/account'] }, { path: '/account/security' })).toBe(true);
-    expect(isHowToVideoRelevant({ pathPrefixes: ['/account'] }, { path: '/accounting' })).toBe(false);
   });
 });

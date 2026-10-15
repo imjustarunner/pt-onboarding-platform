@@ -35,13 +35,3 @@ export function availableHowToVideos(catalog, { role, agencyId }) {
     return urls ? [{ ...video, ...urls }] : [];
   });
 }
-
-export function isHowToVideoRelevant(video, route) {
-  if (!video.routeNames?.length && !video.pathPrefixes?.length && !video.routeQueries?.length) return true;
-  return video.routeNames?.includes(route.name) || video.routeQueries?.some((query) =>
-    Object.entries(query).every(([key, value]) => route.query?.[key] === value)
-  ) || video.pathPrefixes?.some((prefix) => {
-    const path = prefix.replace(/\/+$/, '');
-    return route.path === path || route.path.startsWith(`${path}/`);
-  }) || false;
-}
