@@ -71,9 +71,9 @@
             <div v-if="guideSetup?.courses?.length" class="pto-section">
               <h3>Guide learning</h3>
               <p>Applicable company guide modules are added to onboarding automatically. Other published guides can be assigned by a supervisor or administrator. Required training time is included in payroll review; care-guide completion records orientation, not authorization to practice.</p>
-              <ul><li v-for="course in guideSetup.courses" :key="course.key">{{ course.title }} · {{ course.onboardingDefault ? 'Included in onboarding' : 'Available for assignment when published' }}</li></ul>
+              <ul><li v-for="course in guideSetup.courses" :key="course.key">{{ course.title }} · {{ course.onboardingDefault ? 'Included in onboarding' : 'Available for assignment' }}</li></ul>
               <label v-if="guideSetup.courses.some(c => c.key === 'school-practice-guide')"><input v-model="expectedSchoolWork" type="checkbox" /> Expected to work in schools · Include the School Practice Guide</label>
-              <p v-if="guideSetup.courses.some(c => c.status !== 'ready')">Prepare and publish the guides, and review their quizzes, before the employee needs to complete these steps.</p>
+              <p v-if="guideSetup.courses.some(c => !['ready', 'beta'].includes(c.status))">Some guides do not have a matching source edition yet. Add their content before assigning them. Supplied guide editions are ready for reading and reflection.</p>
             </div>
             <h3>Also included</h3><p>Account setup, a clinical profile for staff who see clients, handbook acknowledgement, onboarding time tracking and final review.</p>
             <HireWorkflowEditor v-model="portalWorkflow" phase="onboarding" :templates="documentTemplates" :editor-url="documentEditUrl" heading="Additional onboarding steps" />
@@ -253,7 +253,7 @@ onMounted(async () => {
 
     // A facilitator collection must never become a provider's default merely
     // because it is the only collection available.
-    selectedPackageId.value = [workspaceRes.data?.phases?.onboarding?.packageId, roleMatchedPackageId.value, agencyDefaultPackageId.value]
+    selectedPackageId.value = [workspaceRes.data?.phases?.onboarding?.packageId, workspaceRes.data?.phases?.onboarding?.suggestedPackageId, roleMatchedPackageId.value, agencyDefaultPackageId.value]
       .find(id => id && packages.value.some(p => String(p.id) === String(id))) || null;
 
   } catch (e) {

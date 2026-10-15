@@ -10449,13 +10449,15 @@ export const promoteToOnboarding = async (req, res, next) => {
     const mapping = (settings.role_package_mappings || []).find((m) => String(m.role || '').toLowerCase() === String(profile?.applied_role || '').toLowerCase());
     const { portalPacket } = await import('../services/hirePortalWorkflow.service.js');
     const retainedPacket = await portalPacket(id, agencyRow.id);
-    const packageId = Number(req.body?.packageId || retainedPacket.onboardingPackageId || mapping?.packageId || settings.default_onboarding_package_id);
+    const { getAppliedJobHireDefaults, resolveOnboardingDefaults } = await import('../services/hireJobDefaults.service.js');
+    const job = await getAppliedJobHireDefaults(id, agencyRow.id);
+    const resolved = resolveOnboardingDefaults({ settings, job, packet: retainedPacket, person: req.body?.portalWorkflow });
+    const packageId = Number(req.body?.packageId || resolved.packageId || mapping?.packageId || settings.default_onboarding_package_id);
     if (!packageId) return res.status(400).json({ error: { message: 'Select an onboarding collection before promoting this employee.' } });
     const OnboardingPackage = (await import('../models/OnboardingPackage.model.js')).default;
     const pkg = await OnboardingPackage.findById(packageId);
     if (pkg?.package_type !== 'onboarding' || (pkg.agency_id && Number(pkg.agency_id) !== Number(agencyRow.id)) || !pkg.is_active) return res.status(400).json({ error: { message: 'Select an active onboarding collection for this agency.' } });
-    const { composeWorkflow } = await import('../utils/hirePortalWorkflow.js');
-    const workflow = composeWorkflow(settings.portal_workflow, retainedPacket.workflow, req.body?.portalWorkflow);
+    const workflow = resolved.workflow;
     const onboardingResources = workflow.resources.filter(r => r.phase === 'onboarding');
     for (const resource of onboardingResources) {
       if (resource.kind === 'document') {
@@ -10465,7 +10467,7 @@ export const promoteToOnboarding = async (req, res, next) => {
         assertHireFormReady(document);
       } else if (resource.required && !resource.url) return res.status(400).json({ error: { message: `Attach a link for ${resource.title}.` } });
     }
-    const onboardingPacket = { ...retainedPacket, onboardingPackageId: packageId, workflow: { ...retainedPacket.workflow,
+    const onboardingPacket = { ...retainedPacket, onboardingPackageId: packageId, onboardingTraining: resolved.training, workflow: { ...retainedPacket.workflow,
       resources: [...(retainedPacket.workflow?.resources || []).filter(r => r.phase === 'pre_hire'), ...onboardingResources] } };
     const { portalStateForUser } = await import('./prehirePortal.controller.js');
     const state = await portalStateForUser(id);
@@ -10477,7 +10479,7 @@ export const promoteToOnboarding = async (req, res, next) => {
     if (locked.status !== 'PREHIRE_REVIEW') throw Object.assign(new Error('This employee has already moved to another process. Refresh and try again.'), { status: 409 });
     await closePrehire(id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
       jdAcknowledged: state.jdAcknowledged, prehireDocs: state.prehireDocs }, db);
-    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db, additionalDocuments: onboardingResources.filter((r) => r.kind === 'document').map((r) => r.templateId) });
+    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db, additionalDocuments: onboardingResources.filter((r) => r.kind === 'document').map((r) => r.templateId), additionalModules: resolved.training.moduleIds, additionalTracks: resolved.training.trackIds, reusePhaseItems: true });
     await db.execute(`INSERT INTO hire_portal_packets (user_id, agency_id, config_json) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`, [id, agencyRow.id, JSON.stringify(onboardingPacket)]);
     await startOnboarding(id, db);

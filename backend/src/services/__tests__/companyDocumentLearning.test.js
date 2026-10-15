@@ -5,8 +5,8 @@ vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../hireJourney.service.js', () => ({ recordOnboardingActivity: mocks.activity }));
 vi.mock('../workplaceHandbookAssistant.service.js', () => ({ answerFromHandbook: mocks.answer }));
 import { referenceSource, referenceMetadata } from '../companyReferenceContent.js';
-import { documentTrainingDefinitions, trainingDefinitionsFor } from '../documentTrainingContent.js';
-import { startGuideLearning, guideLearningDetail, markGuideReading, submitGuideQuiz, heartbeatGuideLearning, submitGuideTime, documentTrainingCourse, onboardingGuideSteps, assertOnboardingGuideTraining, reviewDocumentTraining, answerGuideLearning } from '../companyDocumentLearning.service.js';
+import { documentTrainingDefinitions, trainingDefinitionsFor, validateTrainingDefinition } from '../documentTrainingContent.js';
+import { startGuideLearning, guideLearningDetail, markGuideReading, submitGuideQuiz, revealGuideReflection, heartbeatGuideLearning, submitGuideTime, documentTrainingCourse, onboardingGuideSteps, assertOnboardingGuideTraining, reviewDocumentTraining, answerGuideLearning, readGuide, learningContext, trainingReviewWorkspace } from '../companyDocumentLearning.service.js';
 const def = documentTrainingDefinitions[0], source = referenceSource({ slug: 'itsco' }, 'provider-guide');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
 let state;
@@ -19,11 +19,13 @@ beforeEach(() => {
     enrollments: [], attempts: [], activity: { user_id: 7 }, days: [], claims: [], clock: '2026-10-10T12:00:00Z' };
   mocks.execute.mockImplementation(async (sql, args = []) => {
     if (sql.startsWith('SELECT * FROM users') || sql.startsWith('SELECT u.*')) return [[state.user]];
-    if (sql.startsWith('SELECT id, name, slug FROM agencies')) return [[state.agency]];
+    if (sql.startsWith('SELECT id, name, slug')) return [[state.agency]];
     if (sql.startsWith('SELECT expected_school_work')) return [state.pref == null ? [] : [{ expected_school_work: state.pref }]];
+    if (sql.includes('FROM hire_portal_packets')) return [[{ config_json: state.packet || {} }]];
+    if (sql.includes('FROM hiring_profiles')) return [[{ prehire_config_json: state.job || {} }]];
     if (sql.includes('FROM hire_journeys')) return [state.journey ? [state.journey] : []];
     if (sql.includes('FROM company_document_training_reviews')) return [state.review ? [state.review] : []];
-    if (sql.startsWith('SELECT * FROM company_reference_documents')) return [[{ id: 3, published_version_id: state.version.id }]];
+    if (sql.startsWith('SELECT * FROM company_reference_documents')) return [[{ id: 3, published_version_id: state.published ? state.version.id : null }]];
     if (sql.includes('FROM company_reference_documents d JOIN company_reference_versions')) return [state.published ? [state.version] : []];
     if (sql.includes('FROM company_reference_versions')) return [[state.version]];
     if (sql.startsWith('SELECT id FROM company_document_learning WHERE') && sql.includes("purpose = 'assigned'")) return [state.enrollments.filter(r => r.agency_id === args[0] && r.user_id === args[1] && r.document_key === args[2] && r.version_id === args[3] && r.purpose === 'assigned' && r.status === 'in_progress')];
@@ -34,7 +36,7 @@ beforeEach(() => {
     if (sql.startsWith('UPDATE company_document_learning SET read_sections_json')) { state.enrollments.find(r => r.id === args[1]).read_sections_json = args[0]; return [{}]; }
     if (sql.startsWith('SELECT result_json FROM company_document_learning_attempts')) return [state.attempts.filter(r => r.learning_id === args[0] && r.request_key === args[1])];
     if (sql.startsWith('SELECT id, result_json')) return [state.attempts.filter(r => r.learning_id === args[0]).toReversed()];
-    if (sql.startsWith('INSERT INTO company_document_learning_attempts')) { state.attempts.push({ id: state.attempts.length + 1, learning_id: args[0], request_key: args[1], result_json: args[3] }); return [{}]; }
+    if (sql.startsWith('INSERT INTO company_document_learning_attempts')) { const previous = sql.includes('ON DUPLICATE') && state.attempts.find(a => a.learning_id === args[0] && a.request_key === args[1]); if (previous) previous.result_json = args[3]; else state.attempts.push({ id: state.attempts.length + 1, learning_id: args[0], request_key: args[1], result_json: args[3] }); return [{}]; }
     if (sql.startsWith("UPDATE company_document_learning SET status")) { state.enrollments.find(r => r.id === args[0]).status = 'completed'; return [{}]; }
     if (sql.startsWith('SELECT *, UTC_TIMESTAMP')) return [[{ ...state.activity, server_now: state.clock }]];
     if (sql.startsWith('UPDATE company_document_learning_activity')) { const [learning_id, session_id, sequence_number, active] = args; state.activity = { learning_id, session_id, sequence_number, active, seen_at: state.clock }; return [{}]; }
@@ -42,7 +44,8 @@ beforeEach(() => {
     if (sql.includes('FROM company_document_learning_time')) return [state.days.filter(r => r.learning_id === args[0])];
     if (sql.startsWith('INSERT INTO payroll_time_claims')) { state.claims.push(args); return [{ insertId: 50 + state.claims.length }]; }
     if (sql.startsWith('UPDATE company_document_learning_time')) { const found = state.days.find(r => r.learning_id === args[1] && r.work_date === args[2]); found.submitted_seconds = found.seconds; found.payroll_claim_ids_json = args[0]; return [{}]; }
-    if (sql.startsWith('INSERT IGNORE') || sql.startsWith('INSERT INTO company_document_training_reviews')) return [{}];
+    if (sql.startsWith('INSERT INTO company_document_training_reviews')) { state.review = { definition_json: args[3], revision: args[4] }; return [{}]; }
+    if (sql.startsWith('INSERT IGNORE')) return [{}];
     throw new Error('Unhandled SQL: ' + sql);
   });
 });
@@ -62,7 +65,7 @@ describe('saved edition and reading/quiz progression', () => {
     await heartbeatGuideLearning(2, 7, id, heartbeat());
     expect(mocks.activity).toHaveBeenCalled(); expect(state.claims).toHaveLength(0);
     for (const slug of definition.requiredSections) await markGuideReading(2, 7, id, slug);
-    expect((await submitGuideQuiz(2, 7, id, { requestKey: 'facilitator-quiz-001', answers: definition.questions.map(q => q.correctAnswer) })).passed).toBe(true);
+    expect((await submitGuideQuiz(2, 7, id, { requestKey: 'facilitator-quiz-001', answers: definition.questions.map(q => q.correctAnswer) })).completed).toBe(true);
     expect((await onboardingGuideSteps(state.user, 2)).find(s => s.documentKey === key)).toMatchObject({ complete: true });
     expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('ua.agency_role, ua.agency_position'))).toBe(true);
     state.user.agency_role = 'tutor';
@@ -73,13 +76,16 @@ describe('saved edition and reading/quiz progression', () => {
     expect(await guideLearningDetail(2, 7, id)).toMatchObject({ paid: true, book: { version: { id: 14 } }, definition: { questions: expect.arrayContaining([expect.not.objectContaining({ correctAnswer: expect.anything() })]) } });
     expect(db.commit).toHaveBeenCalled(); expect(mocks.execute.mock.calls[0][0]).toContain('FOR UPDATE');
   });
-  it('requires read acknowledgements, grades on the server, saves failed attempts, and safely retries a passed submission', async () => {
-    const id = await start(), input = { requestKey: 'quiz-request-00001', answers: def.questions.map(q => q.correctAnswer), passed: true, score: 100 };
-    await expect(submitGuideQuiz(2, 7, id, input)).rejects.toThrow('Review and acknowledge');
-    await readAll(id); const wrong = { ...input, answers: [1, 1, 1, 1, 1] }; expect((await submitGuideQuiz(2, 7, id, wrong)).passed).toBe(false);
-    expect(state.enrollments[0].status).toBe('in_progress');
-    input.requestKey = 'quiz-request-00002'; expect((await submitGuideQuiz(2, 7, id, input)).passed).toBe(true);
-    expect((await submitGuideQuiz(2, 7, id, input)).passed).toBe(true); expect(state.attempts).toHaveLength(2);
+  it('reveals sourced answers and completes reflection regardless of the choices, with idempotent retries', async () => {
+    const id = await start(), input = { requestKey: 'reflection-00001', answers: def.questions.map(q => (q.correctAnswer + 1) % q.options.length) };
+    await expect(submitGuideQuiz(2, 7, id, input)).rejects.toThrow('Review each core section');
+    await readAll(id);
+    const result = await submitGuideQuiz(2, 7, id, input);
+    expect(result).toMatchObject({ completed: true, reviewed: true });
+    expect(result.score).toBeUndefined(); expect(result.passed).toBeUndefined();
+    expect(result.feedback[0]).toMatchObject({ answer: def.questions[0].options[def.questions[0].correctAnswer], explanation: def.questions[0].explanation, sourceSlug: def.questions[0].sourceSlug });
+    expect(state.enrollments[0].status).toBe('completed');
+    expect(await submitGuideQuiz(2, 7, id, input)).toEqual(result); expect(state.attempts).toHaveLength(1);
     await expect(markGuideReading(2, 7, id, def.requiredSections[0])).rejects.toThrow('complete');
   });
   it('does not allow another user, agency or unregistered tenant to be opened', async () => {
@@ -87,7 +93,7 @@ describe('saved edition and reading/quiz progression', () => {
     state.agency.slug = 'nlu'; await expect(guideLearningDetail(2, 7, id)).rejects.toThrow('not available');
   });
   it('blocks an unpublished/stale guide and stale expected edition before creating an assignment', async () => {
-    state.published = false; await expect(start()).rejects.toThrow('Publish'); state.published = true;
+    state.published = false; await expect(start()).rejects.toThrow('edition changed'); state.published = true;
     state.version = { ...state.version, id: 15 }; await expect(start()).rejects.toThrow('edition changed'); state.version.id = 14;
     state.version.sections_json = structuredClone(source.sections); state.version.sections_json.find(s => s.slug === def.requiredSections[0]).body_html = '<p>New policy</p>';
     await expect(start()).rejects.toThrow('Review the questions'); expect(state.enrollments).toHaveLength(0);
@@ -204,14 +210,14 @@ describe('beta guide practice', () => {
     expect(detail.book.sections.some(s => s.slug === def.requiredSections[0])).toBe(true);
     expect(detail.definition.betaBook).toBeUndefined(); expect(detail.definition.questions[0].correctAnswer).toBeUndefined();
     await readAll(id);
-    expect((await submitGuideQuiz(2, 7, id, { requestKey: 'beta-quiz-submit-001', answers: def.questions.map(q => q.correctAnswer) })).passed).toBe(true);
+    expect((await submitGuideQuiz(2, 7, id, { requestKey: 'beta-quiz-submit-001', answers: def.questions.map(q => q.correctAnswer) })).completed).toBe(true);
     expect((await heartbeatGuideLearning(2, 7, id, heartbeat())).creditedSeconds).toBe(0);
     await expect(submitGuideTime(2, 7, id)).rejects.toThrow('own time'); expect(state.claims).toHaveLength(0);
   });
-  it('rejects stale beta starts and does not turn beta into paid required training', async () => {
+  it('rejects stale supplied-edition starts before creating learning records', async () => {
     state.published = false;
     await expect(startGuideLearning(2, 7, 'provider-guide', { purpose: 'practice', requestKey: 'beta-practice-0001', expectedVersionId: 0, expectedBetaRevision: 'stale' })).rejects.toThrow('beta edition changed');
-    await expect(start()).rejects.toThrow('Publish'); expect(state.enrollments).toHaveLength(0);
+    await expect(start()).rejects.toThrow('edition changed'); expect(state.enrollments).toHaveLength(0);
   });
 });
 
@@ -223,4 +229,74 @@ it('offers every supplied ITSCO, NLU and ISI training source as a matching beta 
     expect(definitions.length).toBeGreaterThan(5);
     for (const definition of definitions) expect((await documentTrainingCourse(agency, definition.documentKey)).status, `${slug}:${definition.documentKey}`).toBe('beta');
   }
+});
+
+it('opens the available beta guide for reading without enrollment, completion, or payroll writes', async () => {
+  state.user.status = 'ONBOARDING'; state.published = false;
+  const result = await readGuide(2, 7, 'provider-guide');
+  expect(result.status).toBe('beta'); expect(result.book.sections.length).toBeGreaterThan(0);
+  expect(result.definition).toBeUndefined(); expect(state.enrollments).toHaveLength(0);
+  expect(mocks.execute.mock.calls.some(([sql]) => /INSERT|UPDATE|DELETE/.test(sql))).toBe(false);
+});
+it('uses retained guide requirements and keeps unrelated saved learning intact', async () => {
+  state.user.status = 'ONBOARDING';
+  state.packet = { onboardingTraining: { guideRequirements: { 'provider-guide': false, 'facilities-guide': true } } };
+  const context = await learningContext(2, 7);
+  expect(context.requiredKeys).not.toContain('provider-guide'); expect(context.requiredKeys).toContain('facilities-guide');
+});
+
+it('starts required onboarding directly from the supplied guide and saves its immutable edition', async () => {
+  state.user.status = 'ONBOARDING'; state.published = false;
+  const course = await documentTrainingCourse(state.agency, 'provider-guide');
+  const { id } = await startGuideLearning(2, 7, 'provider-guide', { purpose: 'onboarding', expectedVersionId: 0, expectedBetaRevision: course.revision });
+  const detail = await guideLearningDetail(2, 7, id);
+  expect(detail.paid).toBe(true); expect(detail.onboardingTime).toBe(true); expect(detail.book.sections).toEqual(source.sections);
+  expect(detail.definition.questions[0].correctAnswer).toBeUndefined();
+  await readAll(id);
+  expect((await submitGuideQuiz(2, 7, id, { requestKey: 'source-reflection-01', answers: def.questions.map(q => (q.correctAnswer + 1) % q.options.length) })).completed).toBe(true);
+});
+
+it('saves each scenario with an explanation, resumes it, and never completes from a reveal alone', async () => {
+  const id = await start(), q = def.questions[0], input = { questionId: q.id, answer: (q.correctAnswer + 1) % q.options.length };
+  await expect(revealGuideReflection(2, 7, id, input)).rejects.toThrow('Review this topic');
+  await markGuideReading(2, 7, id, q.sourceSlug);
+  const result = await revealGuideReflection(2, 7, id, input);
+  expect(result).toMatchObject({ id: q.id, selectedAnswer: input.answer, answer: q.options[q.correctAnswer], explanation: q.explanation });
+  expect(result.passed).toBeUndefined(); expect(result.score).toBeUndefined();
+  expect(state.enrollments[0].status).toBe('in_progress');
+  const detail = await guideLearningDetail(2, 7, id);
+  expect(detail.reflections).toEqual([result]); expect(detail.attempts).toEqual([]);
+  expect(detail.definition.questions[0].sourceSlug).toBe(q.sourceSlug);
+  await revealGuideReflection(2, 7, id, { ...input, answer: q.correctAnswer });
+  expect(state.attempts).toHaveLength(1);
+  await expect(revealGuideReflection(2, 8, id, input)).rejects.toThrow('not found');
+  await expect(revealGuideReflection(9, 7, id, input)).rejects.toThrow('not found');
+  await expect(revealGuideReflection(2, 7, id, { ...input, answer: 99 })).rejects.toThrow('Choose a response');
+});
+
+it('edits source-edition visuals and answer explanations without publishing or changing an existing learning snapshot', async () => {
+  state.published = false;
+  const workspace = await trainingReviewWorkspace(2, 'provider-guide');
+  const original = await startGuideLearning(2, 7, 'provider-guide', { purpose: 'practice', requestKey: 'before-visual-edit', expectedVersionId: 0, expectedBetaRevision: workspace.revision });
+  const definition = structuredClone(def), slug = definition.requiredSections[0];
+  definition.lessonPresentation = { [slug]: { title: 'Your first steps', facts: ['Read the scope of your role.', 'Ask your supervisor when unsure.'], imageUrl: '/assets/rise/therapy.webp', imageAlt: 'A conversation' } };
+  definition.questions[0].choiceExplanations = definition.questions[0].options.map((_, i) => i === definition.questions[0].correctAnswer ? 'Clarification keeps the work within your role.' : 'A request alone does not establish authorization.');
+  const input = { expectedVersionId: 0, expectedSourceRevision: workspace.sourceRevision, expectedReviewRevision: null, definition };
+  await expect(reviewDocumentTraining(2, 'provider-guide', 9, { ...input, expectedSourceRevision: 'old' })).rejects.toThrow('supplied guide changed');
+  await reviewDocumentTraining(2, 'provider-guide', 9, input);
+  const updated = await trainingReviewWorkspace(2, 'provider-guide');
+  expect(updated.definition.lessonPresentation[slug].facts).toEqual(definition.lessonPresentation[slug].facts);
+  const next = await startGuideLearning(2, 7, 'provider-guide', { purpose: 'practice', requestKey: 'after-visual-edit', expectedVersionId: 0, expectedBetaRevision: updated.revision });
+  expect((await guideLearningDetail(2, 7, original.id)).definition.lessonPresentation).toBeUndefined();
+  expect((await guideLearningDetail(2, 7, next.id)).definition.lessonPresentation[slug].title).toBe('Your first steps');
+  await markGuideReading(2, 7, next.id, def.questions[0].sourceSlug);
+  expect((await revealGuideReflection(2, 7, next.id, { questionId: def.questions[0].id, answer: 0 })).choiceExplanation).toBe('A request alone does not establish authorization.');
+  await expect(reviewDocumentTraining(2, 'provider-guide', 9, input)).rejects.toThrow('Another administrator');
+});
+it('validates lesson photo links and optional choice explanations', () => {
+  const definition = structuredClone(def), book = { sections: source.sections };
+  definition.lessonPresentation = { [def.requiredSections[0]]: { imageUrl: 'javascript:alert(1)', facts: ['A point'] } };
+  expect(() => validateTrainingDefinition(definition, book)).toThrow('HTTPS image');
+  definition.lessonPresentation = {}; definition.questions[0].choiceExplanations = ['Only one'];
+  expect(() => validateTrainingDefinition(definition, book)).toThrow('one optional explanation');
 });

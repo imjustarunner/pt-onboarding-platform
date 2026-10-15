@@ -1,18 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(),
-  pkg: vi.fn(), modules: vi.fn(), docs: vi.fn(), links: vi.fn(), focuses: vi.fn(), checklist: vi.fn() }));
+  pkg: vi.fn(), modules: vi.fn(), docs: vi.fn(), links: vi.fn(), focuses: vi.fn(), track: vi.fn(), trackModules: vi.fn(), checklist: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: m }));
 vi.mock('../../models/OnboardingPackage.model.js', () => ({ default: { findById: m.pkg, getModules: m.modules,
   getDocuments: m.docs, getIntakeLinks: m.links, getTrainingFocuses: m.focuses, getChecklistItems: m.checklist } }));
 vi.mock('../../models/Module.model.js', () => ({ default: { findById: async (id) => ({ id, title: 'Profile' }) } }));
 vi.mock('../../models/DocumentTemplate.model.js', () => ({ default: { findById: async (id) => ({ id, name: 'Tax form' }) } }));
 vi.mock('../../models/CustomChecklistItem.model.js', () => ({ default: { findByModule: async () => [], findByTrainingFocus: async () => [] } }));
-vi.mock('../../models/TrainingTrack.model.js', () => ({ default: {} }));
+vi.mock('../../models/TrainingTrack.model.js', () => ({ default: { findById: m.track, getModules: m.trackModules } }));
 import { assignPackageToUser } from '../packageAssignment.service.js';
 const db = { execute: m.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
 const request = { packageId: 10, userId: 2, agencyId: 1, assignedByUserId: 3 };
 beforeEach(() => {
   vi.clearAllMocks(); m.getConnection.mockResolvedValue(db);
+  m.track.mockResolvedValue({ id: 22, name: 'Orientation', agency_id: 1, is_active: 1 }); m.trackModules.mockResolvedValue([{ id: 33 }]);
   m.pkg.mockResolvedValue({ agency_id: 1, is_active: 1, package_type: 'onboarding', name: 'New hire' });
   m.modules.mockResolvedValue([{ module_id: 11 }]); m.docs.mockResolvedValue([{ document_template_id: 12 }]);
   m.links.mockResolvedValue([{ intake_link_id: 13, public_key: 'public-key', title: 'Questionnaire' }]);
@@ -81,4 +82,17 @@ describe('package assignment', () => {
     expect(m.execute.mock.calls.some(([sql]) => /INSERT INTO tasks|INSERT INTO user_tracks/.test(sql))).toBe(false);
   });
 
+});
+
+it('assigns shared and job-specific training through the same deduplicated onboarding transaction', async () => {
+  await assignPackageToUser({ ...request, additionalModules: [11, 33, 44], additionalTracks: [22], reusePhaseItems: true });
+  const inserts = m.execute.mock.calls.filter(([sql, params]) => sql.includes('INSERT INTO tasks') && params[0] === 'training');
+  expect(inserts.map(([, params]) => params[7]).sort()).toEqual([11, 33, 44]);
+  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO user_tracks'), [2, 22, 1, 3]);
+  expect(inserts.every(([, params]) => JSON.parse(params[8]).portalPhase === 'onboarding')).toBe(true);
+});
+it('rejects additional training focuses belonging to another organization', async () => {
+  m.track.mockResolvedValue({ id: 22, agency_id: 9, is_active: 1 });
+  await expect(assignPackageToUser({ ...request, additionalTracks: [22] })).rejects.toMatchObject({ status: 400 });
+  expect(m.getConnection).not.toHaveBeenCalled();
 });

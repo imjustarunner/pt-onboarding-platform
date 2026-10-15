@@ -202,15 +202,24 @@ describe('ITSCO school practice reader', () => {
     await router.push('/itsco/library?companyDocument=school-practice-guide'); await router.isReady();
     api.get.mockResolvedValue({ data: { canManage: true, documents: [{ key: 'provider-guide', title: 'Provider’s Guide', published: null }, { key: 'school-practice-guide', title: 'School Practice Guide', published: { version_number: 1 } }] } });
     const w = mount(Library, { props: { agencyId: 11, orgPrefix: '/itsco' }, global: { plugins: [router], stubs: { CompanyReferenceWorkspace: { name: 'CompanyReferenceWorkspace', props: ['documentKey', 'documentTitle'], template: '<div class="workspace-stub">{{ documentTitle }}</div>' } } } }); await flushPromises();
-    expect(w.findAll('.reference-cards button')).toHaveLength(3);
+    expect(w.findAll('.reference-cards button')).toHaveLength(0); // The selected reader replaces the catalog.
     expect(w.getComponent({ name: 'CompanyReferenceWorkspace' }).props('documentKey')).toBe('school-practice-guide');
     api.get.mockResolvedValue({ data: { canManage: true, documents: [{ key: 'provider-guide', title: 'Provider’s Guide' }] } });
     await w.setProps({ agencyId: 12, orgPrefix: '/nlu' });
     expect(w.find('.workspace-stub').exists()).toBe(false);
     await flushPromises();
     expect(w.find('.workspace-stub').exists()).toBe(false);
+    await router.replace('/nlu/library'); await flushPromises();
     expect(w.findAll('.reference-cards button')).toHaveLength(2);
     expect(w.text()).not.toContain('School Practice Guide');
     w.unmount();
   });
+});
+
+it('lets managers edit visual training for a supplied guide before company publication', async () => {
+  api.get.mockResolvedValue({ data: { source: handbook, published: null, draft: null } });
+  const w = mount(Workspace, { props: { agencyId: 11, manage: true, documentKey: 'provider-guide' }, global: { stubs: { DocumentTrainingReview: { name: 'DocumentTrainingReview', props: ['documentKey'], template: '<div>Edit visual training</div>' }, WorkplaceHandbookBook: true } } });
+  await flushPromises(); expect(w.findComponent({ name: 'DocumentTrainingReview' }).exists()).toBe(true);
+  await w.setProps({ manage: false }); await flushPromises();
+  expect(w.findComponent({ name: 'DocumentTrainingReview' }).exists()).toBe(false); w.unmount();
 });

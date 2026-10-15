@@ -54,3 +54,10 @@ describe('person package switcher', () => {
     expect(wrapper.getComponent(Editor).props('modelValue').resources[0].title).toBe('Visit');
   });
 });
+
+it('shows the inherited job onboarding package while preparing this person’s package', async () => {
+  m.route.query.phase = 'onboarding'; data.phases.onboarding.suggestedPackageId = 42;
+  m.get.mockImplementation(async url => ({ data: url.endsWith('hire-packages') ? structuredClone(data) : [{ id: 42, name: 'Provider onboarding', package_type: 'onboarding', is_active: 1, agency_id: 2 }] }));
+  await open(); expect(wrapper.get('select').element.value).toBe('42');
+  expect(m.put).not.toHaveBeenCalled();
+});

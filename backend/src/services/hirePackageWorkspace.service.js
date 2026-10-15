@@ -1,3 +1,4 @@
+import { getAppliedJobHireDefaults, resolveOnboardingDefaults } from './hireJobDefaults.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import { portalPacket } from './hirePortalWorkflow.service.js';
@@ -28,11 +29,13 @@ async function context(userId, agencyId, db, lock = false) {
   const [[profile]] = await db.execute('SELECT applied_role FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1', [userId]);
   const mapping = (settings.role_package_mappings || []).find(m => String(m.role || '').toLowerCase() === String(profile?.applied_role || '').toLowerCase());
   const preparing = !journey?.onboarding_started_at && user.status !== 'ONBOARDING' && user.status !== 'ACTIVE_EMPLOYEE';
-  const workflow = preparing ? composeWorkflow(settings.portal_workflow, packet.workflow) : sanitizeWorkflow(packet.workflow);
+  const job = preparing ? await getAppliedJobHireDefaults(userId, agencyId, db) : {};
+  const defaults = resolveOnboardingDefaults({ settings, job, packet });
+  const workflow = preparing ? defaults.workflow : sanitizeWorkflow(packet.workflow);
   // Defaults for the future phase must not change the retained pre-hire configuration.
   workflow.resources = [...(packet.workflow?.resources || []).filter(r => r.phase === 'pre_hire'), ...workflow.resources.filter(r => r.phase === 'onboarding')];
-  return { user: { ...user, applied_role: profile?.applied_role }, journey: journey || {}, packet, workflow, preparing,
-    suggestedOnboardingPackageId: mapping?.packageId || settings.default_onboarding_package_id || null };
+  return { user: { ...user, applied_role: profile?.applied_role }, journey: journey || {}, packet, workflow, preparing, training: defaults.training,
+    suggestedOnboardingPackageId: defaults.packageId || mapping?.packageId || settings.default_onboarding_package_id || null };
 }
 export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
   const ctx = await context(userId, agencyId, db);
@@ -44,9 +47,10 @@ export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
   const [submissions] = await db.execute('SELECT phase, step_key FROM hire_portal_submissions WHERE user_id = ? AND completed_at IS NOT NULL', [userId]);
   return { candidate: ctx.user, revision: revisionOf(ctx.packet), phases: Object.fromEntries(['pre_hire','onboarding'].map(phase => [phase, {
     closed: packageClosed(phase, ctx.user, ctx.journey), preparing: phase === 'onboarding' && ctx.preparing,
+    training: phase === 'onboarding' ? ctx.training : null,
     packageId: ctx.packet[packetKey(phase)] || null,
     suggestedPackageId: phase === 'onboarding' ? ctx.suggestedOnboardingPackageId : null,
-    workflow: { resources: ctx.workflow.resources.filter(r => r.phase === phase), excludedResourceIds: ctx.packet.workflow?.excludedResourceIds || [] },
+    workflow: { resources: ctx.workflow.resources.filter(r => r.phase === phase), excludedResourceIds: ctx.workflow.excludedResourceIds || [] },
     completedResourceIds: submissions.filter(s => s.phase === phase).map(s => s.step_key),
     tasks: tasks.filter(t => taskPhase(t, ctx.user.status) === phase).map(t => ({ id: t.id, title: t.title, status: t.status, type: t.task_type }))
   }])) };
@@ -89,11 +93,11 @@ export async function saveHirePackageWorkspace({ userId, agencyId, actorId, phas
     const preparing = phase === 'onboarding' && ctx.preparing;
     if (!preparing && newDocuments.length && !packageId) fail('Choose a document collection to assign the additional document templates.');
     if (!preparing && packageId && (packageId !== Number(ctx.packet[packetKey(phase)]) || newDocuments.length)) {
-      await assignPackageToUser({ packageId, userId, agencyId, assignedByUserId: actorId, connection: db, documentsOnly: phase === 'pre_hire', reusePhaseItems: true, additionalDocuments: resources.filter(r => r.kind === 'document').map(r => r.templateId) });
+      await assignPackageToUser({ packageId, userId, agencyId, assignedByUserId: actorId, connection: db, documentsOnly: phase === 'pre_hire', reusePhaseItems: true, additionalModules: ctx.training.moduleIds, additionalTracks: ctx.training.trackIds, additionalDocuments: resources.filter(r => r.kind === 'document').map(r => r.templateId) });
     }
     const removed = previous.filter(r => !resources.some(n => n.id === r.id)).map(r => r.id);
-    const retainedExclusions = (ctx.packet.workflow?.excludedResourceIds || []).filter(id => !resources.some(r => r.id === id));
-    const packet = { ...ctx.packet, [packetKey(phase)]: packageId, workflow: { ...ctx.packet.workflow,
+    const retainedExclusions = (ctx.workflow.excludedResourceIds || []).filter(id => !resources.some(r => r.id === id));
+    const packet = { ...ctx.packet, [packetKey(phase)]: packageId, ...(phase === 'onboarding' ? { onboardingTraining: ctx.training } : {}), workflow: { ...ctx.packet.workflow,
       resources: [...other, ...resources], excludedResourceIds: [...new Set([...retainedExclusions, ...removed])] } };
     await db.execute(`INSERT INTO hire_portal_packets (user_id, agency_id, config_json) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`, [userId, agencyId, JSON.stringify(packet)]);

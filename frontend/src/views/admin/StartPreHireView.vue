@@ -292,12 +292,13 @@ const packetPackages = ref([]);
 const packetDocumentTemplates = ref([]);
 const meaningfulWorkflow = (value) => Object.fromEntries(Object.entries(value || {}).filter(([, v]) => v !== '' && v != null));
 let baseWorkflow = {};
+let jobPrehirePackageId = null;
 function applyPacketTemplate() {
   const preset = (settings.value.hire_packet_templates || []).find(p => p.id === packetTemplateId.value);
   const resources = new Map((baseWorkflow.resources || []).map(r => [r.id, r]));
   for (const r of preset?.workflow?.resources || []) resources.set(r.id, r);
   portalWorkflow.value = JSON.parse(JSON.stringify({ ...baseWorkflow, ...meaningfulWorkflow(preset?.workflow), resources: [...resources.values()] }));
-  prehirePackageId.value = preset?.prehirePackageId || settings.value.default_prehire_package_id || null;
+  prehirePackageId.value = preset?.prehirePackageId || jobPrehirePackageId || settings.value.default_prehire_package_id || null;
   const excluded = new Set([...(baseWorkflow.excludedResourceIds || []), ...(preset?.workflow?.excludedResourceIds || [])]);
   portalWorkflow.value.resources = (portalWorkflow.value.resources || []).filter(r => r.phase !== 'onboarding' && !excluded.has(r.id)).map(r => ({ ...r, phase: 'pre_hire' }));
   portalWorkflow.value.handbookUrl ||= settings.value.handbook_full_url || '';
@@ -449,6 +450,7 @@ const load = async () => {
     if (wizardTokens.value.MIN_DAYS_PER_WEEK) contract.minDays = wizardTokens.value.MIN_DAYS_PER_WEEK;
     const jd = cand.data?.jobDescription || {};
     const jobConfig = jd.prehireConfig || { documents: [] };
+    jobPrehirePackageId = jobConfig.prehirePackageId || null;
     packetPackages.value = Array.isArray(packagesRes.data) ? packagesRes.data : [];
     packetDocumentTemplates.value = Array.isArray(documentsRes.data) ? documentsRes.data : documentsRes.data?.templates || documentsRes.data?.data || [];
     const resourceDefaults = new Map((settings.value.portal_workflow?.resources || []).map(r => [r.id, r]));

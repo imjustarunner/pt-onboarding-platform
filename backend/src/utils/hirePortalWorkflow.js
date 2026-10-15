@@ -57,7 +57,7 @@ export function composeWorkflow(agency, job, person) {
   const merged = {};
   for (const layer of layers) for (const [key, value] of Object.entries(layer)) if (value !== '' && value != null) merged[key] = value;
   const excluded = new Set(layers.flatMap(l => sanitizeWorkflow(l).excludedResourceIds));
-  return sanitizeWorkflow({ ...merged, resources: [...resources.values()].filter(r => !excluded.has(r.id)) });
+  return sanitizeWorkflow({ ...merged, excludedResourceIds: [...excluded], resources: [...resources.values()].filter(r => !excluded.has(r.id)) });
 }
 export function validatePreemployment(input, complete = false) {
   const data = {};

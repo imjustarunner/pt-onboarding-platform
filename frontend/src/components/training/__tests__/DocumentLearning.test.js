@@ -32,7 +32,7 @@ describe('same guide catalog across learning surfaces', () => {
   it('labels optional practice as own time and cannot create a paid assignment', async () => {
     api.get.mockResolvedValue({ data: { courses: [course] } }); api.post.mockResolvedValue({ data: { id: 11 } });
     const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'on-demand' }, global: { stubs: { Player: true } } });
-    expect(w.text()).toContain('Your own time'); expect(button(w, 'Start required')).toBeUndefined();
+    expect(w.text()).toContain('Your own time'); expect(button(w, 'Start learning')).toBeUndefined();
     await button(w, 'Start optional').trigger('click'); await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/provider-update/document-learning/courses/provider-guide/start', expect.objectContaining({ purpose: 'practice', agencyId: 2, expectedVersionId: 14, requestKey: expect.any(String) }));
   });
@@ -48,17 +48,17 @@ describe('same guide catalog across learning surfaces', () => {
   it('resumes assigned records without creating a new practice or payroll assignment', async () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, enrollments: [{ id: 5, purpose: 'assigned', status: 'in_progress' }] }] } });
     const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'assigned' }, global: { stubs: { Player: true } } });
-    await button(w, 'Continue assigned').trigger('click'); expect(w.getComponent({ name: 'Player' }).props('learningId')).toBe(5); expect(api.post).not.toHaveBeenCalled();
+    await button(w, 'Continue learning').trigger('click'); expect(w.getComponent({ name: 'Player' }).props('learningId')).toBe(5); expect(api.post).not.toHaveBeenCalled();
   });
   it('offers onboarding only when required and hides optional practice in the portal', async () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, onboardingRequired: true }] } }); api.post.mockResolvedValue({ data: { id: 11 } });
     const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'onboarding', apiBase: '/prehire-portal/test/document-learning' }, global: { stubs: { Player: true } } });
-    await button(w, 'Start required').trigger('click'); await flushPromises();
+    await button(w, 'Start learning').trigger('click'); await flushPromises();
     expect(api.post.mock.calls[0][1].purpose).toBe('onboarding'); expect(button(w, 'Start optional')).toBeUndefined();
   });
   it('blocks new starts for an unreviewed edition while keeping existing assignments available', async () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, status: 'needs_review', enrollments: [{ id: 5, purpose: 'assigned', status: 'in_progress' }] }] } });
-    const w = await mounted(Catalog, { props: { agencyId: 2 } }); expect(button(w, 'Start optional').attributes('disabled')).toBeDefined(); expect(button(w, 'Continue assigned').attributes('disabled')).toBeUndefined();
+    const w = await mounted(Catalog, { props: { agencyId: 2 } }); expect(button(w, 'Start optional').attributes('disabled')).toBeDefined(); expect(button(w, 'Continue learning').attributes('disabled')).toBeUndefined();
   });
   it('does not show another agency’s late response after switching company', async () => {
     let resolve; api.get.mockImplementationOnce(() => new Promise(r => { resolve = r; })).mockResolvedValue({ data: { courses: [] } });
@@ -75,21 +75,21 @@ describe('guide reader, questions and completion', () => {
       throw new Error('Unexpected request ' + path);
     });
     const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
-    await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises(); await button(w, 'Knowledge check').trigger('click');
-    for (const field of w.findAll('fieldset')) await field.findAll('input')[0].setValue(true);
-    await w.get('form').trigger('submit'); await flushPromises(); expect(w.text()).toContain('Completed and saved');
+    await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises(); await button(w, 'Reflect & reveal').trigger('click');
+    for (const field of w.findAll('.knowledge-check fieldset')) await field.findAll('input')[0].setValue(true);
+    await w.get('.knowledge-check form').trigger('submit'); await flushPromises(); expect(w.text()).toContain('Completed and saved');
     await button(w, 'Save & close').trigger('click'); await flushPromises(); expect(w.emitted('close')).toHaveLength(1);
     expect(api.post.mock.calls.every(([path]) => !/heartbeat|\/time$/.test(path))).toBe(true);
   });
-  it('keeps quiz unavailable until reading is acknowledged and shows linked failure feedback', async () => {
+  it('keeps quiz unavailable until reading is acknowledged and reveals linked answers without scoring the learner', async () => {
     let saved = enrollment('practice'); api.get.mockImplementation(async () => ({ data: structuredClone(saved) }));
-    api.post.mockImplementation(async path => { if (path.endsWith('/reading')) { saved.readSections = ['first']; return { data: { readSections: ['first'] } }; } return { data: { passed: false, score: 67, feedback: [{ id: 'question-1', correct: false, explanation: 'Read the applicable procedure.', sourceSlug: 'first' }] } }; });
+    api.post.mockImplementation(async path => { if (path.endsWith('/reading')) { saved.readSections = ['first']; return { data: { readSections: ['first'] } }; } saved.status = 'completed'; return { data: { completed: true, reviewed: true, feedback: [{ id: 'question-1', answer: 'Answer B', explanation: 'Read the applicable procedure.', sourceSlug: 'first' }] } }; });
     const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
-    await button(w, 'Knowledge check').trigger('click'); expect(button(w, 'Check my answers').attributes('disabled')).toBeDefined();
-    await button(w, 'Read & ask').trigger('click'); await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises(); await button(w, 'Knowledge check').trigger('click');
-    for (const field of w.findAll('fieldset')) await field.findAll('input')[0].setValue(true);
-    await w.get('form').trigger('submit'); await flushPromises(); expect(w.text()).toContain('67%'); expect(w.text()).toContain('Read the applicable procedure.');
-    await button(w, 'Read First section').trigger('click'); expect(w.get('.reading-confirmation').text()).toContain('Reading complete'); expect(w.emitted('completed')).toBeUndefined();
+    await button(w, 'Reflect & reveal').trigger('click'); expect(button(w, 'Reveal answers & save reflection').attributes('disabled')).toBeDefined();
+    await button(w, 'Read & ask').trigger('click'); await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises(); await button(w, 'Reflect & reveal').trigger('click');
+    for (const field of w.findAll('.knowledge-check fieldset')) await field.findAll('input')[0].setValue(true);
+    await w.get('.knowledge-check form').trigger('submit'); await flushPromises(); expect(w.text()).toContain('Answer B'); expect(w.text()).not.toContain('67%'); expect(w.text()).toContain('Read the applicable procedure.');
+    await button(w, 'Read First section').trigger('click'); expect(w.get('.reading-confirmation').text()).toContain('Training completed'); expect(w.emitted('completed')).toHaveLength(1);
   });
   it('opens the questions automatically after the last core acknowledgment and does not complete from reading alone', async () => {
     api.get.mockResolvedValue({ data: enrollment('practice') });
@@ -99,7 +99,7 @@ describe('guide reader, questions and completion', () => {
     await button(w, 'Reviewed · Continue').trigger('click'); await flushPromises();
     expect(w.find('.knowledge-check').isVisible()).toBe(true);
     expect(w.text()).toContain('Apply what you learned');
-    expect(w.findAll('fieldset')).toHaveLength(3);
+    expect(w.findAll('.knowledge-check fieldset')).toHaveLength(3);
     expect(api.post).toHaveBeenCalledTimes(1);
     expect(api.post).toHaveBeenCalledWith('/provider-update/document-learning/enrollments/11/reading', { agencyId: 2, slug: 'first' });
     expect(w.emitted('completed')).toBeUndefined();
@@ -109,8 +109,8 @@ describe('guide reader, questions and completion', () => {
     api.get.mockResolvedValue({ data: saved });
     const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
     expect(w.get('.reading-ready').text()).toContain('Reading complete. Put it into practice.');
-    expect(w.get('.reading-confirmation').text()).toContain('Start knowledge check');
-    await button(w, 'Start knowledge check').trigger('click');
+    expect(w.get('.reading-confirmation').text()).toContain('Start reflection questions');
+    await button(w, 'Start reflection questions').trigger('click');
     await w.get('.quiz-heading').findAll('button')[0].trigger('click');
     expect(w.emitted('close')).toEqual([[{ skippedKnowledgeCheck: true }]]);
     expect(w.emitted('completed')).toBeUndefined();
@@ -122,10 +122,10 @@ describe('guide reader, questions and completion', () => {
     api.post.mockResolvedValue({ data: { tracking: false } });
     const w = await mounted(Player, { props: { agencyId: 2, learningId: 11 }, global: { stubs: { Book: BookStub } } });
     expect(button(w, 'Skip knowledge')).toBeUndefined();
-    await button(w, 'Start knowledge check').trigger('click');
+    await button(w, 'Start reflection questions').trigger('click');
     expect(button(w, 'Skip knowledge')).toBeUndefined();
-    expect(button(w, 'Check my answers').attributes('disabled')).toBeDefined();
-    await w.get('form').trigger('submit'); await flushPromises();
+    expect(button(w, 'Reveal answers & save reflection').attributes('disabled')).toBeDefined();
+    await w.get('.knowledge-check form').trigger('submit'); await flushPromises();
     expect(api.post.mock.calls.some(([path]) => path.endsWith('/quiz'))).toBe(false);
     expect(w.emitted('completed')).toBeUndefined();
   });
@@ -169,7 +169,7 @@ describe('beta practice and separate learning sections', () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, status: 'beta', betaRevision: 'source-revision', version: { id: 0 }, onboardingRequired: true }] } });
     api.post.mockResolvedValue({ data: { id: 12 } });
     const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'on-demand' }, global: { stubs: { Player: true } } });
-    expect(button(w, 'Start required')).toBeUndefined(); expect(button(w, 'Start optional').attributes('disabled')).toBeUndefined();
+    expect(button(w, 'Start learning')).toBeUndefined(); expect(button(w, 'Start optional').attributes('disabled')).toBeUndefined();
     await button(w, 'Start optional').trigger('click'); await flushPromises();
     expect(api.post).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ purpose: 'practice', expectedBetaRevision: 'source-revision', expectedVersionId: 0 }));
   });
@@ -177,6 +177,31 @@ describe('beta practice and separate learning sections', () => {
     api.get.mockResolvedValue({ data: { courses: [{ ...course, enrollments: [{ id: 1, purpose: 'onboarding', status: 'completed' }, { id: 2, purpose: 'practice', status: 'completed' }, { id: 3, purpose: 'assigned', status: 'in_progress' }] }] } });
     const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'completed' }, global: { stubs: { Player: true } } });
     expect(w.findAll('button').filter(b => b.text() === 'Review completion')).toHaveLength(2);
-    expect(button(w, 'Start optional')).toBeUndefined(); expect(button(w, 'Continue assigned')).toBeUndefined();
+    expect(button(w, 'Start optional')).toBeUndefined(); expect(button(w, 'Continue learning')).toBeUndefined();
   });
+});
+
+it('opens beta onboarding guides in a reading view without starting training', async () => {
+  api.get.mockImplementation(async url => ({ data: url.endsWith('/read') ? { book, status: 'beta' } : { courses: [{ ...course, status: 'beta', canRead: true, onboardingRequired: true }] } }));
+  const w = await mounted(Catalog, { props: { agencyId: 2, mode: 'onboarding', apiBase: '/prehire-portal/private/document-learning' }, global: { stubs: { Book: true } } });
+  expect(button(w, 'Start learning').attributes('disabled')).toBeUndefined();
+  await button(w, 'Read guide').trigger('click'); await flushPromises();
+  expect(w.getComponent({ name: 'Book' }).props('handbook')).toMatchObject(book);
+  expect(w.text()).toContain('save your reading progress and reflections'); expect(api.post).not.toHaveBeenCalled();
+  await button(w, 'Back to guides').trigger('click'); expect(w.text()).toContain(course.title);
+});
+
+it('edits and previews visual points and choice explanations before saving the supplied edition', async () => {
+  const editable = { ...definition, questions: questions.map(q => ({ ...q, sourceSlug: 'first', correctAnswer: 1, explanation: 'This follows the source.' })) };
+  api.get.mockResolvedValue({ data: { book: { ...book, version: { id: 0 } }, definition: editable, status: 'beta', sourceRevision: 'source-v1', reviewRevision: null } });
+  api.post.mockResolvedValue({ data: {} });
+  const w = await mounted(Review, { props: { agencyId: 2, documentKey: 'provider-guide', versionId: 0 } });
+  await button(w, 'Customize source points').trigger('click');
+  const lessonEditor = w.get('.lesson-editor'); await lessonEditor.get('textarea').setValue('Use the approved workflow.');
+  await w.get('.answer-editor textarea').setValue('This option skips the required clarification.');
+  await button(w, 'Preview interactive training').trigger('click'); await flushPromises();
+  expect(w.get('.training-preview').text()).toContain('Use the approved workflow.');
+  expect(api.post).not.toHaveBeenCalled();
+  await w.get('form').trigger('submit'); await flushPromises();
+  expect(api.post).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ expectedVersionId: 0, expectedSourceRevision: 'source-v1', definition: expect.objectContaining({ lessonPresentation: expect.objectContaining({ first: expect.objectContaining({ facts: ['Use the approved workflow.'] }) }), questions: expect.arrayContaining([expect.objectContaining({ choiceExplanations: ['This option skips the required clarification.', ''] })]) }) }));
 });

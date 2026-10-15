@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), agencies: vi.fn(), access: vi.fn(), start: vi.fn(), detail: vi.fn(), catalog: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), agencies: vi.fn(), access: vi.fn(), start: vi.fn(), detail: vi.fn(), catalog: vi.fn(), read: vi.fn(), reflection: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: mocks.agencies } }));
 vi.mock('../../services/companyReferenceDocuments.service.js', () => ({ assertReferenceAccess: mocks.access }));
-vi.mock('../../services/companyDocumentLearning.service.js', () => ({ startGuideLearning: mocks.start, guideLearningDetail: mocks.detail, guideLearningCatalog: mocks.catalog }));
+vi.mock('../../services/companyDocumentLearning.service.js', () => ({ startGuideLearning: mocks.start, guideLearningDetail: mocks.detail, guideLearningCatalog: mocks.catalog, readGuide: mocks.read, revealGuideReflection: mocks.reflection }));
 import { assertLearningAssigner, start, assign, staff, portalLearning } from '../companyDocumentLearning.controller.js';
 beforeEach(() => { vi.clearAllMocks(); mocks.access.mockResolvedValue(); mocks.agencies.mockResolvedValue([{ id: 2 }]); mocks.execute.mockResolvedValue([[]]); });
 const response = () => ({ set: vi.fn(), json: vi.fn() });
@@ -47,4 +47,18 @@ describe('personal onboarding token isolation', () => {
     const next = vi.fn(); await portalLearning('catalog')({ portalUser: { id: 7, status: 'PREHIRE_OPEN' } }, response(), next);
     expect(next.mock.calls[0][0].status).toBe(403); expect(mocks.catalog).not.toHaveBeenCalled();
   });
+});
+
+it('opens source guide reading using only the onboarding token identity', async () => {
+  mocks.execute.mockResolvedValue([[{ id: 2 }]]);
+  const next = vi.fn();
+  await portalLearning('read')({ portalUser: { id: 7, status: 'ONBOARDING' }, params: { key: 'provider-guide' }, query: { agencyId: 88, userId: 99 } }, response(), next);
+  expect(mocks.read).toHaveBeenCalledWith(2, 7, 'provider-guide'); expect(next).not.toHaveBeenCalled();
+});
+
+it('saves a scenario only for the person and company resolved from the portal token', async () => {
+  mocks.execute.mockResolvedValue([[{ id: 2 }]]); const next = vi.fn();
+  await portalLearning('reflection')({ portalUser: { id: 7, status: 'ONBOARDING' }, params: { id: '11' }, body: { questionId: 'scope', answer: 0, userId: 99, agencyId: 88 } }, response(), next);
+  expect(mocks.reflection).toHaveBeenCalledWith(2, 7, '11', expect.objectContaining({ questionId: 'scope', answer: 0 }));
+  expect(next).not.toHaveBeenCalled();
 });

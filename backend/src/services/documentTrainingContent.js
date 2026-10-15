@@ -49,11 +49,24 @@ export function validateTrainingDefinition(input, book) {
     ids.add(q.id);
     if (typeof q.prompt !== 'string' || !q.prompt.trim() || q.prompt.length > 1500 || !Array.isArray(q.options) || q.options.length < 2 || q.options.length > 6 || q.options.some(o => typeof o !== 'string' || !o.trim() || o.length > 1200)) fail('Provide a question and two to six answer choices.');
     if (!Number.isInteger(q.correctAnswer) || q.correctAnswer < 0 || q.correctAnswer >= q.options.length || !sections.has(q.sourceSlug) || typeof q.explanation !== 'string' || !q.explanation.trim() || q.explanation.length > 3000) fail('Each question needs a correct answer, explanation and published source section.');
-    return { id: q.id, prompt: q.prompt.trim(), options: q.options.map(o => o.trim()), correctAnswer: q.correctAnswer, explanation: q.explanation.trim(), sourceSlug: q.sourceSlug };
+    if (q.choiceExplanations != null && (!Array.isArray(q.choiceExplanations) || q.choiceExplanations.length !== q.options.length || q.choiceExplanations.some(text => typeof text !== 'string' || text.length > 3000))) fail('Provide one optional explanation for each answer choice.');
+    return { choiceExplanations: q.choiceExplanations?.map(text => text.trim()), id: q.id, prompt: q.prompt.trim(), options: q.options.map(o => o.trim()), correctAnswer: q.correctAnswer, explanation: q.explanation.trim(), sourceSlug: q.sourceSlug };
   });
   const requiredSections = [...new Set(input.requiredSections)];
   const slugs = [...new Set([...requiredSections, ...questions.map(q => q.sourceSlug)])];
-  return { title: String(input.title || book.metadata?.title || 'Guide training').slice(0, 250), description: String(input.description || '').slice(0, 1500), requiredSections, questions, passingScore: 100,
+  const lessonPresentation = {};
+  for (const slug of requiredSections) {
+    const item = input.lessonPresentation?.[slug];
+    if (item == null) continue;
+    if (typeof item !== 'object' || Array.isArray(item)) fail('Provide valid lesson details.');
+    const title = String(item.title || '').trim(), imageUrl = String(item.imageUrl || '').trim(), imageAlt = String(item.imageAlt || '').trim();
+    if (title.length > 250 || imageUrl.length > 2000 || imageAlt.length > 500) fail('Lesson title or image details are too long.');
+    if (imageUrl && !/^https:\/\//i.test(imageUrl) && !/^\/(assets|uploads)\/[^\\]+$/.test(imageUrl)) fail('Use an HTTPS image link or an image from the app library.');
+    const facts = item.facts || [];
+    if (!Array.isArray(facts) || facts.length > 50 || facts.some(text => typeof text !== 'string' || text.length > 5000)) fail('Use up to 50 lesson points, each under 5,000 characters.');
+    lessonPresentation[slug] = { title, imageUrl, imageAlt, facts: facts.map(text => text.trim()).filter(Boolean) };
+  }
+  return { title: String(input.title || book.metadata?.title || 'Guide training').slice(0, 250), description: String(input.description || '').slice(0, 1500), requiredSections, questions, lessonPresentation, passingScore: 100,
     sectionHashes: Object.fromEntries(slugs.map(slug => [slug, trainingHash(sections.get(slug).body_html)])) };
 }
 export function trainingMatchesEdition(definition, book) {
@@ -66,7 +79,7 @@ export function trainingTemplateForEdition(template, book) {
   const {previousEditions, ...current} = template;
   return [current, ...(previousEditions || [])].find(definition => trainingMatchesEdition(definition, book)) || current;
 }
-export const learnerDefinition = definition => ({ ...definition, betaBook: undefined, sectionHashes: undefined, previousEditions: undefined, questions: definition.questions.map(({ id, prompt, options }) => ({ id, prompt, options })) });
+export const learnerDefinition = definition => ({ ...definition, betaBook: undefined, sectionHashes: undefined, previousEditions: undefined, questions: definition.questions.map(({ id, prompt, options, sourceSlug }) => ({ id, prompt, options, sourceSlug })) });
 export function gradeDocumentQuiz(definition, answers) {
   if (!Array.isArray(answers) || answers.length !== definition.questions.length || answers.some((a, i) => !Number.isInteger(a) || a < 0 || a >= definition.questions[i].options.length)) fail('Answer every question before submitting.');
   const feedback = definition.questions.map((q, i) => ({ id: q.id, correct: answers[i] === q.correctAnswer, correctAnswer: q.correctAnswer, explanation: q.explanation, sourceSlug: q.sourceSlug }));

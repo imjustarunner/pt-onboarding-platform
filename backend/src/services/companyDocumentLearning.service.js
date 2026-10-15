@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { getAppliedJobHireDefaults, resolveOnboardingDefaults } from './hireJobDefaults.service.js';
+import { jsonObject } from '../utils/hirePortalWorkflow.js';
 import { recordDocumentQuestion } from './documentAnalytics.service.js';
 import { referenceAllowed, referenceSource, referenceMetadata } from './companyReferenceContent.js';
 import { answerFromHandbook } from './workplaceHandbookAssistant.service.js';
@@ -24,7 +26,7 @@ async function transaction(userId, action) {
 }
 export async function learningContext(agencyId, userId, db = pool) {
   if (!positiveId(agencyId) || !positiveId(userId)) fail('Select a company and staff member.');
-  const [[agency]] = await db.execute('SELECT id, name, slug FROM agencies WHERE id = ?', [Number(agencyId)]);
+  const [[agency]] = await db.execute('SELECT id, name, slug, prehire_settings FROM agencies WHERE id = ?', [Number(agencyId)]);
   const [[user]] = await db.execute('SELECT u.*, ua.agency_role, ua.agency_position FROM users u JOIN user_agencies ua ON ua.user_id = u.id WHERE u.id = ? AND ua.agency_id = ?', [Number(userId), Number(agencyId)]);
   if (!agency || !user) fail('Company learning access denied.', 403);
   let preference = null;
@@ -32,7 +34,19 @@ export async function learningContext(agencyId, userId, db = pool) {
     const [[row]] = await db.execute('SELECT expected_school_work FROM company_document_training_preferences WHERE agency_id = ? AND user_id = ?', [agencyId, userId]);
     preference = row?.expected_school_work;
   }
-  return { agency, user, expectedSchoolWork: expectedSchoolWork(agency, user, preference), requiredKeys: requiredTrainingKeys(agency, user, preference) };
+  let requiredKeys = requiredTrainingKeys(agency, user, preference);
+  if (trainingDefinitionsFor(agency).length) {
+    const [[row]] = await db.execute('SELECT config_json FROM hire_portal_packets WHERE user_id = ? AND agency_id = ?', [userId, agencyId]);
+    const packet = jsonObject(row?.config_json);
+    const alreadyStarted = user.status === 'ONBOARDING' || activeEmployee(user);
+    const job = packet.onboardingTraining || alreadyStarted ? {} : await getAppliedJobHireDefaults(userId, agencyId, db);
+    const { training } = resolveOnboardingDefaults({ settings: alreadyStarted ? {} : jsonObject(agency.prehire_settings), job, packet });
+    const known = new Set(trainingDefinitionsFor(agency).map(d => d.documentKey));
+    const keys = new Set(requiredKeys);
+    for (const [key, required] of Object.entries(training.guideRequirements)) if (known.has(key)) { if (required) keys.add(key); else keys.delete(key); }
+    requiredKeys = [...keys];
+  }
+  return { agency, user, expectedSchoolWork: expectedSchoolWork(agency, user, preference), requiredKeys };
 }
 function registered(agency, key) {
   const definition = trainingDefinitionsFor(agency).find(d => d.documentKey === key);
@@ -50,9 +64,9 @@ export async function documentTrainingCourse(agency, key, db = pool) {
     // Version 0 denotes a supplied beta snapshot stored with the learning record.
     // It never points at or publishes a mutable company draft.
     const betaBook = { metadata: { ...referenceMetadata(source), beta: true }, sections: source.sections, version: { id: 0, version_number: 0, beta: true } };
-    const definition = trainingTemplateForEdition(template, betaBook);
-    if (!trainingMatchesEdition(definition, betaBook)) return { key, title: template.title, status: 'needs_review', definition, book: null };
-    return { key, title: definition.title, status: 'beta', definition, book: betaBook, revision: trainingHash({ definition, betaBook }) };
+    const [[review]] = await db.execute('SELECT * FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ?', [agency.id, key, 0]);
+    const definition = review ? json(review.definition_json) : trainingTemplateForEdition(template, betaBook);
+    return { key, title: definition.title, status: trainingMatchesEdition(definition, betaBook) ? 'beta' : 'needs_review', definition, book: betaBook, sourceRevision: trainingHash(betaBook), revision: trainingHash({ definition, betaBook }) };
   }
   const [[review]] = await db.execute('SELECT * FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ?', [agency.id, key, row.id]);
   const [[previousReview]] = !review ? await db.execute('SELECT definition_json FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? ORDER BY reviewed_at DESC, version_id DESC LIMIT 1', [agency.id, key]) : [[]];
@@ -68,16 +82,25 @@ export async function reviewDocumentTraining(agencyId, key, actorId, input) {
     // Serialize quiz approval with publication. A review cannot silently bind to
     // a different document edition while an administrator is saving it.
     const [[document]] = await db.execute('SELECT * FROM company_reference_documents WHERE agency_id = ? AND document_key = ? FOR UPDATE', [agencyId, key]);
-    if (!document?.published_version_id || Number(input.expectedVersionId) !== Number(document.published_version_id)) fail('The guide changed. Reload before approving its training.', 409);
-    const [[row]] = await db.execute('SELECT * FROM company_reference_versions WHERE id = ? AND document_id = ? AND is_draft = 0', [document.published_version_id, document.id]);
-    const definition = validateTrainingDefinition(input.definition, bookFromRow(row));
+    let book;
+    const versionId = Number(input.expectedVersionId);
+    if (versionId === 0 && !document?.published_version_id) {
+      const course = await documentTrainingCourse(agency, key, db);
+      if (!course.book || course.sourceRevision !== input.expectedSourceRevision) fail('The supplied guide changed. Reload before saving its training.', 409);
+      book = course.book;
+    } else {
+      if (!document?.published_version_id || versionId !== Number(document.published_version_id)) fail('The guide changed. Reload before approving its training.', 409);
+      const [[row]] = await db.execute('SELECT * FROM company_reference_versions WHERE id = ? AND document_id = ? AND is_draft = 0', [document.published_version_id, document.id]);
+      book = bookFromRow(row);
+    }
+    const definition = validateTrainingDefinition(input.definition, book);
     const revision = trainingHash(definition);
-    const [[previous]] = await db.execute('SELECT revision FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ? FOR UPDATE', [agencyId, key, row.id]);
+    const [[previous]] = await db.execute('SELECT revision FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ? FOR UPDATE', [agencyId, key, versionId]);
     if ((previous?.revision || null) !== (input.expectedReviewRevision || null)) fail('Another administrator changed this training review. Reload it.', 409);
     await db.execute(`INSERT INTO company_document_training_reviews (agency_id, document_key, version_id, definition_json, revision, reviewed_by_user_id)
       VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE definition_json = VALUES(definition_json), revision = VALUES(revision), reviewed_by_user_id = VALUES(reviewed_by_user_id), reviewed_at = CURRENT_TIMESTAMP`,
-    [agencyId, key, row.id, JSON.stringify(definition), revision, actorId]);
-    return { revision, versionId: row.id };
+    [agencyId, key, versionId, JSON.stringify(definition), revision, actorId]);
+    return { revision, versionId };
   });
 }
 export async function trainingReviewWorkspace(agencyId, key) {
@@ -97,13 +120,21 @@ export async function guideLearningCatalog(agencyId, userId) {
   for (const template of definitions) {
     const course = await documentTrainingCourse(context.agency, template.documentKey);
     const records = enrollments.filter(e => e.document_key === template.documentKey);
-    courses.push({ key: template.documentKey, title: course.title, description: template.description, status: course.status, betaRevision: course.status === 'beta' ? course.revision : null, version: course.book?.version || null,
-      questionCount: course.definition.questions.length, readingCount: course.definition.requiredSections.length,
+    courses.push({ key: template.documentKey, title: course.title, description: course.definition.description, status: course.status, betaRevision: course.status === 'beta' ? course.revision : null, version: course.book?.version || null,
+      questionCount: course.definition.questions.length, readingCount: course.definition.requiredSections.length, canRead: !!course.book,
       onboardingDefault: context.requiredKeys.includes(template.documentKey),
       onboardingRequired: context.user.status === 'ONBOARDING' && !!journey && !journey.onboarding_completed_at && context.requiredKeys.includes(template.documentKey),
       enrollments: records, libraryPath: `/library?companyDocument=${template.documentKey}` });
   }
   return { courses, expectedSchoolWork: context.expectedSchoolWork, learnerStatus: activeEmployee(context.user) ? 'ACTIVE_EMPLOYEE' : context.user.status };
+}
+export async function readGuide(agencyId, userId, key) {
+  const context = await learningContext(agencyId, userId);
+  if (!canLearn(context.user)) fail('Guides open during onboarding and active employment.', 403);
+  const course = await documentTrainingCourse(context.agency, key);
+  if (!course.book) fail('People Operations is preparing this guide.', 404);
+  // Reading an available edition never creates an enrollment, quiz completion or paid claim.
+  return { book: course.book, status: course.status };
 }
 export async function saveTrainingPreference(agencyId, userId, actorId, expected) {
   if (typeof expected !== 'boolean') fail('Choose whether this employee is expected to work in schools.');
@@ -132,7 +163,6 @@ export async function startGuideLearning(agencyId, userId, key, input, actorId =
     if (existing) return { id: existing.id };
     const course = await documentTrainingCourse(context.agency, key, db);
     const beta = course.status === 'beta';
-    if (beta && purpose !== 'practice') fail('Beta guides are available for optional testing. Publish the reviewed edition before assigning required training.', 409);
     if (beta && input.expectedBetaRevision !== course.revision) fail('The beta edition changed. Reload before starting.', 409);
     if (!beta && course.status !== 'ready') fail(course.status === 'unpublished' ? 'Publish the guide before assigning its training.' : 'Review the questions against the current guide before assigning this training.', 409);
     if (Number(input.expectedVersionId) !== Number(course.book.version.id)) fail('The guide edition changed. Reload before starting.', 409);
@@ -152,7 +182,7 @@ async function ownedLearning(agencyId, userId, id, db = pool) {
   if (!row || !referenceAllowed(context.agency, row.document_key)) fail('Training not found.', 404);
   registered(context.agency, row.document_key);
   const definition = json(row.definition_json);
-  if (Number(row.version_id) === 0 && definition.betaBook && row.purpose === 'practice') return { row, book: definition.betaBook, definition, context };
+  if (Number(row.version_id) === 0 && definition.betaBook) return { row, book: definition.betaBook, definition, context };
   const [[version]] = await db.execute(`SELECT v.* FROM company_reference_versions v JOIN company_reference_documents d ON d.id = v.document_id
     WHERE v.id = ? AND d.agency_id = ? AND d.document_key = ? AND v.is_draft = 0`, [row.version_id, agencyId, row.document_key]);
   if (!version) fail('Assigned guide edition not found.', 404);
@@ -161,9 +191,11 @@ async function ownedLearning(agencyId, userId, id, db = pool) {
 export async function guideLearningDetail(agencyId, userId, id) {
   const { row, book, definition, context } = await ownedLearning(agencyId, userId, id);
   const [attempts] = await pool.execute('SELECT id, result_json, created_at FROM company_document_learning_attempts WHERE learning_id = ? ORDER BY id DESC LIMIT 20', [id]);
+  const savedResults = attempts.map(a => ({ id: a.id, ...json(a.result_json), createdAt: a.created_at }));
   const [time] = await pool.execute('SELECT work_date, seconds, submitted_seconds, payroll_claim_ids_json FROM company_document_learning_time WHERE learning_id = ? ORDER BY work_date', [id]);
   return { id: row.id, key: row.document_key, purpose: row.purpose, status: row.status, completedAt: row.completed_at,
-    book, definition: learnerDefinition(definition), readSections: json(row.read_sections_json, []), attempts: attempts.map(a => ({ id: a.id, ...json(a.result_json), createdAt: a.created_at })),
+    book, definition: { ...learnerDefinition(definition), passingScore: undefined, completionMode: 'reflection' }, readSections: json(row.read_sections_json, []), attempts: savedResults.filter(a => !a.reflection),
+    reflections: savedResults.filter(a => a.reflection).flatMap(a => a.feedback || []),
     paid: row.purpose !== 'practice', onboardingTime: row.purpose !== 'practice' && context.user.status === 'ONBOARDING',
     time: time.map(t => ({ workDate: t.work_date, seconds: t.seconds, submittedSeconds: t.submitted_seconds, claimIds: json(t.payroll_claim_ids_json, []) })) };
 }
@@ -186,6 +218,22 @@ export async function markGuideReading(agencyId, userId, id, slug) {
     return { readSections: read };
   });
 }
+// Save one scenario at a time. Revealing an explanation never completes the course.
+export async function revealGuideReflection(agencyId, userId, id, input) {
+  return transaction(userId, async (db, user) => {
+    const { row, definition } = await ownedLearning(agencyId, userId, id, db);
+    await assertOpenLearning(db, user, row);
+    const question = definition.questions.find(q => q.id === input.questionId);
+    if (!question || !Number.isInteger(input.answer) || input.answer < 0 || input.answer >= question.options.length) fail('Choose a response to this scenario.');
+    if (definition.requiredSections.includes(question.sourceSlug) && !json(row.read_sections_json, []).includes(question.sourceSlug)) fail('Review this topic before revealing its scenario.');
+    const feedback = { id: question.id, selectedAnswer: input.answer, correctAnswer: question.correctAnswer, answer: question.options[question.correctAnswer], explanation: question.explanation, sourceSlug: question.sourceSlug, choiceExplanation: question.choiceExplanations?.[input.answer] || null };
+    const result = { reflection: true, feedback: [feedback] };
+    const requestKey = `reflection-${trainingHash(question.id).slice(0, 40)}`;
+    await db.execute(`INSERT INTO company_document_learning_attempts (learning_id, request_key, answers_json, result_json) VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE answers_json = VALUES(answers_json), result_json = VALUES(result_json)`, [id, requestKey, JSON.stringify([input.answer]), JSON.stringify(result)]);
+    return feedback;
+  });
+}
 export async function submitGuideQuiz(agencyId, userId, id, input) {
   if (!/^[a-zA-Z0-9-]{16,80}$/.test(input.requestKey || '')) fail('A unique submission request is required.');
   return transaction(userId, async (db, user) => {
@@ -194,10 +242,11 @@ export async function submitGuideQuiz(agencyId, userId, id, input) {
     if (previous) return json(previous.result_json);
     await assertOpenLearning(db, user, row);
     const read = new Set(json(row.read_sections_json, []));
-    if (definition.requiredSections.some(slug => !read.has(slug))) fail('Review and acknowledge each required reading section before submitting the quiz.');
-    const result = gradeDocumentQuiz(definition, input.answers);
+    if (definition.requiredSections.some(slug => !read.has(slug))) fail('Review each core section before revealing the answers.');
+    const graded = gradeDocumentQuiz(definition, input.answers);
+    const result = { completed: true, reviewed: true, feedback: graded.feedback.map(({ correct, ...feedback }, index) => ({ ...feedback, answer: definition.questions[index].options[feedback.correctAnswer], selectedAnswer: input.answers[index], choiceExplanation: definition.questions[index].choiceExplanations?.[input.answers[index]] || null })) };
     await db.execute('INSERT INTO company_document_learning_attempts (learning_id, request_key, answers_json, result_json) VALUES (?, ?, ?, ?)', [id, input.requestKey, JSON.stringify(input.answers), JSON.stringify(result)]);
-    if (result.passed) await db.execute("UPDATE company_document_learning SET status = 'completed', completed_at = UTC_TIMESTAMP() WHERE id = ?", [id]);
+    await db.execute("UPDATE company_document_learning SET status = 'completed', completed_at = UTC_TIMESTAMP() WHERE id = ?", [id]);
     return result;
   });
 }
@@ -278,5 +327,5 @@ export async function assertOnboardingGuideTraining(userId, agencyId, db = pool)
   const [[user]] = await db.execute('SELECT * FROM users WHERE id = ?', [userId]);
   if (!user) fail('Employee not found.', 404);
   const steps = await onboardingGuideSteps(user, agencyId, db);
-  if (steps.some(s => !s.complete)) fail('Complete the required guide reading and quizzes before submitting onboarding.');
+  if (steps.some(s => !s.complete)) fail('Complete the required guide reading and reflection questions before submitting onboarding.');
 }

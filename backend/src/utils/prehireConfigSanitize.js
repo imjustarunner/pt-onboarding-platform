@@ -1,4 +1,5 @@
 import { sanitizeContractExpectations } from './contractExpectations.js';
+import { sanitizeHireTraining } from './hireTrainingDefaults.js';
 import { sanitizeWorkflow } from './hirePortalWorkflow.js';
 import { sanitizeDocumentHtml } from '../services/libraryDocument.service.js';
 const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document', 'receipt']);
@@ -51,7 +52,12 @@ export function sanitizePrehireConfig(raw) {
     .map((n) => Number(n))
     .filter((n) => Number.isFinite(n) && n > 0);
 
-  return { ...(parsed.contractDefaults ? {contractDefaults: sanitizeContractExpectations(parsed.contractDefaults)} : {}), documents, signerRoleIds, excludedDocumentIds: (Array.isArray(parsed.excludedDocumentIds) ? parsed.excludedDocumentIds : []).map(id => String(id).slice(0, 80)), ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
+  const packages = {};
+  if (parsed.onboardingTraining) packages.onboardingTraining = sanitizeHireTraining(parsed.onboardingTraining);
+  for (const key of ['prehirePackageId', 'onboardingPackageId']) {
+    if (Object.hasOwn(parsed, key)) packages[key] = Number.isSafeInteger(Number(parsed[key])) && Number(parsed[key]) > 0 ? Number(parsed[key]) : null;
+  }
+  return { ...packages, ...(parsed.contractDefaults ? {contractDefaults: sanitizeContractExpectations(parsed.contractDefaults)} : {}), documents, signerRoleIds, excludedDocumentIds: (Array.isArray(parsed.excludedDocumentIds) ? parsed.excludedDocumentIds : []).map(id => String(id).slice(0, 80)), ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
 }
 
 export function mergePrehireDocuments(jobConfig, agencyDefaults) {

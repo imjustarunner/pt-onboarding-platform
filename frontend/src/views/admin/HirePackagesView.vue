@@ -52,7 +52,7 @@ const isDirty = key => JSON.stringify(drafts.value[key]) !== originals.value[key
 const anyDirty = computed(() => !!state.value && phases.some(p => isDirty(p.key)));
 const endpoint = () => `/hiring/candidates/${userId.value}/hire-packages`;
 let generation = 0;
-function setDraft(key, data) { drafts.value[key] = JSON.parse(JSON.stringify({ packageId: data.packageId, workflow: data.workflow })); originals.value[key] = JSON.stringify(drafts.value[key]); }
+function setDraft(key, data) { drafts.value[key] = JSON.parse(JSON.stringify({ packageId: data.packageId || (data.preparing ? data.suggestedPackageId : null) || null, workflow: data.workflow })); originals.value[key] = JSON.stringify(drafts.value[key]); }
 async function load() {
   const request = ++generation; loading.value = true; error.value = ''; state.value = null;
   try {

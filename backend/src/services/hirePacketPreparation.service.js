@@ -54,7 +54,7 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
   }
   const packet = { workflow, documents, contractConfigId: Number(job.default_contract_config_id) || null, jobDescription: job ? { id: job.id, title: job.title, descriptionText: job.description_text, descriptionSections: jsonObject(job.description_sections_json), scheduleText: job.schedule_text } : null, handbookUrl: workflow.handbookUrl || settings.handbook_full_url || '',
     onboardingPackageId: null,
-    prehirePackageId: Object.hasOwn(body, 'packageId') ? Number(body.packageId) || null : Number(preset?.prehirePackageId || settings.default_prehire_package_id) || null };
+    prehirePackageId: Object.hasOwn(body, 'packageId') ? Number(body.packageId) || null : Number(preset?.prehirePackageId || jobConfig.prehirePackageId || settings.default_prehire_package_id) || null };
   if (!packet.handbookUrl) fail('Add the workplace handbook viewer link in Hiring & Pre-Hire settings before sending.');
   for (const [key, type] of [['prehirePackageId','pre_hire'],['onboardingPackageId','onboarding']]) {
     if (!packet[key]) continue;
@@ -73,7 +73,7 @@ export async function retainHirePacket({ userId, agencyId, packet, actorId }) {
     const [[existingPacket]] = await db.execute('SELECT agency_id, config_json FROM hire_portal_packets WHERE user_id = ?', [userId]);
     if (existingPacket && Number(existingPacket.agency_id) !== Number(agencyId)) throw Object.assign(new Error('The hire package belongs to another organization.'), { status: 403 });
     const prepared = jsonObject(existingPacket?.config_json);
-    const retained = { ...packet, onboardingPackageId: prepared.onboardingPackageId || packet.onboardingPackageId,
+    const retained = { ...packet, ...(prepared.onboardingTraining ? { onboardingTraining: prepared.onboardingTraining } : {}), onboardingPackageId: prepared.onboardingPackageId || packet.onboardingPackageId,
       workflow: { ...packet.workflow, resources: [...(packet.workflow.resources || []).filter(r => r.phase !== 'onboarding'), ...(prepared.workflow?.resources || []).filter(r => r.phase === 'onboarding')],
         excludedResourceIds: [...new Set([...(packet.workflow.excludedResourceIds || []), ...(prepared.workflow?.excludedResourceIds || []).filter(id => !(packet.workflow.resources || []).some(r => r.id === id))])] } };
     await db.execute(`INSERT INTO hire_portal_packets (user_id, agency_id, config_json) VALUES (?, ?, ?)

@@ -1,3 +1,4 @@
+import { getSharedHireDefaults, saveSharedHireDefaults, validateJobHireDefaults } from '../services/hireJobDefaults.service.js';
 import { getPrehireDraft, savePrehireDraft } from '../services/prehireDraft.service.js';
 import { candidatePrehireProgress } from '../services/hireCandidateProgress.service.js';
 import { referenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
@@ -1600,6 +1601,8 @@ export const createJobDescription = async (req, res, next) => {
       storagePath = storageResult.relativePath;
     }
 
+    const prehireConfigJson = parsePrehireConfigFromBody(req.body);
+    await validateJobHireDefaults(prehireConfigJson, agencyId);
     const created = await HiringJobDescription.create({
       agencyId,
       title,
@@ -1625,11 +1628,8 @@ export const createJobDescription = async (req, res, next) => {
       unpublishAt
     });
 
-    const prehireConfigJson = parsePrehireConfigFromBody(req.body);
     if (prehireConfigJson && created?.id) {
-      try {
-        await HiringJobDescription.updateById(created.id, { prehireConfigJson });
-      } catch { /* column may not exist yet */ }
+      await HiringJobDescription.updateById(created.id, { prehireConfigJson });
     }
     const saved = created?.id ? (await HiringJobDescription.findById(created.id)) || created : created;
     res.status(201).json(mapJobDescriptionRow(saved, agencyTimezone));
@@ -1735,6 +1735,8 @@ export const updateJobDescription = async (req, res, next) => {
         if (raw !== undefined) return sanitizeJobDescriptionSections(raw);
         return parseJobDescriptionSections(existing.description_sections_json);
       })();
+      const prehireConfigJson = parsePrehireConfigFromBody(req.body) ?? sanitizePrehireConfig(existing.prehire_config_json);
+      await validateJobHireDefaults(prehireConfigJson, agencyId);
       const created = await HiringJobDescription.create({
         agencyId,
         title,
@@ -1767,9 +1769,11 @@ export const updateJobDescription = async (req, res, next) => {
             ? String(existing.credential_mode).trim().toLowerCase()
             : 'none')
       });
+      await HiringJobDescription.updateById(created.id, { prehireConfigJson });
+      const saved = await HiringJobDescription.findById(created.id);
       await HiringJobDescription.deactivateById(existing.id);
       return res.json({
-        ...mapJobDescriptionRow(created, agencyTimezone),
+        ...mapJobDescriptionRow(saved, agencyTimezone),
         replacedJobDescriptionId: existing.id
       });
     }
@@ -1833,6 +1837,8 @@ export const updateJobDescription = async (req, res, next) => {
       applicationPageJson = await saveJobIconImageUpload({ req, agencyId, applicationPageJson });
     }
 
+    const prehireConfigJson = parsePrehireConfigFromBody(req.body);
+    await validateJobHireDefaults(prehireConfigJson, agencyId);
     const updated = await HiringJobDescription.updateById(jdId, {
       title,
       descriptionText: descriptionText || null,
@@ -1852,7 +1858,7 @@ export const updateJobDescription = async (req, res, next) => {
       ...(publishAt !== undefined ? { publishAt } : {}),
       ...(unpublishAt !== undefined ? { unpublishAt } : {}),
       ...(req.body?.prehireConfigJson !== undefined || req.body?.prehire_config_json !== undefined
-        ? { prehireConfigJson: parsePrehireConfigFromBody(req.body) }
+        ? { prehireConfigJson }
         : {})
     });
 
@@ -3842,6 +3848,17 @@ export const openCandidateTimeCapsule = async (req, res, next) => {
 
 // ─── Pre-Hire Settings (per agency) ────────────────────────────────────────
 
+export const hirePackageDefaults = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const result = req.method === 'PUT'
+      ? await saveSharedHireDefaults({ agencyId, actorId: req.user.id, phase: req.params.phase, input: req.body })
+      : await getSharedHireDefaults(agencyId);
+    res.set('Cache-Control', 'private, no-store').json(result);
+  } catch (e) { next(e); }
+};
+
 export const getHiringSettings = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -3963,23 +3980,11 @@ export const addPrehireDocToAgencyDefaults = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'A document with a title is required.' } });
     }
 
-    const [existingRows] = await pool.execute(
-      'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
-      [agencyId]
-    );
-    const rawExisting = existingRows[0]?.prehire_settings;
-    const existing = typeof rawExisting === 'string' ? JSON.parse(rawExisting) : (rawExisting || {});
-    const currentDocs = Array.isArray(existing.default_prehire_docs) ? existing.default_prehire_docs : [];
-    const nextDocs = sanitizePrehireConfig({ documents: currentDocs }).documents;
-    const idx = nextDocs.findIndex((d) => d.id === doc.id);
-    if (idx >= 0) nextDocs[idx] = doc;
-    else nextDocs.push(doc);
-    const merged = { ...existing, default_prehire_docs: nextDocs };
-    await pool.execute(
-      'UPDATE agencies SET prehire_settings = ? WHERE id = ?',
-      [JSON.stringify(merged), agencyId]
-    );
-    res.json({ agencyId, settings: merged, document: doc });
+    const shared = await getSharedHireDefaults(agencyId);
+    const phase = shared.phases.pre_hire;
+    const documents = [...phase.documents.filter(d => d.id !== doc.id), doc];
+    const result = await saveSharedHireDefaults({ agencyId, actorId: req.user.id, phase: 'pre_hire', input: { ...phase, documents } });
+    res.json({ agencyId, ...result, document: doc });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

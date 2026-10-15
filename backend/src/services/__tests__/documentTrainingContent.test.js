@@ -60,15 +60,12 @@ describe('active paid time boundary', () => {
 describe('training across published crisis editions',()=>{
  it('retains the prior edition’s quiz until the revised crisis procedure is published',async()=>{
   const {trainingTemplateForEdition,learnerDefinition}=await import('../documentTrainingContent.js');
-  const definition=trainingDefinitionsFor({slug:'itsco'}).find(d=>d.documentKey==='crisis-response-guide');
-  const old=definition.previousEditions[0];
-  expect(old.questions.find(q=>q.id==='promise').prompt).toContain('promises');
-  expect(learnerDefinition(definition).previousEditions).toBeUndefined();
-  const book={sections:Object.entries(old.sectionHashes).map(([slug])=>({slug,body_html:'changed',content_status:'ready'}))};
-  expect(trainingTemplateForEdition(definition,book).previousEditions).toBeUndefined();
+  // Explicit editions keep this regression independent of optional private source history.
   const {trainingHash}=await import('../documentTrainingContent.js');
   const legacy={title:'Legacy quiz',questions:[],sectionHashes:{example:trainingHash('Previous policy')}};
   const current={title:'Current quiz',questions:[],sectionHashes:{example:trainingHash('Revised policy')},previousEditions:[legacy]};
+  expect(learnerDefinition(current).previousEditions).toBeUndefined();
+  expect(trainingTemplateForEdition(current,{sections:[]} ).previousEditions).toBeUndefined();
   expect(trainingTemplateForEdition(current,{sections:[{slug:'example',body_html:'Previous policy',content_status:'ready'}]}).title).toBe('Legacy quiz');
   expect(trainingTemplateForEdition(current,{sections:[{slug:'example',body_html:'Revised policy',content_status:'ready'}]}).title).toBe('Current quiz');
  });

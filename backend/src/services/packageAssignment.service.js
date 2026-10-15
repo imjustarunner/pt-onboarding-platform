@@ -7,7 +7,7 @@ import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import CustomChecklistItem from '../models/CustomChecklistItem.model.js';
 import { assertHireFormReady } from '../utils/hireDocumentFields.js';
 
-export async function assignPackageToUser({ packageId, userId, agencyId, assignedByUserId = null, dueDate = null, connection = null, additionalDocuments = [], documentsOnly = false, reusePhaseItems = false }) {
+export async function assignPackageToUser({ packageId, userId, agencyId, assignedByUserId = null, dueDate = null, connection = null, additionalDocuments = [], additionalModules = [], additionalTracks = [], documentsOnly = false, reusePhaseItems = false }) {
   const pkg = await OnboardingPackage.findById(packageId);
   if (!pkg || !pkg.is_active || (pkg.agency_id && Number(pkg.agency_id) !== Number(agencyId))) {
     throw Object.assign(new Error('Select an active package belonging to this organization.'), { status: 400 });
@@ -18,6 +18,14 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
     OnboardingPackage.getIntakeLinks(packageId)
   ]);
   for (const id of additionalDocuments.map(Number).filter(Boolean)) if (!documents.some((d) => Number(d.document_template_id) === id)) documents.push({ document_template_id: id });
+  if (!documentsOnly) {
+    for (const id of additionalModules.map(Number).filter(Boolean)) if (!modules.some(m => Number(m.module_id) === id)) modules.push({ module_id: id });
+    for (const id of additionalTracks.map(Number).filter(Boolean)) {
+      const track = await TrainingTrack.findById(id);
+      if (!track || !Number(track.is_active) || Number(track.is_archived) || (track.agency_id && Number(track.agency_id) !== Number(agencyId))) throw Object.assign(new Error('Choose an available training focus in this organization.'), { status: 400 });
+      if (!trainingFocuses.some(t => Number(t.track_id) === id)) trainingFocuses.push({ track_id: id, track_name: track.name });
+    }
+  }
   const phase = ['pre_hire', 'onboarding'].includes(pkg.package_type) ? pkg.package_type : 'ongoing';
   const planned = new Map();
   const checklists = new Map();

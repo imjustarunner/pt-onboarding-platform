@@ -21,9 +21,11 @@ const route = operation => async (req, res, next) => {
   } catch (e) { next(e); }
 };
 export const catalog = route((req, agencyId) => learning.guideLearningCatalog(agencyId, req.user.id));
+export const read = route((req, agencyId) => learning.readGuide(agencyId, req.user.id, req.params.key));
 export const start = route((req, agencyId) => learning.startGuideLearning(agencyId, req.user.id, req.params.key, req.body));
 export const detail = route((req, agencyId) => learning.guideLearningDetail(agencyId, req.user.id, req.params.id));
 export const reading = route((req, agencyId) => learning.markGuideReading(agencyId, req.user.id, req.params.id, req.body.slug));
+export const reflection = route((req, agencyId) => learning.revealGuideReflection(agencyId, req.user.id, req.params.id, req.body));
 export const quiz = route((req, agencyId) => learning.submitGuideQuiz(agencyId, req.user.id, req.params.id, req.body));
 export const heartbeat = route((req, agencyId) => learning.heartbeatGuideLearning(agencyId, req.user.id, req.params.id, req.body));
 export const time = route((req, agencyId) => learning.submitGuideTime(agencyId, req.user.id, req.params.id));
@@ -67,9 +69,11 @@ export const portalLearning = action => async (req, res, next) => {
     const userId = req.portalUser.id, id = req.params.id;
     const operations = {
       catalog: () => learning.guideLearningCatalog(agency.id, userId),
+      read: () => learning.readGuide(agency.id, userId, req.params.key),
       start: () => learning.startGuideLearning(agency.id, userId, req.params.key, { ...req.body, purpose: 'onboarding' }),
       detail: () => learning.guideLearningDetail(agency.id, userId, id),
       reading: () => learning.markGuideReading(agency.id, userId, id, req.body.slug),
+      reflection: () => learning.revealGuideReflection(agency.id, userId, id, req.body),
       quiz: () => learning.submitGuideQuiz(agency.id, userId, id, req.body),
       heartbeat: () => learning.heartbeatGuideLearning(agency.id, userId, id, req.body),
       time: () => learning.submitGuideTime(agency.id, userId, id),

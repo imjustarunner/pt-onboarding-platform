@@ -106,3 +106,13 @@ it('rejects invalid collection identifiers rather than silently clearing the sel
   await expect(save('pre_hire', { packageId: 'invalid' })).rejects.toMatchObject({ status: 400 });
   expect(db.commit).not.toHaveBeenCalled();
 });
+
+it('previews the applied job’s onboarding package, training and exclusions before promotion', async () => {
+  const original = m.execute.getMockImplementation();
+  m.execute.mockImplementation(async (sql, args) => sql.includes('jd.prehire_config_json') ? [[{ prehire_config_json: { onboardingPackageId: 12, onboardingTraining: { moduleIds: [23] }, workflow: { excludedResourceIds: ['welcome'], resources: [link('job-orientation', 'onboarding')] } } }]] : original(sql, args));
+  const state = await getHirePackageWorkspace(8, 2);
+  expect(state.phases.onboarding.suggestedPackageId).toBe(12);
+  expect(state.phases.onboarding.training.moduleIds).toEqual([23]);
+  expect(state.phases.onboarding.workflow.resources.map(r => r.id)).toEqual(['job-orientation']);
+  expect(state.phases.onboarding.workflow.excludedResourceIds).toContain('welcome');
+});

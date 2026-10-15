@@ -32,7 +32,7 @@
     </div>
 
     <section v-if="allowAgencyDefault" class="jpde-card">
-      <h4>Agency defaults included with this job</h4>
+      <h4>Documents from all jobs</h4>
       <p v-if="catalogError" role="alert">{{ catalogError }} <button type="button" @click="loadCatalog">Retry</button></p>
       <p v-else-if="catalogLoading">Loading available documents…</p>
       <p v-else-if="!inheritedDocuments.length">No additional agency default documents.</p>
@@ -41,7 +41,7 @@
         <button type="button" class="btn btn-secondary btn-sm" @click="customizeDefault(doc)">View / customize for this job</button>
       </div>
     </section>
-    <h4>{{ allowAgencyDefault ? 'Job-specific documents' : 'Included documents' }} · {{ model.documents.length }}</h4>
+    <h4>{{ allowAgencyDefault ? 'Documents · This job only' : 'Included documents' }} · {{ model.documents.length }}</h4>
     <p v-if="!model.documents.length" class="jpde-empty muted">Use the buttons above to add a document.</p>
     <div v-for="(doc, idx) in model.documents" :key="doc.id || idx" class="jpde-card">
       <div class="jpde-card-head">
@@ -124,7 +124,7 @@
           :disabled="!!defaultBusy[doc.id] || !String(doc.title || '').trim()"
           @click="saveAsAgencyDefault(doc)"
         >
-          {{ defaultBusy[doc.id] ? 'Saving…' : (defaultDone[doc.id] ? 'Saved as agency default' : 'Also set as agency default') }}
+          {{ defaultBusy[doc.id] ? 'Saving…' : (defaultDone[doc.id] ? 'Saved for all jobs' : 'Use for all jobs') }}
         </button>
       </div>
       <p v-if="defaultError[doc.id]" class="jpde-upload-err">{{ defaultError[doc.id] }}</p>
@@ -139,7 +139,7 @@
         <span><a :href="templateEditUrl(template.id)" target="_blank" rel="noopener">{{ template.name }} · View / edit ↗</a></span><button type="button" class="btn btn-secondary btn-sm" :disabled="templateIncluded(template.id)" @click="attachTemplate(template)">{{ templateIncluded(template.id) ? 'Included' : 'Include document' }}</button>
       </div></div>
     </section>
-    <HireWorkflowEditor v-if="allowAgencyDefault" :model-value="model.workflow || {}" @update:model-value="model = { ...model, workflow: $event }" :templates="availableTemplates" phase="pre_hire" heading="Job-specific videos, links and meetings" />
+    <HireWorkflowEditor v-if="allowAgencyDefault && !hideWorkflow" :model-value="model.workflow || {}" @update:model-value="model = { ...model, workflow: $event }" :templates="availableTemplates" phase="pre_hire" heading="Job-specific videos, links and meetings" />
   </div>
 </template>
 
@@ -154,9 +154,10 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({ documents: [] }) },
   heading: { type: String, default: 'Pre-hire documents for this job' },
   agencyId: { type: [Number, String], default: null },
+  hideWorkflow: Boolean,
   allowAgencyDefault: { type: Boolean, default: true }
 });
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'defaults-saved']);
 const route = useRoute();
 function templateEditUrl(id) { return `${route.params.organizationSlug ? '/' + encodeURIComponent(route.params.organizationSlug) : ''}/admin/documents/${id}/edit?agencyId=${encodeURIComponent(props.agencyId)}`; }
 
@@ -281,7 +282,10 @@ const saveAsAgencyDefault = async (doc) => {
       { document: { ...doc } },
       { params: agencyParams() }
     );
+    model.value = { ...model.value, documents: model.value.documents.filter(d => d.id !== doc.id), excludedDocumentIds: (model.value.excludedDocumentIds || []).filter(id => id !== doc.id) };
+    await loadCatalog();
     defaultDone[doc.id] = true;
+    emit('defaults-saved');
   } catch (e) {
     defaultError[doc.id] = e?.response?.data?.error?.message || 'Could not save agency default.';
   } finally {

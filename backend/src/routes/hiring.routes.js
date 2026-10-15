@@ -62,6 +62,7 @@ import {
   createCandidateTimeCapsule,
   openCandidateTimeCapsule,
   getHiringSettings,
+  hirePackageDefaults,
   updateHiringSettings,
   uploadPrehireDocFile,
   addPrehireDocToAgencyDefaults,
@@ -210,6 +211,8 @@ router.get('/onboarding-candidates', listOnboardingCandidates);
 router.post('/candidates/:userId/send-onboarding-invite', sendOnboardingInvite);
 
 // Pre-hire workflow settings
+router.get('/package-defaults', hirePackageDefaults);
+router.put('/package-defaults/:phase', hirePackageDefaults);
 router.get('/settings', getHiringSettings);
 router.put('/settings', updateHiringSettings);
 router.post('/prehire-doc-files', upload.single('file'), uploadPrehireDocFile);

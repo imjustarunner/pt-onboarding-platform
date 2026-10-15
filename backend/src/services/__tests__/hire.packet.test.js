@@ -52,3 +52,12 @@ describe('packet readiness before inviting an applicant', () => {
     await expect(request({ portalWorkflow: { supervisorRole: true } })).rejects.toThrow('belonging to this organization');
   });
 });
+
+it('uses the job’s prehire package before the agency default without requiring the onboarding package', async () => {
+  settings.default_prehire_package_id = 41;
+  job.prehire_config_json = { prehirePackageId: 42, onboardingPackageId: 43 };
+  const original = execute.getMockImplementation();
+  execute.mockImplementation(async (sql, args) => sql.includes('FROM onboarding_packages') ? [[{ agency_id: 2, package_type: 'pre_hire', is_active: 1 }]] : original(sql, args));
+  const result = await prepareHirePacket({ userId: 1, agencyId: 2, body: {} });
+  expect(result.prehirePackageId).toBe(42); expect(result.onboardingPackageId).toBeNull();
+});

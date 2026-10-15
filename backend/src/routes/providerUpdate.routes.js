@@ -36,6 +36,7 @@ import * as documentLibrary from '../controllers/workplaceDocumentLibrary.contro
 import * as companyDocuments from '../controllers/companyReferenceDocuments.controller.js';
 import * as learning from '../controllers/companyDocumentLearning.controller.js';
 router.get('/document-learning', authenticate, learning.catalog);
+router.get('/document-learning/courses/:key/read', authenticate, learning.read);
 router.get('/document-learning/staff/:userId', authenticate, learning.staff);
 router.put('/document-learning/staff/:userId/preference', authenticate, learning.preference);
 router.post('/document-learning/staff/:userId/:key/assign', authenticate, learning.assign);
@@ -44,6 +45,7 @@ router.post('/document-learning/courses/:key/review', authenticate, learning.sav
 router.post('/document-learning/courses/:key/start', authenticate, learning.start);
 router.get('/document-learning/enrollments/:id', authenticate, learning.detail);
 router.post('/document-learning/enrollments/:id/reading', authenticate, learning.reading);
+router.post('/document-learning/enrollments/:id/reflection', authenticate, learning.reflection);
 router.post('/document-learning/enrollments/:id/quiz', authenticate, learning.quiz);
 router.post('/document-learning/enrollments/:id/heartbeat', authenticate, learning.heartbeat);
 router.post('/document-learning/enrollments/:id/time', authenticate, learning.time);

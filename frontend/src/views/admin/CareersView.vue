@@ -466,7 +466,7 @@
         </div>
         <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
         <ContractExpectationsEditor v-model="createForm.prehireConfig.contractDefaults" />
-        <JobPrehireDocsEditor v-model="createForm.prehireConfig" :agency-id="effectiveAgencyId" />
+        <JobHirePackagesEditor ref="createPackagesRef" v-model="createForm.prehireConfig" :agency-id="effectiveAgencyId" />
       </div>
       <div class="application-page-config">
         <div class="config-header">
@@ -655,7 +655,7 @@
             </div>
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
             <ContractExpectationsEditor v-model="editForm.prehireConfig.contractDefaults" />
-            <JobPrehireDocsEditor v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
+            <JobHirePackagesEditor ref="editPackagesRef" v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
           <JobEvaluationRubricEditor v-if="editingRow?.id" :key="`${effectiveAgencyId}-${editingRow.id}`" :job-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
           <div class="application-page-config">
@@ -744,7 +744,7 @@ import { useAuthStore } from '../../store/auth';
 import JobApplicationPagePreview from '../../components/careers/JobApplicationPagePreview.vue';
 import JobEvaluationRubricEditor from '../../components/careers/JobEvaluationRubricEditor.vue';
 import JobDescriptionSectionsEditor from '../../components/careers/JobDescriptionSectionsEditor.vue';
-import JobPrehireDocsEditor from '../../components/careers/JobPrehireDocsEditor.vue';
+import JobHirePackagesEditor from '../../components/careers/JobHirePackagesEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
@@ -979,6 +979,7 @@ const compactApplicationPage = (page) => {
 };
 const agencyPageForm = ref(blankApplicationPage());
 
+const createPackagesRef = ref(null), editPackagesRef = ref(null);
 const createForm = ref({
   title: '',
   descriptionText: '',
@@ -1318,6 +1319,7 @@ const saveAgencyCareersPage = async () => {
 
 const createJob = async () => {
   if (!effectiveAgencyId.value) return;
+  if (createPackagesRef.value?.sharedDirty || createPackagesRef.value?.saving) { error.value = 'Save or discard the All jobs defaults before saving this posting.'; return; }
   try {
     creating.value = true;
     const fd = new FormData();
@@ -1424,6 +1426,8 @@ const openEdit = (row) => {
   if (editIconFileRef.value) editIconFileRef.value.value = '';
 };
 const closeEdit = () => {
+  if (editPackagesRef.value?.saving) return;
+  if (editPackagesRef.value?.sharedDirty && !window.confirm('Discard the unsaved All jobs defaults?')) return;
   editingRow.value = null;
   editForm.value = {
     title: '',
@@ -1453,6 +1457,7 @@ const closeEdit = () => {
 
 const saveEdit = async () => {
   if (!editingRow.value?.id || !effectiveAgencyId.value) return;
+  if (editPackagesRef.value?.sharedDirty || editPackagesRef.value?.saving) { error.value = 'Save or discard the All jobs defaults before saving this posting.'; return; }
   try {
     savingEdit.value = true;
     const fd = new FormData();
