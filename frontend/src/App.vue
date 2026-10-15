@@ -1964,6 +1964,12 @@
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
       <EmailComposerDock v-if="!applicantInterviewMode" :owner-id="user?.id" :locked="sessionLockStore.isLocked || sessionLockStore.warningActive" />
       <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
+      <HowToVideoWidget
+        v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isPublicOfficeRoute && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
+        :key="user?.id"
+        :role="user?.role"
+        :agency-id="agencyStore.currentAgency?.id"
+      />
       <SuperAdminBuilderPanel v-if="isAuthenticated && !clinicalWorkspaceActive && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
       <TourManager v-if="isAuthenticated && !clinicalWorkspaceActive && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
       <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it.
@@ -2275,6 +2281,7 @@ import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
+import HowToVideoWidget from './components/HowToVideoWidget.vue';
 import { useNotificationStore } from './store/notifications';
 import { useCommunicationsCountsStore } from './store/communicationsCounts';
 import { useSessionLockStore } from './store/sessionLock';

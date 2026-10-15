@@ -3,6 +3,7 @@
     <dialog ref="dialog" class="business-cards-dialog" :class="{ 'self-service-dialog': singlePerson }" aria-labelledby="business-cards-title" @close="$emit('close')">
       <header>
         <div><h2 id="business-cards-title">{{ selfOnly ? 'My business cards' : 'Business cards' }}</h2><p>Avery {{ layout.id }} · {{ layout.dimensions }} · {{ layout.count }} matching cards per selection</p></div>
+        <HowToVideoButton video-id="my-account-business-cards" />
         <button class="btn btn-secondary" aria-label="Close business cards" @click="dialog.close()">Close</button>
       </header>
       <fieldset class="card-format-toggle" aria-label="Card shape">
@@ -115,12 +116,16 @@ import { BUSINESS_CARD_LAYOUTS, businessCardLayout } from '../../utils/businessC
 import { renderCardFace, printSettingsDefaults, normalizePrintSettings, printableCardsHtml } from '../../utils/businessCardPrint';
 import { businessCardsPdf, downloadCardFile, embedCardLogo } from '../../utils/businessCardsExport';
 import { loadBusinessCardFonts } from '../../utils/businessCardFonts';
+import HowToVideoButton from '../HowToVideoButton.vue';
+import { useHowToVideo } from '../../composables/useHowToVideo';
 
 const props = defineProps({ agencies: { type: Array, default: () => [] }, initialAgencyId: { type: [String, Number], default: '' }, selfOnly: { type: Boolean, default: false }, targetUserId: { type: [String, Number], default: null } });
 defineEmits(['close']);
 const singlePerson = computed(() => props.selfOnly || Boolean(props.targetUserId));
 const initialAgency = props.agencies.find(a => String(a.id) === String(props.initialAgencyId))?.id || (props.agencies.length === 1 ? props.agencies[0].id : '');
 const dialog = ref(null), agencyId = ref(String(initialAgency)), people = ref([]), editingId = ref('');
+const { modalHost } = useHowToVideo();
+onBeforeUnmount(() => { if (modalHost.value === dialog.value) modalHost.value = null; });
 const organization = reactive(organizationCardDefaults());
 const loading = ref(false), exporting = ref(false), error = ref(''), notice = ref(''), search = ref('');
 const cardType = ref('people');
@@ -165,6 +170,8 @@ let generation = 0;
 onBeforeUnmount(() => { generation++; });
 onMounted(async () => {
   dialog.value.showModal();
+  // Keep the floating player interactive within the native dialog's top layer.
+  modalHost.value = dialog.value;
   try { fonts.value = await loadBusinessCardFonts(); }
   catch (err) { error.value = err.message; }
 });
@@ -344,6 +351,7 @@ async function exportCards(fileType) {
 
 .business-cards-dialog { width: min(1220px, 96vw); max-height: 94vh; margin: auto; border: 1px solid #d3dfdf; border-radius: 16px; padding: 24px; background: #fff; color: #19373b; }
 .business-cards-dialog.self-service-dialog { width: min(800px, 96vw); }
+.business-cards-dialog > header { flex-wrap: wrap; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .business-cards-dialog::backdrop { background: #132d3bcc; }
 header, footer, .card-toolbar, .colors, .selection-actions { display: flex; gap: 14px; align-items: center; justify-content: space-between; }
