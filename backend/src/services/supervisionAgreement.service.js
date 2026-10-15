@@ -75,10 +75,19 @@ export async function signSupervisionAgreement({ agreementId, userId, input, ip,
     await db.execute(`UPDATE supervision_agreements SET ${role}_signature_json=?,${role}_signed_at=UTC_TIMESTAMP(),signed_pdf_path=? WHERE id=?`, [a[`${role}_signature_json`],pdf.path,a.id]);
     if (a.supervisor_signed_at && a.supervisee_signed_at) {
       for (const uid of [a.supervisor_user_id,a.supervisee_user_id]) {
-        const [doc] = await db.execute(`INSERT INTO user_specific_documents (user_id,name,description,template_type,file_path,document_action_type,created_by_user_id)
-          VALUES (?,?,?,'pdf',?,'review',?)`, [uid,`Supervision Agreement · ${document.agencyName}`,`Agreement ${a.id}; both parties signed; SHA-256 ${a.document_hash}`,pdf.path,userId]);
-        await db.execute(`INSERT INTO signed_documents (template_version,user_id,signed_pdf_path,pdf_hash,signed_at,audit_trail,user_specific_document_id)
-          VALUES (?,?,?,?,UTC_TIMESTAMP(),?,?)`,[a.version,uid,pdf.path,pdf.hash,JSON.stringify({supervisionAgreementId:a.id,documentHash:a.document_hash,signers:signatures.map(({image,...s})=>s)}),doc.insertId]);
+        const title = `Supervision Agreement · ${document.agencyName}`;
+        const description = `Agreement ${a.id}; both parties signed; SHA-256 ${a.document_hash}`;
+        // Signed documents require a task. File an already-completed task for
+        // each signer in this transaction so neither copy requires signing again.
+        const [task] = await db.execute(`INSERT INTO tasks (task_type,document_action_type,title,description,
+          assigned_to_user_id,assigned_to_agency_id,assigned_by_user_id,status,completed_at,metadata)
+          VALUES ('document','signature',?,?,?,?,?,'completed',UTC_TIMESTAMP(),?)`,
+        [title,description,uid,a.agency_id,userId,JSON.stringify({supervisionAgreementId:a.id,documentHash:a.document_hash})]);
+        const [doc] = await db.execute(`INSERT INTO user_specific_documents (user_id,task_id,name,description,template_type,file_path,document_action_type,created_by_user_id)
+          VALUES (?,?,?,?,'pdf',?,'review',?)`, [uid,task.insertId,title,description,pdf.path,userId]);
+        await db.execute('UPDATE tasks SET reference_id=? WHERE id=?', [doc.insertId,task.insertId]);
+        await db.execute(`INSERT INTO signed_documents (template_version,user_id,task_id,signed_pdf_path,pdf_hash,signed_at,audit_trail,user_specific_document_id)
+          VALUES (?,?,?,?,?,UTC_TIMESTAMP(),?,?)`,[a.version,uid,task.insertId,pdf.path,pdf.hash,JSON.stringify({supervisionAgreementId:a.id,documentHash:a.document_hash,signers:signatures.map(({image,...s})=>s)}),doc.insertId]);
       }
     }
     await db.commit(); return agreementPublic(a,userId);
