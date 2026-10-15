@@ -40,4 +40,11 @@ describe('separate optional hiring communications',()=>{
   const current={onboardingStartedAt:'2026-10-09',steps:{onboarding:[{key:'account'},{key:'task-1',taskType:'document'}]}};
   expect(hiringSnapshotEvents(previous,current)).toEqual([{key:'onboarding_started',type:'onboarding_started'}]);
  });
+ it('keeps prepared onboarding changes quiet until onboarding begins',()=>{
+  const previous={steps:{onboarding:[]}};
+  const prepared={steps:{onboarding:[{key:'orientation',kind:'meeting'}]}};
+  expect(hiringSnapshotEvents(previous,prepared)).toEqual([]);
+  expect(hiringSnapshotEvents(prepared,{...prepared,onboardingStartedAt:'2026-10-15'})).toEqual([{key:'onboarding_started',type:'onboarding_started'}]);
+ });
+
 });

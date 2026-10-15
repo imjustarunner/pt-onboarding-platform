@@ -174,7 +174,7 @@
                 <span class="phr-tasks-badge">{{ c.task_completed }} of {{ c.task_total }}</span>
               </td>
               <td class="phr-td" @click.stop>
-                <div class="phr-row-actions">
+                <div class="phr-row-actions"><router-link :to="packagesRoute(c.id)" class="phr-btn phr-btn-secondary phr-btn-sm">Manage hire packages</router-link>
                   <button
                     v-if="c.status === 'PREHIRE_REVIEW'"
                     class="phr-promote-btn"
@@ -255,6 +255,7 @@
             </div>
           </div>
           <div class="phr-detail-header-actions">
+            <router-link :to="packagesRoute(selectedUser.id)" class="phr-btn phr-btn-secondary phr-btn-sm">Manage hire packages</router-link>
             <button class="phr-btn phr-btn-ghost phr-btn-sm" @click="selectedId = null">← Back to list</button>
             <button class="phr-action-btn" @click="toggleMenu('detail')">⋮</button>
             <div v-if="openMenu === 'detail'" class="phr-action-menu phr-action-menu-right" @mouseleave="openMenu = null">
@@ -633,6 +634,7 @@ const settingsRoute = computed(() => {
   const query = params.toString();
   return effectiveSlug.value ? `/${effectiveSlug.value}/admin/settings?${query}` : `/admin/settings?${query}`;
 });
+const packagesRoute = (id) => ({ path: `${effectiveSlug.value ? '/' + effectiveSlug.value : ''}/admin/hiring/people/${id}/packages`, query: { agencyId: selectedAgencyId.value, phase: 'pre_hire' } });
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 // ── State ─────────────────────────────────────────────────────────────────────

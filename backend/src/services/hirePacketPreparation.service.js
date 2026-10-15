@@ -70,8 +70,14 @@ export async function retainHirePacket({ userId, agencyId, packet, actorId }) {
     const [[user]] = await db.execute('SELECT status FROM users WHERE id = ? FOR UPDATE', [userId]);
     const [[journey]] = await db.execute('SELECT prehire_completed_at FROM hire_journeys WHERE user_id = ?', [userId]);
     if (!['PROSPECTIVE','PENDING_SETUP','PREHIRE_OPEN'].includes(user.status) || journey?.prehire_completed_at) throw Object.assign(new Error('The pre-hire packet is closed. Reopen it before changing its contents.'), { status: 409 });
+    const [[existingPacket]] = await db.execute('SELECT agency_id, config_json FROM hire_portal_packets WHERE user_id = ?', [userId]);
+    if (existingPacket && Number(existingPacket.agency_id) !== Number(agencyId)) throw Object.assign(new Error('The hire package belongs to another organization.'), { status: 403 });
+    const prepared = jsonObject(existingPacket?.config_json);
+    const retained = { ...packet, onboardingPackageId: prepared.onboardingPackageId || packet.onboardingPackageId,
+      workflow: { ...packet.workflow, resources: [...(packet.workflow.resources || []).filter(r => r.phase !== 'onboarding'), ...(prepared.workflow?.resources || []).filter(r => r.phase === 'onboarding')],
+        excludedResourceIds: [...new Set([...(packet.workflow.excludedResourceIds || []), ...(prepared.workflow?.excludedResourceIds || []).filter(id => !(packet.workflow.resources || []).some(r => r.id === id))])] } };
     await db.execute(`INSERT INTO hire_portal_packets (user_id, agency_id, config_json) VALUES (?, ?, ?)
-      ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`, [userId, agencyId, JSON.stringify(packet)]);
+      ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`, [userId, agencyId, JSON.stringify(retained)]);
     if (packet.workflow.supervisorRole) await db.execute('UPDATE users SET has_supervisor_privileges = 1 WHERE id = ?', [userId]);
     if (packet.workflow.supervisorUserId) {
       const [[existing]] = await db.execute("SELECT id FROM supervisor_assignments WHERE supervisee_id = ? AND agency_id = ? AND supervisor_type = 'clinical' LIMIT 1", [userId, agencyId]);

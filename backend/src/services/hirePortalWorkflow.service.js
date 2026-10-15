@@ -14,11 +14,11 @@ import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
 import { PREEMPLOYMENT_FIELDS, composeWorkflow, jsonObject, summarizeSteps, validatePreemployment, onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 
-export async function portalPacket(userId, agencyId) {
-  const [[saved]] = await pool.execute('SELECT config_json FROM hire_portal_packets WHERE user_id = ? AND agency_id = ?', [userId, agencyId]);
+export async function portalPacket(userId, agencyId, db = pool) {
+  const [[saved]] = await db.execute('SELECT config_json FROM hire_portal_packets WHERE user_id = ? AND agency_id = ?', [userId, agencyId]);
   const retained = saved ? jsonObject(saved.config_json) : null;
-  const [[agency]] = await pool.execute('SELECT prehire_settings FROM agencies WHERE id = ?', [agencyId]);
-  const [[job]] = await pool.execute(`SELECT jd.prehire_config_json FROM hiring_profiles hp
+  const [[agency]] = await db.execute('SELECT prehire_settings FROM agencies WHERE id = ?', [agencyId]);
+  const [[job]] = await db.execute(`SELECT jd.prehire_config_json FROM hiring_profiles hp
     JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ? WHERE hp.candidate_user_id = ?`, [agencyId, userId]);
   const settings = jsonObject(agency?.prehire_settings);
   return { workflow: composeWorkflow(settings.portal_workflow, jsonObject(job?.prehire_config_json).workflow), documents: null, ...retained,

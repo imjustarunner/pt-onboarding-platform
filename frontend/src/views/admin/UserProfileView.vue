@@ -97,6 +97,7 @@
         </div>
 
         <div v-if="user.status || headerServiceFocus || headerLanguages" class="ph-panel-col">
+          <router-link v-if="canOpenHiringApplications && agencyStore.currentAgency?.id && ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'ONBOARDING', 'ACTIVE_EMPLOYEE'].includes(user.status)" :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/hiring/people/${userId}/packages`, query: { agencyId: agencyStore.currentAgency.id, phase: ['ONBOARDING', 'ACTIVE_EMPLOYEE'].includes(user.status) ? 'onboarding' : 'pre_hire' } }" class="btn btn-secondary btn-sm">Manage hire packages</router-link>
           <div class="ph-panel-item">
             <div class="ph-pl">Employee Status</div>
             <div :class="['ph-pv', user.is_active ? 'ph-pv--active' : '']">

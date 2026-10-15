@@ -28,6 +28,16 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
 describe('hire setup wizards', () => {
+  it('uses the person’s saved onboarding collection and steps when preparing promotion', async () => {
+    const original = http.get.getMockImplementation();
+    http.get.mockImplementation(async url => url.endsWith('hire-packages') ? { data: { phases: { onboarding: { packageId: 9, workflow: { resources: [{ id: 'orientation', phase: 'onboarding', title: 'Personal orientation', kind: 'link', url: 'https://example.org/orientation' }], excludedResourceIds: ['w4'] } } } } } : original(url));
+    wrapper = mount(PromoteToOnboarding, { props: { candidate: { id: 2, first_name: 'Elena', status: 'PREHIRE_REVIEW' }, agencyId: 1 }, global: { stubs: { Teleport: true, OnboardingAccessSetup: true } } });
+    await flushPromises();
+    expect(wrapper.find('select.pto-select').element.value).toBe('9');
+    expect(wrapper.text()).toContain('Personal orientation');
+    expect(wrapper.findComponent({ name: 'HireWorkflowEditor' }).props('modelValue').excludedResourceIds).toEqual(['w4']);
+  });
+
   it('builds one student agreement with a selected starting phase and invalidates review when it changes', async () => {
     const defaultGet = http.get.getMockImplementation();
     http.get.mockImplementation(async url => url.includes('wizard-context') ? { data: {

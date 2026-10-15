@@ -3081,6 +3081,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/hiring/people/:userId/packages',
+    name: 'OrganizationHirePackages',
+    component: () => import('../views/admin/HirePackagesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/hiring/start-pre-hire/:userId',
     name: 'OrganizationStartPreHire',
     component: () => import('../views/admin/StartPreHireView.vue'),
@@ -4669,6 +4675,12 @@ const routes = [
     path: '/admin/hiring/applicants',
     name: 'HiringCandidates',
     component: () => import('../views/admin/HiringCandidatesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/hiring/people/:userId/packages',
+    name: 'HirePackages',
+    component: () => import('../views/admin/HirePackagesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {

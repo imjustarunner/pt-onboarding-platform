@@ -7,7 +7,7 @@ import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import CustomChecklistItem from '../models/CustomChecklistItem.model.js';
 import { assertHireFormReady } from '../utils/hireDocumentFields.js';
 
-export async function assignPackageToUser({ packageId, userId, agencyId, assignedByUserId = null, dueDate = null, connection = null, additionalDocuments = [] }) {
+export async function assignPackageToUser({ packageId, userId, agencyId, assignedByUserId = null, dueDate = null, connection = null, additionalDocuments = [], documentsOnly = false, reusePhaseItems = false }) {
   const pkg = await OnboardingPackage.findById(packageId);
   if (!pkg || !pkg.is_active || (pkg.agency_id && Number(pkg.agency_id) !== Number(agencyId))) {
     throw Object.assign(new Error('Select an active package belonging to this organization.'), { status: 400 });
@@ -22,7 +22,7 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
   const planned = new Map();
   const checklists = new Map();
   const addChecklist = (ci) => checklists.set(Number(ci.checklist_item_id || ci.id), ci);
-  checklistItems.forEach(addChecklist);
+  if (!documentsOnly) checklistItems.forEach(addChecklist);
   const addModule = async (moduleId, extra = {}) => {
     const mod = await Module.findById(moduleId);
     if (!mod || mod.is_active === 0 || (mod.agency_id && Number(mod.agency_id) !== Number(agencyId))) throw new Error(`Module ${moduleId} is missing from the package.`);
@@ -30,13 +30,13 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
       description: mod.description || '', meta: extra });
     (await CustomChecklistItem.findByModule(moduleId)).forEach(addChecklist);
   };
-  for (const focus of trainingFocuses) {
+  for (const focus of (documentsOnly ? [] : trainingFocuses)) {
     for (const mod of await TrainingTrack.getModules(focus.track_id)) {
       await addModule(mod.id, { trackId: focus.track_id, trackName: focus.track_name });
     }
     (await CustomChecklistItem.findByTrainingFocus(focus.track_id)).forEach(addChecklist);
   }
-  for (const mod of modules) await addModule(mod.module_id);
+  for (const mod of (documentsOnly ? [] : modules)) await addModule(mod.module_id);
   for (const doc of documents) {
     const template = await DocumentTemplate.findById(doc.document_template_id);
     if (!template || template.is_active === 0 || (template.agency_id && Number(template.agency_id) !== Number(agencyId))) throw new Error(`Document ${doc.document_template_id} is missing from the package.`);
@@ -45,7 +45,7 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
       description: template.description || '', action: doc.action_type || template.document_action_type || 'signature',
       template, meta: { lifecycleItemKey: template.lifecycle_item_key || null } });
   }
-  for (const link of intakeLinks) {
+  for (const link of (documentsOnly ? [] : intakeLinks)) {
     if (!link.public_key || link.is_active === 0) throw new Error(`Intake form ${link.title || link.intake_link_id} is unavailable.`);
     planned.set(`intake_form:${link.intake_link_id}`, { type: 'intake_form', ref: link.intake_link_id,
       title: link.title || 'Complete questionnaire', description: '', meta: { intakeLinkPublicKey: link.public_key } });
@@ -67,8 +67,9 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
     }
     const [existing] = await db.execute(
       `SELECT id, task_type, reference_id FROM tasks WHERE assigned_to_user_id = ?
-       AND assigned_to_agency_id = ? AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.fromPackage')) = ?
-       AND status NOT IN ('archived', 'overridden', 'deleted')`, [userId, agencyId, String(packageId)]);
+       AND assigned_to_agency_id = ? AND (JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.fromPackage')) = ?
+         ${reusePhaseItems ? "OR JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.portalPhase')) = ?" : ''})
+       AND status NOT IN ('archived', 'overridden', 'deleted')`, [userId, agencyId, String(packageId), ...(reusePhaseItems ? [phase] : [])]);
     const keys = new Set(existing.map((t) => `${t.task_type}:${t.reference_id}`));
     const date = new Date(dueDate || Date.now() + 14 * 86400000);
     if (Number.isNaN(date.getTime())) throw Object.assign(new Error('Invalid due date.'), { status: 400 });
@@ -88,7 +89,7 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
           item.template.signature_x ?? null, item.template.signature_y ?? null, item.template.signature_width ?? null, item.template.signature_height ?? null, item.template.signature_page ?? null]);
       }
     }
-    for (const focus of trainingFocuses) {
+    for (const focus of (documentsOnly ? [] : trainingFocuses)) {
       await db.execute(
         `INSERT INTO user_tracks (user_id, track_id, agency_id, assigned_by_user_id) VALUES (?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`, [userId, focus.track_id, agencyId, assignedByUserId]);

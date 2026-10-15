@@ -165,6 +165,7 @@
             </td>
             <td class="ona-td" @click.stop>
               <div class="ona-row-actions">
+                <router-link :to="packagesRoute(e.id)" class="ona-invite-btn">Manage hire packages</router-link>
                 <button v-if="e.onboarding_completed_at" class="ona-invite-btn" @click.stop="activate(e)">Mark active</button>
                 <button class="ona-invite-btn" @click.stop="openInviteMenu(e.id)">Send Invite ▾</button>
                 <div v-if="inviteMenu === e.id" class="ona-invite-dropdown" @mouseleave="inviteMenu = null">
@@ -255,6 +256,7 @@ const effectiveSlug = computed(() => {
 const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/applicants` : '/admin/hiring/applicants');
 const preHireRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/pre-hire` : '/admin/pre-hire');
 const hiringDashboardRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring` : '/admin/hiring');
+const packagesRoute = (id) => ({ path: `${effectiveSlug.value ? '/' + effectiveSlug.value : ''}/admin/hiring/people/${id}/packages`, query: { agencyId: selectedAgencyId.value, phase: 'onboarding' } });
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 const goToProfile = (e) => router.push(userProfileRoute(e.id));

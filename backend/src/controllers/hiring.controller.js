@@ -4880,3 +4880,17 @@ export const postCandidateReferenceContact = async (req, res, next) => {
     res.status(201).json({ id });
   } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
 };
+
+// Staff browse both phases without changing the person's lifecycle status.
+export const candidateHirePackages = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const userId = parseIntParam(req.params.userId);
+    if (!userId || !await ensureCandidateInAgency(userId, agencyId)) return res.status(404).json({ error: { message: 'Person not found in this organization.' } });
+    const { getHirePackageWorkspace, saveHirePackageWorkspace } = await import('../services/hirePackageWorkspace.service.js');
+    res.set('Cache-Control', 'private, no-store');
+    if (req.method === 'PUT') return res.json(await saveHirePackageWorkspace({ userId, agencyId, actorId: req.user.id, phase: req.params.phase, input: req.body || {} }));
+    res.json(await getHirePackageWorkspace(userId, agencyId));
+  } catch (error) { next(error); }
+};

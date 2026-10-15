@@ -222,18 +222,19 @@ onMounted(async () => {
   try {
     const params = props.agencyId ? { agencyId: props.agencyId } : {};
 
-    const [pkgsRes, settingsRes, documentsRes, guidesRes] = await Promise.all([
+    const [pkgsRes, settingsRes, documentsRes, guidesRes, workspaceRes] = await Promise.all([
       api.get('/onboarding-packages', { params }),
       api.get('/hiring/settings', { params }),
       api.get('/document-templates', { params: { ...params, limit: 1000 } }),
-      api.get(`/provider-update/document-learning/staff/${props.candidate.id}`, { params })
+      api.get(`/provider-update/document-learning/staff/${props.candidate.id}`, { params }),
+      api.get(`/hiring/candidates/${props.candidate.id}/hire-packages`, { params })
     ]);
 
     guideSetup.value = guidesRes.data; expectedSchoolWork.value = guidesRes.data.expectedSchoolWork;
     packages.value = eligibleCollections(pkgsRes.data);
     const settings = settingsRes.data?.settings || settingsRes.data || {};
     documentTemplates.value = Array.isArray(documentsRes.data) ? documentsRes.data : documentsRes.data?.templates || [];
-    portalWorkflow.value = { ...settings.portal_workflow, resources: (settings.portal_workflow?.resources || []).filter(r => r.phase === 'onboarding') };
+    portalWorkflow.value = workspaceRes.data?.phases?.onboarding?.workflow || { ...settings.portal_workflow, resources: (settings.portal_workflow?.resources || []).filter(r => r.phase === 'onboarding') };
 
     agencyDefaultPackageId.value = settings.default_onboarding_package_id || null;
 
@@ -252,7 +253,7 @@ onMounted(async () => {
 
     // A facilitator collection must never become a provider's default merely
     // because it is the only collection available.
-    selectedPackageId.value = [roleMatchedPackageId.value, agencyDefaultPackageId.value]
+    selectedPackageId.value = [workspaceRes.data?.phases?.onboarding?.packageId, roleMatchedPackageId.value, agencyDefaultPackageId.value]
       .find(id => id && packages.value.some(p => String(p.id) === String(id))) || null;
 
   } catch (e) {

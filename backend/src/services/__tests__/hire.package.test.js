@@ -66,4 +66,19 @@ describe('package assignment', () => {
     await assignPackageToUser({ ...request, connection: db });
     expect(db.commit).not.toHaveBeenCalled(); expect(db.release).not.toHaveBeenCalled();
   });
+  it('adds only documents for the pre-hire workspace and reuses documents from another collection in that phase', async () => {
+    m.pkg.mockResolvedValue({ agency_id: 1, is_active: 1, package_type: 'pre_hire' });
+    const original = m.execute.getMockImplementation();
+    m.execute.mockImplementation(async (sql, values) => {
+      if (sql.includes('SELECT id, task_type')) {
+        expect(sql).toContain("JSON_EXTRACT(metadata, '$.portalPhase')");
+        expect(values).toEqual([2, 1, '10', 'pre_hire']);
+        return [[{ task_type: 'document', reference_id: 12 }]];
+      }
+      return original(sql, values);
+    });
+    await assignPackageToUser({ ...request, documentsOnly: true, reusePhaseItems: true });
+    expect(m.execute.mock.calls.some(([sql]) => /INSERT INTO tasks|INSERT INTO user_tracks/.test(sql))).toBe(false);
+  });
+
 });

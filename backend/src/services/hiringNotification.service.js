@@ -22,6 +22,8 @@ export function hiringSnapshotEvents(previous,current) {
   if(current[key]&&!previous[key])events.push({key:type,type});
  // A phase opening already has one notification explaining the new package.
  for(const phase of ['pre_hire','onboarding']){
+  // Prepared onboarding edits stay private until the phase is opened.
+  if(phase==='onboarding' && !current.onboardingStartedAt)continue;
   if(!previous.steps?.[phase] || (phase==='onboarding' && current.onboardingStartedAt && !previous.onboardingStartedAt))continue;
   const seen=new Set(previous.steps[phase].map(s=>s.key));
   for(const step of current.steps?.[phase]||[])if(!seen.has(step.key)&&step.kind!=='review')events.push({key:`${phase}:${step.key}`,type:step.kind==='document'||step.taskType==='document'?'document_added':step.taskType==='training'?'training_added':'item_added'});
