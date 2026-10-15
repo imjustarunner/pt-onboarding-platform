@@ -10,9 +10,9 @@ import {appointmentScheduleNotices} from '../appointmentScheduleNotice.service.j
 import { createReplacementOfferService } from '../appointmentReplacementOffer.service.js';
 import { slotKey } from '../cancellationFollowUp.service.js';
 
-function setup() {
+function setup({modality='VIRTUAL',roomId=null,originalModality='VIRTUAL'}={}) {
   createAppointment.mockReset().mockResolvedValue({id:30});ProviderScheduleEvent.create.mockReset().mockResolvedValue({id:40});appointmentScheduleNotices.queue.mockReset().mockResolvedValue({pending:1});
-  const slot={startAt:'2030-01-04T17:00:00.000Z',endAt:'2030-01-04T18:00:00.000Z',modality:'VIRTUAL',roomId:null,timeZone:'America/Denver'};slot.key=slotKey(slot);
+  const slot={startAt:'2030-01-04T17:00:00.000Z',endAt:'2030-01-04T18:00:00.000Z',modality,roomId,buildingId:roomId?3:null,roomLabel:roomId?'#7':null,timeZone:'America/Denver'};slot.key=slotKey(slot);
   const makeOffer=(id,clientId)=>({id,appointment_id:id,agency_id:2,provider_id:5,client_id:clientId,mode:'private_slots',status:'open',expires_at:'2030-01-03 10:00:00',slots_json:JSON.stringify([slot])});
   const offers=[makeOffer(1,8),makeOffer(2,9)],requests=[],writes=[];let released=false;
   const conn={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),execute:vi.fn(async(sql,p=[])=>{
@@ -31,7 +31,7 @@ function setup() {
     if(sql.startsWith('SELECT id FROM public_appointment_requests'))return [requests.filter(r=>r.clientId===p[0])];
     if(sql.startsWith('SELECT first_name,last_name,email'))return [[{email:'guardian@example.test'}]];
     if(sql.startsWith('SELECT full_name,initials FROM clients'))return [[{full_name:'Client',initials:'C'}]];
-    if(sql.startsWith('INSERT INTO public_appointment_requests')){const id=requests.length+1;requests.push({id,clientId:p[9],status:'PENDING'});return [{insertId:id}];}
+    if(sql.startsWith('INSERT INTO public_appointment_requests')){const id=requests.length+1;requests.push({id,clientId:p[9],status:'PENDING',modality:p[2]});return [{insertId:id}];}
     if(sql.startsWith('UPDATE appointment_replacement_offers SET status=')){Object.assign(offers.find(o=>o.id===p[4]),{status:p[0],request_id:p[1],selected_slot_id:p[2]});return [{}];}
     if(sql.startsWith('SELECT * FROM appointment_replacement_slots'))return [[{id:20,provider_id:5}]];
     if(sql.startsWith('SELECT r.id FROM appointment_replacement_offers'))return [requests];
@@ -42,7 +42,7 @@ function setup() {
   conn.getConnection=async()=>conn;conn.release=vi.fn();
   let tail=Promise.resolve();const providerLock=vi.fn(async(db,id,fn)=>{const prev=tail;let release;tail=new Promise(r=>{release=r;});await prev;try{return await fn(conn);}finally{release();}});
   const deps={database:conn,now:()=>new Date('2030-01-01T10:00:00Z'),encrypt:s=>s,decrypt:s=>s,
-    appointments:{findById:vi.fn(async id=>({id,agencyId:2,providerUserId:5,status:'canceled_by_provider'})),listParticipants:vi.fn(async id=>[{clientId:id===1?8:9}]),getBilling:vi.fn(async()=>({})),update:vi.fn()},
+    appointments:{findById:vi.fn(async id=>({id,agencyId:2,providerUserId:5,modality:originalModality,status:'canceled_by_provider'})),listParticipants:vi.fn(async id=>[{clientId:id===1?8:9}]),getBilling:vi.fn(async()=>({})),update:vi.fn()},
     clients:{findById:vi.fn(async()=>({status_key:'active'}))},providerLock,clientLock:async(ids,fn)=>fn(),
     eligible:vi.fn(),invalidate:vi.fn(),checkWindow:vi.fn(),checkSelection:vi.fn(async()=>{if(requests.length)throw Object.assign(new Error('Time already selected'),{status:409});}),
     followUp:{nextAppointment:vi.fn(async()=>({id:50,displayWhen:'Next Thursday'})),validatePrivateSlots:vi.fn(async(a,slots,options)=>requests.length&&!options?.excludePublicRequestId?[]:slots),bookingEnabled:vi.fn(async()=>false)}};
@@ -55,6 +55,37 @@ describe('private replacement invitations',()=>{
     expect(result[0].status).toBe('fulfilled');expect(result[0].value.status).toBe('requested');expect(result[1].status).toBe('rejected');expect(h.requests).toHaveLength(1);
     expect(h.deps.checkWindow).toHaveBeenCalledWith(h.conn,expect.objectContaining({replacementOfferId:1}));
     expect(h.writes.some(w=>w.sql.startsWith('INSERT INTO appointment_communications'))).toBe(true);expect(h.writes.some(w=>w.sql.startsWith('INSERT INTO user_communications'))).toBe(true);
+  });
+  it('requires a format choice when the provider offers both',async()=>{
+    const h=setup({modality:'BOTH',roomId:7});
+    await expect(h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key})).rejects.toThrow('Choose an available appointment format');expect(h.requests).toHaveLength(0);
+  });
+  it('rejects a format that was not offered even with a valid time key',async()=>{
+    const h=setup();await expect(h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key,selectedModality:'IN_PERSON'})).rejects.toThrow('Choose an available appointment format');expect(h.requests).toHaveLength(0);
+  });
+  it('reserves the same dual-format time only once across clients choosing different formats',async()=>{
+    const h=setup({modality:'BOTH',roomId:7});const result=await Promise.allSettled([
+      h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key,selectedModality:'VIRTUAL'}),
+      h.service.respond({appointmentId:2,clientId:9,userId:11,action:'select',selectedKey:h.slot.key,selectedModality:'IN_PERSON'})]);
+    expect(result.map(r=>r.status)).toEqual(['fulfilled','rejected']);expect(h.requests).toHaveLength(1);expect(h.requests[0].modality).toBe('VIRTUAL');
+    expect(h.deps.checkWindow).toHaveBeenCalledWith(h.conn,expect.objectContaining({officeEventId:null}));
+  });
+  it.each(['VIRTUAL','IN_PERSON'])('confirms the chosen %s format regardless of the original format',async format=>{
+    const h=setup({modality:'BOTH',roomId:7,originalModality:format==='VIRTUAL'?'IN_PERSON':'VIRTUAL'});
+    await h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key,selectedModality:format});
+    await h.service.decideRequest({agencyId:2,requestId:1,status:'APPROVED',actorUserId:5});
+    expect(createAppointment).toHaveBeenCalledWith(expect.objectContaining({modality:format,roomId:format==='VIRTUAL'?null:7,officeLocationId:format==='VIRTUAL'?null:3}));
+    expect(h.deps.followUp.validatePrivateSlots).toHaveBeenLastCalledWith(expect.anything(),[expect.objectContaining({modality:format,roomId:format==='VIRTUAL'?null:7})],{excludePublicRequestId:1});
+  });
+  it('rejects a no-longer-available format while leaving its other format selectable',async()=>{
+    const h=setup({modality:'BOTH',roomId:7});h.deps.followUp.validatePrivateSlots.mockResolvedValue([{...h.slot,availableFormats:['VIRTUAL']}]);
+    await expect(h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key,selectedModality:'IN_PERSON'})).rejects.toThrow('Choose an available appointment format');
+    expect((await h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key,selectedModality:'VIRTUAL'})).status).toBe('requested');
+  });
+  it('rechecks that the selected format was authorized before approving the request',async()=>{
+    const h=setup();await h.service.respond({appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key});
+    h.requests[0].modality='IN_PERSON';await expect(h.service.decideRequest({agencyId:2,requestId:1,status:'APPROVED',actorUserId:5})).rejects.toThrow('Choose an available appointment format');
+    expect(createAppointment).not.toHaveBeenCalled();expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
   });
   it('repeating the same selection returns its existing request without another reservation',async()=>{
     const h=setup(),args={appointmentId:1,clientId:8,userId:10,action:'select',selectedKey:h.slot.key};const first=await h.service.respond(args);expect(await h.service.respond(args)).toEqual(first);expect(h.requests).toHaveLength(1);

@@ -1,6 +1,6 @@
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
-import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, requestOffice as requestReplacementOffice } from '../controllers/appointmentReplacementOffer.controller.js';
+import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, requestOffice as requestReplacementOffice, details as replacementSlotDetails } from '../controllers/appointmentReplacementOffer.controller.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
 import express from 'express';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -43,6 +43,7 @@ router.use((req,res,next)=>{if(req.method!=='GET'&&['client_guardian','guardian'
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
 router.get('/staff-alerts', listAppointmentStaffAlerts);
 router.post('/replacement-slots/:slotId/release', releaseReplacementSlot);
+router.get('/replacement-slots/:slotId', replacementSlotDetails);
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
 router.use('/:id', async (req, res, next) => {

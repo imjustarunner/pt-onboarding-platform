@@ -27,9 +27,15 @@
         <p v-else>No next appointment is currently scheduled. Contact support if you need help arranging your next visit.</p>
         <template v-if="a.replacementOffer.status === 'open'">
           <p>Choose one time by {{ when(a.replacementOffer.expiresAt, a.timeZone) }}, or decline. These times are reserved for invited clients and may be offered to more than one person. Availability is checked when you select; the first completed selection reserves a time. Your selected time is reserved for the care team to confirm. Other recurring appointments stay scheduled.</p>
-          <label v-for="slot in a.replacementOffer.slots" :key="slot.key"><span><input v-model="selectedSlots[a.id]" type="radio" :name="`replacement-${a.id}`" :value="slot.key"> {{ slot.label }}</span></label>
+          <div v-for="slot in a.replacementOffer.slots" :key="slot.key" class="offer-time">
+            <label><span><input v-model="selectedSlots[a.id]" type="radio" :name="`replacement-${a.id}`" :value="slot.key" @change="selectedFormats[a.id]=formats(slot).length === 1 ? formats(slot)[0] : ''"> {{ slot.label }}</span></label>
+            <fieldset v-if="selectedSlots[a.id] === slot.key && formats(slot).length > 1" class="offer-formats">
+              <legend>How would you like to attend?</legend>
+              <label v-for="format in formats(slot)" :key="format"><span><input v-model="selectedFormats[a.id]" type="radio" :name="`replacement-format-${a.id}`" :value="format"> {{ format === 'VIRTUAL' ? 'Virtual' : `In office — ${slot.buildingName || 'Office'} ${slot.roomLabel || ''}` }}</span></label>
+            </fieldset>
+          </div>
           <p v-if="!a.replacementOffer.slots.length">No offered times are currently available. Your next appointment stays scheduled, if listed above. You can contact support for other options.</p>
-          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedSlots[a.id]" @click="respondToOffer(a, 'select')">Reserve selected time for confirmation</button>
+          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedChoice(a)" @click="respondToOffer(a, 'select')">Reserve selected time for confirmation</button>
             <button type="button" :disabled="busy" @click="respondToOffer(a, 'decline')">{{ a.replacementOffer.nextAppointment ? `See you next session — ${a.replacementOffer.nextAppointment.displayWhen}` : 'Decline replacement offer' }}</button></div>
         </template>
         <p v-else-if="a.replacementOffer.status === 'requested'">Your replacement time is reserved for care-team confirmation. This is a request, not a confirmed appointment.</p>
@@ -60,12 +66,21 @@ import api from '../../services/api.js';
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false}});
 const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),drafts=reactive({});let sequence=0;
-const selectedSlots = reactive({});
+const selectedSlots = reactive({}), selectedFormats = reactive({});
+const formats = slot => slot.availableFormats || (slot.modality === 'BOTH' ? ['IN_PERSON','VIRTUAL'] : [slot.modality]);
+const selectedChoice = a => {
+  const slot = a.replacementOffer?.slots?.find(s => s.key === selectedSlots[a.id]);
+  if (!slot) return null;
+  const allowed = formats(slot), modality = allowed.length === 1 ? allowed[0] : selectedFormats[a.id];
+  return allowed.includes(modality) && modality ? { selectedKey: slot.key, selectedModality: modality } : null;
+};
 async function respondToOffer(a, action) {
   if (busy.value || props.preview) return;
+  const choice = action === 'select' ? selectedChoice(a) : null;
+  if (action === 'select' && !choice) return;
   const own = sequence; busy.value = true; error.value = ''; notice.value = '';
   try {
-    const { data } = await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/replacement-offer`, { action, selectedKey: selectedSlots[a.id] }, { skipGlobalLoading: true });
+    const { data } = await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/replacement-offer`, { action, ...choice }, { skipGlobalLoading: true });
     if (own === sequence) {
       notice.value = data.status === 'requested' ? 'Your time is reserved for the care team to confirm. Your other appointments stay scheduled.' : 'Replacement offer declined. Your other appointments stay scheduled.';
       await load();
@@ -87,9 +102,10 @@ async function load(){const own=++sequence;appointments.value=[];preferences.val
 }}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}
 async function savePreferences(){const own=sequence;busy.value=true;error.value='';preferenceNotice.value='';try{const{data}=await api.put(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,preferences.value);if(own===sequence){preferences.value=data;preferenceNotice.value='Your preferences were saved. Text delivery still requires recorded consent.';}}catch(e){error.value=e.response?.data?.error?.message||'Preferences could not be saved.';}finally{busy.value=false;}}
 async function submit(a){if(busy.value)return;const own=sequence;const cancel=draft(a).type==='cancel';busy.value=true;error.value='';notice.value='';try{await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/${cancel ? 'cancel' : 'requests'}`,draft(a));delete drafts[a.id];if(own===sequence){notice.value=cancel?'Cancellation confirmed. Selected sessions are canceled; existing cancellation-fee rules apply.':'Rescheduling request sent for provider approval.';await load();}}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Your request could not be saved. Refresh to see current appointment status before retrying.';}finally{busy.value=false;}}
-watch(()=>props.clientId,()=>{notice.value='';load();},{immediate:true});
+watch(()=>props.clientId,()=>{notice.value='';Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
 </script>
 <style scoped>
 .replacement-offer{padding:14px;background:#f0f7ff;border:1px solid #cfdeed;border-radius:10px}.offer-actions{display:flex;gap:8px;flex-wrap:wrap}
+.offer-time{padding:8px 0;border-bottom:1px solid #cfdeed}.offer-formats{margin:0 0 10px 24px;padding:8px 12px;border:1px solid #b4c3d2;border-radius:8px}.offer-formats legend{font-weight:600}
 .guardian-appointments{padding:20px;background:white;border:1px solid #dce4ee;border-radius:12px;margin-top:20px}.guardian-appointments header{display:flex;align-items:center;justify-content:space-between}.guardian-appointments article{border-top:1px solid #dce4ee;padding:16px 0}.guardian-appointments p{color:#4b5f75}.guardian-appointments label{display:grid;gap:6px;margin:10px 0}.guardian-appointments textarea,.guardian-appointments select{padding:8px;border:1px solid #b4c3d2;border-radius:5px;max-width:100%}.guardian-appointments .request{padding:12px;background:#f1f6fc;margin:10px 0}.guardian-appointments button{padding:8px 12px;cursor:pointer}
 </style>

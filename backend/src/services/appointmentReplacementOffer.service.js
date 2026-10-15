@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import Client from '../models/Client.model.js';
-import { cancellationFollowUp, slotKey } from './cancellationFollowUp.service.js';
+import { cancellationFollowUp, slotKey, replacementFormats, selectReplacementFormat, replacementSlotLabel } from './cancellationFollowUp.service.js';
 import { withProviderSelectionLock, assertNoSelectionConflict } from './publicProviderHold.service.js';
 import { withClientSchedulingLock, assertClientNotTerminated } from './clientSchedulingGuard.service.js';
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
@@ -67,9 +67,14 @@ export function createReplacementOfferService(overrides = {}) {
       WHERE os.offer_id=? AND os.released_at IS NULL AND s.released_at IS NULL`, [row.id]);
     const offered = new Map(links.map(s => [slotKey(JSON.parse(deps.decrypt(typeof s.slot_json === 'string' ? s.slot_json : JSON.stringify(s.slot_json)))), Number(s.id)]));
     const candidates = links.map(s => JSON.parse(deps.decrypt(typeof s.slot_json === 'string' ? s.slot_json : JSON.stringify(s.slot_json))));
-    const available = row.mode === 'portal_booking' ? (await deps.followUp.slots(a)).filter(s => offered.has(slotKey(s)))
-      : await deps.followUp.validatePrivateSlots(a, candidates, { skipUnavailable: true });
-    return available.map(s => ({ ...s, poolSlotId: offered.get(slotKey(s)) }));
+    let available = await deps.followUp.validatePrivateSlots(a, candidates, { skipUnavailable: true });
+    if (row.mode === 'portal_booking') {
+      const published = await deps.followUp.slots(a);
+      available = available.map(s => ({ ...s, availableFormats: (s.availableFormats || replacementFormats(s)).filter(format =>
+        published.some(p => p.startAt === s.startAt && p.endAt === s.endAt && replacementFormats(p).includes(format)
+          && (format === 'VIRTUAL' || Number(p.roomId) === Number(s.roomId)))) })).filter(s => s.availableFormats.length);
+    }
+    return available.map(s => ({ ...s, label: replacementSlotLabel(s), poolSlotId: offered.get(slotKey(s)) }));
   }
   async function view(appointmentId, clientId) {
     const row = await get(appointmentId, clientId);
@@ -86,7 +91,7 @@ export function createReplacementOfferService(overrides = {}) {
     }
     return { status: row.linked_appointment_id ? 'confirmed' : status, expiresAt: parseUtcDate(row.expires_at).toISOString(), nextAppointment: next, slots, requestId: row.request_id || null };
   }
-  async function respond({ appointmentId, clientId, userId, action, selectedKey }) {
+  async function respond({ appointmentId, clientId, userId, action, selectedKey, selectedModality }) {
     if (!['select', 'decline'].includes(action)) throw fail('Choose a replacement time or decline the offer.', 400);
     // Both recipients of a shared portal record operate on one offer. The provider
     // lock also serializes competing clients and regular staff bookings.
@@ -106,6 +111,7 @@ export function createReplacementOfferService(overrides = {}) {
           if (!keys.has(selectedKey)) throw fail('Choose one of the times offered to you.', 400);
           slot = (await availableOfferSlots(row, a, conn)).find(s => slotKey(s) === selectedKey);
           if (!slot || +new Date(slot.startAt) <= +deps.now()) throw fail('That time is no longer available. Choose another offered time or keep your next appointment.');
+          slot = selectReplacementFormat(slot, selectedModality);
           await deps.checkWindow(conn, { providerUserId: a.providerUserId, status: 'scheduled',
             startAt: sqlDate(slot.startAt), endAt: sqlDate(slot.endAt), sourceTimezone: slot.timeZone, replacementOfferId: row.id, officeEventId: slot.officeEventId || null });
           await deps.checkSelection(conn, { agencyId: a.agencyId, providerId: a.providerUserId, startAt: slot.startAt, endAt: slot.endAt, replacementOfferId: row.id });
@@ -189,16 +195,18 @@ export function createReplacementOfferService(overrides = {}) {
           const original = await requireAppointment(offer.appointment_id, offer.client_id);
           const [[poolSlot]] = await conn.execute('SELECT slot_json FROM appointment_replacement_slots WHERE id=? AND released_at IS NULL', [offer.selected_slot_id]);
           if (!poolSlot) throw fail('This offered time was released.');
-          const selected = JSON.parse(deps.decrypt(typeof poolSlot.slot_json === 'string' ? poolSlot.slot_json : JSON.stringify(poolSlot.slot_json)));
-          const fresh = await deps.followUp.validatePrivateSlots(original, [selected], { excludePublicRequestId: requestId });
-          if (!fresh.some(s => slotKey(s) === slotKey(selected))) throw fail('This time is no longer available. Review the request and coordinate another time.');
+          const offeredSlot = JSON.parse(deps.decrypt(typeof poolSlot.slot_json === 'string' ? poolSlot.slot_json : JSON.stringify(poolSlot.slot_json)));
+          const choice = selectReplacementFormat(offeredSlot, request.modality);
+          const fresh = await deps.followUp.validatePrivateSlots(original, [choice], { excludePublicRequestId: requestId });
+          const selected = fresh.find(s => slotKey(s) === slotKey(choice));
+          if (!selected) throw fail('This time is no longer available. Review the request and coordinate another time.');
           const source = `replacement_offer:${offer.id}`;
           const [[partial]] = await conn.execute('SELECT id FROM appointments WHERE agency_id=? AND source=?', [agencyId, source]);
           if (partial) throw fail(`Appointment #${partial.id} was created during an interrupted confirmation. Review that session before making another booking.`);
           const { createAppointment } = await import('./appointment.service.js');
           created = await createAppointment({ agencyId, providerUserId: original.providerUserId,
             tenantServiceId: original.tenantServiceId, serviceCode: original.serviceCode, addonServiceCodes: original.addonServiceCodes || [],
-            startAt: selected.startAt, endAt: selected.endAt, modality: original.modality, timeZone: selected.timeZone,
+            startAt: selected.startAt, endAt: selected.endAt, modality: selected.modality, timeZone: selected.timeZone,
             officeLocationId: selected.buildingId, roomId: selected.roomId, source, replacementOfferId: offer.id, deferScheduleNotice: true,
             packageEntitlementId: original.packageEntitlementId || null, title: original.title,
             participants: await deps.appointments.listParticipants(original.id), billing: await deps.appointments.getBilling(original.id),

@@ -18,6 +18,41 @@ describe('one-time private rescheduling room choices',()=>{
     const h=setup({modality:'VIRTUAL'});const result=await h.service.customSlot(1,{localStart:'2030-01-03T10:15'});
     expect(result.slot).toMatchObject({startAt:start,endAt:end,modality:'VIRTUAL',roomId:null});expect(h.roomOptions).not.toHaveBeenCalled();
   });
+  it.each(['VIRTUAL','IN_PERSON'])('lets an originally %s visit offer either format independently', async original => {
+    const h=setup({modality:original,reservations:[own(10,'2030-01-03T17:00:00Z','2030-01-03T19:00:00Z')]});
+    const virtual=await h.service.customSlot(1,{localStart:'2030-01-03T10:15',modality:'VIRTUAL',roomId:7});
+    expect(virtual.slot).toMatchObject({modality:'VIRTUAL',roomId:null,buildingId:null,officeEventId:null,availableFormats:['VIRTUAL']});expect(h.roomOptions).not.toHaveBeenCalled();
+    const inPerson=await h.service.customSlot(1,{localStart:'2030-01-03T10:15',modality:'IN_PERSON',roomId:7});
+    expect(inPerson.slot).toMatchObject({modality:'IN_PERSON',roomId:7,availableFormats:['IN_PERSON']});
+    const both=await h.service.customSlot(1,{localStart:'2030-01-03T10:15',modality:'BOTH',roomId:7});
+    expect(both.slot).toMatchObject({modality:'BOTH',roomId:7,availableFormats:['IN_PERSON','VIRTUAL']});expect(both.slot.label).toContain('client chooses');
+  });
+  it('requires one-time room approval for a dual-format offer even if the original was virtual',async()=>{
+    const h=setup({modality:'VIRTUAL',freeRooms:[{id:8,needsRequest:true}]});
+    expect(await h.service.customSlot(1,{localStart:'2030-01-03T10:15',modality:'BOTH',roomId:8})).toMatchObject({slot:null,requiresOfficeRequest:true});
+    await expect(h.service.validatePrivateSlots(h.appointment,[{startAt:start,endAt:end,modality:'BOTH',roomId:8}])).rejects.toThrow('available room reservations');
+  });
+  it('keeps a live dual-format invitation usable virtually if its room is no longer secured',async()=>{
+    const h=setup({modality:'IN_PERSON'}),candidate={startAt:start,endAt:end,modality:'BOTH',roomId:7};
+    const [slot]=await h.service.validatePrivateSlots(h.appointment,[candidate],{skipUnavailable:true});
+    expect(slot).toMatchObject({modality:'BOTH',roomId:7,availableFormats:['VIRTUAL']});expect(slot.label).toContain('Virtual');
+    expect(slot.key).toBe([start,end,'BOTH',7].join('|'));
+  });
+  it('rejects an unsupported replacement format before checking rooms',async()=>{
+    const h=setup();await expect(h.service.customSlot(1,{localStart:'2030-01-03T10:15',modality:'PUBLIC'})).rejects.toThrow('Choose in office');expect(h.roomOptions).not.toHaveBeenCalled();
+  });
+  it('combines a published time available in both formats for either original visit type',async()=>{
+    const h=setup({modality:'VIRTUAL'});
+    h.availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[{startAt:start,endAt:end}],inPersonSlots:[{startAt:start,endAt:end,roomId:7,roomLabel:'#7',buildingId:3}]});
+    expect(await h.service.slots(h.appointment)).toMatchObject([{modality:'BOTH',availableFormats:['IN_PERSON','VIRTUAL'],roomId:7}]);
+  });
+  it('does not attach a room to a virtual-only opening published from a room reservation',async()=>{
+    const h=setup({modality:'IN_PERSON'});
+    h.availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[{startAt:start,endAt:end,roomId:7,buildingId:3,roomLabel:'#7'}],inPersonSlots:[]});
+    const [slot]=await h.service.slots(h.appointment);
+    expect(slot).toMatchObject({modality:'VIRTUAL',roomId:null,buildingId:null,roomLabel:null});
+    const [validated]=await h.service.validatePrivateSlots(h.appointment,[slot]);expect(validated.key).toBe(slot.key);
+  });
   it('requires an available room choice outside the provider’s reserved hours',async()=>{
     const room={id:8,buildingId:3,label:'Office · #8',needsRequest:true};const h=setup({freeRooms:[room]});
     const result=await h.service.customSlot(1,{localStart:'2030-01-03T10:15'});expect(result).toMatchObject({slot:null,rooms:[room]});

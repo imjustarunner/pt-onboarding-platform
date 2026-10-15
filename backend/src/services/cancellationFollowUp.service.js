@@ -8,6 +8,28 @@ import { addDaysYmd } from '../utils/scheduleRecurrence.js';
 
 const fail = message => Object.assign(new Error(message), { status: 400 });
 export const slotKey = slot => [slot.startAt, slot.endAt, slot.modality, slot.roomId || ''].join('|');
+export const replacementFormats = slot => slot.modality === 'BOTH' ? ['IN_PERSON', 'VIRTUAL'] : [slot.modality];
+const requestedModality = (value, appointment) => {
+  const modality = value || (/virtual|telehealth|video/i.test(appointment.modality || '') ? 'VIRTUAL' : 'IN_PERSON');
+  if (!['IN_PERSON', 'VIRTUAL', 'BOTH'].includes(modality)) throw fail('Choose in office, virtual, or both for this time.');
+  return modality;
+};
+export const replacementSlotLabel = slot => `${appointmentTimeLabel(slot.startAt, slot.timeZone)} (${slot.timeZone}) · ${
+  slot.modality === 'VIRTUAL' || slot.availableFormats?.length === 1 && slot.availableFormats[0] === 'VIRTUAL' ? 'Virtual'
+    : `In office: ${slot.buildingName || 'Office'} ${slot.roomLabel || ''}${slot.modality === 'BOTH' && (!slot.availableFormats || slot.availableFormats.includes('VIRTUAL')) ? ' or virtual — client chooses' : ''}`}`;
+
+// Resolve a client's choice without carrying the physical room into a virtual visit.
+export function selectReplacementFormat(slot, selectedModality) {
+  const allowed = replacementFormats(slot).filter(f => !slot.availableFormats || slot.availableFormats.includes(f));
+  const modality = selectedModality || (allowed.length === 1 ? allowed[0] : null);
+  if (!allowed.includes(modality)) throw fail('Choose an available appointment format for this time.');
+  const selected = { ...slot, modality, availableFormats: [modality] };
+  if (modality === 'VIRTUAL') Object.assign(selected, { roomId: null, buildingId: null, roomLabel: null,
+    buildingName: null, officeEventId: null, officeEventIds: [] });
+  selected.key = slotKey(selected);
+  selected.label = replacementSlotLabel(selected);
+  return selected;
+}
 export const appointmentTimeLabel = (value, timeZone = 'America/Denver') => new Intl.DateTimeFormat('en-US', {
   dateStyle: 'full', timeStyle: 'short', timeZone
 }).format(parseUtcDate(value));
@@ -98,14 +120,21 @@ export function createCancellationFollowUpService({ database = pool, appointment
       const week = await availability.computeWeekAvailability({ agencyId: appointment.agencyId, providerId: appointment.providerUserId,
         weekStartYmd: addDaysYmd(today, day), slotMinutes: duration, intakeOnly: false, includeExternalBusy: true, materializeOfficeEvents: false,
         includePrivateOffers: true, excludePublicRequestId });
-      const virtual = /virtual|telehealth|video/i.test(appointment.modality || '');
-      for (const slot of (virtual ? week.virtualSlots : week.inPersonSlots) || []) {
+      const virtualTimes = new Set((week.virtualSlots || []).map(s => `${s.startAt}|${s.endAt}`));
+      const inPersonTimes = new Set((week.inPersonSlots || []).map(s => `${s.startAt}|${s.endAt}`));
+      const choices = [
+        ...(week.inPersonSlots || []).map(s => ({ ...s, modality: virtualTimes.has(`${s.startAt}|${s.endAt}`) ? 'BOTH' : 'IN_PERSON' })),
+        ...(week.virtualSlots || []).filter(s => !inPersonTimes.has(`${s.startAt}|${s.endAt}`)).map(s => ({ ...s, modality: 'VIRTUAL' }))
+      ];
+      for (const slot of choices) {
         if (+new Date(slot.startAt) <= +now() || +new Date(slot.startAt) >= end) continue;
-        const clean = { startAt: slot.startAt, endAt: slot.endAt, modality: virtual ? 'VIRTUAL' : 'IN_PERSON',
-          roomId: slot.roomId || null, buildingId: slot.buildingId || null, roomLabel: slot.roomLabel || null,
-          buildingName: slot.buildingName || null, timeZone: week.timeZone || zone };
+        const clean = { startAt: slot.startAt, endAt: slot.endAt, modality: slot.modality,
+          roomId: slot.modality === 'VIRTUAL' ? null : slot.roomId || null, buildingId: slot.modality === 'VIRTUAL' ? null : slot.buildingId || null,
+          roomLabel: slot.modality === 'VIRTUAL' ? null : slot.roomLabel || null,
+          buildingName: slot.modality === 'VIRTUAL' ? null : slot.buildingName || null, timeZone: week.timeZone || zone };
         clean.key = slotKey(clean);
-        clean.label = `${appointmentTimeLabel(clean.startAt, clean.timeZone)} (${clean.timeZone})${virtual ? ' · Virtual' : ` · ${clean.buildingName || 'Office'} ${clean.roomLabel || ''}`}`;
+        clean.availableFormats = replacementFormats(clean);
+        clean.label = replacementSlotLabel(clean);
         found.set(clean.key, clean);
       }
     }
@@ -114,10 +143,10 @@ export function createCancellationFollowUpService({ database = pool, appointment
   async function validatePrivateSlots(appointment, candidates, { excludePublicRequestId = null, skipUnavailable = false } = {}) {
     const duration = +parseUtcDate(appointment.endAt) - +parseUtcDate(appointment.startAt);
     const zone = appointment.sourceTimezone || 'America/Denver';
-    const virtual = /virtual|telehealth|video/i.test(appointment.modality || '');
     const weeks = new Map(), result = [];
     for (const candidate of candidates) {
       try {
+        const modality = requestedModality(candidate.modality, appointment);
         const start = parseUtcDate(candidate.startAt), end = parseUtcDate(candidate.endAt);
         if (!start || !end || !Number.isFinite(+start) || +start <= +now() || +start > +now()+120*86400000
           || +end-+start !== duration || duration<15*60000 || duration>240*60000) throw fail('Choose a future time within 120 days with the same appointment length.');
@@ -128,23 +157,26 @@ export function createCancellationFollowUpService({ database = pool, appointment
         const week = weeks.get(date);
         if ((week.busyBlocks || []).some(b => +parseUtcDate(b.startAt)<+end && +parseUtcDate(b.endAt)>+start)) throw fail('That time conflicts with an appointment, pending selection, school assignment, or calendar commitment. Choose a free time.');
         let room = null;
-        if (!virtual) {
+        if (modality !== 'VIRTUAL') {
           room = coveringReplacementRooms(week.officeReservations, start, end).find(r => r.roomId === Number(candidate.roomId));
-          if (!room) throw fail('Choose one of your available room reservations covering this in-person visit.');
+          if (!room && !(skipUnavailable && modality === 'BOTH')) throw fail('Choose one of your available room reservations covering this in-person visit.');
         }
-        const clean = { startAt:start.toISOString(),endAt:end.toISOString(),modality:virtual?'VIRTUAL':'IN_PERSON',
-          roomId:room?.roomId || null,buildingId:room?.buildingId || null,officeEventId:room?.id || null, officeEventIds:room?.officeEventIds || [],
+        const clean = { startAt:start.toISOString(),endAt:end.toISOString(),modality,
+          // Keep the offered identity stable if only its virtual choice is still available.
+          roomId:room?.roomId || (modality === 'BOTH' ? Number(candidate.roomId) || null : null),buildingId:room?.buildingId || null,officeEventId:room?.id || null, officeEventIds:room?.officeEventIds || [],
           roomLabel:room?.roomLabel || null,buildingName:room?.buildingName || null,timeZone:zone };
+        clean.availableFormats = modality === 'BOTH' && !room ? ['VIRTUAL'] : replacementFormats(clean);
         clean.key=slotKey(clean);
-        clean.label=`${appointmentTimeLabel(clean.startAt,zone)} (${zone})${virtual?' · Virtual':` · ${clean.buildingName || 'Office'} ${clean.roomLabel || ''}`}`;
+        clean.label=replacementSlotLabel(clean);
         result.push(clean);
       } catch(e) { if (!skipUnavailable || e.status !== 400) throw e; }
     }
     return result;
   }
-  async function customSlot(appointmentId, { localStart, roomId } = {}) {
+  async function customSlot(appointmentId, { localStart, roomId, modality: requestedFormat } = {}) {
     const appointment=await appointments.findById(appointmentId);
     if (!appointment || parseUtcDate(appointment.startAt)<=now()) throw fail('Offer replacement times for a future appointment.');
+    const modality = requestedModality(requestedFormat, appointment);
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(localStart))) throw fail('Choose a date and start time.');
     const utc=wallMysqlToUtcMysql(localStart.replace('T',' ')+':00',appointment.sourceTimezone || 'America/Denver');
     if (!utc) throw fail('That local time does not exist. Choose another time.');
@@ -156,14 +188,14 @@ export function createCancellationFollowUpService({ database = pool, appointment
     const week=await availability.computeWeekAvailability({agencyId:appointment.agencyId,providerId:appointment.providerUserId,
       weekStartYmd:localStart.slice(0,10),intakeOnly:false,includePrivateCalendar:true,includePrivateOffers:true,materializeOfficeEvents:true});
     if ((week.busyBlocks || []).some(b => +parseUtcDate(b.startAt)<+end && +parseUtcDate(b.endAt)>+start)) throw fail('That time conflicts with another appointment or calendar commitment. Choose a free time.');
-    const rooms=coveringReplacementRooms(week.officeReservations,start,end)
+    const rooms=(modality === 'VIRTUAL' ? [] : coveringReplacementRooms(week.officeReservations,start,end))
       .map(r=>({id:r.roomId,buildingId:r.buildingId,label:`${r.buildingName || 'Office'} · ${r.roomLabel || r.roomId}`,needsRequest:false}));
-    if (!/virtual|telehealth|video/i.test(appointment.modality || '')) {
+    if (modality !== 'VIRTUAL') {
       rooms.push(...(await roomOptions(appointment,start,end)).filter(r=>!rooms.some(own=>own.id===r.id)));
     }
-    if (!/virtual|telehealth|video/i.test(appointment.modality || '') && !roomId) return {rooms,slot:null,timeZone:zone};
+    if (modality !== 'VIRTUAL' && !roomId) return {rooms,slot:null,timeZone:zone};
     if (rooms.some(r=>r.id===Number(roomId) && r.needsRequest)) return {rooms,slot:null,requiresOfficeRequest:true,timeZone:zone};
-    const [slot]=await validatePrivateSlots(appointment,[{startAt:start.toISOString(),endAt:end.toISOString(),roomId}]);
+    const [slot]=await validatePrivateSlots(appointment,[{startAt:start.toISOString(),endAt:end.toISOString(),roomId,modality}]);
     return {rooms,slot,timeZone:zone};
   }
   async function context(appointmentId, { includeSlots = true } = {}) {

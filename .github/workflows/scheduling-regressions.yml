@@ -74,6 +74,7 @@ jobs:
           backend/src/services/__tests__/scheduling.scheduleNoticeBuffer.test.js
           backend/src/services/__tests__/scheduling.replacementRooms.test.js
           backend/src/services/__tests__/scheduling.replacementOffers.test.js
+          backend/src/services/__tests__/scheduling.offerRecipients.test.js
           backend/src/services/__tests__/scheduling.privateOfferPublicCache.test.js
           backend/src/controllers/__tests__/scheduling.replacementOfferAccess.test.js
       - name: Internal appointment alerts and staff communication access
@@ -112,6 +113,8 @@ jobs:
           src/components/schedule/__tests__/dayCancellationDialog.test.js
           src/components/schedule/__tests__/AppointmentStaffTools.test.js
           src/components/schedule/__tests__/AppointmentCommunicationsPanel.test.js
+          src/components/schedule/__tests__/OfferedTimeDialog.test.js
+          src/components/guardian/__tests__/GuardianAppointmentsPanel.test.js
           src/composables/__tests__/AppointmentChangeWizard.test.js
           src/composables/__tests__/useAppointmentChange.test.js
           src/utils/__tests__/scheduleVisibleHours.test.js

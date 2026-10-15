@@ -4,6 +4,21 @@ import { assertAppointmentChangeAccess } from './appointment.controller.js';
 import { authorizedClient } from '../services/guardianAppointments.service.js';
 import { cancellationFollowUp } from '../services/cancellationFollowUp.service.js';
 import { replacementOffers } from '../services/appointmentReplacementOffer.service.js';
+import { readReplacementSlotRecipients } from '../services/privateReplacementSlots.service.js';
+import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+
+export const details = async (req, res, next) => { try {
+  if (req.guardianPreviewMode || ['guardian','client_guardian','client'].includes(String(req.user?.role || '').toLowerCase())) {
+    return res.status(403).json({ error: { message: 'Offer recipients are visible only to authorized scheduling staff.' } });
+  }
+  const [[slot]] = await pool.execute('SELECT * FROM appointment_replacement_slots WHERE id=?', [Number(req.params.slotId)]);
+  if (!slot) return res.status(404).json({ error: { message: 'Offered time not found.' } });
+  await assertAppointmentChangeAccess(req, { agencyId: slot.agency_id, providerUserId: slot.provider_id });
+  const data = JSON.parse(maybeDecryptNotePayload(typeof slot.slot_json === 'string' ? slot.slot_json : JSON.stringify(slot.slot_json)));
+  res.set('Cache-Control', 'no-store');
+  res.json({ slot: { modality: data.modality, roomLabel: data.roomLabel, buildingName: data.buildingName, timeZone: data.timeZone },
+    recipients: await readReplacementSlotRecipients(pool, slot) });
+} catch (e) { next(e); } };
 
 export const options = async (req, res, next) => { try {
   const a = await Appointment.findById(Number(req.params.id));
@@ -21,7 +36,7 @@ export const response = async (req, res, next) => { try {
   if (!a || Number(a.agencyId) !== Number(client.agency_id)) return res.status(404).json({ error: { message: 'Appointment not found.' } });
   res.set('Cache-Control', 'no-store');
   res.json(await replacementOffers.respond({ appointmentId, clientId, userId: req.user.id,
-    action: req.body?.action, selectedKey: req.body?.selectedKey }));
+    action: req.body?.action, selectedKey: req.body?.selectedKey, selectedModality: req.body?.selectedModality }));
 } catch (e) { next(e); } };
 
 export const release = async (req, res, next) => { try {
@@ -35,14 +50,14 @@ export const custom = async (req,res,next) => { try {
   const a=await Appointment.findById(Number(req.params.id));
   if (!a) return res.status(404).json({error:{message:'Appointment not found.'}});
   await assertAppointmentChangeAccess(req,a);
-  res.json(await cancellationFollowUp.customSlot(a.id,{localStart:req.body?.localStart,roomId:Number(req.body?.roomId)||null}));
+  res.json(await cancellationFollowUp.customSlot(a.id,{localStart:req.body?.localStart,roomId:Number(req.body?.roomId)||null,modality:req.body?.modality}));
 } catch(e){next(e);} };
 
 export const requestOffice = async (req,res,next) => { try {
   const a=await Appointment.findById(Number(req.params.id));
   if(!a) return res.status(404).json({error:{message:'Appointment not found.'}});
   await assertAppointmentChangeAccess(req,a);
-  const checked=await cancellationFollowUp.customSlot(a.id,{localStart:req.body?.localStart,roomId:Number(req.body?.roomId)});
+  const checked=await cancellationFollowUp.customSlot(a.id,{localStart:req.body?.localStart,roomId:Number(req.body?.roomId),modality:'IN_PERSON'});
   const room=checked.rooms.find(r=>Number(r.id)===Number(req.body?.roomId) && r.needsRequest);
   if(!room) return res.status(409).json({error:{message:'This room is no longer available to request. Check available rooms again.'}});
   if(req.body?.confirmOneTime!==true) return res.status(400).json({error:{message:'Confirm this is a one-time room request.'}});

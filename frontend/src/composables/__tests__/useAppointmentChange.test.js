@@ -6,15 +6,15 @@ beforeEach(() => { vi.clearAllMocks(); api.get.mockResolvedValue({ data: { workf
 describe('appointment change workflow', () => {
   it('saves a one-time office request as pending without adding an unsecured client offer', async () => {
     const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4 });
-    Object.assign(change.customOffer, {localStart:'2030-01-03T10:15',roomId:8,rooms:[{id:8,buildingId:3,label:'Office #8',needsRequest:true,windowLabel:'One time, 10–12'}],requiresOfficeRequest:true});
+    Object.assign(change.customOffer, {localStart:'2030-01-03T10:15',modality:'BOTH',roomId:8,rooms:[{id:8,buildingId:3,label:'Office #8',needsRequest:true,windowLabel:'One time, 10–12'}],requiresOfficeRequest:true});
     api.post.mockResolvedValue({data:{id:90}});api.put.mockResolvedValue({data:{ok:true}});
     await change.requestOfferOffice();
-    expect(api.post).toHaveBeenCalledWith('/appointments/4/change/replacement-options/office-request',{localStart:'2030-01-03T10:15',roomId:8,confirmOneTime:true},expect.anything());
+    expect(api.post).toHaveBeenCalledWith('/appointments/4/change/replacement-options/office-request',{localStart:'2030-01-03T10:15',modality:'BOTH',roomId:8,confirmOneTime:true},expect.anything());
     expect(change.facts.offeredSlots).toEqual([]);expect(change.facts.pendingOfficeRequests[0]).toMatchObject({requestId:90,roomId:8});expect(change.open.value).toBe(true);
     expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({pendingOfficeRequests:[expect.objectContaining({requestId:90})]}),expect.anything());
   });
   it('adds a nonpublished time only after the server confirms its room is secured', async () => {
-    const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.customOffer.localStart='2030-01-03T10:15';
+    const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.customOffer.localStart='2030-01-03T10:15';change.customOffer.modality='IN_PERSON';
     api.post.mockResolvedValue({data:{slot:null,rooms:[{id:8,needsRequest:true}],requiresOfficeRequest:true}});await change.addCustomOffer();expect(change.facts.offeredSlots).toEqual([]);
     api.post.mockResolvedValue({data:{slot:{key:'secured',roomId:8},rooms:[{id:8,needsRequest:false}]}});await change.addCustomOffer();await change.addCustomOffer();expect(change.facts.offeredSlots).toEqual([{key:'secured',roomId:8}]);
   });

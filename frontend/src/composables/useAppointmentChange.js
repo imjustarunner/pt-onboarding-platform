@@ -44,7 +44,7 @@ export function useAppointmentChange() {
   const replacements = ref([]);
   const replacementOptions = ref(null);
   const optionsLoading = ref(false);
-  const customOffer = reactive({localStart:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
+  const customOffer = reactive({localStart:'',modality:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
   const retrospective = computed(() => replacementOptions.value?.retrospective === true);
 
   const localNarrative = computed(() => {
@@ -74,7 +74,7 @@ export function useAppointmentChange() {
     facts.followUpAction = 'client_contact_support';
     facts.followUpMessage = '';
     facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
-    replacementOptions.value = null; Object.assign(customOffer,{localStart:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
+    replacementOptions.value = null; Object.assign(customOffer,{localStart:'',modality:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
     facts.outreach = [];
     facts.reasonKnown = null;
     facts.replacementAppointmentId = null;
@@ -307,6 +307,11 @@ export function useAppointmentChange() {
   function toggleOfferSlot(slot) {
     const index=facts.offeredSlots.findIndex(s=>s.key===slot.key);
     if(index>=0) facts.offeredSlots.splice(index,1);
+    else addOfferSlot(slot);
+  }
+  function addOfferSlot(slot) {
+    const index=facts.offeredSlots.findIndex(s=>s.startAt===slot.startAt && s.endAt===slot.endAt);
+    if(index>=0) facts.offeredSlots.splice(index,1,slot);
     else if(facts.offeredSlots.length<6) facts.offeredSlots.push(slot);
   }
   async function requestOfferOffice() {
@@ -315,9 +320,9 @@ export function useAppointmentChange() {
     if(!room)return;
     customOffer.busy=true;customOffer.error='';const id=appointmentId.value;
     try {
-      const {data}=await api.post(`/appointments/${id}/change/replacement-options/office-request`,{localStart:customOffer.localStart,roomId:room.id,confirmOneTime:true},{skipGlobalLoading:true});
+      const {data}=await api.post(`/appointments/${id}/change/replacement-options/office-request`,{localStart:customOffer.localStart,modality:customOffer.modality,roomId:room.id,confirmOneTime:true},{skipGlobalLoading:true});
       if(id!==appointmentId.value || !open.value)return;
-      facts.pendingOfficeRequests.push({requestId:data.id,localStart:customOffer.localStart,roomId:room.id,label:room.label,windowLabel:room.windowLabel});
+      facts.pendingOfficeRequests.push({requestId:data.id,localStart:customOffer.localStart,modality:customOffer.modality,roomId:room.id,label:room.label,windowLabel:room.windowLabel});
       customOffer.requiresOfficeRequest=false;customOffer.roomId=null;customOffer.rooms=[];
       await saveDraft();
     }catch(e){if(id===appointmentId.value)customOffer.error=e.response?.data?.error?.message||'Could not submit the one-time room request.';}
@@ -325,12 +330,13 @@ export function useAppointmentChange() {
   }
   async function addCustomOffer() {
     if(customOffer.busy || facts.offeredSlots.length>=6) return;
+    if(!customOffer.modality) { customOffer.error='Choose in office, virtual, or both for this time.'; return; }
     customOffer.busy=true;customOffer.error='';const id=appointmentId.value;
     try {
-      const {data}=await api.post(`/appointments/${id}/change/replacement-options/check`,{localStart:customOffer.localStart,roomId:customOffer.roomId},{skipGlobalLoading:true});
+      const {data}=await api.post(`/appointments/${id}/change/replacement-options/check`,{localStart:customOffer.localStart,roomId:customOffer.roomId,modality:customOffer.modality},{skipGlobalLoading:true});
       if(id!==appointmentId.value || !open.value) return;
       customOffer.rooms=data.rooms||[]; customOffer.requiresOfficeRequest=!!data.requiresOfficeRequest;
-      if(data.slot && !facts.offeredSlots.some(s=>s.key===data.slot.key)) facts.offeredSlots.push(data.slot);
+      if(data.slot) addOfferSlot(data.slot);
       if(!data.slot && !customOffer.rooms.length) customOffer.error='No available rooms cover this time. Choose another day or time.';
     }catch(e){if(id===appointmentId.value)customOffer.error=e.response?.data?.error?.message||'Could not check this time.';}
     finally{customOffer.busy=false;}
