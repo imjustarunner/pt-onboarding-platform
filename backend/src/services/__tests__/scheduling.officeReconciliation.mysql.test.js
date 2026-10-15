@@ -1,6 +1,8 @@
 // Disposable CI database only. Never reads .env or connects to the user's proxy.
 import {describe,it,expect,beforeAll,afterAll} from 'vitest';
 import mysql from 'mysql2/promise';
+import {readFile} from 'node:fs/promises';
+import {normalizeOfficeRequestRecurrence} from '../../utils/scheduleRecurrence.js';
 import {syncPersonalMailboxDisplayName} from '../personalMailboxDisplayName.service.js';
 import {insertOfficeRequestWindows,distinctOfficeRequestWindows,splitPendingOfficeRequest} from '../officeRequestWindows.service.js';
 import {listPendingOfficeBookingRequests} from '../pendingOfficeBookingRequests.service.js';
@@ -9,7 +11,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('office request and nam
  beforeAll(async()=>{
   db=await mysql.createConnection({host:'127.0.0.1',port:Number(process.env.SCHEDULING_TEST_MYSQL_PORT),user:'root',password:'',timezone:'+00:00'});
   await db.query(`CREATE DATABASE ${database}`);await db.query(`USE ${database}`);
-  const tables={provider_office_availability_requests:'id INT AUTO_INCREMENT PRIMARY KEY, agency_id INT, provider_id INT, preferred_office_ids_json JSON, preferred_rooms_json JSON, notes TEXT, status VARCHAR(30), requested_frequency VARCHAR(30), requested_occurrence_count INT, requested_start_date DATE',
+  const tables={provider_office_availability_requests:'id INT AUTO_INCREMENT PRIMARY KEY, agency_id INT, provider_id INT, preferred_office_ids_json JSON, preferred_rooms_json JSON, notes TEXT, status VARCHAR(30), requested_frequency VARCHAR(30), requested_occurrence_count SMALLINT NOT NULL DEFAULT 1, requested_start_date DATE',
    provider_office_availability_request_slots:'id INT AUTO_INCREMENT PRIMARY KEY, request_id INT, weekday INT, start_hour INT, end_hour INT, room_id INT',
    users:'id INT PRIMARY KEY,first_name TEXT,last_name TEXT,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0,status VARCHAR(30)',
    communication_inboxes:'id INT PRIMARY KEY,owner_user_id INT,agency_id INT,sender_identity_id INT,kind VARCHAR(20),display_name TEXT,from_email TEXT',
@@ -21,6 +23,27 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('office request and nam
   await db.query("INSERT INTO users (id,first_name,last_name,status) VALUES (8,'Test','Provider','ACTIVE'),(9,'Other','Provider','ACTIVE')");
  });
  afterAll(async()=>{if(db){await db.query(`DROP DATABASE ${database}`);await db.end();}});
+ it('migrates the legacy constraint so ongoing weekly room requests save without changing finite requests',async()=>{
+  const windows=distinctOfficeRequestWindows([{weekday:4,startHour:16,endHour:18,roomId:2}],'2026-10-15');
+  const request={agencyId:2,providerId:8,officesJson:[1],roomsJson:[{roomId:2}],
+   ...normalizeOfficeRequestRecurrence({recurrenceRaw:'WEEKLY',occurrenceCountRaw:null})};
+  await expect(insertOfficeRequestWindows(db,request,windows)).rejects.toMatchObject({code:'ER_BAD_NULL_ERROR'});
+  await db.query(await readFile(new URL('../../../../database/migrations/1639_office_requests_ongoing_recurrence.sql',import.meta.url),'utf8'));
+  await db.beginTransaction();
+  try {
+   for(const [recurrenceRaw,occurrenceCountRaw] of [['WEEKLY',null],['ONCE',null],['BIWEEKLY',3]]) {
+    await insertOfficeRequestWindows(db,{...request,...normalizeOfficeRequestRecurrence({recurrenceRaw,occurrenceCountRaw})},windows);
+   }
+   const [rows]=await db.query(`SELECT r.requested_frequency AS frequency,r.requested_occurrence_count AS count,
+    DATE_FORMAT(r.requested_start_date,'%Y-%m-%d') AS startDate,s.weekday,s.start_hour,s.end_hour,s.room_id
+    FROM provider_office_availability_requests r JOIN provider_office_availability_request_slots s ON s.request_id=r.id ORDER BY r.id`);
+   expect(rows).toEqual([
+    {frequency:'WEEKLY',count:null,startDate:'2026-10-15',weekday:4,start_hour:16,end_hour:18,room_id:2},
+    {frequency:'ONCE',count:1,startDate:'2026-10-15',weekday:4,start_hour:16,end_hour:18,room_id:2},
+    {frequency:'BIWEEKLY',count:3,startDate:'2026-10-15',weekday:4,start_hour:16,end_hour:18,room_id:2}
+   ]);
+  } finally {await db.rollback();}
+ });
  it('updates personal inbox and sender labels while preserving addresses and shared identities',async()=>{
   await db.query("INSERT INTO email_sender_identities VALUES (1,2,'personal_8','Old Name','original@example.test'),(2,2,'messages','Shared Team','team@example.test')");
   await db.query("INSERT INTO communication_inboxes VALUES (1,8,2,1,'personal','Old Name (My Inbox)','original@example.test'),(2,8,2,2,'shared','Shared Team','team@example.test')");
