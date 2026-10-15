@@ -1,15 +1,16 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
+import {reactive} from 'vue';
 import {mount,flushPromises} from '@vue/test-utils';
 const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),replace:vi.fn(),query:{}}));
 vi.mock('../../../services/api',()=>({default:{get:m.get,post:m.post}}));
 vi.mock('vue-router',()=>({useRoute:()=>({params:{token:'personal'},path:'/join/invitation/personal',query:m.query,fullPath:'/join/invitation/personal'}),useRouter:()=>({replace:m.replace})}));
 import PersonalMeetingInvitationView from '../PersonalMeetingInvitationView.vue';
 import { supervisionAccessFor } from '../../../utils/supervisionInvitationAccess';
-beforeEach(()=>{vi.clearAllMocks();m.query={};});
+beforeEach(()=>{vi.clearAllMocks();m.query=reactive({});});
 const render=()=>mount(PersonalMeetingInvitationView,{global:{stubs:{RouterLink:true}}});
 describe('personal meeting entry',()=>{
   it.each(['Mandatory · Compensated','Optional · Not compensated'])('loads %s before asking for an RSVP',async label=>{
-    m.query={rsvp:'1',eventId:'19'};
+    Object.assign(m.query,{rsvp:'1',eventId:'19'});
     m.get.mockResolvedValue({data:{meeting:{title:'Group supervision',when:'Tomorrow',attendance:{label,tier:label.startsWith('Optional')?'optional':'mandatory',description:'Attendance policy'}}}});
     m.post.mockResolvedValue({data:{ok:true}});
     const wrapper=render();expect(wrapper.findAll('button')).toHaveLength(0);await flushPromises();
@@ -18,17 +19,17 @@ describe('personal meeting entry',()=>{
     expect(wrapper.text()).toContain(label);expect(wrapper.text()).toContain('does not record attendance time');
     expect(wrapper.text()).not.toContain('no online video link');
     await wrapper.get('button').trigger('click');await flushPromises();
-    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'accepted',reason:''});
+    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'accepted',reason:''},{skipAuthRedirect:true});
     expect(wrapper.text()).toContain('Your response has been saved: Attending');expect(m.replace).not.toHaveBeenCalled();wrapper.unmount();
   });
   it('requires a reason before declining mandatory supervision',async()=>{
-    m.query={rsvp:'1',eventId:'19'};m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},title:'Supervision'}}});m.post.mockResolvedValue({data:{ok:true}});
+    Object.assign(m.query,{rsvp:'1',eventId:'19'});m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},title:'Supervision'}}});m.post.mockResolvedValue({data:{ok:true}});
     const wrapper=render();await flushPromises();await wrapper.findAll('button')[1].trigger('click');
     expect(wrapper.findAll('button')[2].element.disabled).toBe(true);await wrapper.get('textarea').setValue('School examination');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
-    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'School examination'});wrapper.unmount();
+    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'School examination'},{skipAuthRedirect:true});wrapper.unmount();
   });
   it('requires sign-in before displaying protected RSVP details',async()=>{
-    m.query={rsvp:'1',eventId:'19'};m.get.mockRejectedValue({response:{status:401,data:{error:{message:'Sign in required'}}}});
+    Object.assign(m.query,{rsvp:'1',eventId:'19'});m.get.mockRejectedValue({response:{status:401,data:{error:{message:'Sign in required'}}}});
     const wrapper=render();await flushPromises();expect(wrapper.findAll('button')).toHaveLength(0);
     expect(wrapper.findAllComponents({name:'RouterLink'}).length).toBeGreaterThan(0);wrapper.unmount();
   });
@@ -58,11 +59,22 @@ describe('personal meeting entry',()=>{
   });
 });
 it('requires a finite date and reason for a recurring group absence',async()=>{
- m.query={rsvp:'1',eventId:'19'};m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},canSkipRecurring:true,sessionDate:'2026-10-20',title:'Group supervision'}}});m.post.mockResolvedValue({data:{ok:true}});
+ Object.assign(m.query,{rsvp:'1',eventId:'19'});m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},canSkipRecurring:true,sessionDate:'2026-10-20',title:'Group supervision'}}});m.post.mockResolvedValue({data:{ok:true}});
  const wrapper=render();await flushPromises();await wrapper.findAll('button')[1].trigger('click');
  await wrapper.get('input[value="until_date"]').setValue();await wrapper.get('textarea').setValue('Evening class');
  expect(wrapper.findAll('button')[2].element.disabled).toBe(true);
  await wrapper.get('input[type="date"]').setValue('2026-11-03');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
- expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'Evening class',scope:'until_date',untilDate:'2026-11-03'});
+ expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'Evening class',scope:'until_date',untilDate:'2026-11-03'},{skipAuthRedirect:true});
  expect(wrapper.text()).toContain('invitations resume afterward');wrapper.unmount();
+});
+
+it('shows meeting details and agenda without signing in, then opens the session from the same page',async()=>{
+ Object.assign(m.query,{details:'1',eventId:'19'});
+ m.get.mockResolvedValueOnce({data:{meeting:{title:'Group supervision',recipientName:'Ryn',when:'Thursday 10–11 AM',location:'Virtual',agenda:[{title:'Presentation'},{title:'Group processing'}],participants:[{name:'Ryn',status:'SIGNED_UP'}]}}});
+ const wrapper=render();await flushPromises();
+ expect(wrapper.text()).toContain('Personal invitation for Ryn');expect(wrapper.text()).toContain('Presentation');expect(wrapper.text()).toContain('Group processing');
+ expect(wrapper.text()).not.toContain('Sign in to open');expect(localStorage.getItem('authToken')).toBeNull();
+ m.get.mockResolvedValueOnce({data:{joinUrl:`${window.location.origin}/join/supervision/19`,supervisionAccess:{sessionId:19,token:'scoped-only',expiresAt:Date.now()+60000}}});
+ delete m.query.details;delete m.query.eventId;await flushPromises();
+ expect(m.replace).toHaveBeenCalledWith('/join/supervision/19');wrapper.unmount();
 });

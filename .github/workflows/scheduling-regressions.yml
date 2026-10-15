@@ -53,6 +53,14 @@ jobs:
           backend/src/controllers/__tests__/scheduling.plannedOuts.test.js
       - name: Supervision RSVP, internship messaging, and family privacy
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.supervision-safety.config.js
+      - name: Personal meeting links without app login
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.meeting-launch.config.js
+          backend/src/services/__tests__/meetingInvitationResponse.test.js
+          backend/src/services/__tests__/meetingSupervisionPersonalAccess.test.js
+          backend/src/services/__tests__/meetingTeamPersonalAccess.test.js
+          backend/src/services/__tests__/meetingSupervisionReminders.test.js
       - name: Planned-out presence boundaries
         env:
           NODE_ENV: test

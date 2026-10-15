@@ -1,6 +1,7 @@
 <template>
   <main class="invitation-page">
     <h1>Your meeting invitation</h1>
+    <p v-if="meeting?.recipientName">Personal invitation for {{ meeting.recipientName }}. This link opens only your invited meeting; it does not sign you into the app.</p>
     <section v-if="meeting?.attendance" aria-label="Your attendance requirement">
       <h2>{{ meeting.attendance.label }}</h2>
       <p>{{ meeting.attendance.description }}</p>
@@ -25,18 +26,23 @@
       <p>{{ meeting.when }}</p>
       <p v-if="meeting.location">{{ meeting.location }}</p>
       <template v-if="route.query.details">
-        <ul><li v-for="person in meeting.participants" :key="person.name">{{ person.name }} · {{ person.status === 'SIGNED_UP' ? 'Confirmed' : person.status === 'DECLINED' ? 'Not attending' : person.status || 'Host' }}{{ person.isPresenter ? ' · Presenter' : '' }}{{ person.isRequired ? ' · Required' : '' }}<p v-if="person.declineReason">Reason: {{ person.declineReason }}</p></li></ul>
+        <h3>Agenda</h3>
+        <ol v-if="meeting.agenda?.length"><li v-for="(item, index) in meeting.agenda" :key="index">{{ item.title }}</li></ol>
+        <p v-else>No agenda items have been added yet.</p>
+        <h3>Participants</h3>
+        <ul><li v-for="person in meeting.participants" :key="person.name">{{ person.name }} · {{ ['SIGNED_UP','accepted'].includes(person.status) ? 'Confirmed' : ['DECLINED','declined'].includes(person.status) ? 'Not attending' : person.status || 'Host' }}{{ person.isPresenter ? ' · Presenter' : '' }}{{ person.isRequired ? ' · Required' : '' }}<p v-if="person.declineReason">Reason: {{ person.declineReason }}</p></li></ul>
+        <RouterLink :to="{path:route.path,query:{rsvp:'1',eventId:route.query.eventId}}">RSVP</RouterLink>
         <RouterLink :to="route.path">Open session</RouterLink>
       </template>
       <RouterLink v-else-if="route.query.rsvp" :to="route.path">Open session</RouterLink>
       <p v-else>This meeting has no online video link. See My Schedule for the meeting details.</p>
     </section>
-    <p v-else-if="!(route.query.rsvp || route.name === 'InterviewRsvp')">Opening your meeting…</p>
+    <p v-else-if="!error && !(route.query.rsvp || route.name === 'InterviewRsvp')">Opening your meeting…</p>
     <RouterLink v-if="error" to="/">Return to your schedule</RouterLink>
   </main>
 </template>
 <script setup>
-import { onMounted, ref } from 'vue';
+import { watch, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { saveTeamMeetingAccess } from '../../utils/teamMeetingInvitationAccess';
@@ -45,11 +51,15 @@ const route = useRoute(), router = useRouter(), error = ref('');
 const meeting = ref(null), rsvpSaved=ref(''),saving=ref(false);
 const absenceScope=ref('occurrence'), absenceUntil=ref('');
 const signInRequired = ref(false), declining=ref(false), declineReason=ref('');
-async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response,reason:declineReason.value,...(response==='declined'&&absenceScope.value==='until_date'?{scope:'until_date',untilDate:absenceUntil.value}:{})});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
-onMounted(async () => {
+async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response,reason:declineReason.value,...(response==='declined'&&absenceScope.value==='until_date'?{scope:'until_date',untilDate:absenceUntil.value}:{})},{skipAuthRedirect:true});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
+watch(() => [route.params.token, route.query.details, route.query.rsvp, route.query.eventId], async (_, __, onCleanup) => {
+  let stale = false;
+  onCleanup(() => { stale = true; });
+  meeting.value=null;error.value='';signInRequired.value=false;rsvpSaved.value='';declining.value=false;declineReason.value='';absenceScope.value='occurrence';absenceUntil.value='';
   if(route.name === 'InterviewRsvp')return;
   try {
     const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details || route.query.rsvp ? {details:1,eventId:route.query.eventId} : {}});
+    if(stale)return;
     if (!data.joinUrl && data.meeting) { meeting.value = data.meeting; return; }
     const url = new URL(data.joinUrl);
     if (data.supervisionAccess || data.teamMeetingAccess) {
@@ -63,12 +73,14 @@ onMounted(async () => {
     }
     if (url.origin === window.location.origin) await router.replace(url.pathname + url.search);
     else window.location.replace(url.href);
-  } catch (e) { signInRequired.value=Number(e.response?.status)===401; error.value = e.response?.data?.error?.message || e.message || 'Unable to open your invitation.'; }
-});
+  } catch (e) { if(stale)return;signInRequired.value=Number(e.response?.status)===401; error.value = e.response?.data?.error?.message || e.message || 'Unable to open your invitation.'; }
+}, {immediate:true});
 </script>
 <style scoped>
 .invitation-page { max-width: 640px; margin: 4rem auto; padding: 2rem; }
 .absence-options { margin: 1rem 0; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 12px; }
 .absence-options label { display: block; margin: .7rem 0; }
 textarea { display: block; width: 100%; margin: .5rem 0; }
+.invitation-page a { display: inline-block; margin: .5rem 1rem .5rem 0; }
+@media (max-width: 640px) { .invitation-page { margin: 1rem auto; padding: 1rem; } }
 </style>

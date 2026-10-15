@@ -10,11 +10,15 @@ import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import pool from '../config/database.js';
-import { invitationEvents, resolvePersonalMeetingInvitation } from '../services/meetingInvitations.service.js';
+import { invitationEvents } from '../services/meetingInvitations.service.js';
+import { invitationResponseContext } from '../services/meetingInvitationResponse.service.js';
+import { meetingParticipantRows } from '../services/meetingParticipants.service.js';
+import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { activeMeetingPrompts } from '../services/activeMeetingPrompts.service.js';
 import { resolveSupervisionInvitationAccess } from '../services/supervisionInvitationAccess.service.js';
 
 const router = express.Router();
+router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
 router.post('/interview/:token/rsvp', async (req,res,next) => {
   try {
     if(!/^[\w-]{32}$/.test(String(req.params.token)) || !['accepted','declined'].includes(req.body.response))return res.status(400).json({error:{message:'Invalid response'}});
@@ -42,19 +46,14 @@ router.get('/active' , authenticate, async (req,res,next) => {
   try { res.json({prompts: await activeMeetingPrompts(req.user.id)}); }
   catch (error) { next(error); }
 });
-router.post('/:token/rsvp', authenticate, async (req,res,next) => {
+router.post('/:token/rsvp', async (req,res,next) => {
   try {
     if(!['accepted','declined'].includes(req.body.response)) return res.status(400).json({error:{message:'Choose attending or decline.'}});
-    const [rows]=await pool.execute('SELECT * FROM meeting_email_invitations WHERE join_token=? AND user_id=?',[String(req.params.token),req.user.id]);
-    if(rows[0]?.meeting_type==='supervision') {
-      const [occurrences]=await pool.execute(`SELECT s.id FROM supervision_sessions s JOIN supervision_sessions anchor ON anchor.id=? WHERE s.agency_id=? AND s.supervisor_user_id=? AND (s.id=anchor.id OR (anchor.recurrence_series_id IS NOT NULL AND s.recurrence_series_id=anchor.recurrence_series_id)) AND s.id=?`,[rows[0].event_id,rows[0].agency_id,rows[0].provider_id,req.body.eventId]);
-      if(!occurrences.length)return res.status(404).json({error:{message:'Invitation not found'}});
-      return res.json(await saveSupervisionRsvp({sessionId:req.body.eventId,userId:req.user.id,response:req.body.response,reason:req.body.reason,scope:req.body.scope,untilDate:req.body.untilDate}));
+    const {invitation,event,userId}=await invitationResponseContext(req.params.token,req.body.eventId);
+    if(invitation.meeting_type==='supervision') {
+      return res.json(await saveSupervisionRsvp({sessionId:event.id,userId,response:req.body.response,reason:req.body.reason,scope:req.body.scope,untilDate:req.body.untilDate}));
     }
-    if(!rows[0] || rows[0].meeting_type!=='team_meeting')return res.status(404).json({error:{message:'Invitation not found'}});
-    const events=await invitationEvents(rows[0]);const event=events.find(e=>Number(e.id)===Number(req.body.eventId));
-    if(!event || event.meeting_completed_at || parseUtcDate(event.end_at) <= new Date())return res.status(410).json({error:{message:'This invitation is no longer active.'}});
-    await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,rsvp,rsvp_at) VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE rsvp=VALUES(rsvp),rsvp_at=VALUES(rsvp_at)`,[event.id,req.user.id,req.body.response]);
+    await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,rsvp,rsvp_at) VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE rsvp=VALUES(rsvp),rsvp_at=VALUES(rsvp_at)`,[event.id,userId,req.body.response]);
     res.json({ok:true,response:req.body.response});
   }catch(error){next(error);}
 });
@@ -67,24 +66,36 @@ router.get('/:token', async (req,res,next) => {
       const team=await resolveTeamMeetingInvitationAccess(req.params.token);
       if(team) return res.json(team);
     }
-    return authenticate(req,res,next);
+    if (!req.query.details) return res.status(404).json({error:{message:'This personal invitation was not found.'}});
+    return next();
   } catch (error) { next(error); }
 }, async (req,res,next) => {
   res.set('Cache-Control','no-store');
   res.set('Referrer-Policy','no-referrer');
   try {
     if(req.query.details) {
-      const [rows]=await pool.execute('SELECT * FROM meeting_email_invitations WHERE join_token=? AND user_id=?',[req.params.token,req.user.id]);
-      const event=rows[0]&&(await invitationEvents(rows[0],{includeDeclined:true})).find(e=>Number(e.id)===Number(req.query.eventId));
-      if(!event)return res.status(404).json({error:{message:'Invitation not found'}});
-      const people=rows[0].meeting_type==='supervision'||event.kind==='HUDDLE'?await supervisionEmailPeople(event):[];
+      const {invitation,event,userId}=await invitationResponseContext(req.params.token,req.query.eventId);
+      const people=invitation.meeting_type==='supervision'||event.kind==='HUDDLE'?await supervisionEmailPeople(event):await meetingParticipantRows(event);
+      const [agendaRows]=await pool.execute(`SELECT i.title FROM meeting_agenda_items i JOIN meeting_agendas a ON a.id=i.meeting_agenda_id WHERE a.agency_id=? AND a.meeting_type=? AND a.meeting_id=? ORDER BY i.sort_order,i.id`,[invitation.agency_id,invitation.meeting_type==='supervision'?'supervision_session':'provider_schedule_event',event.id]);
       const tz=event.event_timezone||'America/Denver';
-      const recipient=people.find(p=>Number(p.id)===Number(req.user.id));
-      const attendance=recipient ? supervisionAttendance(event,recipient) : null;
-      const canSeeDeclineReasons = rows[0].meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(req.user.id));
-      return res.json({meeting:{attendance,rsvp:recipient?.status || null,canSkipRecurring:rows[0].meeting_type==='supervision' && event.session_type==='group' && !!event.recurrence_series_id && event.enrollment_mode!=='signup_only',sessionDate:new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(parseUtcDate(event.start_at)),title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter,...(canSeeDeclineReasons && p.decline_reason ? {declineReason:p.decline_reason} : {})}))}});
+      const recipient=people.find(p=>Number(p.id)===Number(userId));
+      const attendance=recipient && invitation.meeting_type==='supervision' ? supervisionAttendance(event,recipient) : null;
+      const canSeeDeclineReasons = invitation.meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(userId));
+      const format = new Intl.DateTimeFormat('en-US', {dateStyle:'full', timeStyle:'short', timeZone:tz});
+      return res.json({meeting:{
+        recipientName:recipient?.name || '',
+        agenda:agendaRows.map(mapMeetingAgendaItem).map(i=>({title:i.title})),
+        attendance, rsvp:recipient?.status || recipient?.rsvp || null,
+        canSkipRecurring:invitation.meeting_type==='supervision' && event.session_type==='group' && !!event.recurrence_series_id && event.enrollment_mode!=='signup_only',
+        sessionDate:new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(parseUtcDate(event.start_at)),
+        title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||(invitation.meeting_type==='supervision'?'Supervision':'Meeting'),
+        when:format.format(parseUtcDate(event.start_at))+' – '+format.format(parseUtcDate(event.end_at))+` (${tz})`,
+        location:event.location_text || (['IN_PERSON','IN-PERSON'].includes(String(event.modality).toUpperCase())?'In person':'Virtual'),
+        participants:people.map(p=>({name:p.name,status:p.status||p.rsvp,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter,
+          ...(canSeeDeclineReasons && p.decline_reason ? {declineReason:p.decline_reason} : {})}))
+      }});
     }
-    res.json(await resolvePersonalMeetingInvitation(req.params.token,req.user.id));
+    return res.status(404).json({error:{message:'Invitation not found.'}});
   }
   catch (error) { next(error); }
 });

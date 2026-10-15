@@ -61,7 +61,7 @@ it('uses the session agency approved workforce sender and an authenticated invit
  await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
  expect(m.sender).toHaveBeenCalledWith({agencyId:2,purpose:'workforce'});
  expect(m.sms).toHaveBeenCalledTimes(2);
- for(const [args] of m.sms.mock.calls){expect(args).toMatchObject({purpose:'workforce',agencyId:2,from:'+13035550100',to:'+13035550101'});expect(args.body).toContain('https://tenant.test/join/invitation/personal');expect(args.body).not.toContain('Private discussion title');}
+ for(const [args] of m.sms.mock.calls){expect(args).toMatchObject({purpose:'workforce',agencyId:2,from:'+13035550100',to:'+13035550101'});expect(args.body).toContain('https://tenant.test/join/invitation/personal');expect(args.body).not.toContain('Private discussion title');expect(args.body).toContain('Your supervision');expect(args.body).not.toContain('staff meeting');expect(args.body).not.toContain('Sign in');}
 });
 it('does not fall back to another campaign when no staff sender is registered',async()=>{
  m.gate.mockResolvedValue({email:false,sms:true});m.sender.mockResolvedValue(null);
