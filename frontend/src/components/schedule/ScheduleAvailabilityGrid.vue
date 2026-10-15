@@ -2366,8 +2366,6 @@
             :disabled="submitting || scheduleEventSaving"
           />
 
-          <button v-if="editingOpenSlot?.virtualHoursId" type="button" class="btn btn-secondary" @click="removingOpenPublication={...editingOpenSlot,id:editingOpenSlot.virtualHoursId,kind:'weekly',dayOfWeek:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(editingOpenSlot.startAt).getDay()]}">Remove published opening…</button>
-          <AvailabilityPublicationEdit v-if="removingOpenPublication" :row="removingOpenPublication" action="delete" :provider-id="Number(scheduleActorUserId)" @close="removingOpenPublication=null" @saved="removingOpenPublication=null;showRequestModal=false;load({forceRefresh:true})"/>
           <OpenSlotPlusOfficeRequestBody
             v-if="editorIsOpenSlot || requestType === 'attach_open_for_booking'"
             v-model:virtual-enabled="editorOpenVirtual"
@@ -4721,8 +4719,11 @@
           <div v-if="showRequestSubmitBlockedBanner" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ requestSubmitBlockedReason }}
           </div>
+          <button v-if="editorIsOpenSlot && editingOpenSlot?.virtualHoursId" type="button" class="btn nr-remove-availability" :disabled="submitting" @click="openAvailabilityRemoval">
+            Remove availability
+          </button>
           <button class="btn btn-secondary nr-btn-cancel" type="button" @click="requestCloseModal">
-            {{ virtualSessionShareUrl && isVirtualTelehealthSession ? 'Done' : 'Cancel' }}
+            {{ editingOpenSlot && editorIsOpenSlot ? 'Close' : virtualSessionShareUrl && isVirtualTelehealthSession ? 'Done' : 'Cancel' }}
           </button>
           <button
             class="btn nr-btn-submit"
@@ -4739,6 +4740,8 @@
         </div>
       </ClinicalWorkspaceFrame>
     </div>
+
+    <AvailabilityPublicationEdit v-if="removingOpenPublication" :row="removingOpenPublication" action="delete" :provider-id="removingOpenPublication.providerId" :time-zone="bookingTimezoneIana" @close="removingOpenPublication=null" @saved="onAvailabilityRemoved" />
 
     <div v-if="showSupvModal" class="modal-backdrop modal-backdrop--request" @click.self="closeSupvModal">
       <div class="modal modal--new-request modal--stack-details" style="max-width: 680px;">
@@ -8891,6 +8894,8 @@ const toggleIcsGaps = () => {
 /** Staff/admin/platform (and supervisors for supervisees) can pick who a booking is for. */
 const canSelectBookingProvider = computed(() => canManageOffices.value || isSupervisor(authStore.user));
 
+const editingOpenSlot = ref(null);
+const removingOpenPublication = ref(null);
 const bookingTargetUserId = ref(0);
 const bookingProvidersRaw = ref([]);
 const bookingProvidersLoading = ref(false);
@@ -13389,7 +13394,7 @@ const submitActionLabel = computed(() => {
     group_session: 'Schedule session',
     office: 'Request office',
     office_request_only: 'Request office',
-    portal_intake: 'Publish availability',
+    portal_intake: editingOpenSlot.value?.virtualHoursId ? 'Save availability' : 'Publish availability',
     attach_open_for_booking: 'Attach open for booking',
     school: 'Schedule school hours',
     supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
@@ -18543,8 +18548,22 @@ const maybeAutoOpenSelectionActions = (opts = {}) => {
   openSlotActionModal({ ...rows[0], actionSource: 'plus_or_blank' });
 };
 
-const editingOpenSlot = ref(null);
-const removingOpenPublication=ref(null);
+const openAvailabilityRemoval = () => {
+  const opening = editingOpenSlot.value;
+  if (!opening?.virtualHoursId) return;
+  removingOpenPublication.value = {
+    ...opening, id: Number(opening.virtualHoursId), kind: 'weekly',
+    providerId: Number(scheduleActorUserId.value),
+    occurrenceDate: String(opening.startAt).slice(0, 10)
+  };
+};
+const onAvailabilityRemoved = async () => {
+  removingOpenPublication.value = null;
+  editingOpenSlot.value = null;
+  showRequestModal.value = false;
+  flashScheduleToast('Open availability removed. Office reservations and appointments were kept.');
+  await load({forceRefresh:true});
+};
 const openSlotActionModal = async ({
   dayName,
   hour,
@@ -30260,6 +30279,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex: 1 1 100%;
   margin: 0 0 4px;
 }
+.nr-remove-availability { margin-right: auto; color: #b42318; background: #fff1f0; border: 1px solid #fda29b; }
 .nr-footer__actions {
   display: flex;
   flex-wrap: wrap;
