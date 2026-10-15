@@ -1,0 +1,34 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+const mocks=vi.hoisted(()=>({execute:vi.fn(),create:vi.fn(),getConnection:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:mocks}));
+vi.mock('../../models/PayrollTimeClaim.model.js',()=>({default:{create:mocks.create}}));
+import {calculateFfsExcess,validateFfsExcess,persistFfsExcessClaim} from '../ffsExcessTime.service.js';
+const codes=[{code:'90837',directMinutes:60,indirectMinutes:12},{code:'90834',directMinutes:45,indirectMinutes:9}];
+const row=(code,count,directMinutes,indirectMinutes)=>({code,count,directMinutes,indirectMinutes});
+const payload=()=>({categoryGroup:'indirect_service',totalMinutes:16,attestation:true,excludesAutomaticIndirect:true,ffsExcess:{periodId:7,services:[row('90837',2,120,40)],activity:'treatment_planning',workDescription:'Revised treatment goals for 90837',reason:'Additional record review needed',workspaceUse:'not_applicable',workspaceReason:'Plan revision in current record system',wholePeriod:true}});
+const args=p=>({agencyId:2,userId:1147,claimDate:'2026-01-10',payload:p});
+beforeEach(()=>{vi.clearAllMocks();mocks.execute.mockImplementation(async sql=>sql.includes('payroll_service_code_rules')?[codes]:sql.includes('payroll_periods')?[[{id:7,period_start:'2026-01-01',period_end:'2026-01-14'}]]:[[]]);});
+describe('period-wide calculation',()=>{
+ it('balances shorter services against longer services before requesting indirect time',()=>{expect(calculateFfsExcess([row('90837',1,60,30),row('90834',1,35,1)],codes)).toMatchObject({includedMinutes:126,actualIndirectMinutes:31,excessMinutes:0});});
+ it('does not convert extra direct service into indirect pay',()=>{expect(calculateFfsExcess([row('90837',1,120,5)],codes).excessMinutes).toBe(0);expect(calculateFfsExcess([row('90837',1,120,20)],codes).excessMinutes).toBe(8);});
+ it('retains fractional minutes',()=>{expect(calculateFfsExcess([row('90837',1,60,12.25)],codes).excessMinutes).toBe(.25);});
+ it('does not invent an allowance for a missing rule',()=>{expect(calculateFfsExcess([row('90837',1,60,30)],[{code:'90837',credits:1}])).toMatchObject({includedMinutes:null,excessMinutes:null,allowanceNeedsReview:true});});
+ it.each([[row('H0004',1,60,20)],[row('90837',1,60,20),row('90837',1,60,20)],[row('90837',0,0,0)],[row('90837',1,-1,5)],[row('90837',1,'',5)],[row('90837',1,Infinity,5)]])('rejects invalid service input %j',(...rows)=>{expect(()=>calculateFfsExcess(rows,codes)).toThrow();});
+});
+describe('submission validation',()=>{
+ it('stores verified totals and workspace answers and strips amount overrides',async()=>{const p={...payload(),amount:999,payRateAmountOverride:999};await validateFfsExcess(args(p));expect(p.ffsExcess).toMatchObject({includedMinutes:144,excessMinutes:16,requestedMinutes:16,periodStart:'2026-01-01'});expect(p.amount).toBeUndefined();expect(p.payRateAmountOverride).toBeUndefined();});
+ it('rejects a manipulated request amount',async()=>{await expect(validateFfsExcess(args({...payload(),totalMinutes:70}))).rejects.toMatchObject({status:400});});
+ it.each(['activity','reason','workDescription','workspaceUse','workspaceReason'])('requires %s',async key=>{const p=payload();p.ffsExcess[key]='';await expect(validateFfsExcess(args(p))).rejects.toMatchObject({status:400});});
+ it('requires complete-period attestation',async()=>{const p=payload();p.ffsExcess.wholePeriod=false;await expect(validateFfsExcess(args(p))).rejects.toMatchObject({status:400});});
+ it('accepts lack of access as a reportable explanation',async()=>{const p=payload();p.ffsExcess.workspaceUse='unavailable';await expect(validateFfsExcess(args(p))).resolves.toBeUndefined();});
+ it('rejects a date outside the period',async()=>{await expect(validateFfsExcess({...args(payload()),claimDate:'2026-01-15'})).rejects.toMatchObject({status:400});});
+ it('rejects an invalid calendar date',async()=>{await expect(validateFfsExcess({...args(payload()),claimDate:'2026-02-30'})).rejects.toMatchObject({status:400});});
+ it('rejects cross-agency/nonexistent periods',async()=>{const p=payload();p.ffsExcess.periodId=88;await expect(validateFfsExcess(args(p))).rejects.toMatchObject({status:400});});
+ it('prevents duplicate period claims',async()=>{const orig=mocks.execute.getMockImplementation();mocks.execute.mockImplementation((sql,...a)=>sql.includes('payroll_time_claims')?[[{id:10}]]:orig(sql,...a));await expect(validateFfsExcess(args(payload()))).rejects.toMatchObject({status:409});});
+ it('excludes the edited claim from duplicate lookup',async()=>{await validateFfsExcess({...args(payload()),claimId:10});expect(mocks.execute.mock.calls.at(-1)[1]).toEqual([2,1147,'7',10]);});
+ it('accepts an explained estimate for review without treating a missing allowance as zero',async()=>{const orig=mocks.execute.getMockImplementation();mocks.execute.mockImplementation((sql,...a)=>sql.includes('payroll_service_code_rules')?[[{code:'90837'}]]:orig(sql,...a));const p=payload();p.ffsExcess.allowanceExplanation='Estimated from my signed agreement';await validateFfsExcess(args(p));expect(p.ffsExcess).toMatchObject({allowanceNeedsReview:true,excessMinutes:null,requestedMinutes:16});});
+ it('does not accept unexplained estimates',async()=>{const orig=mocks.execute.getMockImplementation();mocks.execute.mockImplementation((sql,...a)=>sql.includes('payroll_service_code_rules')?[[{code:'90837'}]]:orig(sql,...a));await expect(validateFfsExcess(args(payload()))).rejects.toMatchObject({status:400});});
+ it('rejects mixing automated claims with the calculator',async()=>{await expect(validateFfsExcess(args({...payload(),source:'company_event_travel'}))).rejects.toMatchObject({status:400});});
+});
+it('serializes submission and rolls back a duplicate instead of creating a second claim',async()=>{const db={beginTransaction:vi.fn(),execute:vi.fn().mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{id:5}]]),rollback:vi.fn(),commit:vi.fn(),release:vi.fn()};mocks.getConnection.mockResolvedValue(db);await expect(persistFfsExcessClaim({...args(payload()),payload:payload()})).rejects.toMatchObject({status:409});expect(db.execute.mock.calls[0][0]).toContain('FOR UPDATE');expect(mocks.create).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();expect(db.release).toHaveBeenCalled();});
+it('accepts standalone required work without fabricating a billed service or allowance',async()=>{const p=payload();p.totalMinutes=30;p.ffsExcess.services=[row('UNLINKED',1,0,30)];p.ffsExcess.allowanceExplanation='Assigned standalone treatment-plan review; no session billed';await validateFfsExcess(args(p));expect(p.ffsExcess).toMatchObject({allowanceNeedsReview:true,requestedMinutes:30,excessMinutes:null});});

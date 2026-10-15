@@ -1,0 +1,10 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),options:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../services/ffsExcessTime.service.js',()=>({ffsExcessOptions:m.options}));
+import {getMyFfsExcessOptions} from '../ffsExcessTime.controller.js';
+const response=()=>{const r={status:vi.fn(),json:vi.fn()};r.status.mockReturnValue(r);return r;};
+beforeEach(()=>{vi.clearAllMocks();m.options.mockResolvedValue({codes:[],periods:[]});});
+it('allows a non-hourly FFS provider to load their own agency calculator',async()=>{m.execute.mockResolvedValue([[{member:1}]]);const res=response(),next=vi.fn();await getMyFfsExcessOptions({query:{agencyId:2},user:{id:1147,role:'provider',is_hourly_worker:0}},res,next);expect(m.options).toHaveBeenCalledWith(2);expect(res.json).toHaveBeenCalledWith({codes:[],periods:[]});expect(next).not.toHaveBeenCalled();});
+it('rejects a different agency',async()=>{m.execute.mockResolvedValue([[]]);const res=response();await getMyFfsExcessOptions({query:{agencyId:8},user:{id:1147,role:'provider'}},res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(m.options).not.toHaveBeenCalled();});
+it('rejects invalid agency IDs before querying',async()=>{const res=response();await getMyFfsExcessOptions({query:{agencyId:'invalid'},user:{id:1147,role:'provider'}},res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(m.execute).not.toHaveBeenCalled();});

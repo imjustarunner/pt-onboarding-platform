@@ -7,7 +7,8 @@
           <button type="button" class="itc-close" aria-label="Close" @click="$emit('close')">×</button>
         </header>
 
-        <template v-if="isSupplemental">
+        <FfsExcessTime v-if="claim?.payload?.ffsExcess" :agency-id="agencyId" :claim="claim" @submitted="$emit('saved'); $emit('close')" />
+        <template v-else-if="isSupplemental">
           <p v-if="error" role="alert">{{ error }}</p>
           <p v-else-if="!compensation">Loading assigned rates…</p>
           <SupplementalTime v-else :agency-id="agencyId" :claim="claim" :context="compensation.submission" :codes="compensation.codeGuide" @submitted="$emit('saved')" @close="$emit('close')" />
@@ -101,6 +102,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import FfsExcessTime from '../payroll/FfsExcessTime.vue';
 import SupplementalTime from '../payroll/SupplementalTime.vue';
 
 const props = defineProps({

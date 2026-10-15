@@ -1,3 +1,4 @@
+import { validateFfsExcess, persistFfsExcessClaim } from '../services/ffsExcessTime.service.js';
 import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
 import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
 import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
@@ -18361,6 +18362,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       try { payload = JSON.parse(payload); } catch { payload = {}; }
     }
     if(payload.source==='supervision_payroll_correction')return res.status(400).json({error:{message:'Supervision corrections must originate from the verified supervision record.'}});
+    if (payload.ffsExcess && (claimType !== 'indirect_time' || payload.eventWorkType || payload.source)) return res.status(400).json({error:{message:'Use a clinical FFS indirect-time request without an automated source.'}});
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
 
     const agencyRow = await Agency.findById(agencyId);
@@ -18492,6 +18494,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       if(categoryGroup==='admin_duties'||payload.excessIndirect){
         delete payload.amount;delete payload.amountExplicit;delete payload.payRateAmountOverride;
       }
+      await validateFfsExcess({agencyId,userId,claimDate,payload});
       const supplementalContext = await validateSupplementalTime({agencyId,userId,claimDate,payload});
       const preAllocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
       const preTypeIds = preAllocations
@@ -18505,7 +18508,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         })
         : false;
 
-      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize && !hasAssignedIndirectAccess && !supplementalContext.effective) {
+      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize && !hasAssignedIndirectAccess && !supplementalContext.effective && !payload.ffsExcess) {
         return res.status(403).json({
           error: { message: 'Indirect Service Time is for hourly employees only. Use Support Activity Time instead.' }
         });
@@ -18516,7 +18519,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         });
       }
 
-      const claimMinutes = payload.excessIndirect ? v => {
+      const claimMinutes = (payload.excessIndirect || payload.ffsExcess) ? v => {
         const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;
       } : toMinutes;
       const allocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
@@ -18654,7 +18657,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
     });
 
     const persistClaim = claimType === 'indirect_time' && (payload.eventWorkType === 'travel' || payload.source === 'company_event_travel')
-      ? persistEventTravelClaim : (args) => PayrollTimeClaim.create(args);
+      ? persistEventTravelClaim : claimType === 'indirect_time' && payload.ffsExcess ? persistFfsExcessClaim : (args) => PayrollTimeClaim.create(args);
     const claim = await persistClaim({
       agencyId,
       userId,
@@ -18840,7 +18843,8 @@ export const updateMyTimeClaim = async (req, res, next) => {
     const payloadIn = req.body?.payload && typeof req.body.payload === 'object'
       ? req.body.payload
       : {};
-    const claimMinutes = (payloadIn.excessIndirect||claim.payload?.excessIndirect) ? v=>{const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;} : toMinutes;
+    if (claim.payload?.ffsExcess && (!payloadIn.ffsExcess || Number(payloadIn.ffsExcess.periodId)!==Number(claim.payload.ffsExcess.periodId))) return res.status(400).json({error:{message:'Keep this request in its original pay period and edit it using the clinical FFS calculator.'}});
+    const claimMinutes = (payloadIn.excessIndirect||claim.payload?.excessIndirect||payloadIn.ffsExcess||claim.payload?.ffsExcess) ? v=>{const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;} : toMinutes;
     const allocations = Array.isArray(payloadIn.allocations) ? payloadIn.allocations : [];
     const cleaned = [];
     let allocatedSum = 0;
@@ -18906,7 +18910,8 @@ export const updateMyTimeClaim = async (req, res, next) => {
       editHistory: history.slice(-20)
     };
 
-    if(categoryGroup==='admin_duties'||nextPayload.excessIndirect){delete nextPayload.amount;delete nextPayload.amountExplicit;delete nextPayload.payRateAmountOverride;}
+    await validateFfsExcess({agencyId:claim.agency_id,userId,claimDate:recurringDay(req.body?.claimDate||claim.claim_date),payload:nextPayload,claimId:id});
+    if(categoryGroup==='admin_duties'||nextPayload.excessIndirect||nextPayload.ffsExcess){delete nextPayload.amount;delete nextPayload.amountExplicit;delete nextPayload.payRateAmountOverride;}
 
     let claimDate = claim.claim_date;
     if (req.body?.claimDate) {
@@ -19403,6 +19408,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
     }
 
 
+    if (type==='indirect_time' && payload.ffsExcess?.allowanceNeedsReview) return null;
     if(type==='indirect_time' && ['indirect_service','support_activity'].includes(payload.categoryGroup)) {
       const ctx=await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
       if(ctx?.enabled) {
@@ -19410,7 +19416,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
         const rate=Number(ctx.status?.useReducedRates ? ctx.rateProfile?.[key+'Probation'] ?? ctx.rateProfile?.[key] : ctx.rateProfile?.[key]);
         return rate>0?Math.round(hrs*rate*100)/100:null;
       }
-      if(payload.excessIndirect)return null;
+      if(payload.excessIndirect||payload.ffsExcess)return null;
     }
 
     // Per-user Log Time duty rate override (compensation tab).
@@ -19663,7 +19669,7 @@ export const patchTimeClaim = async (req, res, next) => {
         const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
         const nextPayload = { ...prevPayload, bucket };
         if (Number.isFinite(creditsHoursRaw) && (creditsHoursRaw >= 0 || correction)) {
-          nextPayload.totalMinutes = Math.round(creditsHoursRaw * 60);
+          nextPayload.totalMinutes = prevPayload.ffsExcess ? Math.round(creditsHoursRaw * 60 * 100) / 100 : Math.round(creditsHoursRaw * 60);
           nextPayload.creditsHours = creditsHoursRaw;
         }
         if (Number.isFinite(override)) {

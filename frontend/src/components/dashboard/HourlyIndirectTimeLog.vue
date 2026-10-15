@@ -16,6 +16,10 @@
     </header>
 
     <div class="itl-body">
+      <details v-if="!isHourlyUser && !forceBucket" class="itl-card">
+        <summary style="cursor:pointer;font-weight:650">Clinical FFS · report extra note or treatment-plan time</summary>
+        <FfsExcessTime :agency-id="agencyId" @submitted="$emit('submitted')" />
+      </details>
       <aside class="itl-card"><strong>Already-included time</strong><p>Do not submit indirect time already included with billed services, scheduled stipends, or another time record. Use the Direct Care calculator on Submit to calculate additional indirect minutes.</p><label><input type="checkbox" v-model="excludesAutomaticIndirect" /> My entries exclude automatically included or previously paid time.</label></aside>
       <div class="itl-tabs" role="tablist" aria-label="Time log sections">
         <button
@@ -578,6 +582,7 @@
 </template>
 
 <script setup>
+import FfsExcessTime from '../payroll/FfsExcessTime.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

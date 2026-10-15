@@ -1,3 +1,4 @@
+import { getMyFfsExcessOptions } from '../controllers/ffsExcessTime.controller.js';
 import { getTimeClaimMeetingAttendance } from '../controllers/payroll.controller.js';
 import { listRecurringPayments, saveRecurringPayment, stopRecurringPayment } from '../controllers/payroll.controller.js';
 import express from 'express';
@@ -314,6 +315,7 @@ router.delete('/service-code-rules', deleteServiceCodeRule);
 router.delete('/service-code-rules/:serviceCode', deleteServiceCodeRule);
 router.get('/excess-compensation-rules', listExcessCompensationRules);
 router.get('/me/excess-compensation-rules', listMyExcessCompensationRules);
+router.get('/me/ffs-excess-options', getMyFfsExcessOptions);
 router.post('/excess-compensation-rules', upsertExcessCompensationRule);
 router.delete('/excess-compensation-rules', deleteExcessCompensationRule);
 router.get('/mileage-rates', getAgencyMileageRates);

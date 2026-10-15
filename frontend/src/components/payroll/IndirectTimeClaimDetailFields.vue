@@ -1,5 +1,17 @@
 <template>
   <div class="itcdf">
+    <section v-if="payload?.ffsExcess" class="itcdf-activities card">
+      <h4>Clinical FFS excess-time review</h4>
+      <p>Period: {{ payload.ffsExcess.periodStart }} – {{ payload.ffsExcess.periodEnd }}</p>
+      <p v-for="row in payload.ffsExcess.services" :key="row.code">{{ row.code==='UNLINKED' ? 'Standalone required work (no billed service)' : row.code }} · {{ row.count }} services/work items · {{ row.directMinutes }} direct + {{ row.indirectMinutes }} indirect minutes · included: {{ row.includedMinutes ?? 'needs verification' }} minutes</p>
+      <p><strong>Requested:</strong> {{ payload.ffsExcess.requestedMinutes }} extra indirect minutes.</p>
+      <p v-if="payload.ffsExcess.allowanceNeedsReview"><strong>Allowance needs verification.</strong> {{ payload.ffsExcess.allowanceExplanation }}</p>
+      <p><strong>Activity:</strong> {{ payload.ffsExcess.activity }}</p>
+      <p><strong>Work performed:</strong> {{ payload.ffsExcess.workDescription }}</p>
+      <p><strong>Why it took longer:</strong> {{ payload.ffsExcess.reason }}</p>
+      <p><strong>Documentation Hub:</strong> {{ payload.ffsExcess.workspaceUse }}. {{ payload.ffsExcess.workspaceReason }}</p>
+      <p>Provider attested to complete period totals and exclusion of previously paid/submitted extra time. Verify the applicable allowance, actual work, and any other time claims before approval. Workspace use does not determine whether worked time is payable.</p>
+    </section>
     <div class="itcdf-grid">
       <div class="field"><label>Entry method</label><div>{{ payload?.entryMethod || '—' }}</div></div>
       <div class="field"><label>Pay bucket</label><div>{{ bucketLabel }}</div></div>
