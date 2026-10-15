@@ -70,7 +70,7 @@ function buildAgencyBranding(req, raw) {
       return {};
     }
   })();
-  const primaryColor = theme.hirePrimaryColor || (isItscoPacketChromeAgency(raw) ? '#086553' : palette.primary || theme.primaryColor || theme.primary_color || '#1d4ed8');
+  const primaryColor = theme.hirePrimaryColor || (isItscoPacketChromeAgency(raw) ? '#243b53' : palette.primary || theme.primaryColor || theme.primary_color || '#1d4ed8');
   const secondaryColor = palette.secondary || theme.secondaryColor || theme.secondary_color || primaryColor;
   const accentColor = palette.accent || theme.accentColor || theme.accent_color || secondaryColor || primaryColor;
   return {
@@ -89,7 +89,7 @@ function buildAgencyBranding(req, raw) {
     secondaryColor,
     accentColor,
     sidebarColor: theme.sidebarColor || theme.sidebar_color || palette.sidebar || null,
-    fontFamily: theme.fontFamily || palette.fontFamily || (isItscoPacketChromeAgency(raw) ? 'Comfortaa, Arial, sans-serif' : null),
+    fontFamily: theme.hireFontFamily || (isItscoPacketChromeAgency(raw) ? '"Plotline Inter", Inter, system-ui, sans-serif' : theme.fontFamily || palette.fontFamily || null),
     palette,
     theme
   };
@@ -1670,13 +1670,14 @@ export const getPortalHandbook = async (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     const agency = await loadPortalAgency(req.portalUser.id);
     if (!agency) return res.status(404).json({ error: { message: 'Organization not found.' } });
-    const { getPublishedHandbook, recordHandbookView } = await import('../services/workplaceHandbook.service.js');
-    const handbook = await getPublishedHandbook(agency.id);
-    if (!handbook?.version) {
+    const { recordHandbookView } = await import('../services/workplaceHandbook.service.js');
+    const { getPortalHandbookEdition } = await import('../services/workplaceHandbookReference.service.js');
+    const handbook = await getPortalHandbookEdition(agency.id, { referenceOnly: req.query?.reference === '1' });
+    if (!handbook) {
       return res.json({ available: false, handbook: null });
     }
     try {
-      await recordHandbookView({
+      if (handbook.version?.id) await recordHandbookView({
         agencyId: agency.id,
         userId: req.portalUser.id,
         versionId: handbook.version?.id || null
@@ -1684,7 +1685,8 @@ export const getPortalHandbook = async (req, res, next) => {
     } catch { /* ignore */ }
     res.json(handbookResponseForReader({
       available: true,
-      analytics: { agencyId: agency.id, surface: req.portalUser.status === 'ONBOARDING' ? 'onboarding' : 'prehire' },
+      acknowledgeable: !!handbook.version?.id,
+      analytics: handbook.version?.id ? { agencyId: agency.id, surface: req.portalUser.status === 'ONBOARDING' ? 'onboarding' : 'prehire' } : null,
       handbook: {
         ...handbook,
         title: handbook.document?.title || 'Workplace Handbook',

@@ -28,6 +28,7 @@ export default {
       'src/services/__tests__/workplaceDocumentLibrary.test.js',
       'src/services/__tests__/studentTrainingEvaluation.test.js',
       'src/services/__tests__/workplaceHandbookWorkflow.test.js',
+      'src/services/__tests__/workplaceHandbookReference.test.js',
       'src/services/__tests__/workplaceHandbookMutation.test.js',
       'src/services/__tests__/workplaceHandbookAssistant.test.js',
       'src/services/__tests__/workplaceHandbookAnswer.test.js',

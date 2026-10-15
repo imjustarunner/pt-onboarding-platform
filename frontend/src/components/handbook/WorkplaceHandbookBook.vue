@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body" :disabled="!expanded"><section ref="analyticsRoot" :role="expanded ? 'dialog' : undefined" :aria-modal="expanded || undefined" @keydown="readerKeydown" :class="['handbook-book', metadata.presentation?.theme, { 'handbook-screen-only': !canPrint, 'reader-expanded': expanded }]" :aria-label="documentTitle">
+  <Teleport to="body" :disabled="!expanded"><section ref="analyticsRoot" :role="expanded ? 'dialog' : undefined" :aria-modal="expanded || undefined" @keydown="readerKeydown" :class="['handbook-book', metadata.presentation?.theme, { 'handbook-screen-only': !canPrint, 'reader-expanded': expanded, 'neutral-reader': neutral }]" :aria-label="documentTitle">
     <div class="reader-toolbar"><span>{{ documentTitle }}</span><button ref="expandButton" type="button" :aria-expanded="expanded" @click="toggleExpanded">{{ expanded ? 'Return to page ↙' : 'Expand reader ↗' }}</button></div>
     <p class="handbook-print-notice">Read the current {{ documentTitle }} in the app. Printing and PDF export are not available in this view.</p>
     <DocumentAnalyticsControl v-if="analytics" :agency-id="analytics.agencyId" :document-key="metadata.documentKey || 'workplace-handbook'" :document-title="documentTitle" />
@@ -113,7 +113,7 @@ import CrisisGuideQuickActions from './CrisisGuideQuickActions.vue';
 import DocumentAnalyticsControl from '../library/DocumentAnalyticsControl.vue';
 import { useDocumentAnalytics } from '../../composables/useDocumentAnalytics';
 
-const props = defineProps({ handbook: { type: Object, required: true }, updates: { type: Array, default: () => [] }, fullHandbookUrl: { type: String, default: '' }, canOpenOriginal: { type: Boolean, default: false }, canPrint: { type: Boolean, default: false }, answerQuestion: { type: Function, default: null }, assistantPreview: { type: Boolean, default: false }, analytics: { type: Object, default: null }, analyticsHttp: { type: Object, default: undefined } });
+const props = defineProps({ neutral: Boolean, handbook: { type: Object, required: true }, updates: { type: Array, default: () => [] }, fullHandbookUrl: { type: String, default: '' }, canOpenOriginal: { type: Boolean, default: false }, canPrint: { type: Boolean, default: false }, answerQuestion: { type: Function, default: null }, assistantPreview: { type: Boolean, default: false }, analytics: { type: Object, default: null }, analyticsHttp: { type: Object, default: undefined } });
 const emit = defineEmits(['reload', 'handbook-link', 'section-change']);
 const expanded = ref(false), expandButton = ref(null);
 let previousFocus = null, previousOverflow = '';
@@ -356,4 +356,17 @@ button:focus-visible,a:focus-visible { outline: 2px solid var(--ink); outline-of
 .chapter-sections{margin-top:20px}.chapter-sections button{padding:16px;border:1px solid var(--line);border-radius:8px;background:#f5f8ef;margin-bottom:9px;align-items:center}.chapter-sections strong{font-size:14px;font-weight:600}.chapter-sections small{display:block;font-size:12px;line-height:1.7;color:var(--muted);margin-top:6px;font-weight:400}
 .reader-expanded .book-layout{height:calc(100dvh - 155px)}
 @media(max-width:720px){.book-layout{height:auto;display:flex;flex-direction:column}.book-outline{max-height:270px;min-height:210px}.outline-scroll{flex:1;max-height:none;height:auto}.outline-heading,.search-count{display:none}.chapter-picker{margin-top:10px}.reader-pane{height:70dvh;min-height:420px}.book-page{padding:22px}.page-navigation{padding:10px;min-height:72px}.page-navigation button{flex-basis:auto;min-width:108px;padding:8px;font-size:11px}.page-navigation small{display:none}.reader-expanded .book-layout{height:auto}}
+/* Neutral reader chrome for the hiring portal, including its expanded view. */
+.handbook-book.neutral-reader{--handbook-font:'Plotline Inter',Inter,system-ui,sans-serif;--ink:#243b53;--muted:#5c6d82;--line:#dfe5ed;background:#fff;color:var(--ink);border-radius:12px}
+.neutral-reader :is(.reader-toolbar,.book-outline,.page-navigation,.artwork-credits){background:#f6f8fb}
+.neutral-reader :is(.book-page,.reader-pane){background:#fff}
+.neutral-reader :is(.book-search,.page-navigation button){border-color:var(--line)}
+.neutral-reader :is(.outline-link,.book-search input,.handbook-prose){color:#33465b}
+.neutral-reader :is(.outline-status,.page-topline,.section-eyebrow,.chapter-introduction){color:var(--muted)}
+.neutral-reader :is(.outline-link:hover,.outline-chapter.current-chapter){background:#eaf0f6}
+.neutral-reader .outline-link.active{background:#e2eaf3;color:var(--ink)}
+.neutral-reader .page-rule{background:#b9826d}
+.neutral-reader .handbook-prose :deep(a){color:#345d86;text-decoration-color:#a5b7cb}
+.neutral-reader .handbook-prose :deep(blockquote){background:#eff4f9;border-color:#88a1bb}
+.neutral-reader :is(.pending-section,.section-updates){background:#f1f5f9;border-color:#cbd7e3}
 </style>

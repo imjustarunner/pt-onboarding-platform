@@ -101,6 +101,34 @@ describe('handbook reader', () => {
     expect(w.text()).toContain('before acknowledging');
     w.unmount();
   });
+  it('loads the reference edition in optional review without enabling signature or published-only questions', async () => {
+    const http = { get: vi.fn().mockResolvedValue({ data: { available: true, acknowledgeable: false, handbook: { ...handbook, beta: true, version: null } } }) };
+    const w = mount(Portal, { props: { http, token: 'candidate', referenceOnly: true } });
+    await flushPromises();
+    expect(http.get).toHaveBeenCalledWith('/prehire-portal/candidate/resources/handbook?reference=1');
+    expect(w.get('.book-page').text()).toContain('Welcome to our community.');
+    expect(w.text()).toContain('Reference edition');
+    expect(w.getComponent(Book).props('answerQuestion')).toBeNull();
+    expect(w.emitted('available').at(-1)).toEqual([false]);
+    expect(w.emitted('version').at(-1)).toEqual([null]);
+    await w.setProps({ referenceOnly: false }); await flushPromises();
+    expect(w.findComponent(Book).exists()).toBe(false);
+    w.unmount();
+  });
+  it('lets an optional reader recover from a loading failure or contact the team without suggesting acknowledgement', async () => {
+    const http = { get: vi.fn().mockRejectedValue(new Error('Offline')) };
+    const w = mount(Portal, { props: { http, token: 'candidate', referenceOnly: true } });
+    expect(w.get('[role="status"]').text()).toContain('Opening your workplace handbook');
+    await flushPromises();
+    expect(w.get('[role="alert"]').text()).toContain('continue your pre-hire steps');
+    expect(w.text()).not.toContain('before acknowledging');
+    await w.get('.contact-action').trigger('click');
+    expect(w.emitted('help')).toHaveLength(1);
+    http.get.mockResolvedValue({ data: { available: true, handbook } });
+    await w.findAll('button').find(b => b.text() === 'Try again').trigger('click'); await flushPromises();
+    expect(w.findComponent(Book).exists()).toBe(true);
+    w.unmount();
+  });
   it('keeps the pre-hire handbook an optional reference without an acknowledgment', async () => {
     const http = { get: vi.fn().mockResolvedValue({ data: { available: true, handbook } }), post: vi.fn().mockResolvedValue({ data: { ok: true } }), defaults: { baseURL: '/api' } };
     const data = { candidate: { status: 'PREHIRE_OPEN', firstName: 'Test', lastName: 'Person' }, agency: { id: 2, name: 'ITSCO' }, workflow: { config: {}, steps: { pre_hire: [{ key: 'handbook', kind: 'handbook', title: 'Workplace handbook', url: 'https://docs.google.com/document/d/old-handbook/edit' }], onboarding: [] } } };
@@ -111,6 +139,8 @@ describe('handbook reader', () => {
     expect(w.find('.resource-frame').exists()).toBe(false);
     expect(w.find('a[href^="https://docs.google.com"]').exists()).toBe(false);
     expect(w.text()).toContain('Optional reference');
+    expect(w.get('.hire-topbar a[aria-label="Plotline PO by PlotTwistCo"]').exists()).toBe(true);
+    expect(http.get).toHaveBeenCalledWith('/prehire-portal/candidate/resources/handbook?reference=1');
     expect(w.find('.check-label input').exists()).toBe(false);
     expect(http.post).not.toHaveBeenCalled();
     w.unmount();
@@ -218,7 +248,8 @@ describe('handbook reader', () => {
     await flushPromises();
     expect(w.find('.book-page').text()).toContain('Welcome to our community.');
     expect(window.location.hash).toBe('#handbook-welcome');
-    expect(w.find('.ack-row').exists()).toBe(false);
+    // Review controls remain available when navigating into a linked policy.
+    expect(w.find('.ack-row').exists()).toBe(true);
     w.unmount();
   });
   it('shows an error without an acknowledgment control when the request fails', async () => {
