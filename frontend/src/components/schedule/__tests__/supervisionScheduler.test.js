@@ -8,9 +8,10 @@ vi.mock('vue-router',()=>({useRoute:()=>m.route,useRouter:()=>({push:vi.fn(),rep
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:7,role:'provider',has_supervisor_privileges:true},isAuthenticated:true})}));
 vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{id:2,name:'Test agency',slug:'test',organization_type:'agency',feature_flags:{hasClinicalOrg:true}},agencies:[],userAgencies:[]})}));
 import Grid from '../ScheduleAvailabilityGrid.vue';
+import { invalidateScheduleSummaryCacheForUser } from '../../../utils/scheduleSummaryCache';
 let wrapper;
-beforeEach(()=>{setActivePinia(createPinia());localStorage.clear();m.route=reactive({path:'/dashboard',params:{},query:{}});m.get.mockImplementation(async url=>({data:url.includes('supervision/providers')?{providers:[{id:8,firstName:'Supervisee'}],facilitators:[{id:7,firstName:'Supervisor'}]}:url.includes('agencies')?[]:{}}));m.post.mockResolvedValue({data:{session:{id:10}}});});
-afterEach(()=>wrapper?.unmount());
+beforeEach(()=>{vi.clearAllMocks();invalidateScheduleSummaryCacheForUser(7);setActivePinia(createPinia());localStorage.clear();sessionStorage.clear();m.route=reactive({path:'/dashboard',params:{},query:{}});m.get.mockImplementation(async url=>({data:url.includes('supervision/providers')?{providers:[{id:8,firstName:'Supervisee'}],facilitators:[{id:7,firstName:'Supervisor'}]}:url.includes('agencies')?[]:{}}));m.post.mockResolvedValue({data:{session:{id:10}}});});
+afterEach(async()=>{wrapper?.unmount();await flushPromises();invalidateScheduleSummaryCacheForUser(7);});
 describe('My Schedule supervision controls',()=>{
  it('enables creation for a supervisor and sends the chosen recurrence to the supervision state',async()=>{
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
