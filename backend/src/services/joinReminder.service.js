@@ -176,7 +176,9 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
     }
   }
 
-  if (decision?.sms && toPhoneNorm) {
+  // Group supervision texts are sent with the email by the pending-RSVP flow.
+  // Never also send the generic join text to somebody who already responded.
+  if ((sessionType !== 'supervision' || meetingEvent?.session_type === 'individual') && decision?.sms && toPhoneNorm) {
     try {
       const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce' });
       if (from) {

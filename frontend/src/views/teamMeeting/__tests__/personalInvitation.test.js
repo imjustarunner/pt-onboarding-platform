@@ -57,3 +57,12 @@ describe('personal meeting entry',()=>{
     const wrapper=render();await flushPromises();expect(wrapper.text()).toContain('Room 204');expect(wrapper.text()).toContain('no online video link');expect(m.replace).not.toHaveBeenCalled();wrapper.unmount();
   });
 });
+it('requires a finite date and reason for a recurring group absence',async()=>{
+ m.query={rsvp:'1',eventId:'19'};m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},canSkipRecurring:true,sessionDate:'2026-10-20',title:'Group supervision'}}});m.post.mockResolvedValue({data:{ok:true}});
+ const wrapper=render();await flushPromises();await wrapper.findAll('button')[1].trigger('click');
+ await wrapper.get('input[value="until_date"]').setValue();await wrapper.get('textarea').setValue('Evening class');
+ expect(wrapper.findAll('button')[2].element.disabled).toBe(true);
+ await wrapper.get('input[type="date"]').setValue('2026-11-03');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'Evening class',scope:'until_date',untilDate:'2026-11-03'});
+ expect(wrapper.text()).toContain('invitations resume afterward');wrapper.unmount();
+});

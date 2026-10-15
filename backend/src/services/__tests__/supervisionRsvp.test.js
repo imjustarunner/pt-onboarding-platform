@@ -1,6 +1,7 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),commit:vi.fn(),rollback:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),commit:vi.fn(),rollback:vi.fn(),beginTransaction:vi.fn(),seriesEdit:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{getConnection:async()=>({...m,beginTransaction:vi.fn(),release:vi.fn()})}}));
+vi.mock('../recurringScheduleCancellation.service.js',()=>({withRecurringScheduleEdit:work=>{m.seriesEdit();return work(m);}}));
 vi.mock('../supervisionSignup.service.js',()=>({isSignupOpen:session=>session.signupOpen!==false}));
 import {saveSupervisionRsvp} from '../supervisionRsvp.service.js';
 const session={id:1,status:'SCHEDULED',start_at:'2099-09-22 18:30:00',attendee_status:'INVITED',is_required:1};
@@ -22,4 +23,27 @@ it('allows optional attendees to RSVP attending without an explanation',async()=
  m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[{...session,is_required:0}]]:[{affectedRows:1}]);
  await saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'});
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['SIGNED_UP',null,1,2]);
+});
+it.each(['forever','all_future'])('rejects indefinite RSVP scope %s',async scope=>{
+ await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',scope,reason:'Conflict'})).rejects.toMatchObject({status:400});expect(m.commit).not.toHaveBeenCalled();
+});
+it('declines only the invited user’s recurring day through the inclusive local end date',async()=>{
+ const group={...session,agency_id:2,session_type:'group',recurrence_series_id:'a',recurrence_frequency:'WEEKLY',start_at:'2026-10-20 23:00:00',event_timezone:'America/Denver'};
+ m.execute.mockImplementation(async sql=>{
+  if(sql.startsWith('SELECT s.*,a.status'))return [[group]];
+  if(sql.startsWith('SELECT s.* FROM'))return [[group,{...group,id:2,start_at:'2026-10-27 23:00:00'},{...group,id:3,start_at:'2026-10-28 23:00:00'},{...group,id:4,start_at:'2026-11-04 00:00:00'}]];
+  return [{affectedRows:1}];
+ });
+ const result=await saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',scope:'until_date',untilDate:'2026-11-03',reason:'Class commitment',now:new Date('2026-10-19T00:00:00Z')});
+ expect(result).toMatchObject({affectedSessions:3,untilDate:'2026-11-03'});
+ expect(m.seriesEdit).toHaveBeenCalledOnce();
+ const updates=m.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE supervision_session_attendees'));
+ expect(updates.map(([,args])=>args.slice(1))).toEqual([[1,2],[2,2],[4,2]]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO supervision_rsvp_absences'),[2,'a',2,1,group.start_at,'2026-11-04 07:00:00','2026-11-03',2,'Class commitment']);
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE supervision_sessions'))).toBe(false);
+});
+it.each([null,'','2026-02-30','2026-10-19'])('rejects missing, impossible, or earlier absence dates: %s',async untilDate=>{
+ m.execute.mockResolvedValue([[{...session,session_type:'group',recurrence_series_id:'a',start_at:'2026-10-20 23:00:00'}]]);
+ await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',reason:'Class',scope:'until_date',untilDate,now:new Date('2026-10-19T00:00:00Z')})).rejects.toMatchObject({status:400});
+ expect(m.commit).not.toHaveBeenCalled();
 });

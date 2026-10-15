@@ -18,7 +18,7 @@ import {runJoinReminderTick} from '../joinReminder.service.js';
 let session,sent,attendees;
 beforeEach(()=>{
  vi.clearAllMocks();sent=new Set();attendees=[];m.gate.mockResolvedValue({email:true,sms:false});m.sender.mockResolvedValue('+13035550100');m.sms.mockResolvedValue({sid:'test-only'});
- session={id:10,agency_id:2,supervisor_user_id:7,supervisee_user_id:8,notify_participants:1,start_at:'2026-10-05 18:00:00',reminder_minutes:5,meeting_settings_json:JSON.stringify({reminders:[1440,30,5]}),event_timezone:'America/Denver'};
+ session={id:10,agency_id:2,session_type:'individual',supervisor_user_id:7,supervisee_user_id:8,notify_participants:1,start_at:'2026-10-05 18:00:00',reminder_minutes:5,meeting_settings_json:JSON.stringify({reminders:[1440,30,5]}),event_timezone:'America/Denver'};
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.includes('FROM supervision_session_attendees'))return [attendees];
   if(sql.includes('FROM supervision_sessions'))return [[session]];
@@ -67,4 +67,11 @@ it('does not fall back to another campaign when no staff sender is registered',a
  m.gate.mockResolvedValue({email:false,sms:true});m.sender.mockResolvedValue(null);
  await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
  expect(m.sms).not.toHaveBeenCalled();expect(sent.size).toBe(0);
+});
+
+it('never sends generic group supervision texts, even when the generic SMS channel is enabled',async()=>{
+ session.session_type='group';m.gate.mockResolvedValue({email:true,sms:true});
+ attendees=[{user_id:8,is_required:1,status:'SIGNED_UP'},{user_id:9,is_required:0,status:'INVITED'}];
+ await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
+ expect(m.send).toHaveBeenCalled();expect(m.sms).not.toHaveBeenCalled();
 });

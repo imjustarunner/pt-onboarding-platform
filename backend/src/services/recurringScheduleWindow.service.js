@@ -1,3 +1,4 @@
+import { applySupervisionAbsences } from './supervisionRsvpAbsence.service.js';
 import { withRecurringScheduleEdit } from './recurringScheduleCancellation.service.js';
 import pool from '../config/database.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
@@ -50,6 +51,7 @@ export async function copyRecurringRoster(db, kind, oldId, newId) {
       LEFT JOIN user_agencies ua ON ua.user_id=a.user_id AND ua.agency_id=s.agency_id
       SET a.is_compensable_snapshot=CASE WHEN a.is_required=1 AND a.participant_role='supervisee'
         THEN COALESCE(ua.supervision_is_compensable,0) ELSE 0 END WHERE a.session_id=?`, [newId]);
+    await applySupervisionAbsences(db,newId);
   } else {
     await db.execute(`INSERT INTO provider_schedule_event_attendees (event_id,user_id)
       SELECT ?,a.user_id FROM provider_schedule_event_attendees a JOIN provider_schedule_events e ON e.id=a.event_id

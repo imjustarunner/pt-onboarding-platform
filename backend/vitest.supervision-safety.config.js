@@ -4,7 +4,7 @@ export default {
   test: { environment: 'node', include: [
     'src/services/__tests__/supervisionEmail*.test.js',
     'src/services/__tests__/supervisionAttendancePolicy.test.js',
-    'src/services/__tests__/supervisionRsvp.test.js',
+    'src/services/__tests__/supervisionRsvp*.test.js',
     'src/services/__tests__/family.service.test.js',
     'src/utils/__tests__/meetingAudienceGroups.test.js',
     'src/utils/__tests__/scheduleCoworkerRoles.test.js',

@@ -1,3 +1,4 @@
+import { sendSupervisionRsvpSms } from './supervisionRsvpSms.service.js';
 import { isStudentIntern } from '../utils/studentIntern.js';
 import { sharedCalendarJoinUrl } from '../utils/meetingCalendarLink.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
@@ -99,13 +100,14 @@ export async function sendSupervisionEmail({session,user,joinUrl,kind='invitatio
  const [locks]=await db.execute('SELECT GET_LOCK(?,0) acquired',[lock]);acquired=!!locks[0]?.acquired;if(!acquired)return {skipped:true};
  const key=[session.id,user.id,kind,session.start_at];
  const [prior]=await db.execute(`SELECT * FROM ${table} WHERE session_id=? AND user_id=? AND delivery_kind=? AND start_at=?`,key);
- if(prior.length)return {id:prior[0].delivery_status==='sent'?'already_sent':null,skipped:prior[0].delivery_status!=='sent'};
+ if(prior.length){if(prior[0].delivery_status==='sent')await sendSupervisionRsvpSms({session,user,kind});return {id:prior[0].delivery_status==='sent'?'already_sent':null,skipped:prior[0].delivery_status!=='sent'};}
  const email=await prepareSupervisionEmail({session,user,joinUrl,kind});if(email.skipped)return email;
  await db.execute(`INSERT INTO ${table} (session_id,user_id,delivery_kind,start_at,delivery_status) VALUES (?,?,?,?,'sending')`,key);
  let result;
  try { result=await sendEmailFromIdentity(email); }
  catch(error){await db.execute(`UPDATE ${table} SET delivery_status='review' WHERE session_id=? AND user_id=? AND delivery_kind=? AND start_at=?`,key);throw error;}
  await db.execute(`UPDATE ${table} SET delivery_status=?,internet_message_id=?,gmail_thread_id=?,communication_id=? WHERE session_id=? AND user_id=? AND delivery_kind=? AND start_at=?`,[result?.id&&!result.redirected?'sent':result?.pendingApproval?'approval':'held',result.internetMessageId||null,result.threadId||null,result.communicationId||null,...key]);
+ if(result?.id&&!result.redirected&&!result.pendingApproval)await sendSupervisionRsvpSms({session,user,kind});
  return result;
  }finally{if(acquired)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);db.release();}
 }

@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),release:vi.fn(),signup:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),release:vi.fn(),signup:vi.fn(),sms:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,release:m.release})}}));
 vi.mock('../../models/SupervisionSession.model.js',()=>({default:{resolveByJoinRef:async()=>({participant_join_token:'s'.repeat(32)})}}));
 vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{resolveByJoinRef:async()=>({participant_join_token:'h'.repeat(32)})}}));
@@ -11,6 +11,7 @@ vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantMessageMailboxe
 vi.mock('../supervisionReplyMailbox.service.js',()=>({ensureSupervisionReplyMailbox:async()=>({from_email:'supervision-replies@tenant.test'})}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 vi.mock('../priorityEventEmail.service.js',()=>({priorityEventEmailRecipient:async({to})=>({to})}));
+vi.mock('../supervisionRsvpSms.service.js',()=>({sendSupervisionRsvpSms:m.sms}));
 import {sendSupervisionEmail,sendSupervisionDayAheadReminders,prepareSupervisionEmail,signupInvitationDue} from '../supervisionEmail.service.js';
 const session={id:10,agency_id:2,session_type:'group',supervisor_user_id:3,status:'SCHEDULED',start_at:'2099-01-01 18:00:00',end_at:'2099-01-01 19:00:00',notify_participants:1};
 const user={id:8,first_name:'Ada'};
@@ -96,4 +97,20 @@ it('rechecks signup eligibility and uses a durable receipt so repeated ticks sen
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('COALESCE(u.is_demo,0)=0'),[2]);
  m.signup.mockResolvedValue({ok:false});
  expect(await prepareSupervisionEmail({session:event,user,kind:'signup_invitation'})).toMatchObject({skipped:true});
+});
+
+it('pairs RSVP texts only with successfully sent reminder emails',async()=>{
+ await sendSupervisionEmail({session,user,kind:'join:60'});
+ expect(m.sms).toHaveBeenCalledWith({session,user,kind:'join:60'});
+ expect(m.sms.mock.invocationCallOrder[0]).toBeGreaterThan(m.send.mock.invocationCallOrder[0]);
+});
+it.each([{pendingApproval:true},{id:'redirected',redirected:true},{skipped:true}])('does not text when email is held or redirected: %j',async result=>{
+ m.send.mockResolvedValue(result);
+ await sendSupervisionEmail({session,user,kind:'join:60'});
+ expect(m.sms).not.toHaveBeenCalled();
+});
+it('can finish the paired text after an already-sent email without emailing twice',async()=>{
+ m.execute.mockResolvedValueOnce([[{acquired:1}]]).mockResolvedValueOnce([[{delivery_status:'sent'}]]);
+ await sendSupervisionEmail({session,user,kind:'join:60'});
+ expect(m.send).not.toHaveBeenCalled();expect(m.sms).toHaveBeenCalledOnce();
 });
