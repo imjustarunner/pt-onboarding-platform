@@ -11,6 +11,7 @@
       <div v-if="canPrintBusinessCards" id="my-business-cards" class="info-section">
         <div class="section-header"><h2 style="margin:0">My business cards</h2></div>
         <p class="hint">Print your current staff details and your organization’s QR back on Avery 35702 square or Avery 8870 rectangle cards.</p>
+        <p class="hint">Choose “Print cards for” to print a general agency, group, or department card.</p>
         <StaffBusinessCardsButton :user-id="userId" :agency-id="agencyStore.currentAgency?.id" self-only />
       </div>
       <!-- Profile Photo -->

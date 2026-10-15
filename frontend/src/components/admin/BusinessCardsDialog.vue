@@ -19,6 +19,15 @@
         <button class="btn btn-secondary" :disabled="!agencyId || busy" @click="loadOrganization(agencyId)">Reload from records</button>
         <label class="file-label">Load draft<input type="file" accept="application/json,.json" :disabled="!agencyId || busy" @change="loadDraft" /></label>
       </div>
+      <div v-if="selfOnly && agencyId && !loading && people.length" class="shared-card-picker">
+        <label>Print cards for<select :value="editingId" aria-label="Print cards for" :disabled="busy" @change="selectSelfServiceCard($event.target.value)">
+          <option v-for="person in people.filter(p => !p.kind)" :key="person.id" :value="person.id" :disabled="Boolean(person.loadError)">My business cards — {{ person.name }}</option>
+          <optgroup label="Agency, groups &amp; departments">
+            <option v-for="person in people.filter(p => p.kind)" :key="person.id" :value="person.id">{{ person.kind === 'organization' ? `General agency card — ${person.name}` : person.name }}</option>
+          </optgroup>
+        </select></label>
+        <p>Print your own cards or shared cards for this agency. Each selection fills one sheet.</p>
+      </div>
       <p v-if="error" class="card-error" role="alert">{{ error }}</p>
       <p v-if="notice" role="status">{{ notice }}</p>
       <p v-if="loading" role="status">Loading card details…</p>
@@ -49,7 +58,7 @@
         </section>
         <section v-if="!singlePerson" class="card-people" aria-label="Card selection">
           <h3>Choose cards</h3><p>{{ selected.length }} selected · {{ selected.length * layout.count }} cards</p>
-          <label>Card type<select v-model="cardType" aria-label="Card type"><option value="people">Employees &amp; providers</option><option v-if="canManage" value="groups">Groups &amp; departments</option></select></label>
+          <label>Card type<select v-model="cardType" aria-label="Card type"><option value="people">Employees &amp; providers</option><option value="groups">Groups &amp; departments</option></select></label>
           <p v-if="cardType === 'groups'">Choose a general organization card or a configured group email or department. Review the contact details before printing.</p>
           <label>{{ cardType === 'groups' ? 'Find a group or department' : 'Find an employee' }}<input v-model="search" type="search" :placeholder="cardType === 'groups' ? 'Name or group email' : 'Name or credentials'" /></label>
           <div class="selection-actions"><button class="btn btn-secondary btn-sm" @click="visiblePeople.forEach(p => { if (!p.loadError) p.selected = true; })">Select shown</button><button class="btn btn-secondary btn-sm" @click="people.forEach(p => p.selected = false)">Clear selection</button></div>
@@ -138,8 +147,14 @@ const preview = computed(() => previewResult.value.url), previewError = computed
 const visiblePeople = computed(() => people.value.filter(p => (cardType.value === 'groups' ? Boolean(p.kind) : !p.kind) && `${p.name} ${p.credentials} ${p.email}`.toLowerCase().includes(search.value.toLowerCase())));
 watch(cardType, () => {
   search.value = '';
-  editingId.value = visiblePeople.value[0]?.id || '';
+  if (!props.selfOnly) editingId.value = visiblePeople.value[0]?.id || '';
 });
+function selectSelfServiceCard(id) {
+  const card = people.value.find(p => p.id === id && !p.loadError);
+  people.value.forEach(p => { p.selected = p === card; });
+  editingId.value = card?.id || '';
+  cardType.value = card?.kind ? 'groups' : 'people';
+}
 const fields = [
   { key: 'name', label: 'Display name', max: 90 }, { key: 'title', label: 'Title', max: 90 },
   { key: 'credentials', label: 'Credentials', max: 70 }, { key: 'email', label: 'Public work email', max: 100 },
@@ -208,7 +223,7 @@ async function loadOrganization(id) {
       }
     }
     if (version !== generation) return;
-    if (canManage.value && !singlePerson.value) {
+    if (props.selfOnly || !singlePerson.value) {
       const offices = assignedCardOffices(response.data.offices || [], response.data.offices || [], id);
       const agencyCard = groupCardDefaults({ id: 'organization', kind: 'organization', name: organization.organization }, offices, agency);
       if (String(agency.slug || '').toLowerCase() === 'itsco') {
@@ -221,6 +236,7 @@ async function loadOrganization(id) {
     people.value = results.sort((a, b) => a.name.localeCompare(b.name));
     if (!people.value.some(p => !p.kind) && people.value.some(p => p.kind)) cardType.value = 'groups';
     editingId.value = visiblePeople.value[0]?.id || '';
+    if (props.selfOnly) selectSelfServiceCard(people.value.find(p => !p.kind && !p.loadError)?.id || people.value.find(p => p.kind)?.id);
   } catch (err) { if (version === generation) error.value = err.response?.data?.error?.message || 'Could not load this organization’s employees.'; }
   finally { if (version === generation) loading.value = false; }
 }
@@ -268,7 +284,8 @@ async function loadDraft(event) {
       Object.assign(p, saved);
     });
     const firstSelected = selected.value[0];
-    if (firstSelected) { cardType.value = firstSelected.kind ? 'groups' : 'people'; await nextTick(); editingId.value = firstSelected.id; }
+    if (props.selfOnly) selectSelfServiceCard(firstSelected?.id || editingId.value);
+    else if (firstSelected) { cardType.value = firstSelected.kind ? 'groups' : 'people'; await nextTick(); editingId.value = firstSelected.id; }
     notice.value = 'Draft loaded for cards currently available in this organization. Use Reload from records to replace draft edits with current details.';
   } catch (err) { error.value = err.message || 'Could not load this draft.'; }
   event.target.value = '';
@@ -321,6 +338,8 @@ async function exportCards(fileType) {
 .card-format-toggle button { flex:1; min-width:220px; text-align:left; border:2px solid #d3dfdf; border-radius:10px; padding:14px; background:#fff; color:#19373b; cursor:pointer; }
 .card-format-toggle button[aria-pressed="true"] { border-color:#24786b; background:#edf8f4; box-shadow:0 0 0 1px #24786b; }
 .card-format-toggle strong,.card-format-toggle span { display:block; }.card-format-toggle strong { font-size:17px; margin-bottom:6px; }.card-format-toggle span { font-size:12px; }
+.shared-card-picker { margin: 0 0 22px; padding: 14px; background: #edf8f4; border: 1px solid #a9cfc7; border-radius: 10px; }
+.shared-card-picker label { margin-bottom: 6px; }.shared-card-picker p { margin: 0; }
 .card-stock-note { background:#f2f6f5; padding:10px 14px; border-radius:8px; }
 
 .business-cards-dialog { width: min(1220px, 96vw); max-height: 94vh; margin: auto; border: 1px solid #d3dfdf; border-radius: 16px; padding: 24px; background: #fff; color: #19373b; }

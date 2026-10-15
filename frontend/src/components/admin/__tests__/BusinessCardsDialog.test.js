@@ -24,12 +24,12 @@ describe('affiliated agency selection',()=>{
 });
 
 describe('group and department cards',()=>{
- const setup=async(agency={})=>{
-  api.get.mockImplementation(async path=>path.includes('/people/')?{data:{user:{id:7,first_name:'Sam',last_name:'Jones'},offices:[],contact:{email:'sam@tenant.example'}}}:{data:{agency:{id:2,name:'Tenant',phone_number:'555-0100',website_url:'tenant.example',...agency},canManage:true,
+ const setup=async(agency={},props={})=>{
+  api.get.mockImplementation(async path=>path.includes('/people/')?{data:{user:{id:7,first_name:'Sam',last_name:'Jones'},offices:[],contact:{email:'sam@tenant.example'}}}:{data:{agency:{id:2,name:'Tenant',phone_number:'555-0100',website_url:'tenant.example',...agency},canManage:!props.selfOnly,
    offices:[{id:20,name:'North',agencyIds:[2],isActive:true,street_address:'123 North St',city:'Colorado Springs',state:'CO',postal_code:'80919'},{id:21,name:'South',agencyIds:[2],isActive:true,street_address:'456 South St',city:'Colorado Springs',state:'CO',postal_code:'80906'}],
    people:[{id:7,first_name:'Sam',role:'staff',status:'ACTIVE',agency_ids:'2'}],
    groups:[{id:'group:7',kind:'group',name:'People Operations',email:'po@tenant.example'},{id:'group:8',kind:'group',name:'Technology Support',email:'tech@tenant.example'},{id:'department:7',kind:'department',name:'Development',email:''}]}});
-  const w=mount(BusinessCardsDialog,{props:{agencies:[{id:2,name:'Tenant'}]},attachTo:document.body});wrappers.push(w);await flushPromises();return w;
+  const w=mount(BusinessCardsDialog,{props:{agencies:[{id:2,name:'Tenant'}],...props},attachTo:document.body});wrappers.push(w);await flushPromises();return w;
  };
  const change=async(selector,value)=>{const el=document.querySelector(selector);el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));await nextTick();};
  const clickButton=async text=>{[...document.querySelectorAll('button')].find(el=>el.textContent.includes(text)).click();await flushPromises();};
@@ -69,9 +69,48 @@ describe('group and department cards',()=>{
   expect(businessCardsPdf.mock.calls[0][0][0]).toMatchObject({name:'ITSCO',email:'support@itsco.health',phone:'719-657-7444',extension:'0'});
   expect(businessCardsPdf.mock.calls[0][0][0].address).toContain('123 North St');expect(businessCardsPdf.mock.calls[0][0][0].address).toContain('456 South St');
  });
- it('keeps groups out of the self-service picker',async()=>{
-  const w=mount(BusinessCardsDialog,{props:{agencies:[{id:2,name:'Tenant'}],selfOnly:true},attachTo:document.body});wrappers.push(w);await flushPromises();
-  expect(document.querySelector('[aria-label="Card type"]')).toBeNull();
+ it.each(['Square','Rectangle'])('lets staff print shared cards with the separate dropdown on %s stock',async stock=>{
+  await setup({}, {selfOnly:true});await clickButton(stock);
+  const picker=document.querySelector('[aria-label="Print cards for"]');
+  expect(picker.value).toBe('7');
+  expect([...picker.options].map(o=>o.textContent)).toEqual(expect.arrayContaining(['My business cards — Sam Jones','General agency card — Tenant','People Operations','Technology Support','Development']));
+  expect(document.querySelector('.card-settings fieldset').disabled).toBe(true);
+  expect([...document.querySelectorAll('button')].some(b=>b.textContent.includes('Save organization template'))).toBe(false);
+  await change('[aria-label="Print cards for"]','group:7');await flushPromises();
+  expect(document.querySelector('.card-preview').alt).toBe('Card preview for People Operations');
+  expect(document.querySelector('[aria-label="QR code destination"]')).toBeNull();
+  await change('[aria-label="Print sides"]','both');await clickButton('Download PDF');
+  expect(businessCardsPdf.mock.calls.at(-1)[0]).toHaveLength(1);
+  expect(businessCardsPdf.mock.calls.at(-1)[0][0]).toMatchObject({id:'group:7',name:'People Operations',email:'po@tenant.example',credentials:'',extension:'',workLine:null});
+  expect(businessCardsPdf.mock.calls.at(-1)[1]).toMatchObject({format:stock==='Square'?'35702':'8870',side:'both'});
+  await change('[aria-label="Print cards for"]','organization');await clickButton('Download PDF');
+  expect(businessCardsPdf.mock.calls.at(-1)[0]).toHaveLength(1);
+  expect(businessCardsPdf.mock.calls.at(-1)[0][0]).toMatchObject({id:'organization',name:'Tenant',email:''});
+  await change('[aria-label="Print cards for"]','7');await clickButton('Download PDF');
+  expect(businessCardsPdf.mock.calls.at(-1)[0]).toHaveLength(1);
+  expect(businessCardsPdf.mock.calls.at(-1)[0][0]).toMatchObject({id:'7',name:'Sam Jones',email:'sam@tenant.example'});
+  expect(api.put).not.toHaveBeenCalled();
+  expect(api.get.mock.calls.filter(([path])=>path.includes('/people/')).map(([path])=>path)).toEqual(['/agencies/2/business-cards/people/7']);
+ });
+ it('restores a shared-card draft and resets to my card when reloading records',async()=>{
+  await setup({}, {selfOnly:true});await change('[aria-label="Print cards for"]','group:7');
+  await clickButton('Save editable draft');const draft=downloadCardFile.mock.calls.at(-1)[0];
+  await clickButton('Reload from records');expect(document.querySelector('[aria-label="Print cards for"]').value).toBe('7');
+  const input=document.querySelector('.file-label input');Object.defineProperty(input,'files',{configurable:true,value:[{size:draft.length,text:async()=>draft}]});input.dispatchEvent(new Event('change',{bubbles:true}));await flushPromises();
+  expect(document.querySelector('[aria-label="Print cards for"]').value).toBe('group:7');
+  await clickButton('Download PDF');expect(businessCardsPdf.mock.calls.at(-1)[0]).toHaveLength(1);
+  expect(businessCardsPdf.mock.calls.at(-1)[0][0].id).toBe('group:7');
+ });
+ it('replaces shared choices and selections when switching affiliated agencies',async()=>{
+  await setup({}, {selfOnly:true,initialAgencyId:2,agencies:[{id:2,name:'Tenant'},{id:6,name:'Second Agency'}]});
+  await change('[aria-label="Print cards for"]','group:7');
+  api.get.mockImplementation(async()=>({data:{agency:{id:6,name:'Second Agency',website_url:'second.example'},canManage:false,people:[],groups:[{id:'group:60',kind:'group',name:'Second Billing',email:'billing@second.example'}],offices:[]}}));
+  await change('[aria-label="Organization"]','6');await flushPromises();
+  const picker=document.querySelector('[aria-label="Print cards for"]');
+  expect([...picker.options].map(o=>o.value)).toEqual(['organization','group:60']);
+  await change('[aria-label="Print cards for"]','group:60');await clickButton('Download PDF');
+  expect(businessCardsPdf.mock.calls.at(-1)[0]).toHaveLength(1);
+  expect(businessCardsPdf.mock.calls.at(-1)[0][0]).toMatchObject({name:'Second Billing',email:'billing@second.example'});
  });
  it('switches stock without losing edits, exports ten-card layouts, and saves both calibrations',async()=>{
   await setup({slug:'itsco'});

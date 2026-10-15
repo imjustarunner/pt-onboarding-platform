@@ -47,7 +47,7 @@ export function accountSearchTargets({ isClub = false, canSeeKudos = false, canM
   const flags = { workforce: !isClub, kudos: canSeeKudos, availability: !isClub && canManageAvailability };
   const sections = ACCOUNT_SECTIONS.filter(s => !s.visibleKey || flags[s.visibleKey]);
   const targets = sections.map(s => ({ id: `my-${s.id}`, tabId: 'my', mySection: s.id, label: s.navLabel, kind: 'Page', breadcrumb: `My Account › ${s.navLabel}`, content: [s.description, s.title, s.statHint, s.tag].join(' ') }));
-  if (canPrintCards) targets.push({ id: 'my-business-cards', tabId: 'my', mySection: 'account', sectionId: 'my-business-cards', label: 'My business cards', kind: 'Section', breadcrumb: 'My Account › Account Info', content: 'Print Avery 35702 square cards 2.5 x 2.5 nine per sheet or Avery 8870 rectangle cards 3.5 x 2 ten per sheet QR code agency logo' });
+  if (canPrintCards) targets.push({ id: 'my-business-cards', tabId: 'my', mySection: 'account', sectionId: 'my-business-cards', label: 'My business cards', kind: 'Section', breadcrumb: 'My Account › Account Info', content: 'Print Avery 35702 square cards 2.5 x 2.5 nine per sheet or Avery 8870 rectangle cards 3.5 x 2 ten per sheet QR code agency logo general shared group department support billing people operations cards' });
   const details = [
     ['my-profile-photo', 'Profile photo', 'avatar picture upload'], ['my-contact-info', 'Contact information', accountContent['account-info']],
     ['my-home-address', 'Home address', 'street mailing city state zip postal'], ['my-account-security', 'Account security', 'password login authentication biometric security'],

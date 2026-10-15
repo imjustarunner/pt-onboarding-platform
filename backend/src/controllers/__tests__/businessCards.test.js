@@ -39,11 +39,19 @@ describe('business card tenant and employee boundaries',()=>{
   const [officeSql,officeArgs]=m.execute.mock.calls.find(([sql])=>sql.includes('FROM office_locations ol'));
   expect(officeSql).toContain('ola.agency_id = ? AND COALESCE(ol.is_active, TRUE) = TRUE');expect(officeArgs).toEqual([2]);
  });
- it.each([{role:'staff',query:{}},{role:'admin',query:{self:'true'}},{role:'admin',query:{userId:'7'}}])('omits group contacts from individual card requests: %j',async scenario=>{
+ it.each([{role:'staff',query:{}},{role:'staff',query:{self:'true'}},{role:'admin',query:{self:'true'}},{role:'admin',query:{userId:'7'}}])('includes shared tenant cards without expanding employee access: %j',async scenario=>{
   role=scenario.role;const r=res(),next=vi.fn();await getBusinessCardTemplate(req({query:scenario.query}),r,next);
-  expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0].groups).toEqual([]);
-  expect(r.json.mock.calls[0][0].offices).toEqual([]);
-  expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM email_sender_identities')||sql.includes('FROM agency_departments'))).toBe(false);
+  expect(next).not.toHaveBeenCalled();const data=r.json.mock.calls[0][0];
+  expect(data.groups.map(g=>g.id)).toEqual(['group:10','group:11','department:10']);
+  expect(data.offices).toHaveLength(2);
+  expect(data.groups.some(g=>g.email==='personal@tenant.example')).toBe(false);
+  expect(data.canManage).toBe(scenario.role==='admin' && scenario.query.self!=='true');
+  const [sql,args]=m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'));
+  expect(sql).toContain('AND u.id = ?');expect(args).toEqual([2,7]);
+  for(const table of ['email_sender_identities','agency_departments']) {
+    const [query,params]=m.execute.mock.calls.find(([q])=>q.includes(`FROM ${table}`));
+    expect(query).toContain('agency_id = ? AND is_active = TRUE');expect(params).toEqual([2]);
+  }
  });
  it('loads only the profile being printed by an administrator',async()=>{role='admin';const r=res();await getBusinessCardTemplate(req({query:{userId:'538'}}),r,vi.fn());expect(m.execute.mock.calls.find(([s])=>s.includes('SELECT DISTINCT u.id'))[1]).toEqual([2,538]);});
  it('cannot use target-user selection to bypass self-service access',async()=>{const r=res();await getBusinessCardTemplate(req({query:{userId:'538'}}),r,vi.fn());expect(r.status).toHaveBeenCalledWith(403);});
