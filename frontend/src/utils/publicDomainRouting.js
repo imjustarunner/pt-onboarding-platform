@@ -78,6 +78,8 @@ export function publicSitePaths(host) {
    if (isSchoolCareBridgePath(path)) return path;
    const pathname = path.split(/[?#]/)[0];
    const rest = path.slice(pathname.length);
+   // Plot Twist service detail pages must also survive direct visits and reloads.
+   if (slug === 'ptco' && /^\/services\/[^/]+\/?$/.test(pathname)) return prefix + path;
    // Only root and single-segment marketing pages are adapted. Enrollment,
    // provider directories, API and cross-site /p links retain their routes.
    if (pathname === '/' || pathname === '') return prefix + path.replace(/^\//, '');

@@ -29,7 +29,7 @@ describe('homepage product spotlight',()=>{
     await advance();expect(showing()).toBe('Plot Twist HQ');
     await wrapper.find('[aria-label="Play product rotation"]').trigger('click');
     await advance();expect(showing()).toBe('Plotline');
-    expect(wrapper.find('.is-active .spotlight-action .ptco-button').attributes('href')).toBe('https://plottwistco.com/plottline');
+    expect(wrapper.find('.is-active .spotlight-action .ptco-button').attributes('href')).toBe('https://plotlinepo.com');
     wrapper.unmount();expect(vi.getTimerCount()).toBe(0);wrapper=null;
   });
   it('pauses for hover and keyboard interaction and supports direct selection and wrapping',async()=>{

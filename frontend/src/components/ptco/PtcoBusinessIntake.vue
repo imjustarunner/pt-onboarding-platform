@@ -31,7 +31,7 @@
             </div>
             <template v-else-if="step===1">
               <label>Your starting point<select v-model="form.path" required><option v-for="item in ptcoPaths" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
-              <fieldset><legend>Services you’re interested in <small>(select all that apply)</small></legend><div class="ptco-service-options"><label v-for="item in [...ptcoServices,{id:'hq',title:'Plot Twist HQ'}]" :key="item.id" class="ptco-checkbox"><input v-model="form.services" type="checkbox" :value="item.id"><span>{{ item.title }}</span></label></div></fieldset>
+              <fieldset><legend>Services you’re interested in <small>(select all that apply)</small></legend><div class="ptco-service-options"><label v-for="item in ptcoIntakeServices" :key="item.id" class="ptco-checkbox"><input v-model="form.services" type="checkbox" :value="item.id"><span>{{ item.title }}</span></label></div></fieldset>
               <label>What would you like help with?<textarea v-model.trim="form.goals" maxlength="1000" rows="5" required placeholder="Share your goals, challenges, and the support you’re looking for."/><small>{{ form.goals.length }}/1000 · Please do not include client, patient, or payment information.</small></label>
             </template>
             <template v-else>
@@ -51,16 +51,16 @@
 <script setup>
 import {computed,nextTick,onMounted,reactive,ref,watch} from 'vue';
 import api from '../../services/api';
-import {ptcoIndustries,ptcoPaths,ptcoServices} from '../../constants/ptcoWebsite';
+import {ptcoIndustries,ptcoPaths,ptcoIntakeServices} from '../../constants/ptcoWebsite';
 import PtcoIcon from './PtcoIcon.vue';
 const props=defineProps({path:{type:String,default:'starting'},industry:{type:String,default:''},service:{type:String,default:''},preview:{type:Boolean,default:false}});
 const step=ref(0),busy=ref(false),error=ref(''),submitted=ref(null),heading=ref(null);
 const form=reactive({businessName:'',firstName:'',lastName:'',email:'',phone:'',businessType:'',stage:'',path:'starting',services:[],goals:'',consent:false,websiteTrap:''});
 watch(()=>props.path,p=>{if(ptcoPaths.some(x=>x.id===p))form.path=p;},{immediate:true});
 watch(()=>props.industry,p=>{if(ptcoIndustries.some(x=>x.id===p))form.businessType=p;},{immediate:true});
-watch(()=>props.service,s=>{if([...ptcoServices,{id:'hq'}].some(x=>x.id===s)&&!form.services.includes(s))form.services.push(s);},{immediate:true});
+watch(()=>props.service,s=>{if(ptcoIntakeServices.some(x=>x.id===s)&&!form.services.includes(s))form.services.push(s);},{immediate:true});
 const titles=['Tell us about your business','Choose the support you need','Let’s make sure it looks right'];
-const serviceNames=computed(()=>[...ptcoServices,{id:'hq',title:'Plot Twist HQ'}].filter(s=>form.services.includes(s.id)).map(s=>s.title).join(', '));
+const serviceNames=computed(()=>ptcoIntakeServices.filter(s=>form.services.includes(s.id)).map(s=>s.title).join(', '));
 let submissionId=crypto.randomUUID();
 const move=async n=>{step.value=n;error.value='';await nextTick();heading.value?.focus();};
 async function next(){if(step.value<2)return move(step.value+1);if(props.preview){error.value='This is an editor preview. Open the published page to submit a business request.';return;}busy.value=true;error.value='';try{const {data}=await api.post('/public/marketing-pages/ptco/business/requests',{...form},{headers:{'Idempotency-Key':submissionId},skipAuthRedirect:true});submitted.value=data;}catch(e){error.value=e.response?.data?.error?.message||'We could not confirm your request. Please try again.';}finally{busy.value=false;}}

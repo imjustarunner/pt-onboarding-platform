@@ -10,7 +10,7 @@ const fail = (status, message) => { throw new BusinessOnboardingError(status, me
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 export const BUSINESS_PATHS = ['starting', 'operations', 'hq', 'growth'];
 export const BUSINESS_TYPES = ['mental-health', 'consulting', 'coaching', 'life-coaching', 'tutoring', 'other'];
-export const BUSINESS_SERVICES = ['business-setup', 'credentialing', 'payroll', 'people', 'marketing', 'website', 'operations', 'hq'];
+export const BUSINESS_SERVICES = ['medical-billing', 'credentialing', 'people', 'website', 'operations', 'marketing', 'financial', 'strategy', 'full-service', 'business-setup', 'payroll', 'hq', 'plotline', 'fundthred'];
 export function validateBusinessApplication(input) {
   const s = (key, max, required = true) => {
     if (typeof input?.[key] !== 'string' || input[key].trim().length > max || (required && !input[key].trim())) fail(400, `Check ${key.replace(/([A-Z])/g, ' $1').toLowerCase()}.`);

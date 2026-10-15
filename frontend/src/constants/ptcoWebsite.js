@@ -1,14 +1,102 @@
 const image = name => `/assets/ptco/${name}.webp`;
 export const ptcoNav = [['Home',''],['About','about'],['Services','services'],['Products','products'],['Plot Twist HQ','hq'],['Industries','industries'],['Resources','resources']];
 export const ptcoServices = [
-  {id:'business-setup', title:'Business Setup', icon:'rocket', body:'Turn your vision into a solid foundation.', detail:'Map your launch, clarify responsibilities, and organize the practical steps of starting your business.'},
-  {id:'credentialing', title:'Credentialing', icon:'document', body:'Navigate the process with confidence.', detail:'Organize provider information, track requirements, and coordinate credentialing work with your team.'},
-  {id:'payroll', title:'Payroll', icon:'wallet', body:'Bring clarity to every pay cycle.', detail:'Connect your people, pay schedules, approvals, and payroll operations in a consistent workflow.'},
-  {id:'people', title:'People Operations', icon:'people', body:'Build and support a thriving team.', detail:'Create a clear path from hiring and onboarding to ongoing team support, training, and communication.'},
-  {id:'marketing', title:'Media & Marketing', icon:'megaphone', body:'Share your mission and grow your reach.', detail:'Plan your message, coordinate campaigns, and build a public presence that reflects your business.'},
-  {id:'website', title:'Website Management', icon:'screen', body:'A professional online presence, always.', detail:'Bring your brand to life through responsive public pages, useful content, and connected intake experiences.'},
-  {id:'operations', title:'Operational Support', icon:'settings', body:'Smoother systems. Stronger operations.', detail:'Find the friction in everyday work and build processes your team can understand and use.'}
+  {
+    id:'medical-billing', title:'Medical Billing & Revenue Cycle', icon:'wallet', label:'Your EHR or AuricWell',
+    body:'Claims, payments, denials, patient billing, ERA posting, and revenue cycle follow-through.',
+    detail:'Plot Twist Co. manages medical billing in your existing EHR, or through our EHR, AuricWell. Get focused billing support or make it part of a broader back-office partnership.',
+    includes:['Claims preparation and submission','Denial follow-up and corrected claims','Payment and ERA posting','Accounts receivable tracking and follow-up','Patient statements and balance workflows','Revenue cycle reporting and regular review'],
+    process:['Review your EHR, payer mix, and billing workflow.','Agree on access, responsibilities, reporting, and a custom quote.','Coordinate the transition and ongoing billing follow-through.'],
+    pricing:'Billing is quoted for your organization, based on your EHR, claim volume, payer mix, and the support you need. Existing-EHR and AuricWell options are scoped separately.',
+    related:['credentialing','financial','operations']
+  },
+  {
+    id:'credentialing', title:'Credentialing & Payer Management', icon:'document', label:'Through Plot Twist Co.',
+    body:'Provider enrollment, renewals, document management, and ongoing payer coordination.',
+    detail:'Keep provider credentialing and payer enrollment moving with Plot Twist Co. Choose credentialing on its own, pair it with medical billing, or include it in your management partnership.',
+    includes:['Provider information and document collection','Payer enrollment application coordination','Application status tracking and follow-up','Renewal and recredentialing calendars','Practice and provider information updates','Coordination between enrollment and billing teams'],
+    process:['Identify providers, practice locations, and payers.','Organize required documents and submit agreed applications.','Track responses, follow up, and plan upcoming renewals.'],
+    pricing:'Request a credentialing quote based on your providers, payers, locations, and ongoing support needs. Credentialing is scoped separately from billing; payer approval and timing remain with the payer.',
+    related:['medical-billing','people','operations']
+  },
+  {
+    id:'people', title:'People Operations', icon:'people', label:'Powered by Plotline',
+    body:'Recruiting, hiring, onboarding, training, HR support, and payroll coordination.',
+    detail:'Plot Twist Co. supports your people operations through Plotline, connecting the work of hiring, welcoming, supporting, and developing your team.',
+    includes:['Recruiting and hiring workflows','Onboarding and company documents','Training and ongoing team development','Handbooks and HR workflow coordination','Payroll schedules, approvals, and benefits coordination','Performance and employee support processes'],
+    process:['Map your team’s journey and current responsibilities.','Set up the people workflows and support you need.','Keep onboarding, training, and everyday team operations moving.'],
+    pricing:'Choose managed people operations through Plot Twist Co. or explore Plotline as a standalone product. Your managed-service quote defines the work our team handles.',
+    product:'plotline', related:['payroll','operations','strategy']
+  },
+  {
+    id:'website', title:'Website & Brand Management', icon:'screen', label:'A clearer public presence',
+    body:'Responsive websites, branding, content, and connected intake experiences.',
+    detail:'Build a public presence that makes your organization easy to understand and easier to reach. We connect your message, visual identity, website, and intake experience.',
+    includes:['Website planning and responsive design','Brand messaging and visual consistency','Service pages and useful content','Connected contact and intake experiences','Website updates and ongoing content care','Coordination with marketing and outreach'],
+    process:['Clarify your audience, services, and brand.','Build the pages and paths your visitors need.','Keep the experience current as your organization grows.'],
+    pricing:'Request a quote for a focused website project, ongoing management, or website support within a full-service partnership.',
+    related:['marketing','strategy','operations']
+  },
+  {
+    id:'operations', title:'Business Operations & Compliance', icon:'settings', label:'Stronger everyday systems',
+    body:'Policies, documentation, compliance coordination, internal reviews, and risk management.',
+    detail:'Make the work behind your mission clearer and more consistent. We help organize responsibilities, policies, documentation, and the processes your team relies on.',
+    includes:['Policy and procedure development','Operational workflow design','HIPAA and 42 CFR Part 2 compliance coordination','Internal reviews and documentation follow-up','Risk tracking and action plans','Cross-team responsibilities and reporting'],
+    process:['Identify the gaps and friction in your current operations.','Agree on priorities, owners, and documentation.','Put practical processes in place and review progress.'],
+    pricing:'Operational support is scoped to your organization’s workflows and needs, as a focused engagement or part of ongoing management.',
+    related:['credentialing','people','strategy']
+  },
+  {
+    id:'marketing', title:'Marketing & Outreach', icon:'megaphone', label:'Grow your reach',
+    body:'Strategy, campaigns, social media, community outreach, and content that shares your mission.',
+    detail:'Help the right people find and understand your organization. We bring your message, content, and community relationships into a practical outreach plan.',
+    includes:['Marketing and communication planning','Campaign and content calendars','Social media coordination','Community and referral outreach','Educational and brand content','Campaign review and next-step planning'],
+    process:['Define your audience and the goals that matter.','Build a focused message and outreach plan.','Coordinate delivery and review what comes next.'],
+    pricing:'Discuss a campaign, ongoing marketing support, or an outreach plan within your management partnership.',
+    related:['website','strategy','operations']
+  },
+  {
+    id:'financial', title:'Financial Management', icon:'chart', label:'Nonprofit support · FundThred',
+    body:'Budgets, grant and expense tracking, donor records, and reporting through FundThred.',
+    detail:'Connect your financial work to your mission. Plot Twist Co. supports budgeting, financial organization, and reporting, with FundThred for focused nonprofit financial support.',
+    includes:['Budget planning and monitoring','Grant and restricted-fund tracking','Expense organization and review','Donor and contribution tracking','Financial reporting coordination','Clear responsibilities and review schedules'],
+    process:['Review your funding, reporting needs, and existing records.','Agree on budgets, tracking, and review responsibilities.','Maintain a clearer view of resources and next steps.'],
+    pricing:'Financial management can be part of your Plot Twist Co. partnership. If this is the only support you need, explore FundThred as a standalone service and request a tailored scope.',
+    product:'fundthred', related:['medical-billing','payroll','strategy']
+  },
+  {
+    id:'strategy', title:'Strategic Support & Growth', icon:'rocket', label:'Plan your next chapter',
+    body:'Planning, process improvement, new programs, business setup, and growth support.',
+    detail:'Turn your next stage into a practical plan. Whether you are launching, restructuring, or expanding, we help connect your goals to the people, systems, and steps required.',
+    includes:['Business launch and setup planning','Organizational priorities and roadmaps','Program development','Process improvement','Growth and restructuring support','Implementation and progress reviews'],
+    process:['Define the change you want to make.','Build a plan with responsibilities and realistic milestones.','Work through implementation and adjust as you learn.'],
+    pricing:'Start with a focused planning engagement or connect strategic support to your ongoing Plot Twist Co. partnership.',
+    related:['business-setup','financial','people']
+  },
+  {
+    id:'business-setup', title:'Business Setup', icon:'rocket', featured:false,
+    body:'Turn your vision into a solid foundation.', detail:'Map your launch, clarify responsibilities, and organize the practical steps of starting your business.',
+    includes:['Launch planning','Responsibilities and workflow setup','Systems and document organization'],
+    process:['Define your services.','Plan the essentials.','Prepare to launch.'], pricing:'Request a scope and quote for your business launch.', related:['strategy','website','credentialing']
+  },
+  {
+    id:'payroll', title:'Payroll Coordination', icon:'wallet', featured:false,
+    body:'Bring clarity to every pay cycle.', detail:'Connect your people, pay schedules, approvals, and payroll operations through Plot Twist Co. and Plotline.',
+    includes:['Pay schedules and approvals','Payroll workflow coordination','Team records and responsibilities'],
+    process:['Review your pay process.','Set responsibilities and approvals.','Coordinate each cycle.'], pricing:'Ask about payroll coordination on its own or within managed people operations.', product:'plotline', related:['people','financial','operations']
+  }
 ];
+export const ptcoFeaturedServices = ptcoServices.filter(service => service.featured !== false);
+export const ptcoServicePath = id => `/p/ptco/services/${id}`;
+export const ptcoFullService = {
+  id:'full-service', title:'Full-Service Partnership', icon:'layers',
+  detail:'Bring billing, credentialing, people, finances, websites, and operations into one coordinated plan. Plot Twist Co. becomes your dedicated back-office partner, with a scope built around your organization.',
+  includes:['A coordinated plan across the services you choose','A primary point of contact','Clear responsibilities and regular reporting','Connected systems where they fit your work','Room to adjust support as your organization grows','Your purpose and identity remain at the center'],
+  process:['Talk through your organization and priorities.','Choose the services, systems, responsibilities, and pricing.','Build a transition plan and begin working together.'],
+  pricing:'Every partnership is quoted individually. Your agreement identifies the included services, systems, responsibilities, and fees before work begins.',
+  related:['medical-billing','people','financial']
+};
+export const ptcoIntakeServices = [...ptcoServices, {id:'full-service',title:'Full-Service Partnership'}, {id:'hq',title:'Plot Twist HQ'}, {id:'plotline',title:'Plotline · Standalone people operations'}, {id:'fundthred',title:'FundThred · Standalone financial support'}];
 export const ptcoIndustries = [
   {id:'mental-health', title:'Mental Health Agencies', image:image('mental-health'), body:'Support the people who care for others, from business operations to connected client workflows.'},
   {id:'consulting', title:'Consultants', image:image('consulting'), body:'Keep engagements, sessions, documents, and the next steps for your clients organized.'},

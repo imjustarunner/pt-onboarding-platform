@@ -1,0 +1,7 @@
+Plot Twist Co service page landscape
+
+Generated with built-in imagegen, exported as JPEG using macOS sips.
+Asset: frontend/public/assets/ptco/services-landscape.jpg
+
+Final generation prompt:
+Create a wide cinematic website banner background for Plot Twist Co, 3:1 panorama. Photorealistic Rocky Mountain sunrise, soft warm ivory mist across the left two thirds fading into distant blue gray peaks, golden sun breaking just right of center, richly detailed dark rocky ridge and subtle crimson alpine foliage on the far right. Sophisticated, calm, editorial business branding. The left two thirds must be light, quiet and low contrast to support dark headline typography added separately. No people, no silhouettes, no buildings, no text, no logo, no watermarks, no interface. Full bleed landscape only.

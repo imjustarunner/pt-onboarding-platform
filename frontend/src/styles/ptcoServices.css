@@ -1,0 +1,116 @@
+.ptco-service-hero {
+  position: relative;
+  background: linear-gradient(90deg, #faf8f5 0%, #faf8f5ed 34%, #faf8f597 60%, #faf8f500 88%), url('/assets/ptco/services-landscape.jpg') center / cover;
+  padding: 32px 0 26px;
+}
+.ptco-service-hero-copy { max-width: 760px; width: 67%; }
+.ptco-service-hero h1 { font-size: clamp(32px, 3.2vw, 52px); line-height: 1.12; font-weight: 600; margin-bottom: 14px; }
+.ptco-service-hero h1 em { display: inline; color: var(--ptco-red); font-weight: 500; }
+.ptco-service-hero-copy > p:not(.ptco-eyebrow) { max-width: 690px; font-size: 16px; line-height: 1.65; margin-bottom: 0; }
+.ptco-service-hero .ptco-actions { margin: 20px 0 0; }
+.ptco-service-promises { display: flex; gap: 36px; margin-top: 24px; }
+.ptco-service-promises > span { display: flex; align-items: center; gap: 10px; font-size: 11px; line-height: 1.5; color: #4a5061; }
+.ptco-service-promises svg { color: var(--ptco-red); width: 26px; height: 26px; }
+.ptco-service-hero-detail { background-image: linear-gradient(90deg, #faf8f5 0%, #faf8f5ed 52%, #faf8f580), url('/assets/ptco/services-landscape.jpg'); }
+.ptco-service-hero-detail .ptco-service-hero-copy { width: 80%; max-width: 900px; }
+.ptco-service-hero-detail h1 { font-size: clamp(30px, 3vw, 48px); }
+.ptco-breadcrumb { display: inline-block; margin-bottom: 22px; font-size: 12px; text-decoration: none; color: var(--ptco-red) !important; }
+.ptco-catalog { padding-block: 32px; }
+.ptco-catalog-heading { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-bottom: 25px; }
+.ptco-catalog-heading h2 { font-size: clamp(27px, 2.3vw, 36px); line-height: 1.2; }
+.ptco-catalog-heading p:last-child { margin: 0; max-width: 650px; font-size: 14px; }
+.ptco-service-switch { display: flex; flex-shrink: 0; gap: 4px; padding: 4px; border: 1px solid #ecd4d7; border-radius: 9px; }
+.ptco-service-switch button { border: 0; border-radius: 6px; padding: 12px; background: transparent; color: #4b4f60; font-size: 11px; font-weight: 650; cursor: pointer; }
+.ptco-service-switch button[aria-pressed=true] { background: var(--ptco-red); color: white; }
+.ptco-service-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.ptco-service-card { display: grid; grid-template-columns: 29px minmax(0, 1fr); position: relative; gap: 13px; padding: 23px 18px 18px; border: 1px solid var(--ptco-line); border-radius: 9px; background: linear-gradient(125deg, #fff, #fcfaf8); text-decoration: none; transition: border-color .2s, box-shadow .2s; }
+.ptco-service-card > svg { width: 28px; height: 28px; margin-top: 2px; color: var(--ptco-red); }
+.ptco-service-card h3 { font-size: 17px; font-weight: 600; line-height: 1.35; margin: 0 18px 9px 0; }
+.ptco-service-card p { font-size: 12px; line-height: 1.6; margin: 0 0 12px; }
+.ptco-service-card small { color: #8f2030; font-size: 10px; line-height: 1.5; font-weight: 600; display: block; }
+.ptco-card-arrow { position: absolute; top: 17px; right: 11px; width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: #f8eeee; color: var(--ptco-red); }
+.ptco-card-arrow svg { width: 14px; height: 14px; }
+.ptco-service-card:hover { border-color: #ba7f87; box-shadow: 0 6px 18px #7b122010; }
+.ptco-service-card:hover .ptco-card-arrow { background: var(--ptco-red); color: #fff; }
+.ptco-partnership-banner { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; align-items: center; gap: 23px; margin-top: 20px; padding: 24px; border: 1px solid #efced1; border-radius: 10px; background: linear-gradient(100deg, #fcf2f0, #fdf9f7); }
+.ptco-partnership-banner > svg { width: 44px; height: 44px; color: var(--ptco-red); }
+.ptco-partnership-banner h3 { font-size: 26px; margin: 0 0 8px; }
+.ptco-partnership-banner p:not(.ptco-eyebrow) { font-size: 13px; line-height: 1.6; margin: 0; }
+.ptco-partnership-banner .ptco-checklist { border-left: 1px solid #e6cbce; padding-left: 20px; }
+.ptco-partnership-banner .ptco-checklist li { font-size: 11px; margin: 7px 0; gap: 8px; }
+.ptco-partnership-banner .ptco-button { font-size: 12px; padding-inline: 16px; }
+.ptco-partnership-panel { display: grid; grid-template-columns: .8fr 1.2fr; gap: 40px; border: 1px solid var(--ptco-line); padding: 30px; border-radius: 10px; }
+.ptco-partnership-panel h3 { font-size: 28px; margin-top: 0; }
+.ptco-partnership-panel p { font-size: 14px; }
+.ptco-partnership-panel ul { display: grid; grid-template-columns: 1fr 1fr; list-style: none; padding: 0; margin: 0; gap: 17px; }
+.ptco-partnership-panel li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+.ptco-partnership-panel li svg { width: 18px; height: 18px; color: var(--ptco-red); }
+.ptco-who-strip { background: linear-gradient(100deg, #650a18, #3c0811); padding: 27px 0; color: white; }
+.ptco-who-strip .ptco-wrap { display: flex; justify-content: space-between; align-items: center; gap: 30px; }
+.ptco-who-strip .ptco-eyebrow { color: #edc8c9 !important; }
+.ptco-who-strip h2 { font-size: clamp(25px, 2.2vw, 34px); }
+.ptco-who-strip p:last-child { font-size: 13px; color: #f3dfe2; margin: 0; }
+.ptco-who-strip .ptco-button { flex-shrink: 0; }
+.ptco-detail-layout { display: grid; grid-template-columns: 1.4fr 1fr; gap: 64px; align-items: start; }
+.ptco-detail-layout h2 { font-size: clamp(26px, 2.3vw, 36px); line-height: 1.2; }
+.ptco-included { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; list-style: none; margin: 30px 0 0; padding: 0; }
+.ptco-included li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; }
+.ptco-included svg { width: 20px; height: 20px; color: var(--ptco-red); }
+.ptco-quote-card { background: #faf4f2; border: 1px solid #ead7d6; border-radius: 12px; padding: 28px; }
+.ptco-quote-card > svg { color: var(--ptco-red); margin-bottom: 18px; }
+.ptco-quote-card h2 { font-size: 25px; }
+.ptco-quote-card p { font-size: 14px; line-height: 1.75; }
+.ptco-quote-card small { display: block; font-size: 11px; color: var(--ptco-muted); margin-top: 15px; }
+.ptco-option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 25px; }
+.ptco-option-grid .ptco-card { padding: 30px; background: white; }
+.ptco-service-tag { font-size: 11px; font-weight: 650; color: var(--ptco-red); }
+.ptco-option-grid h3 { font-size: 25px; line-height: 1.3; margin-block: 15px; }
+.ptco-option-grid p { line-height: 1.8; }
+.ptco-option-grid a { display: flex; align-items: center; gap: 15px; width: fit-content; margin-top: 20px; font-size: 13px; font-weight: 650; color: var(--ptco-red); text-underline-offset: 4px; }
+.ptco-option-grid a svg { width: 18px; height: 18px; }
+.ptco-service-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; list-style: none; padding: 0; margin: 30px 0 0; }
+.ptco-service-steps li { border-top: 1px solid #dcbcc1; padding-top: 20px; }
+.ptco-service-steps li > span { color: var(--ptco-red); font-size: 13px; font-weight: 700; }
+.ptco-service-steps p { margin: 13px 0 0; font-size: 14px; line-height: 1.7; }
+.ptco-header .ptco-header-portal { background: #fff; color: var(--ptco-red) !important; border-color: #e4cacf; }
+.ptco-site .ptco-final { background-image: linear-gradient(90deg, #530710f5, #600812db), url('/assets/ptco/services-landscape.jpg'); }
+@media (max-width: 1200px) {
+  .ptco-service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ptco-catalog-heading { align-items: flex-start; }
+  .ptco-partnership-banner { grid-template-columns: 40px 1fr auto; }
+  .ptco-partnership-banner .ptco-checklist { display: none; }
+  .ptco-detail-layout { gap: 30px; }
+}
+@media (max-width: 980px) {
+  .ptco-service-hero-copy { width: 85%; }
+  .ptco-service-hero { background-image: linear-gradient(90deg, #faf8f5f5, #faf8f5b5), url('/assets/ptco/services-landscape.jpg'); }
+  .ptco-catalog-heading { flex-direction: column; gap: 18px; }
+  .ptco-partnership-panel, .ptco-detail-layout { grid-template-columns: 1fr; }
+  .ptco-partnership-banner { grid-template-columns: 40px 1fr; }
+  .ptco-partnership-banner .ptco-button { grid-column: 2; justify-self: start; }
+}
+@media (max-width: 600px) {
+  .ptco-service-hero { padding: 28px 0; }
+  .ptco-service-hero-copy, .ptco-service-hero-detail .ptco-service-hero-copy { width: 100%; }
+  .ptco-service-hero h1 { font-size: 32px; }
+  .ptco-service-hero-copy > p:not(.ptco-eyebrow) { font-size: 14px; }
+  .ptco-service-hero .ptco-actions { gap: 10px; }
+  .ptco-service-hero .ptco-button { padding: 11px 16px; font-size: 12px; }
+  .ptco-service-promises { gap: 20px; }
+  .ptco-service-promises > span { font-size: 10px; gap: 7px; }
+  .ptco-service-promises > span:last-child { display: none; }
+  .ptco-service-switch { width: 100%; }
+  .ptco-service-switch button { flex: 1; font-size: 10px; padding: 10px 8px; }
+  .ptco-service-grid, .ptco-option-grid, .ptco-service-steps, .ptco-included, .ptco-partnership-panel ul { grid-template-columns: 1fr; }
+  .ptco-service-card { padding: 20px; grid-template-columns: 30px minmax(0, 1fr); gap: 16px; }
+  .ptco-service-card h3 { font-size: 18px; margin-right: 24px; }
+  .ptco-service-card p { font-size: 13px; }
+  .ptco-card-arrow { right: 14px; top: 19px; }
+  .ptco-partnership-banner { padding: 20px; gap: 16px; }
+  .ptco-partnership-banner > svg { width: 32px; height: 32px; }
+  .ptco-partnership-banner h3 { font-size: 24px; }
+  .ptco-partnership-banner .ptco-button { grid-column: 1 / -1; }
+  .ptco-partnership-panel, .ptco-option-grid .ptco-card, .ptco-quote-card { padding: 24px; }
+  .ptco-who-strip .ptco-wrap { align-items: flex-start; flex-direction: column; gap: 20px; }
+  .ptco-breadcrumb { margin-bottom: 18px; }
+}

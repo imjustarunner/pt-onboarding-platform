@@ -7,6 +7,12 @@ import {createBusinessOnboardingService,validateBusinessApplication,validateBusi
 import { createBusinessLifecycleService } from '../businessLifecycle.service.js';
 import { BUSINESS_JOURNEY } from '../businessLifecyclePolicy.js';
 const application=()=>({businessName:'Synthetic Company',firstName:'Sample',lastName:'Owner',email:`sample-${crypto.randomUUID()}@example.test`,phone:'555-0100',path:'hq',businessType:'consulting',stage:'established',goals:'Organize our synthetic test business.',services:['hq','people'],consent:true,websiteTrap:''});
+test('every public service inquiry is accepted by the backend, including standalone products',async()=>{
+ const {ptcoIntakeServices}=await import('../../../../frontend/src/constants/ptcoWebsite.js');
+ for(const service of ptcoIntakeServices){
+  assert.deepEqual(validateBusinessApplication({...application(),services:[service.id]}).services,[service.id]);
+ }
+});
 test('business intake accepts only validated contact, business, and service fields',()=>{
  const data=validateBusinessApplication({...application(),role:'super_admin',agencyId:1,organizationType:'school'});
  assert.equal(data.role,undefined);assert.equal(data.agencyId,undefined);assert.equal(data.organizationType,undefined);

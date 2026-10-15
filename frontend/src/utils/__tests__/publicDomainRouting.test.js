@@ -63,6 +63,18 @@ describe('ITSCO public domain routing', () => {
 });
 
 describe('organization website custom domains', () => {
+ it('preserves nested Plot Twist service links, direct entry, and browser history', async () => {
+  window.history.replaceState(null,'','/services/medical-billing?ref=test');
+  const history=publicDomainHistory(createWebHistory(),'plottwistco.com');
+  const router=createRouter({history,routes:[{path:'/p/ptco/:section?/:service?',component:{}}]});
+  await router.push(history.location);
+  expect(router.currentRoute.value.params).toEqual({section:'services',service:'medical-billing'});
+  expect(router.resolve('/p/ptco/services/credentialing').href).toBe('/services/credentialing');
+  await router.push('/p/ptco/services/financial');
+  expect(window.location.pathname).toBe('/services/financial');
+  expect(history.location).toBe('/p/ptco/services/financial');
+  history.destroy();
+ });
  it.each([['plottwistco.com','ptco'],['www.nextleveluplcc.com','nlu'],['mentalrange.org','range'],['mh4kidz.org','mh4kidz'],['kimicain.com','kimi'],['risereviveco.com','rise'],['theinnerstrengthinstitute.com','tisi']])('opens %s as its public page', async(host,slug)=>{
   window.history.replaceState(null,'','/');
   const history=publicDomainHistory(createWebHistory(),host);

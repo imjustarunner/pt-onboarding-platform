@@ -423,7 +423,7 @@ const routes = [
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Rise Revive | Counseling and Coaching' }
   },
   {
-    path: '/p/ptco/:section?',
+    path: '/p/ptco/:section?/:service?',
     name: 'PtcoPublicWebsite',
     component: () => import('../views/public/PtcoPublicWebsite.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Plot Twist Co. | Your Next Chapter' }
