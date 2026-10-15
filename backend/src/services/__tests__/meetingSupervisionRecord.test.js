@@ -69,10 +69,10 @@ describe('supervision actual time corrections', () => {
     duplicate=true;await submitSupervisionTimeCorrection(1,host,input());
     expect(writes().some(([sql]) => sql.startsWith('INSERT'))).toBe(false);
   });
-  it.each(['active','overlap','future','cancelled'])('rejects %s sessions before writing',async(kind) => {
+  it.each(['active','overlap','future','cancelled','manual_pending'])('rejects %s sessions before writing',async(kind) => {
     if(kind==='active')active=true;if(kind==='overlap')overlap=true;
     const oldStatus=session.status,oldEnd=session.end_at;
-    if(kind==='future')session.end_at='2099-01-01 17:00:00';if(kind==='cancelled')session.status='CANCELLED';
+    if(kind==='future')session.end_at='2099-01-01 17:00:00';if(kind==='cancelled')session.status='CANCELLED';if(kind==='manual_pending')session.status='MANUAL_PENDING';
     try {await expect(submitSupervisionTimeCorrection(1,host,input())).rejects.toMatchObject({status:409});expect(writes()).toEqual([]);expect(m.rollback).toHaveBeenCalled();}
     finally{session.status=oldStatus;session.end_at=oldEnd;}
   });

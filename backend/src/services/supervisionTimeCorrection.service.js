@@ -56,11 +56,11 @@ export async function getSupervisionRecord(sessionId, actor) {
     FROM supervision_session_attendance_events WHERE session_id=? ORDER BY event_at,id`, [session.id]);
   return { session: { id: session.id, agencyName: agency?.name || '', startAt: session.start_at, endAt: session.end_at, status: session.status,
     finalizedAt: session.finalized_at, endedAt: session.live_ended_at }, participants, events, corrections,
-    canManage, actorUserId: Number(actor.id), canCorrect: instant(session.end_at) < new Date() && !['CANCELLED','RESCHEDULED','MANUAL_RECORDING'].includes(String(session.status).toUpperCase()) };
+    canManage, actorUserId: Number(actor.id), canCorrect: instant(session.end_at) < new Date() && !['CANCELLED','RESCHEDULED','MANUAL_RECORDING','MANUAL_PENDING'].includes(String(session.status).toUpperCase()) };
 }
 
 async function assertCorrectionWindow(db, session, input) {
-  if (instant(session.end_at) > new Date() || ['CANCELLED','RESCHEDULED','MANUAL_RECORDING'].includes(String(session.status).toUpperCase())) fail('Correct attendance after this session has ended.', 409);
+  if (instant(session.end_at) > new Date() || ['CANCELLED','RESCHEDULED','MANUAL_RECORDING','MANUAL_PENDING'].includes(String(session.status).toUpperCase())) fail('Correct attendance after this session has ended.', 409);
   // A correction belongs to this occurrence, not a new meeting on another date.
   if (Math.abs(instant(input.startAt) - instant(session.start_at)) > 24 * 3600000) fail('Use the original session’s date. Record a separate session for another day.');
   const [live] = await db.execute('SELECT 1 FROM supervision_session_join_presence WHERE session_id=? AND left_at IS NULL AND last_seen_at >= DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE) LIMIT 1', [session.id]);
