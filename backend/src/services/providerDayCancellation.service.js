@@ -11,6 +11,7 @@ import { addDaysYmd } from '../utils/scheduleRecurrence.js';
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { invalidateAvailabilityReminders } from '../utils/invalidateAvailabilityReminders.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { validateCancellationChoices } from './cancellationFollowUp.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
@@ -33,9 +34,10 @@ export function dayCancellationFacts(input = {}) {
   const clientFacingReason = String(input.clientFacingReason || '').trim();
   if (!clientFacingReason || clientFacingReason.length > 500) throw fail('Enter a client-facing reason of 1–500 characters.');
   const followUpAction = input.followUpAction || 'client_contact_support';
-  if (!['client_contact_support', 'none'].includes(followUpAction)) throw fail('Choose a supported follow-up option.');
+  if (!['client_contact_support', 'none', 'keep_next_or_support'].includes(followUpAction)) throw fail('Choose a supported follow-up option.');
+  const notification = validateCancellationChoices(input);
   return { eventType: 'canceled', initiator: 'provider', reasons: ['provider_unavailable'],
-    reasonOther: '', clientFacingReason,
+    reasonOther: '', clientFacingReason, ...notification,
     followUpAction, followUpMessage: String(input.followUpMessage || '').trim().slice(0, 1000), signatureConfirmed: true };
 }
 
@@ -69,7 +71,7 @@ export function createDayCancellationService(overrides = {}) {
           unchanged.push({ ...item, detail: 'Started, completed, or otherwise locked; review individually.' }); continue;
         }
         // Run the actual cancellation preview: missing client links/clinical constraints cannot be hidden by a bulk action.
-        const preview = await deps.previewAppointment(a.id, plan.facts, { actorUserId: actor.id, actorRole: actor.role });
+        const preview = await deps.previewAppointment(a.id, { ...plan.facts, followUpAfterAt: end }, { actorUserId: actor.id, actorRole: actor.role });
         item.note = preview.narrative;
         items.push(item);
       }
@@ -114,7 +116,7 @@ export function createDayCancellationService(overrides = {}) {
     // Never expose internal notes, full meeting records, or signed financial facts in this review endpoint.
     const display = ({ key, kind, title, agencyId, timeZone, startAt, endAt, note, detail, recipients }) => ({ key, kind, title, agencyId, timeZone, startAt, endAt, note, detail, recipients });
     return { token: row.token, status: row.status, date: plan.date, providerId: plan.providerId,
-      scopes: plan.scopes, clientFacingReason: plan.facts.clientFacingReason, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage, items: plan.items.map(display),
+      scopes: plan.scopes, notificationMode: plan.facts.notificationMode || 'send', clientFacingReason: plan.facts.clientFacingReason, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage, items: plan.items.map(display),
       unchanged: plan.unchanged.map(display), results, remaining: plan.items.filter(i => !results[i.key]).length };
   }
 
@@ -188,7 +190,8 @@ export function createDayCancellationService(overrides = {}) {
             await authorizeAppointment(actor, appointment);
             if (!isCanceled(appointment.status) && (stamp(appointment.updatedAt) !== item.source.updatedAt || JSON.stringify(await deps.participants(item.id)) !== JSON.stringify(item.source.participants))) throw fail('This appointment or its recipients changed. Review it individually.', 409);
             if (utc(appointment.startAt) <= deps.now() && !isCanceled(appointment.status)) throw fail('This appointment has started. Review it individually.', 409);
-            const completed = await deps.completeAppointment(item.id, plan.facts, { actorUserId: actor.id, actorRole: actor.role });
+            const scope = plan.scopes.find(s => s.agencyId === item.agencyId);
+            const completed = await deps.completeAppointment(item.id, { ...plan.facts, followUpAfterAt: scope.end }, { actorUserId: actor.id, actorRole: actor.role });
             delivery = completed.notificationDelivery || completed.result?.notificationDelivery;
           } else if (['meeting', 'supervision'].includes(item.kind)) {
             const table = item.kind === 'meeting' ? 'provider_schedule_events' : 'supervision_sessions';
@@ -204,7 +207,8 @@ export function createDayCancellationService(overrides = {}) {
             const canceled = await deps.cancelMeetings({ kind: item.kind, eventId: item.id, scope: 'single', actorUserId: actor.id, cancelReason: plan.facts.clientFacingReason });
             // Snapshot fallback recovers delivery after cancellation succeeded but the response was interrupted.
             const rows = canceled.rows.length ? canceled.rows : [item.meetingSnapshot];
-            delivery = await deps.notifyMeetings(rows.map(r => ({ ...r, cancel_reason: plan.facts.clientFacingReason })), 'cancelled', { scope: 'single' });
+            delivery = plan.facts.notificationMode === 'none' ? { suppressed: 1, sent: 0 }
+              : await deps.notifyMeetings(rows.map(r => ({ ...r, cancel_reason: plan.facts.clientFacingReason })), 'cancelled', { scope: 'single' });
           } else {
             const table = tables[item.kind];
             const [[current]] = await conn.execute(`SELECT * ${item.kind === 'weekly' ? ",DATE_FORMAT(start_date,'%Y-%m-%d') start_date,DATE_FORMAT(end_date,'%Y-%m-%d') end_date" : ''} FROM ${table} WHERE id=? AND agency_id=? AND provider_id=?`, [item.id, item.agencyId, plan.providerId]);

@@ -84,7 +84,7 @@ describe('day cancellation review', () => {
     expect(m.post).toHaveBeenCalledOnce();
     expect(m.post).toHaveBeenCalledWith(`${base}/preview`, {
       agencyIds: [2], date: '2026-10-15', clientFacingReason: fixture().clientFacingReason,
-      internalReason: 'Private staffing note.', followUpAction: 'client_contact_support', followUpMessage: 'Please contact support for another time.'
+      internalReason: 'Private staffing note.', notificationMode: 'send', suppressionReason: '', followUpAction: 'client_contact_support', followUpMessage: 'Please contact support for another time.'
     }, { skipGlobalLoading: true });
     expect(wrapper.find('.day-review').text()).toContain(fixture().clientFacingReason);
     expect(wrapper.find('.day-review').text()).not.toContain('Private staffing note');
@@ -145,8 +145,9 @@ describe('day cancellation review', () => {
     expect(applications).toBe(1);
     expect(wrapper.text()).toContain('Some items still need attention');
     expect(wrapper.text()).toContain('Opening changed. Review individually.');
-    expect(wrapper.findAll('[role="alert"]').some(el => el.text().includes('3 notifications need attention'))).toBe(true);
+    expect(wrapper.findAll('[role="alert"]').some(el => el.text().includes('2 notifications need attention'))).toBe(true);
     expect(wrapper.text()).toContain('Communications tab');
+    expect(wrapper.text()).toContain('1 schedule updates are queued');
     await button('Retry failed items').trigger('click'); await flushPromises();
     expect(m.post).toHaveBeenLastCalledWith(`${base}/${token}/apply`, { signatureConfirmed: true, retryFailed: true }, { skipGlobalLoading: true });
     expect(button('Retry failed items')).toBeUndefined();

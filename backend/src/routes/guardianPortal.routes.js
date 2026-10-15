@@ -56,6 +56,7 @@ import {
 } from '../controllers/clientContactAffiliation.controller.js';
 
 import * as guardianAppointments from '../controllers/guardianAppointments.controller.js';
+import { response as replacementResponse } from '../controllers/appointmentReplacementOffer.controller.js';
 
 const router = express.Router();
 
@@ -90,6 +91,7 @@ router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPr
 router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);
 router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
 router.post('/clients/:clientId/appointments/:appointmentId/cancel', guardianAppointments.cancel);
+router.post('/clients/:clientId/appointments/:appointmentId/replacement-offer', replacementResponse);
 router.get('/clients/:clientId/notification-history', listClientNotificationHistory);
 router.get('/clients/:clientId/notification-setup', notificationSetup.getSetup);
 router.post('/clients/:clientId/notification-setup/sms-consent', notificationSetup.beginConsent);

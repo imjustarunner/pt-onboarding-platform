@@ -1,3 +1,4 @@
+import { futureAppointment } from './scheduleNoticeMessage.service.js';
 /**
  * Appointment Change Workflow — preview consequence + assemble narrative + complete.
  * Provider reports facts; system classifies late/miss, consequence, and writes the note.
@@ -19,6 +20,7 @@ import {
 } from './appointment.service.js';
 import { applyMissedSessionPolicy } from './practitionerPackage.service.js';
 import { cancellationClientDetails, notifyAppointmentCancellation } from './appointmentCancellationNotification.service.js';
+import { cancellationFollowUp } from './cancellationFollowUp.service.js';
 
 /**
  * Hard rule: not-occurring appointments never create a primary session insurance claim.
@@ -587,6 +589,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
   const bundle = await getAppointmentBundle(appointmentId, { includeTimeline: false });
   if (!bundle) throw Object.assign(new Error('Appointment not found'), { status: 404 });
 
+  if (!futureAppointment(bundle)) facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '' };
   const participants = await Appointment.listParticipants(appointmentId);
   const clientId = safeInt(facts.clientId) || (await resolveBillingClientId(appointmentId));
   if (!clientId || !participants.some((p) => Number(p.clientId) === clientId)) {
@@ -684,6 +687,10 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
   }
 
   let nextAppointment = null;
+  if (['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(facts.followUpAction)) {
+    nextAppointment = await cancellationFollowUp.nextAppointment(bundle, clientId, { afterAt: facts.followUpAfterAt || null });
+    if (facts.followUpAction === 'keep_next' && !nextAppointment) throw Object.assign(new Error('There is no next appointment with this provider. Choose support follow-up instead.'), { status: 400 });
+  }
   if (safeInt(facts.replacementAppointmentId)) {
     const replacement = await Appointment.findById(facts.replacementAppointmentId);
     const replacementParticipants = replacement ? await Appointment.listParticipants(replacement.id) : [];
@@ -928,6 +935,8 @@ async function applyAppointmentChange(
 }
 
 export async function completeAppointmentChange(appointmentId, facts = {}, actor = {}) {
+  const original = await Appointment.findById(appointmentId);
+  if (original && !futureAppointment(original)) facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
   if (!['canceled', 'rescheduled', 'no_show', 'void'].includes(facts.eventType)) {
     throw Object.assign(new Error('Choose an appointment change event'), { status: 400 });
   }
@@ -959,6 +968,9 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
   return runSignedAppointmentChange(appointmentId, facts, actor, {
     previewChange: async (...args) => {
       const preview = await previewAppointmentChange(...args);
+      if (['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
+        await cancellationFollowUp.validateOffer(await Appointment.findById(appointmentId), facts);
+      }
       if (facts.waiver?.action === 'recommend' && !['fee', 'package'].includes(preview.consequence.model)) {
         throw Object.assign(new Error('There is no fee or package consequence to send for waiver review'), { status: 400 });
       }

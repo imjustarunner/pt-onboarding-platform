@@ -71,6 +71,11 @@ jobs:
           backend/src/services/__tests__/scheduling.cancellationNotifications.test.js
           backend/src/services/__tests__/scheduling.cancellationStorage.test.js
           backend/src/services/__tests__/scheduling.notificationSender.test.js
+          backend/src/services/__tests__/scheduling.scheduleNoticeBuffer.test.js
+          backend/src/services/__tests__/scheduling.replacementRooms.test.js
+          backend/src/services/__tests__/scheduling.replacementOffers.test.js
+          backend/src/services/__tests__/scheduling.privateOfferPublicCache.test.js
+          backend/src/controllers/__tests__/scheduling.replacementOfferAccess.test.js
       - name: Internal appointment alerts and staff communication access
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.appointment-staff-tools.config.js
       - name: Calendar conflicts and Google overlays

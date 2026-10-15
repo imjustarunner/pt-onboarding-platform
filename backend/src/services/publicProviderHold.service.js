@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { readPrivateReplacementSlots } from './privateReplacementSlots.service.js';
 
 
 export const hashHoldToken = (token) => createHash('sha256').update(String(token || '')).digest('hex');
@@ -83,10 +84,25 @@ export async function readActiveHolds(connection, providerId) {
   }
 }
 const overlaps = (a,b) => +a.start < +b.end && +a.end > +b.start;
-export async function assertNoSelectionConflict(connection, {providerId,startAt,endAt,token='',agencyId,recurring=false,timeZone='UTC',frequency='WEEKLY'}) {
+export async function assertNoSelectionConflict(connection, {providerId,startAt,endAt,token='',agencyId,recurring=false,timeZone='UTC',frequency='WEEKLY',replacementOfferId=null}) {
   const holds = await readActiveHolds(connection, Number(providerId));
   const from = new Date(startAt), to = recurring ? new Date(+from+370*86400000) : new Date(endAt);
   const wanted = recurring ? expandWeeklyHold({startAt,endAt,timeZone,frequency},from,to) : [{start:from,end:new Date(endAt)}];
+  const offered = await readPrivateReplacementSlots(connection, Number(providerId));
+  let ownsOffer = false;
+  if (replacementOfferId && !recurring) {
+    const [[own]] = await connection.execute(`SELECT o.id FROM appointment_replacement_offers o
+      JOIN appointment_replacement_offer_slots os ON os.offer_id=o.id JOIN appointment_replacement_slots s ON s.id=os.slot_id
+      WHERE o.id=? AND o.provider_id=? AND o.agency_id=? AND s.start_at=? AND s.end_at=?
+        AND os.released_at IS NULL AND s.released_at IS NULL AND o.status='open' AND o.expires_at>UTC_TIMESTAMP()`,
+    [replacementOfferId, providerId, agencyId, sqlDate(startAt), sqlDate(endAt)]);
+    ownsOffer = !!own;
+  }
+  for (const slot of offered) {
+    if (!wanted.some(w => overlaps(w, { start: utcDate(slot.start_at), end: utcDate(slot.end_at) }))) continue;
+    if (ownsOffer) continue;
+    throw holdError('This time is privately offered to existing clients. Choose another opening.');
+  }
   for(const hold of holds) {
     if(Number(hold.agency_id) === Number(agencyId) && hold.token_hash === hashHoldToken(token)) continue;
     if(expandWeeklyHold(hold,from,to).some(h => wanted.some(w => overlaps(h,w)))) {

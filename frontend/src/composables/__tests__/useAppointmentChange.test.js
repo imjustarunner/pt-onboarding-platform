@@ -4,6 +4,23 @@ import api from '../../services/api.js';
 import { useAppointmentChange } from '../useAppointmentChange.js';
 beforeEach(() => { vi.clearAllMocks(); api.get.mockResolvedValue({ data: { workflow: null } }); });
 describe('appointment change workflow', () => {
+  it('saves a one-time office request as pending without adding an unsecured client offer', async () => {
+    const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4 });
+    Object.assign(change.customOffer, {localStart:'2030-01-03T10:15',roomId:8,rooms:[{id:8,buildingId:3,label:'Office #8',needsRequest:true,windowLabel:'One time, 10–12'}],requiresOfficeRequest:true});
+    api.post.mockResolvedValue({data:{id:90}});api.put.mockResolvedValue({data:{ok:true}});
+    await change.requestOfferOffice();
+    expect(api.post).toHaveBeenCalledWith('/appointments/4/change/replacement-options/office-request',{localStart:'2030-01-03T10:15',roomId:8,confirmOneTime:true},expect.anything());
+    expect(change.facts.offeredSlots).toEqual([]);expect(change.facts.pendingOfficeRequests[0]).toMatchObject({requestId:90,roomId:8});expect(change.open.value).toBe(true);
+    expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({pendingOfficeRequests:[expect.objectContaining({requestId:90})]}),expect.anything());
+  });
+  it('adds a nonpublished time only after the server confirms its room is secured', async () => {
+    const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.customOffer.localStart='2030-01-03T10:15';
+    api.post.mockResolvedValue({data:{slot:null,rooms:[{id:8,needsRequest:true}],requiresOfficeRequest:true}});await change.addCustomOffer();expect(change.facts.offeredSlots).toEqual([]);
+    api.post.mockResolvedValue({data:{slot:{key:'secured',roomId:8},rooms:[{id:8,needsRequest:false}]}});await change.addCustomOffer();await change.addCustomOffer();expect(change.facts.offeredSlots).toEqual([{key:'secured',roomId:8}]);
+  });
+  it('lets a provider reuse an already-offered time without duplicating it', async () => {
+    const change=useAppointmentChange();await change.openWizard({appointmentId:4});const slot={key:'shared',alreadyOffered:true,invitedCount:2};change.toggleOfferSlot(slot);expect(change.facts.offeredSlots).toHaveLength(1);change.toggleOfferSlot({...slot});expect(change.facts.offeredSlots).toHaveLength(0);
+  });
   it('requires a separate client-facing reason and includes reviewed follow-up instructions', async () => {
     const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4 });
     Object.assign(change.facts, { eventType: 'canceled', initiator: 'provider', reasons: ['illness'], reasonOther: 'Internal detail' });
@@ -53,7 +70,7 @@ describe('appointment change workflow', () => {
     ] } });
     await change.goNext();
     expect(change.replacements.value).toEqual([{ id: 5, label: expect.stringContaining('Tutoring') }]);
-    expect(api.get).toHaveBeenLastCalledWith('/appointments', expect.objectContaining({ params: expect.objectContaining({ clientId: 8, agencyId: 2 }) }));
+    expect(api.get).toHaveBeenCalledWith('/appointments', expect.objectContaining({ params: expect.objectContaining({ clientId: 8, agencyId: 2 }) }));
   });
   it('reopens a completed change as its signed nonbillable session note', async () => {
     api.get.mockResolvedValue({ data: { workflow: { status: 'completed', facts: { eventType: 'canceled' }, narrative: 'Signed cancellation note.' } } });

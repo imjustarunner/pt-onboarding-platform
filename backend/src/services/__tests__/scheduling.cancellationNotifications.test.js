@@ -96,7 +96,7 @@ describe('durable cancellation delivery', () => {
     tenantSettings.mockResolvedValue({ channelsEnabled: { sms: true }, changeNotify: { channels: ['email', 'sms'] } });
     consent.mockImplementation(async id => ({ email: true, emailAddress: `c${id}@example.test`, sms: id === 8, phoneNumber: '+17195550123' }));
     expect(await service.notify(1, facts)).toMatchObject({ sent: 3, skipped: 1 }); expect(sendSms).toHaveBeenCalledOnce();
-    expect(sendSms).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'reminders', clientId: 8, body: expect.stringContaining('Reason:') }));
+    expect(sendSms).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'reminders', clientId: 8, body: expect.stringContaining('secure portal') }));
   });
   it('respects guardian-specific channel opt-outs even when general consent exists', async () => {
     preferences.mockResolvedValue({ isDefault: false, channels: { email: false, sms: false } });

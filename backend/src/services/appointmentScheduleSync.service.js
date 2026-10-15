@@ -50,6 +50,10 @@ export async function syncAppointmentFromProviderEvent(event, actorUserId = null
   await ensureAppointmentClinicalLink(appointment.id, actorUserId);
   const { scheduleSessionNotifications } = await import('./sessionNotification.service.js');
   await scheduleSessionNotifications(appointment.id, { replace: true });
+  const instant = v => new Date(v instanceof Date ? v : String(v).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime();
+  if (instant(appointment.startAt) !== instant(event.start_at) || instant(appointment.endAt) !== instant(event.end_at)) {
+    await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointment.id, { eventType: 'moved', before: appointment, actorUserId });
+  }
 }
 
 export async function cancelAppointmentsFromCalendar(eventIds, actorUserId) {

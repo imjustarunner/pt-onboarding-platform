@@ -4,7 +4,7 @@
       <header class="psu-head">
         <div>
           <h2 id="psu-title">Push Session Update</h2>
-          <p class="psu-sub">Notifications are intentional — nothing sends until you choose.</p>
+          <p class="psu-sub">Schedule edits are combined into one update. Review or stop the pending notification here.</p>
         </div>
         <button type="button" class="psu-close" aria-label="Close" @click="emit('close')">×</button>
       </header>
@@ -23,7 +23,7 @@
               <strong>{{ c.label || c.field }}</strong>: {{ display(c.from) }} → {{ display(c.to) }}
             </li>
           </ul>
-          <p v-else class="muted">Pass changes from the editor, or edit fields below will be empty.</p>
+          <p v-else class="muted">The final saved appointment details will be checked before sending.</p>
 
           <h3>Who will be notified</h3>
           <p class="muted">
@@ -32,18 +32,13 @@
           </p>
 
           <h3>Message</h3>
-          <textarea v-model="messageOverride" class="input" rows="4" :placeholder="preview.messagePreview" />
+          <p class="muted">The message includes the final saved date and time and a secure portal link. The exact sent message appears in the session’s Communications tab.</p>
 
-          <h3>Buffer</h3>
-          <select v-model.number="bufferMinutes" class="input">
-            <option :value="15">15 minutes</option>
-            <option :value="30">30 minutes</option>
-            <option :value="60">60 minutes</option>
-          </select>
-          <p class="muted">Edits during the buffer combine into one notification.</p>
+          <h3>Delivery timing</h3>
+          <p class="muted">Updates wait up to 15 minutes after the latest edit, with a 30-minute maximum from the first edit. Appointments starting within an hour are handled without that delay.</p>
 
           <div v-if="pending" class="psu-pending">
-            Pending update fires at {{ pending.fireAt }} ({{ (pending.changes || []).length }} change(s)).
+            Pending update is scheduled for {{ pending.fireAt }}.
           </div>
         </template>
       </div>
@@ -51,11 +46,10 @@
       <footer class="psu-foot">
         <button type="button" class="btn btn-secondary" @click="emit('close')">Close</button>
         <button v-if="pending" type="button" class="btn btn-secondary" :disabled="busy" @click="cancelPending">Cancel pending</button>
-        <button v-if="pending" type="button" class="btn btn-secondary" :disabled="busy" @click="extendBuffer">Extend buffer</button>
         <button type="button" class="btn btn-secondary" :disabled="busy || !changes.length" @click="queue(false)">
           Queue with buffer
         </button>
-        <button type="button" class="btn btn-primary" :disabled="busy || !changes.length" @click="queue(true)">
+        <button type="button" class="btn btn-primary" :disabled="busy || (!pending && !changes.length)" @click="sendNow">
           Send immediately
         </button>
       </footer>
@@ -80,8 +74,6 @@ const busy = ref(false);
 const error = ref('');
 const preview = ref(null);
 const pending = ref(null);
-const messageOverride = ref('');
-const bufferMinutes = ref(15);
 
 const display = (v) => (v == null || v === '' ? '—' : String(v));
 
@@ -94,8 +86,6 @@ const load = async () => {
     const r = await api.post(`/appointments/${id}/push-update/preview`, {});
     preview.value = r.data?.preview || null;
     pending.value = r.data?.pending || null;
-    bufferMinutes.value = Number(preview.value?.bufferMinutes || 15);
-    messageOverride.value = '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load preview';
   } finally {
@@ -110,8 +100,6 @@ const queue = async (immediate) => {
   try {
     const r = await api.post(`/appointments/${id}/push-update`, {
       changes: props.changes,
-      messageOverride: messageOverride.value || null,
-      bufferMinutes: bufferMinutes.value,
       sendImmediately: !!immediate
     });
     pending.value = r.data?.pending || null;
@@ -137,19 +125,17 @@ const cancelPending = async () => {
   }
 };
 
-const extendBuffer = async () => {
-  const id = Number(props.appointmentId || 0);
+const sendNow = async () => {
+  if (!pending.value) return queue(true);
   busy.value = true;
+  error.value = '';
   try {
-    const r = await api.patch(`/appointments/${id}/pending-update`, {
-      extendBufferMinutes: bufferMinutes.value
-    });
-    pending.value = r.data?.pending || null;
+    await api.patch(`/appointments/${Number(props.appointmentId)}/pending-update`, { sendImmediately: true });
+    emit('queued');
+    emit('close');
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to extend';
-  } finally {
-    busy.value = false;
-  }
+    error.value = e?.response?.data?.error?.message || 'Could not send the pending update';
+  } finally { busy.value = false; }
 };
 
 watch(() => [props.open, props.appointmentId], ([isOpen]) => {

@@ -9,6 +9,7 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
+    <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
@@ -5845,6 +5846,9 @@ import ScheduleColorLegend from './ScheduleColorLegend.vue';
 import ScheduleHelp from './ScheduleHelp.vue';
 import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
 import DayCancellationDialog from './DayCancellationDialog.vue';
+import OfferedTimeDialog from './OfferedTimeDialog.vue';
+const offeredTime = ref(null);
+const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
 import AppointmentStaffTools from './AppointmentStaffTools.vue';
 import { allDayItemOccursOn, isAllDayScheduleItem, visibleScheduleHours } from '../../utils/scheduleVisibleHours';
 import {
@@ -11165,6 +11169,7 @@ const supervisionReplacesSchoolAssignment = (session, assignment) => {
 const portalIntakeInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
+  if (scheduleEventsInCell(dayName, hour, minute).some(e => e.kind === 'PRIVATE_REPLACEMENT_OFFER')) return [];
   const rows = Array.isArray(s.virtualWorkingHours) ? s.virtualWorkingHours : [];
   if (!rows.length) return [];
   const slotMinutes = showQuarterDetail.value ? 15 : 60;
@@ -24678,6 +24683,11 @@ const onAppointmentPointerUp = (e) => {
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
+  if (block?.eventKind === 'PRIVATE_REPLACEMENT_OFFER') {
+    const ev = (summary.value?.scheduleEvents || []).find(e => Number(e.id) === Number(block.eventId) && e.kind === block.eventKind);
+    if (ev) offeredTime.value = buildScheduleStackItemFromEvent(ev);
+    return;
+  }
   if (kind === 'ebusy') {
     const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
     if (stackDetails) openStackDetailsModal(stackDetails);
@@ -25470,6 +25480,8 @@ const openAppointmentEditInScheduleModal = async ({
   minute = 0,
   focusEventId = 0
 } = {}) => {
+  const offered = item?.replacementSlotId ? item : !item && items.length === 1 && items[0]?.replacementSlotId ? items[0] : null;
+  if (offered) { showStackDetailsModal.value = false; offeredTime.value = offered; return; }
   const gen = ++appointmentEditOpenGen;
   const list = Array.isArray(items) && items.length
     ? items
@@ -25983,6 +25995,7 @@ const SCHEDULE_EVENT_KIND_LABELS = {
 
 const scheduleKindLabel = (kindRaw, ev = null) => {
   const k = String(kindRaw || '').trim().toUpperCase();
+  if (k === 'PRIVATE_REPLACEMENT_OFFER') return 'Offered';
   if (k === 'COMPANY_EVENT_BOOKING' || k === 'COMPANY_EVENT_OPEN') {
     const et = String(ev?.eventType || '').trim().toLowerCase();
     if (et.startsWith('school_') || ev?.isSchoolPortalEvent) {
@@ -26162,6 +26175,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     meetLink: cancelled ? '' : (String(ev?.meetLink || '').trim() || ''),
     eventId: Number(ev?.id || 0) || null,
     eventKind: targetKind,
+    replacementSlotId: ev?.replacementSlotId || null, invitedCount: ev?.invitedCount || 0, offerExpiresAt: ev?.offerExpiresAt || null, offerRequested: !!ev?.offerRequested,
     outreachTripId: Number(ev?.outreachTripId || ev?.outreach_trip_id || 0) || null,
     recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
     ...scheduleEventStackExtras(ev),
@@ -26441,7 +26455,7 @@ const openStackDetailsItem = (item) => {
     return;
   }
   // App-native schedule / meeting / supervision → open in-app editor (not Google).
-  if (isEditableScheduleStackItem(item) || isMeetingStackItem(item) || Number(item?.eventId || 0) > 0) {
+  if (item?.replacementSlotId || isEditableScheduleStackItem(item) || isMeetingStackItem(item) || Number(item?.eventId || 0) > 0) {
     closeStackDetailsModal();
     void openAppointmentEditInScheduleModal({
       items: [item],

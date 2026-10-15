@@ -5964,6 +5964,19 @@ export const getUserScheduleSummary = async (req, res, next) => {
       console.warn('[schedule-summary] fall check-in school address enrich failed', enrichErr?.message || enrichErr);
     }
 
+    const { readPrivateReplacementSlots } = await import('../services/privateReplacementSlots.service.js');
+    const { parseUtcDate: offerDate } = await import('../utils/officeEventDateTime.util.js');
+    const privateSlots = await readPrivateReplacementSlots(pool, providerId);
+    for (const slot of privateSlots) {
+      if (!scheduleAgencyIdSet.has(Number(slot.agency_id)) || +offerDate(slot.start_at) >= +offerDate(windowEnd) || +offerDate(slot.end_at) <= +offerDate(windowStart)) continue;
+      scheduleEvents.push({ id: -Number(slot.id), replacementSlotId: Number(slot.id), kind: 'PRIVATE_REPLACEMENT_OFFER',
+        title: Number(slot.requested) ? 'Replacement selected · awaiting confirmation' : 'Offered for rescheduling',
+        agencyId: Number(slot.agency_id), providerId, startAt: offerDate(slot.start_at).toISOString(), endAt: offerDate(slot.end_at).toISOString(),
+        invitedCount: Number(slot.invited_count), offerExpiresAt: slot.expires_at ? offerDate(slot.expires_at).toISOString() : null,
+        offerRequested: !!Number(slot.requested), canEdit: false, canReschedule: false, isPrivate: true,
+        description: 'Reserved for invited clients. Hidden from public booking until released or expired.' });
+    }
+
     const fullPayload = {
       ok: true,
       detailLevel: 'full',

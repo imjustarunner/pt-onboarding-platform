@@ -1460,6 +1460,8 @@ const fetchOverview = async () => {
     });
     overview.value = resp.data || { children: [], programs: [] };
     await initProgramContext();
+    const requestedChild = Number(route.query.clientId);
+    if (children.value.some(child => Number(child.client_id) === requestedChild)) selectedChildId.value = requestedChild;
     const firstChildId = Number(children.value[0]?.client_id || 0) || null;
     const currentChildStillExists = children.value.some((child) => Number(child?.client_id) === Number(selectedChildId.value || 0));
     if (!currentChildStillExists) {

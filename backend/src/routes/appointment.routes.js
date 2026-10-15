@@ -1,5 +1,6 @@
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
+import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, requestOffice as requestReplacementOffice } from '../controllers/appointmentReplacementOffer.controller.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
 import express from 'express';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -41,6 +42,7 @@ router.use(authenticate, requireActiveStatus);
 router.use((req,res,next)=>{if(req.method!=='GET'&&['client_guardian','guardian'].includes(req.user?.role))return res.status(403).json({error:{message:'Please request appointment changes through your guardian portal for provider approval.'}});next();});
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
 router.get('/staff-alerts', listAppointmentStaffAlerts);
+router.post('/replacement-slots/:slotId/release', releaseReplacementSlot);
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
 router.use('/:id', async (req, res, next) => {
@@ -67,6 +69,9 @@ router.post('/:id/cancel', cancelAppointmentHandler);
 router.post('/:id/settle', settleAppointmentHandler);
 router.post('/:id/change/waiver-decision', decideAppointmentWaiverHandler);
 router.get('/:id/change', getAppointmentChangeHandler);
+router.get('/:id/change/replacement-options', replacementOptions);
+router.post('/:id/change/replacement-options/check', customReplacementSlot);
+router.post('/:id/change/replacement-options/office-request', requestReplacementOffice);
 router.put('/:id/change/draft', saveAppointmentChangeDraftHandler);
 router.post('/:id/change/preview', previewAppointmentChangeHandler);
 router.post('/:id/change/complete', completeAppointmentChangeHandler);

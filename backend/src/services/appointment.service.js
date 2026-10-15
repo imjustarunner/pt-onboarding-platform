@@ -189,7 +189,9 @@ async function createLockedAppointment({
   addonServiceCodes = [],
   ensureContext = true,
   timeZone = DEFAULT_SCHEDULE_TZ,
-  serviceLocationId = null
+  serviceLocationId = null,
+  replacementOfferId = null,
+  deferScheduleNotice = false
 } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
@@ -291,6 +293,7 @@ async function createLockedAppointment({
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
       modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
   const appt = await Appointment.create({
+    replacementOfferId,
     agencyId: aid,
     parentAgencyId,
     businessType,
@@ -375,6 +378,7 @@ async function createLockedAppointment({
     try { await ensureAppointmentClinicalLink(appt.id, createdByUserId); }
     catch (error) { error.appointmentId = appt.id; throw error; }
   }
+  if (!deferScheduleNotice) await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appt.id, { eventType: 'created', actorUserId: createdByUserId });
   return getAppointmentBundle(appt.id);
 }
 
@@ -510,6 +514,9 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId);
   }
 
+  if (moved || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k]))) {
+    await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: moved ? 'moved' : 'updated', before: existing, actorUserId });
+  }
   const bundle = await getAppointmentBundle(appointmentId);
   return settlement ? { ...bundle, settlement } : bundle;
 }

@@ -77,7 +77,7 @@ export async function logCommunication({
   reminderId = null,
   createdByUserId = null
 } = {}) {
-  const encryptedCancellation = kind === 'cancellation';
+  const encryptedCancellation = kind === 'cancellation' || metadata?.scheduleNotice === true;
   const storedMetadata = encryptedCancellation
     ? maybeEncryptNotePayload(JSON.stringify({ ...(metadata || {}), bodyPreview }))
     : metadata ? JSON.stringify(metadata) : null;
@@ -109,7 +109,7 @@ export async function listCommunications(appointmentId) {
   );
   return (rows || []).map((r) => {
     const raw = typeof r.metadata_json === 'string' ? r.metadata_json : JSON.stringify(r.metadata_json);
-    const metadata = parseJson(r.kind === 'cancellation' ? maybeDecryptNotePayload(raw) : raw, null);
+    const metadata = parseJson(maybeDecryptNotePayload(raw), null);
     return ({
     id: Number(r.id),
     appointmentId: Number(r.appointment_id),

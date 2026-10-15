@@ -4,6 +4,7 @@ import {careTypes} from '../utils/availabilityCareTypes.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {agencyFormatAllowed,agencyOfficeAllowed} from '../utils/providerAgencyAvailability.js';
 import { readActiveHolds, expandWeeklyHold } from './publicProviderHold.service.js';
+import { readPrivateReplacementSlots } from './privateReplacementSlots.service.js';
 import { availabilityOccursOn, availabilityPurpose } from '../utils/availabilityRecurrence.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -178,7 +179,9 @@ export class ProviderAvailabilityService {
     intakeOnly = false,
     materializeOfficeEvents = true,
     includeDiagnostics = false,
-    includePrivateCalendar = false
+    includePrivateCalendar = false,
+    includePrivateOffers = false,
+    excludePublicRequestId = null
   }) {
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -358,7 +361,7 @@ export class ProviderAvailabilityService {
         if (includePrivateCalendar) officeReservations.push({
           id: Number(r.id), assignmentId: Number(r.standing_assignment_id) || null,
           startAt: s.toISOString(), endAt: e.toISOString(),
-          buildingName: meta.buildingName, roomLabel: meta.roomLabel,
+          buildingName: meta.buildingName, roomLabel: meta.roomLabel, roomId: meta.roomId, buildingId: meta.buildingId,
           hasAppointment, roomAvailable: Number(r.room_available) === 1,
           timeZone: tzEvent
         });
@@ -607,12 +610,16 @@ export class ProviderAvailabilityService {
     // Pending intake holds protect the same local weekly time across DST changes.
     const publicHolds = await readActiveHolds(pool, pid);
     const selectionBusy = publicHolds.flatMap(h => expandWeeklyHold(h, timeMinIso, timeMaxIso));
+    if (!includePrivateOffers) {
+      const offered = await readPrivateReplacementSlots(pool, pid);
+      selectionBusy.push(...offered.map(s => ({ start: new Date(s.start_at instanceof Date ? s.start_at : String(s.start_at).replace(' ', 'T') + 'Z'), end: new Date(s.end_at instanceof Date ? s.end_at : String(s.end_at).replace(' ', 'T') + 'Z') })));
+    }
 
     const [publicRequests] = await pool.execute(
       `SELECT DATE_FORMAT(requested_start_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS start_at,
               DATE_FORMAT(requested_end_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS end_at
        FROM public_appointment_requests WHERE provider_id = ? AND requested_end_at > UTC_TIMESTAMP(3)
-         AND UPPER(COALESCE(status, 'PENDING')) NOT IN ('DECLINED', 'CANCELLED')`, [pid]);
+         AND UPPER(COALESCE(status, 'PENDING')) NOT IN ('DECLINED', 'CANCELLED') AND (? IS NULL OR id<>?)`, [pid, excludePublicRequestId, excludePublicRequestId]);
     const requestBusy = publicRequests.map(r => ({ start: new Date(r.start_at), end: new Date(r.end_at) }));
 
     // App appointments must block openings even when Google sync is disabled or delayed.

@@ -5493,6 +5493,10 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
       const existing = await PublicAppointmentRequest.findById({ agencyId, requestId });
       if (!existing) return res.status(404).json({ error: { message: 'Request not found' } });
 
+      const { replacementOffers } = await import('../services/appointmentReplacementOffer.service.js');
+      const privateDecision = await replacementOffers.decideRequest({ agencyId, requestId, status, actorUserId: req.user.id });
+      if (privateDecision) return res.json(privateDecision);
+
       const existingStatus = String(existing.status || '').toUpperCase();
 
       // PENDING_EVAL = session is waiting for its paired evaluation to be approved first.

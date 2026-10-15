@@ -19,7 +19,7 @@ const canRetry = row => Number(row.metadata.cancellationDeliveryId) > 0
   && ['failed', 'skipped'].includes(deliveryStatus(row));
 function statusLabel(row) {
   const status = deliveryStatus(row);
-  return ({ sent: 'Sent', delivered: 'Delivered', pending: 'Pending', queued: 'Queued', scheduled: 'Scheduled', failed: 'Failed before sending', skipped: 'Not sent', sending: 'Delivery in progress — verify before resending', review: 'Delivery uncertain — manual review required', held: 'Held — manual review required' })[status] || (status ? status.replaceAll('_', ' ') : 'Recorded');
+  return ({ sent: 'Sent', delivered: 'Delivered', pending: 'Pending', queued: 'Queued', scheduled: 'Scheduled', superseded: 'Replaced by a later edit', suppressed: 'Recorded without sending', processed: 'Processed — see delivery results', failed: 'Failed before sending', skipped: 'Not sent', sending: 'Delivery in progress — verify before resending', review: 'Delivery uncertain — manual review required', held: 'Held — manual review required' })[status] || (status ? status.replaceAll('_', ' ') : 'Recorded');
 }
 function when(value) { const raw = String(value || ''); const date = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z'); return Number.isFinite(+date) ? date.toLocaleString() : ''; }
 async function load() {
@@ -44,7 +44,7 @@ watch(() => props.appointmentId, () => { rows.value = []; notice.value = ''; loa
 </script>
 <template>
   <section class="appointment-communications" aria-label="Session communication history">
-    <header><div><h3>Communications</h3><p>Appointment notifications and delivery activity retained with this session. Cancellation notices are also saved to the client’s communication record.</p></div><button type="button" :disabled="loading || !!busy" @click="load">Refresh</button></header>
+    <header><div><h3>Communications</h3><p>Appointment notifications and delivery activity retained with this session. Schedule updates are also saved to the client’s communication record.</p></div><button type="button" :disabled="loading || !!busy" @click="load">Refresh</button></header>
     <p v-if="loading" role="status">Loading session communications…</p>
     <p v-if="notice" role="status">{{ notice }}</p><p v-if="error" role="alert">{{ error }}</p>
     <p v-if="!loading && !communications.length && !error">No appointment communications have been recorded yet.</p>
@@ -52,6 +52,9 @@ watch(() => props.appointmentId, () => { rows.value = []; notice.value = ''; loa
       <li v-for="row in communications" :key="row.id" :data-delivery-id="row.metadata.cancellationDeliveryId || undefined">
         <div class="communication-heading"><strong>{{ String(row.kind || 'Notification').replaceAll('_', ' ') }} · {{ row.channel || 'message' }}</strong><span :class="{ attention: ['failed','skipped','review','held'].includes(deliveryStatus(row)) }">{{ statusLabel(row) }}</span></div>
         <p class="communication-meta">{{ when(row.createdAt) }}<template v-if="row.metadata.recipient"> · To: {{ row.metadata.recipient }}</template><template v-if="row.metadata.clientId"> · Client #{{ row.metadata.clientId }}</template></p>
+        <p v-if="row.metadata.scheduledFor && ['pending','queued'].includes(deliveryStatus(row))" class="communication-meta">Planned send: {{ when(row.metadata.scheduledFor) }}. Later edits may change this time.</p>
+        <p v-if="row.metadata.sentAt" class="communication-meta">Sent: {{ when(row.metadata.sentAt) }}</p>
+        <p v-if="row.metadata.subject"><strong>Subject:</strong> {{ row.metadata.subject }}</p>
         <p v-if="row.metadata.reason" class="attention">{{ row.metadata.reason }}</p>
         <details v-if="row.metadata.body || row.bodyPreview"><summary>View recorded message</summary><p class="communication-body">{{ row.metadata.body || row.bodyPreview }}</p></details>
         <p v-if="row.metadata.clientFacingReason"><strong>Reason shared with the client:</strong> {{ row.metadata.clientFacingReason }}</p>

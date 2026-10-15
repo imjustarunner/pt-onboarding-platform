@@ -357,7 +357,8 @@ export const saveAppointmentChangeDraftHandler = async (req, res, next) => {
     const { saveAppointmentChangeDraft } = await import('../services/appointmentChangeWorkflow.service.js');
     // Only workflow facts are stored; discard client-supplied results, amounts and signatures.
     const keys = ['eventType', 'initiator', 'reasons', 'reasonOther', 'outreach', 'reasonKnown', 'clientId',
-      'replacementAppointmentId', 'waiver', 'additionalComments', 'clientFacingReason', 'followUpAction', 'followUpMessage'];
+      'replacementAppointmentId', 'waiver', 'additionalComments', 'clientFacingReason', 'followUpAction', 'followUpMessage',
+      'notificationMode', 'suppressionReason', 'offeredSlots', 'offerDays', 'pendingOfficeRequests'];
     const facts = Object.fromEntries(keys.filter((k) => req.body?.[k] !== undefined).map((k) => [k, req.body[k]]));
     res.json(await schedulingResponseForUser(req.user, appointment.agencyId,
       { ok: true, workflow: await saveAppointmentChangeDraft(appointment.id, facts, req.user.id) }));

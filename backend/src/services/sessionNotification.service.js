@@ -565,6 +565,8 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
 
   const created = [];
   for (const d of plan.deliveries) {
+    // Booking and edit confirmations use the shared schedule-change buffer.
+    if (d.kind === 'confirmation') continue;
     let when;
     if (d.sendImmediately || d.kind === 'confirmation') {
       when = new Date(Date.now() + 30 * 1000); // ~30s buffer after book
@@ -975,6 +977,11 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       continue;
     }
 
+    const [pendingUpdates] = await pool.execute("SELECT id FROM appointment_schedule_notices WHERE appointment_id=? AND status IN ('pending','sending') LIMIT 1", [appt.id]);
+    if (pendingUpdates.length) {
+      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='schedule_update_pending' WHERE id=?",[row.id]);
+      results.skipped++; continue;
+    }
     const participants = await Appointment.listParticipants(appt.id);
     const clientId = participants.find((p) => p.clientId)?.clientId || null;
     const consent = await loadClientConsent(clientId, appt.agencyId);
@@ -1196,7 +1203,8 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
   const bufferResult = await processDueChangeNotifications({ limit: 20 });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');
   const cancellations = await processDueCancellationNotifications({ limit: 20 });
-  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations };
+  const scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20 });
+  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates };
 }
 
 // ── Provider-pushed buffered updates ─────────────────────────────────────────
@@ -1285,247 +1293,47 @@ export async function queuePushUpdate(appointmentId, {
 } = {}) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
-  if (!changes.length) {
-    throw Object.assign(new Error('No changes to notify'), { status: 400 });
-  }
-  const preview = await previewPushUpdate(appointmentId, { channels });
-  if (!preview.willNotifyChannels.length && !sendImmediately) {
-    // Still allow queue for audit with empty channels when user opted out
-  }
-  const mins = Math.max(
-    0,
-    Number(bufferMinutes ?? preview.bufferMinutes ?? 15) || 0
-  );
-  const fireAt = sendImmediately
-    ? new Date()
-    : new Date(Date.now() + mins * 60 * 1000);
-
-  const [existing] = await pool.execute(
-    `SELECT id, changes_json FROM appointment_change_notification_queue
-     WHERE appointment_id = ? AND status = 'pending'
-     ORDER BY id DESC LIMIT 1`,
-    [appt.id]
-  );
-
-  if (existing?.[0] && !sendImmediately) {
-    const prev = parseJson(existing[0].changes_json, []);
-    const merged = [...prev, ...changes];
-    await pool.execute(
-      `UPDATE appointment_change_notification_queue
-       SET changes_json = ?, message_override = COALESCE(?, message_override),
-           channels_json = ?, preview_json = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        JSON.stringify(merged),
-        messageOverride,
-        JSON.stringify(channels || preview.willNotifyChannels),
-        JSON.stringify(preview),
-        existing[0].id
-      ]
-    );
-    return getPendingPushUpdate(appt.id);
-  }
-
-  const [result] = await pool.execute(
-    `INSERT INTO appointment_change_notification_queue
-      (appointment_id, agency_id, fire_at, buffer_minutes, status, changes_json,
-       channels_json, message_override, preview_json, created_by_user_id)
-     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
-    [
-      appt.id,
-      appt.agencyId,
-      toMysqlDateTime(fireAt),
-      mins,
-      JSON.stringify(changes),
-      JSON.stringify(channels || preview.willNotifyChannels),
-      messageOverride,
-      JSON.stringify(preview),
-      actorUserId || null
-    ]
-  );
-  if (sendImmediately) {
-    await processChangeNotificationRow(result.insertId);
-  }
-  return getPendingPushUpdate(appt.id);
+  if (!changes.length) throw Object.assign(new Error('No changes to notify'), { status: 400 });
+  // Never send raw diffs (which can include internal notes) to the client.
+  const startChange = changes.find(c => c.field === 'startAt');
+  await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, {
+    eventType: startChange ? 'moved' : 'updated', before: startChange ? { ...appt, startAt: startChange.from } : appt,
+    actorUserId, channels, sendImmediately
+  });
+  return getPendingPushUpdate(appointmentId);
 }
 
 export async function getPendingPushUpdate(appointmentId) {
-  const [rows] = await pool.execute(
-    `SELECT * FROM appointment_change_notification_queue
-     WHERE appointment_id = ? AND status = 'pending'
-     ORDER BY id DESC LIMIT 1`,
-    [Number(appointmentId)]
-  );
-  const r = rows?.[0];
-  if (!r) return null;
-  return {
-    id: Number(r.id),
-    appointmentId: Number(r.appointment_id),
-    fireAt: r.fire_at,
-    bufferMinutes: Number(r.buffer_minutes),
-    status: r.status,
-    changes: parseJson(r.changes_json, []),
-    channels: parseJson(r.channels_json, []),
-    messageOverride: r.message_override,
-    preview: parseJson(r.preview_json, null),
-    createdByUserId: r.created_by_user_id == null ? null : Number(r.created_by_user_id)
-  };
+  const [rows] = await pool.execute("SELECT * FROM appointment_schedule_notices WHERE appointment_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [Number(appointmentId)]);
+  const r = rows[0];
+  return r ? { id: Number(r.id), appointmentId: Number(r.appointment_id), fireAt: r.fire_at, bufferMinutes: 15,
+    status: r.status, changes: [], channels: parseJson(r.channels_json, []), messageOverride: null,
+    preview: { messagePreview: 'One update with the final appointment details. Related edits reset the notification delay.' }, createdByUserId: r.created_by_user_id } : null;
 }
 
 export async function patchPendingPushUpdate(appointmentId, patch = {}) {
   const pending = await getPendingPushUpdate(appointmentId);
   if (!pending) throw Object.assign(new Error('No pending update'), { status: 404 });
-
   if (patch.cancel === true || patch.status === 'canceled') {
-    await pool.execute(
-      `UPDATE appointment_change_notification_queue
-       SET status = 'canceled', canceled_at = NOW() WHERE id = ?`,
-      [pending.id]
-    );
+    await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.control(Number(appointmentId), {cancel:true});
     return { canceled: true, id: pending.id };
   }
-
-  let fireAt = pending.fireAt;
+  if (patch.messageOverride != null || patch.channels != null) throw Object.assign(new Error('Schedule notices use the current appointment details and recorded communication preferences. Edit the appointment or contact the client directly.'), { status: 400 });
   if (patch.sendImmediately) {
-    fireAt = toMysqlDateTime(new Date());
-  } else if (patch.extendBufferMinutes != null) {
-    const extra = Math.max(0, Number(patch.extendBufferMinutes) || 0);
-    fireAt = toMysqlDateTime(new Date(Date.now() + extra * 60 * 1000));
-  } else if (patch.bufferMinutes != null) {
-    fireAt = toMysqlDateTime(new Date(Date.now() + Math.max(0, Number(patch.bufferMinutes) || 0) * 60 * 1000));
-  }
-
-  await pool.execute(
-    `UPDATE appointment_change_notification_queue
-     SET fire_at = COALESCE(?, fire_at),
-         message_override = COALESCE(?, message_override),
-         channels_json = COALESCE(?, channels_json),
-         buffer_minutes = COALESCE(?, buffer_minutes)
-     WHERE id = ?`,
-    [
-      fireAt,
-      patch.messageOverride !== undefined ? patch.messageOverride : null,
-      patch.channels ? JSON.stringify(patch.channels) : null,
-      patch.bufferMinutes != null ? Number(patch.bufferMinutes) : null,
-      pending.id
-    ]
-  );
-
-  if (patch.sendImmediately) {
-    await processChangeNotificationRow(pending.id);
+    await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.control(Number(appointmentId), {sendImmediately:true});
+  } else if (patch.extendBufferMinutes != null || patch.bufferMinutes != null) {
+    throw Object.assign(new Error('Schedule updates use a 15-minute quiet window, shortened for appointments starting soon.'), { status: 400 });
   }
   return getPendingPushUpdate(appointmentId);
 }
 
 async function processChangeNotificationRow(queueId) {
-  const [rows] = await pool.execute(
-    `SELECT * FROM appointment_change_notification_queue WHERE id = ? LIMIT 1`,
-    [Number(queueId)]
-  );
-  const row = rows?.[0];
-  if (!row || row.status !== 'pending') return;
-  const [claim] = await pool.execute(
-    `UPDATE appointment_change_notification_queue SET status = 'sending' WHERE id = ? AND status = 'pending'`,
-    [row.id]
-  );
-
-  if (claim.affectedRows !== 1) return;
+  const [[row]] = await pool.execute("SELECT * FROM appointment_change_notification_queue WHERE id=? AND status='pending'", [Number(queueId)]);
+  if (!row) return;
   const appt = await Appointment.findById(row.appointment_id);
-  if (!appt) {
-    await pool.execute(
-      `UPDATE appointment_change_notification_queue SET status = 'canceled', canceled_at = NOW() WHERE id = ?`,
-      [row.id]
-    );
-    return;
-  }
-
+  if (!appt) return;
   const changes = parseJson(row.changes_json, []);
-  const lines = changes.map((c) => `• ${c.label || c.field}: ${c.from ?? '—'} → ${c.to ?? '—'}`);
-  const serviceSetting = await resolveAppointmentServiceSetting(appt);
-  const body = serviceSetting.isSchool
-    ? `Your school visit schedule was updated. ${buildSchoolReminder(appt)}`
-    : row.message_override
-    || `Your session "${appt.title || 'Session'}" was updated:\n${lines.join('\n')}`;
-  const preview = parseJson(row.preview_json, null);
-  const channels = parseJson(row.channels_json, preview?.willNotifyChannels || ['email']);
-  const participants = await Appointment.listParticipants(appt.id);
-  const clientId = participants.find((p) => p.clientId)?.clientId || null;
-  const consent = await loadClientConsent(clientId, appt.agencyId);
-
-  // Opt-out check at send time
-  const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
-  if (clientId) {
-    if (prefs.providerPushedUpdatesEnabled === false || prefs.schedulingChangesEnabled === false) {
-      await pool.execute(
-        `UPDATE appointment_change_notification_queue SET status = 'canceled', canceled_at = NOW() WHERE id = ?`,
-        [row.id]
-      );
-      await logCommunication({
-        appointmentId: appt.id,
-        agencyId: appt.agencyId,
-        channel: 'in_app',
-        kind: 'other',
-        bodyPreview: 'Change notification canceled — client opted out of session updates',
-        metadata: { queueId: row.id }
-      });
-      return;
-    }
-  }
-
-  for (const ch of channels) {
-    if (!prefs?.isDefault && prefs?.channels?.[ch] === false) continue;
-    if (ch === 'email' && consent.email && consent.emailAddress) {
-      try {
-        await sendSessionEmail({
-          to: consent.emailAddress,
-          subject: 'Session update',
-          text: body,
-          html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
-          agencyId: appt.agencyId || null,
-          clientId: clientId || null,
-          kind: 'change_update'
-        });
-      } catch { /* continue */ }
-    }
-    if (ch === 'sms' && consent.sms && consent.phoneNumber) {
-      try {
-        const to = PhoneNumber.normalizePhone(consent.phoneNumber);
-        const from = await resolveRegisteredSmsSender({ agencyId: appt.agencyId, purpose: 'reminders' });
-        if (from) await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to, from, body: body.slice(0, 480) });
-      } catch { /* continue */ }
-    }
-    if (ch === 'in_app') await sendInAppIfPossible(appt, body);
-    if (ch === 'phone') {
-      await logCommunication({
-        appointmentId: appt.id,
-        agencyId: appt.agencyId,
-        channel: 'phone',
-        kind: 'other',
-        bodyPreview: 'Voice update skipped — dialer scaffold',
-        metadata: { queueId: row.id }
-      });
-    }
-  }
-
-  await pool.execute(
-    `UPDATE appointment_change_notification_queue SET status = 'sent', sent_at = NOW() WHERE id = ?`,
-    [row.id]
-  );
-  await logCommunication({
-    appointmentId: appt.id,
-    agencyId: appt.agencyId,
-    channel: 'email',
-    kind: 'other',
-    bodyPreview: body.slice(0, 500),
-    metadata: { queueId: row.id, changes }
-  });
-
-  // Reschedule reminders if time changed
-  if (changes.some((c) => c.field === 'startAt' || c.field === 'endAt')) {
-    try {
-      await scheduleSessionNotifications(appt.id, { replace: true });
-    } catch { /* ignore */ }
-  }
+  await queuePushUpdate(appt.id, { changes: changes.length ? changes : [{ field: 'schedule' }], actorUserId: row.created_by_user_id });
 }
 
 export async function processDueChangeNotifications({ limit = 20 } = {}) {

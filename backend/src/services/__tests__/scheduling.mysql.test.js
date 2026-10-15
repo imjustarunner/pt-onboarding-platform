@@ -91,6 +91,12 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,session_type VARCHAR(32) DEFAULT 'individual',start_at DATETIME,end_at DATETIME,status VARCHAR(32),cancel_reason VARCHAR(500),recurrence_series_id VARCHAR(64),finalized_at DATETIME,updated_at DATETIME)`
     ];
     for (const sql of lifecycleDdl) await pool.query(sql);
+    await pool.query("CREATE TABLE user_communications (id INT AUTO_INCREMENT PRIMARY KEY, channel ENUM('email','sms') DEFAULT 'email')");
+    await pool.query("CREATE TABLE public_appointment_requests (id INT PRIMARY KEY, status VARCHAR(24))");
+    for (const file of ['1636_private_cancellation_offers.sql','1637_schedule_notice_buffer.sql']) {
+      const sql = await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
+      for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await pool.query(statement);
+    }
     await pool.query('ALTER TABLE office_standing_assignments ADD UNIQUE KEY uniq_office_standing_assignment_slot (room_id,provider_id,weekday,hour,assigned_frequency)');
     await pool.query("INSERT INTO office_standing_assignments (id,room_id,provider_id,weekday,hour,assigned_frequency,is_active) VALUES (91,4,9,1,10,'MONTHLY',1),(92,4,9,1,10,'EVERY_4_WEEKS',0)");
     for (const file of ['1559_recurring_schedule_window.sql','1560_client_termination_scheduling.sql']) {

@@ -155,9 +155,20 @@
                 <span>Please specify (required)</span>
                 <input v-model="change.facts.reasonOther" type="text" class="acw-input" />
               </label>
-              <fieldset v-if="['canceled', 'rescheduled'].includes(change.facts.eventType)" class="acw-client-notice">
+              <p v-if="change.retrospective?.value" class="acw-info">This appointment has already started. This change updates its record only; no cancellation notices, rescheduling invitations, or replacement offers will be sent.</p>
+              <fieldset v-if="!change.retrospective?.value && ['canceled', 'rescheduled'].includes(change.facts.eventType)" class="acw-client-notice">
                 <legend>Client notification</legend>
-                <p class="muted">The client receives the message below. Keep personal or clinical details in the internal note.</p>
+                <label class="acw-field"><span>Send a cancellation notification?</span>
+                  <select v-model="change.facts.notificationMode" class="acw-input" @change="onNotificationModeChange">
+                    <option value="send">Send email and any permitted text notification</option>
+                    <option value="none">Do not send email or text</option>
+                  </select>
+                </label>
+                <label v-if="change.facts.notificationMode === 'none'" class="acw-field"><span>Why no notification? (internal record)</span>
+                  <textarea v-model="change.facts.suppressionReason" class="acw-textarea" rows="2" maxlength="500" placeholder="For example: I already spoke with the client." />
+                  <span class="muted">The cancellation still appears in the client portal and session history. No cancellation email or text will be sent.</span>
+                </label>
+                <p class="muted">Keep personal or clinical details in the internal note. The reason below is saved with the cancellation and can be seen by the client.</p>
                 <label class="acw-field">
                   <span>Reason to share with the client (required)</span>
                   <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500" placeholder="Your provider is unavailable due to illness." />
@@ -165,16 +176,50 @@
                 <label class="acw-field">
                   <span>Next step</span>
                   <select v-model="change.facts.followUpAction" class="acw-input">
+                    <option value="keep_next_or_support">Keep the next appointment; contact support only if none is scheduled</option>
+                    <option value="keep_next" :disabled="!change.replacementOptions?.value?.nextAppointment">Keep the next scheduled appointment — no reschedule requested</option>
                     <option value="client_contact_support">Ask the client to contact support to reschedule</option>
                     <option value="replacement_booked" :disabled="!change.facts.replacementAppointmentId">A replacement appointment is already booked</option>
                     <option value="none">No action needed; other appointments stay scheduled</option>
+                    <option value="private_slots" :disabled="change.facts.eventType !== 'canceled' || change.facts.notificationMode === 'none' || !change.replacementOptions?.value?.singleClient">Offer specific private replacement times</option>
+                    <option value="portal_booking" :disabled="change.facts.eventType !== 'canceled' || change.facts.notificationMode === 'none' || !change.replacementOptions?.value?.portalBookingEnabled">Let this client choose a published current-client opening</option>
                   </select>
                 </label>
+                <p v-if="change.replacementOptions?.value?.nextAppointment" class="muted">Next {{ change.replacementOptions.value.nextAppointment.recurring ? 'recurring ' : '' }}appointment: {{ change.replacementOptions.value.nextAppointment.displayWhen }} ({{ change.replacementOptions.value.nextAppointment.timeZone }}).</p>
+                <p v-if="change.replacementOptions?.value && !change.replacementOptions.value.portalBookingEnabled" class="muted">General online booking is off for this practice or provider. A private offer authorizes only this client to choose from your selected times.</p>
+                <div v-if="['private_slots', 'portal_booking'].includes(change.facts.followUpAction)" class="acw-offers">
+                  <p>You can offer the same times to several clients. The first completed selection reserves a time; offers stay off the public page until released or expired. One replacement occurrence only. The client may decline and keep their next appointment. A selected time is reserved for care-team confirmation; other recurring sessions remain unchanged.</p>
+                  <label class="acw-field">Offer expires after <select v-model.number="change.facts.offerDays" class="acw-input"><option :value="1">1 day</option><option :value="2">48 hours (recommended)</option><option :value="3">3 days</option><option :value="7">7 days</option><option :value="14">14 days</option></select></label>
+                  <template v-if="change.facts.followUpAction === 'private_slots'">
+                    <h4>Add a free time</h4><p>No published opening is needed. Uses this appointment’s length and format. Times are in {{ change.replacementOptions?.value?.timeZone || 'the provider’s timezone' }}. If you do not have a room for an in-person visit, choose an available room and request it for this date only. It can be offered once the request is approved.</p>
+                    <label class="acw-field">Date and start time <input v-model="change.customOffer.localStart" type="datetime-local" class="acw-input" @change="change.customOffer.roomId=null;change.customOffer.rooms=[];change.customOffer.requiresOfficeRequest=false"></label>
+                    <label v-if="change.customOffer.rooms.length" class="acw-field">Room <select v-model="change.customOffer.roomId" @change="change.customOffer.requiresOfficeRequest=false" class="acw-input"><option :value="null">Choose a room</option><option v-for="room in change.customOffer.rooms" :key="room.id" :value="room.id">{{ room.label }} — {{ room.needsRequest ? 'One-time request needed' : 'Already reserved for you' }}</option></select></label>
+                    <button type="button" class="acw-btn" :disabled="change.customOffer.busy || !change.customOffer.localStart || change.facts.offeredSlots.length>=6" @click="change.addCustomOffer">{{ change.customOffer.busy ? 'Checking…' : 'Check and add time' }}</button>
+                    <div v-if="change.customOffer.requiresOfficeRequest"><p>This room is available to request. This is a one-time replacement; your recurring room schedule will stay unchanged.</p><p>{{ change.customOffer.rooms.find(r=>r.id===Number(change.customOffer.roomId))?.windowLabel }}</p><button type="button" class="acw-btn" :disabled="change.customOffer.busy" @click="change.requestOfferOffice">Confirm and request this room once</button></div>
+                    <div v-for="request in change.facts.pendingOfficeRequests || []" :key="request.requestId" class="acw-info"><strong>Office request #{{ request.requestId }} submitted</strong><p>{{ request.label }} · {{ request.windowLabel }}</p><p>This time is not offered to the client yet. Your draft is saved. After room approval, check this date/time again to add it. You can continue with other secured times or keep the next appointment.</p><button type="button" class="acw-btn" @click="change.customOffer.localStart=request.localStart;change.customOffer.roomId=request.roomId;change.addCustomOffer()">Recheck room and add time</button></div>
+                    <p v-if="change.customOffer.error" role="alert">{{ change.customOffer.error }}</p>
+                    <h4>Already offered</h4><p>Reuse a time below for this client. These offers are shared; the first completed selection reserves the time.</p>
+                    <label v-for="slot in change.replacementOptions?.value?.alreadyOffered || []" :key="slot.key" class="acw-field"><span><input type="checkbox" :checked="change.facts.offeredSlots.some(s=>s.key===slot.key)" :disabled="slot.requested || (change.facts.offeredSlots.length>=6 && !change.facts.offeredSlots.some(s=>s.key===slot.key))" @change="change.toggleOfferSlot(slot)"> {{ slot.label }} · {{ slot.requested ? 'Selected — unavailable' : `Offered to ${slot.invitedCount} client(s)` }}</span></label>
+                    <p v-if="!change.replacementOptions?.value?.alreadyOffered?.length" class="muted">No active offered times.</p>
+                    <h4>Selected for this client ({{ change.facts.offeredSlots.length }}/6)</h4>
+                    <p v-for="slot in change.facts.offeredSlots" :key="slot.key">{{ slot.label }} <button type="button" class="acw-btn" @click="change.toggleOfferSlot(slot)">Remove</button></p>
+                  </template>
+                  <h4>Published current-client openings</h4>
+                  <button type="button" class="acw-btn" :disabled="change.optionsLoading?.value" @click="change.loadReplacementOptions(true)">{{ change.optionsLoading?.value ? 'Checking openings…' : 'Find current-client openings' }}</button>
+                  <p class="muted">Uses the same visit length and appointment format, over the next four weeks. You can also add a free time above without publishing it. Times are checked again when selected.</p>
+                  <div class="acw-offer-slots">
+                    <label v-for="slot in change.replacementOptions?.value?.slots || []" :key="slot.key" class="acw-field">
+                      <span v-if="change.facts.followUpAction === 'private_slots'"><input type="checkbox" :checked="change.facts.offeredSlots.some(s=>s.key===slot.key)" :disabled="change.facts.offeredSlots.length >= 6 && !change.facts.offeredSlots.some(s => s.key === slot.key)" @change="change.toggleOfferSlot(slot)"> {{ slot.label }}<template v-if="slot.alreadyOffered"> · Offered to {{ slot.invitedCount }} client(s)</template></span>
+                      <span v-else>{{ slot.label }}</span>
+                    </label>
+                  </div>
+                  <p v-if="!change.optionsLoading?.value && !change.replacementOptions?.value?.slots?.length">No openings loaded. Check for openings, or choose “Keep the next appointment” or support follow-up.</p>
+                </div>
                 <label class="acw-field">
                   <span>Additional client follow-up instructions (optional)</span>
                   <textarea v-model="change.facts.followUpMessage" class="acw-textarea" rows="2" maxlength="1000" />
                 </label>
-                <p class="muted">Email comes from your agency’s notifications address, with replies to support. Delivery results are saved with the client and session; unavailable contact channels need staff follow-up.</p>
+                <p class="muted">Related schedule edits are combined before sending. Email comes from your agency’s notifications address, with replies to support. Delivery results are saved with the client and session; unavailable contact channels need staff follow-up.</p>
               </fieldset>
             </div>
 
@@ -339,22 +384,25 @@
               <p class="muted">This note is attached to the session and is nonbillable. Signing does not create an insurance claim.</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
               <div v-if="['canceled', 'rescheduled'].includes(change.facts.eventType) && change.facts.clientFacingReason" class="acw-client-notice">
-                <h4 class="acw-h4">Client message to review</h4>
-                <p>Your appointment scheduled for {{ change.context.whenLabel || change.preview.value?.appointment?.displayWhen }} has been canceled.</p>
+                <h4 class="acw-h4">{{ change.facts.notificationMode === 'none' ? 'Cancellation recorded — no email or text will be sent' : 'Client message to review' }}</h4>
+                <p v-if="change.facts.eventType === 'rescheduled'">Your appointment has moved. The message will include its verified new date and time.</p><p v-else>Your appointment scheduled for {{ change.context.whenLabel || change.preview.value?.appointment?.displayWhen }} has been canceled.</p>
                 <p><strong>Reason:</strong> {{ change.facts.clientFacingReason }}</p>
                 <p>{{ followUpLabel }}</p>
                 <p v-if="change.facts.followUpMessage">{{ change.facts.followUpMessage }}</p>
                 <p class="muted">Replies go to support. Internal note comments are kept in the session record.</p>
               </div>
               <div v-if="change.workflow.value?.result?.notificationDelivery" role="status" class="acw-info">
-                <strong>Cancellation notifications</strong>
-                <p>{{ change.workflow.value.result.notificationDelivery.sent }} sent.</p>
+                <strong>Schedule notifications</strong>
+                <p v-for="warning in change.workflow.value.result.notificationDelivery.warnings || []" :key="warning" role="alert">{{ warning }}</p>
+                <p v-if="change.workflow.value.result.notificationDelivery.pending">Schedule update queued. Related edits are combined during a 15-minute quiet window; changes close to the appointment send sooner. Check Communications for the planned send time and final delivery result.</p>
+                <p v-else>{{ change.workflow.value.result.notificationDelivery.sent }} sent.</p>
+                <p v-if="change.workflow.value.result.notificationDelivery.suppressed">{{ change.workflow.value.result.notificationDelivery.suppressed }} deliberately not sent, as recorded in the signed cancellation.</p>
                 <p v-if="deliveryNeedsAttention">Some notifications need staff follow-up. Review the session Communications tab for each recipient and delivery result.</p>
                 <ul v-if="deliveryNeedsAttention">
                   <li v-for="delivery in change.workflow.value.result.notificationDelivery.deliveries" :key="delivery.id">
                     Client #{{ delivery.clientId }} · {{ delivery.channel }} · {{ delivery.status }}
                     <span v-if="delivery.reason">— {{ delivery.reason }}</span>
-                    <button v-if="['failed', 'skipped'].includes(delivery.status)" class="acw-btn" type="button" :disabled="change.saving.value" @click="change.retryNotification(delivery.id)">Recheck and retry</button>
+                    <button v-if="delivery.source !== 'schedule_notice' && ['failed', 'skipped'].includes(delivery.status)" class="acw-btn" type="button" :disabled="change.saving.value" @click="change.retryNotification(delivery.id)">Recheck and retry</button>
                   </li>
                 </ul>
               </div>
@@ -471,14 +519,25 @@ const timingLabel = computed(() => {
   return p.isLate ? 'Late' : 'Advance / within notice';
 });
 const followUpLabel = computed(() => ({
+  keep_next: nextAppointmentMessage.value,
+  keep_next_or_support: nextAppointmentMessage.value,
+  private_slots: `Open Appointments in your client portal to choose one of the private replacement times offered by your provider, or decline. This offer expires after ${props.change.facts.offerDays} days. A selected time is reserved for care-team confirmation. ${nextAppointmentMessage.value}`,
+  portal_booking: `Open Appointments in your client portal to choose an available current-client replacement time, or decline. This offer expires after ${props.change.facts.offerDays} days. A selected time is reserved for care-team confirmation. ${nextAppointmentMessage.value}`,
   client_contact_support: 'Please contact our support team to arrange another appointment.',
-  replacement_booked: 'A replacement appointment has been scheduled. Please review its separate confirmation.',
+  replacement_booked: 'A replacement appointment has been scheduled. Please review its current date and time in your portal.',
   support_will_contact: 'Our support team will contact you to arrange another appointment.',
   none: 'No action is required. Other scheduled appointments remain unchanged.'
 }[props.change.facts.followUpAction || 'client_contact_support']));
+const nextAppointmentMessage = computed(() => {
+  const next = props.change.preview.value?.nextAppointment || props.change.replacementOptions?.value?.nextAppointment;
+  return next ? `Your next appointment remains scheduled for ${next.displayWhen}${next.timeZone ? ` (${next.timeZone})` : ''}. You do not need to book it again.` : 'No next appointment is currently scheduled. Please contact support to arrange your next visit.';
+});
+function onNotificationModeChange() {
+  if (props.change.facts.notificationMode === 'none' && ['private_slots', 'portal_booking'].includes(props.change.facts.followUpAction)) props.change.facts.followUpAction = 'keep_next_or_support';
+}
 const deliveryNeedsAttention = computed(() => {
   const result = props.change.workflow.value?.result?.notificationDelivery;
-  return result && (result.failed || result.held || result.skipped || result.pending);
+  return result && (result.failed || result.held || result.skipped);
 });
 
 const showWaiverUi = computed(() => {
@@ -517,6 +576,7 @@ async function onSign() {
 </script>
 
 <style scoped>
+.acw-offer-slots{max-height:240px;overflow:auto;border-block:1px solid #dce4ee;margin:10px 0}.acw-offers{padding:12px;background:#f0f7ff;border-radius:8px}
 .acw-client-notice { margin-top: 18px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; }
 .acw-client-notice legend { font-weight: 700; }
 .acw-overlay {

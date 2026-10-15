@@ -9,6 +9,8 @@ vi.mock('../appointment.service.js', () => ({ cancelAppointment: vi.fn() }));
 import { moveOfficeSessionOccurrence } from '../officeSessionMove.service.js';
 import OfficeLocation from '../../models/OfficeLocation.model.js';
 import { cancelAppointment } from '../appointment.service.js';
+vi.mock('../appointmentScheduleNotice.service.js', () => ({ appointmentScheduleNotices: { queue: vi.fn() } }));
+import { appointmentScheduleNotices } from '../appointmentScheduleNotice.service.js';
 import Appointment from '../../models/Appointment.model.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { ensureAppointmentClinicalLink } from '../appointmentClinicalLink.service.js';
@@ -20,6 +22,7 @@ describe('calendar moves keep appointment context', () => {
     await syncAppointmentFromProviderEvent({ id: 8, start_at: '2026-09-12 18:00:00', end_at: '2026-09-12 19:00:00' }, 9);
     expect(Appointment.update).toHaveBeenCalledWith(3, { startAt: '2026-09-12 18:00:00', endAt: '2026-09-12 19:00:00', updatedByUserId: 9 });
     expect(ensureAppointmentClinicalLink).toHaveBeenCalledWith(3, 9);
+    expect(appointmentScheduleNotices.queue).toHaveBeenCalledWith(3, expect.objectContaining({eventType:'moved', actorUserId:9}));
   });
   it('prevents moving a session with a signed note', async () => {
     clinicalPool.execute.mockResolvedValue([[{ id: 4 }]]);

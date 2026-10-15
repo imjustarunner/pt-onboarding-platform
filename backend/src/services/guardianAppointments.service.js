@@ -13,7 +13,7 @@ export function validateGuardianAppointmentRequest(input) {
   if (!reason || reason.length > 2000) throw fail('Please give a reason, up to 2,000 characters.');
   return { type: input.type, reason };
 }
-async function authorizedClient(userId, clientId, requiredClinicalScope = 'session_frequency') {
+export async function authorizedClient(userId, clientId, requiredClinicalScope = 'session_frequency') {
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope });
   const client = clients.find(c => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json));
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
@@ -116,9 +116,15 @@ export async function listGuardianAppointments({ userId, clientId }) {
   const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR a.status IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
     AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, [clientId, client.agency_id]);
   const rows = [...upcoming, ...history];
+  const [offers] = await pool.execute('SELECT appointment_id FROM appointment_replacement_offers WHERE client_id=? AND agency_id=?', [clientId, client.agency_id]);
+  const offerIds = new Set(offers.map(o => Number(o.appointment_id)));
   for (const row of rows) {
     row.requests = (await appointmentRequests(row.id)).filter(r => Number(r.clientId) === Number(clientId));
     row.serviceSetting = await resolveAppointmentServiceSetting(row);
+    if (offerIds.has(Number(row.id))) {
+      const { replacementOffers } = await import('./appointmentReplacementOffer.service.js');
+      row.replacementOffer = await replacementOffers.view(row.id, clientId);
+    }
   }
   return rows;
 }

@@ -1,5 +1,7 @@
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import { withProviderSelectionLock } from './publicProviderHold.service.js';
+import { readPrivateReplacementSlots } from './privateReplacementSlots.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 export const appointmentOccupiesTime = status => !['draft','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(status || 'scheduled').toLowerCase());
 const calendarConflictLabels = {
@@ -24,6 +26,23 @@ async function fail(db, row, activity) {
 }
 export async function assertAppointmentWindowAvailable(db, row, appointmentId = null) {
   if (!row.providerUserId || !appointmentOccupiesTime(row.status)) return;
+  const offered = await readPrivateReplacementSlots(db, row.providerUserId);
+  let ownsOffer = false;
+  if (row.replacementOfferId) {
+    const [[own]] = await db.execute(`SELECT o.id FROM appointment_replacement_offers o
+      JOIN appointment_replacement_offer_slots os ON os.offer_id=o.id
+      JOIN appointment_replacement_slots s ON s.id=os.slot_id
+      WHERE o.id=? AND o.provider_id=? AND s.start_at=? AND s.end_at=? AND s.released_at IS NULL AND os.released_at IS NULL
+        AND ((o.status='open' AND o.expires_at>UTC_TIMESTAMP()) OR (o.status='requested' AND o.selected_slot_id=s.id))`,
+    [row.replacementOfferId, row.providerUserId, row.startAt, row.endAt]);
+    ownsOffer = !!own;
+  }
+  for (const slot of offered) {
+    if (parseUtcDate(slot.start_at) >= parseUtcDate(row.endAt) || parseUtcDate(slot.end_at) <= parseUtcDate(row.startAt)) continue;
+    if (ownsOffer) continue;
+    // A pending client selection must be confirmed through its own request.
+    throw await fail(db, row, 'a private replacement offer');
+  }
   const [appointments] = await db.execute(`SELECT id FROM appointments WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
     AND status NOT IN ('draft','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled','voided')
     AND (? IS NULL OR id <> ?) LIMIT 1`, [row.providerUserId, row.endAt, row.startAt, appointmentId, appointmentId]);

@@ -1,5 +1,8 @@
 import Availability from './providerAvailability.service.js';
 import { readPublicSnapshot } from './publicReadSnapshot.service.js';
+import pool from '../config/database.js';
+import { readPrivateReplacementSlots } from './privateReplacementSlots.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 // Search preferences are applied AFTER this shared snapshot: office/virtual and
 // day/time searches reuse the same provider week, rather than rebuilding it.
@@ -15,8 +18,10 @@ export async function readPublicWeekAvailability(options, { fresh = false } = {}
     intakeOnly: Boolean(options.intakeOnly), slotMinutes: 60,
     includeGoogleBusy: true, externalCalendarIds: []
   };
-  return readPublicSnapshot({ key: ['public-week-v4', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
-    const result = await Availability.computeWeekAvailability(normalized);
+  const result = await readPublicSnapshot({ key: ['public-week-v5', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
+    // Keep the base openings in the shared cache. The live filter below hides
+    // private offers and restores their openings immediately at release/expiry.
+    const result = await Availability.computeWeekAvailability({ ...normalized, includePrivateOffers: true });
     if (!result) throw new Error('Availability could not be loaded');
     // Explicit public allowlist: no busy events, client data, or calendar URLs.
     const slots = rows => (rows || []).map(({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose, careTypes }) =>
@@ -25,4 +30,9 @@ export async function readPublicWeekAvailability(options, { fresh = false } = {}
       weekStart: normalized.weekStartYmd, weekEnd: result.weekEnd, timeZone: result.timeZone, slotMinutes: 60,
       checkedAt: new Date().toISOString(), inPersonSlots: slots(result.inPersonSlots), virtualSlots: slots(result.virtualSlots) };
   });
+  // Filter after the cache as well: an already-built public page must not
+  // advertise a slot immediately after it is privately offered.
+  const offered = await readPrivateReplacementSlots(pool, normalized.providerId);
+  const visible = slot => !offered.some(s => parseUtcDate(s.start_at) < new Date(slot.endAt) && parseUtcDate(s.end_at) > new Date(slot.startAt));
+  return { ...result, inPersonSlots: result.inPersonSlots.filter(visible), virtualSlots: result.virtualSlots.filter(visible) };
 }

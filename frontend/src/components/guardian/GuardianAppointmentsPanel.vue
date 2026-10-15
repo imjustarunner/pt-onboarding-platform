@@ -16,11 +16,28 @@
     <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">Loading appointments…</p>
     <p v-else-if="!appointments.length">No appointments are available to display.</p>
-    <article v-for="a in appointments" :key="a.id">
+    <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality }} · {{ a.status.replaceAll('_',' ') }}</p>
       <p v-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
       <p v-if="a.serviceSetting?.isSchool">No confirmation is needed for this school visit. If your child will be absent or plans change, let your care team know. Continue reporting absences to the school as usual.</p>
       <p v-if="a.canceledBy">Canceled by {{ a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
+      <section v-if="a.replacementOffer" class="replacement-offer" aria-label="Private replacement offer">
+        <h4>Private replacement offer</h4>
+        <p v-if="a.replacementOffer.nextAppointment">Your next {{ a.replacementOffer.nextAppointment.recurring ? 'recurring ' : '' }}appointment is {{ a.replacementOffer.nextAppointment.displayWhen }} ({{ a.replacementOffer.nextAppointment.timeZone }}). It remains scheduled.</p>
+        <p v-else>No next appointment is currently scheduled. Contact support if you need help arranging your next visit.</p>
+        <template v-if="a.replacementOffer.status === 'open'">
+          <p>Choose one time by {{ when(a.replacementOffer.expiresAt, a.timeZone) }}, or decline. These times are reserved for invited clients and may be offered to more than one person. Availability is checked when you select; the first completed selection reserves a time. Your selected time is reserved for the care team to confirm. Other recurring appointments stay scheduled.</p>
+          <label v-for="slot in a.replacementOffer.slots" :key="slot.key"><span><input v-model="selectedSlots[a.id]" type="radio" :name="`replacement-${a.id}`" :value="slot.key"> {{ slot.label }}</span></label>
+          <p v-if="!a.replacementOffer.slots.length">No offered times are currently available. Your next appointment stays scheduled, if listed above. You can contact support for other options.</p>
+          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedSlots[a.id]" @click="respondToOffer(a, 'select')">Reserve selected time for confirmation</button>
+            <button type="button" :disabled="busy" @click="respondToOffer(a, 'decline')">{{ a.replacementOffer.nextAppointment ? `See you next session — ${a.replacementOffer.nextAppointment.displayWhen}` : 'Decline replacement offer' }}</button></div>
+        </template>
+        <p v-else-if="a.replacementOffer.status === 'requested'">Your replacement time is reserved for care-team confirmation. This is a request, not a confirmed appointment.</p>
+        <p v-else-if="a.replacementOffer.status === 'confirmed'">Your replacement appointment is confirmed. See your upcoming appointments for its current details.</p>
+        <p v-else-if="a.replacementOffer.status === 'declined_by_team'">The care team could not confirm this replacement. Contact support for other options. Your other appointments remain scheduled.</p>
+        <p v-else-if="a.replacementOffer.status === 'declined'">You declined this offer. Other appointments remain unchanged.</p>
+        <p v-else>This offer has expired. It did not change or cancel your other appointments. Please contact support if you need another time.</p>
+      </section>
       <div v-for="request in a.requests" :key="request.id" class="request">
         <strong>{{ request.requestedBy }} requested {{ request.type === 'cancel' ? 'cancellation' : 'rescheduling' }}</strong>
         <p>{{ request.reason }}</p><p>{{ request.status === 'pending' ? 'Waiting for provider approval' : request.status }}<span v-if="request.decidedBy"> · {{ request.decidedBy }}</span></p>
@@ -38,17 +55,33 @@
   </section>
 </template>
 <script setup>
-import { ref, reactive, watch } from 'vue';
+import { ref, reactive, watch, nextTick } from 'vue';
 import api from '../../services/api.js';
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false}});
 const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),drafts=reactive({});let sequence=0;
+const selectedSlots = reactive({});
+async function respondToOffer(a, action) {
+  if (busy.value || props.preview) return;
+  const own = sequence; busy.value = true; error.value = ''; notice.value = '';
+  try {
+    const { data } = await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/replacement-offer`, { action, selectedKey: selectedSlots[a.id] }, { skipGlobalLoading: true });
+    if (own === sequence) {
+      notice.value = data.status === 'requested' ? 'Your time is reserved for the care team to confirm. Your other appointments stay scheduled.' : 'Replacement offer declined. Your other appointments stay scheduled.';
+      await load();
+    }
+  } catch (e) { if (own === sequence) error.value = e.response?.data?.error?.message || 'Could not save your choice. Refresh before trying again.'; }
+  finally { busy.value = false; }
+}
 const draft=a=>drafts[a.id] ||= {type:'cancel',reason:'',scope:'single',confirmed:false};
 const appointmentDate=value=>new Date(typeof value==='string'&&!/(Z|[+-]\d\d:\d\d)$/.test(value)?value.replace(' ','T')+'Z':value);
 const canRequest=a=>!props.preview&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
 const when=(value,timeZone)=>appointmentDate(value).toLocaleString(undefined,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
 async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
   appointments.value=data.appointments||[];
+  await nextTick();
+  const requestedId = Number(new URLSearchParams(window.location.search).get('appointmentId'));
+  if (appointments.value.some(a => Number(a.id) === requestedId)) document.getElementById(`appointment-${requestedId}`)?.scrollIntoView?.({ block: 'center' });
   const response=await api.get(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,{skipGlobalLoading:true});
   if(own===sequence)preferences.value=response.data;
 }}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}
@@ -57,5 +90,6 @@ async function submit(a){if(busy.value)return;const own=sequence;const cancel=dr
 watch(()=>props.clientId,()=>{notice.value='';load();},{immediate:true});
 </script>
 <style scoped>
+.replacement-offer{padding:14px;background:#f0f7ff;border:1px solid #cfdeed;border-radius:10px}.offer-actions{display:flex;gap:8px;flex-wrap:wrap}
 .guardian-appointments{padding:20px;background:white;border:1px solid #dce4ee;border-radius:12px;margin-top:20px}.guardian-appointments header{display:flex;align-items:center;justify-content:space-between}.guardian-appointments article{border-top:1px solid #dce4ee;padding:16px 0}.guardian-appointments p{color:#4b5f75}.guardian-appointments label{display:grid;gap:6px;margin:10px 0}.guardian-appointments textarea,.guardian-appointments select{padding:8px;border:1px solid #b4c3d2;border-radius:5px;max-width:100%}.guardian-appointments .request{padding:12px;background:#f1f6fc;margin:10px 0}.guardian-appointments button{padding:8px 12px;cursor:pointer}
 </style>

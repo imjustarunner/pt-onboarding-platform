@@ -126,6 +126,7 @@ function activityFromOfficeRow(row = {}) {
 function activityFromScheduleEvent(row = {}) {
   const kind = String(row.kind || row.eventKind || '').toUpperCase();
   const agencyId = Number(row.agencyId || row._agencyId || row.agency_id || 0) || null;
+  if (kind === 'PRIVATE_REPLACEMENT_OFFER') return { activityType: 'hold', title: 'Offered for rescheduling', agencyId };
   if (kind === 'SCHEDULE_HOLD') {
     return { activityType: 'hold', title: 'Schedule hold', agencyId };
   }

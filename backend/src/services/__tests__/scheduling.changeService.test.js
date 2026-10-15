@@ -82,7 +82,8 @@ describe('appointment change consequences and completion', () => {
     const result = await previewAppointmentChange(1, { ...canceled, eventType: 'rescheduled', initiator: 'provider', replacementAppointmentId: 2 }, actor);
     expect(result).toMatchObject({ providerCaused: true, isLate: false, isMissed: false, consequence: { feeCents: 0 } });
   });
-  it('requires a reviewed public cancellation reason before signing', async () => {
+  it('requires a reviewed public cancellation reason before signing a future cancellation', async () => {
+    appointment.startAt = '2099-01-01 17:00:00';
     await expect(completeAppointmentChange(1, { ...canceled, clientFacingReason: '', reasonOther: 'Private medical details' }, actor)).rejects.toThrow('share with the client');
     expect(runSignedAppointmentChange).not.toHaveBeenCalled();
   });

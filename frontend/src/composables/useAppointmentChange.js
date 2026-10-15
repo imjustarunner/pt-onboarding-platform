@@ -26,6 +26,11 @@ export function useAppointmentChange() {
     clientFacingReason: '',
     followUpAction: 'client_contact_support',
     followUpMessage: '',
+    notificationMode: 'send',
+    suppressionReason: '',
+    offeredSlots: [],
+    pendingOfficeRequests: [],
+    offerDays: 2,
     outreach: [],
     reasonKnown: null,
     replacementAppointmentId: null,
@@ -37,6 +42,10 @@ export function useAppointmentChange() {
   const signatureConfirmed = ref(false);
   const draftLoaded = ref(false);
   const replacements = ref([]);
+  const replacementOptions = ref(null);
+  const optionsLoading = ref(false);
+  const customOffer = reactive({localStart:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
+  const retrospective = computed(() => replacementOptions.value?.retrospective === true);
 
   const localNarrative = computed(() => {
     if (workflow.value?.status === 'completed') return workflow.value.narrative;
@@ -64,6 +73,8 @@ export function useAppointmentChange() {
     facts.clientFacingReason = '';
     facts.followUpAction = 'client_contact_support';
     facts.followUpMessage = '';
+    facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
+    replacementOptions.value = null; Object.assign(customOffer,{localStart:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
     facts.outreach = [];
     facts.reasonKnown = null;
     facts.replacementAppointmentId = null;
@@ -146,8 +157,12 @@ export function useAppointmentChange() {
       reasons: [...facts.reasons],
       reasonOther: facts.reasonOther || null,
       clientFacingReason: facts.clientFacingReason || null,
-      followUpAction: facts.followUpAction || 'client_contact_support',
+      followUpAction: retrospective.value ? 'none' : facts.followUpAction || 'client_contact_support',
       followUpMessage: facts.followUpMessage || null,
+      notificationMode: retrospective.value ? 'none' : facts.notificationMode,
+      suppressionReason: retrospective.value ? 'Retrospective record correction.' : facts.notificationMode === 'none' ? facts.suppressionReason : null,
+      offeredSlots: facts.followUpAction === 'private_slots' ? facts.offeredSlots : [],
+      offerDays: facts.offerDays, pendingOfficeRequests: facts.pendingOfficeRequests,
       outreach: [...facts.outreach],
       reasonKnown: facts.reasonKnown,
       clientId: context.clientId || null,
@@ -197,8 +212,14 @@ export function useAppointmentChange() {
     if (n === 2) {
       if (facts.eventType === 'void') return !!String(facts.reasonOther || '').trim();
       if (facts.eventType === 'rescheduled' && !Number(facts.replacementAppointmentId)) return false;
-      if (['canceled', 'rescheduled'].includes(facts.eventType) && !String(facts.clientFacingReason || '').trim()) return false;
+      if (!retrospective.value && ['canceled', 'rescheduled'].includes(facts.eventType) && !String(facts.clientFacingReason || '').trim()) return false;
       if (facts.followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) return false;
+      if (!retrospective.value && facts.notificationMode === 'none' && !facts.suppressionReason.trim()) return false;
+      if (!retrospective.value && ['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
+        if (facts.eventType !== 'canceled' || facts.notificationMode === 'none') return false;
+        if (facts.followUpAction === 'private_slots' && (!facts.offeredSlots.length || facts.offeredSlots.length > 6)) return false;
+        if (facts.followUpAction === 'portal_booking' && (!replacementOptions.value?.portalBookingEnabled || !replacementOptions.value?.slots?.length)) return false;
+      }
       if (facts.eventType === 'no_show') {
         if (!facts.outreach.length) return false;
         if (facts.reasonKnown === true && !facts.reasons.length) return false;
@@ -228,7 +249,7 @@ export function useAppointmentChange() {
     error.value = '';
     if (!(await refreshPreview())) return;
     if (step.value < 4) step.value += 1;
-    if (step.value === 2) await loadReplacements();
+    if (step.value === 2) { await loadReplacements(); await loadReplacementOptions(false); }
   }
 
   function goBack() {
@@ -283,6 +304,48 @@ export function useAppointmentChange() {
     } catch (e) { error.value = e.response?.data?.error?.message || 'Could not load replacement appointments.'; }
   }
 
+  function toggleOfferSlot(slot) {
+    const index=facts.offeredSlots.findIndex(s=>s.key===slot.key);
+    if(index>=0) facts.offeredSlots.splice(index,1);
+    else if(facts.offeredSlots.length<6) facts.offeredSlots.push(slot);
+  }
+  async function requestOfferOffice() {
+    if(customOffer.busy)return;
+    const room=customOffer.rooms.find(r=>r.id===Number(customOffer.roomId)&&r.needsRequest);
+    if(!room)return;
+    customOffer.busy=true;customOffer.error='';const id=appointmentId.value;
+    try {
+      const {data}=await api.post(`/appointments/${id}/change/replacement-options/office-request`,{localStart:customOffer.localStart,roomId:room.id,confirmOneTime:true},{skipGlobalLoading:true});
+      if(id!==appointmentId.value || !open.value)return;
+      facts.pendingOfficeRequests.push({requestId:data.id,localStart:customOffer.localStart,roomId:room.id,label:room.label,windowLabel:room.windowLabel});
+      customOffer.requiresOfficeRequest=false;customOffer.roomId=null;customOffer.rooms=[];
+      await saveDraft();
+    }catch(e){if(id===appointmentId.value)customOffer.error=e.response?.data?.error?.message||'Could not submit the one-time room request.';}
+    finally{customOffer.busy=false;}
+  }
+  async function addCustomOffer() {
+    if(customOffer.busy || facts.offeredSlots.length>=6) return;
+    customOffer.busy=true;customOffer.error='';const id=appointmentId.value;
+    try {
+      const {data}=await api.post(`/appointments/${id}/change/replacement-options/check`,{localStart:customOffer.localStart,roomId:customOffer.roomId},{skipGlobalLoading:true});
+      if(id!==appointmentId.value || !open.value) return;
+      customOffer.rooms=data.rooms||[]; customOffer.requiresOfficeRequest=!!data.requiresOfficeRequest;
+      if(data.slot && !facts.offeredSlots.some(s=>s.key===data.slot.key)) facts.offeredSlots.push(data.slot);
+      if(!data.slot && !customOffer.rooms.length) customOffer.error='No available rooms cover this time. Choose another day or time.';
+    }catch(e){if(id===appointmentId.value)customOffer.error=e.response?.data?.error?.message||'Could not check this time.';}
+    finally{customOffer.busy=false;}
+  }
+  async function loadReplacementOptions(includeSlots = true) {
+    if (!['canceled', 'rescheduled'].includes(facts.eventType)) return;
+    const id = appointmentId.value;
+    optionsLoading.value = true;
+    try {
+      const { data } = await api.get(`/appointments/${id}/change/replacement-options`, { params: { slots: String(includeSlots) }, skipGlobalLoading: true });
+      if (appointmentId.value === id && open.value) replacementOptions.value = data;
+    } catch (e) { error.value = e.response?.data?.error?.message || 'Could not check the next appointment and replacement openings.'; }
+    finally { optionsLoading.value = false; }
+  }
+
   async function saveDraft() {
     if (!appointmentId.value || !draftLoaded.value) return false;
     saving.value = true;
@@ -309,6 +372,9 @@ export function useAppointmentChange() {
     open,
     workflow,
     replacements,
+    replacementOptions, retrospective, customOffer, toggleOfferSlot, addCustomOffer, requestOfferOffice,
+    optionsLoading,
+    loadReplacementOptions,
     signatureConfirmed,
     saveDraft,
     retryNotification,

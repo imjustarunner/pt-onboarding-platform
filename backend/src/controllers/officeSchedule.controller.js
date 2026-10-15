@@ -417,7 +417,7 @@ function weekdayHourInTz(dateLike, timeZone) {
   }
 }
 
-async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTimeZone }) {
+export async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTimeZone }) {
   // Block on BOOKED/ASSIGNED_BOOKED events and company holds. RELEASED and CANCELLED do not block.
   const [eventRows] = await pool.execute(
     `SELECT 1
