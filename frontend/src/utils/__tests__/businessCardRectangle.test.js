@@ -5,6 +5,19 @@ import { cardPrintPositions,cardSheetPlan,printableCardsHtml,normalizePrintSetti
 import { organizationCardDefaults,resolveCard } from '../businessCards';
 const person={name:'Morgan Taylor',credentials:'MA, NCC, LPC',title:'Director of Strategy and Clinical Operations',email:'morgan@ITSCO.health',phone:'719-555-0100',extension:'700',address:'437 Windchime Place\nColorado Springs, CO 80919-1234'};
 describe('Avery 8870 rectangle cards',()=>{
+ it.each([['organization','ITSCO',100],['group','People Operations',64],['department','Technology Support',64]])('prints large, centered %s headings within the name panel',(kind,name,size)=>{
+  const measure=(value,fontSize)=>value.length*fontSize*.6;
+  const doc=new DOMParser().parseFromString(rectangleCardSvg({kind,name},{measure}),'image/svg+xml');
+  const identity=doc.querySelector('[data-card-panel="identity"] > g');
+  const offset=Number(identity.getAttribute('transform').match(/translate\(0 ([^)]+)\)/)[1]);
+  const lines=[...identity.querySelectorAll('[data-card-field="name"] text')];
+  expect(lines.map(line=>line.textContent).join(' ')).toBe(name);
+  for(const line of lines){
+   const fontSize=Number(line.getAttribute('font-size')),y=offset+Number(line.getAttribute('y'));
+   expect(fontSize).toBe(size);expect(y-fontSize*.8).toBeGreaterThan(22);expect(y+8).toBeLessThan(280);
+   expect(measure(line.textContent,fontSize)).toBeLessThanOrEqual(514);
+  }
+ });
  it('uses the official 2-column 5-row Letter layout without gaps or bleed',()=>{
   expect(businessCardLayout('8870')).toMatchObject({cardWidth:3.5,cardHeight:2,count:10,left:.75,top:.5});
   const positions=cardPrintPositions({format:'8870'});expect(positions).toHaveLength(10);

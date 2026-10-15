@@ -12,6 +12,30 @@ export function rectangleCardSvg(card, fonts = {}) {
   const block = (value,x,y,width,size,maxLines,color,weight=400) => textBlock(value,x,y,width,size,maxLines,color,weight,weight===700?'CardHeading':'CardBody',fonts.measure);
   const credentials = card.credentials ? line(card.credentials,52,151,514,28,primaryInk,700,'credentials') : '';
   const title = block(card.title,52,credentials?192:157,514,27,3,primaryInk);
+  let identity = `${line(card.name,52,106,514,43,primaryInk,700,'name')}${credentials}${title.markup}`;
+  if (['organization', 'group', 'department'].includes(card.kind)) {
+    let size = card.kind === 'organization' ? 100 : 64;
+    const widestWord = Math.max(1, ...String(card.name || '').split(/\s+/).map(word => fonts.measure
+      ? fonts.measure(word,size,'CardHeading',700) : word.length*size*.6));
+    size = Math.min(size,size*514/widestWord);
+    let name, sharedCredentials, sharedTitle, height;
+    do {
+      const rows = [];
+      for (const word of String(card.name || '').trim().split(/\s+/).filter(Boolean)) {
+        const candidate = rows.length ? `${rows[rows.length-1]} ${word}` : word;
+        const width = fonts.measure ? fonts.measure(candidate,size,'CardHeading',700) : candidate.length*size*.6;
+        if (rows.length && width <= 514) rows[rows.length-1] = candidate;
+        else rows.push(word);
+      }
+      name = block(rows.join('\n'),52,size*.8,514,size,rows.length,primaryInk,700);
+      sharedCredentials = block(card.credentials,52,name.bottom+34,514,28,1,primaryInk,700);
+      sharedTitle = block(card.title,52,(sharedCredentials.lines?sharedCredentials.bottom:name.bottom)+38,514,27,3,primaryInk);
+      height = (sharedTitle.lines?sharedTitle.bottom:sharedCredentials.lines?sharedCredentials.bottom:name.bottom)+8;
+      if (height <= 206 || size <= 15) break;
+      size -= 1;
+    } while (true);
+    identity = `<g transform="translate(0 ${22+(258-height)/2})"><g data-card-field="name">${name.markup}</g>${sharedCredentials.markup}${sharedTitle.markup}</g>`;
+  }
   const extension = String(card.extension || '').replace(/^(?:extension|ext\.?|x)\s*[:#.-]?\s*/i,'');
   const phone = card.phone ? `${card.phone}${extension ? ` ext. ${extension}` : ''}` : '';
   const work = card.workLine?.number && (card.workLine.canCall || card.workLine.canText) ? card.workLine : null;
@@ -31,7 +55,7 @@ export function rectangleCardSvg(card, fonts = {}) {
     <rect data-card-panel="name-color" x="22" y="22" width="578" height="258" fill="${primary}"/>
     <rect data-card-panel="address-color" x="600" y="280" width="428" height="298" fill="${accent}"/>
     ${watermarkMarkup}<rect x="600" y="22" width="428" height="258" fill="#f6f7f4"/>
-    <g data-card-panel="identity">${line(card.name,52,106,514,43,primaryInk,700,'name')}${credentials}${title.markup}</g>
+    <g data-card-panel="identity">${identity}</g>
     ${safeLogo(card.logo)?cardLogoMarkup(card,644,51,340,200,'data-card-panel="logo"'):block(card.organization,640,125,350,36,3,'#163638',700).markup}
     ${contacts}${addressText?`<g data-card-panel="address" transform="translate(0 ${addressTop})">${contactIcon('location',638,-18,25,accentInk)}${line(/\n\s*\n/.test(addressText)?'OFFICE LOCATIONS':'OFFICE LOCATION',673,3,315,23,accentInk,700,'office-label')}<g transform="translate(0 54)">${address.markup}</g></g>`:''}</g>`,fonts,'front');
 }
