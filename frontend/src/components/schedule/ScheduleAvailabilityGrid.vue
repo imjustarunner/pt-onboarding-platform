@@ -1766,7 +1766,7 @@
           </div>
 
           <SupervisionRecordPanel
-            v-if="editorIsSupervision && Number(selectedSupvSessionId) > 0"
+            v-if="editorIsSupervision && isAppointmentEditMode && Number(selectedSupvSessionId) > 0"
             v-show="['info','attendance'].includes(editorWorkspaceTab)"
             :key="selectedSupvSessionId"
             :session-id="Number(selectedSupvSessionId)"

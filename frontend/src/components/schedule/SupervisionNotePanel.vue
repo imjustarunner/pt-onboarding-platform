@@ -83,7 +83,7 @@
             v-html="renderedSummary(generatedSummary || summary)"
           />
           <p v-else class="muted snp-empty">
-            No summary yet. Summary is generated automatically after the session is finalized.
+            No AI summary is saved for this session. A summary requires a saved transcript.
           </p>
         </section>
 
@@ -92,7 +92,7 @@
           <p v-if="loading" class="muted">Loading session transcript…</p>
           <pre v-else-if="transcript" class="snp-readonly">{{ transcript }}</pre>
           <p v-else class="muted snp-empty">
-            No transcript saved yet. Transcription must be started in the meeting with the required consent.
+            No transcript is saved for this session. Transcription captures only the meeting while it is running with the required consent; a phone continuation is not captured.
           </p>
         </details>
 
