@@ -24,16 +24,19 @@ try {
     await page.locator('#brand-portfolio').scrollIntoViewIfNeeded();
     if ([1440,390].includes(width)) await page.screenshot({ path: `${output}/portfolio-${width}.png`, fullPage: true });
   }
-  const websiteLinks = await page.locator('.ptco-portfolio-links>a[target="_blank"]').evaluateAll(links => links.map(a => a.href));
+  const websiteLinks = await page.locator('.ptco-portfolio-links>a[href^="https://"]').evaluateAll(links => links.map(a => a.href));
   assert.equal(websiteLinks.length, 15);
   assert.equal(await page.locator('[data-brand="rmmentors"] .ptco-portfolio-status').innerText(), 'Website coming soon');
   assert.ok(websiteLinks.includes('https://auricwell.com/'));
   assert.ok(websiteLinks.includes('https://fundtred.com/'));
-  const downloads = await page.locator('.ptco-portfolio a[download]').evaluateAll(links => links.map(a => a.getAttribute('href')));
-  for (const href of downloads) {
+  assert.equal(await page.locator('.ptco-portfolio a[download]').count(), 0);
+  const guides = await page.locator('.ptco-portfolio a[href$=".html"]').evaluateAll(links => links.map(a => a.getAttribute('href')));
+  assert.equal(guides.length, 16);
+  for (const href of guides) {
     const response = await page.request.get(`${origin}${href}`);
     assert.equal(response.status(), 200, href);
-    assert.equal((await response.body()).subarray(0, 2).toString(), 'PK', href);
+    assert.match(response.headers()['content-type'], /text\/html/, href);
+    assert.ok((await response.text()).includes('Website color reference'), href);
   }
   await page.getByRole('button', { name: 'Care & community 6', exact: true }).click();
   assert.equal(await page.locator('[data-brand]').count(), 6);
@@ -41,12 +44,15 @@ try {
   await page.getByRole('button', { name: 'All brands 16', exact: true }).focus();
   await page.keyboard.press('Enter');
   assert.equal(await page.locator('[data-brand]').count(), 16);
-  const download = page.waitForEvent('download');
-  await page.locator('[data-brand="auricwell"] a[download]').click();
-  const file = await download;
-  assert.equal(file.suggestedFilename(), 'auricwell-brand-package.zip');
-  await file.saveAs(`${output}/auricwell-brand-package.zip`);
+  const popup = page.waitForEvent('popup');
+  await page.locator('[data-brand="auricwell"] a[href$=".html"]').click();
+  const guide = await popup;
+  await guide.waitForLoadState();
+  assert.equal(new URL(guide.url()).pathname, '/assets/ptco/brand-packages/auricwell.html');
+  assert.equal(await guide.locator('h1').innerText(), 'AuricWell');
+  for (const img of await guide.locator('img').all()) await img.evaluate(el => el.decode());
+  await guide.close();
   assert.deepEqual(errors, []);
-  writeFileSync(`${output}/results.json`, JSON.stringify({ widths: [1440,768,390,320], brands: 16, downloads: downloads.length, filters: 'passed', keyboard: 'passed', errors }, null, 2));
-  console.log('Portfolio passed: 4 viewport sizes, 16 brand cards, 16 ZIP downloads, filters, keyboard, and browser download.');
+  writeFileSync(`${output}/results.json`, JSON.stringify({ widths: [1440,768,390,320], brands: 16, htmlGuides: guides.length, filters: 'passed', keyboard: 'passed', newTab: 'passed', errors }, null, 2));
+  console.log('Portfolio passed: 4 viewport sizes, 16 brand cards, 16 HTML guides, filters, keyboard, and guide opening in a new tab.');
 } finally { await browser.close(); }

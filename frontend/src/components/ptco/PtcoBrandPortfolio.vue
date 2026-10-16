@@ -8,7 +8,7 @@
         </div>
         <div class="ptco-portfolio-intro">
           <p>Explore the websites and identities we’ve created—from care and community organizations to the products that keep everyday work moving.</p>
-          <p class="ptco-portfolio-note">Each brand package includes its existing artwork and a guide to colors and usage.</p>
+          <p class="ptco-portfolio-note">Open each brand package in your browser to explore its artwork, colors, and usage guide.</p>
         </div>
       </div>
 
@@ -36,7 +36,7 @@
             <div class="ptco-portfolio-links">
               <span v-if="brand.status" class="ptco-portfolio-status">{{ brand.status }}</span>
               <a v-else :href="brand.website" target="_blank" rel="noopener noreferrer" :aria-label="`Visit ${brand.name} website (opens in a new tab)`">Visit website <span aria-hidden="true">↗</span></a>
-              <a :href="`/assets/ptco/brand-packages/${brand.id}.zip`" :download="`${brand.id}-brand-package.zip`" :aria-label="`Download ${brand.name} brand package (ZIP)`">Brand package <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v11m-4-4 4 4 4-4M3 13v4h14v-4"/></svg></a>
+              <a :href="`/assets/ptco/brand-packages/${brand.id}.html`" target="_blank" rel="noopener noreferrer" :aria-label="`View ${brand.name} brand package (opens in a new tab)`">Brand package <span aria-hidden="true">↗</span></a>
             </div>
           </div>
         </article>

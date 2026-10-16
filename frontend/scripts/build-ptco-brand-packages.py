@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Rebuild public brand downloads from the curated portfolio and existing artwork.
+"""Rebuild public HTML brand guides and archives from the curated portfolio.
 
-Run from any directory; --check verifies the committed ZIPs without changing them.
+Run from any directory; --check verifies the committed HTML and ZIP files.
 Only assets explicitly listed in the portfolio are packaged. No tenant uploads,
 documents, contact records, or font binaries are included.
 """
@@ -18,20 +18,11 @@ OUTPUT = PUBLIC / 'assets/ptco/brand-packages'
 CATALOG = ROOT / 'src/content/ptcoBrandPortfolio.json'
 
 
-def package(brand):
-    files = {}
-    names = {}
-    for index, asset in enumerate(brand['assets'], 1):
-        source = (PUBLIC / asset.lstrip('/')).resolve()
-        if not source.is_relative_to(PUBLIC.resolve()) or not source.is_file():
-            raise ValueError(f"Missing or invalid public asset: {asset}")
-        name = f'assets/{index:02d}-{source.name}'
-        files[name] = source.read_bytes()
-        names[asset] = name
+def brand_guide(brand, names):
     escape = html.escape
     title = escape(brand['name'])
     colors = ''.join(f'<div class="color"><span style="background:{escape(color)}"></span><code>{escape(color)}</code></div>' for color in brand['colors'])
-    assets = ''.join(f'<li><a href="{escape(name)}">{escape(Path(name).name[3:])}</a></li>' for name in names.values())
+    assets = ''.join(f'<li><a href="{escape(name)}">{escape(Path(asset).name)}</a></li>' for asset, name in names.items())
     guide = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} · Brand package</title><style>
@@ -46,7 +37,20 @@ def package(brand):
 <h2>Using the artwork</h2><ul><li>Keep the original proportions. Do not stretch, recolor, or redraw the mark.</li><li>Leave clear space around the artwork and use a background with enough contrast.</li><li>Use the supplied vector files where available; keep raster artwork at or below its original size.</li><li>Use these assets to represent {title}. Brand names and artwork remain with their respective owners.</li></ul>
 <footer>Prepared by <a href="https://plottwistco.com/services/website">Plot Twist Co.</a> from the existing website identity. This package is a practical asset reference; it does not grant ownership of the brand.</footer>
 </main></body></html>'''
-    files['brand-guide.html'] = guide.encode('utf-8')
+    return guide.encode('utf-8')
+
+
+def package(brand):
+    files = {}
+    names = {}
+    for index, asset in enumerate(brand['assets'], 1):
+        source = (PUBLIC / asset.lstrip('/')).resolve()
+        if not source.is_relative_to(PUBLIC.resolve()) or not source.is_file():
+            raise ValueError(f"Missing or invalid public asset: {asset}")
+        name = f'assets/{index:02d}-{source.name}'
+        files[name] = source.read_bytes()
+        names[asset] = name
+    files['brand-guide.html'] = brand_guide(brand, names)
     files['brand.json'] = (json.dumps({**brand, 'packagedAssets': names}, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
     files['README.txt'] = f"{brand['name']} — Brand package\n\nExtract this ZIP, then open brand-guide.html in your browser.\nThe assets folder contains the existing artwork in its original formats.\nWebsite: {brand['website']}\nPrepared by Plot Twist Co.\n".encode('utf-8')
     output = io.BytesIO()
@@ -69,14 +73,18 @@ def main():
     if not args.check:
         OUTPUT.mkdir(parents=True, exist_ok=True)
     for brand in brands:
-        content = package(brand)
-        path = OUTPUT / f"{brand['id']}.zip"
-        if args.check:
-            if not path.exists() or path.read_bytes() != content:
-                raise ValueError(f'Stale brand package: {path.name}; rerun this script.')
-        else:
-            path.write_bytes(content)
-    print(f"{'Verified' if args.check else 'Built'} {len(brands)} brand packages.")
+        outputs = {
+            'zip': package(brand),
+            'html': brand_guide(brand, {asset: asset for asset in brand['assets']}),
+        }
+        for extension, content in outputs.items():
+            path = OUTPUT / f"{brand['id']}.{extension}"
+            if args.check:
+                if not path.exists() or path.read_bytes() != content:
+                    raise ValueError(f'Stale brand package: {path.name}; rerun this script.')
+            else:
+                path.write_bytes(content)
+    print(f"{'Verified' if args.check else 'Built'} {len(brands)} HTML brand guides and archives.")
 
 
 if __name__ == '__main__':

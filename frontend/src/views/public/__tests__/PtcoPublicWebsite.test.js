@@ -32,9 +32,13 @@ describe('Plot Twist Co service discovery', () => {
       expect(card.find('h3').text()).toBe(brand.name);
       if (brand.status) {
         expect(card.text()).toContain(brand.status);
-        expect(card.find('a[target="_blank"]').exists()).toBe(false);
+        expect(card.find(`a[href="${brand.website}"]`).exists()).toBe(false);
       } else expect(card.find('a[target="_blank"]').attributes('href')).toBe(brand.website);
-      expect(card.find('a[download]').attributes('href')).toBe(`/assets/ptco/brand-packages/${brand.id}.zip`);
+      const guide = card.find(`a[href="/assets/ptco/brand-packages/${brand.id}.html"]`);
+      expect(guide.attributes('target')).toBe('_blank');
+      expect(guide.attributes('rel')).toBe('noopener noreferrer');
+      expect(guide.attributes('aria-label')).toBe(`View ${brand.name} brand package (opens in a new tab)`);
+      expect(card.find('a[download]').exists()).toBe(false);
     }
     expect(portfolio.find('[data-brand="auricwell"] a').attributes('href')).toBe('https://auricwell.com');
     expect(portfolio.find('[data-brand="fundthred"] a').attributes('href')).toBe('https://fundtred.com');
