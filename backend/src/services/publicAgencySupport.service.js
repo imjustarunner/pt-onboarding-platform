@@ -2,6 +2,7 @@ import {resolveChatReferral} from './websiteChatReferral.service.js';
 import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
 import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
 import { validateMichaelWebsiteInquiry } from './michaelInquiryPolicy.js';
+import { PTCO_INQUIRY_EMAIL, isPtcoWebsite, deliverPtcoInquiry } from './ptcoInquiry.service.js';
 import pool from '../config/database.js';
 import { resolveInternshipContact, deliverInternshipInquiry, INTERNSHIP_INQUIRY_SUBJECT } from './itscoInternshipInquiry.service.js';
 import config from '../config/config.js';
@@ -203,8 +204,9 @@ function looksLikeFormsEmail(email) {
   return /^forms@/i.test(String(email || '').trim());
 }
 
-/** Public support contact is support@, never forms@. */
+/** Public support contact must never point to a forms-only inbox. */
 export function resolvePublicSupportContactEmail(agency = {}, identityEmail = '') {
+  if (isPtcoWebsite(agency.slug || agency.portal_url)) return PTCO_INQUIRY_EMAIL;
   const candidates = [
     agency.support_team_email,
     identityEmail,
@@ -291,6 +293,7 @@ export async function getPublicAgencySupportConfig(agencySlug) {
     identityEmail = '';
   }
   const result = buildPublicConfig(agency, agencySlug, identityEmail);
+  if (isPtcoWebsite(agencySlug)) result.supportContact.email = PTCO_INQUIRY_EMAIL;
   const site = await getPublicWebsiteIdentity(String(agencySlug));
   if (site) result.agency = {...result.agency,name:site.name,logoUrl:site.logoUrl};
   if (['ptco','range','mh4kidz','kimi','rise'].includes(agencySlug)) result.categories = [
@@ -574,6 +577,14 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   }
 
   let emailDelivered;
+  const ptcoInquiry = isPtcoWebsite(agencySlug) || isPtcoWebsite(site?.slug);
+  if (ptcoInquiry) {
+    emailDelivered = await deliverPtcoInquiry({
+      subject: `Plot Twist Co. inquiry: ${subject}`,
+      text: `${question}\n\nReference: #${insertId}`,
+      replyTo: email || null
+    });
+  }
   if (internshipContact) {
     await pool.execute('UPDATE support_tickets SET claimed_by_user_id=? WHERE id=? AND agency_id=?', [internshipContact.userId, insertId, agency.id]);
     emailDelivered = await deliverInternshipInquiry({ contact: internshipContact, ticketId: insertId, question });
@@ -581,7 +592,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   const slug = tenantSlugForPublicPaths(agency, agencySlug);
   return {
     ok: true,
-    ...(internshipContact ? { emailDelivered } : {}),
+    ...(internshipContact || ptcoInquiry ? { emailDelivered } : {}),
     ticketId: insertId || null,
     suggestedQuickForm: scan.flags.includes('possible_phi'),
     joinPath: `/join/${encodeURIComponent(slug)}/counseling`

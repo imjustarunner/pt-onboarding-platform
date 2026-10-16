@@ -40,7 +40,7 @@ test('MySQL: encrypted intake, invitation lifecycle, isolation, races, and atomi
   await pool.query(await readFile(new URL('../../../../database/migrations/598_public_marketing_pages.sql',import.meta.url),'utf8'));
   const migration=await readFile(new URL('../../../../database/migrations/1421_ptco_business_onboarding.sql',import.meta.url),'utf8');await pool.query(migration);await pool.query(migration);
   await pool.query(await readFile(new URL('../../../../database/migrations/1453_business_lifecycle.sql', import.meta.url), 'utf8'));
-  const svc=createBusinessOnboardingService({pool,resolveActiveStatus:async()=> 'active'});
+  const svc=createBusinessOnboardingService({pool,resolveActiveStatus:async()=> 'active',notifyInquiry:async()=>true});
   const lifecycle = createBusinessLifecycleService(pool);
   async function approveReady(id, slug, actor) {
     const record = await lifecycle.get({ requestId: id });

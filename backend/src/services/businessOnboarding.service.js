@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { encryptIntakePayload, decryptIntakePayload } from './intakeResponsesEncryption.service.js';
 import { assertBusinessReadyForInvitation, BusinessLifecycleError } from './businessLifecyclePolicy.js';
+import { deliverPtcoBusinessInquiry } from './ptcoInquiry.service.js';
 
 export class BusinessOnboardingError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -50,7 +51,7 @@ async function checkInvitationReadiness(db, requestId) {
 }
 
 // Dependencies are supplied by the route; tests can exercise transaction boundaries without live data.
-export function createBusinessOnboardingService({pool, resolveActiveStatus}) {
+export function createBusinessOnboardingService({pool, resolveActiveStatus, notifyInquiry = deliverPtcoBusinessInquiry}) {
   async function transaction(work) {
     const db=await pool.getConnection();
     try { await db.beginTransaction(); const result=await work(db); await db.commit(); return result; }
@@ -68,13 +69,24 @@ export function createBusinessOnboardingService({pool, resolveActiveStatus}) {
       if(!validId(id)) fail(400,'A valid submission reference is required.');
       const business=validateBusinessApplication(input), fingerprint=hash(JSON.stringify(business));
       const encrypted=encryptIntakePayload({context:`business-onboarding:${id}`,business});
-      return transaction(async db=>{
+      const shouldNotify = await transaction(async db=>{
         // Unique id makes retries safe; no public read endpoint exposes enquiry details.
         await db.execute('INSERT INTO business_onboarding_requests (id,submission_hash,private_payload,private_iv,private_tag,private_key_id) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id',[id,fingerprint,encrypted.ciphertext,encrypted.ivB64,encrypted.authTagB64,encrypted.keyId]);
         const [[row]]=await db.execute('SELECT submission_hash FROM business_onboarding_requests WHERE id=? FOR UPDATE',[id]);
         if(row.submission_hash!==fingerprint) fail(409,'This submission reference was already used. Start a new request.');
-        return {id,status:'submitted'};
+        const [[notified]] = await db.execute("SELECT id FROM business_onboarding_events WHERE request_id=? AND action='inquiry_notification_requested' LIMIT 1", [id]);
+        if (notified) return false;
+        await event(db,id,'inquiry_notification_requested');
+        return true;
       });
+      if (shouldNotify) {
+        let delivered = false;
+        try { delivered = await notifyInquiry({id,business}); }
+        catch { /* Preserve the saved inquiry if notification delivery fails. */ }
+        try { await event(pool,id,delivered ? 'inquiry_email_sent' : 'inquiry_email_not_sent'); }
+        catch { console.error('[ptco-inquiry] could not record email delivery status', {requestId:id}); }
+      }
+      return {id,status:'submitted'};
     },
     async list() { const [rows]=await pool.execute('SELECT * FROM business_onboarding_requests ORDER BY created_at DESC LIMIT 200'); return rows.map(publicRow); },
     async approve(id,slug,actor) {
