@@ -1,9 +1,9 @@
 <template>
  <section ref="panel" class="provider-availability-panel" aria-label="Provider availability">
-  <header><h3>Availability</h3><span>{{ statusLabel(status) }}</span><p>Find availability by care setting.</p></header>
+  <header><h3>Availability</h3><span>{{ loading && !schedule ? 'Checking schedule…' : statusLabel(status) }}</span><p>Find availability by care setting.</p></header>
   <div class="availability-content">
-   <p v-if="loading" role="status">Checking current openings…</p>
-   <p v-if="error" role="alert">{{error}} <button @click="load">Try again</button></p>
+   <PublicAvailabilityLoading v-if="loading" :key="schedule?'upcoming':'initial'" :upcoming="Boolean(schedule)"/>
+   <p v-if="error" role="alert">{{partialSchedule ? 'Could not load upcoming weeks.' : error}} <span v-if="schedule">This week’s available times are still shown below.</span> <button @click="load">Try again</button></p>
    <section v-for="f in formats" :key="f.key" class="format-section" :class="'format-'+f.key" :aria-label="f.label+' availability'">
     <div class="format-heading"><span class="format-icon"><Icon :name="f.icon"/></span><div><h4>{{f.label}}</h4><p>{{f.description}}</p></div><span v-if="schedule" class="format-status">{{statusLabel(schedule[f.key]?.status)}}</span></div>
     <template v-if="f.key==='inPerson'">
@@ -11,7 +11,7 @@
      <p v-if="selectedOffice" class="timezone">In-person times are filtered to {{assignedOffices.find(o=>String(o.id)===selectedOffice)?.name||'your selected office'}}. <button type="button" @click="selectedOffice=''">Show all offices</button></p>
     </template>
     <template v-if="schedule && f.key!=='school'">
-     <h5>Next available appointments</h5>
+     <h5>{{partialSchedule?'This week’s appointments':'Next available appointments'}}</h5>
      <p v-if="!slotsFor(f).length">{{emptyMessage(f)}}</p>
      <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">Select a preferred time for enrollment; online booking is off. Our team confirms availability.</p>
      <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.endAt+':'+slot.frequency+':'+slot.purpose+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><div class="day-time-details"><small>{{availabilityLabel(slot)}}</small><small v-if="f.key==='inPerson'"><Icon name="pin"/>{{slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name||'In person'}}</small><small v-else title="Virtual"><Icon name="screen"/><span class="availability-sr-only">Virtual</span></small></div><button type="button" :disabled="selecting" :aria-label="(schedule.onlineScheduling?'Reserve time':'Select preferred time')+' '+day(slot.startAt)+' '+time(slot.startAt)+' '+f.label" @click="schedule.onlineScheduling?openCalendar(f,slot):selectPreference(f,slot)">{{schedule.onlineScheduling?'Reserve time':'Select time'}} <Icon name="arrow"/></button></div></div></div></div>
@@ -43,6 +43,7 @@ import {availabilityLabel} from '../../utils/availabilityLabel.js';
 import {computed,nextTick,onBeforeUnmount,ref,watch} from 'vue';
 import {useRouter} from 'vue-router';
 import PreferredTimeConfirmation from './PreferredTimeConfirmation.vue';
+import PublicAvailabilityLoading from './PublicAvailabilityLoading.vue';
 import {availabilityDayGroups} from '../../utils/availabilityDayGroups';
 import api from '../../services/api';
 import Icon from '../rise/RiseIcon.vue';
@@ -51,7 +52,7 @@ import {overallProviderStatus,statusLabel} from '../../utils/providerDirectorySt
 import PublicProviderSlotPicker from './PublicProviderSlotPicker.vue';
 const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:String,required:true},serviceType:{type:String,default:'counseling'},officeId:{type:[String,Number],default:''}});
 const emit=defineEmits(['hold','loaded','load-error','office-change']);
-const panel=ref(null);
+const panel=ref(null),partialSchedule=ref(false);
 const router=useRouter();
 const pendingPreference=ref(null);
 const selectedOffice=ref('');
@@ -101,7 +102,7 @@ const formats=[
 const assignedOffices=computed(()=>schedule.value?.locations||props.provider.officeLocations||[]);
 const slotsFor=f=>(schedule.value?.[f.key]?.status==='accepting'?(schedule.value?.slots||[]):[]).filter(s=>s.format===f.value&&(f.key!=='inPerson'||!selectedOffice.value||String(s.buildingId)===selectedOffice.value));
 const daysFor=f=>availabilityDayGroups(slotsFor(f),schedule.value?.timeZone);
-const emptyMessage=f=>schedule.value?.[f.key]?.status==='accepting'
+const emptyMessage=f=>partialSchedule.value ? 'No openings shown this week. Use the weekly calendar above to check another week.' : schedule.value?.[f.key]?.status==='accepting'
  ? 'Accepting new clients. Appointment times aren’t posted yet; we’ll work with you directly to find a time.'
  : schedule.value?.[f.key]?.status==='waitlist'?'No appointment times are posted. You can join the waitlist for this setting.':'Closed to new clients in this setting. Inquire with our team for help finding support.';
 function toggleCalendar(f){if(schedule.value?.onlineScheduling){calendar.value===f.value?calendar.value='':openCalendar(f);}else expanded.value=expanded.value===f.value?'':f.value;}
@@ -127,14 +128,19 @@ const mapUrl=l=>`https://www.google.com/maps/search/?api=1&query=${encodeURIComp
 const day=value=>new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',timeZone:schedule.value?.timeZone}).format(new Date(value));
 const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit',timeZone:schedule.value?.timeZone}).format(new Date(value));
 let generation=0;
-async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;selection.value=null;
- try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});if(id!==generation)return;schedule.value=data;emit('loaded',data);}
+async function load(){const id=++generation;loading.value=true;error.value='';if(!partialSchedule.value)schedule.value=null;selection.value=null;
+ try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});if(id!==generation)return;schedule.value=data;partialSchedule.value=false;emit('loaded',data);}
  catch(e){if(id===generation){error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';emit('load-error',error.value);}}
  finally{if(id===generation)loading.value=false;}}
 watch(selectedOffice,value=>{calendar.value='';emit('office-change',value);});
-watch([()=>props.provider.id,()=>props.agencySlug,()=>props.serviceType],()=>{calendar.value='';pendingPreference.value=null;selectionError.value='';selectedOffice.value=String(props.officeId||'');load();},{immediate:true});
+watch([()=>props.provider.id,()=>props.agencySlug,()=>props.serviceType],()=>{calendar.value='';pendingPreference.value=null;selectionError.value='';selectedOffice.value=String(props.officeId||'');schedule.value=null;partialSchedule.value=false;load();},{immediate:true});
 onBeforeUnmount(()=>{generation++;pendingPreference.value=null;});
-defineExpose({selectOpening,load});
+function showWeek(data){
+ // Publish the fast first-week result while the longer lookahead is still loading.
+ if((!loading.value && !error.value) || (schedule.value && !partialSchedule.value))return;
+ schedule.value=data;partialSchedule.value=true;
+}
+defineExpose({selectOpening,load,showWeek});
 </script>
 <style scoped>
 .enrollment-link{display:block;background:var(--format-ink);color:#fff;padding:12px;border-radius:9px;margin-top:16px;text-align:center;font-weight:600;text-decoration:none}.day-times{display:grid;gap:10px}.day-time{display:grid;gap:6px}.day-time+.day-time{border-top:1px solid var(--format-border);padding-top:10px}

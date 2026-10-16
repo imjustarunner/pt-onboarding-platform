@@ -1,5 +1,5 @@
 <template>
-  <section class="availability-week" aria-label="Weekly provider availability" :aria-busy="!sourceError && (loading || !summary)">
+  <section class="availability-week" aria-label="Weekly provider availability" :aria-busy="loading">
     <header class="week-toolbar">
       <div class="week-title"><Icon name="calendar"/><h2>{{ offset === 0 ? 'This week’s availability' : 'Weekly availability' }}</h2><span aria-live="polite">{{ rangeLabel }}</span></div>
       <nav aria-label="Choose availability week">
@@ -8,8 +8,11 @@
         <button type="button" aria-label="Next week" @click="offset++"><Icon name="arrow"/></button>
       </nav>
     </header>
-    <p v-if="sourceError || error" class="week-error" role="alert">{{ sourceError || error }} <button type="button" @click="sourceError ? $emit('retry') : load()">Try again</button></p>
-    <p v-else-if="!summary || loading" class="week-loading" role="status">Checking this week’s openings…</p>
+    <p v-if="error" class="week-error" role="alert">{{ error }} <button type="button" @click="load()">Try again</button></p>
+    <div v-else-if="loading" class="week-loading">
+      <PublicAvailabilityLoading/>
+      <div class="week-skeleton" :style="{'--week-days':days.length}" aria-hidden="true"><div v-for="day in days" :key="day.date"><b>{{ weekday(day.date) }} {{ dayNumber(day.date) }}</b><span></span><span></span></div></div>
+    </div>
     <template v-else>
       <div v-if="officeId" class="week-filter">In-person times: {{ offices.find(office=>String(office.id)===String(officeId))?.name || 'selected office' }} <button type="button" @click="$emit('show-all-offices')">Show all offices</button></div>
       <div ref="scroller" class="week-scroll" tabindex="0" aria-label="Availability by day; scroll to see more days">
@@ -32,6 +35,7 @@
       <button v-if="expanded" type="button" class="week-less" @click="expanded=false">Show fewer times</button>
       <p class="week-swipe">Swipe to see the rest of the week →</p>
     </template>
+    <div v-if="weekSchedule && !loading && !error" class="week-freshness"><span>{{ checkedLabel }}</span><button type="button" @click="load()">↻ Refresh availability</button></div>
     <footer class="week-key">
       <span class="week-virtual"><Icon name="screen"/>Virtual</span>
       <a v-for="(office,index) in offices" :key="office.id" :href="mapUrl(office)" target="_blank" rel="noopener noreferrer" class="week-office-address"><Icon name="pin"/><span><strong>{{ offices.length>1 ? (index+1)+'. ' : '' }}{{ office.name }}</strong><span v-if="office.address"> · {{ office.address }}</span></span><span aria-hidden="true">↗</span></a>
@@ -43,18 +47,19 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import Icon from '../rise/RiseIcon.vue';
+import PublicAvailabilityLoading from './PublicAvailabilityLoading.vue';
 import api from '../../services/api';
 import { availabilityLabel } from '../../utils/availabilityLabel';
 import { availabilityDate, availabilityMonday, addAvailabilityDays, hasWeekendOpenings, providerAvailabilityWeek } from '../../utils/providerAvailabilityWeek';
-const props=defineProps({agencySlug:{type:String,required:true},providerId:{type:Number,required:true},serviceType:{type:String,default:'counseling'},summary:Object,sourceError:String,officeId:{type:[String,Number],default:''}});
-defineEmits(['select','retry','show-all-offices']);
+const props=defineProps({agencySlug:{type:String,required:true},providerId:{type:Number,required:true},serviceType:{type:String,default:'counseling'},summary:Object,officeId:{type:[String,Number],default:''}});
+const emit=defineEmits(['select','loaded','show-all-offices']);
 const offset=ref(0), loading=ref(false), error=ref(''), weekSchedule=ref(null), expanded=ref(false), seenWeekend=ref(false), clock=ref(Date.now());
-const scroller=ref(null);
-const timeZone=computed(()=>props.summary?.timeZone || 'America/Denver');
+const scroller=ref(null), resolvedTimeZone=ref(null);
+const timeZone=computed(()=>resolvedTimeZone.value || props.summary?.timeZone || 'America/Denver');
 const currentWeek=computed(()=>availabilityMonday(availabilityDate(clock.value,timeZone.value)));
 const weekStart=computed(()=>addAvailabilityDays(currentWeek.value,offset.value*7));
 const offices=computed(()=>weekSchedule.value?.locations || props.summary?.locations || []);
-const weekends=computed(()=>seenWeekend.value || hasWeekendOpenings(props.summary?.slots,timeZone.value) || (props.summary?.typicalAvailability||[]).some(value=>/saturday|sunday|weekend/i.test(value)));
+const weekends=computed(()=>seenWeekend.value || (weekSchedule.value?.typicalAvailability||[]).some(value=>/saturday|sunday|weekend/i.test(value)) || hasWeekendOpenings(props.summary?.slots,timeZone.value) || (props.summary?.typicalAvailability||[]).some(value=>/saturday|sunday|weekend/i.test(value)));
 const slots=computed(()=>(weekSchedule.value?.slots||[]).filter(slot=>weekSchedule.value?.[slot.format==='VIRTUAL'?'virtual':'inPerson']?.status==='accepting' && (slot.format!=='IN_PERSON'||!props.officeId||String(slot.buildingId)===String(props.officeId))));
 const days=computed(()=>providerAvailabilityWeek({weekStart:weekStart.value,slots:slots.value,timeZone:timeZone.value,now:clock.value,weekends:weekends.value}));
 const calendarDate=value=>new Date(`${value}T12:00:00Z`);
@@ -71,17 +76,25 @@ function choiceLabel(slot){
   const setting=slot.format==='VIRTUAL'?'Virtual':[office?.name||slot.buildingName||'In person',office?.address].filter(Boolean).join(', ');
   return `Select ${fullDate(availabilityDate(slot.startAt,timeZone.value))}, ${time(slot.startAt)}–${time(slot.endAt)}, ${setting}, ${availabilityLabel(slot)}`;
 }
+const checkedLabel=computed(()=>{
+  const checked=Date.parse(weekSchedule.value?.checkedAt);
+  return Number.isFinite(checked) ? 'Schedule checked '+new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:timeZone.value}).format(checked) : 'Available schedule loaded';
+});
 let generation=0;
 async function load(){
   const id=++generation;weekSchedule.value=null;error.value='';expanded.value=false;
-  if(!props.summary){loading.value=false;return;}
   loading.value=true;
   const requestedWeek=weekStart.value;
   try{
     const {data}=await api.get(`/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${props.providerId}/schedule-summary`,{params:{serviceType:props.serviceType,weekStart:requestedWeek},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});
     if(id!==generation)return;
     if(data.weekStart!==requestedWeek)throw new Error('Weekly availability is updating. Please try again shortly.');
+    resolvedTimeZone.value=data.timeZone || timeZone.value;
+    // Correct the initial calendar week if the agency's timezone differs at a week boundary.
+    // The week watcher starts the corrected request; never display the wrong week.
+    if(weekStart.value!==requestedWeek)return;
     weekSchedule.value=data;
+    if(offset.value===0)emit('loaded',data);
     if(hasWeekendOpenings(data.slots,timeZone.value))seenWeekend.value=true;
   }catch(e){if(id===generation)error.value=e.response?.data?.error?.message||e.message||'Could not check this week’s openings. Please try again.';}
   finally{
@@ -92,8 +105,8 @@ async function load(){
     }
   }
 }
-watch(()=>[props.agencySlug,props.providerId,props.serviceType],()=>{offset.value=0;seenWeekend.value=false;});
-watch(()=>[props.agencySlug,props.providerId,props.serviceType,props.summary,weekStart.value],load,{immediate:true});
+watch([()=>props.agencySlug,()=>props.providerId,()=>props.serviceType],()=>{offset.value=0;seenWeekend.value=false;resolvedTimeZone.value=null;});
+watch([()=>props.agencySlug,()=>props.providerId,()=>props.serviceType,weekStart],load,{immediate:true});
 const timer=setInterval(()=>{clock.value=Date.now();},60000);
 onBeforeUnmount(()=>{generation++;clearInterval(timer);});
 </script>
@@ -111,4 +124,6 @@ onBeforeUnmount(()=>{generation++;clearInterval(timer);});
 @media(max-width:700px){.week-toolbar{padding:12px;gap:8px}.week-title{gap:6px}.week-title h2{font-size:15px}.week-title>span{width:100%;margin-left:23px}.week-key{padding:10px 12px;gap:8px}.week-office-address{flex-basis:100%;align-items:flex-start}.week-key .week-zone{margin-left:0}.week-swipe{display:block;margin:0;padding:4px 12px 10px;font-size:10px;color:#718077}.week-grid{grid-template-columns:repeat(var(--week-days),172px);min-width:calc(var(--week-days)*172px)}}
 .week-current svg{display:none}
 @media(max-width:700px){.week-toolbar{flex-wrap:nowrap;padding:10px 12px;gap:6px}.week-title{gap:4px;min-width:0}.week-title>svg{display:none}.week-title h2{font-size:14px}.week-title>span{margin-left:0;font-size:11px}.week-toolbar nav{flex-shrink:0}.week-toolbar button{min-width:32px;padding:5px 7px}.week-current svg{display:block}.week-current span{display:none}.week-day{padding:8px}.week-day h3{margin-bottom:8px}.week-more{min-height:26px}.week-key{padding:8px 12px;gap:6px 8px;line-height:1.4}.week-key .week-zone{margin-left:auto;order:0}.week-office-address{order:1}.week-swipe{padding:2px 12px 6px}}
+.week-loading{padding:14px 18px}.week-skeleton{display:grid;grid-template-columns:repeat(var(--week-days),minmax(90px,1fr));gap:12px;overflow:hidden;margin-top:14px}.week-skeleton>div{min-width:0;padding:2px 4px}.week-skeleton b{font-size:11px;color:#72867a}.week-skeleton span{display:block;height:22px;margin-top:8px;border-radius:6px;background:linear-gradient(100deg,#eef3ef 20%,#dcebe1 45%,#eef3ef 70%);background-size:250% 100%;animation:week-shimmer 1.8s ease-in-out infinite}.week-skeleton span:last-child{width:70%}.week-freshness{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 18px;border-top:1px solid #e5ede8;font-size:11px;color:#557160}.week-freshness button{background:none;border:0;color:#23694a;font-size:11px;min-height:30px;padding:2px 0;text-decoration:underline;text-underline-offset:3px}
+@keyframes week-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}@media(prefers-reduced-motion:reduce){.week-skeleton span{animation:none}}@media(max-width:700px){.week-loading{padding:12px}.week-skeleton{gap:8px}.week-freshness{padding:6px 12px;flex-wrap:wrap}}
 </style>

@@ -9,8 +9,8 @@
      <ProviderProfileStats :provider-id="Number(selected.id)"/>
      <PublicProviderProfileEditor :provider="selected" :agency-id="agencyId" @saved="$emit('refresh')"/>
     </div>
-    <PublicProviderAvailabilityWeek class="its-profile-week" agency-slug="itsco" :provider-id="Number(selected.id)" :summary="profileSchedule" :source-error="profileScheduleError" :office-id="officeId" @select="availabilityPanel?.selectOpening($event)" @retry="availabilityPanel?.load()" @show-all-offices="officeId=''"/>
-    <aside class="its-profile-availability"><PublicProviderAvailabilityPanel ref="availabilityPanel" :provider="selected" agency-slug="itsco" :office-id="officeId" @office-change="officeId=$event" @loaded="profileSchedule=$event;profileScheduleError=''" @load-error="profileScheduleError=$event"/></aside>
+    <PublicProviderAvailabilityWeek class="its-profile-week" agency-slug="itsco" :provider-id="Number(selected.id)" :summary="profileSchedule" :office-id="officeId" @select="availabilityPanel?.selectOpening($event)" @loaded="availabilityPanel?.showWeek($event)" @show-all-offices="officeId=''"/>
+    <aside class="its-profile-availability"><PublicProviderAvailabilityPanel ref="availabilityPanel" :provider="selected" agency-slug="itsco" :office-id="officeId" @office-change="officeId=$event" @loaded="profileSchedule=$event"/></aside>
     <div class="its-profile-description"><article class="its-card"><h3>About {{selected.firstName}}</h3><p class="its-full-bio">{{selected.bio||'Our team can tell you more about this provider and help you find the right support.'}}</p></article><ProviderFocusSummary :focus="selected.details?.clinicalFocus" :highlights="selected.details?.focusHighlights" :facets="selected"/><div class="its-two"><article v-for="[label,values] in profileFacets" :key="label" class="its-card"><h3>{{label}}</h3><div v-if="values.length" class="its-tags"><span v-for="v in values" :key="v">{{v}}</span></div><p v-else>Contact our team for details.</p></article></div></div>
    </div>
   </template>
@@ -81,10 +81,10 @@ const props=defineProps({providers:{type:Array,default:()=>[]},offices:{type:Arr
 defineEmits(['refresh','retry-availability']);
 const route=useRoute(),router=useRouter(),officeId=ref(''),mode=ref('all'),school=ref(''),search=ref(''),age=ref(''),specialty=ref(''),insurance=ref(''),accepting=ref(''),openings=ref(''),gender=ref(''),language=ref(''),sort=ref('popular'),limit=ref(12),profileSchedule=ref(null);
 const moreFilters=ref(false),care=ref(''),city=ref(''),state=ref(''),desiredTime=ref({});
-const availabilityPanel=ref(null),profileScheduleError=ref('');
+const availabilityPanel=ref(null);
 const modes=[['all','All'],['office','In office'],['virtual','Virtual'],['school','School-based']];
 watch(()=>[route.query.officeId,route.query.setting,route.query.school],([id,setting,schoolId])=>{school.value=String(schoolId||'');mode.value=schoolId?'school':id?'office':['office','virtual','school'].includes(setting)?setting:'all';officeId.value=mode.value==='office'?String(id||''):'';},{immediate:true});
-watch(()=>providerIdFromRoute(route),()=>{profileSchedule.value=null;profileScheduleError.value='';});
+watch(()=>providerIdFromRoute(route),()=>{profileSchedule.value=null;});
 watch([officeId,mode,school,search,age,specialty,insurance,accepting,openings,gender,language,care,city,state,desiredTime],()=>{limit.value=12;});
 watch(()=>[route.query.care,route.query.city,route.query.insurance],([c,l,i])=>{care.value=String(c||'');city.value=String(l||'');insurance.value=String(i||'');},{immediate:true});
 const selected=computed(()=>props.providers.find(p=>String(p.id)===providerIdFromRoute(route)));

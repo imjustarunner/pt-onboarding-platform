@@ -15,6 +15,34 @@ async function chooseVirtualOpening(){
  const w=render();await flushPromises();await w.get('.format-virtual .next-openings button').trigger('click');await flushPromises();return w;
 }
 describe('public availability and waitlist',()=>{
+ it('shows and selects the first week before the full summary completes, then adds upcoming weeks',async()=>{
+  let finish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  const w=render();await flushPromises();expect(w.text()).toContain('Loading current availability');
+  w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
+  expect(w.text()).toContain('Loading upcoming weeks');expect(w.text()).toContain('This week’s appointments');
+  await w.get('.format-virtual .next-openings button').trigger('click');expect(w.get('[role=dialog]').text()).toContain('January 6, 2030');
+  const next={...virtualOpening,startAt:'2030-01-14T02:00:00Z',endAt:'2030-01-14T03:00:00Z'};
+  finish({data:{...summary,virtual:{status:'accepting'},slots:[virtualOpening,next]}});await flushPromises();
+  expect(w.find('.availability-loading').exists()).toBe(false);expect(w.findAll('.format-virtual .day-time')).toHaveLength(2);expect(w.find('[role=dialog]').exists()).toBe(true);w.unmount();
+ });
+ it('retains first-week times if the longer lookahead fails and restores them on retry',async()=>{
+  let fail;api.get.mockImplementationOnce(()=>new Promise((resolve,reject)=>{fail=reject;}));
+  const w=render();await flushPromises();w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
+  fail(new Error('Calendar timeout'));await flushPromises();expect(w.get('[role=alert]').text()).toContain('Could not load upcoming weeks');expect(w.find('.next-openings').exists()).toBe(true);
+  await w.get('[role=alert] button').trigger('click');await flushPromises();expect(w.find('[role=alert]').exists()).toBe(false);w.unmount();
+ });
+ it('can show a successful first-week result even after the full summary fails',async()=>{
+  api.get.mockRejectedValueOnce(new Error('Calendar timeout'));const w=render();await flushPromises();
+  w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
+  expect(w.find('.next-openings').exists()).toBe(true);expect(w.get('[role=alert]').text()).toContain('This week’s available times are still shown');w.unmount();
+ });
+ it('clears a partial schedule when moving to another provider and ignores the old request',async()=>{
+  let oldResult;api.get.mockImplementationOnce(()=>new Promise(resolve=>{oldResult=resolve;}));const w=render();await flushPromises();
+  w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
+  await w.setProps({provider:{...provider,id:10}});await flushPromises();expect(w.find('.next-openings').exists()).toBe(false);
+  oldResult({data:{...summary,virtual:{status:'accepting'},slots:[virtualOpening]}});await flushPromises();expect(w.find('.next-openings').exists()).toBe(false);w.unmount();
+ });
+
  it('does not reload availability when a parent rerenders the same provider object',async()=>{
   const w=render();await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
   await w.setProps({provider:{...provider,details:{...provider.details}}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
@@ -35,7 +63,8 @@ describe('public availability and waitlist',()=>{
  it('shows only profile-selected typical hours while schedule loading is pending',async()=>{
   api.get.mockImplementation(()=>new Promise(()=>{}));
   const w=render();await flushPromises();
-  expect(w.text()).toContain('Checking current openings');
+  expect(w.text()).toContain('Loading current availability');
+  expect(w.get('.availability-loading').attributes('role')).toBe('status');
   expect(w.find('.typical-availability').text()).toContain('Saturday mornings');
   expect(w.find('.typical-availability').text()).not.toContain('School-based');w.unmount();
  });

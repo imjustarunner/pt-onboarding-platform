@@ -11,6 +11,29 @@ beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2030-01-09T15:00:0
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 async function render(props={}){wrapper=mount(Week,{props:{agencySlug:'itsco',providerId:9,summary,...props}});await flushPromises();return wrapper;}
 describe('compact provider availability',()=>{
+ it('starts immediately without a full summary, shows progress, and does not refetch when that summary arrives',async()=>{
+  let finish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));await render({summary:null});
+  expect(api.get).toHaveBeenCalledTimes(1);expect(wrapper.get('[role=status]').text()).toContain('Loading current availability');expect(wrapper.find('.week-skeleton').exists()).toBe(true);expect(wrapper.find('.week-empty').exists()).toBe(false);
+  await vi.advanceTimersByTimeAsync(8000);expect(wrapper.get('[role=status]').text()).toContain('Still checking this provider’s schedule');
+  finish({data:{...summary,weekStart:'2030-01-07',checkedAt:'2030-01-09T15:00:00Z'}});await flushPromises();
+  expect(wrapper.find('.week-opening').exists()).toBe(true);expect(wrapper.find('.availability-loading').exists()).toBe(false);expect(wrapper.emitted('loaded')).toHaveLength(1);
+  expect(wrapper.get('.week-freshness').text()).toContain('Schedule checked Jan 9, 8:00 AM');
+  await wrapper.setProps({summary:{...summary}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
+  await wrapper.get('.week-freshness button').trigger('click');await flushPromises();expect(api.get).toHaveBeenCalledTimes(2);
+ });
+ it('corrects the first week to the returned agency timezone at the Sunday/Monday boundary',async()=>{
+  vi.setSystemTime(new Date('2030-01-07T06:30:00Z'));
+  api.get.mockImplementation(async(url,{params})=>({data:{...summary,timeZone:'America/New_York',weekStart:params.weekStart}}));
+  await render({summary:null});expect(api.get).toHaveBeenCalledTimes(2);
+  expect(api.get.mock.calls.map(call=>call[1].params.weekStart)).toEqual(['2029-12-31','2030-01-07']);
+  expect(wrapper.emitted('loaded')).toHaveLength(1);expect(wrapper.emitted('loaded')[0][0].weekStart).toBe('2030-01-07');expect(wrapper.get('.week-zone').text()).toBe('America/New_York');
+ });
+ it('ignores a previous provider’s pending response',async()=>{
+  let finish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));await render({summary:null});
+  await wrapper.setProps({providerId:10});await flushPromises();
+  finish({data:{...summary,weekStart:'2030-01-07',slots:[]}});await flushPromises();expect(wrapper.find('.week-opening').exists()).toBe(true);expect(wrapper.emitted('loaded')).toHaveLength(1);
+ });
+
  it('shows five days, grays past days and puts both meeting options on the same time',async()=>{
   await render();expect(wrapper.findAll('.week-day')).toHaveLength(5);expect(wrapper.findAll('.week-day-past')).toHaveLength(2);expect(wrapper.get('.week-day-today h3').text()).toContain('Today');
   const opening=wrapper.get('.week-opening');expect(opening.text()).toContain('10:00 AM');expect(opening.findAll('button')).toHaveLength(2);

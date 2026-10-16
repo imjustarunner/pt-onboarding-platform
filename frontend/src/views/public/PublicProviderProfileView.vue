@@ -11,7 +11,7 @@
     <div v-else class="profile-initials" aria-label="Photo not provided">{{ initials }}</div>
     <div><p class="profile-eyebrow">{{ agencyName }}</p><h1>{{ provider.displayName }}</h1><div class="profile-tags"><span v-if="provider.credential">{{provider.credential}}</span><a v-for="place in provider.officeLocations||[]" :key="place.id" class="profile-office-button" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.address||place.name)}`" target="_blank" rel="noopener noreferrer">⌖ {{place.name}} ↗</a><span v-if="schedule?.inPerson?.status==='accepting'">In person</span><span v-if="schedule?.virtual?.status==='accepting'">Virtual</span></div><p class="profile-title">{{ provider.title || serviceLabel }}</p><p v-if="provider.serviceFocus">{{ provider.serviceFocus }}</p><ProviderLanguageBadges :details="profile.details"/><span class="profile-status">{{ statusLabel(overallProviderStatus({...provider,details:profile.details},schedule||{})) }}</span></div>
    </section>
-   <PublicProviderAvailabilityWeek :agency-slug="slug" :provider-id="Number(provider.id)" :service-type="service" :summary="schedule" :source-error="scheduleError" :office-id="selectedOffice" @select="availabilityPanel?.selectOpening($event)" @retry="availabilityPanel?.load()" @show-all-offices="selectedOffice=''"/>
+   <PublicProviderAvailabilityWeek :agency-slug="slug" :provider-id="Number(provider.id)" :service-type="service" :summary="schedule" :office-id="selectedOffice" @select="availabilityPanel?.selectOpening($event)" @loaded="availabilityPanel?.showWeek($event)" @show-all-offices="selectedOffice=''"/>
    <div class="profile-layout">
     <div class="profile-content">
      <section class="profile-panel"><h2>About {{ provider.firstName || provider.displayName }}</h2><p class="profile-bio">{{ profile.publicBlurb || 'The provider has not published a biography yet.' }}</p></section>
@@ -19,7 +19,7 @@
      <section v-if="provider.tutoringProfile" class="profile-panel"><h2>Learning rates & packages</h2><p v-for="(rate,format) in provider.tutoringProfile.hourlyRates||{}" :key="format">{{format}}: {{rate==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(rate/100)+' / hour'}}</p><article v-for="pkg in provider.tutoringProfile.packages||[]" :key="pkg.id"><h3>{{pkg.name}}</h3><ul><li v-for="(c,i) in pkg.components" :key="i">{{c.sessions}} × {{c.minutes}} minutes · {{c.service}} · {{c.format}} · {{c.pricingMode==='provider-discount'?c.discountPercent+'% off this service provider’s hourly rate':c.educationLevel}}</li></ul><p>{{pkg.totalCents==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(pkg.totalCents/100)}} · Confirm the participating providers with our team.</p><router-link v-if="enrollmentOptions.length" :to="{path:joinPath.path,query:{...joinPath.query,program:pkg.program,packageId:pkg.id}}">Request this package →</router-link></article></section><section v-if="profile.selfPayRateLabel" class="profile-panel"><h2>Self-pay</h2><strong>{{ profile.selfPayRateLabel }}</strong><p v-if="profile.selfPayRateNote">{{ profile.selfPayRateNote }}</p><p>Confirm coverage and any applicable costs with the team before starting services.</p></section>
     </div>
     <aside class="profile-panel profile-availability">
-     <PublicProviderAvailabilityPanel ref="availabilityPanel" :agency-slug="slug" :provider="{...provider,details:profile.details}" :service-type="service" :office-id="selectedOffice" @office-change="selectedOffice=$event" @hold="hold=$event" @loaded="schedule=$event;scheduleError=''" @load-error="scheduleError=$event"/>
+     <PublicProviderAvailabilityPanel ref="availabilityPanel" :agency-slug="slug" :provider="{...provider,details:profile.details}" :service-type="service" :office-id="selectedOffice" @office-change="selectedOffice=$event" @hold="hold=$event" @loaded="schedule=$event"/>
      <p v-if="hold" class="profile-note">{{hold?.token?'Your selected time is reserved until staff confirm placement or release it.':'A preferred time can be included in enrollment. It is not reserved unless online booking is enabled and a hold is confirmed.'}}</p>
     </aside>
    </div>
@@ -48,7 +48,7 @@ const finderPath=computed(()=>({path:`/${encodeURIComponent(slug.value)}/find-${
 const enrollmentOptions=computed(()=>providerEnrollmentFormats(schedule.value));
 const joinPath=computed(()=>providerEnrollmentPath({agencySlug:slug.value,providerId:provider.value?.id,serviceType:service.value,format:enrollmentOptions.value.length===1?enrollmentOptions.value[0].format:undefined,query:{program:route.query.program}}));
 const provider=ref(null),profile=ref({}),agencyName=ref(''),agencyId=ref(0),loading=ref(false),error=ref(''),photoFailed=ref(false),hold=ref(null),schedule=ref(null);
-const availabilityPanel=ref(null),scheduleError=ref(''),selectedOffice=ref(String(route.query.officeId||''));
+const availabilityPanel=ref(null),selectedOffice=ref(String(route.query.officeId||''));
 watch(()=>route.query.officeId,value=>{selectedOffice.value=String(value||'');});
 const initials=computed(()=>String(provider.value?.displayName||'').split(' ').map(s=>s[0]).slice(0,2).join(''));
 const groups=computed(()=>[
@@ -61,7 +61,7 @@ const groups=computed(()=>[
 ].map((g,i)=>{if(i>3||service.value==='tutoring')return g;const focus=publishedFocus(['specialties','ageGroups','populations','modalities'][i],profile.value?.details?.clinicalFocus,g.values);return {...g,values:focus.top,more:focus.more,reviewed:focus.reviewed};}));
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';photoFailed.value=false;provider.value=null;schedule.value=null;hold.value=null;
- scheduleError.value='';selectedOffice.value=String(route.query.officeId||'');
+ selectedOffice.value=String(route.query.officeId||'');
  try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{serviceType:service.value,bookingMode:'NEW_CLIENT',officeId:route.query.officeId},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyId.value=Number(data.agency?.id)||0;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}
  catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'This profile could not be loaded.';}finally{if(id===generation)loading.value=false;}}
 watch(()=>[slug.value,route.params.providerId,service.value],load,{immediate:true});
