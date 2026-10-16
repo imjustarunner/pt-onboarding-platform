@@ -12,6 +12,7 @@
 
         </h3>
         <p v-if="titleLabel" class="card-title-label">{{ titleLabel }}</p>
+        <ProviderLanguageBadges :details="provider.profile?.details || provider.details"/>
         <p v-if="provider.profile?.publicBlurb" class="card-bio">{{ provider.profile.publicBlurb }}</p>
         <p v-if="provider.acceptingNewClients !== undefined" class="card-accepting">{{ provider.acceptingNewClients ? 'Accepting new clients' : 'Ask the team about availability' }}</p>
         <p v-if="provider.tutoringProfile" class="card-detail">{{provider.tutoringProfile.hourlyRateCents!=null?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(provider.tutoringProfile.hourlyRateCents/100)+' / hour':provider.tutoringProfile.sessionRateLabel?provider.tutoringProfile.sessionRateLabel+' / session':'Contact us for pricing'}}</p><p v-if="provider.tutoringProfile?.gradeLevels?.length" class="card-detail">Grades: {{provider.tutoringProfile.gradeLevels.join(', ')}}</p><p v-if="provider.tutoringProfile?.acceptingNewStudents===false" class="card-detail">Not currently accepting new students. Ask about the waitlist.</p><div class="card-tags">
@@ -78,6 +79,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import ProviderLanguageBadges from './ProviderLanguageBadges.vue';
 import { publishedFocus } from '../../navigation/providerFocus.js';
 const photoFailed = ref(false);
 

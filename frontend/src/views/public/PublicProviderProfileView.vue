@@ -9,7 +9,7 @@
    <section class="profile-intro">
     <img v-if="provider.profilePhotoUrl && !photoFailed" :src="provider.profilePhotoUrl" :alt="provider.displayName" @error="photoFailed=true"/>
     <div v-else class="profile-initials" aria-label="Photo not provided">{{ initials }}</div>
-    <div><p class="profile-eyebrow">{{ agencyName }}</p><h1>{{ provider.displayName }}</h1><div class="profile-tags"><span v-if="provider.credential">{{provider.credential}}</span><a v-for="place in provider.officeLocations||[]" :key="place.id" class="profile-office-button" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.address||place.name)}`" target="_blank" rel="noopener noreferrer">⌖ {{place.name}} ↗</a><span v-if="schedule?.inPerson?.status==='accepting'">In person</span><span v-if="schedule?.virtual?.status==='accepting'">Virtual</span></div><p class="profile-title">{{ provider.title || serviceLabel }}</p><p v-if="provider.serviceFocus">{{ provider.serviceFocus }}</p><span class="profile-status">{{ statusLabel(overallProviderStatus({...provider,details:profile.details},schedule||{})) }}</span></div>
+    <div><p class="profile-eyebrow">{{ agencyName }}</p><h1>{{ provider.displayName }}</h1><div class="profile-tags"><span v-if="provider.credential">{{provider.credential}}</span><a v-for="place in provider.officeLocations||[]" :key="place.id" class="profile-office-button" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.address||place.name)}`" target="_blank" rel="noopener noreferrer">⌖ {{place.name}} ↗</a><span v-if="schedule?.inPerson?.status==='accepting'">In person</span><span v-if="schedule?.virtual?.status==='accepting'">Virtual</span></div><p class="profile-title">{{ provider.title || serviceLabel }}</p><p v-if="provider.serviceFocus">{{ provider.serviceFocus }}</p><ProviderLanguageBadges :details="profile.details"/><span class="profile-status">{{ statusLabel(overallProviderStatus({...provider,details:profile.details},schedule||{})) }}</span></div>
    </section>
    <div class="profile-layout">
     <div class="profile-content">
@@ -26,7 +26,7 @@
  </div>
 </template>
 <script setup>
-import {sessionLanguageLabels} from '../../navigation/providerLanguages';
+import ProviderLanguageBadges from '../../components/publicServices/ProviderLanguageBadges.vue';
 import {publishedFocus} from '../../navigation/providerFocus.js';
 import {uniquePublicFacets} from '../../utils/publicProviderFacets';
 import { computed, ref, watch } from 'vue';
@@ -53,7 +53,6 @@ const groups=computed(()=>[
  {title:'Populations served',values:provider.value?.focus||[]},
  {title:service.value==='tutoring'?'Grades':'Approaches',values:provider.value?.tutoringProfile?.gradeLevels||[...(provider.value?.modalities||[]),...(provider.value?.interventions||[])]},
  {title:'Insurance accepted',values:profile.value?.insurancesAccepted||[]},
- {title:'Session languages (self-reported)',values:sessionLanguageLabels(profile.value?.details)},
  {title:'Provider gender',values:profile.value?.details?.gender?[profile.value.details.gender]:[]}
 ].map((g,i)=>{if(i>3||service.value==='tutoring')return g;const focus=publishedFocus(['specialties','ageGroups','populations','modalities'][i],profile.value?.details?.clinicalFocus,g.values);return {...g,values:focus.top,more:focus.more,reviewed:focus.reviewed};}));
 let generation=0;

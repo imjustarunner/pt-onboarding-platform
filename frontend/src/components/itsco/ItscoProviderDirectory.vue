@@ -5,6 +5,7 @@
    <div class="its-profile-layout">
     <div class="its-profile-info">
      <div class="its-profile-top"><img v-if="selected.photoUrl" :src="selected.photoUrl" :alt="selected.displayName"/><div v-else class="its-avatar">{{initials(selected.displayName)}}</div><div><p class="its-eyebrow">Meet your provider</p><h2>{{selected.displayName}}<span v-if="selected.credential">, {{selected.credential}}</span></h2><p>{{selected.title}}</p><div class="its-tags"><span v-if="selected.credential">{{selected.credential}}</span><button v-for="location in selected.officeLocations||[]" :key="location.id" class="its-office-chip" @click="chooseOffice(location.id)"><Icon name="pin"/>{{location.name}}</button><span v-for="f in offeredFormats(selected)" :key="f"><Icon :name="f==='Virtual'?'screen':f==='School-based'?'school':'pin'"/>{{f}}</span></div><span class="its-status" :class="{'its-waitlist':!isAccepting(selected)}">{{acceptanceLabel(selected)}}</span></div></div>
+     <ProviderLanguageBadges :details="selected.details"/>
      <ProviderProfileStats :provider-id="Number(selected.id)"/>
      <PublicProviderProfileEditor :provider="selected" :agency-id="agencyId" @saved="$emit('refresh')"/>
     </div>
@@ -36,6 +37,7 @@
     <p v-if="insurance==='self-pay'" class="its-small">Self-pay selected. Our team will confirm rates and payment options with you.</p>
     <ItscoProfilePlaceholders v-if="directoryLoading"/><template v-else><section v-for="group in providerGroups" :key="group.key" class="its-opening-group"><h2>{{group.title}} <small>({{group.providers.length}})</small></h2><p v-if="!group.providers.length" class="its-small">No matching providers in this section.</p><div class="its-provider-grid"><article v-for="p in group.providers.slice(0,limit)" :key="p.id" :data-analytics-id="'provider-'+p.id" :data-analytics-label="p.displayName" class="its-provider-card">
      <div class="its-card-top"><a class="its-provider-photo" :href="profileLink(p)" :aria-label="`View ${p.displayName}’s profile`" data-analytics-kind="profile_open"><img v-if="p.photoUrl" :src="p.photoUrl" :alt="p.displayName" loading="lazy"/><div v-else class="its-avatar">{{initials(p.displayName)}}</div></a><div><h3><a class="its-profile-name" :href="profileLink(p)" data-analytics-kind="profile_open">{{p.displayName}}<template v-if="p.credential">, {{p.credential}}</template></a></h3><p class="its-small">{{p.title}}</p><div class="its-tags"><span v-for="v in matchingProviderTags(p,search,specialty)" :key="v">{{v}}</span></div></div></div>
+     <ProviderLanguageBadges :details="p.details"/>
      <span class="its-status" :class="{'its-waitlist':!isAccepting(p)}">{{acceptanceLabel(p)}}</span>
      <p v-if="p.bio" class="its-provider-bio">{{p.bio}}</p>
      <div class="its-card-facts"><details v-if="p.insurances.length"><summary><Icon name="shield"/> Insurance · {{p.insurances.length}} plans</summary><ul class="its-insurance-list"><li v-for="i in p.insurances" :key="i.name">{{i.name}}</li></ul></details>
@@ -53,7 +55,8 @@
 </template>
 <script setup>
 import ProviderFocusSummary from '../provider/ProviderFocusSummary.vue';
-import {sessionLanguageLabels} from '../../navigation/providerLanguages';
+import {publicSessionLanguages} from '../../navigation/providerLanguages';
+import ProviderLanguageBadges from '../publicServices/ProviderLanguageBadges.vue';
 import {mentalRangeSearchUrl,providerOpeningGroups,networkSearchKeys} from '../../utils/networkProviderSearch';
 import Icon from '../rise/RiseIcon.vue';
 import ItscoProfilePlaceholders from './ItscoProfilePlaceholders.vue';
@@ -94,7 +97,7 @@ function chooseSchool(id){mode.value='school';school.value=String(id);officeId.v
 function chooseOffice(id){mode.value='office';officeId.value=String(id);school.value='';router.replace({path:'/p/itsco/providers',query:{...directoryQuery.value,setting:'office',officeId:officeId.value}});}
 const values=key=>uniquePublicFacets(props.providers.flatMap(p=>p[key]||[])).sort();
 const ages=computed(()=>sortClientAges(values('ageGroups'))),specialties=computed(()=>values('specialties'));
-const languages=computed(()=>[...new Set(['English','Spanish',...props.providers.flatMap(p=>p.details?.languages||[])])].sort());
+const languages=computed(()=>[...new Set(['English','Spanish',...props.providers.flatMap(p=>publicSessionLanguages(p.details).map(item=>item.language))])].sort());
 const genders=computed(()=>[...new Set(props.providers.map(p=>p.details?.gender).filter(Boolean))].sort());
 const insurances=computed(()=>[...new Set(props.providers.flatMap(p=>p.insurances.map(i=>i.name)))].sort());
 const availability=p=>selected.value?.id===p.id && profileSchedule.value?profileSchedule.value:props.availability[p.id]||{};
@@ -112,15 +115,15 @@ const filtered=computed(()=>props.providers.filter(p=>
  (!care.value||(p.populations||[]).some(v=>v.toLowerCase()===care.value.toLowerCase()))&&(!city.value||(p.officeLocations||[]).some(o=>`${o.city}, ${o.state}`===city.value))&&
  (!state.value||(mode.value==='virtual'?publicVirtualStates(p).includes(normalizeServiceState(state.value)):(p.officeLocations||[]).some(o=>normalizeServiceState(o.state)===normalizeServiceState(state.value))))&&
  (!hasTimePreference(desiredTime.value)||openingSlots(p).length>0)&&
- (!language.value||(p.details?.languages||[]).some(l=>l.toLowerCase()===language.value.toLowerCase()))&&
+ (!language.value||(publicSessionLanguages(p.details).map(item=>item.language)).some(l=>l.toLowerCase()===language.value.toLowerCase()))&&
  (!specialty.value||p.specialties.includes(specialty.value))&&(!gender.value||p.details?.gender===gender.value)&&
  (!insurance.value||(insurance.value==='self-pay'?true:p.insurances.some(i=>i.name===insurance.value)))&&(!accepting.value||currentStatus(p)===(accepting.value==='yes'?'accepting':accepting.value))&&
  (!openings.value||(openings.value==='yes'?hasOpenings(p):!hasOpenings(p)&&!props.availabilityLoading&&!props.availabilityError))&&
- (!search.value||[p.displayName,p.title,p.bio,p.credential,...p.specialties,...(p.modalities||[]),...(p.populations||[]),...p.ageGroups,...(p.details?.languages||[]),...p.schools.map(s=>s.name)].join(' ').toLowerCase().includes(search.value.toLowerCase()))
+ (!search.value||[p.displayName,p.title,p.bio,p.credential,...p.specialties,...(p.modalities||[]),...(p.populations||[]),...p.ageGroups,...(publicSessionLanguages(p.details).map(item=>item.language)),...p.schools.map(s=>s.name)].join(' ').toLowerCase().includes(search.value.toLowerCase()))
  ).sort((a,b)=>(sort.value==='popular'?(a.popularityRank??999999)-(b.popularityRank??999999):0)||({accepting:0,waitlist:1,unavailable:2}[currentStatus(a)]-{accepting:0,waitlist:1,unavailable:2}[currentStatus(b)])||
  (['recommended','soonest'].includes(sort.value)?String(nextOpening(a)||'9999').localeCompare(String(nextOpening(b)||'9999')):0)||a.displayName.localeCompare(b.displayName)));
 const providerGroups=computed(()=>providerOpeningGroups(filtered.value,hasOpenings,{loading:props.availabilityLoading,error:props.availabilityError}));
-const profileFacets=computed(()=>selected.value?[['Session languages (self-reported)',sessionLanguageLabels(selected.value.details)],['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
+const profileFacets=computed(()=>selected.value?[['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
 function nextOpening(p){if(care.value||hasTimePreference(desiredTime.value))return openingSlots(p)[0]?.startAt;const a=availability(p);return mode.value==='office'?a.inPerson?.nextAvailableAt:mode.value==='virtual'?a.virtual?.nextAvailableAt:[a.inPerson?.nextAvailableAt,a.virtual?.nextAvailableAt].filter(Boolean).sort()[0];}
 function availabilityText(p){const at=nextOpening(p);if(at)return `Next opening: ${new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'})}`;if(props.availabilityLoading)return 'Checking appointment times…';if(props.availabilityError)return 'Appointment availability could not be checked';return currentStatus(p)==='waitlist'?'Join this provider’s waitlist':currentStatus(p)==='unavailable'?'Closed to new clients · inquire with our team':'Accepting new clients · we’ll work with you directly to find a time';}
 function clear(){officeId.value='';router.replace({query:{}});mode.value='all';school.value='';search.value='';age.value='';specialty.value='';insurance.value='';accepting.value='';openings.value='';gender.value='';language.value='';care.value='';city.value='';state.value='';desiredTime.value={};limit.value=12;}

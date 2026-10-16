@@ -1,7 +1,7 @@
 <template>
   <DigitalFormShell
     class="public-intake ai-shell-host"
-    :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5 }"
+    :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5, 'public-intake--compact-start': isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value }"
     :branding="formBranding"
     :billing-layout="step === 2 && currentFlowStep?.type === 'insurance_info' && (isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel)"
     :program-title-override="shellProgramTitle"
@@ -12,9 +12,9 @@
     :intake-sidebar-steps="dfProgressSteps"
     :intake-sidebar-step-index="dfProgressIndex"
     :cover-mode="shellCoverMode"
-    :scenic-sidebar-url="officeScenicSidebarUrl"
+    :scenic-sidebar-url="isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value ? '' : officeScenicSidebarUrl"
     :logo-url-override="officeLogoFallback"
-    :hide-sidebar="(isJobApplication && step === -1) || (loading && !looksLikeOfficeIntake)"
+    :hide-sidebar="(isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value) || (isJobApplication && step === -1) || (loading && !looksLikeOfficeIntake)"
     :wide="(isJobApplication && (step === -1 || step === 1 || step === 2)) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
     :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
     :language="currentFormLanguage"
@@ -97,13 +97,13 @@
       <template v-if="!(isJobApplication && step === -1) && step >= 1 && publicFormLead">
         <p class="df-form-lead">{{ publicFormLead }}</p>
       </template>
-      <div v-if="providerProfileRequest && isOfficeInDepthIntake && step < 3" class="df-banner df-banner--info" role="status">
-        You’re completing full enrollment with {{selectedEnrollmentProvider?.name || 'your selected provider'}} as your requested provider.
-        Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to confirm availability and coordinate care.
-        <button type="button" @click="setSelectedOfficeProviderIds([])">Continue without this provider request</button>
-        <p v-if="providerHoldChangeError" role="alert">{{providerHoldChangeError}}</p>
-        <p v-if="providerSelectionNotice">{{providerSelectionNotice}}</p>
-      </div>
+      <IntakeProviderRequest v-if="providerProfileRequest && isOfficeInDepthIntake && step !== 0.5 && step < 3"
+        :provider="requestedProviderSummary"
+        :locale="intakeLocale"
+        :error="providerHoldChangeError"
+        :notice="providerSelectionNotice"
+        @remove="setSelectedOfficeProviderIds([])"
+      />
       <div v-if="draftRestoredMessage" class="draft-restored-banner df-banner df-banner--info">{{ draftRestoredMessage }}</div>
       <div v-if="step === 3 && completionReservationNotice" class="df-banner df-banner--info" role="status">{{completionReservationNotice}}</div>
 
@@ -392,6 +392,17 @@
         @support="openSplashSupportModal"
         @dev-fill="fillExample"
       >
+        <template #provider>
+          <IntakeProviderRequest v-if="providerProfileRequest"
+            :provider="requestedProviderSummary"
+            :locale="intakeLocale"
+            :error="providerHoldChangeError"
+            :notice="providerSelectionNotice"
+            @remove="setSelectedOfficeProviderIds([])"
+          />
+        </template>
+        <template #default>
+          <div class="intake-start-meta"><span>{{ t('expectTime') }}</span><span>{{ t('expectSaveReturn') }}</span></div>
           <div v-if="intakeForSelf !== false || serviceSubject" class="intake-start-grid">
             <section class="intake-start-col">
               <h2 class="intake-start-col-title">
@@ -404,6 +415,7 @@
                   type="button"
                   class="ai-pathway-card"
                   :class="{ 'ai-pathway-card--selected': serviceSubject === 'self' }"
+                  :aria-pressed="serviceSubject === 'self'"
                   @click="chooseServiceSubject('self')"
                 >
                   <span class="intake-who-icon" aria-hidden="true">👤</span>
@@ -414,6 +426,7 @@
                   type="button"
                   class="ai-pathway-card"
                   :class="{ 'ai-pathway-card--selected': serviceSubject === 'dependent' }"
+                  :aria-pressed="serviceSubject === 'dependent'"
                   @click="chooseServiceSubject('dependent')"
                 >
                   <span class="intake-who-icon" aria-hidden="true">👨‍👩‍👧</span>
@@ -424,6 +437,7 @@
                   type="button"
                   class="ai-pathway-card"
                   :class="{ 'ai-pathway-card--selected': serviceSubject === 'couple' }"
+                  :aria-pressed="serviceSubject === 'couple'"
                   @click="chooseServiceSubject('couple')"
                 >
                   <span class="intake-who-icon" aria-hidden="true">💑</span>
@@ -434,6 +448,7 @@
                   type="button"
                   class="ai-pathway-card"
                   :class="{ 'ai-pathway-card--selected': serviceSubject === 'family' }"
+                  :aria-pressed="serviceSubject === 'family'"
                   @click="chooseServiceSubject('family')"
                 >
                   <span class="intake-who-icon" aria-hidden="true">🏠</span>
@@ -441,30 +456,11 @@
                 </button>
               </div>
             </section>
-            <section class="intake-start-col">
-              <h2 class="intake-start-col-title">
-                <span class="intake-start-col-num">2.</span>
-                {{ t('whatYoullNeed') }}
-              </h2>
-              <ul class="intake-start-list intake-start-list--checks">
-                <li>{{ t('needContactInfo') }}</li>
-                <li>{{ t('needInsurance') }}</li>
-                <li>{{ t('needSchoolProvider') }}</li>
-                <li>{{ t('needConcerns') }}</li>
-              </ul>
-            </section>
-            <section class="intake-start-col">
-              <h2 class="intake-start-col-title">
-                <span class="intake-start-col-num">3.</span>
-                {{ t('whatToExpect') }}
-              </h2>
-              <ul class="intake-start-list intake-start-list--checks">
-                <li>{{ t('expectTime') }}</li>
-                <li>{{ t('expectSecure') }}</li>
-                <li>{{ t('expectSaveReturn') }}</li>
-              </ul>
-            </section>
           </div>
+          <details class="intake-start-preparation">
+            <summary>{{ t('whatYoullNeed') }}</summary>
+            <ul><li>{{ t('needContactInfo') }}</li><li>{{ t('needInsurance') }}</li><li>{{ t('needSchoolProvider') }}</li><li>{{ t('needConcerns') }}</li></ul>
+          </details>
 
           <h2 class="intake-start-basics-title">
             <span class="intake-start-basics-icon" aria-hidden="true">👤</span>
@@ -472,19 +468,19 @@
           </h2>
           <div class="form-grid intake-identity-grid">
             <div class="form-group form-group--name">
-              <label>{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
+              <label for="guardianFirstName">{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
               <input id="guardianFirstName" v-model="guardianFirstName" type="text" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
             </div>
             <div class="form-group form-group--middle">
-              <label>{{ t('middleNameOptional') }}</label>
+              <label for="guardianMiddleName">{{ t('middleNameOptional') }}</label>
               <input id="guardianMiddleName" v-model="guardianMiddleName" type="text" />
             </div>
             <div class="form-group form-group--name">
-              <label>{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
+              <label for="guardianLastName">{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
               <input id="guardianLastName" v-model="guardianLastName" type="text" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
             </div>
             <div class="form-group form-group--phone">
-              <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
+              <label for="guardianPhone">{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
               <input
                 id="guardianPhone"
                 :value="guardianPhone"
@@ -496,15 +492,15 @@
               />
             </div>
             <div class="form-group form-group--email">
-              <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
+              <label for="guardianEmail">{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
               <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
             </div>
             <div v-if="intakeForSelf !== false" class="form-group form-group--dob">
-              <label>{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
+              <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
             </div>
             <div v-if="intakeForSelf === false" class="form-group form-group--rel">
-              <label>{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
+              <label for="guardianRelationship">{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
               <select
                 id="guardianRelationship"
                 v-model="guardianRelationship"
@@ -693,6 +689,7 @@
               {{ t('contactSupportLink') }}
             </button>
           </p>
+        </template>
       </OfficeIntakeStartPage>
 
       <div v-else-if="step === 1" class="step">
@@ -3106,6 +3103,7 @@ import {
 } from '../constants/spanishClarificationIntake.js';
 import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
 import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
+import IntakeProviderRequest from '../components/office/IntakeProviderRequest.vue';
 import { useOfficeIntakeStartEditor } from '../composables/useOfficeIntakeStartEditor.js';
 import OtherGuardianIntakeFields from '../components/public-intake/OtherGuardianIntakeFields.vue';
 import { lookupUsZipCityState } from '../utils/usZipAutofill.js';
@@ -3393,7 +3391,7 @@ const INTAKE_TRANSLATIONS = {
     chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
     letsStartWithBasics: "Let's start with some basics.",
     letsGetIntakeStarted: "Let's get your intake started",
-    letsGetIntakeStartedLead: 'This secure enrollment packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.',
+    letsGetIntakeStartedLead: 'Start with a few details about you. We’ll guide you through the rest, and you can save and return anytime.',
     yourFamily: 'Your family',
     hipaaProtected: 'HIPAA Protected',
     hipaaProtectedDetail: 'Your health information is kept safe and confidential.',
@@ -3783,7 +3781,7 @@ const INTAKE_TRANSLATIONS = {
     chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
     letsStartWithBasics: 'Empecemos con lo básico.',
     letsGetIntakeStarted: 'Empecemos su admisión',
-    letsGetIntakeStartedLead: 'Este paquete seguro de inscripción ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.',
+    letsGetIntakeStartedLead: 'Comience con unos datos sobre usted. Le guiaremos en los siguientes pasos y podrá guardar y volver cuando quiera.',
     yourFamily: 'Su familia',
     hipaaProtected: 'Protegido por HIPAA',
     hipaaProtectedDetail: 'Su información de salud se mantiene segura y confidencial.',
@@ -4858,6 +4856,11 @@ const matchingOfficeProviders=computed(()=>matchingEnrollmentProviders(officePro
 }));
 const providerProfileRequest=computed(()=>intakeResponses.submission?.enrollment_source==='provider'&&intakeResponses.submission?.requested_profile_provider_id);
 const selectedEnrollmentProvider=computed(()=>matchingOfficeProviders.value.find(p=>selectedOfficeProviderIds.value.includes(String(p.id))));
+const entryProviderProfile = ref(null);
+const requestedProviderSummary = computed(() => entryProviderProfile.value || selectedEnrollmentProvider.value);
+let entryProviderGeneration = 0;
+
+
 const selectedOfficeProviderIds = computed(() => {
   const raw = intakeResponses.submission?.preferred_office_provider_ids;
   return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
@@ -5423,6 +5426,20 @@ const officeStart = useOfficeIntakeStartEditor({
   intakeLocale
 });
 provide('officeIntakeStart', officeStart);
+
+watch(() => [providerProfileRequest.value, referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug], async ([id, slug]) => {
+  const generation = ++entryProviderGeneration;
+  entryProviderProfile.value = null;
+  if (!id || !slug) return;
+  try {
+    const { data } = await api.get(`/public/agency-services/${encodeURIComponent(slug)}/providers/${Number(id)}`, {
+      params: { serviceType: link.value?.master_channel || 'counseling' }, skipAuthRedirect: true, skipGlobalLoading: true
+    });
+    if (generation === entryProviderGeneration && String(data?.provider?.id) === String(id)) {
+      entryProviderProfile.value = { ...data.provider, details: data.profile?.details || data.provider.details };
+    }
+  } catch { /* Keep the saved request if its public profile is temporarily unavailable. */ }
+}, { immediate: true });
 
 const officeScenicSidebarUrl = computed(() => {
   if (isCoachingIntake.value) return '';
@@ -13914,6 +13931,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+
 .school-family-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin: 16px 0; border: 1px solid var(--border-color, #d9e3df); border-radius: 12px; }
 .school-family-summary ul { margin: 8px 0 0; padding-left: 20px; }
 .school-child-editor { padding: 16px; border: 2px solid var(--primary, #619779); border-radius: 12px; margin-bottom: 20px; }
@@ -17820,5 +17838,57 @@ onBeforeUnmount(() => {
   margin: 0.75rem 0 0;
   font-size: 0.85rem;
   line-height: 1.45;
+}
+/* Keep the first enrollment step focused on the request and the first fields. */
+.public-intake.public-intake--compact-start { background:#f3f7f4; color:#203e34; }
+.public-intake--compact-start :deep(.df-shell),
+.public-intake--compact-start :deep(.df-main) { background:transparent; }
+.public-intake--compact-start :deep(.df-main::before),
+.public-intake--compact-start :deep(.df-main-decor) { display:none; }
+.public-intake--compact-start :deep(.df-main-header) { width:100%; max-width:908px; margin:0 auto; padding:16px 24px 0; box-sizing:border-box; background:transparent; }
+.public-intake.public-intake--compact-start :deep(.df-main-body--cover) { max-width:908px; margin:0 auto; padding:16px 24px 40px; }
+.public-intake--compact-start :deep(.intake-back-btn) { border:0; background:transparent; padding:8px 0; box-shadow:none; font-size:13px; min-height:36px; }
+.public-intake--compact-start .intake-start-meta { display:flex; flex-wrap:wrap; gap:6px 18px; color:#617469; font-size:12px; padding-bottom:16px; border-bottom:1px solid #e5ebe7; }
+.public-intake--compact-start .intake-start-grid { display:block; margin:20px 0 12px; }
+.public-intake--compact-start .intake-start-col-title,
+.public-intake--compact-start .intake-start-basics-title { text-align:left; font-family:inherit; font-weight:650; font-size:15px; color:#243e32; margin:0 0 10px; }
+.public-intake--compact-start .intake-start-col-num,
+.public-intake--compact-start .intake-start-basics-icon { display:none; }
+.public-intake--compact-start .intake-who-stack { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.public-intake--compact-start .intake-who-stack .ai-pathway-card { display:flex; flex-direction:row; justify-content:flex-start; align-items:center; gap:8px; min-height:52px; padding:10px; margin:0; border:1px solid #d3dfd7; border-radius:9px; background:#fff; box-shadow:none; text-align:left; }
+.public-intake--compact-start .intake-who-stack .ai-pathway-card:hover { border-color:#659a7b; background:#f6faf7; transform:none; }
+.public-intake--compact-start .intake-who-stack .ai-pathway-card--selected { border:2px solid #246346; padding:9px; background:#edf6f0; }
+.public-intake--compact-start .intake-who-stack .ai-pathway-card:focus-visible { outline:3px solid #7cb29b; outline-offset:3px; }
+.public-intake--compact-start .intake-who-stack .ai-pathway-card-title { font-family:inherit; font-size:13px; font-weight:600; color:#254a38; line-height:1.35; margin:0; }
+.public-intake--compact-start .intake-who-icon { width:22px; height:22px; flex-shrink:0; font-size:18px; line-height:1; margin:0; }
+.intake-start-preparation { margin:12px 0 22px; text-align:left; font-size:13px; color:#4b6757; }
+.intake-start-preparation summary { cursor:pointer; width:fit-content; padding:4px 0; }
+.intake-start-preparation ul { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; padding-left:20px; margin:10px 0; font-size:12px; }
+.public-intake--compact-start .intake-identity-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:14px 12px; max-width:none; margin:0; text-align:left; align-items:end; }
+.public-intake--compact-start .intake-identity-grid .form-group { width:auto; min-width:0; margin:0; grid-column:span 2; }
+.public-intake--compact-start .intake-identity-grid label { font-size:12px; font-weight:600; margin:0 0 5px; color:#364c3f; display:block; text-align:left; }
+.public-intake--compact-start .intake-identity-grid input,
+.public-intake--compact-start .intake-identity-grid select { width:100%; min-height:42px; border:1px solid #ccd9d0; border-radius:7px; padding:8px 10px; background:#fff; font:inherit; font-size:15px; box-sizing:border-box; }
+.public-intake--compact-start .intake-identity-grid input.input-error,
+.public-intake--compact-start .intake-identity-grid select.input-error { border-color:#b42318; box-shadow:0 0 0 1px #b42318; }
+.public-intake--compact-start .intake-start-dependents,
+.public-intake--compact-start .intake-start-consent,
+.public-intake--compact-start .intake-start-consent-note,
+.public-intake--compact-start .intake-start-custody { grid-column:1 / -1; }
+.public-intake--compact-start .intake-start-continue { width:auto; min-width:220px; min-height:44px; padding:12px 22px; margin:22px 0 0; font-size:14px; border-radius:8px; background:#20583f; color:white; }
+.public-intake--compact-start .reminder-consent-panel { margin:20px 0 0; padding:14px 16px; border-radius:10px; }
+.public-intake--compact-start .reminder-consent-title { font-size:15px; }
+.public-intake--compact-start .reminder-consent-lead { font-size:13px; }
+.public-intake--compact-start .intake-start-support { text-align:left; font-size:12px; margin-top:12px; }
+@media(max-width:600px) {
+ .public-intake--compact-start :deep(.df-main-header) { padding:10px 16px 0; }
+ .public-intake.public-intake--compact-start :deep(.df-main-body--cover) { padding:12px 12px 28px; }
+ .public-intake--compact-start .intake-who-stack { grid-template-columns:1fr 1fr; }
+ .public-intake--compact-start .intake-identity-grid { grid-template-columns:1fr 1fr; gap:12px; }
+ .public-intake--compact-start .intake-identity-grid .form-group { grid-column:1 / -1; grid-row:auto; }
+ .public-intake--compact-start .intake-identity-grid input,
+ .public-intake--compact-start .intake-identity-grid select { font-size:16px; }
+ .public-intake--compact-start .intake-start-continue { width:100%; }
+ .intake-start-preparation ul { grid-template-columns:1fr; }
 }
 </style>

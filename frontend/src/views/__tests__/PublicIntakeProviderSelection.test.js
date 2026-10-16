@@ -92,3 +92,29 @@ it('releases a general enrollment hold before finalizing a clinical-review packe
  expect(post.mock.calls.find(([url])=>url.endsWith('/finalize'))[1].providerHoldToken).toBeNull();
  expect(sessionStorage.getItem('provider-hold:test')).toBeNull();
 });
+
+it('shows the requested public provider and language at the compact first step',async()=>{
+ route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};
+ get.mockImplementation(async url=>({data:url==='/public-intake/office-test'?structuredClone(data):url.endsWith('/providers/9')?{provider:{id:9,displayName:'Dayana Example',profilePhotoUrl:'/dayana.png'},profile:{details:{languages:['English','Russian']}}}:url.endsWith('/available-providers')?{providers:people}:{}}));
+ await render();wrapper.vm.step=0.5;await flushPromises();
+ expect(wrapper.get('.office-enrollment-start').exists()).toBe(true);
+ expect(wrapper.find('.intake-start-welcome-block').exists()).toBe(false);
+ const request=wrapper.get('.intake-provider-request');
+ expect(request.text()).toContain('Dayana Example');expect(request.text()).toContain('Russian');expect(request.text()).not.toContain('English');
+ expect(request.text()).toContain('does not confirm an appointment');
+ expect(wrapper.get('.intake-start-preparation').attributes('open')).toBeUndefined();
+ const choices=wrapper.findAll('.intake-who-stack button');expect(choices).toHaveLength(4);
+ await choices[0].trigger('click');expect(choices[0].attributes('aria-pressed')).toBe('true');
+ expect(wrapper.get('label[for="guardianFirstName"]').exists()).toBe(true);
+ await request.get('button').trigger('click');await flushPromises();
+ expect(wrapper.find('.intake-provider-request').exists()).toBe(false);
+ expect(wrapper.vm.selectedOfficeProviderIds).toEqual([]);
+});
+it('keeps the provider request usable if its public profile cannot be loaded',async()=>{
+ route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};
+ get.mockImplementation(async url=>{if(url.endsWith('/providers/9'))throw Error('offline');return {data:url==='/public-intake/office-test'?structuredClone(data):{}};});
+ await render();wrapper.vm.step=0.5;await flushPromises();
+ expect(wrapper.get('.intake-provider-request').text()).toContain('Your selected provider');
+ expect(wrapper.vm.intakeResponses.submission.requested_profile_provider_id).toBe(9);
+ expect(wrapper.get('#guardianFirstName').exists()).toBe(true);
+});

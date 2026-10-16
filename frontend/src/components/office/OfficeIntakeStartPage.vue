@@ -113,6 +113,21 @@
     </div>
   </div>
 
+  <section v-else-if="!ctx.editingStartLayout.value" class="office-enrollment-start">
+    <header class="office-enrollment-brand">
+      <img v-if="logoUrl" :src="logoUrl" :alt="agencyName" />
+      <strong>{{ agencyName }}</strong>
+      <button v-if="ctx.canEditOfficeStart.value" type="button" @click="ctx.startOfficeStartEdit">Edit page</button>
+    </header>
+    <div class="office-enrollment-card">
+      <header class="office-enrollment-heading">
+        <h1>{{ ctx.startCopy.value.startTitle }}</h1>
+        <p>{{ ctx.startCopy.value.startLead }}</p>
+      </header>
+      <slot name="provider" />
+      <slot />
+    </div>
+  </section>
   <div v-else class="step intake-start-page">
     <link rel="stylesheet" :href="ctx.JOIN_FONT_HREF" />
     <div v-if="ctx.canEditOfficeStart.value" class="intake-start-editbar">
@@ -261,6 +276,7 @@
         <textarea v-if="ctx.editingStartLayout.value" v-model="ctx.startCopyDraft.startLead" class="ajl-inline ajl-inline--area" rows="2" @mousedown.stop />
         <span v-else>{{ ctx.startCopy.value.startLead }}</span>
       </p>
+      <slot name="provider" />
       <slot />
     </div>
   </div>
@@ -289,9 +305,16 @@ if (!ctx) {
 </script>
 
 <style>
-
-
-
+.office-enrollment-start { width:100%; max-width:860px; margin:0 auto; color:#203e34; text-align:left; }
+.office-enrollment-brand { display:flex; align-items:center; gap:12px; margin:0 0 18px; }
+.office-enrollment-brand img { width:auto; max-width:140px; height:48px; object-fit:contain; border-radius:6px; }
+.office-enrollment-brand strong { font-size:16px; }
+.office-enrollment-brand button { margin-left:auto; border:1px solid #cbdcd3; background:white; padding:8px 12px; border-radius:7px; cursor:pointer; }
+.office-enrollment-card { padding:28px 32px; border:1px solid #dee7e1; border-radius:18px; background:#fff; box-shadow:0 10px 35px #234c3710; }
+.office-enrollment-heading { margin:0 0 16px; }
+.office-enrollment-heading h1 { margin:0 0 8px; color:#1b4434; font-family:inherit; font-size:28px; line-height:1.2; letter-spacing:-.025em; }
+.office-enrollment-heading p { margin:0; color:#5e7068; font-size:14px; line-height:1.6; max-width:none; }
+@media(max-width:600px) { .office-enrollment-brand { margin-bottom:12px; } .office-enrollment-card { padding:20px 16px; border-radius:14px; } .office-enrollment-heading h1 { font-size:23px; } }
 .intake-start-page {
   width: 100%;
   position: relative;

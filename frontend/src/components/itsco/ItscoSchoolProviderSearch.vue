@@ -17,7 +17,7 @@
    <div v-else-if="schoolProviders.length" class="school-team">
     <article v-for="provider in schoolProviders" :key="provider.id">
      <a v-if="provider.photoUrl" :href="profileLink(provider)" :aria-label="`View ${provider.displayName}’s profile`" data-analytics-kind="profile_open"><img :src="provider.photoUrl" :alt="provider.displayName" loading="lazy"/></a>
-     <div><strong><a class="its-profile-name" :href="profileLink(provider)" data-analytics-kind="profile_open">{{provider.displayName}}<template v-if="provider.credential">, {{provider.credential}}</template></a></strong><p>{{provider.title}}</p><a :href="profileLink(provider)" data-analytics-kind="profile_open">View profile →</a></div>
+     <div><strong><a class="its-profile-name" :href="profileLink(provider)" data-analytics-kind="profile_open">{{provider.displayName}}<template v-if="provider.credential">, {{provider.credential}}</template></a></strong><p>{{provider.title}}</p><ProviderLanguageBadges :details="provider.details"/><a :href="profileLink(provider)" data-analytics-kind="profile_open">View profile →</a></div>
     </article>
    </div>
    <p v-else>Our team can help with enrollment and confirm who serves this school.</p>
@@ -27,6 +27,7 @@
 </template>
 <script setup>
 import {computed,ref} from 'vue';
+import ProviderLanguageBadges from '../publicServices/ProviderLanguageBadges.vue';
 import {buildPublicIntakeUrl} from '../../utils/publicIntakeUrl';
 import {providerProfileUrl} from '../../utils/providerProfileLinks';
 const props=defineProps({schools:{type:Array,default:()=>[]},providers:{type:Array,default:()=>[]},modelValue:{type:String,default:''},loading:Boolean});

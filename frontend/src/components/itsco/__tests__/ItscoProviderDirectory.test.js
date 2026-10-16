@@ -104,3 +104,21 @@ it('shows public highlights first and expands every enabled matching area',async
  const {wrapper}=await render('/p/itsco/providers?provider=1',{providers:[{...providers[0],details:{...providers[0].details,focusHighlights},specialties:['ADHD','Anxiety','Stress','Depression']}]});
  const section=wrapper.get('[data-focus-summary="specialties"]');expect(section.findAll(':scope > .focus-tags li').map(v=>v.text())).toEqual(['Anxiety','Stress','Depression']);expect(section.get('summary').text()).toBe('Show all matching areas (4)');expect(section.get('details .focus-tags').text()).toContain('ADHD');expect(wrapper.findAll('[data-focus-summary]')).toHaveLength(4);wrapper.unmount();
 });
+
+it('makes the saved additional language visible in search results and the provider profile',async()=>{
+ const bilingual={...providers[0],details:{...base.details,languages:['English','russian']}};
+ const {wrapper,router}=await render('/p/itsco/providers?search=russian',{providers:[bilingual,providers[1]]});
+ expect(wrapper.findAll('.its-provider-card')).toHaveLength(1);
+ expect(wrapper.get('.provider-languages').text()).toBe('🇷🇺Russian');
+ expect(wrapper.get('.provider-languages').text()).not.toContain('English');
+ await router.push('/p/itsco/providers?provider=1');await flushPromises();
+ expect(wrapper.get('.its-profile-info .provider-languages').text()).toBe('🇷🇺Russian');
+ expect(wrapper.text()).not.toContain('English');wrapper.unmount();
+});
+it('uses confirmed session proficiency records for both search and language badges',async()=>{
+ const details={...base.details,languages:['Russian'],languageProficiencies:[{language:'Spanish',proficiency:'fluent',canConductSessions:true},{language:'Russian',proficiency:'fluent',canConductSessions:false}]};
+ const {wrapper,router}=await render('/p/itsco/providers?language=Spanish',{providers:[{...providers[0],details}]});
+ expect(wrapper.get('.provider-languages').text()).toBe('🇲🇽Spanish');
+ await router.push('/p/itsco/providers?language=Russian');await flushPromises();
+ expect(wrapper.findAll('.its-provider-card')).toHaveLength(0);wrapper.unmount();
+});

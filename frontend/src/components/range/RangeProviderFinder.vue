@@ -33,6 +33,7 @@
     <article v-for="p in visible" :key="key(p)" class="range-provider-card" :data-analytics-id="`provider-${p.id}`" :data-analytics-label="p.name">
      <div class="range-tenant-brand"><img v-if="safe(p.agencyLogoUrl)" :src="safe(p.agencyLogoUrl)" alt=""/><div><strong>{{p.agencyName}}</strong><span>{{label(p.service)}}</span></div></div>
      <div class="range-provider-overview"><a :href="profileUrl(p)" :aria-label="`View ${p.name}’s profile`" @click="guard"><img v-if="safe(p.photoUrl)" class="range-avatar" :src="safe(p.photoUrl)" :alt="p.name" loading="lazy"/><div v-else class="range-initials">{{p.name.split(' ').map(x=>x[0]).slice(0,2).join('')}}</div></a><div><h3><a class="range-profile-name" :href="profileUrl(p)" @click="guard">{{p.name}}<template v-if="p.credential">, {{p.credential}}</template></a><small>{{p.title}}</small></h3><span class="range-badge">{{status(p)==='accepting'?'Accepting new clients':status(p)==='waitlist'?'Waitlist':'Closed to new clients'}}</span></div></div>
+     <ProviderLanguageBadges :details="{languages:p.languages}"/>
      <p v-if="p.bio" class="range-network-bio">{{p.bio}}</p><div class="range-tags"><span v-for="tag in matchingProviderTags(p,filters.search,filters.specialty,4)" :key="tag">{{tag}}</span></div>
      <div class="range-network-formats"><span v-if="p.virtual"><Icon name="screen"/>Virtual</span><span v-if="p.inPerson" v-for="o in p.locations" :key="o.id"><Icon name="pin"/>{{o.name}} · {{o.city}}</span><span v-if="p.school&&p.schools?.length"><Icon name="school"/>School-based</span></div>
      <details v-if="p.insurances.length"><summary>Insurance · {{p.insurances.length}} plans</summary><p>{{p.insurances.join(', ')}}</p></details>
@@ -46,6 +47,7 @@
  </section>
 </template>
 <script setup>
+import ProviderLanguageBadges from '../publicServices/ProviderLanguageBadges.vue';
 import {slotAllowsCare} from '../../utils/availabilityCareTypes';
 import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
