@@ -5,6 +5,18 @@
 
 export const AUTOMATED_EMAIL_CATALOG = [
   {
+    key: 'account_login_help',
+    kind: 'template',
+    category: 'Login & accounts',
+    label: 'Account login help',
+    description: 'An administrator checks account access, sign-in restrictions, and recent authentication records, then sends affiliated portal links, the login username, and a private password reset link when applicable. Uses the main agency’s Technology identity.',
+    trigger: 'An administrator chooses Check and email help in the user’s Workspace & Security settings. Blocking or incomplete checks prevent the email.',
+    triggerKind: 'Manual · Account support',
+    preferredKeys: ['technology'],
+    recommendedFromHint: 'Configure the main agency’s Technology sender and reply address.',
+    junkMailNote: true
+  },
+  {
     key: 'meeting_summary_ready',
     kind: 'template',
     category: 'Meetings',

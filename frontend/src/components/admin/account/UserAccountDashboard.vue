@@ -40,6 +40,7 @@
           <div class="acct-sidebar-block-title">Quick Actions</div>
           <button type="button" class="acct-qa" @click="scrollToSection('account-info')">Edit Profile</button>
           <button type="button" class="acct-qa" @click="scrollToSection('workspace-security')">Reset Password</button>
+          <button v-if="canEditUser" type="button" class="acct-qa" @click="scrollToSection('workspace-security')">Login Help</button>
           <button v-if="!isSchoolStaffProfile" type="button" class="acct-qa" @click="ctx.navigate?.('payroll')">Log Time Manually</button>
           <button type="button" class="acct-qa" @click="ctx.navigate?.('documents')">Upload Document</button>
           <button type="button" class="acct-qa" @click="ctx.navigate?.('communications')">Send Message</button>

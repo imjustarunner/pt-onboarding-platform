@@ -642,6 +642,11 @@
                 subtitle="Manage workspace authentication and access settings."
                 :can-edit="false"
               >
+            <LoginHelpPanel
+              v-if="['super_admin', 'admin', 'support'].includes(authStore.user?.role)"
+              :user-id="userId"
+              :agency-id="profileOverviewAgencyId"
+            />
             <div class="password-status-layout acct-ws-grid">
               <div v-if="accountInfo.ssoPolicyRequired" class="acct-ws-panel">
                 <div class="acct-ws-panel-head">
@@ -2752,6 +2757,7 @@ import ClinicalInformationTab from '../../components/admin/clinical/ClinicalInfo
 import ProviderClientsTab from '../../components/dashboard/ProviderClientsTab.vue';
 import TasksHub from '../../components/tasks/TasksHub.vue';
 import UserAccountDashboard from '../../components/admin/account/UserAccountDashboard.vue';
+import LoginHelpPanel from '../../components/admin/account/LoginHelpPanel.vue';
 import ProviderBillingSettings from '../../components/admin/ProviderBillingSettings.vue';
 import AccountDashboardCard from '../../components/admin/account/AccountDashboardCard.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../composables/userAccountContext.js';

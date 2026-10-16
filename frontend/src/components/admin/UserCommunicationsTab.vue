@@ -98,6 +98,7 @@
           <option value="">All Types</option>
           <option value="user_welcome">User Welcome</option>
           <option value="password_reset">Password Reset</option>
+          <option value="account_login_help">Login Help</option>
           <option value="invitation">Invitation</option>
         </select>
       </div>
@@ -512,6 +513,7 @@ const formatType = (type) => {
   const types = {
     user_welcome: 'User Welcome',
     password_reset: 'Password Reset',
+    account_login_help: 'Login Help',
     invitation: 'Invitation'
   };
   return types[type] || type;

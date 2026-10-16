@@ -13,6 +13,7 @@ export const FALLBACK_SENDER_FLAG = {
 
 export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   password_reset: ['technology', 'login_recovery', 'notifications'],
+  account_login_help: ['technology'],
   admin_initiated_password_reset: ['technology', 'login_recovery', 'notifications'],
   school_staff_account_recovery: ['technology', 'login_recovery', 'notifications'],
   school_staff_portal_access: ['technology', 'login_recovery', 'notifications'],

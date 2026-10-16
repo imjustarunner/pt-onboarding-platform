@@ -48,6 +48,8 @@
               <option value="password_reset_link_sent">Recovery email sent</option>
               <option value="password_reset_email_failed">Recovery email failed</option>
               <option value="password_reset_link_generated">Recovery link generated (not emailed)</option>
+              <option value="account_login_help_checked">Login help checked</option>
+              <option value="account_login_help_email">Login help email</option>
               <option value="module_start">Module Start</option>
               <option value="module_end">Module End</option>
               <option value="module_complete">Module Complete</option>
@@ -314,6 +316,8 @@ const formatActionType = (actionType) => {
     'logout': 'Logout',
     'timeout': 'Timeout',
     'password_change': 'Password Change',
+    'account_login_help_checked': 'Login Help Checked',
+    'account_login_help_email': 'Login Help Email',
     'module_start': 'Module Start',
     'module_end': 'Module End',
     'module_complete': 'Module Complete',
