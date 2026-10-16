@@ -99,6 +99,7 @@
       </template>
       <IntakeProviderRequest v-if="providerProfileRequest && isOfficeInDepthIntake && step !== 0.5 && step < 3"
         :provider="requestedProviderSummary"
+        :opening="intakeResponses.submission?.requested_opening_preference"
         :locale="intakeLocale"
         :error="providerHoldChangeError"
         :notice="providerSelectionNotice"
@@ -395,6 +396,7 @@
         <template #provider>
           <IntakeProviderRequest v-if="providerProfileRequest"
             :provider="requestedProviderSummary"
+            :opening="intakeResponses.submission?.requested_opening_preference"
             :locale="intakeLocale"
             :error="providerHoldChangeError"
             :notice="providerSelectionNotice"
@@ -4871,7 +4873,7 @@ function saveOpeningPreference(hold) {
   if (!intakeResponses.submission) intakeResponses.submission = {};
   intakeResponses.submission.requested_opening_preference = hold ? {
     providerId: hold.providerId, startAt: hold.startAt, endAt: hold.endAt, modality: hold.modality,
-    serviceType:hold.serviceType,preferenceOnly:!hold.token,recurring:hold.recurring!==false,frequency:hold.frequency,purpose:hold.purpose,timeZone: hold.timeZone, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
+    serviceType:hold.serviceType,preferenceOnly:!hold.token,recurring:hold.frequency!=='ONCE'&&hold.recurring!==false,frequency:hold.frequency,purpose:hold.purpose,timeZone:hold.timeZone,buildingId:hold.buildingId,buildingName:hold.buildingName, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
   } : null;
 }
 const providerHoldChangeError=ref('');
@@ -4981,10 +4983,13 @@ async function restoreEntryOpeningPreference() {
   try {
     saved=JSON.parse(sessionStorage.getItem(`provider-hold:${slug}`)||'null');
   }catch{}
-  const service=link.value?.master_channel==='tutoring'?'tutoring':'counseling';
+  const service=['tutoring','coaching','consulting'].includes(link.value?.master_channel)?link.value.master_channel:'counseling';
   if(Number(saved?.providerId)!==Number(providerProfileRequest.value)||saved?.serviceType!==service||saved?.modality!==enrollmentModality.value)return;
   if(saved.token){
+    const originalSelection=JSON.stringify(saved);
     const {data}=await api.post(`/public/agency-services/${encodeURIComponent(slug)}/hold-status`,{token:saved.token},{skipAuthRedirect:true,skipGlobalLoading:true});
+    // Do not restore a held time if the person changed their choice while verification was pending.
+    if(Number(saved.providerId)!==Number(providerProfileRequest.value)||saved.modality!==enrollmentModality.value||sessionStorage.getItem(`provider-hold:${slug}`)!==originalSelection)return;
     if(data?.active===false){
       saved={...saved,token:null,preferenceOnly:true};
       sessionStorage.setItem(`provider-hold:${slug}`,JSON.stringify(saved));
@@ -5426,6 +5431,13 @@ const officeStart = useOfficeIntakeStartEditor({
   intakeLocale
 });
 provide('officeIntakeStart', officeStart);
+
+// Show the requested opening immediately, including after restoring an older draft.
+watch(() => [loading.value, intakeResponses.submission, providerProfileRequest.value, enrollmentModality.value], async ([isLoading]) => {
+  if (isLoading || !providerProfileRequest.value) return;
+  try { await restoreEntryOpeningPreference(); }
+  catch { providerSelectionNotice.value = 'We could not verify your previously selected time. Our team will need to confirm availability.'; }
+}, { immediate: true });
 
 watch(() => [providerProfileRequest.value, referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug], async ([id, slug]) => {
   const generation = ++entryProviderGeneration;

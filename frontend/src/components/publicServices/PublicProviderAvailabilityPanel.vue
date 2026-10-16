@@ -31,7 +31,8 @@
     <router-link class="contact-link" :to="formatContactPath(f)">Inquire with our team →</router-link>
    </section>
    <section v-if="selection && enrollmentPath" class="scheduling-note" role="status"><strong>{{selection.token?'Time reserved pending confirmation':'Preferred time selected — not reserved'}}</strong><p>{{day(selection.startAt)}} · {{time(selection.startAt)}} · {{availabilityLabel(selection)}}</p><router-link :to="enrollmentPath">Continue enrollment with this time →</router-link></section>
-   <p v-if="selectionError" role="alert">{{selectionError}}</p>
+   <p v-if="selectionError && !pendingPreference" role="alert">{{selectionError}}</p>
+   <PreferredTimeConfirmation v-if="pendingPreference" :opening="pendingPreference" :provider-name="provider.displayName || provider.name" :busy="selecting" :error="selectionError" @close="pendingPreference=null" @confirm="confirmPreference"/>
 
   </div>
  </section>
@@ -39,7 +40,9 @@
 <script setup>
 import {availabilityLabel} from '../../utils/availabilityLabel.js';
 
-import {computed,ref,watch} from 'vue';
+import {computed,onBeforeUnmount,ref,watch} from 'vue';
+import {useRouter} from 'vue-router';
+import PreferredTimeConfirmation from './PreferredTimeConfirmation.vue';
 import {availabilityDayGroups} from '../../utils/availabilityDayGroups';
 import api from '../../services/api';
 import Icon from '../rise/RiseIcon.vue';
@@ -48,22 +51,42 @@ import {overallProviderStatus,statusLabel} from '../../utils/providerDirectorySt
 import PublicProviderSlotPicker from './PublicProviderSlotPicker.vue';
 const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:String,required:true},serviceType:{type:String,default:'counseling'},officeId:{type:[String,Number],default:''}});
 const emit=defineEmits(['hold','loaded']);
+const router=useRouter();
+const pendingPreference=ref(null);
 const selectedOffice=ref('');
 const schedule=ref(null),loading=ref(false),error=ref(''),calendar=ref(''),expanded=ref(''),calendarWeek=ref(''),calendarOffice=ref('');
 const selection=ref(null),selecting=ref(false),selectionError=ref('');
 const enrollmentOptions=computed(()=>providerEnrollmentFormats(schedule.value));
 const enrollmentOption=f=>enrollmentOptions.value.find(item=>item.format===f.value);
-const formatEnrollmentPath=f=>providerEnrollmentPath({agencySlug:props.agencySlug,providerId:props.provider.id,serviceType:props.serviceType,format:f.value,query:{officeId:f.value==='IN_PERSON'?(selectedOffice.value||undefined):undefined}});
-const enrollmentPath=computed(()=>{const option=enrollmentOptions.value.find(item=>item.format===selection.value?.modality);return option?formatEnrollmentPath({value:option.format}):null;});
-async function selectPreference(f,slot){
- if(!enrollmentOption(f)||enrollmentOption(f).status!=='accepting')return;
+const formatEnrollmentPath=(f,officeId=selectedOffice.value)=>providerEnrollmentPath({agencySlug:props.agencySlug,providerId:props.provider.id,serviceType:props.serviceType,format:f.value,query:{officeId:f.value==='IN_PERSON'?officeId||undefined:undefined}});
+const enrollmentPath=computed(()=>{const option=enrollmentOptions.value.find(item=>item.format===selection.value?.modality);return option?formatEnrollmentPath({value:option.format},selection.value.buildingId||selectedOffice.value):null;});
+function selectPreference(f,slot){
+ selectionError.value='';
+ if(enrollmentOption(f)?.status!=='accepting'){
+  selectionError.value='This provider is no longer accepting requests in this setting. Please check another setting or contact our team.';return;
+ }
+ pendingPreference.value={providerId:Number(props.provider.id),serviceType:props.serviceType,modality:f.value,
+  startAt:slot.startAt,endAt:slot.endAt,frequency:slot.frequency,purpose:slot.purpose,
+  recurring:slot.frequency!=='ONCE',timeZone:schedule.value.timeZone,
+  buildingId:slot.buildingId||null,buildingName:slot.buildingName||assignedOffices.value.find(o=>String(o.id)===String(slot.buildingId))?.name||'',preferenceOnly:true};
+}
+async function confirmPreference(){
+ const value=pendingPreference.value;
+ if(!value||selecting.value)return;
  selecting.value=true;selectionError.value='';
  try{
+  if(!enrollmentOptions.value.some(option=>option.format===value.modality&&option.status==='accepting'))throw new Error('This setting is no longer accepting requests. Please choose another setting or contact our team.');
   const key=`provider-hold:${props.agencySlug}`;let previous;try{previous=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
   if(previous?.token)await api.post(`/public/agency-services/${encodeURIComponent(props.agencySlug)}/release-hold`,{token:previous.token},{skipAuthRedirect:true});
-  const value={providerId:Number(props.provider.id),serviceType:props.serviceType,modality:f.value,startAt:slot.startAt,endAt:slot.endAt,frequency:slot.frequency,purpose:slot.purpose,timeZone:schedule.value.timeZone,buildingId:slot.buildingId||null,preferenceOnly:true};
-  sessionStorage.setItem(key,JSON.stringify(value));selection.value=value;emit('hold',value);
- }catch{selectionError.value='Could not save this preference. Please try again.';}finally{selecting.value=false;}
+  if(pendingPreference.value!==value)return;
+  try{sessionStorage.setItem(key,JSON.stringify(value));}catch{throw new Error('Could not save this preference in your browser. Please try again.');}
+  selection.value=value;emit('hold',value);
+  const failure=await router.push(providerEnrollmentPath({agencySlug:props.agencySlug,providerId:value.providerId,serviceType:value.serviceType,format:value.modality,
+   query:{officeId:value.modality==='IN_PERSON'?value.buildingId||undefined:undefined}}));
+  if(failure)throw new Error('Your preferred time is saved, but enrollment could not be opened. Please try again.');
+  pendingPreference.value=null;
+ }catch(e){selectionError.value=e.response?.data?.error?.message||e.message||'Could not save this preference and open enrollment. Please try again.';}
+ finally{selecting.value=false;}
 }
 const base=computed(()=>`/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${Number(props.provider.id)}`);
 const contactPath=computed(()=>({path:props.agencySlug==='itsco'?'/p/itsco/contact':`/${encodeURIComponent(props.agencySlug)}/support`,query:{category:'provider',provider:String(props.provider.id),providerName:props.provider.displayName||props.provider.name||'',serviceType:props.serviceType,officeId:selectedOffice.value||undefined}}));
@@ -96,7 +119,8 @@ async function load(){const id=++generation;loading.value=true;error.value='';sc
  catch(e){if(id===generation)error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
  finally{if(id===generation)loading.value=false;}}
 watch(selectedOffice,()=>{calendar.value='';});
-watch(()=>[props.provider.id,props.agencySlug,props.serviceType],()=>{calendar.value='';selectedOffice.value=String(props.officeId||'');load();},{immediate:true});
+watch(()=>[props.provider.id,props.agencySlug,props.serviceType],()=>{calendar.value='';pendingPreference.value=null;selectionError.value='';selectedOffice.value=String(props.officeId||'');load();},{immediate:true});
+onBeforeUnmount(()=>{generation++;pendingPreference.value=null;});
 </script>
 <style scoped>
 .enrollment-link{display:block;background:var(--format-ink);color:#fff;padding:12px;border-radius:9px;margin-top:16px;text-align:center;font-weight:600;text-decoration:none}.day-times{display:grid;gap:10px}.day-time{display:grid;gap:6px}.day-time+.day-time{border-top:1px solid var(--format-border);padding-top:10px}

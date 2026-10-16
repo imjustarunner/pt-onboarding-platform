@@ -101,4 +101,18 @@ describe('provider profile entry redirects', () => {
     expect(api.post).toHaveBeenCalledWith('/public/agency-services/itsco/release-hold', { token: 'opaque-hold' }, expect.any(Object));
     expect(sessionStorage.getItem('provider-hold:itsco')).toBeNull();
   });
+
+  it('keeps a non-reserving preference if availability changes to a waitlist before enrollment loads', async () => {
+    const selected={providerId:9,serviceType:'counseling',modality:'VIRTUAL',preferenceOnly:true,startAt:'2030-01-07T17:00:00Z',endAt:'2030-01-07T18:00:00Z',timeZone:'America/Denver'};
+    sessionStorage.setItem('provider-hold:itsco',JSON.stringify(selected));
+    const router=await render({status:{virtual:{status:'waitlist'}}});
+    expect(router.currentRoute.value.path).toBe('/intake/office-full');
+    expect(JSON.parse(sessionStorage.getItem('provider-hold:itsco'))).toEqual(selected);expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('does not transfer a preference for another provider into this enrollment', async () => {
+    sessionStorage.setItem('provider-hold:itsco',JSON.stringify({providerId:10,serviceType:'counseling',modality:'VIRTUAL',preferenceOnly:true}));
+    const router=await render();expect(router.currentRoute.value.path).toBe('/intake/office-full');
+    expect(sessionStorage.getItem('provider-hold:itsco')).toBeNull();expect(api.post).not.toHaveBeenCalled();
+  });
 });

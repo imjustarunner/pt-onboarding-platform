@@ -118,3 +118,34 @@ it('keeps the provider request usable if its public profile cannot be loaded',as
  expect(wrapper.vm.intakeResponses.submission.requested_profile_provider_id).toBe(9);
  expect(wrapper.get('#guardianFirstName').exists()).toBe(true);
 });
+
+const preferredOpening={providerId:9,serviceType:'counseling',modality:'VIRTUAL',preferenceOnly:true,startAt:'2030-01-07T02:00:00Z',endAt:'2030-01-07T03:00:00Z',frequency:'WEEKLY',timeZone:'America/Denver'};
+it('shows the selected day and time on arrival and carries the same preference through drafts and final enrollment',async()=>{
+ route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};
+ sessionStorage.setItem('provider-hold:test',JSON.stringify(preferredOpening));await render();wrapper.vm.step=0.5;await flushPromises();
+ const opening=wrapper.get('.intake-provider-opening');expect(opening.text()).toContain('Preferred time · not reserved');expect(opening.text()).toContain('Sunday, January 6, 2030');expect(opening.text()).toContain('7:00 PM – 8:00 PM');expect(opening.text()).toContain('Weekly · Virtual · America/Denver');
+ expect(wrapper.vm.intakeResponses.submission.requested_opening_preference).toMatchObject(preferredOpening);
+ expect(wrapper.vm.buildDraftSnapshot().intakeResponses.submission.requested_opening_preference).toMatchObject(preferredOpening);
+ wrapper.vm.applyDraftSnapshot({intakeResponses:{submission:{requested_opening_preference:{...preferredOpening,startAt:'2029-02-01T17:00:00Z'}},clients:[{}]},clients:[{firstName:'Test',lastName:'Client'}]});await flushPromises();
+ expect(wrapper.vm.intakeResponses.submission.requested_opening_preference).toMatchObject(preferredOpening);
+ wrapper.vm.sessionToken='test-session';wrapper.vm.submissionId=70;
+ post.mockImplementation(async url=>({data:url.endsWith('/finalize')?{downloadUrl:'/test-packet.pdf'}:{}}));
+ await wrapper.vm.finalizePacket();await flushPromises();
+ const payload=post.mock.calls.find(([url])=>url.endsWith('/finalize'))[1];
+ expect(payload.providerHoldToken).toBeNull();expect(payload.intakeData.responses.submission.requested_opening_preference).toMatchObject(preferredOpening);
+});
+it('removes the preferred time with an intentional provider skip and does not restore it',async()=>{
+ route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};
+ sessionStorage.setItem('provider-hold:test',JSON.stringify(preferredOpening));await render();wrapper.vm.step=0.5;await flushPromises();
+ await wrapper.get('.intake-provider-request button').trigger('click');await flushPromises();
+ expect(wrapper.find('.intake-provider-opening').exists()).toBe(false);expect(sessionStorage.getItem('provider-hold:test')).toBeNull();
+ expect(wrapper.vm.intakeResponses.submission.requested_opening_preference).toBeNull();await wrapper.vm.restoreEntryOpeningPreference();
+ expect(wrapper.vm.intakeResponses.submission.requested_opening_preference).toBeNull();expect(post.mock.calls.some(([url])=>url.includes('/agency-services/'))).toBe(false);
+});
+it('does not restore a stale hold after someone removes the provider while verification is pending',async()=>{
+ route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};
+ sessionStorage.setItem('provider-hold:test',JSON.stringify({...preferredOpening,preferenceOnly:false,token:'pending-check'}));
+ let finish;post.mockImplementation(url=>url.endsWith('/hold-status')?new Promise(resolve=>{finish=resolve;}):Promise.resolve({data:{}}));
+ await render();await wrapper.vm.setSelectedOfficeProviderIds([]);await flushPromises();finish({data:{active:false}});await flushPromises();
+ expect(wrapper.vm.providerHoldToken).toBeNull();expect(wrapper.vm.intakeResponses.submission.requested_opening_preference).toBeNull();expect(sessionStorage.getItem('provider-hold:test')).toBeNull();
+});

@@ -1574,7 +1574,7 @@ async function continueProviderEnrollment(format) {
     try { selected = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { /* no stored selection */ }
     const keepingTime = Number(selected?.providerId) === entryProviderId.value
       && selected?.serviceType === resolvedServiceType.value && selected?.modality === format
-      && providerEntryOptions.value.find(option => option.format === format)?.status === 'accepting';
+      && (selected.preferenceOnly === true || providerEntryOptions.value.find(option => option.format === format)?.status === 'accepting');
     if (selected && !keepingTime) {
       if (selected.token) await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`, { token: selected.token }, { skipAuthRedirect: true });
       sessionStorage.removeItem(key);
