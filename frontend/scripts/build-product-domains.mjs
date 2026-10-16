@@ -51,7 +51,7 @@ server('familycommandcenterhub.com',location('/',family),family);
 redirect('www.familycommandcenterhub.com','https://familycommandcenterhub.com');
 
 const michaelLocations=Object.keys(michaelPages).map(section=>{
- let html=renderSite(section).replaceAll('https://plottwisthq.com/michael','https://michaelvmendez.com');
+ let html=renderSite(section,{siteOrigin:'https://michaelvmendez.com',canonicalBase:''}).replaceAll('https://plottwisthq.com/michael','https://michaelvmendez.com');
  // Keep scripts, styles and media at their existing paths; clean only page links.
  html=html.replace(/href="\/michael(?=\/?(?:[?#][^"]*)?")/g,'href="');
  for(const name of Object.keys(michaelPages).filter(Boolean)) html=html.replaceAll(`href="/michael/${name}"`,`href="/${name}"`).replaceAll(`href="/michael/${name}?`,`href="/${name}?`).replaceAll(`href="/michael/${name}#`,`href="/${name}#`);

@@ -3,6 +3,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderWebsite, pages } from '../../auricwell/website/render.mjs';
 import { officeHtml, officeSiteForHost } from '../officeSite.js';
+import { buildShareMeta, injectShareMetaIntoHtml } from '../sharePreview.js';
+import { renderSite, pages as michaelPages } from '../../michael/site.mjs';
 
 const publicDir = resolve('public');
 function preview(html, origin) {
@@ -27,6 +29,33 @@ function preview(html, origin) {
 }
 
 describe('product links are readable by crawlers without JavaScript', () => {
+  it.each([
+    ['mentalrange.org', '/', 'Mental Range Collective'],
+    ['www.mentalrange.org', '/network', 'Mental Range Collective'],
+    ['plottwisthq.com', '/p/range/about', 'Mental Range Collective'],
+    ['schoolcarebridge.org', '/', 'SchoolCareBridge'],
+    ['www.schoolcarebridge.org', '/for-schools', 'SchoolCareBridge'],
+    ['mh4kidz.org', '/schoolcarebridge', 'SchoolCareBridge'],
+    ['plottwisthq.com', '/schoolcarebridge', 'SchoolCareBridge'],
+    ['michaelvmendez.com', '/', 'Michael V. Mendez']
+  ])('uses a complete landscape card for %s%s', (host, path, name) => {
+    const html = injectShareMetaIntoHtml(readFileSync(resolve('index.html'), 'utf8'), buildShareMeta({ host, path }));
+    preview(html, `https://${host}`);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(doc.querySelector('meta[property="og:site_name"]').content).toBe(name);
+    expect(doc.querySelector('meta[property="og:description"]').content.length).toBeGreaterThan(60);
+    expect(doc.querySelector('meta[property="og:image:alt"]').content).toContain(name);
+    expect(doc.querySelector('meta[property="og:image:type"]').content).toBe('image/png');
+  });
+  it.each(Object.keys(michaelPages))('uses Michael’s landscape card on the dedicated website: %s', section => {
+    const html = renderSite(section, { siteOrigin: 'https://michaelvmendez.com', canonicalBase: '' });
+    preview(html, 'https://michaelvmendez.com');
+    expect(html).toContain(`rel="canonical" href="https://michaelvmendez.com${section ? '/' + section : ''}"`);
+    expect(html).not.toContain('property="og:image" content="https://plottwisthq.com/assets/michael/logo-navy.png"');
+  });
+  it('retains a landscape card for the shared Michael website URL', () => {
+    preview(renderSite(''), 'https://plottwisthq.com');
+  });
   it.each(Object.keys(pages))('keeps AuricWell image paths intact on the dedicated domain: %s', section => {
     const html = renderWebsite(section, { origin: 'https://auricwell.com', canonicalBase: '' });
     preview(html, 'https://auricwell.com');

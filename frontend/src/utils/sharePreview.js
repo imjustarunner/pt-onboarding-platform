@@ -1,3 +1,4 @@
+import { websiteShareCards } from '../constants/websiteShareCards.js';
 import { productBrowserBranding } from './productDomains.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import { publicSiteSlug, isItscoPublicHost } from './publicDomainRouting.js';
@@ -66,7 +67,9 @@ const TENANTS = {
   }
 };
 
-const PUBLIC_WEBSITES = {"kimi": {"name":"Kimi Cain Life Coaching","image":"/assets/kimi/kimisms.png","description":"Certified life coaching for clarity, goals, life transitions, and personal growth. Explore coaching packages or book a free consultation."},"nlu": {"name":"Next Level Up | Learning and Counseling Centers","image":"/assets/SMSAssets/nlu-link-preview-wide.png"},"itsco": {"name": "ITSCO | In The School Counselors", "image": "/assets/SMSAssets/itsco-link-preview-wide.png"}, "tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
+const PUBLIC_WEBSITES = {"kimi": {"name":"Kimi Cain Life Coaching","image":"/assets/kimi/kimisms.png","description":"Certified life coaching for clarity, goals, life transitions, and personal growth. Explore coaching packages or book a free consultation."},"nlu": {"name":"Next Level Up | Learning and Counseling Centers","image":"/assets/SMSAssets/nlu-link-preview-wide.png"},"itsco": {"name": "ITSCO | In The School Counselors", "image": "/assets/SMSAssets/itsco-link-preview-wide.png"}, "tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": websiteShareCards.range, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
+
+const imageDetails = ({ imageWidth, imageHeight, imageType, imageAlt } = {}) => ({ imageWidth, imageHeight, imageType, imageAlt });
 
 const DEFAULT_IMAGE = '/assets/ptco/logo-flat.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';
@@ -179,12 +182,12 @@ export function buildShareMeta({ host, path, proto = 'https' } = {}) {
       ...(tenant?.image ? {image:`https://${normHost(host)}${tenant.image}`} : {})};
   }
   const product = productBrowserBranding(host);
-  if (product) return { name: product.title, title: product.title, description: product.description, image: `https://${String(host).split(':')[0]}${product.image}`, imagePath: product.image, url: `https://${String(host).split(':')[0]}${path || '/'}` };
+  if (product) return { name: product.name || product.title, title: product.title, description: product.description, image: `https://${String(host).split(':')[0]}${product.image}`, imagePath: product.image, url: `https://${String(host).split(':')[0]}${path || '/'}`, ...imageDetails(product) };
   const hostname = normHost(host);
   const hostSlug = isItscoPublicHost(hostname) ? 'itsco' : publicSiteSlug(hostname);
   const pathSlugWebsite = /^\/p\//.test(path || '') ? String(path).split('?')[0].split('/')[2] : null;
   const scb = isSchoolCareBridgeHost(hostname) || isSchoolCareBridgePath(path);
-  const website = scb ? { name: 'SchoolCareBridge | A program of MH4Kidz', image: '/assets/schoolcarebridge/logo.png', description: 'Connecting schools and mental health agencies. A school-centered program of MH4Kidz.' } : PUBLIC_WEBSITES[hostSlug || pathSlugWebsite];
+  const website = scb ? websiteShareCards.schoolcarebridge : PUBLIC_WEBSITES[hostSlug || pathSlugWebsite];
   const isWebsite = !!website;
   const pathSlug = resolvePathTenantSlug(path);
   const pathTenant = PATH_TENANTS[pathSlug] || null;
@@ -199,14 +202,14 @@ export function buildShareMeta({ host, path, proto = 'https' } = {}) {
     });
   const page = isWebsite ? { page: '', description: website?.description || 'Learn about our mission, services, and community.' } : pageCopy(path);
   const name = tenant.name;
-  const title = page.page ? `${name} · ${page.page}` : name;
+  const title = page.page ? `${name} · ${page.page}` : (tenant.title || name);
   const description = page.description || tenant.description || DEFAULT_DESC;
   const scheme = proto === 'http' ? 'http' : 'https';
   const origin = hostname ? `${scheme}://${hostname}` : '';
   const imagePath = isWebsite ? website.image : `/api/public/share-preview/image?path=${encodeURIComponent(path || '/')}`;
   const image = origin ? `${origin}${imagePath}` : imagePath;
   const url = origin ? `${origin}${path || '/'}` : (path || '/');
-  return { name, title, description, image, url, imagePath };
+  return { name, title, description, image, url, imagePath, ...(isWebsite ? imageDetails(website) : {}) };
 }
 
 export function injectShareMetaIntoHtml(html, meta) {

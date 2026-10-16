@@ -47,5 +47,5 @@ export function officeHtml(html, site) {
     .replace(/<title>[^<]*<\/title>/, `<title>${OFFICE_APP_NAME}</title>`)
     .replace(/(<link\b[^>]*id="app-(?:favicon|apple-touch-icon)"[^>]*href=")[^"]*(")/g, `$1${OFFICE_ICON}$2`)
     .replace(/(<link\b[^>]*rel="manifest"[^>]*href=")[^"]*(")/, '$1/office/kiosk.webmanifest$2')
-    .replace('</head>', `<meta property="og:type" content="website">${site.locationId ? '' : '<meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="AuricWell Kiosk — A warm welcome starts here.">'}<meta name="apple-mobile-web-app-title" content="Kiosk"><meta name="application-name" content="${OFFICE_APP_NAME}"></head>`);
+    .replace('</head>', `${site.locationId ? '' : '<meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="AuricWell Kiosk — A warm welcome starts here.">'}<meta name="apple-mobile-web-app-title" content="Kiosk"><meta name="application-name" content="${OFFICE_APP_NAME}"></head>`);
 }

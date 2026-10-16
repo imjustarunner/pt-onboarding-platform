@@ -1,3 +1,4 @@
+import { websiteShareCards } from '../constants/websiteShareCards.js';
 // Exact public entry points. These adapters change addresses, never account access.
 const hostname = host => String(host || '').toLowerCase().split(':')[0];
 export const FAMILY_ORIGIN = 'https://familycommandcenterhub.com';
@@ -27,6 +28,6 @@ export function productDomainPaths(host) {
 
 export function productBrowserBranding(host) {
   if (isFamilyWebsiteHost(host)) return { slug: 'family', title: 'Family Command Center | A little more together', favicon: '/family-home.svg', image: '/assets/family-events/family.jpg', description: 'Bring your family calendar, chores, meals, and everyday lists together in one private home.' };
-  if (isMichaelHost(host)) return { slug: 'michael', title: 'Michael V. Mendez | Consulting', favicon: '/michael-mark.svg', image: '/assets/ptco/consulting.webp', description: 'Practical strategy for private practice, AI app development, and growing organizations.' };
+  if (isMichaelHost(host)) return { slug: 'michael', ...websiteShareCards.michael, favicon: '/assets/michael/logo-seal.png' };
   return null;
 }
