@@ -26,7 +26,7 @@ describe('Plot Twist Co service discovery', () => {
     const portfolio = wrapper.find('#brand-portfolio');
     expect(portfolio.exists()).toBe(true);
     expect(wrapper.find('.ptco-service-detail').element.firstElementChild.id).toBe('brand-portfolio');
-    expect(portfolio.findAll('[data-brand]')).toHaveLength(19);
+    expect(portfolio.findAll('[data-brand]')).toHaveLength(16);
     for (const brand of brands) {
       const card = portfolio.find(`[data-brand="${brand.id}"]`);
       expect(card.find('h3').text()).toBe(brand.name);
@@ -44,12 +44,12 @@ describe('Plot Twist Co service discovery', () => {
     const { wrapper, router } = await setup('/p/ptco/services/website');
     const filters = wrapper.findAll('.ptco-portfolio-filters button');
     await filters.find(button => button.text().includes('Care & community')).trigger('click');
-    expect(wrapper.findAll('[data-brand]')).toHaveLength(7);
+    expect(wrapper.findAll('[data-brand]')).toHaveLength(6);
     expect(wrapper.find('[data-brand="itsco"]').exists()).toBe(true);
     expect(wrapper.find('[data-brand="auricwell"]').exists()).toBe(false);
-    expect(wrapper.find('.ptco-portfolio-toolbar [role="status"]').text()).toBe('7 brands');
+    expect(wrapper.find('.ptco-portfolio-toolbar [role="status"]').text()).toBe('6 brands');
     await filters[0].trigger('click');
-    expect(wrapper.findAll('[data-brand]')).toHaveLength(19);
+    expect(wrapper.findAll('[data-brand]')).toHaveLength(16);
     await wrapper.find('.ptco-portfolio-closing a').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.query.service).toBe('website');

@@ -25,8 +25,7 @@
         <article v-for="brand in visibleBrands" :id="`brand-${brand.id}`" :key="brand.id" class="ptco-portfolio-card" :data-brand="brand.id" :style="{'--brand-color':brand.colors[0]}">
           <div class="ptco-portfolio-art" :class="{'ptco-portfolio-art-wide': brand.logoLayout === 'wide'}">
             <span class="ptco-portfolio-category">{{ brand.category }}</span>
-            <LatinxBrandArtwork v-if="brand.artwork === 'latinx'" :label="`${brand.name} logo`" />
-            <img v-else :src="brand.logo" :alt="`${brand.name} logo`" loading="lazy" width="240" height="120">
+            <img :src="brand.logo" :alt="`${brand.name} logo`" loading="lazy" width="240" height="120">
             <div class="ptco-portfolio-colors" :aria-label="`${brand.name} website colors`">
               <span v-for="color in brand.colors" :key="color" :style="{background:color}" :title="color"></span>
             </div>
@@ -50,7 +49,6 @@
 <script setup>
 import { computed, ref } from 'vue';
 import brands from '../../content/ptcoBrandPortfolio.json';
-import LatinxBrandArtwork from '../providerDirectory/LatinxBrandArtwork.vue';
 import PtcoIcon from './PtcoIcon.vue';
 const categories = ['All brands', ...new Set(brands.map(brand => brand.category))];
 const selected = ref('All brands');
@@ -75,7 +73,6 @@ const visibleBrands = computed(() => selected.value === 'All brands' ? brands : 
 .ptco-portfolio-art{position:relative;display:flex;align-items:center;justify-content:center;height:207px;padding:48px 28px 28px;background:linear-gradient(135deg,#fff,#faf9f6);border-bottom:1px solid #f0eae7}
 .ptco-portfolio-category{position:absolute;top:18px;left:22px;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#696572}
 .ptco-portfolio-art>img{display:block;max-width:100%;width:240px;height:120px;object-fit:contain}
-.ptco-portfolio-art>:deep(.latinx-brand-artwork){width:220px;max-width:100%;height:auto}
 .ptco-portfolio-art-wide>img{width:280px;max-width:115%;height:150px;object-fit:contain}
 .ptco-portfolio-colors{position:absolute;bottom:0;left:0;right:0;display:flex;height:5px}
 .ptco-portfolio-colors span{flex:1}

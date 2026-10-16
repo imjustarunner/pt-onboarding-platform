@@ -21,27 +21,6 @@
     "source": "frontend/src/styles/ptcoWebsite.css"
   },
   {
-    "id": "plottwisthq",
-    "name": "Plot Twist HQ",
-    "category": "Business & technology",
-    "website": "https://plottwisthq.com",
-    "description": "A connected workspace for client care and business operations.",
-    "logo": "/assets/ptco/logo-flat.webp",
-    "icon": "/assets/ptco/logo-flat.png",
-    "colors": [
-      "#B80016",
-      "#1D2633",
-      "#F6F7F9"
-    ],
-    "assets": [
-      "/assets/ptco/logo-flat.webp",
-      "/assets/ptco/logo-flat.png"
-    ],
-    "typography": "Inter",
-    "source": "frontend/src/config/platformBrand.js",
-    "note": "Plot Twist HQ uses the shared Plot Twist Co. mark."
-  },
-  {
     "id": "auricwell",
     "name": "AuricWell",
     "category": "Business & technology",
@@ -273,28 +252,6 @@
     "source": "frontend/src/styles/riseWebsite.css"
   },
   {
-    "id": "latinx",
-    "name": "Latinx Therapist Project CO",
-    "category": "Care & community",
-    "website": "https://latinxtherapistproject.org",
-    "description": "Community, connection, and pathways into the mental health profession.",
-    "logo": "/assets/ptco/portfolio/latinx-brand-board.png",
-    "icon": "/assets/ptco/portfolio/latinx-brand-board.png",
-    "colors": [
-      "#631957",
-      "#C392D6",
-      "#E1A83B"
-    ],
-    "assets": [
-      "/assets/ptco/portfolio/latinx-brand-board.png",
-      "/assets/ptco/portfolio/latinx-logo-board.png"
-    ],
-    "typography": "See the supplied brand boards",
-    "source": "frontend/src/views/public/ProviderDirectoryView.vue",
-    "artwork": "latinx",
-    "note": "The package includes the original supplied brand and logo boards. Keep their artwork intact."
-  },
-  {
     "id": "kimi",
     "name": "Kimi Cain Life Coaching",
     "category": "Coaching & everyday life",
@@ -372,24 +329,5 @@
     ],
     "typography": "Barlow Condensed and DM Sans",
     "source": "frontend/src/sstc/website/site.css"
-  },
-  {
-    "id": "family",
-    "name": "Family Command Center",
-    "category": "Coaching & everyday life",
-    "website": "https://familycommandcenterhub.com",
-    "description": "A calmer place for family plans, shared tasks, and everyday life.",
-    "logo": "/family-home.svg",
-    "icon": "/family-home.svg",
-    "colors": [
-      "#575174",
-      "#333348",
-      "#FBF8F1"
-    ],
-    "assets": [
-      "/family-home.svg"
-    ],
-    "typography": "Inter",
-    "source": "frontend/src/views/public/FamilyWebsite.vue"
   }
 ]

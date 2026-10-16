@@ -15,7 +15,7 @@ try {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto(`${origin}${path}`, { waitUntil: 'networkidle' });
     await page.locator('[data-brand="plottwistco"]').waitFor();
-    assert.equal(await page.locator('[data-brand]').count(), 19);
+    assert.equal(await page.locator('[data-brand]').count(), 16);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `overflow at ${width}`);
     for (const card of await page.locator('[data-brand]').all()) {
       await card.scrollIntoViewIfNeeded();
@@ -25,7 +25,7 @@ try {
     if ([1440,390].includes(width)) await page.screenshot({ path: `${output}/portfolio-${width}.png`, fullPage: true });
   }
   const websiteLinks = await page.locator('.ptco-portfolio-links>a[target="_blank"]').evaluateAll(links => links.map(a => a.href));
-  assert.equal(websiteLinks.length, 18);
+  assert.equal(websiteLinks.length, 15);
   assert.equal(await page.locator('[data-brand="rmmentors"] .ptco-portfolio-status').innerText(), 'Website coming soon');
   assert.ok(websiteLinks.includes('https://auricwell.com/'));
   assert.ok(websiteLinks.includes('https://fundtred.com/'));
@@ -35,18 +35,18 @@ try {
     assert.equal(response.status(), 200, href);
     assert.equal((await response.body()).subarray(0, 2).toString(), 'PK', href);
   }
-  await page.getByRole('button', { name: 'Care & community 7', exact: true }).click();
-  assert.equal(await page.locator('[data-brand]').count(), 7);
+  await page.getByRole('button', { name: 'Care & community 6', exact: true }).click();
+  assert.equal(await page.locator('[data-brand]').count(), 6);
   assert.equal(await page.locator('[data-brand="auricwell"]').count(), 0);
-  await page.getByRole('button', { name: 'All brands 19', exact: true }).focus();
+  await page.getByRole('button', { name: 'All brands 16', exact: true }).focus();
   await page.keyboard.press('Enter');
-  assert.equal(await page.locator('[data-brand]').count(), 19);
+  assert.equal(await page.locator('[data-brand]').count(), 16);
   const download = page.waitForEvent('download');
   await page.locator('[data-brand="auricwell"] a[download]').click();
   const file = await download;
   assert.equal(file.suggestedFilename(), 'auricwell-brand-package.zip');
   await file.saveAs(`${output}/auricwell-brand-package.zip`);
   assert.deepEqual(errors, []);
-  writeFileSync(`${output}/results.json`, JSON.stringify({ widths: [1440,768,390,320], brands: 19, downloads: downloads.length, filters: 'passed', keyboard: 'passed', errors }, null, 2));
-  console.log('Portfolio passed: 4 viewport sizes, 19 brand cards, 19 ZIP downloads, filters, keyboard, and browser download.');
+  writeFileSync(`${output}/results.json`, JSON.stringify({ widths: [1440,768,390,320], brands: 16, downloads: downloads.length, filters: 'passed', keyboard: 'passed', errors }, null, 2));
+  console.log('Portfolio passed: 4 viewport sizes, 16 brand cards, 16 ZIP downloads, filters, keyboard, and browser download.');
 } finally { await browser.close(); }
