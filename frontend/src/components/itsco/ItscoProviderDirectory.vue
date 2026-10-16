@@ -9,7 +9,8 @@
      <ProviderProfileStats :provider-id="Number(selected.id)"/>
      <PublicProviderProfileEditor :provider="selected" :agency-id="agencyId" @saved="$emit('refresh')"/>
     </div>
-    <aside class="its-profile-availability"><PublicProviderAvailabilityPanel :provider="selected" agency-slug="itsco" :office-id="officeId" @loaded="profileSchedule=$event"/></aside>
+    <PublicProviderAvailabilityWeek class="its-profile-week" agency-slug="itsco" :provider-id="Number(selected.id)" :summary="profileSchedule" :source-error="profileScheduleError" :office-id="officeId" @select="availabilityPanel?.selectOpening($event)" @retry="availabilityPanel?.load()" @show-all-offices="officeId=''"/>
+    <aside class="its-profile-availability"><PublicProviderAvailabilityPanel ref="availabilityPanel" :provider="selected" agency-slug="itsco" :office-id="officeId" @office-change="officeId=$event" @loaded="profileSchedule=$event;profileScheduleError=''" @load-error="profileScheduleError=$event"/></aside>
     <div class="its-profile-description"><article class="its-card"><h3>About {{selected.firstName}}</h3><p class="its-full-bio">{{selected.bio||'Our team can tell you more about this provider and help you find the right support.'}}</p></article><ProviderFocusSummary :focus="selected.details?.clinicalFocus" :highlights="selected.details?.focusHighlights" :facets="selected"/><div class="its-two"><article v-for="[label,values] in profileFacets" :key="label" class="its-card"><h3>{{label}}</h3><div v-if="values.length" class="its-tags"><span v-for="v in values" :key="v">{{v}}</span></div><p v-else>Contact our team for details.</p></article></div></div>
    </div>
   </template>
@@ -75,13 +76,15 @@ import {useRoute,useRouter} from 'vue-router';
 import PublicOfficeLocations from '../publicServices/PublicOfficeLocations.vue';
 import PublicProviderProfileEditor from '../publicServices/PublicProviderProfileEditor.vue';
 import PublicProviderAvailabilityPanel from '../publicServices/PublicProviderAvailabilityPanel.vue';
+import PublicProviderAvailabilityWeek from '../publicServices/PublicProviderAvailabilityWeek.vue';
 const props=defineProps({providers:{type:Array,default:()=>[]},offices:{type:Array,default:()=>[]},schools:{type:Array,default:()=>[]},availability:{type:Object,default:()=>({})},directoryLoading:Boolean,availabilityLoading:Boolean,availabilityError:String,agencyId:{type:Number,required:true}});
 defineEmits(['refresh','retry-availability']);
 const route=useRoute(),router=useRouter(),officeId=ref(''),mode=ref('all'),school=ref(''),search=ref(''),age=ref(''),specialty=ref(''),insurance=ref(''),accepting=ref(''),openings=ref(''),gender=ref(''),language=ref(''),sort=ref('popular'),limit=ref(12),profileSchedule=ref(null);
 const moreFilters=ref(false),care=ref(''),city=ref(''),state=ref(''),desiredTime=ref({});
+const availabilityPanel=ref(null),profileScheduleError=ref('');
 const modes=[['all','All'],['office','In office'],['virtual','Virtual'],['school','School-based']];
 watch(()=>[route.query.officeId,route.query.setting,route.query.school],([id,setting,schoolId])=>{school.value=String(schoolId||'');mode.value=schoolId?'school':id?'office':['office','virtual','school'].includes(setting)?setting:'all';officeId.value=mode.value==='office'?String(id||''):'';},{immediate:true});
-watch(()=>providerIdFromRoute(route),()=>{profileSchedule.value=null;});
+watch(()=>providerIdFromRoute(route),()=>{profileSchedule.value=null;profileScheduleError.value='';});
 watch([officeId,mode,school,search,age,specialty,insurance,accepting,openings,gender,language,care,city,state,desiredTime],()=>{limit.value=12;});
 watch(()=>[route.query.care,route.query.city,route.query.insurance],([c,l,i])=>{care.value=String(c||'');city.value=String(l||'');insurance.value=String(i||'');},{immediate:true});
 const selected=computed(()=>props.providers.find(p=>String(p.id)===providerIdFromRoute(route)));
@@ -143,4 +146,6 @@ const filterCount=computed(()=>[school.value,age.value,specialty.value,insurance
 @media(max-width:1200px){.its-provider-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.its-card-top{grid-template-columns:36% minmax(0,1fr)}}
 @media(max-width:1000px){.its-provider-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.its-profile-layout{grid-template-columns:1fr;grid-template-rows:auto}.its-profile-info,.its-profile-description,.its-profile-availability{grid-column:1;grid-row:auto}.its-provider-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:580px){.its-provider-grid{grid-template-columns:1fr}.its-provider-card{padding:16px;gap:12px}.its-card-top{grid-template-columns:112px minmax(0,1fr)}.its-provider-photo{height:150px}.its-card-top h3{font-size:19px}.its-card-top .its-small{font-size:12px}.its-card-top .its-tags span{font-size:11px}.its-card-actions .its-button{font-size:12px;min-height:42px}.its-provider-modes{gap:5px}.its-provider-modes button{padding:9px 10px;font-size:12px;flex:1}.its-provider-modes svg{display:none}.its-search-summary{gap:9px}.its-search-summary label{width:100%;margin:0}.its-search-summary select{flex:1;max-width:none}.its-profile-top{gap:14px;align-items:start}.its-profile-top>img,.its-profile-top>.its-avatar{width:100px;height:140px}.its-profile-top h2{font-size:23px}.its-profile-top>div:last-child{min-width:0}.its-provider-filters{padding:10px;gap:10px}.its-provider-filters select{font-size:12px;padding:9px 6px}.its-profile-layout{gap:16px}}
+.its-profile-layout{grid-template-columns:minmax(0,1.4fr) minmax(360px,1fr);grid-template-rows:auto auto 1fr;gap:20px}.its-profile-info{grid-column:1 / -1;grid-row:1}.its-profile-week{grid-column:1 / -1;grid-row:2;margin-bottom:0;min-width:0}.its-profile-description{grid-column:1;grid-row:3}.its-profile-availability{grid-column:2;grid-row:3}.its-profile-top>img,.its-profile-top>.its-avatar{width:120px;height:160px}.its-profile-top h2{margin-top:5px;margin-bottom:8px}.its-profile-top p{margin:6px 0}
+@media(max-width:1000px){.its-profile-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto}.its-profile-info,.its-profile-week,.its-profile-description,.its-profile-availability{grid-column:1;grid-row:auto}}@media(max-width:580px){.its-profile-top>img,.its-profile-top>.its-avatar{width:88px;height:120px}.its-profile-layout{gap:16px}}
 </style>

@@ -1195,9 +1195,9 @@ export const getProviderScheduleSummary = async (req,res,next) => {
   const provider=directory.find(p=>Number(p.id)===providerId);
   if(!provider)return res.status(404).json({error:{message:'Provider not found'}});
   const {readPublicProviderSchedule}=await import('../services/publicProviderSchedule.service.js');
-  const schedule=await readPublicProviderSchedule(providerId,agency.id,{officeId:Number(req.query.officeId)||null});
+  const schedule=await readPublicProviderSchedule(providerId,agency.id,{officeId:Number(req.query.officeId)||null,weekStart:req.query.weekStart===undefined?null:String(req.query.weekStart)});
   res.json({...schedule,onlineScheduling:Boolean(agency.public_availability_enabled)&&provider.online_enrolled!==0});
- }catch(error){next(error);}
+ }catch(error){if(error.status===400)return res.status(400).json({error:{message:error.message}});next(error);}
 };
 
 export const getProviderDetail = async (req, res, next) => {

@@ -14,6 +14,17 @@ beforeEach(()=>{
 });
 afterEach(()=>vi.useRealTimers());
 describe('public provider schedule summaries',()=>{
+ it('loads only the selected week, normalized to Monday, and does not truncate its openings',async()=>{
+  Availability.computeWeekAvailability.mockClear();
+  const slots=Array.from({length:65},(_,i)=>({startAt:new Date(Date.UTC(2030,1,4,8+i)).toISOString(),endAt:new Date(Date.UTC(2030,1,4,9+i)).toISOString()}));
+  Availability.computeWeekAvailability.mockResolvedValue({timeZone:'America/Denver',virtualSlots:slots,inPersonSlots:[]});
+  const result=await readPublicProviderSchedule(9,2,{weekStart:'2030-02-06'});
+  expect(result.weekStart).toBe('2030-02-04');expect(result.slots).toHaveLength(65);expect(Availability.computeWeekAvailability).toHaveBeenCalledTimes(1);
+  expect(Availability.computeWeekAvailability).toHaveBeenCalledWith(expect.objectContaining({weekStartYmd:'2030-02-04',intakeOnly:true}));
+ });
+ it.each(['2030-02-30','not-a-date','2030-13-01',''])('rejects invalid requested week %s before looking up calendar data',async weekStart=>{
+  Availability.computeWeekAvailability.mockClear();await expect(readPublicProviderSchedule(9,2,{weekStart})).rejects.toMatchObject({status:400});expect(Availability.computeWeekAvailability).not.toHaveBeenCalled();
+ });
  it('uses actual openings, deduplicates weeks, and includes public locations and typical hours',async()=>{
   const result=await readPublicProviderSchedule(9,2);
   expect(result.virtual.status).toBe('accepting');expect(result.inPerson.status).toBe('waitlist');expect(result.slots).toHaveLength(1);

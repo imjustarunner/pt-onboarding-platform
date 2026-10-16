@@ -15,6 +15,19 @@ async function chooseVirtualOpening(){
  const w=render();await flushPromises();await w.get('.format-virtual .next-openings button').trigger('click');await flushPromises();return w;
 }
 describe('public availability and waitlist',()=>{
+ it('does not reload availability when a parent rerenders the same provider object',async()=>{
+  const w=render();await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
+  await w.setProps({provider:{...provider,details:{...provider.details}}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
+  await w.setProps({provider:{...provider,id:10}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(2);w.unmount();
+ });
+ it('uses a later week’s available setting when the compact bar requests an opening beyond the initial summary',async()=>{
+  const w=render();await flushPromises();
+  const slot={...virtualOpening,startAt:'2030-03-06T17:00:00Z',endAt:'2030-03-06T18:00:00Z'};
+  await w.vm.selectOpening({slot,schedule:{...summary,virtual:{status:'accepting'}}});await flushPromises();
+  expect(w.get('[role=dialog]').text()).toContain('March 6, 2030');
+  await w.get('.preferred-time-continue').trigger('click');await flushPromises();
+  expect(JSON.parse(sessionStorage.getItem('provider-hold:test'))).toMatchObject({startAt:slot.startAt,endAt:slot.endAt,modality:'VIRTUAL',preferenceOnly:true});expect(push).toHaveBeenCalledTimes(1);w.unmount();
+ });
  it('groups all local-date times together across UTC midnight and keeps the next week separate',async()=>{
   api.get.mockResolvedValue({data:{...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-03T02:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-02T16:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-09T16:00:00Z'}]}});
   const w=render();await flushPromises();const days=w.findAll('.format-virtual .next-openings>div');expect(days).toHaveLength(2);expect(days[0].findAll('.day-time')).toHaveLength(2);expect(days[0].findAll('strong')).toHaveLength(1);expect(days[1].findAll('.day-time')).toHaveLength(1);w.unmount();

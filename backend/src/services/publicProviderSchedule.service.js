@@ -5,7 +5,14 @@ import {readPublicWeekAvailability} from './publicAvailabilitySnapshot.service.j
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {publicAcceptance} from '../utils/publicProviderPresentation.js';
 
-export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,officeId=null,timePreferences={}}={}) {
+export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,weekStart=null,officeId=null,timePreferences={}}={}) {
+ let requestedWeek=null;
+ if(weekStart!==null){
+  const date=new Date(`${weekStart}T00:00:00Z`);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)||!Number.isFinite(+date)||date.toISOString().slice(0,10)!==weekStart)throw Object.assign(new Error('Choose a valid availability week.'),{status:400});
+  date.setUTCDate(date.getUTCDate()-(date.getUTCDay()+6)%7);
+  requestedWeek=date.toISOString().slice(0,10);
+ }
  const matchesTime=appointmentTimePredicate(timePreferences);
  const [profile, [people], [offices], [schoolRows]] = await Promise.all([
   Profile.getForProvider({providerUserId:providerId,agencyId}),
@@ -24,8 +31,8 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
  ]);
  const details=profile?.details||{},user=scopeProviderRow(people[0]||{},agencyId,profile?.details),now=Date.now(),all=[];
  let timeZone='America/Denver', checkedAt=null;
- for(let week=0;week<weeks;week++) {
-  const result=await readPublicWeekAvailability({agencyId,providerId,weekStartYmd:new Date(now+week*7*86400000).toISOString().slice(0,10),intakeOnly:true,includeGoogleBusy:true,externalCalendarIds:[],slotMinutes:60});
+ for(let week=0;week<(requestedWeek?1:weeks);week++) {
+  const result=await readPublicWeekAvailability({agencyId,providerId,weekStartYmd:requestedWeek||new Date(now+week*7*86400000).toISOString().slice(0,10),intakeOnly:true,includeGoogleBusy:true,externalCalendarIds:[],slotMinutes:60});
   timeZone=result.timeZone||timeZone;
   if(result.checkedAt&&(!checkedAt||result.checkedAt<checkedAt))checkedAt=result.checkedAt;
   for(const [key,format] of [['inPersonSlots','IN_PERSON'],['virtualSlots','VIRTUAL']])
@@ -47,7 +54,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
   formats[key]={...acceptance,nextAvailableAt:next?.startAt||null,hasPublishedOpenings:acceptance.hasOpenings};
  }
  const waitlistFormats=[['IN_PERSON','officeAvailability'],['VIRTUAL','virtualAvailability'],['SCHOOL','schoolAvailability']].filter(([format,key])=>policy?agencyWaitlistAllowed(policy,format):details.waitlistEnabled===true||details[key]==='waitlist').map(([format])=>format);
- return {timeZone,checkedAt:checkedAt||new Date().toISOString(),...formats,slots:['IN_PERSON','VIRTUAL'].flatMap(format=>slots.filter(s=>s.format===format).slice(0,60)).sort((a,b)=>a.startAt.localeCompare(b.startAt)),nextAvailableAt:slots[0]?.startAt||null,
+ return {timeZone,...(requestedWeek?{weekStart:requestedWeek}:{}),checkedAt:checkedAt||new Date().toISOString(),...formats,slots:requestedWeek?slots:['IN_PERSON','VIRTUAL'].flatMap(format=>slots.filter(s=>s.format===format).slice(0,60)).sort((a,b)=>a.startAt.localeCompare(b.startAt)),nextAvailableAt:slots[0]?.startAt||null,
   hasPublishedOpenings:slots.length>0||schoolOpenings,
   waitlistEnabled:waitlistFormats.length>0,waitlistFormats,
   typicalAvailability:Array.isArray(details.typicalAvailability)?[...new Set(details.typicalAvailability)].slice(0,30):[],

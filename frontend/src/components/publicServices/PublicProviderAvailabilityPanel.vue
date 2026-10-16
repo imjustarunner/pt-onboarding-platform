@@ -1,5 +1,5 @@
 <template>
- <section class="provider-availability-panel" aria-label="Provider availability">
+ <section ref="panel" class="provider-availability-panel" aria-label="Provider availability">
   <header><h3>Availability</h3><span>{{ statusLabel(status) }}</span><p>Find availability by care setting.</p></header>
   <div class="availability-content">
    <p v-if="loading" role="status">Checking current openings…</p>
@@ -13,8 +13,8 @@
     <template v-if="schedule && f.key!=='school'">
      <h5>Next available appointments</h5>
      <p v-if="!slotsFor(f).length">{{emptyMessage(f)}}</p>
-     <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">These times show this provider’s {{f.key==='virtual'?'virtual':'in-person'}} availability; online booking is off. Select a preferred time to include in enrollment. It will not be reserved.</p>
-     <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><small>{{availabilityLabel(slot)}}</small><small>{{f.key==='virtual'?'Virtual':slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name}}</small><button type="button" :disabled="selecting" @click="schedule.onlineScheduling?openCalendar(f,slot):selectPreference(f,slot)">{{schedule.onlineScheduling?'Reserve time':'Select preferred time'}}</button></div></div></div></div>
+     <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">Select a preferred time for enrollment; online booking is off. Our team confirms availability.</p>
+     <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.endAt+':'+slot.frequency+':'+slot.purpose+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><div class="day-time-details"><small>{{availabilityLabel(slot)}}</small><small v-if="f.key==='inPerson'"><Icon name="pin"/>{{slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name||'In person'}}</small><small v-else title="Virtual"><Icon name="screen"/><span class="availability-sr-only">Virtual</span></small></div><button type="button" :disabled="selecting" :aria-label="(schedule.onlineScheduling?'Reserve time':'Select preferred time')+' '+day(slot.startAt)+' '+time(slot.startAt)+' '+f.label" @click="schedule.onlineScheduling?openCalendar(f,slot):selectPreference(f,slot)">{{schedule.onlineScheduling?'Reserve time':'Select time'}} <Icon name="arrow"/></button></div></div></div></div>
      <p v-if="slotsFor(f).length" class="timezone">Times shown in {{schedule.timeZone}}. Our team confirms placement.</p>
      <button v-if="slotsFor(f).length && (schedule.onlineScheduling || daysFor(f).length>6)" type="button" class="calendar-toggle" :aria-expanded="calendar===f.value || expanded===f.value" @click="toggleCalendar(f)">{{calendar===f.value || expanded===f.value?'Hide calendar':'View all '+f.label.toLowerCase()+' availability →'}}</button>
      <PublicProviderSlotPicker v-if="calendar===f.value" :key="f.value+calendarWeek+calendarOffice" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="calendarOffice" :office-locations="assignedOffices" :fixed-format="f.value" :initial-week="calendarWeek" :time-zone="schedule.timeZone" @hold="selection=$event;$emit('hold',$event)"/>
@@ -40,7 +40,7 @@
 <script setup>
 import {availabilityLabel} from '../../utils/availabilityLabel.js';
 
-import {computed,onBeforeUnmount,ref,watch} from 'vue';
+import {computed,nextTick,onBeforeUnmount,ref,watch} from 'vue';
 import {useRouter} from 'vue-router';
 import PreferredTimeConfirmation from './PreferredTimeConfirmation.vue';
 import {availabilityDayGroups} from '../../utils/availabilityDayGroups';
@@ -50,7 +50,8 @@ import {providerEnrollmentFormats,providerEnrollmentPath} from '../../utils/prov
 import {overallProviderStatus,statusLabel} from '../../utils/providerDirectoryStatus';
 import PublicProviderSlotPicker from './PublicProviderSlotPicker.vue';
 const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:String,required:true},serviceType:{type:String,default:'counseling'},officeId:{type:[String,Number],default:''}});
-const emit=defineEmits(['hold','loaded']);
+const emit=defineEmits(['hold','loaded','load-error','office-change']);
+const panel=ref(null);
 const router=useRouter();
 const pendingPreference=ref(null);
 const selectedOffice=ref('');
@@ -105,6 +106,18 @@ const emptyMessage=f=>schedule.value?.[f.key]?.status==='accepting'
  : schedule.value?.[f.key]?.status==='waitlist'?'No appointment times are posted. You can join the waitlist for this setting.':'Closed to new clients in this setting. Inquire with our team for help finding support.';
 function toggleCalendar(f){if(schedule.value?.onlineScheduling){calendar.value===f.value?calendar.value='':openCalendar(f);}else expanded.value=expanded.value===f.value?'':f.value;}
 function openCalendar(f,slot){calendarWeek.value=slot?.startAt?new Date(slot.startAt).toLocaleDateString('en-CA',{timeZone:schedule.value?.timeZone}):'';calendarOffice.value=f.key==='inPerson'?String(slot?.buildingId||selectedOffice.value||''):'';calendar.value=f.value;}
+async function selectOpening({slot,schedule:currentSchedule}){
+ const f=formats.find(format=>format.value===slot.format);
+ if(!f||selecting.value||!currentSchedule)return;
+ // Use the selected week's current status and location details for the same enrollment flow.
+ schedule.value={...schedule.value,timeZone:currentSchedule.timeZone,onlineScheduling:currentSchedule.onlineScheduling,inPerson:currentSchedule.inPerson,virtual:currentSchedule.virtual,locations:currentSchedule.locations};
+ if(!schedule.value.onlineScheduling){selectPreference(f,slot);return;}
+ openCalendar(f,slot);
+ await nextTick();
+ const picker=panel.value?.querySelector('.opening-picker');
+ picker?.scrollIntoView({behavior:'smooth',block:'center'});
+ if(picker){picker.setAttribute('tabindex','-1');picker.focus({preventScroll:true});}
+}
 const formatContactPath=f=>{
  const office=f.key==='inPerson'?(assignedOffices.value.find(o=>String(o.id)===selectedOffice.value)||(assignedOffices.value.length===1?assignedOffices.value[0]:null)):null;
  return {...contactPath.value,query:{...contactPath.value.query,format:f.value,officeId:office?.id,officeName:office?.name}};
@@ -116,11 +129,12 @@ const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-di
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;selection.value=null;
  try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});if(id!==generation)return;schedule.value=data;emit('loaded',data);}
- catch(e){if(id===generation)error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
+ catch(e){if(id===generation){error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';emit('load-error',error.value);}}
  finally{if(id===generation)loading.value=false;}}
-watch(selectedOffice,()=>{calendar.value='';});
-watch(()=>[props.provider.id,props.agencySlug,props.serviceType],()=>{calendar.value='';pendingPreference.value=null;selectionError.value='';selectedOffice.value=String(props.officeId||'');load();},{immediate:true});
+watch(selectedOffice,value=>{calendar.value='';emit('office-change',value);});
+watch([()=>props.provider.id,()=>props.agencySlug,()=>props.serviceType],()=>{calendar.value='';pendingPreference.value=null;selectionError.value='';selectedOffice.value=String(props.officeId||'');load();},{immediate:true});
 onBeforeUnmount(()=>{generation++;pendingPreference.value=null;});
+defineExpose({selectOpening,load});
 </script>
 <style scoped>
 .enrollment-link{display:block;background:var(--format-ink);color:#fff;padding:12px;border-radius:9px;margin-top:16px;text-align:center;font-weight:600;text-decoration:none}.day-times{display:grid;gap:10px}.day-time{display:grid;gap:6px}.day-time+.day-time{border-top:1px solid var(--format-border);padding-top:10px}
@@ -132,4 +146,6 @@ onBeforeUnmount(()=>{generation++;pendingPreference.value=null;});
 .format-heading{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--format-border);padding-bottom:14px;margin-bottom:16px}.format-heading>div{flex:1;min-width:150px}.format-heading h4{color:var(--format-ink);font-size:23px;margin:0 0 3px}.format-heading p{font-size:13px;line-height:1.5;margin:0}.format-icon{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--format-tint);color:var(--format-ink)}.format-icon svg{width:24px;height:24px}.format-status{display:inline-block;font-size:12px;line-height:1.4;border-radius:20px;background:var(--format-tint);color:var(--format-ink);padding:7px 10px}.format-section h5{font-size:16px;margin:18px 0 10px;color:var(--format-ink)}.format-section p{line-height:1.6}.format-section .contact-link{font-size:14px;color:var(--format-ink);font-weight:600}.format-section button{font:inherit;font-size:13px;border:1px solid var(--format-border);background:#fff;color:var(--format-ink);border-radius:8px;min-height:40px;padding:8px 10px;cursor:pointer}.next-openings>div{background:#ffffffb0;border-color:var(--format-border);font-size:13px;min-width:0}.next-openings small{overflow-wrap:anywhere}.next-openings button{font-weight:600}.format-section .calendar-toggle{width:100%;margin:10px 0}.scheduling-note{font-size:13px}.provider-locations article{margin:8px 0;background:#ffffffaa}.provider-locations button{display:block;margin-top:10px}.school-locations article{display:flex;gap:10px;padding:14px;border:1px solid var(--format-border);background:#ffffffb0;border-radius:10px;margin:10px 0}.school-locations svg{width:24px;height:24px;flex-shrink:0;color:var(--format-ink)}.school-locations p{font-size:13px;margin:5px 0}.typical-availability{font-size:13px}.provider-availability-panel :focus-visible{outline:3px solid #c99718;outline-offset:3px}@media(max-width:440px){.availability-content{padding:10px;gap:12px}.format-section{padding:14px}.next-openings{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .provider-availability-panel header{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}.provider-availability-panel header h3{margin:0}.provider-availability-panel header p{grid-column:1 / -1;margin:0}.provider-availability-panel header span{font-size:13px}@media(max-width:440px){.provider-availability-panel header{grid-template-columns:1fr}.provider-availability-panel header span{justify-self:start}}
 .next-openings{grid-template-columns:minmax(0,1fr)}.day-times{grid-template-columns:repeat(auto-fit,minmax(100px,1fr))}.day-time+.day-time{border-top:0;padding-top:0}
+.provider-availability-panel header{padding:15px 18px;gap:5px}.provider-availability-panel header h3{font-size:19px}.provider-availability-panel header p{font-size:12px}.provider-availability-panel header span{font-size:11px;padding:5px 9px}.availability-content{padding:12px;gap:12px}.format-section{padding:14px;border-radius:12px}.format-heading{padding-bottom:10px;margin-bottom:10px;gap:8px}.format-icon{width:34px;height:34px;flex-shrink:0}.format-icon svg{width:19px;height:19px}.format-heading>div{min-width:100px}.format-heading h4{font-size:18px}.format-heading p{font-size:12px}.format-status{font-size:10px;padding:5px 8px}.format-section h5{font-size:13px;margin:12px 0 8px}.format-section .scheduling-note{font-size:12px;line-height:1.5;margin:8px 0 12px}.next-openings{gap:8px}.next-openings>div{text-align:left;padding:10px;gap:7px}.next-openings>div>strong{font-size:12px}.day-times{display:grid;grid-template-columns:1fr;gap:6px}.day-time{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.day-time>span{font-size:12px;font-weight:650;padding:6px;white-space:nowrap}.day-time-details{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0;font-size:12px}.day-time-details small{display:inline-flex;gap:3px;align-items:center}.day-time svg{width:13px;height:13px;flex-shrink:0}.day-time>button{display:inline-flex;align-items:center;gap:5px;font-size:11px;min-height:34px;padding:6px 8px;white-space:nowrap}.provider-locations article{padding:10px;font-size:13px}.provider-locations p{font-size:12px;line-height:1.5}.provider-locations a{font-size:12px}.provider-locations button{display:inline-block;margin:5px 0 0 12px;font-size:11px;min-height:32px}.format-section .contact-link{font-size:12px;padding:8px 0}.enrollment-link{font-size:13px;padding:10px;margin-top:12px}.timezone{font-size:11px;margin:8px 0}.school-locations article{padding:10px}.school-locations{font-size:13px}.typical-availability{font-size:12px}
+.availability-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
