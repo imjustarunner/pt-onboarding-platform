@@ -2,8 +2,9 @@
  <section ref="panel" class="provider-availability-panel" aria-label="Provider availability">
   <header><h3>Availability</h3><span>{{ loading && !schedule ? 'Checking schedule…' : statusLabel(status) }}</span><p>Find availability by care setting.</p></header>
   <div class="availability-content">
-   <PublicAvailabilityLoading v-if="loading" :key="schedule?'upcoming':'initial'" :upcoming="Boolean(schedule)"/>
-   <p v-if="error" role="alert">{{partialSchedule ? 'Could not load upcoming weeks.' : error}} <span v-if="schedule">This week’s available times are still shown below.</span> <button @click="load">Try again</button></p>
+   <PublicAvailabilityLoading v-if="loading && !schedule"/>
+   <p v-else-if="loading" class="schedule-refresh" role="status">Updating this provider’s schedule · {{checkedWeeks}} of 4 weeks checked. Saved times remain visible.</p>
+   <p v-if="error" role="alert">{{error}} <span v-if="schedule">Saved times remain visible and are subject to change.</span> <button @click="load({force:true})">Try again</button></p>
    <section v-for="f in formats" :key="f.key" class="format-section" :class="'format-'+f.key" :aria-label="f.label+' availability'">
     <div class="format-heading"><span class="format-icon"><Icon :name="f.icon"/></span><div><h4>{{f.label}}</h4><p>{{f.description}}</p></div><span v-if="schedule" class="format-status">{{statusLabel(schedule[f.key]?.status)}}</span></div>
     <template v-if="f.key==='inPerson'">
@@ -11,7 +12,7 @@
      <p v-if="selectedOffice" class="timezone">In-person times are filtered to {{assignedOffices.find(o=>String(o.id)===selectedOffice)?.name||'your selected office'}}. <button type="button" @click="selectedOffice=''">Show all offices</button></p>
     </template>
     <template v-if="schedule && f.key!=='school'">
-     <h5>{{partialSchedule?'This week’s appointments':'Next available appointments'}}</h5>
+     <h5>{{partialSchedule?'Available appointments':'Next available appointments'}}</h5>
      <p v-if="!slotsFor(f).length">{{emptyMessage(f)}}</p>
      <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">Select a preferred time for enrollment; online booking is off. Our team confirms availability.</p>
      <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.endAt+':'+slot.frequency+':'+slot.purpose+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><div class="day-time-details"><small>{{availabilityLabel(slot)}}</small><small v-if="f.key==='inPerson'"><Icon name="pin"/>{{slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name||'In person'}}</small><small v-else title="Virtual"><Icon name="screen"/><span class="availability-sr-only">Virtual</span></small></div><button type="button" :disabled="selecting" :aria-label="(schedule.onlineScheduling?'Reserve time':'Select preferred time')+' '+day(slot.startAt)+' '+time(slot.startAt)+' '+f.label" @click="schedule.onlineScheduling?openCalendar(f,slot):selectPreference(f,slot)">{{schedule.onlineScheduling?'Reserve time':'Select time'}} <Icon name="arrow"/></button></div></div></div></div>
@@ -46,13 +47,14 @@ import PreferredTimeConfirmation from './PreferredTimeConfirmation.vue';
 import PublicAvailabilityLoading from './PublicAvailabilityLoading.vue';
 import {availabilityDayGroups} from '../../utils/availabilityDayGroups';
 import api from '../../services/api';
+import {getCachedProviderWeek,providerWeekStarts,mergeProviderWeeks,readProviderWeek} from '../../services/publicAvailabilityRead';
 import Icon from '../rise/RiseIcon.vue';
 import {providerEnrollmentFormats,providerEnrollmentPath} from '../../utils/providerEnrollmentEntry';
 import {overallProviderStatus,statusLabel} from '../../utils/providerDirectoryStatus';
 import PublicProviderSlotPicker from './PublicProviderSlotPicker.vue';
 const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:String,required:true},serviceType:{type:String,default:'counseling'},officeId:{type:[String,Number],default:''}});
 const emit=defineEmits(['hold','loaded','load-error','office-change']);
-const panel=ref(null),partialSchedule=ref(false);
+const panel=ref(null),partialSchedule=ref(false),checkedWeeks=ref(0);
 const router=useRouter();
 const pendingPreference=ref(null);
 const selectedOffice=ref('');
@@ -90,7 +92,6 @@ async function confirmPreference(){
  }catch(e){selectionError.value=e.response?.data?.error?.message||e.message||'Could not save this preference and open enrollment. Please try again.';}
  finally{selecting.value=false;}
 }
-const base=computed(()=>`/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${Number(props.provider.id)}`);
 const contactPath=computed(()=>({path:props.agencySlug==='itsco'?'/p/itsco/contact':`/${encodeURIComponent(props.agencySlug)}/support`,query:{category:'provider',provider:String(props.provider.id),providerName:props.provider.displayName||props.provider.name||'',serviceType:props.serviceType,officeId:selectedOffice.value||undefined}}));
 const status=computed(()=>overallProviderStatus(props.provider,schedule.value||{}));
 const typicalAvailability=computed(()=>Array.isArray(props.provider.details?.typicalAvailability)?props.provider.details.typicalAvailability:[]);
@@ -102,7 +103,7 @@ const formats=[
 const assignedOffices=computed(()=>schedule.value?.locations||props.provider.officeLocations||[]);
 const slotsFor=f=>(schedule.value?.[f.key]?.status==='accepting'?(schedule.value?.slots||[]):[]).filter(s=>s.format===f.value&&(f.key!=='inPerson'||!selectedOffice.value||String(s.buildingId)===selectedOffice.value));
 const daysFor=f=>availabilityDayGroups(slotsFor(f),schedule.value?.timeZone);
-const emptyMessage=f=>partialSchedule.value ? 'No openings shown this week. Use the weekly calendar above to check another week.' : schedule.value?.[f.key]?.status==='accepting'
+const emptyMessage=f=>partialSchedule.value ? 'No openings in the weeks loaded so far. Use the weekly calendar above to check another week.' : schedule.value?.[f.key]?.status==='accepting'
  ? 'Accepting new clients. Appointment times aren’t posted yet; we’ll work with you directly to find a time.'
  : schedule.value?.[f.key]?.status==='waitlist'?'No appointment times are posted. You can join the waitlist for this setting.':'Closed to new clients in this setting. Inquire with our team for help finding support.';
 function toggleCalendar(f){if(schedule.value?.onlineScheduling){calendar.value===f.value?calendar.value='':openCalendar(f);}else expanded.value=expanded.value===f.value?'':f.value;}
@@ -128,19 +129,32 @@ const mapUrl=l=>`https://www.google.com/maps/search/?api=1&query=${encodeURIComp
 const day=value=>new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',timeZone:schedule.value?.timeZone}).format(new Date(value));
 const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit',timeZone:schedule.value?.timeZone}).format(new Date(value));
 let generation=0;
-async function load(){const id=++generation;loading.value=true;error.value='';if(!partialSchedule.value)schedule.value=null;selection.value=null;
- try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});if(id!==generation)return;schedule.value=data;partialSchedule.value=false;emit('loaded',data);}
- catch(e){if(id===generation){error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';emit('load-error',error.value);}}
- finally{if(id===generation)loading.value=false;}}
+async function load({force=false}={}){
+ const id=++generation,options={agencySlug:props.agencySlug,providerId:Number(props.provider.id),serviceType:props.serviceType};
+ let starts=providerWeekStarts(options);
+ const weeks=new Map(starts.map(weekStart=>[weekStart,getCachedProviderWeek({...options,weekStart})]).filter(([,value])=>value));
+ const publish=()=>{schedule.value=mergeProviderWeeks(starts.map(start=>weeks.get(start)));partialSchedule.value=starts.some(start=>!weeks.has(start));if(schedule.value)emit('loaded',schedule.value);};
+ loading.value=true;error.value='';checkedWeeks.value=0;publish();
+ const failed=[];
+ for(let index=0;index<starts.length;index++){
+  try{
+   let data=await readProviderWeek({...options,weekStart:starts[index]},{force});
+   if(id!==generation)return;
+   if(index===0){
+    const corrected=providerWeekStarts(options);
+    if(corrected[0]!==starts[0]){starts=corrected;data=await readProviderWeek({...options,weekStart:starts[0]},{force});if(id!==generation)return;}
+   }
+   weeks.set(starts[index],data);checkedWeeks.value++;publish();
+  }catch(e){if(id!==generation)return;failed.push(e);}
+ }
+ if(id!==generation)return;
+ if(failed.length){error.value=schedule.value?'Some weeks could not be updated. Please try again.':'We could not load this provider’s available schedule. Please try again or inquire with our team.';emit('load-error',error.value);}
+ loading.value=false;
+}
 watch(selectedOffice,value=>{calendar.value='';emit('office-change',value);});
 watch([()=>props.provider.id,()=>props.agencySlug,()=>props.serviceType],()=>{calendar.value='';pendingPreference.value=null;selectionError.value='';selectedOffice.value=String(props.officeId||'');schedule.value=null;partialSchedule.value=false;load();},{immediate:true});
 onBeforeUnmount(()=>{generation++;pendingPreference.value=null;});
-function showWeek(data){
- // Publish the fast first-week result while the longer lookahead is still loading.
- if((!loading.value && !error.value) || (schedule.value && !partialSchedule.value))return;
- schedule.value=data;partialSchedule.value=true;
-}
-defineExpose({selectOpening,load,showWeek});
+defineExpose({selectOpening,load});
 </script>
 <style scoped>
 .enrollment-link{display:block;background:var(--format-ink);color:#fff;padding:12px;border-radius:9px;margin-top:16px;text-align:center;font-weight:600;text-decoration:none}.day-times{display:grid;gap:10px}.day-time{display:grid;gap:6px}.day-time+.day-time{border-top:1px solid var(--format-border);padding-top:10px}
@@ -154,4 +168,5 @@ defineExpose({selectOpening,load,showWeek});
 .next-openings{grid-template-columns:minmax(0,1fr)}.day-times{grid-template-columns:repeat(auto-fit,minmax(100px,1fr))}.day-time+.day-time{border-top:0;padding-top:0}
 .provider-availability-panel header{padding:15px 18px;gap:5px}.provider-availability-panel header h3{font-size:19px}.provider-availability-panel header p{font-size:12px}.provider-availability-panel header span{font-size:11px;padding:5px 9px}.availability-content{padding:12px;gap:12px}.format-section{padding:14px;border-radius:12px}.format-heading{padding-bottom:10px;margin-bottom:10px;gap:8px}.format-icon{width:34px;height:34px;flex-shrink:0}.format-icon svg{width:19px;height:19px}.format-heading>div{min-width:100px}.format-heading h4{font-size:18px}.format-heading p{font-size:12px}.format-status{font-size:10px;padding:5px 8px}.format-section h5{font-size:13px;margin:12px 0 8px}.format-section .scheduling-note{font-size:12px;line-height:1.5;margin:8px 0 12px}.next-openings{gap:8px}.next-openings>div{text-align:left;padding:10px;gap:7px}.next-openings>div>strong{font-size:12px}.day-times{display:grid;grid-template-columns:1fr;gap:6px}.day-time{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.day-time>span{font-size:12px;font-weight:650;padding:6px;white-space:nowrap}.day-time-details{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0;font-size:12px}.day-time-details small{display:inline-flex;gap:3px;align-items:center}.day-time svg{width:13px;height:13px;flex-shrink:0}.day-time>button{display:inline-flex;align-items:center;gap:5px;font-size:11px;min-height:34px;padding:6px 8px;white-space:nowrap}.provider-locations article{padding:10px;font-size:13px}.provider-locations p{font-size:12px;line-height:1.5}.provider-locations a{font-size:12px}.provider-locations button{display:inline-block;margin:5px 0 0 12px;font-size:11px;min-height:32px}.format-section .contact-link{font-size:12px;padding:8px 0}.enrollment-link{font-size:13px;padding:10px;margin-top:12px}.timezone{font-size:11px;margin:8px 0}.school-locations article{padding:10px}.school-locations{font-size:13px}.typical-availability{font-size:12px}
 .availability-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.schedule-refresh{font-size:12px;line-height:1.5;margin:0;padding:10px 12px;border-radius:8px;background:#edf6f1;color:#20533f}
 </style>

@@ -2,6 +2,8 @@ import {describe,it,expect,vi,beforeEach} from 'vitest';
 import pool from '../../config/database.js';
 import Availability from '../../services/providerAvailability.service.js';
 import * as Snapshots from '../../services/publicAvailabilitySnapshot.service.js';
+import * as PublicReads from '../../services/publicReadSnapshot.service.js';
+import {createSharedPublicSnapshotCache} from '../../services/sharedPublicSnapshotCache.js';
 import {listTutors,listCounselors,createBookingRequest,createProviderSlotHold,joinProviderWaitlist,getProviderScheduleSummary,getProviderDetail,getProviderSlots} from '../publicAgencyServices.controller.js';
 import Profile from '../../models/ProviderPublicProfile.model.js';
 import {createPublicAgencySupportTicket} from '../../services/publicAgencySupport.service.js';
@@ -28,7 +30,7 @@ beforeEach(()=>{
  pool.execute.mockImplementation(async sql=>{
   const person={id:9,first_name:'Example',last_name:'Provider',role:'admin',provider_accepting_new_clients:1,service_details:{serviceOfferingsByAgency:{'2':selected}},online_enrolled:0,has_enrollment:0};
   if(sql.includes('FROM office_standing_assignments s'))return [[{provider_id:9,id:12,name:'Denver',city:'Denver',state:'CO'}]];
-  if(sql.includes('FROM public_appointment_requests'))return [[]];
+  if(sql.includes('FROM public_appointment_requests')||sql.includes('FROM appointment_replacement_slots s'))return [[]];
   if(sql.includes('FROM agencies'))return [[{id:2,slug:'test',name:'Example agency',public_availability_enabled:bookingEnabled?1:0}]];
   if(sql.includes('FROM agency_public_service_types'))return [servicesConfigured?[{service_type:'tutoring'},{service_type:'counseling'}]:[]];
   if(sql.includes('JOIN provider_public_service_enrollments e'))return [active?[{...person,online_enrolled:1}]:[]];
@@ -38,6 +40,34 @@ beforeEach(()=>{
  });
 });
 describe('public multi-service directories',()=>{
+ it('loads profile details without scanning sixteen weeks of appointments',async()=>{
+  const original=pool.execute.getMockImplementation();pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM users\n')?[[{id:9,first_name:'Example',last_name:'Provider',provider_accepting_new_clients:1}]]:original(sql,...args));
+  const res=response(),next=vi.fn();await getProviderDetail({params:{agencySlug:'test',providerId:'9'},query:{view:'profile',serviceType:'counseling'}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].provider.id).toBe(9);expect(Availability.computeWeekAvailability).not.toHaveBeenCalled();
+ });
+
+ it('shares a provider directory snapshot for five minutes and rebuilds it after invalidation',async()=>{
+  let now=1000;const rows=new Map();
+  const read=createSharedPublicSnapshotCache({now:()=>now,store:{
+   read:async key=>rows.get(key)?.expires>now?rows.get(key).value:null,
+   claim:async({cacheKey,token})=>{rows.set(cacheKey,{token});return true;},
+   publish:async({cacheKey,token,value,ttlSeconds})=>{if(rows.get(cacheKey)?.token!==token)return false;rows.set(cacheKey,{value,expires:now+ttlSeconds*1000});return true;},
+   release:async()=>{}
+  }});
+  const original=PublicReads.readPublicSnapshot;
+  const shared=vi.spyOn(PublicReads,'readPublicSnapshot').mockImplementation((options,load)=>options.key[0]==='directory-window-v1'?read(options,load):original(options,load));
+  const req={...request(),query:{view:'availability',programType:'VIRTUAL',weekStart:'2035-01-01'}};
+  Availability.computeWeekAvailability.mockResolvedValue({timeZone:'America/Denver',inPersonSlots:[],virtualSlots:[{startAt:'2035-01-02T17:00:00Z',endAt:'2035-01-02T18:00:00Z'}]});
+  try{
+   for(let i=0;i<2;i++){const res=response(),next=vi.fn();await listCounselors(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].providers[0].availability).toMatchObject({refreshAfterSeconds:300,checkedAt:expect.any(String),timeZone:'America/Denver'});}
+   expect(Availability.computeWeekAvailability).toHaveBeenCalledTimes(1);
+   now+=61000;await listCounselors(req,response(),vi.fn());expect(Availability.computeWeekAvailability).toHaveBeenCalledTimes(1);
+   now+=240000;await listCounselors(req,response(),vi.fn());expect(Availability.computeWeekAvailability).toHaveBeenCalledTimes(2);
+   rows.clear();await listCounselors(req,response(),vi.fn());expect(Availability.computeWeekAvailability).toHaveBeenCalledTimes(3);
+   expect(shared).toHaveBeenCalledWith(expect.objectContaining({kind:'availability',providerId:9,ttlSeconds:300}),expect.any(Function));
+  }finally{shared.mockRestore();}
+ });
+
  it('validates a hold against live availability even when discovery uses snapshots',async()=>{
   active=true;
   const original=pool.execute.getMockImplementation();
@@ -69,7 +99,7 @@ describe('public multi-service directories',()=>{
   const req={...request(),params:{agencySlug:'test',providerId:'9'},query:{serviceType:'counseling'}};
   const res=response(),next=vi.fn();await getProviderScheduleSummary(req,res,next);
   expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalledWith(404);
-  expect(readPublicProviderSchedule).toHaveBeenCalledWith(9,2,{officeId:null});expect(res.json).toHaveBeenCalledWith(expect.objectContaining({onlineScheduling:false}));
+  expect(readPublicProviderSchedule).toHaveBeenCalledWith(9,2,{officeId:null,weekStart:null});expect(res.json).toHaveBeenCalledWith(expect.objectContaining({onlineScheduling:false}));
   const denied=response();await createBookingRequest({...req,body:{providerId:9,serviceType:'counseling'}},denied,next);expect(denied.status).toHaveBeenCalledWith(400);
  });
  it('uses only openings at the selected office when computing the next appointment',async()=>{

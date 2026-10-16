@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import Week from '../PublicProviderAvailabilityWeek.vue';
-import api from '../../../services/api';
+let Week,api;
 vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));
 const virtual={format:'VIRTUAL',startAt:'2030-01-09T17:00:00Z',endAt:'2030-01-09T18:00:00Z',frequency:'WEEKLY'};
 const office={...virtual,format:'IN_PERSON',buildingId:7,buildingName:'Windchime'};
 const summary={timeZone:'America/Denver',onlineScheduling:false,virtual:{status:'accepting'},inPerson:{status:'accepting'},locations:[{id:7,name:'Windchime',address:'123 Example St, Colorado Springs, CO'},{id:8,name:'North Office',address:'200 Example Ave, Denver, CO'}],slots:[virtual,office]};
 let wrapper;
-beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2030-01-09T15:00:00Z'));vi.resetAllMocks();api.get.mockImplementation(async(url,{params})=>({data:{...summary,weekStart:params.weekStart}}));});
+beforeEach(async()=>{vi.resetModules();sessionStorage.clear();({default:api}=await import('../../../services/api'));({default:Week}=await import('../PublicProviderAvailabilityWeek.vue'));vi.useFakeTimers();vi.setSystemTime(new Date('2030-01-09T15:00:00Z'));vi.resetAllMocks();api.get.mockImplementation(async(url,{params})=>({data:{...summary,weekStart:params.weekStart}}));});
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 async function render(props={}){wrapper=mount(Week,{props:{agencySlug:'itsco',providerId:9,summary,...props}});await flushPromises();return wrapper;}
 describe('compact provider availability',()=>{

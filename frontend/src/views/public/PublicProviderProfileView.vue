@@ -11,7 +11,7 @@
     <div v-else class="profile-initials" aria-label="Photo not provided">{{ initials }}</div>
     <div><p class="profile-eyebrow">{{ agencyName }}</p><h1>{{ provider.displayName }}</h1><div class="profile-tags"><span v-if="provider.credential">{{provider.credential}}</span><a v-for="place in provider.officeLocations||[]" :key="place.id" class="profile-office-button" :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.address||place.name)}`" target="_blank" rel="noopener noreferrer">⌖ {{place.name}} ↗</a><span v-if="schedule?.inPerson?.status==='accepting'">In person</span><span v-if="schedule?.virtual?.status==='accepting'">Virtual</span></div><p class="profile-title">{{ provider.title || serviceLabel }}</p><p v-if="provider.serviceFocus">{{ provider.serviceFocus }}</p><ProviderLanguageBadges :details="profile.details"/><span class="profile-status">{{ statusLabel(overallProviderStatus({...provider,details:profile.details},schedule||{})) }}</span></div>
    </section>
-   <PublicProviderAvailabilityWeek :agency-slug="slug" :provider-id="Number(provider.id)" :service-type="service" :summary="schedule" :office-id="selectedOffice" @select="availabilityPanel?.selectOpening($event)" @loaded="availabilityPanel?.showWeek($event)" @show-all-offices="selectedOffice=''"/>
+   <PublicProviderAvailabilityWeek :agency-slug="slug" :provider-id="Number(provider.id)" :service-type="service" :summary="schedule" :office-id="selectedOffice" @select="availabilityPanel?.selectOpening($event)" @show-all-offices="selectedOffice=''"/>
    <div class="profile-layout">
     <div class="profile-content">
      <section class="profile-panel"><h2>About {{ provider.firstName || provider.displayName }}</h2><p class="profile-bio">{{ profile.publicBlurb || 'The provider has not published a biography yet.' }}</p></section>
@@ -62,7 +62,7 @@ const groups=computed(()=>[
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';photoFailed.value=false;provider.value=null;schedule.value=null;hold.value=null;
  selectedOffice.value=String(route.query.officeId||'');
- try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{serviceType:service.value,bookingMode:'NEW_CLIENT',officeId:route.query.officeId},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyId.value=Number(data.agency?.id)||0;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}
+ try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{view:'profile',serviceType:service.value,bookingMode:'NEW_CLIENT',officeId:route.query.officeId},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyId.value=Number(data.agency?.id)||0;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}
  catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'This profile could not be loaded.';}finally{if(id===generation)loading.value=false;}}
 watch(()=>[slug.value,route.params.providerId,service.value],load,{immediate:true});
 </script>

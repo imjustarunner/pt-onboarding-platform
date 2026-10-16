@@ -8,12 +8,12 @@
         <button type="button" aria-label="Next week" @click="offset++"><Icon name="arrow"/></button>
       </nav>
     </header>
-    <p v-if="error" class="week-error" role="alert">{{ error }} <button type="button" @click="load()">Try again</button></p>
-    <div v-else-if="loading" class="week-loading">
+    <p v-if="error" class="week-error" role="alert">{{ error }} <button type="button" @click="load({force:true})">Try again</button></p>
+    <div v-if="loading && !weekSchedule" class="week-loading">
       <PublicAvailabilityLoading/>
       <div class="week-skeleton" :style="{'--week-days':days.length}" aria-hidden="true"><div v-for="day in days" :key="day.date"><b>{{ weekday(day.date) }} {{ dayNumber(day.date) }}</b><span></span><span></span></div></div>
     </div>
-    <template v-else>
+    <template v-if="weekSchedule">
       <div v-if="officeId" class="week-filter">In-person times: {{ offices.find(office=>String(office.id)===String(officeId))?.name || 'selected office' }} <button type="button" @click="$emit('show-all-offices')">Show all offices</button></div>
       <div ref="scroller" class="week-scroll" tabindex="0" aria-label="Availability by day; scroll to see more days">
         <div class="week-grid" :style="{'--week-days':days.length}">
@@ -35,7 +35,8 @@
       <button v-if="expanded" type="button" class="week-less" @click="expanded=false">Show fewer times</button>
       <p class="week-swipe">Swipe to see the rest of the week →</p>
     </template>
-    <div v-if="weekSchedule && !loading && !error" class="week-freshness"><span>{{ checkedLabel }}</span><button type="button" @click="load()">↻ Refresh availability</button></div>
+    <div v-if="weekSchedule" class="week-freshness"><span>{{ checkedLabel }}<span v-if="loading" role="status"> · Updating this week…</span></span><button type="button" :disabled="loading" @click="load({force:true})">↻ Refresh availability</button></div>
+    <p class="week-disclaimer">Days and times are subject to change. We check this week when you open it, reusing recent checks for up to one minute.</p>
     <footer class="week-key">
       <span class="week-virtual"><Icon name="screen"/>Virtual</span>
       <a v-for="(office,index) in offices" :key="office.id" :href="mapUrl(office)" target="_blank" rel="noopener noreferrer" class="week-office-address"><Icon name="pin"/><span><strong>{{ offices.length>1 ? (index+1)+'. ' : '' }}{{ office.name }}</strong><span v-if="office.address"> · {{ office.address }}</span></span><span aria-hidden="true">↗</span></a>
@@ -48,13 +49,14 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import Icon from '../rise/RiseIcon.vue';
 import PublicAvailabilityLoading from './PublicAvailabilityLoading.vue';
-import api from '../../services/api';
+import {getCachedProviderWeek,getProviderTimeZone,readProviderWeek} from '../../services/publicAvailabilityRead';
 import { availabilityLabel } from '../../utils/availabilityLabel';
 import { availabilityDate, availabilityMonday, addAvailabilityDays, hasWeekendOpenings, providerAvailabilityWeek } from '../../utils/providerAvailabilityWeek';
 const props=defineProps({agencySlug:{type:String,required:true},providerId:{type:Number,required:true},serviceType:{type:String,default:'counseling'},summary:Object,officeId:{type:[String,Number],default:''}});
 const emit=defineEmits(['select','loaded','show-all-offices']);
 const offset=ref(0), loading=ref(false), error=ref(''), weekSchedule=ref(null), expanded=ref(false), seenWeekend=ref(false), clock=ref(Date.now());
-const scroller=ref(null), resolvedTimeZone=ref(null);
+const options=computed(()=>({agencySlug:props.agencySlug,providerId:props.providerId,serviceType:props.serviceType}));
+const scroller=ref(null), resolvedTimeZone=ref(getProviderTimeZone(options.value));
 const timeZone=computed(()=>resolvedTimeZone.value || props.summary?.timeZone || 'America/Denver');
 const currentWeek=computed(()=>availabilityMonday(availabilityDate(clock.value,timeZone.value)));
 const weekStart=computed(()=>addAvailabilityDays(currentWeek.value,offset.value*7));
@@ -80,13 +82,21 @@ const checkedLabel=computed(()=>{
   const checked=Date.parse(weekSchedule.value?.checkedAt);
   return Number.isFinite(checked) ? 'Schedule checked '+new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:timeZone.value}).format(checked) : 'Available schedule loaded';
 });
+function scrollToToday(){
+  const element=scroller.value,today=element?.querySelector('.week-day-today');
+  if(today && element.scrollWidth>element.clientWidth)element.scrollLeft=today.getBoundingClientRect().left-element.getBoundingClientRect().left+element.scrollLeft-4;
+}
 let generation=0;
-async function load(){
-  const id=++generation;weekSchedule.value=null;error.value='';expanded.value=false;
+async function load({force=false}={}){
+  const id=++generation;error.value='';expanded.value=false;
+  const positionWeek=weekSchedule.value?.weekStart!==weekStart.value;
+  const request={...options.value,weekStart:weekStart.value};
+  weekSchedule.value=getCachedProviderWeek(request);
   loading.value=true;
   const requestedWeek=weekStart.value;
   try{
-    const {data}=await api.get(`/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${props.providerId}/schedule-summary`,{params:{serviceType:props.serviceType,weekStart:requestedWeek},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});
+    if(weekSchedule.value && positionWeek){await nextTick();if(id!==generation)return;scrollToToday();}
+    const data=await readProviderWeek(request,{force});
     if(id!==generation)return;
     if(data.weekStart!==requestedWeek)throw new Error('Weekly availability is updating. Please try again shortly.');
     resolvedTimeZone.value=data.timeZone || timeZone.value;
@@ -100,13 +110,12 @@ async function load(){
   finally{
     if(id===generation){
       loading.value=false;await nextTick();
-      const element=scroller.value, today=element?.querySelector('.week-day-today');
-      if(id===generation && today && element.scrollWidth>element.clientWidth)element.scrollLeft=today.getBoundingClientRect().left-element.getBoundingClientRect().left+element.scrollLeft-4;
+      if(id===generation && positionWeek)scrollToToday();
     }
   }
 }
-watch([()=>props.agencySlug,()=>props.providerId,()=>props.serviceType],()=>{offset.value=0;seenWeekend.value=false;resolvedTimeZone.value=null;});
-watch([()=>props.agencySlug,()=>props.providerId,()=>props.serviceType,weekStart],load,{immediate:true});
+watch([()=>props.agencySlug,()=>props.providerId,()=>props.serviceType],()=>{offset.value=0;seenWeekend.value=false;resolvedTimeZone.value=getProviderTimeZone(options.value);});
+watch([()=>props.agencySlug,()=>props.providerId,()=>props.serviceType,weekStart],()=>load(),{immediate:true});
 const timer=setInterval(()=>{clock.value=Date.now();},60000);
 onBeforeUnmount(()=>{generation++;clearInterval(timer);});
 </script>
@@ -126,4 +135,5 @@ onBeforeUnmount(()=>{generation++;clearInterval(timer);});
 @media(max-width:700px){.week-toolbar{flex-wrap:nowrap;padding:10px 12px;gap:6px}.week-title{gap:4px;min-width:0}.week-title>svg{display:none}.week-title h2{font-size:14px}.week-title>span{margin-left:0;font-size:11px}.week-toolbar nav{flex-shrink:0}.week-toolbar button{min-width:32px;padding:5px 7px}.week-current svg{display:block}.week-current span{display:none}.week-day{padding:8px}.week-day h3{margin-bottom:8px}.week-more{min-height:26px}.week-key{padding:8px 12px;gap:6px 8px;line-height:1.4}.week-key .week-zone{margin-left:auto;order:0}.week-office-address{order:1}.week-swipe{padding:2px 12px 6px}}
 .week-loading{padding:14px 18px}.week-skeleton{display:grid;grid-template-columns:repeat(var(--week-days),minmax(90px,1fr));gap:12px;overflow:hidden;margin-top:14px}.week-skeleton>div{min-width:0;padding:2px 4px}.week-skeleton b{font-size:11px;color:#72867a}.week-skeleton span{display:block;height:22px;margin-top:8px;border-radius:6px;background:linear-gradient(100deg,#eef3ef 20%,#dcebe1 45%,#eef3ef 70%);background-size:250% 100%;animation:week-shimmer 1.8s ease-in-out infinite}.week-skeleton span:last-child{width:70%}.week-freshness{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 18px;border-top:1px solid #e5ede8;font-size:11px;color:#557160}.week-freshness button{background:none;border:0;color:#23694a;font-size:11px;min-height:30px;padding:2px 0;text-decoration:underline;text-underline-offset:3px}
 @keyframes week-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}@media(prefers-reduced-motion:reduce){.week-skeleton span{animation:none}}@media(max-width:700px){.week-loading{padding:12px}.week-skeleton{gap:8px}.week-freshness{padding:6px 12px;flex-wrap:wrap}}
+.week-disclaimer{font-size:11px;line-height:1.5;color:#61776d;margin:0;padding:7px 18px;border-top:1px solid #e5ede8}.week-freshness button:disabled{opacity:.55;cursor:wait}
 </style>

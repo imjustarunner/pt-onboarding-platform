@@ -1,52 +1,47 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
-import Panel from '../PublicProviderAvailabilityPanel.vue';
-import api from '../../../services/api';
+let Panel,api;
 const { push } = vi.hoisted(() => ({ push:vi.fn() }));
 vi.mock('vue-router',()=>({useRouter:()=>({push})}));
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 const provider={id:9,firstName:'Example',displayName:'Example Provider',acceptingNewClients:false,office:true,details:{waitlistEnabled:true,typicalAvailability:['Saturday mornings']}};
 const summary={timeZone:'America/Denver',onlineScheduling:false,waitlistEnabled:true,waitlistFormats:['IN_PERSON','VIRTUAL'],slots:[],inPerson:{status:'waitlist'},virtual:{status:'unavailable'},typicalAvailability:['Saturday mornings'],locations:[{id:3,name:'Example Office',address:'Denver, CO'}]};
 const render=()=>mount(Panel,{props:{provider,agencySlug:'test'},global:{stubs:{Teleport:true,RouterLink:{name:'RouterLink',props:['to'],template:'<a :href="to"><slot/></a>'},PublicProviderSlotPicker:true}}});
-beforeEach(()=>{vi.resetAllMocks();push.mockResolvedValue(undefined);sessionStorage.clear();api.get.mockImplementation(async url=>({data:url.endsWith('schedule-summary')?summary:{recaptchaRequired:false}}));});
+beforeEach(async()=>{vi.resetModules();({default:api}=await import('../../../services/api'));({default:Panel}=await import('../PublicProviderAvailabilityPanel.vue'));vi.resetAllMocks();push.mockResolvedValue(undefined);sessionStorage.clear();api.get.mockImplementation(async(url,{params}={})=>({data:url.endsWith('schedule-summary')?{...summary,weekStart:params.weekStart}:{recaptchaRequired:false}}));});
 const virtualOpening={format:'VIRTUAL',startAt:'2030-01-07T02:00:00Z',endAt:'2030-01-07T03:00:00Z',frequency:'WEEKLY'};
 async function chooseVirtualOpening(){
- api.get.mockResolvedValue({data:{...summary,virtual:{status:'accepting'},slots:[virtualOpening]}});
+ api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,virtual:{status:'accepting'},slots:[virtualOpening]}),weekStart:params.weekStart}}));
  const w=render();await flushPromises();await w.get('.format-virtual .next-openings button').trigger('click');await flushPromises();return w;
 }
 describe('public availability and waitlist',()=>{
- it('shows and selects the first week before the full summary completes, then adds upcoming weeks',async()=>{
-  let finish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
-  const w=render();await flushPromises();expect(w.text()).toContain('Loading current availability');
-  w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
-  expect(w.text()).toContain('Loading upcoming weeks');expect(w.text()).toContain('This week’s appointments');
+ it('loads weeks independently and lets someone select the first result while later weeks update',async()=>{
+  const requests=[];api.get.mockImplementation((url,{params})=>new Promise((resolve,reject)=>requests.push({params,resolve,reject})));
+  const w=render();await flushPromises();expect(requests).toHaveLength(1);expect(w.text()).toContain('Loading current availability');
+  requests[0].resolve({data:{...summary,weekStart:requests[0].params.weekStart,virtual:{status:'accepting'},slots:[virtualOpening]}});await flushPromises();
+  expect(w.text()).toContain('1 of 4 weeks checked');expect(requests).toHaveLength(2);
   await w.get('.format-virtual .next-openings button').trigger('click');expect(w.get('[role=dialog]').text()).toContain('January 6, 2030');
-  const next={...virtualOpening,startAt:'2030-01-14T02:00:00Z',endAt:'2030-01-14T03:00:00Z'};
-  finish({data:{...summary,virtual:{status:'accepting'},slots:[virtualOpening,next]}});await flushPromises();
-  expect(w.find('.availability-loading').exists()).toBe(false);expect(w.findAll('.format-virtual .day-time')).toHaveLength(2);expect(w.find('[role=dialog]').exists()).toBe(true);w.unmount();
+  for(let i=1;i<4;i++){requests[i].resolve({data:{...summary,weekStart:requests[i].params.weekStart}});await flushPromises();}
+  expect(w.find('.schedule-refresh').exists()).toBe(false);expect(w.find('[role=dialog]').exists()).toBe(true);w.unmount();
  });
- it('retains first-week times if the longer lookahead fails and restores them on retry',async()=>{
-  let fail;api.get.mockImplementationOnce(()=>new Promise((resolve,reject)=>{fail=reject;}));
-  const w=render();await flushPromises();w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
-  fail(new Error('Calendar timeout'));await flushPromises();expect(w.get('[role=alert]').text()).toContain('Could not load upcoming weeks');expect(w.find('.next-openings').exists()).toBe(true);
-  await w.get('[role=alert] button').trigger('click');await flushPromises();expect(w.find('[role=alert]').exists()).toBe(false);w.unmount();
+ it('keeps successful weeks visible if one week fails and continues loading later weeks',async()=>{
+  let calls=0;api.get.mockImplementation(async(url,{params})=>{if(++calls===2)throw new Error('Calendar timeout');return {data:{...summary,weekStart:params.weekStart,virtual:{status:'accepting'},slots:[virtualOpening]}};});
+  const w=render();await flushPromises();expect(calls).toBe(4);expect(w.get('[role=alert]').text()).toContain('Some weeks could not be updated');expect(w.find('.next-openings').exists()).toBe(true);w.unmount();
  });
- it('can show a successful first-week result even after the full summary fails',async()=>{
-  api.get.mockRejectedValueOnce(new Error('Calendar timeout'));const w=render();await flushPromises();
-  w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
-  expect(w.find('.next-openings').exists()).toBe(true);expect(w.get('[role=alert]').text()).toContain('This week’s available times are still shown');w.unmount();
+ it('shows the saved schedule immediately on a return visit without duplicate requests',async()=>{
+  api.get.mockImplementation(async(url,{params})=>({data:{...summary,weekStart:params.weekStart,virtual:{status:'accepting'},slots:[virtualOpening]}}));
+  let w=render();await flushPromises();expect(api.get).toHaveBeenCalledTimes(4);w.unmount();
+  w=render();await flushPromises();expect(w.find('.next-openings').exists()).toBe(true);expect(api.get).toHaveBeenCalledTimes(4);w.unmount();
  });
- it('clears a partial schedule when moving to another provider and ignores the old request',async()=>{
+ it('ignores a previous provider’s pending week when navigating to another profile',async()=>{
   let oldResult;api.get.mockImplementationOnce(()=>new Promise(resolve=>{oldResult=resolve;}));const w=render();await flushPromises();
-  w.vm.showWeek({...summary,virtual:{status:'accepting'},slots:[virtualOpening]});await flushPromises();
+  const oldWeek=api.get.mock.calls[0][1].params.weekStart;
   await w.setProps({provider:{...provider,id:10}});await flushPromises();expect(w.find('.next-openings').exists()).toBe(false);
-  oldResult({data:{...summary,virtual:{status:'accepting'},slots:[virtualOpening]}});await flushPromises();expect(w.find('.next-openings').exists()).toBe(false);w.unmount();
+  oldResult({data:{...summary,weekStart:oldWeek,virtual:{status:'accepting'},slots:[virtualOpening]}});await flushPromises();expect(w.find('.next-openings').exists()).toBe(false);w.unmount();
  });
-
  it('does not reload availability when a parent rerenders the same provider object',async()=>{
-  const w=render();await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
-  await w.setProps({provider:{...provider,details:{...provider.details}}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);
-  await w.setProps({provider:{...provider,id:10}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(2);w.unmount();
+  const w=render();await flushPromises();expect(api.get).toHaveBeenCalledTimes(4);
+  await w.setProps({provider:{...provider,details:{...provider.details}}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(4);
+  await w.setProps({provider:{...provider,id:10}});await flushPromises();expect(api.get).toHaveBeenCalledTimes(8);w.unmount();
  });
  it('uses a later week’s available setting when the compact bar requests an opening beyond the initial summary',async()=>{
   const w=render();await flushPromises();
@@ -57,7 +52,7 @@ describe('public availability and waitlist',()=>{
   expect(JSON.parse(sessionStorage.getItem('provider-hold:test'))).toMatchObject({startAt:slot.startAt,endAt:slot.endAt,modality:'VIRTUAL',preferenceOnly:true});expect(push).toHaveBeenCalledTimes(1);w.unmount();
  });
  it('groups all local-date times together across UTC midnight and keeps the next week separate',async()=>{
-  api.get.mockResolvedValue({data:{...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-03T02:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-02T16:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-09T16:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-03T02:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-02T16:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-09T16:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();const days=w.findAll('.format-virtual .next-openings>div');expect(days).toHaveLength(2);expect(days[0].findAll('.day-time')).toHaveLength(2);expect(days[0].findAll('strong')).toHaveLength(1);expect(days[1].findAll('.day-time')).toHaveLength(1);w.unmount();
  });
  it('shows only profile-selected typical hours while schedule loading is pending',async()=>{
@@ -69,19 +64,19 @@ describe('public availability and waitlist',()=>{
   expect(w.find('.typical-availability').text()).not.toContain('School-based');w.unmount();
  });
  it('ignores generated schedule hours in favor of the profile summary',async()=>{
-  api.get.mockResolvedValue({data:{...summary,typicalAvailability:['School-based · Monday · School','In person · Monday, 5:00 PM']}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,typicalAvailability:['School-based · Monday · School','In person · Monday, 5:00 PM']}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();expect(w.find('.typical-availability').text()).toContain('Saturday mornings');expect(w.find('.typical-availability').text()).not.toContain('Monday');w.unmount();
  });
  it('preserves the chosen office when showing openings and ignores typed locations',async()=>{
-  api.get.mockResolvedValue({data:{...summary,inPerson:{status:'accepting'},locations:[{id:11,name:'Springs'},{id:12,name:'Denver'}],slots:[{format:'IN_PERSON',buildingId:11,buildingName:'Springs',startAt:'2030-01-01T16:00:00Z'},{format:'IN_PERSON',buildingId:12,buildingName:'Denver',startAt:'2030-01-02T16:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,inPerson:{status:'accepting'},locations:[{id:11,name:'Springs'},{id:12,name:'Denver'}],slots:[{format:'IN_PERSON',buildingId:11,buildingName:'Springs',startAt:'2030-01-01T16:00:00Z'},{format:'IN_PERSON',buildingId:12,buildingName:'Denver',startAt:'2030-01-02T16:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=mount(Panel,{props:{provider:{...provider,details:{locations:['Unassigned address']}},agencySlug:'test',officeId:'12'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();
   expect(w.find('.next-openings').text()).toContain('Denver');expect(w.find('.next-openings').text()).not.toContain('Springs');expect(w.text()).not.toContain('Unassigned address');
-  expect(api.get).toHaveBeenCalledWith(expect.stringContaining('schedule-summary'),expect.objectContaining({params:{serviceType:'counseling'}}));w.unmount();
+  expect(api.get).toHaveBeenCalledWith(expect.stringContaining('schedule-summary'),expect.objectContaining({params:expect.objectContaining({serviceType:'counseling',weekStart:expect.any(String)})}));w.unmount();
  });
  it('displays typical hours and Maps links even when booking is disabled',async()=>{const w=render();await flushPromises();expect(w.text()).toContain('Saturday mornings');expect(w.text()).toContain('No appointment times are posted');expect(w.find('a[target="_blank"]').attributes('href')).toContain('query=Example%20Office%2C%20Denver%2C%20CO');expect(w.findComponent({name:'PublicProviderSlotPicker'}).exists()).toBe(false);w.unmount();});
  it('confirms an in-person preference before taking its exact time and office into enrollment',async()=>{
   const slot={format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-01T16:00:00Z',endAt:'2030-01-01T17:00:00Z',frequency:'WEEKLY'};
-  api.get.mockResolvedValue({data:{...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[slot]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[slot]}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();await w.get('.next-openings button').trigger('click');await flushPromises();
   const dialog=w.get('[role=dialog]');expect(dialog.text()).toContain('Request this time and enroll?');expect(dialog.text()).toContain('Tuesday, January 1, 2030');expect(dialog.text()).toContain('9:00 AM – 10:00 AM');expect(dialog.text()).toContain('Example Office');expect(dialog.text()).toContain('does not reserve or confirm an appointment');expect(dialog.text()).toContain('support team');
   expect(sessionStorage.getItem('provider-hold:test')).toBeNull();expect(w.emitted('hold')).toBeUndefined();expect(push).not.toHaveBeenCalled();
@@ -119,30 +114,30 @@ describe('public availability and waitlist',()=>{
   expect(w.get('[role=dialog] [role=alert]').text()).toContain('Could not save');expect(push).not.toHaveBeenCalled();expect(w.emitted('hold')).toBeUndefined();save.mockRestore();w.unmount();
  });
  it('does not show the typical-hours fallback when appointments are posted',async()=>{
-  api.get.mockResolvedValue({data:{...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=mount(Panel,{props:{provider:{...provider,details:{}},agencySlug:'test'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();expect(w.find('.typical-availability').exists()).toBe(false);expect(w.find('.next-openings').text()).toContain('Virtual');w.unmount();
  });
  it('offers selectable times only for enabled booking',async()=>{
-  api.get.mockResolvedValue({data:{...summary,onlineScheduling:true,virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,onlineScheduling:true,virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();expect(w.find('.format-virtual').text()).toContain('Reserve time');await w.find('.format-virtual .next-openings button').trigger('click');expect(w.findComponent({name:'PublicProviderSlotPicker'}).props('fixedFormat')).toBe('VIRTUAL');w.unmount();
  });
  it('opens the local calendar date for an evening opening that falls on the next UTC day',async()=>{
-  api.get.mockResolvedValue({data:{...summary,onlineScheduling:true,virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-07T02:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,onlineScheduling:true,virtual:{status:'accepting'},slots:[{format:'VIRTUAL',startAt:'2030-01-07T02:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();await w.find('.format-virtual .next-openings button').trigger('click');expect(w.findComponent({name:'PublicProviderSlotPicker'}).props('initialWeek')).toBe('2030-01-06');w.unmount();
  });
  it('explains direct scheduling for accepting providers without posted times',async()=>{
-  api.get.mockResolvedValue({data:{...summary,waitlistEnabled:false,inPerson:{status:'accepting'}}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,waitlistEnabled:false,inPerson:{status:'accepting'}}),weekStart:params.weekStart}}));
   const w=mount(Panel,{props:{provider:{...provider,acceptingNewClients:true,details:{}},agencySlug:'test'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();expect(w.text()).toContain('we’ll work with you directly to find a time');expect(w.text()).not.toContain('Not accepting');w.unmount();
  });
  it('keeps virtual times visible with an office filter and separates school capacity from appointments',async()=>{
-  api.get.mockResolvedValue({data:{...summary,virtual:{status:'accepting'},inPerson:{status:'accepting'},school:{status:'accepting'},schools:[{id:1,name:'Open school',hasOpenings:true},{id:2,name:'Full school',hasOpenings:false}],slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'},{format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-02T16:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,virtual:{status:'accepting'},inPerson:{status:'accepting'},school:{status:'accepting'},schools:[{id:1,name:'Open school',hasOpenings:true},{id:2,name:'Full school',hasOpenings:false}],slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'},{format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-02T16:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=mount(Panel,{props:{provider,agencySlug:'test',officeId:3},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();
   expect(w.find('.format-virtual .next-openings').text()).toContain('Virtual');expect(w.find('.format-virtual').text()).not.toContain('Example Office');
   expect(w.find('.format-inPerson .next-openings').text()).toContain('Example Office');expect(w.find('.format-school .next-openings').exists()).toBe(false);
   const schools=w.findAll('.school-locations article');expect(schools[0].text()).toContain('Accepting new clients');expect(schools[1].text()).toContain('Closed to new clients');w.unmount();
  });
  it('expands display-only times without mounting an interactive booking calendar',async()=>{
-  api.get.mockResolvedValue({data:{...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:Array.from({length:8},(_,i)=>({format:'VIRTUAL',startAt:`2030-01-${String(i+1).padStart(2,'0')}T16:00:00Z`}))}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,inPerson:{status:'accepting'},virtual:{status:'accepting'},slots:Array.from({length:8},(_,i)=>({format:'VIRTUAL',startAt:`2030-01-${String(i+1).padStart(2,'0')}T16:00:00Z`}))}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();expect(w.findAll('.format-virtual .next-openings>div')).toHaveLength(6);await w.find('.format-virtual .calendar-toggle').trigger('click');expect(w.findAll('.format-virtual .next-openings>div')).toHaveLength(8);expect(w.findComponent({name:'PublicProviderSlotPicker'}).exists()).toBe(false);w.unmount();
  });
  it('routes a format-specific waitlist request into full enrollment rather than a brief contact form',async()=>{
@@ -156,7 +151,7 @@ describe('public availability and waitlist',()=>{
   expect(api.post).not.toHaveBeenCalled();w.unmount();
  });
  it('blocks closed-format enrollment and stale opening selection, even when the directory claims openings',async()=>{
-  api.get.mockResolvedValue({data:{...summary,waitlistEnabled:true,inPerson:{status:'unavailable'},virtual:{status:'unavailable'},slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
+  api.get.mockImplementation(async(_url,{params})=>({data:{...({...summary,waitlistEnabled:true,inPerson:{status:'unavailable'},virtual:{status:'unavailable'},slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}),weekStart:params.weekStart}}));
   const w=render();await flushPromises();expect(w.find('.enrollment-link').exists()).toBe(false);expect(w.find('.next-openings').exists()).toBe(false);expect(w.text()).toContain('Inquire with our team');w.unmount();
  });
  it('does not offer enrollment before current intake status is loaded or when the request fails',async()=>{

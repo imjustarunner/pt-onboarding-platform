@@ -1,3 +1,4 @@
+import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
 import {slotAllowsCare} from '../utils/availabilityCareTypes.js';
 import { readPublicWeekAvailability } from '../services/publicAvailabilitySnapshot.service.js';
 import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
@@ -615,7 +616,14 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   };
 }
 
-async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true, liveAvailability = false }) {
+async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true, liveAvailability = false, directorySnapshot = false, timePreferences = {} }) {
+  if (directorySnapshot && !liveAvailability) {
+    // Provider-scoped snapshots are invalidated by the existing schedule/hold edit triggers.
+    return readPublicSnapshot({key:['directory-window-v1',agencyId,providerId,weekStart,bookingMode,programType,officeId,timePreferences],kind:'availability',providerId,ttlSeconds:300}, async () => ({
+      ...await computeProviderWindowSummary({agencyId,providerId,weekStart,bookingMode,programType,heldSlots,lookaheadWeeks,officeId,matchesTime}),
+      checkedAt:new Date().toISOString(),refreshAfterSeconds:300
+    }));
+  }
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
   const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now() && matchesTime(s));
@@ -632,6 +640,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
     }, {fresh:liveAvailability});
     if (!result) return { inPersonSlots: [], virtualSlots: [] };
     return {
+      timeZone:result.timeZone || 'America/Denver',
       inPersonSlots: filterHeldSlots(dedupeSlots((result.inPersonSlots || []).filter(slot=>!officeId||Number(slot.buildingId)===Number(officeId))), heldSlots),
       virtualSlots: filterHeldSlots(dedupeSlots(result.virtualSlots || []), heldSlots)
     };
@@ -805,6 +814,8 @@ export const listCounselors = async (req, res, next) => {
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
         lookaheadWeeks: req.query.view === 'availability' ? 3 : 16,
+        directorySnapshot:req.query.view === 'availability',
+        timePreferences:{day:String(req.query.day||''),timeFrom:String(req.query.timeFrom||''),timeTo:String(req.query.timeTo||'')},
         matchesTime,
         agencyId: agency.id,
         providerId: Number(row.id),
@@ -878,6 +889,9 @@ export const listCounselors = async (req, res, next) => {
         },
         availability: {
           checked: !directoryOnly,
+          checkedAt:summary.checkedAt || null,
+          timeZone:summary.thisWeek?.timeZone || 'America/Denver',
+          refreshAfterSeconds:summary.refreshAfterSeconds || 60,
           bookingMode,
           programType,
           weekStart,
@@ -1234,9 +1248,10 @@ export const getProviderDetail = async (req, res, next) => {
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
 
-    const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
-    // Showing safe public openings is independent of accepting online bookings.
-    const summary = await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true });
+    const profileOnly=req.query.view==='profile' && req._liveAvailability!==true;
+    const heldSlots = profileOnly ? [] : await getHeldSlotStartsForProvider(agency.id, providerId);
+    // Profile pages load the selected provider's weeks independently; booking still revalidates live.
+    const summary = profileOnly ? {thisWeek:{inPersonSlots:[],virtualSlots:[]},nextAvailableAt:null,bookedThroughYmd:null} : await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true });
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId, agencyId:agency.id }) || {};
     profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
