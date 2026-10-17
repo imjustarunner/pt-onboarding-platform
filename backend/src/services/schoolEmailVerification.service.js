@@ -1,3 +1,4 @@
+import { ensurePortalGroupSender } from './portalGroupSender.service.js';
 import { renderPortalEmail } from './portalEmailBranding.service.js';
 import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
 import crypto from 'node:crypto';
@@ -50,6 +51,7 @@ async function deliver({ to, code }, req, role) {
   if (role === 'client_guardian') {
     const {guardianPortalSecurityBrand} = await import('./guardianPortalSecurityBrand.service.js');
     const brand = await guardianPortalSecurityBrand(req);
+    await ensurePortalGroupSender({ address: brand.fromEmail, displayName: brand.displayName });
     const label = [brand.name, ...brand.products].join(' | ');
     const text = `Your verification code is ${code}.\n\nIt expires in 10 minutes. Enter it only in the portal you opened. Do not share it.\n\nIf you did not request this code, contact your organization’s support team.`;
     await Email.sendEmail({ to, subject: `${brand.name}: your portal verification code`,

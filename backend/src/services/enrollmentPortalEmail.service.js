@@ -1,3 +1,4 @@
+import { ensurePortalGroupSender } from './portalGroupSender.service.js';
 import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { inferAgencyMailDomain } from './tenantMessageMailboxes.service.js';
@@ -10,6 +11,7 @@ export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId
   const domain = await inferAgencyMailDomain(agencyId);
   if (!agency || !domain) throw new Error('An agency and its support mail domain are required for portal email.');
   const brand = enrollmentMailBrand({ agency, domain, school: schoolEnrollment || !!schoolOrganizationId, channel: enrollmentChannel });
+  await ensurePortalGroupSender({ address: brand.fromEmail, displayName: brand.displayName });
   const identityKey = brand.fromEmail === 'portal@auricwell.com' ? 'clinical_enrollment_portal' : 'enrollment_portal';
   let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, identityKey);
   const values = { displayName: brand.displayName, fromEmail: brand.fromEmail, replyTo: brand.replyTo, isActive: true };

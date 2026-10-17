@@ -1,3 +1,4 @@
+vi.mock('../portalGroupSender.service.js',()=>({ensurePortalGroupSender:vi.fn(async()=>{})}));
 import {beforeEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn()}}));

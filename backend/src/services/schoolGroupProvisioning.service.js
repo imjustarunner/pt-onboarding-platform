@@ -1,3 +1,4 @@
+import { APP_GROUP_OWNER, APP_GROUP_MANAGER } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -29,7 +30,7 @@ export function resolveSupportManagerEmail(agency) {
   return resolveSchoolsMailboxEmail(agency);
 }
 
-/** School-reply mailbox that must be on every school group (not ai@plottwistco.com). */
+/** School-reply mailbox retained alongside the application group administrators. */
 export function resolveSchoolReplyEmail(agency) {
   const fromEnv = String(
     process.env.SCHOOL_GROUP_SCHOOLREPLY_EMAIL || process.env.SCHOOLREPLY_FROM_EMAIL || ''
@@ -47,6 +48,8 @@ export function resolveSchoolReplyEmail(agency) {
 export function resolveAlwaysOnSchoolGroupMembers(agency) {
   const slug = agencySlug(agency);
   const members = [
+    { email: APP_GROUP_OWNER, role: 'OWNER' },
+    { email: APP_GROUP_MANAGER, role: 'MANAGER' },
     { email: resolveSchoolsMailboxEmail(agency), role: 'OWNER' },
     { email: resolveSchoolReplyEmail(agency), role: 'MANAGER' }
   ];
@@ -75,7 +78,7 @@ function directoryActorEmail() {
 }
 
 function emailsToStripFromSchoolGroups(agency) {
-  const list = new Set(['ai@plottwistco.com']);
+  const list = new Set();
   const slug = agencySlug(agency);
   list.add(`support@${slug}.health`);
   list.add('support@itsco.health');
@@ -84,8 +87,8 @@ function emailsToStripFromSchoolGroups(agency) {
     const v = String(process.env[key] || '')
       .trim()
       .toLowerCase();
-    // Only strip the shared AI mailbox — never remove the Directory impersonation subject.
-    if (v && v !== actor && (v === 'ai@plottwistco.com' || v.startsWith('ai@'))) list.add(v);
+    // Remove obsolete AI mailbox entries, preserving the canonical group manager and Directory impersonation subject.
+    if (v && v !== actor && v !== APP_GROUP_MANAGER && v.startsWith('ai@')) list.add(v);
   }
   const alwaysOn = new Set(resolveAlwaysOnSchoolGroupMembers(agency).map((m) => m.email));
   if (actor) alwaysOn.add(actor);

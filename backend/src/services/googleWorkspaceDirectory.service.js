@@ -1,3 +1,4 @@
+import { appGroupMemberPolicy, ensureAppGroupMember, ensureAppGroupOwnership } from './appGroupOwnership.service.js';
 import { google } from 'googleapis';
 import {
   buildImpersonatedJwtClient,
@@ -196,6 +197,10 @@ class GoogleWorkspaceDirectoryService {
     };
     try {
       const result = await admin.groups.insert({ requestBody });
+      await this.applyGroupAccessSettings({ groupEmail, whoCanJoin, whoCanViewMembership, whoCanViewGroup,
+        whoCanPostMessage, whoCanModerateMembers, messageModerationLevel, spamModerationLevel,
+        allowExternalMembers, includeInGlobalAddressList, isArchived });
+      await ensureAppGroupOwnership({ admin, groupKey: result.data.id });
       return result?.data || null;
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.createGroup' });
@@ -314,6 +319,7 @@ class GoogleWorkspaceDirectoryService {
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
     const admin = client || await this.getClient();
+    if (appGroupMemberPolicy(email)) return ensureAppGroupMember({ admin, groupKey, email });
     const requestedRole = String(role || 'MEMBER').toUpperCase();
 
     const nestedGroup = memberType === 'GROUP' ? true : memberType === 'USER' ? null : await this.getGroup({ groupEmail: email });
@@ -358,6 +364,7 @@ class GoogleWorkspaceDirectoryService {
     const email = String(memberEmail || '').trim().toLowerCase();
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
+    if (appGroupMemberPolicy(email)) return { removed: false, protected: true };
     const admin = client || await this.getClient();
     try {
       await admin.members.delete({ groupKey, memberKey: email });
@@ -382,7 +389,7 @@ class GoogleWorkspaceDirectoryService {
   }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
-    const settings = String(deliverySettings || '').trim().toUpperCase();
+    const settings = appGroupMemberPolicy(email)?.delivery_settings || String(deliverySettings || '').trim().toUpperCase();
     if (!['ALL_MAIL', 'DIGEST', 'DAILY', 'NONE', 'DISABLED'].includes(settings)) {
       throw new Error('An explicit valid deliverySettings value is required');
     }

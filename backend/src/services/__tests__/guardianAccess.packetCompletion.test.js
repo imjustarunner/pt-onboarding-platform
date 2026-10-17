@@ -1,3 +1,4 @@
+vi.mock('../portalGroupSender.service.js',()=>({ensurePortalGroupSender:vi.fn(async()=>{})}));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { findByAgencyAndIdentityKey: vi.fn() } }));
@@ -12,7 +13,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   Agency.findById.mockResolvedValue({id:2,name:'Test Agency',feature_flags:{medicalBillingEnabled:true}});
   inferAgencyMailDomain.mockResolvedValue('tenant.test');
-  EmailSenderIdentity.findByAgencyAndIdentityKey.mockResolvedValue({id:6,from_email:'portal@auricwell.com',display_name:'Test Agency Portal',reply_to:'support@tenant.test'});
+  EmailSenderIdentity.findByAgencyAndIdentityKey.mockResolvedValue({id:6,from_email:'portal@auricwell.com',display_name:'AuricWell Portal',reply_to:'support@tenant.test'});
   sendEmailFromIdentity.mockResolvedValue({id:'accepted',communicationId:44});
 });
 describe('packet receipt delivery', () => {

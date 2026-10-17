@@ -1,3 +1,4 @@
+import { appGroupMemberPolicy } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import { reconcileManagedWorkspaceGroups } from './managedWorkspaceGroups.service.js';
 import { withMessagingJobLock } from './messagingJobLock.service.js';
@@ -60,7 +61,7 @@ export async function reconcileStaffMailGroup({ apply = false } = {}) {
     } else if (!Number(row.is_active) || Number(row.is_archived) || !Number(row.membership_active) || ['ARCHIVED','TERMINATED','TERMINATED_PENDING','COMPLETED','COMPLETED_PENDING','INACTIVE'].includes(row.status)) {
       for (const email of addresses) {
         const member = current.get(email);
-        if (!member || activeAddresses.has(email)) continue;
+        if (appGroupMemberPolicy(email) || !member || activeAddresses.has(email)) continue;
         if (member.role === 'OWNER' && ownerCount <= 1) { report.preserved.push(email); continue; }
         if (member.role === 'OWNER') ownerCount -= 1;
         if (apply) await Directory.removeGroupMember({ groupEmail, memberEmail: email });

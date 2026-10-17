@@ -1,3 +1,4 @@
+import { APP_GROUP_OWNER } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
 import { managedDomain, activeManagedStaff, buildManagedGroupPlan, CURRENT_MANAGED_DOMAINS } from './managedWorkspaceGroupPolicy.js';
@@ -202,7 +203,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
           }
           let owners=[...current.values()].filter(m=>m.role==='OWNER').length;
           for(const [email,m] of current) {
-            if(email===relay || desired.has(email) || plan.key==='spanish'&&email===`support@${report.domain}`) continue;
+            if(email===APP_GROUP_OWNER || email===relay || desired.has(email) || plan.key==='spanish'&&email===`support@${report.domain}`) continue;
             if(createMissingOnly) {result.preserved.push(email);continue;}
             const people=known.get(email);
             if(!people?.length) {result.preserved.push(email);continue;}

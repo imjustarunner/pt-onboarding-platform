@@ -1,3 +1,4 @@
+import { ensureWorkspaceSenderGroup } from './workspaceSenderGroup.service.js';
 import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
 import { resolveAppEmailTransport } from './unifiedEmail/transportMailbox.js';
 /**
@@ -20,12 +21,14 @@ export async function ensureSendAsAlias({
   impersonateUser = null,
   sendAsEmail,
   displayName = null,
-  treatAsAlias = true,
+  treatAsAlias = null,
   replyToAddress = null
 } = {}) {
   const subject = resolveAppEmailTransport(process.env, impersonateUser);
   const email = String(sendAsEmail || '').trim().toLowerCase();
   if (!email.includes('@')) throw new Error('sendAsEmail is required');
+  const addressType = await ensureWorkspaceSenderGroup({ email, displayName });
+  if (addressType.group) treatAsAlias = false;
 
   const auth = await buildImpersonatedJwtClient({
     subjectEmail: subject,
@@ -41,6 +44,7 @@ export async function ensureSendAsAlias({
     if (existing) {
       // Patch display name / reply-to if needed
       const patch = {};
+      if (treatAsAlias !== null && existing.treatAsAlias !== !!treatAsAlias) patch.treatAsAlias = !!treatAsAlias;
       if (displayName && existing.displayName !== displayName) patch.displayName = displayName;
       if (replyToAddress && existing.replyToAddress !== replyToAddress) {
         patch.replyToAddress = replyToAddress;
@@ -62,7 +66,7 @@ export async function ensureSendAsAlias({
         sendAsEmail: email,
         displayName: displayName || email.split('@')[0],
         replyToAddress: replyToAddress || email,
-        treatAsAlias: !!treatAsAlias,
+        treatAsAlias: treatAsAlias === null ? true : !!treatAsAlias,
         // Groups/aliases verified via Workspace often need verificationStatus unset;
         // accepted addresses on the domain may appear as accepted without SMTP verification.
         isPrimary: false,

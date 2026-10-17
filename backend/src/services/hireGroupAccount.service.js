@@ -483,7 +483,7 @@ export async function provisionHireGroupUsername({
     groupEmail: email,
     memberEmail: HIRE_GROUP_OWNER_EMAIL,
     role: 'OWNER',
-    delivery: 'DISABLED'
+    delivery: 'NONE'
   });
   await ensureHireGroupRole({
     groupEmail: email,

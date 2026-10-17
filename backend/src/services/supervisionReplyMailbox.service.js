@@ -1,3 +1,4 @@
+import { APP_GROUP_OWNER } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import Directory from './googleWorkspaceDirectory.service.js';
@@ -36,7 +37,7 @@ export async function ensureSupervisionReplyMailbox(agencyId, { replyEmail = nul
       member.delivery_settings = data?.delivery_settings;
       member.role = data?.role;
     }
-    if (members.some(member => String(member.email).toLowerCase() !== memberEmail && (member.role !== 'MEMBER' || member.delivery_settings !== 'NONE'))) {
+    if (members.some(member => String(member.email).toLowerCase() !== memberEmail && (member.delivery_settings !== 'NONE' || (String(member.email).toLowerCase() === APP_GROUP_OWNER ? member.role !== 'OWNER' : member.role !== 'MEMBER')))) {
       throw Object.assign(new Error('Meeting reply Group has unexpected delivery members; refusing to expose replies'), { code: 'MEETING_REPLY_GROUP_UNSAFE' });
     }
     await Directory.applyGroupAccessSettings({ groupEmail, whoCanJoin: 'INVITED_CAN_JOIN', whoCanViewMembership: 'ALL_MANAGERS_CAN_VIEW', whoCanViewGroup: 'ALL_MANAGERS_CAN_VIEW', whoCanPostMessage: 'ALL_MEMBERS_CAN_POST', includeInGlobalAddressList: false, isArchived: false });
