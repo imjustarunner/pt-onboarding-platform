@@ -28,7 +28,7 @@ beforeEach(()=>{
 const reviewed=async()=>({...input,reviewHash:(await previewCardEmail(user,input,deps)).reviewHash});
 it('never sends missing-card emails from the background, even when settings were enabled',async()=>{expect(await runInsuranceCardReminders(deps)).toEqual([]);expect(deps.send).not.toHaveBeenCalled();});
 it('previews the exact generic email and sends only after explicit review, once across billers',async()=>{
- const p=await previewCardEmail(user,input,deps);expect(p.canSend).toBe(true);expect(p.text).toContain('panel=payment_methods');expect(p.text).not.toContain('Synthetic Client');expect(deps.send).not.toHaveBeenCalled();
+ const p=await previewCardEmail(user,input,deps);expect(p.canSend).toBe(true);expect(p.text).toContain('panel=payment_methods');expect(p.text).toContain('clientId=101');expect(p.text).not.toContain('Synthetic Client');expect(deps.send).not.toHaveBeenCalled();
  const request={...input,reviewHash:p.reviewHash};expect(await sendReviewedCardEmail(user,request,deps)).toEqual({status:'sent'});await expect(sendReviewedCardEmail({...user,id:98},request,deps)).rejects.toMatchObject({status:409});expect(deps.send).toHaveBeenCalledOnce();expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({source:'manual',generatedByUserId:99,to:p.to,subject:p.subject,text:p.text,usedFallbackSender:false}));expect(connection.commit).toHaveBeenCalledOnce();
 });
 it.each(['review','complete','help','waived','not_required'])('does not send a stale preview after the request becomes %s',async state=>{const request=await reviewed();progress.state=state;await expect(sendReviewedCardEmail(user,request,deps)).rejects.toMatchObject({status:409});expect(deps.send).not.toHaveBeenCalled();});

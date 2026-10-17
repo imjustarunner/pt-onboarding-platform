@@ -98,7 +98,8 @@ async function emailPreview(input, deps, db, { locked = false } = {}) {
   let sender;
   try { sender = await deps.sender(input.agencyId, 'billing'); }
   catch (e) { if (e.status !== 409) throw e; blocked = e.message; }
-  const url = buildPublicAppUrl({ slug: profile.slug, portal_url: profile.portal_url }, `guardian?panel=payment_methods&insuranceProfile=${profile.id}`);
+  const clientId = context.clients.map(c => Number(c.id)).sort((a,b) => a-b)[0];
+  const url = buildPublicAppUrl({ slug: profile.slug, portal_url: profile.portal_url }, `guardian?panel=payment_methods&clientId=${clientId}&insuranceProfile=${profile.id}`);
   const subject = 'Please complete your insurance information';
   const text = `Your care team needs an insurance card image. Sign in to see which side is missing and upload a photo or PDF.\n\n${url}\n\nPlease use the secure upload instead of attaching cards to an email reply. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there.`;
   const snapshot = { to: profile.email || '', from: sender?.from_email || '', subject, text, senderId: sender?.id || null,
