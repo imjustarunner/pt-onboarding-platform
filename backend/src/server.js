@@ -2372,6 +2372,17 @@ if (!isBootstrap) {
   };
   setInterval(reconcileClientFiling, 60_000).unref();
 
+  // Durable, grouped portal document notifications; guarded per channel in the database.
+  let clinicalFormNotificationsBusy=false;
+  const flushClinicalFormNotifications=async()=>{
+    if(clinicalFormNotificationsBusy)return;
+    clinicalFormNotificationsBusy=true;
+    try{const {processClinicalFormNotifications}=await import('./services/safetyPlans/notifications.js');await processClinicalFormNotifications();}
+    catch(error){console.warn('[Clinical form notification queue]',error.code||'retry_pending');}
+    finally{clinicalFormNotificationsBusy=false;}
+  };
+  setInterval(flushClinicalFormNotifications,60_000).unref();
+
   // Unified Inbox scheduled / undo-delayed outbound email + Hub secure/SMS queue
   const scheduleUnifiedOutbound = async () => {
     try {

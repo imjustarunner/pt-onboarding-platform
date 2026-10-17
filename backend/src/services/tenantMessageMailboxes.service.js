@@ -285,3 +285,12 @@ export async function listMessageAliasesForAgency(agencyId, { userId = null } = 
   }
   return out;
 }
+
+/** Clinical portal forms always use the tenant's forms mailbox and staffed support replies. */
+export async function ensureTenantFormsMailbox(agencyId) {
+  const domain=await inferAgencyMailDomain(agencyId);
+  if(!domain||!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain))throw new Error('Agency mail domain is not configured');
+  const forms=await ensureIdentity({agencyId,identityKey:'forms',displayName:'Forms · AuricWell',fromEmail:`forms@${domain}`,replyTo:`support@${domain}`});
+  if(Number(forms?.is_active)!==1||Number(forms.agency_id)!==Number(agencyId)||String(forms.from_email).toLowerCase()!==`forms@${domain}`)throw new Error('Configure the agency forms sender before sending notifications');
+  return {forms,domain};
+}

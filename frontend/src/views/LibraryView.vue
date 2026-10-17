@@ -17,7 +17,7 @@
       <aside class="document-sidebar" :class="{ 'sidebar-expanded': showNavigation }" aria-label="Library navigation">
         <router-link class="sidebar-home" :to="`${orgPrefix}/dashboard`">← My dashboard</router-link>
         <nav aria-label="Browse documents">
-          <button v-for="tab in documentTabs" :key="tab.id" :aria-current="activeTab === tab.id && !activeCategoryId && folderId === undefined ? 'page' : undefined" @click="setTab(tab.id)"><span class="nav-symbol" aria-hidden="true">{{ tab.icon }}</span>{{ tab.label }}</button>
+          <button v-for="tab in visibleDocumentTabs" :key="tab.id" :aria-current="activeTab === tab.id && !activeCategoryId && folderId === undefined ? 'page' : undefined" @click="setTab(tab.id)"><span class="nav-symbol" aria-hidden="true">{{ tab.icon }}</span>{{ tab.label }}</button>
         </nav>
         <button class="mobile-navigation-toggle" :aria-expanded="showNavigation" @click="showNavigation = !showNavigation">Folders &amp; tools {{ showNavigation ? '−' : '+' }}</button><div class="sidebar-heading">Categories</div>
         <nav aria-label="Document categories"><button v-for="c in categoryCards" :key="c.id" :aria-current="Number(activeCategoryId) === Number(c.id) ? 'page' : undefined" @click="selectCategory(c)"><span class="category-icon" :style="c.themeStyle" v-html="c.iconSvg"/><span>{{ c.name }}</span></button></nav>
@@ -25,7 +25,7 @@
         <div v-if="!folders.length" class="sidebar-hint">Organize documents your way.</div>
         <div v-for="f in rootFolders" :key="f.id" class="folder-row"><button :aria-current="Number(folderId) === Number(f.id) ? 'page' : undefined" @click="selectFolder(f.id, true)"><span aria-hidden="true">▱</span><span>{{ f.name }}</span></button><button v-if="canShareFolder(f)" class="folder-share" :aria-label="`Share ${f.name}`" title="Share folder" @click="openShareFolder(f)">↗</button></div>
         <div class="sidebar-heading">Create &amp; organize</div>
-        <nav aria-label="Document tools"><router-link :to="`${orgPrefix}/clinical-forms`"><span class="nav-symbol" aria-hidden="true">✚</span>Clinical forms</router-link><button @click="openAdd('link')"><span class="nav-symbol" aria-hidden="true">↗</span>Save a link</button><button @click="openAdd('video')"><span class="nav-symbol" aria-hidden="true">▷</span>Video link</button><button @click="openAdd('upload_folder')"><span class="nav-symbol" aria-hidden="true">↑</span>Upload a folder</button><router-link v-if="canManage" :to="settingsPath"><span class="nav-symbol" aria-hidden="true">⚙</span>Library settings</router-link></nav>
+        <nav aria-label="Document tools"><button @click="openAdd('link')"><span class="nav-symbol" aria-hidden="true">↗</span>Save a link</button><button @click="openAdd('video')"><span class="nav-symbol" aria-hidden="true">▷</span>Video link</button><button @click="openAdd('upload_folder')"><span class="nav-symbol" aria-hidden="true">↑</span>Upload a folder</button><router-link v-if="canManage" :to="settingsPath"><span class="nav-symbol" aria-hidden="true">⚙</span>Library settings</router-link></nav>
         <div class="sidebar-footer"><router-link :to="`${orgPrefix}/my-learning`">Go to Training <span aria-hidden="true">↗</span></router-link></div>
       </aside>
       <main class="document-main">
@@ -36,6 +36,9 @@
         <template v-else>
           <div class="document-section-heading"><div><h2>{{ sectionTitle }}</h2><p>{{ sectionDescription }}</p></div><div class="heading-tools"><router-link v-if="referenceCanManage" :to="`${orgPrefix}/admin/document-library?company=${referenceAgencyId}`">Manage company guides ↗</router-link><button v-if="canViewStatistics" class="lib-btn lib-btn--ghost lib-btn--sm" @click="showStatistics = !showStatistics">{{ showStatistics ? 'Hide statistics' : 'Statistics' }}</button></div></div>
           <router-link v-if="canUseClinicalForms && activeTab==='mine'" class="private-clinical-link lib-btn lib-btn--ghost" :to="{path:`${orgPrefix}/clinical-forms`,query:{mine:'1',form:'cssrs-screener'}}">Private clinical documents · Saved screenings &amp; unlinked drafts →</router-link>
+          <router-link v-if="canUseClinicalForms && activeTab==='clinical'" class="private-clinical-link lib-btn lib-btn--primary" :to="`${orgPrefix}/clinical-forms`">＋ Start a clinical form</router-link>
+          <div v-if="canUseClinicalForms && activeTab==='clinical'" class="clinical-record-tools"><span class="clinical-brand"><img src="/auricwell/mark.svg" alt="" />AuricWell EHR · {{ agencyName }}</span><label>Client link<select v-model="clinicalLinkFilter"><option value="all">All saved forms</option><option value="unlinked">Needs client link</option><option value="linked">Linked to a client</option></select></label></div>
+          <p v-if="clinicalError" class="document-error" role="alert">{{ clinicalError }} <button @click="refresh">Retry</button></p>
           <DocumentAnalyticsControl v-if="showStatistics" :agency-id="referenceAgencyId" initially-open />
           <nav v-if="folderId !== undefined" class="folder-breadcrumbs" aria-label="Folder location"><button @click="goToFolderRoot">{{ activeCategoryId ? categories.find(c => Number(c.id) === Number(activeCategoryId))?.name : 'Library' }}</button><template v-for="folder in folderTrail" :key="folder.id"><span aria-hidden="true">/</span><button :aria-current="Number(folderId) === Number(folder.id) ? 'page' : undefined" @click="selectFolder(folder.id)">{{ folder.name }}</button></template></nav>
           <div v-if="['all', 'files', 'mine'].includes(activeTab)" class="folder-view-controls" role="group" aria-label="Browse mode">
@@ -51,11 +54,11 @@
             <section class="document-results" aria-label="Documents">
               <div class="document-result-count" role="status">{{ loading ? 'Loading documents…' : childFolders.length && !displayItems.length ? `${childFolders.length} folders · Open a folder to view its documents` : `${displayItems.length} document${displayItems.length === 1 ? '' : 's'} shown` }}</div>
               <div v-if="loading" class="document-empty" role="status"><span class="loading-lines"></span>Getting your documents…</div>
-              <div v-else-if="!displayItems.length && !childFolders.length" class="document-empty"><span class="empty-document" aria-hidden="true">▤</span><h3>{{ searchActive ? 'No matching documents' : 'No documents here yet' }}</h3><p>{{ searchActive ? 'Try another title or keyword, or clear your filters.' : activeTab === 'favorites' ? 'Star a file or document to keep it close at hand.' : 'Upload a file or create a document to get started.' }}</p><button class="lib-btn lib-btn--ghost" @click="searchActive ? clearFilters() : openAdd('upload')">{{ searchActive ? 'Clear filters' : 'Upload a document' }}</button></div>
+              <div v-else-if="!displayItems.length && !childFolders.length" class="document-empty"><span class="empty-document" aria-hidden="true">▤</span><h3>{{ searchActive ? 'No matching documents' : 'No documents here yet' }}</h3><p>{{ searchActive ? 'Try another title or keyword, or clear your filters.' : activeTab === 'favorites' ? 'Star a file or document to keep it close at hand.' : activeTab === 'clinical' ? 'Your saved clinical forms appear here. Start a new form, then save it to a client record or as a private unlinked draft.' : 'Upload a file or create a document to get started.' }}</p><button class="lib-btn lib-btn--ghost" @click="searchActive ? clearFilters() : activeTab === 'clinical' ? router.push(`${orgPrefix}/clinical-forms`) : openAdd('upload')">{{ searchActive ? 'Clear filters' : activeTab === 'clinical' ? 'Start a clinical form' : 'Upload a document' }}</button></div>
               <component :is="viewMode === 'grid' ? LibraryResourceGrid : LibraryResourceList" v-else-if="displayItems.length" :items="displayItems" :can-manage="canManage" :show-owner-menu="true" :show-details="true" :selected-id="detailItem?.id" @open="openResource" @toggle-favorite="toggleFavorite" @menu="openMenu" @details="detailItem = $event" />
-              <button v-if="hasMore && activeTab !== 'guides' && activeTab !== 'recent'" class="document-load-more lib-btn lib-btn--ghost" :disabled="loadingMore" @click="loadMore">{{ loadingMore ? 'Loading…' : 'Load more documents' }}</button>
+              <button v-if="hasMore && !['guides','recent','clinical'].includes(activeTab)" class="document-load-more lib-btn lib-btn--ghost" :disabled="loadingMore" @click="loadMore">{{ loadingMore ? 'Loading…' : 'Load more documents' }}</button>
             </section>
-            <aside v-if="detailItem" class="document-detail" aria-label="Document details"><div class="detail-top"><span class="detail-file-icon">{{ shortType(detailItem) }}</span><button aria-label="Close document details" @click="detailItem = null">×</button></div><h3>{{ detailItem.name }}</h3><span class="detail-category">{{ detailItem.categoryName || 'Resource' }}</span><p>{{ detailItem.description || 'Open this document to view its contents.' }}</p><button class="lib-btn lib-btn--primary detail-open" @click="openResource(detailItem)">{{ isPdf(detailItem) ? 'Open, fill & sign' : 'Open document' }} <span aria-hidden="true">↗</span></button><dl><dt>Access</dt><dd>{{ detailItem.clinicalFormKey ? 'Blank clinical form · Responses saved privately' : detailItem.scope === 'personal' ? 'Personal document' : 'Organization library' }}</dd><dt v-if="detailItem.updatedAt">Updated</dt><dd v-if="detailItem.updatedAt">{{ formatDate(detailItem.updatedAt) }}</dd><dt v-if="detailItem.updatedByName || detailItem.createdByName">By</dt><dd v-if="detailItem.updatedByName || detailItem.createdByName">{{ detailItem.updatedByName || detailItem.createdByName }}</dd></dl><p v-if="isPdf(detailItem)" class="detail-tip">Add text, checkmarks, and your signature directly on the PDF. Save your own completed copy.</p><DocumentAnalyticsControl v-if="detailItem.scope === 'organization' && !detailItem.guideKey" :agency-id="agencyId" :document-key="`resource:${detailItem.id}`" :document-title="detailItem.name" /></aside>
+            <aside v-if="detailItem" class="document-detail" aria-label="Document details"><div class="detail-top"><span class="detail-file-icon">{{ shortType(detailItem) }}</span><button aria-label="Close document details" @click="detailItem = null">×</button></div><h3>{{ detailItem.name }}</h3><span class="detail-category">{{ detailItem.categoryName || 'Resource' }}</span><p>{{ detailItem.description || 'Open this document to view its contents.' }}</p><button class="lib-btn lib-btn--primary detail-open" @click="openResource(detailItem)">{{ isPdf(detailItem) ? 'Open, fill & sign' : 'Open document' }} <span aria-hidden="true">↗</span></button><dl><dt>Access</dt><dd>{{ detailItem.clinicalRecordId ? 'Protected clinical record · Authorized staff only' : detailItem.clinicalFormKey ? 'Blank clinical form · Responses saved privately' : detailItem.scope === 'personal' ? 'Personal document' : 'Organization library' }}</dd><dt v-if="detailItem.updatedAt">Updated</dt><dd v-if="detailItem.updatedAt">{{ formatDate(detailItem.updatedAt) }}</dd><dt v-if="detailItem.updatedByName || detailItem.createdByName">By</dt><dd v-if="detailItem.updatedByName || detailItem.createdByName">{{ detailItem.updatedByName || detailItem.createdByName }}</dd></dl><p v-if="isPdf(detailItem)" class="detail-tip">Add text, checkmarks, and your signature directly on the PDF. Save your own completed copy.</p><DocumentAnalyticsControl v-if="detailItem.scope === 'organization' && !detailItem.guideKey" :agency-id="agencyId" :document-key="`resource:${detailItem.id}`" :document-title="detailItem.name" /></aside>
           </div>
         </template>
       </main>
@@ -214,9 +217,10 @@ const loading = ref(true);
 const error = ref('');
 const home = ref(null);
 const resources = ref([]);
+const clinicalPlans=ref([]),clinicalError=ref(''),clinicalLinkFilter=ref('all');
 const search = ref(String(route.query.q || ''));
 const searchActive = ref(!!search.value.trim());
-const tabFromSection = (section) => section === 'resources' ? 'files' : ['all', 'mine', 'guides', 'files', 'favorites', 'recent'].includes(section) ? section : 'all';
+const tabFromSection = (section) => section === 'resources' ? 'files' : ['all', 'mine', 'guides', 'files', 'favorites', 'recent', 'clinical'].includes(section) ? section : 'all';
 const activeTab = ref(tabFromSection(route.query.section));
 const showNavigation = ref(false);
 const detailItem = ref(null), typeFilter = ref(''), sortBy = ref('updated'), showStatistics = ref(false);
@@ -267,10 +271,12 @@ const documentTabs = [
   { id: 'favorites', label: 'Favorites', icon: '☆' },
   { id: 'recent', label: 'Recent', icon: '◷' },
   { id: 'guides', label: 'Handbooks & guides', icon: '▥' },
+  { id: 'clinical', label: 'Clinical forms', icon: '▱' },
   { id: 'files', label: 'Files & resources', icon: '▱' }
 ];
+const visibleDocumentTabs=computed(()=>documentTabs.filter(tab=>tab.id!=='clinical'||canUseClinicalForms.value));
 const sectionTitle = computed(() => folderId.value !== undefined ? folders.value.find(f => Number(f.id) === Number(folderId.value))?.name || 'Folder' : activeCategoryId.value ? categories.value.find(c => Number(c.id) === Number(activeCategoryId.value))?.name || 'Documents' : documentTabs.find(t => t.id === activeTab.value)?.label || 'All documents');
-const sectionDescription = computed(() => activeTab.value === 'guides' ? 'Your organization’s policies, handbooks, and practice guides.' : activeTab.value === 'favorites' ? 'The documents you keep close at hand.' : 'Find, create, and work with your organization’s documents.');
+const sectionDescription = computed(() => activeTab.value === 'clinical' ? 'Saved forms and screenings you can access. Open a record to review it, attach it to a client, or share for signatures.' : activeTab.value === 'recent' ? 'Recently opened resources and recently updated clinical forms.' : activeTab.value === 'guides' ? 'Your organization’s policies, handbooks, and practice guides.' : activeTab.value === 'favorites' ? 'The documents you keep close at hand.' : 'Find, create, and work with your organization’s documents.');
 const guideItems = computed(() => referenceDocuments.value.filter(d => d.key === 'workplace-handbook' || d.published || d.betaAvailable).map(d => ({ ...d, id: `guide:${d.key}`, guideKey: d.key, name: d.title, updatedAt: d.published?.published_at || null, resourceType: 'company_guide', fileType: d.key === 'workplace-handbook' ? 'handbook' : 'guide', categoryName: 'Policies & procedures', categorySlug: 'policies_procedures', scope: 'organization', agencyId: agencyId.value })));
 const isPdf = item => item.fileType === 'pdf' || item.mimeType === 'application/pdf';
 const folderTrail = computed(() => {
@@ -344,7 +350,7 @@ const filterLabel = computed(() => {
 
 const displayItems = computed(() => {
   let files = activeTab.value === 'recent' ? home.value?.recentlyViewed || [] : resources.value;
-  if (activeTab.value === 'guides') files = [];
+  if (['guides','clinical'].includes(activeTab.value)) files = [];
   const includeGuides = ['all', 'guides'].includes(activeTab.value) && folderId.value === undefined;
   let guides = includeGuides ? guideItems.value : [];
   if (activeCategoryId.value && categories.value.find(c => Number(c.id) === Number(activeCategoryId.value))?.slug !== 'policies_procedures') guides = [];
@@ -353,10 +359,17 @@ const displayItems = computed(() => {
   const category=categories.value.find(c=>Number(c.id)===Number(activeCategoryId.value));
   const showScreener=canUseClinicalForms.value&&['all','files'].includes(activeTab.value)&&(folderId.value===undefined||!!query)&&(!activeCategoryId.value||category?.slug==='forms_assessments'||!!query)&&matchesSuicideScreener(query);
   const screeners=showScreener?[{id:'clinical:cssrs-screener',clinicalFormKey:suicideScreener.key,name:suicideScreener.title,description:suicideScreener.description,resourceType:'clinical_form',fileType:'form',categoryName:'Forms & assessments',categorySlug:'forms_assessments',scope:'template'}]:[];
-  let result = [...screeners, ...guides, ...files];
+  const includeClinical=canUseClinicalForms.value&&['all','mine','recent','clinical'].includes(activeTab.value)&&folderId.value===undefined&&(!activeCategoryId.value||category?.slug==='forms_assessments');
+  const clinical=includeClinical?clinicalPlans.value.map(p=>({
+    id:`clinical-record:${p.id}`,clinicalRecordId:p.id,clinicalFormKey:p.documentKey,needsClientLink:!p.clientId,
+    name:p.documentName||`${p.name||'Clinical record'} · ${p.title||'Clinical form'}`,
+    description:`${p.name||'Individual not named'} · ${p.title||'Clinical form'} · ${p.revoked?'Revoked':p.screenStatus==='completed'?'Completed screening':'Saved form'} · ${p.clientId?'Linked to client record':'Private · Not yet linked'} · Version ${p.version}`,
+    resourceType:'clinical_form',fileType:'form',categoryName:'Clinical forms',scope:'clinical',updatedAt:p.updatedAt
+  })).filter(p=>(!query||`${p.name} ${p.description}`.toLowerCase().includes(query))&&(activeTab.value!=='clinical'||clinicalLinkFilter.value==='all'||(clinicalLinkFilter.value==='unlinked'?p.needsClientLink:!p.needsClientLink))):[];
+  let result = activeTab.value==='recent'?[...clinical.slice(0,12),...files]:[...screeners, ...guides, ...files, ...clinical];
   if (typeFilter.value) result = result.filter(item => typeFilter.value === 'link' ? ['link', 'google_doc'].includes(item.resourceType) : [item.fileType, item.resourceType].includes(typeFilter.value));
   if (sortBy.value === 'name') result.sort((a, b) => a.name.localeCompare(b.name));
-  else if (activeTab.value !== 'recent') result.sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
+  else if(activeTab.value!=='recent') result.sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
   return result;
 });
 
@@ -396,12 +409,13 @@ async function loadHome() {
 async function refresh() {
   const sequence = ++requestSequence;
   if (!agencyId.value) { loading.value = false; error.value = 'Select an organization to open its document library.'; return; }
-  loading.value = true; loadingMore.value = false; error.value = ''; referenceError.value = ''; detailItem.value = null;
+  loading.value = true; loadingMore.value = false; error.value = ''; referenceError.value = ''; clinicalError.value=''; clinicalPlans.value=[]; detailItem.value = null;
   const params = resourceParams();
   const results = await Promise.allSettled([
     fetchLibraryHome({ agencyId: params.agencyId }),
     fetchLibraryResources(params),
-    api.get('/provider-update/company-documents', { params: { agencyId: params.agencyId } })
+    api.get('/provider-update/company-documents', { params: { agencyId: params.agencyId } }),
+    canUseClinicalForms.value && ['all','mine','recent','clinical'].includes(activeTab.value) ? api.get('/clinical-forms',{params:{agencyId:params.agencyId,...(activeTab.value==='mine'?{mine:'1'}:{})},skipGlobalLoading:true}) : Promise.resolve({data:{plans:[]}})
   ]);
   if (sequence !== requestSequence) return;
   if (results[0].status === 'fulfilled') home.value = results[0].value;
@@ -413,6 +427,8 @@ async function refresh() {
     referenceCanManage.value = data.canManage === true;
     referenceDocuments.value = [{ key: 'workplace-handbook', title: 'Workplace handbook', description: 'Company policies, expectations, and updates.' }, ...(data.documents || [])];
   } else { referenceDocuments.value = []; referenceCanManage.value = false; referenceError.value = 'Company guides could not be loaded.'; }
+  if(results[3].status==='fulfilled') clinicalPlans.value=results[3].value.data.plans||[];
+  else clinicalError.value='Saved clinical forms could not be loaded. Your other documents are still available.';
   loading.value = false;
 }
 async function loadMore() {
@@ -508,7 +524,7 @@ function syncBrowseLocation() {
 function resetSearch() { clearTimeout(searchTimer); search.value = ''; searchActive.value = false; }
 function setTab(id) {
   activeTab.value = id; activeCategoryId.value = null; folderId.value = undefined; detailItem.value = null; typeFilter.value = ''; showAll.value = false;
-  resetSearch(); syncBrowseLocation();
+  clinicalLinkFilter.value='all'; resetSearch(); syncBrowseLocation();
 }
 function selectCategory(c) {
   activeCategoryId.value = c.id; folderId.value = undefined; activeTab.value = 'all'; showAll.value = false;
@@ -526,12 +542,13 @@ function backToLibrary() { setTab('all'); }
 function runSearch() {
   clearTimeout(searchTimer);
   searchActive.value = !!search.value.trim();
-  if (activeTab.value !== 'mine') activeTab.value = 'all';
+  if (!['mine','clinical'].includes(activeTab.value)) activeTab.value = 'all';
   syncBrowseLocation();
 }
 
 async function openResource(item) {
   if (!agencyId.value) return;
+  if (item.clinicalRecordId) { await router.push({path:`${orgPrefix.value}/clinical-forms`,query:{form:item.clinicalFormKey,recordId:String(item.clinicalRecordId)}}); return; }
   if (item.clinicalFormKey) { await router.push(screenerLocation(orgPrefix.value)); return; }
   if (item.guideKey) { router.replace({ path: `${orgPrefix.value}/library`, query: { ...route.query, companyDocument: item.guideKey }, hash: '' }); return; }
   const currentAgencyId = agencyId.value;
@@ -593,7 +610,7 @@ function openMenu(item, evt) {
 }
 
 function canDistribute(item) {
-  if (!item) return false;
+  if (!item || item.clinicalFormKey || item.clinicalRecordId) return false;
   if (canManage.value) return true;
   return Number(item.ownerUserId) === Number(authStore.user?.id);
 }
@@ -656,7 +673,7 @@ watch(() => [route.query.section, route.query.folder, route.query.category, rout
 });
 watch([() => route.params.organizationSlug, () => agencyId.value], () => {
   viewerRequestSequence++; shareRequestSequence++; clearTimeout(searchTimer);
-  home.value = null; resources.value = []; referenceDocuments.value = []; referenceCanManage.value = false;
+  home.value = null; resources.value = []; clinicalPlans.value=[]; clinicalError.value=''; referenceDocuments.value = []; referenceCanManage.value = false;
   viewerResource.value = null; detailItem.value = null; menuItem.value = null;
   shareFolder.value = null; shareList.value = []; shareEmails.value = ''; shareError.value = ''; shareSaving.value = false;
   showAdd.value = false; distributeItem.value = null; showStatistics.value = false;
@@ -690,6 +707,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.clinical-record-tools{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 18px}.clinical-brand{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#36574a}.clinical-brand img{width:24px;height:24px}.clinical-record-tools label{display:flex;align-items:center;gap:8px;font-size:12px}.clinical-record-tools select{padding:8px;border:1px solid #dce3de;border-radius:6px;background:white;color:#36574a;font:inherit;}
 .document-add-menu{position:relative}.document-add-menu summary{list-style:none}.document-add-menu summary::-webkit-details-marker{display:none}.document-add-options{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:210px;padding:6px;border:1px solid #dce3de;border-radius:10px;background:#fff;box-shadow:0 12px 32px #203c2926}.document-add-options button{display:block;width:100%;border:0;border-radius:6px;background:transparent;text-align:left;padding:12px;font:inherit;font-size:13px;color:#294c3e;cursor:pointer}.document-add-options button:hover,.document-add-options button:focus-visible{background:#edf3ef}
 
 .folder-breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;font-size:12px}.folder-breadcrumbs button{font:inherit;border:0;background:none;color:#365c49;cursor:pointer}.folder-breadcrumbs button[aria-current]{font-weight:600}.folder-view-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px}.folder-view-controls button{border:1px solid #dbe4dd;background:white;color:#31513f}.folder-view-controls [aria-pressed=true]{background:#244d42;color:white;border-color:#244d42}.folder-view-controls>span{font-size:12px;color:#718077;margin-left:6px}.library-subfolders{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px;margin-bottom:24px}.library-subfolders button{display:flex;gap:14px;align-items:center;min-height:88px;border:1px solid #dbe4dd;border-radius:12px;padding:18px;background:linear-gradient(135deg,#f2f6ee,#fff);color:#31513f;font-family:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer}.library-subfolders button:hover{border-color:#72927e;background:#eef4ee}.library-subfolders svg{width:32px;height:32px;flex-shrink:0;color:#64876e}.folder-arrow{margin-left:auto;font-size:18px;font-weight:400}

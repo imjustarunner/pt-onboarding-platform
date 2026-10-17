@@ -16,7 +16,7 @@ export function positiveId(value) { const id=Number(value); if(!Number.isSafeInt
 function text(value,max=6000) { if(value==null)return '';if(typeof value!=='string'||value.length>max)fail(400,`Enter text of no more than ${max} characters.`);return value.trim(); }
 export function normalizeSafetyPlan(input) {
   if(!input||typeof input!=='object'||Array.isArray(input))fail(400,'Complete the safety plan.');
-  const result={personLabel:text(input.personLabel,200),planDate:text(input.planDate,10),reviewDate:text(input.reviewDate,10)};
+  const result={documentName:text(input.documentName,160),personLabel:text(input.personLabel,200),planDate:text(input.planDate,10),reviewDate:text(input.reviewDate,10)};
   for(const field of ['planDate','reviewDate'])if(result[field]&&(!/^\d{4}-\d{2}-\d{2}$/.test(result[field])||!Number.isFinite(+new Date(result[field]))||new Date(result[field]).toISOString().slice(0,10)!==result[field]))fail(400,'Enter a valid plan and review date.');
   for(const section of safetyPlanTemplate.sections) {
     for(const [key] of section.fields||[])result[key]=text(input[key]);

@@ -32,3 +32,16 @@ CREATE TABLE IF NOT EXISTS clinical_form_events (
  action VARCHAR(40) NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  INDEX idx_safety_events(plan_id,version), FOREIGN KEY(plan_id) REFERENCES clinical_form_records(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS clinical_form_notification_batches (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ agency_id INT NOT NULL, recipient_user_id INT NOT NULL, batch_key BIGINT NOT NULL,
+ available_at DATETIME NOT NULL,
+ email_state ENUM('pending','sending','sent','skipped','review') NOT NULL DEFAULT 'pending',
+ sms_state ENUM('pending','sending','sent','skipped','review') NOT NULL DEFAULT 'pending',
+ email_provider_ref VARCHAR(255) NULL, sms_provider_ref VARCHAR(255) NULL,
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_clinical_form_notification_batch (agency_id,recipient_user_id),
+ INDEX idx_clinical_form_notification_due (available_at,email_state,sms_state)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

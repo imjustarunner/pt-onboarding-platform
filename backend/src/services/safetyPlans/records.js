@@ -1,3 +1,4 @@
+import {queueClinicalFormNotification} from './notificationQueue.js';
 import {createHash} from 'node:crypto';
 import pool from '../../config/clinicalDatabase.js';
 import {maybeEncryptNotePayload as encrypt,maybeDecryptNotePayload as decrypt} from '../clinicalNoteCrypto.service.js';
@@ -5,6 +6,7 @@ import {safetyPlanTemplate,positiveId,fail,normalizeSafetyPlan,validateReady,sig
 import {getClinicalTemplate,clinicalFormCatalog,normalizeClinicalData,validateClinicalReady} from './clinicalTemplates.js';
 import {appointmentPrefill} from './appointment.js';
 import {staffRole,agencyAccess,clientAccess,planAccess,recipientAccess,recipientOptions,agencyBrand} from './access.js';
+const portalEditableKeys=new Set(['safety-plan','release-of-information','client-information-update']);
 const decode=value=>JSON.parse(decrypt(value));
 const encode=value=>encrypt(JSON.stringify(value));
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -62,7 +64,7 @@ export async function listPlans(user,{agencyId,clientId,mine}){
  else if(mine==='1'){await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND created_by_user_id=? AND client_id IS NULL ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id]);}
  else{await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND (created_by_user_id=? OR (client_id IS NULL AND ?=1)) ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id,['admin','super_admin'].includes(user.role)?1:0]);}
  const plans=[];
- for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,reviewStatus:data.reviewStatus,screenStatus:data.data.screenStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
+ for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,documentName:data.data.documentName||'',name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,reviewStatus:data.reviewStatus,screenStatus:data.data.screenStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
  return {plans};
 }
 export async function linkPlan(user,id,input){
@@ -71,19 +73,22 @@ export async function linkPlan(user,id,input){
  await db.execute('UPDATE clinical_form_records SET client_id=?,current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[client.id,row.current_version,row.id]);await snapshot(db,row,user,{...previous,unlinked:null,linkedFromVersion:row.current_version-1});await event(db,row,user,'linked');});return readPlan(user,id);
 }
 export async function addSigner(user,id,input){
- await transaction(async db=>{const row=await rowById(db,id,true);await planAccess(user,row,{write:true});expectVersion(row,input.version);const v=await versionById(db,row);const payload=decode(v.payload_encrypted);if(payload.revocation)fail(409,'This authorization was revoked.');validateClinicalReady(payload.data,payload.template);
+ await transaction(async db=>{const row=await rowById(db,id,true);await planAccess(user,row,{write:true});expectVersion(row,input.version);const v=await versionById(db,row);const payload=decode(v.payload_encrypted);if(payload.revocation)fail(409,'This authorization was revoked.');
+ const allowCompletion=input.allowCompletion===true||payload.template.key==='client-information-update';
+ if(allowCompletion){if(!portalEditableKeys.has(payload.template.key))fail(400,'This form must be completed by staff. Share it for review or signature.');if(!payload.data.personLabel||!payload.data.planDate)fail(400,'Enter the client name and document date before sharing.');}else validateClinicalReady(payload.data,payload.template);
  const kind=input.kind;if(!['client','guardian','clinician'].includes(kind))fail(400,'Select a signer role.');
  const copyOnly=input.copyOnly===true&&kind!=='clinician';
  if(payload.template.key==='attendance-verification'&&kind!=='clinician'){if(!copyOnly||!input.userId)fail(400,'Share an issued attendance letter as a portal copy.');const [staffSigners]=await db.execute('SELECT * FROM clinical_form_signers WHERE plan_id=? AND version=? ORDER BY id',[row.id,row.current_version]);if(!staffSigners.some(s=>s.signer_kind==='clinician'&&s.signed_at))fail(400,'Issuing staff must sign the attendance letter before sharing it.');}
  let name=typeof input.name==='string'?input.name.trim():'',recipientId=input.userId?positiveId(input.userId):null;
+ if(input.allowCompletion===true&&(!recipientId||kind==='clinician'||copyOnly))fail(400,'Select a client or guardian portal to request form completion.');
  if(kind==='clinician'){if(recipientId&&recipientId!==Number(user.id))fail(403,'Clinicians sign through their own staff account.');recipientId=Number(user.id);name=`${user.first_name||''} ${user.last_name||''}`.trim()||name;}
  else if(recipientId)name=await recipientAccess(row,recipientId,kind);
  if(!name||name.length>200)fail(400,'Enter the signer’s name.');
- if(kind==='guardian'&&input.authorityConfirmed!==true)fail(400,'Verify and confirm the guardian’s authority before adding an in-person signer.');
+ if(kind==='guardian'&&input.authorityConfirmed!==true)fail(400,'Verify and confirm the guardian’s authority before adding this signer.');
  const [existing]=await db.execute('SELECT * FROM clinical_form_signers WHERE plan_id=? AND version=? AND signer_kind=? AND revoked_at IS NULL',[row.id,row.current_version,kind]);
  if(existing.some(s=>recipientId?Number(s.recipient_user_id)===recipientId:decode(s.details_encrypted).name.toLowerCase()===name.toLowerCase()))fail(409,'This signer is already on the current version.');
  if(existing.length>=12)fail(400,'Use no more than 12 signers for each role.');
- await db.execute('INSERT INTO clinical_form_signers(plan_id,version,signer_kind,recipient_user_id,details_encrypted,portal_shared_at) VALUES(?,?,?,?,?,?)',[row.id,row.current_version,kind,recipientId,encode({name,copyOnly,authorityConfirmed:input.authorityConfirmed===true}),kind!=='clinician'&&recipientId?new Date():null]);await event(db,row,user,recipientId&&kind!=='clinician'?'portal_shared':'signer_added');});return readPlan(user,id);
+ await db.execute('INSERT INTO clinical_form_signers(plan_id,version,signer_kind,recipient_user_id,details_encrypted,portal_shared_at) VALUES(?,?,?,?,?,?)',[row.id,row.current_version,kind,recipientId,encode({name,copyOnly,allowCompletion:allowCompletion&&!!recipientId&&kind!=='clinician'&&!copyOnly,authorityConfirmed:input.authorityConfirmed===true}),kind!=='clinician'&&recipientId?new Date():null]);await event(db,row,user,recipientId&&kind!=='clinician'?'portal_shared':'signer_added');if(recipientId&&kind!=='clinician')await queueClinicalFormNotification(db,row.agency_id,recipientId);});return readPlan(user,id);
 }
 export async function revokeSigner(user,id,signerId,input){await transaction(async db=>{const row=await rowById(db,id,true);await planAccess(user,row,{write:true});expectVersion(row,input.version);const [result]=await db.execute('UPDATE clinical_form_signers SET revoked_at=CURRENT_TIMESTAMP WHERE id=? AND plan_id=? AND version=? AND revoked_at IS NULL',[positiveId(signerId),row.id,row.current_version]);if(!result.affectedRows)fail(404,'Signer not found.');await event(db,row,user,'share_revoked');});return readPlan(user,id);}
 export async function signPlan(user,id,signerId,input,{portal=false}={}){
@@ -118,14 +123,15 @@ export async function portalRead(user,shareId){
 
 export async function portalSubmitUpdate(user,shareId,input){
  const shared=await portalRead(user,shareId);
- if(shared.template.key!=='client-information-update')fail(400,'This document is not an information update.');
+ if(!portalEditableKeys.has(shared.template.key)||!(shared.signers.find(s=>s.id===shared.mySignerId)?.allowCompletion||shared.template.key==='client-information-update'))fail(400,'This document was shared for review or signature, not editing.');
  await transaction(async db=>{
   const row=await rowById(db,shared.id,true);expectVersion(row,input.version);
   const [[signer]]=await db.execute('SELECT * FROM clinical_form_signers WHERE id=? AND plan_id=? AND version=? FOR UPDATE',[shared.mySignerId,row.id,row.current_version]);
   if(!signer||signer.revoked_at||signer.signed_at)fail(409,'This request is no longer available for editing.');
   await recipientAccess(row,user.id,signer.signer_kind);
+  const permission=decode(signer.details_encrypted);if(permission.copyOnly||!(permission.allowCompletion||shared.template.key==='client-information-update'))fail(400,'This document is not available for completion.');
   const old=await versionById(db,row);if(old.content_hash!==input.contentHash)fail(409,'Reload this update before submitting.');
-  const previous=decode(old.payload_encrypted),data=normalizeClinicalData(input.data,previous.template);validateClinicalReady(data,previous.template);
+  const previous=decode(old.payload_encrypted);if(previous.revocation)fail(409,'This authorization was revoked.');const data=normalizeClinicalData(input.data,previous.template);validateClinicalReady(data,previous.template);
   const evidence=signatureEvidence(input,previous.template.title);
   row.current_version+=1;await db.execute('UPDATE clinical_form_records SET current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[row.current_version,row.id]);
   const payload={...previous,data,reviewStatus:'pending',submittedByUserId:user.id};await snapshot(db,row,user,payload);
@@ -136,7 +142,7 @@ export async function portalSubmitUpdate(user,shareId,input){
 }
 export async function reviewUpdate(user,id,input){
  await transaction(async db=>{const row=await rowById(db,id,true);await planAccess(user,row,{write:true});expectVersion(row,input.version);const previous=decode((await versionById(db,row)).payload_encrypted);
- if(previous.template.key!=='client-information-update')fail(400,'Select an information update.');
+ if(!portalEditableKeys.has(previous.template.key)||previous.reviewStatus!=='pending')fail(400,'Select a submitted form awaiting review.');
  if(input.reviewed!==true)fail(400,'Confirm that you reviewed this submission.');
  row.current_version+=1;await db.execute('UPDATE clinical_form_records SET current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[row.current_version,row.id]);await snapshot(db,row,user,{...previous,reviewStatus:'reviewed',reviewOfVersion:row.current_version-1,reviewedByUserId:user.id,reviewedAt:new Date().toISOString()});await event(db,row,user,'information_update_reviewed');});return readPlan(user,id);
 }

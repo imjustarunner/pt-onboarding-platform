@@ -1,4 +1,5 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
+vi.mock('../safetyPlans/notificationQueue.js',()=>({queueClinicalFormNotification:vi.fn().mockResolvedValue(undefined)}));
 vi.mock('../../models/AgencyOfficeIntakeMaster.model.js',()=>({default:{findByAgencyLanguage:vi.fn().mockResolvedValue(null)}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
@@ -16,6 +17,7 @@ import {requireClinicalScope} from '../guardianClinicalAccess.service.js';
 import {maybeDecryptNotePayload} from '../clinicalNoteCrypto.service.js';
 import {normalizeSafetyPlan,signatureEvidence} from '../safetyPlans/template.js';
 import * as records from '../safetyPlans/records.js';
+import {queueClinicalFormNotification} from '../safetyPlans/notificationQueue.js';
 const staff={id:7,role:'provider',first_name:'Synthetic',last_name:'Clinician'};
 const guardian={id:20,role:'client_guardian'},clientUser={id:21,role:'client'};
 const client={id:41,agency_id:2,full_name:'Synthetic Client'};
@@ -133,5 +135,36 @@ describe('standalone C-SSRS records',()=>{
   await records.savePlan({...staff,id:8},unlinked());
   await records.savePlan(staff,{...unlinked(),clientId:41});
   expect((await records.listPlans({...staff,role:'admin'},{agencyId:2,mine:'1'})).plans.map(p=>p.id)).toEqual([saved.id]);
+ });
+});
+
+
+describe('named forms and client completion permissions',()=>{
+ it('retains a custom name in encrypted content, lists and historical versions',async()=>{
+  const saved=await records.savePlan(staff,{...input(),data:{...data(),documentName:'Fall support plan'}});
+  expect(saved.data.documentName).toBe('Fall support plan');expect(state.versions[0].payload_encrypted).not.toContain('Fall support plan');
+  expect((await records.listPlans(staff,{agencyId:2})).plans[0].documentName).toBe('Fall support plan');
+  await records.savePlan(staff,{...input(),version:1,data:{...data(),documentName:'Revised support plan'}},saved.id);
+  expect((await records.readPlan(staff,saved.id,1)).data.documentName).toBe('Fall support plan');
+ });
+ it('lets an authorized recipient complete a partial plan and submit a signed version for staff review',async()=>{
+  const saved=await records.savePlan(staff,{...input(),data:{personLabel:'Synthetic Client',planDate:'2026-10-17'}});
+  const shared=await records.addSigner(staff,saved.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true});
+  expect(shared.signers[0].allowCompletion).toBe(true);expect(queueClinicalFormNotification).toHaveBeenCalledWith(expect.anything(),2,20);
+  await records.portalSubmitUpdate(guardian,1,{...signature(),version:1,contentHash:shared.contentHash,data:data()});
+  const submitted=await records.readPlan(staff,saved.id);expect(submitted).toMatchObject({version:2,reviewStatus:'pending'});expect(submitted.signers[0].signedAt).toBeTruthy();
+  const reviewed=await records.reviewUpdate(staff,saved.id,{version:2,reviewed:true});expect(reviewed.reviewStatus).toBe('reviewed');
+  expect((await records.readPlan(staff,saved.id,1)).data.coping).toBe('');
+ });
+ it('rejects incomplete submissions and sign-only edits',async()=>{
+  const saved=await records.savePlan(staff,input());const shared=await records.addSigner(staff,saved.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true});
+  await expect(records.portalSubmitUpdate(guardian,1,{...signature(),version:1,contentHash:shared.contentHash,data:data()})).rejects.toMatchObject({status:400});
+  await records.revokeSigner(staff,saved.id,1,{version:1});await records.addSigner(staff,saved.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true});
+  await expect(records.portalSubmitUpdate(guardian,2,{...signature(),version:1,contentHash:shared.contentHash,data:{personLabel:'Synthetic'}})).rejects.toMatchObject({status:400});expect(state.versions).toHaveLength(1);
+ });
+ it('keeps staff-administered assessments out of client completion and never queues in-person requests',async()=>{
+  const saved=await records.savePlan(staff,{...input(),documentKey:'cssrs-screener',data:{personLabel:'Synthetic',planDate:'2026-10-17'}});
+  await expect(records.addSigner(staff,saved.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true})).rejects.toMatchObject({status:400});expect(queueClinicalFormNotification).not.toHaveBeenCalled();
+  const plan=await records.savePlan(staff,input());await records.addSigner(staff,plan.id,{version:1,kind:'client',name:'Synthetic'});expect(queueClinicalFormNotification).not.toHaveBeenCalled();
  });
 });

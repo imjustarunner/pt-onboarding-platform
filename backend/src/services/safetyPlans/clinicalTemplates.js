@@ -39,7 +39,7 @@ const clean=(v,max=6000)=>{if(v==null)return '';if(typeof v!=='string'||v.length
 export function normalizeClinicalData(input,template){
  if(template.key==='safety-plan')return normalizeSafetyPlan(input);
  if(!input||typeof input!=='object'||Array.isArray(input))fail(400,'Complete the form.');
- const out={personLabel:clean(input.personLabel,200),planDate:clean(input.planDate,10)};
+ const out={documentName:clean(input.documentName,160),personLabel:clean(input.personLabel,200),planDate:clean(input.planDate,10)};
  for(const section of template.sections)for(const [key,,spec={}] of section.fields||[]){
   if(spec.showIf&&input[spec.showIf.fieldKey]!==spec.showIf.equals){out[key]='';continue;}
   const options=(spec.options||[]).map(o=>typeof o==='string'?o:String(o.value));

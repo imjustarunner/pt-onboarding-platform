@@ -15,6 +15,7 @@
         <span v-if="item.isMine" class="lib-mine-tag">Mine</span>
       </div>
       <h3 class="lib-card__title"><button type="button" @click.stop="$emit('open', item)">{{ item.name }}</button></h3>
+      <span v-if="item.needsClientLink" class="clinical-link-flag">Needs client link</span>
       <p v-if="item.description" class="lib-card__desc">{{ item.description }}</p>
       <div class="lib-card__meta">
         <span v-if="item.categoryName" class="lib-pill">{{ item.categoryName }}</span>
@@ -76,6 +77,7 @@ function formatDate(value) {
 </script>
 
 <style scoped>
+.clinical-link-flag{display:inline-block;align-self:flex-start;margin:4px 0;font-size:10px;font-weight:650;background:#fff3d6;color:#79520c;border:1px solid #ead7a4;border-radius:5px;padding:4px 7px;}
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 225px), 1fr)); gap: 15px; }
 .lib-card { display: flex; flex-direction: column; min-width: 0; gap: 11px; padding: 20px 18px 12px; text-align: left; border: 1px solid #e4e9e4; border-radius: 12px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .lib-card:hover { border-color: #b7cbbb; box-shadow: 0 3px 14px #27463109; }

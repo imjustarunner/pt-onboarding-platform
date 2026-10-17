@@ -19,6 +19,7 @@
         <span class="lib-list__type-badge" :data-type="typeKey(item)" aria-hidden="true">{{ typeShort(item) }}</span>
         <button type="button" class="lib-list__open" @click.stop="$emit('open', item)">
           <span class="lib-list__title">{{ item.name }}</span>
+          <span v-if="item.needsClientLink" class="clinical-link-flag">Needs client link</span>
           <span v-if="item.description" class="lib-list__subtitle">{{ item.description }}</span>
           <span v-else-if="item.resourceType === 'link' || item.resourceType === 'google_doc'" class="lib-list__subtitle">{{ displayUrl(item) }}</span>
         </button>
@@ -92,6 +93,7 @@ function formatDate(value) {
 </script>
 
 <style scoped>
+.clinical-link-flag{display:inline-block;align-self:flex-start;margin:4px 0;font-size:10px;font-weight:650;background:#fff3d6;color:#79520c;border:1px solid #ead7a4;border-radius:5px;padding:4px 7px;}
 .lib-list { min-width: 0; background: #fff; }
 .lib-list__head, .lib-list__row { display: grid; grid-template-columns: minmax(160px, 2.7fr) minmax(65px, .65fr) minmax(100px, 1fr) minmax(90px, .9fr) 112px; gap: 14px; align-items: center; padding: 13px 16px; text-align: left; }
 .lib-list__head { background: #f8f9f8; color: #64716a; font-size: 11px; font-weight: 600; border-bottom: 1px solid #e7ece8; }

@@ -207,7 +207,8 @@ it('links My files to private unlinked clinical records without loading clinical
  await render('/itsco/library?section=mine');
  const link=wrapper.find('a.private-clinical-link');expect(link.exists()).toBe(true);
  expect(link.attributes('href')).toContain('/itsco/clinical-forms?mine=1&form=cssrs-screener');
- expect(api.get.mock.calls.some(([path])=>path.startsWith('/clinical-forms'))).toBe(false);
+ expect(api.get).toHaveBeenCalledWith('/clinical-forms',expect.objectContaining({params:{agencyId:2,mine:'1'}}));
+ expect(api.get.mock.calls.some(([path])=>/^\/clinical-forms\/\d/.test(path))).toBe(false);
 });
 
 it('finds the screener from a search started inside an unrelated library folder',async()=>{
@@ -215,4 +216,48 @@ it('finds the screener from a search started inside an unrelated library folder'
  await wrapper.get('input[aria-label="Search documents"]').setValue('suicide');
  await wrapper.get('form').trigger('submit');await flushPromises();
  expect(wrapper.findAll('.lib-list__row').some(r=>r.text().includes('C-SSRS'))).toBe(true);
+});
+
+const completedForm={id:71,clientId:null,version:2,name:'Synthetic Example',documentKey:'cssrs-screener',title:'C-SSRS · Suicide ideation screener',screenStatus:'completed',updatedAt:'2026-10-17T12:00:00Z'};
+function mockClinicalList(plans=[completedForm]) {
+ api.get.mockImplementation(async url=>({data:url==='/clinical-forms'?{plans}:{documents:[],canManage:false}}));
+}
+it('puts Clinical forms below guides and shows protected saved records in All documents, Recent and Clinical forms',async()=>{
+ mockClinicalList();const router=await render();
+ const nav=wrapper.get('[aria-label="Browse documents"]').findAll('button').map(b=>b.text());
+ expect(nav.findIndex(t=>t.includes('Clinical forms'))).toBe(nav.findIndex(t=>t.includes('Handbooks & guides'))+1);
+ let row=wrapper.findAll('.lib-list__row').find(r=>r.text().includes('Synthetic Example'));
+ expect(row.text()).toContain('Completed screening');expect(row.find('.lib-list__fav').exists()).toBe(false);
+ expect(row.find('[aria-label^="More actions"]').exists()).toBe(false);
+ await clickText('Recent');expect(wrapper.text()).toContain('Synthetic Example');
+ await clickText('Clinical forms');expect(router.currentRoute.value.query.section).toBe('clinical');
+ expect(wrapper.text()).toContain('Synthetic Example');expect(wrapper.text()).not.toContain('Team worksheet');
+ await wrapper.get('input[aria-label="Search documents"]').setValue('Synthetic');await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(router.currentRoute.value.query.section).toBe('clinical');
+ row=wrapper.findAll('.lib-list__row').find(r=>r.text().includes('Synthetic Example'));
+ await row.get('.lib-list__open').trigger('click');await flushPromises();
+ expect(router.currentRoute.value.query).toEqual({form:'cssrs-screener',recordId:'71'});
+ expect(service.fetchLibraryResource).not.toHaveBeenCalled();
+});
+it('keeps clinical record metadata out of unrelated folders and categories',async()=>{
+ mockClinicalList();await render('/itsco/library?folder=9');
+ expect(wrapper.text()).not.toContain('Synthetic Example');
+ await clickText('Templates');expect(wrapper.text()).not.toContain('Synthetic Example');
+ await clickText('All documents');expect(wrapper.text()).toContain('Synthetic Example');
+});
+it('clears clinical records and ignores stale responses when switching agencies',async()=>{
+ mockClinicalList();const router=await render();let resolve;
+ api.get.mockImplementation((url,config)=>url==='/clinical-forms'&&config.params.agencyId===2?new Promise(r=>{resolve=r;}):Promise.resolve({data:{plans:[],documents:[]}}));
+ await clickText('Recent');
+ await router.push('/different-agency/library');await flushPromises();
+ resolve({data:{plans:[completedForm]}});await flushPromises();
+ expect(wrapper.text()).not.toContain('Synthetic Example');
+});
+it('does not expose stale clinical metadata after access is denied',async()=>{
+ mockClinicalList();await render();
+ api.get.mockImplementation(async url=>{if(url==='/clinical-forms')throw {response:{status:403}};return {data:{documents:[]}};});
+ await clickText('Recent');
+ expect(wrapper.text()).not.toContain('Synthetic Example');
+ expect(wrapper.text()).toContain('Saved clinical forms could not be loaded');
+ expect(wrapper.text()).toContain('Team worksheet');
 });
