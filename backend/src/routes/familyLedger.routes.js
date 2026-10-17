@@ -22,7 +22,7 @@ import { setStatementSharing,requestSplit,respondToSplit,listSplitRequests } fro
 import { createPaymentTask,getPaymentTask,listPaymentTasks,authorizePaymentTask,completePaymentTask,cancelPaymentTask } from '../services/familyLedger/tasks.js';
 import { aging,draftNotice,listNotices,previewNotice,sendNotice } from '../services/familyLedger/collections.js';
 import { seedBillingSenders,provisionBillingSenders } from '../services/familyLedger/senders.js';
-import { handoffWorkspace,transferToCollections,collectionCaseDetail } from '../services/familyLedger/collectionHandoff.js';
+import { handoffWorkspace,transferToCollections,collectionCaseDetail,collectionOrganizations } from '../services/familyLedger/collectionHandoff.js';
 import { guardianStatementPdf } from '../services/familyLedger/views.js';
 import { guardianPaymentPreference,saveGuardianPaymentPreference,listGuardianPaymentPreferences } from '../services/familyLedger/guardianPreferences.js';
 const router=express.Router();router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
@@ -32,6 +32,7 @@ const staff=run(async(req,res)=>{await requireBillingStaff(req.user,context(req)
 const staffOnly=async(req,res,next)=>{try{await requireBillingStaff(req.user,context(req).agencyId);next();}catch(e){next(e);}};
 const limited=rateLimit({windowMs:60000,max:30,standardHeaders:true,legacyHeaders:false});
 router.use('/insurance-cards',insuranceCardsRoutes);
+router.get('/collections/organizations',run(async(req,res)=>res.json(await collectionOrganizations(req.user))));
 router.get('/needs',run(async(req,res)=>res.json(await guardianBillingNeeds({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null}))));
 router.get('/payers',run(async(req,res)=>{const c=context(req);const [links]=await pool.execute("SELECT client_id FROM client_billing_payers WHERE agency_id=? AND guardian_user_id=? AND status='active'",[c.agencyId,c.userId]);const payers={};for(const link of links){try{await requireResponsiblePayer(c.userId,link.client_id,c.agencyId);}catch(e){if(e.status===403)continue;throw e;}const [rows]=await pool.execute("SELECT p.guardian_user_id AS userId,u.first_name,u.last_name FROM client_billing_payers p JOIN users u ON u.id=p.guardian_user_id WHERE p.agency_id=? AND p.client_id=? AND p.status='active' AND p.guardian_user_id<>?",[c.agencyId,link.client_id,c.userId]);payers[link.client_id]=[];for(const row of rows){try{await requireResponsiblePayer(row.userId,link.client_id,c.agencyId);payers[link.client_id].push({userId:row.userId,name:[row.first_name,row.last_name].filter(Boolean).join(' ')});}catch(e){if(e.status!==403)throw e;}}}res.json({payers});}));
 router.get('/balances',run(async(req,res)=>res.json({balances:await listBalances({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null}),planTermsVersion:PLAN_TERMS_VERSION})));
@@ -88,6 +89,6 @@ router.post('/staff/tasks/:id/cancel',run(async(req,res)=>{await cancelPaymentTa
 router.post('/staff/notices',run(async(req,res)=>res.json(await draftNotice({...req.body,...context(req)}))));
 router.get('/staff/notices/:id.pdf',run(async(req,res)=>res.type('pdf').set('Content-Disposition',`attachment; filename="statement-${req.params.id}.pdf"`).send(await previewNotice({...context(req),noticeId:positiveId(req.params.id)}))));
 router.post('/staff/notices/:id/send',limited,run(async(req,res)=>res.json(await sendNotice({...context(req),noticeId:positiveId(req.params.id)}))));
-router.post('/staff/senders/seed',run(async(req,res)=>res.json({senders:await seedBillingSenders(context(req).agencyId)})));
-router.post('/staff/senders/provision',run(async(req,res)=>{if(!['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role))return res.status(403).json({error:{message:'An agency administrator must provision Workspace mailboxes'}});res.json({results:await provisionBillingSenders({...context(req),adoptExisting:req.body.adoptExisting===true})});}));
+router.post('/staff/senders/seed',run(async(req,res)=>res.json({senders:await seedBillingSenders(context(req).agencyId,{identityKey:req.body.identityKey||'billing'})})));
+router.post('/staff/senders/provision',run(async(req,res)=>{if(!['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role))return res.status(403).json({error:{message:'An agency administrator must provision Workspace mailboxes'}});res.json({results:await provisionBillingSenders({...context(req),adoptExisting:req.body.adoptExisting===true,identityKey:req.body.identityKey||'billing'})});}));
 export default router;

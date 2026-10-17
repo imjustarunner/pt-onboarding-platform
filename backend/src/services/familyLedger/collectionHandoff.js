@@ -4,10 +4,23 @@ import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncr
 import { requireBillingStaff, transaction, key, dateOnly, assertCollectible } from './policy.js';
 import { findReceivable, allocationsFor, sourcePayload } from './receivables.js';
 import { createBalance, projectBalance, createCollectionCase } from './collectionDomain.js';
+import { isBillingAgency } from '../billingAgencyPolicy.js';
 
 export const collectionsEnabled = () => process.env.FAMILY_COLLECTIONS_ENABLED === 'true';
 const context = row => `collection-case:${row.agency_id}:${row.managing_agency_id}:${row.balance_id}`;
 const marks = rows => rows.map(() => '?').join(',');
+
+export async function collectionOrganizations(user,{db=pool,authorizeBilling=requireBillingStaff}={}) {
+  const [rows]=await db.execute("SELECT id,name,slug,organization_type,is_active,is_archived,feature_flags FROM agencies WHERE organization_type='agency' AND is_active=1 AND COALESCE(is_archived,0)=0 ORDER BY name");
+  const organizations=[];
+  for(const row of rows){
+    if(!isBillingAgency(row))continue;
+    try{await authorizeBilling(user,row.id,db);}catch(e){if(e.status===403)continue;throw e;}
+    const [permissions]=await db.execute('SELECT permission FROM family_collection_permissions WHERE agency_id=? AND user_id=?',[row.id,user.id]);
+    organizations.push({id:row.id,name:row.name,slug:row.slug,ready:collectionsEnabled()&&permissions.some(p=>['view','escalate','manage','admin'].includes(p.permission))});
+  }
+  return {organizations};
+}
 
 export async function collectionPermissions(user, agencyId, db = pool) {
   await requireBillingStaff(user, agencyId, db);

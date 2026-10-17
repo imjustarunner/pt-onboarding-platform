@@ -137,7 +137,7 @@ class GoogleWorkspaceDirectoryService {
   /**
    * Lookup a Google Group by email. Returns null when not found.
    */
-  static async getGroup({ groupEmail, timeoutMs = null }) {
+  static async getGroup({ groupEmail, timeoutMs = null, strictNotFound = false }) {
     const email = String(groupEmail || '').trim().toLowerCase();
     if (!email) throw new Error('groupEmail is required');
     const admin = await this.getClient();
@@ -148,7 +148,7 @@ class GoogleWorkspaceDirectoryService {
       const status = e?.code || e?.response?.status || null;
       // 404 = not a group. 403 is Google's usual response when the address is a user
       // (or a group this admin cannot see) — treat as "not a nested group".
-      if (status === 404 || status === 403) return null;
+      if (status === 404 || (status === 403 && !strictNotFound)) return null;
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.getGroup' });
       throw e;
     }

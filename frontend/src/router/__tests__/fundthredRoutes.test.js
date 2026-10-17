@@ -3,7 +3,7 @@ import router from '../index';
 vi.mock('../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn()}}));
 
 describe('FundThred public and protected routes',()=>{
-  it.each(['','/product','/solutions','/pricing','/resources','/start'])('loads the public %s page without requiring an account',async section=>{
+  it.each(['','/product','/solutions','/services','/pricing','/resources','/start'])('loads the public %s page without requiring an account',async section=>{
     const route=router.resolve(`/fundthred${section}`);
     expect(route.name).toBe('FundThredWebsite');
     expect(route.meta).toMatchObject({hideNav:true,fundthred:true,publicMarketingHub:true});
@@ -16,6 +16,7 @@ describe('FundThred public and protected routes',()=>{
     expect(route.meta).toMatchObject({requiresAuth:true,hideNav:true,fundthred:true});
     expect((await route.matched.at(-1).components.default()).default.__name).toBe('FinanceOperationsView');
   });
+  it('protects the collections workspace',()=>{const route=router.resolve('/fundthred/app/collections');expect(route.name).toBe('FundThredCollections');expect(route.meta).toMatchObject({requiresAuth:true,fundthred:true});});
   it('keeps the organization picker distinct from public marketing pages',()=>{
     const route=router.resolve('/fundthred/app');
     expect(route.name).toBe('FundThredEntry');

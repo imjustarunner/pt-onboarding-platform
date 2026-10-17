@@ -45,7 +45,8 @@ export async function sendNotice({agencyId,noticeId,actorUserId}){
   if(row.notice_kind==='payment_setup'){
     const [tasks]=await pool.execute("SELECT * FROM family_billing_tasks WHERE id=? AND agency_id=? AND guardian_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP",[s.taskId,agencyId,row.payer_user_id]);if(!tasks.length)throw billingError(409,'The payment task is no longer pending');for(const clientId of parseJson(tasks[0].client_ids_json)){const {requireBillingLink}=await import('../familyBillingPolicy.service.js');await requireBillingLink(row.payer_user_id,clientId,agencyId);}
   }else{const current=await aging({agencyId,userId:actorUserId,payerUserId:row.payer_user_id});if(s.balances.some(b=>!current.some(c=>Number(c.allocationId)===Number(b.allocationId)&&c.pastDueCents===b.amountCents)))throw billingError(409,'Balances or access changed. Generate a current notice.');}
-  const sender=await requireReadySender(agencyId,row.notice_kind==='payment_setup'?'billing':'collections'),url=portalUrl(s.path);
+  // Practice statements stay with billing; referred FundThred cases are separate.
+  const sender=await requireReadySender(agencyId,'billing'),url=portalUrl(s.path);
   const [claimed]=await pool.execute("UPDATE family_collections_notices SET status='queued',sender_identity_id=?,last_error=NULL WHERE id=? AND agency_id=? AND status IN ('draft','held')",[sender.id,noticeId,agencyId]);if(!claimed.affectedRows)throw billingError(409,'This notice is already being sent');
   try{
     const setup=row.notice_kind==='payment_setup',subject=setup?'Complete your payment setup':'Your account statement is ready',text=`${s.agencyName}\n\n${setup?'Please verify your payment method and complete your billing authorization.':'Please sign in to review your account statement. You can make a payment or contact our billing team for assistance.'}\n\nSign in securely: ${url}\n\nThis link opens your portal after login.`;

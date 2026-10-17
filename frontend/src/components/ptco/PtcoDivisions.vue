@@ -17,7 +17,7 @@ const divisions=[
  {name:'Workforce Operations',label:'People and business support',product:true,title:'Operations that hold the business together.',body:'We keep you running—financially sound, compliant, and ready to support your people.',areas:[
  ['Credentialing & Payer Enrollment','Provider enrollment, credential maintenance, and approval tracking to support compliant billing.'],
  ['Medical Billing & Revenue Cycle · Plot Twist Co.','Claims, payments, denials, patient billing, and accounts receivable follow-up in your existing EHR or through AuricWell. New AuricWell contracts start in 2027.'],
- ['Financial Management · FundThred','Budgets, grant and expense tracking, donor records, and reporting. Available within a management partnership or as standalone support through FundThred.'],
+ ['Finance Operations · FundThred','PlotTwistCo’s finance division: payroll operations, agency-branded pay breakdowns, reviewed collections, budgets, grant and expense tracking, donor records, and reporting. Services follow the scope of your management agreement.'],
  ['Compliance','Policy and procedure development, HIPAA and 42 CFR Part 2 safeguards, internal audits, documentation quality assurance, and risk management.'],
  ['People Operations · Plotline','Recruiting, onboarding and organizational socialization, training, performance support, and workforce development.']]},
  {name:'Strategic Operations',label:'Brand and growth support',title:'Strategy that carries the business forward.',body:'We amplify your story so the right people find you, trust you, and stay with you.',areas:[

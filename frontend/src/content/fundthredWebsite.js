@@ -1,5 +1,6 @@
 export const fundthredPages = {
-  home: { title: 'FundThred | Follow the thread of every dollar', description: 'Finance operations for nonprofits. Connect funding, budgets, requests, approvals, spending, and proof in one workspace.' },
+  home: { title: 'FundThred | Follow the thread of every dollar', description: 'PlotTwistCo’s finance division. Connect payroll, practice billing support, reviewed collections, funding, budgets, and financial oversight.' },
+  services: { title: 'FundThred services | Payroll, billing & collections', description: 'PlotTwistCo’s finance division: payroll operations, practice billing support, reviewed collections, budgets, and financial oversight.' },
   product: { title: 'The FundThred platform | Finance operations', description: 'Explore funding, budgeting, expense approvals, documents, and operational reporting with FundThred.' },
   solutions: { title: 'FundThred solutions | From funding to impact', description: 'Financial workflows for nonprofits, community programs, foundations, and sponsored organizations.' },
   pricing: { title: 'FundThred pricing & bundles', description: 'Explore FundThred plans for one organization or a growing network, with optional PlotTwistCo product bundles.' },
@@ -34,6 +35,9 @@ export const fundthredGuides = [
 ];
 
 export const fundthredFaqs = [
+  ['Is FundThred a separate company?', 'FundThred is PlotTwistCo’s finance division and product. Your service agreement names the legal parties, and agency payroll records identify the employing agency.'],
+  ['Who sends billing and collections messages?', 'Routine billing uses the practice’s billing address. FundThred collections is a separate reviewed service with its own sender, permissions, and agreed scope. A balance is not automatically referred simply because it is overdue.'],
+  ['Does FundThred include payroll?', 'The payroll workspace includes pay history, approved submissions, reimbursements, and leave balances. Agency pay breakdowns carry FundThred branding. Payroll service scope and payment processing are confirmed in your agreement.'],
   ['Does FundThred replace QuickBooks?', 'FundThred currently manages finance operations: funding, budgets, requests, approvals, proof, and operational reporting. Your accounting software maintains the ledger and financial statements. CSV exports support the handoff; automatic QuickBooks or Xero synchronization is not included today.'],
   ['Can we use FundThred on its own?', 'Yes. FundThred is a focused entrance into the platform. Your team can use finance operations and add other products when they fit your work. PlotTwistHQ brings your enabled products together.'],
   ['Can we combine it with other products?', 'You can request a bundle with Plotline, Conversa, SchoolCareBridge, or broader HQ services. We confirm product access, setup, and the combined price before activation.'],

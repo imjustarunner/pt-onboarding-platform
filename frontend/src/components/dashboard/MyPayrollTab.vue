@@ -86,6 +86,7 @@
             class="details pay-stub-breakdown pay-stub-breakdown--inline"
             :ref="setBreakdownEl"
           >
+        <PayrollStatementBrand :agency="agencyStore.currentAgency?.value || agencyStore.currentAgency" />
         <div class="pay-stub-breakdown__header">
           <strong class="pay-stub-breakdown__title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -2461,6 +2462,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import PayrollStatementBrand from '../payroll/PayrollStatementBrand.vue';
 import PayrollHubPanel from './PayrollHubPanel.vue';
 import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import PayrollHubSection from './PayrollHubSection.vue';

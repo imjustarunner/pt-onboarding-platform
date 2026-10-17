@@ -12,8 +12,9 @@ export const fundthredPaths = {
   internal(value) {
     const path = String(value);
     if (/^\/(?=[?#]|$)/.test(path)) return path.replace(/^\//, '/fundthred');
-    if (/^\/(product|solutions|pricing|resources|start|app)(?:[/?#]|$)/.test(path)) {
+    if (/^\/(product|solutions|services|pricing|resources|start|app)(?:[/?#]|$)/.test(path)) {
       const workspace = path.match(/^\/app\/([a-z0-9-]+)\/?([?#].*)?$/);
+      if (workspace?.[1] === 'collections') return '/fundthred/app/collections';
       if (workspace) return `${fundthredWorkspacePath(workspace[1])}${workspace[2] || ''}`;
       return `/fundthred${path}`;
     }

@@ -5,6 +5,9 @@
  */
 
 export const APP_PAGES = [
+  { title: 'FundThred Collections', section: 'Finance', path: '/fundthred/app/collections', requiresBilling: true,
+    keywords: ['collections', 'overdue', 'receivables', 'referrals', 'collection cases', 'fundthred'],
+    desc: 'Reviewed collection referrals and cases for your authorized organizations.' },
   { title: 'FundThred', section: 'Finance', path: '/finance-operations',
     keywords: ['fundthred', 'finance operations', 'finance', 'financial operations', 'nonprofit', 'fiscal sponsorship', 'portfolio'],
     desc: 'Budgets, grants, funds, expenses, payments, and financial oversight.' },

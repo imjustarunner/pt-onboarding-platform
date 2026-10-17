@@ -3,6 +3,7 @@
     <aside class="billing-nav" aria-label="Billing navigation">
       <div class="brand-lockup"><AuricWellBrand context="Billing & Claims" /></div>
       <nav><button v-for="item in navigation" :key="item.id" :class="{ active: section === item.id }" :aria-current="section === item.id ? 'page' : undefined" @click="setSection(item.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path :d="item.icon" /></svg>{{ item.label }}</button></nav>
+      <button v-if="!route.meta?.auricwellPreview" class="text-button" @click="router.push('/fundthred/app/collections')">FundThred collections →</button>
       <div class="nav-footer"><span class="access-dot"></span> Billing access only<small>{{ signedInName }}</small></div>
     </aside>
 
