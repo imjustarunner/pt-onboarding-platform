@@ -17,10 +17,16 @@ const {resolveLearningInquiry,prepareLearningPacket}=await import('../learningEn
 test('enrollment quote uses validated provider and server rates, discarding submitted prices',async()=>{
  const learning=await resolveLearningInquiry(6,{program:'tutoring',grade:'3',subject:'Math',packageId:'six',packageSnapshot:{totalCents:1}},7);
  assert.equal(learning.packageSnapshot.totalCents,35100);assert.equal(learning.packageSnapshot.components[0].providerId,7);
- assert.match(queries.at(-1).sql,/u\.is_active=1/);
+ assert.match(queries.find(q=>q.sql.includes('provider_tutoring_profiles')).sql,/u\.is_active=1/);
+ assert.match(queries.find(q=>q.sql.includes('provider_tutoring_profiles')).sql,/COALESCE\(ua\.is_active,1\)=1/);
  await assert.rejects(resolveLearningInquiry(6,{program:'tutoring',packageId:'six'},999),/does not match/);
  await assert.rejects(resolveLearningInquiry(6,{program:'tutoring',grade:'11',packageId:'six'},7),/does not match/);
  await assert.rejects(resolveLearningInquiry(6,{program:'bridge',packageId:'six'},7),/no longer available/);
+});
+test('hourly inquiries validate provider fit even without a package',async()=>{
+ await assert.rejects(resolveLearningInquiry(6,{program:'tutoring',grade:'11'},7),/does not match/);
+ await assert.rejects(resolveLearningInquiry(999,{program:'tutoring'},7),/does not match/);
+ assert.equal((await resolveLearningInquiry(6,{program:'tutoring',grade:'3'},7)).grade,'3');
 });
 test('no selected provider leaves a variable quote unpriced',async()=>{
  assert.equal((await resolveLearningInquiry(6,{program:'tutoring',packageId:'six'})).packageSnapshot.totalCents,null);

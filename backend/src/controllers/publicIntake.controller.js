@@ -3921,7 +3921,7 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
   const learning = clientResponses.learning || (clientIndex === 0 ? submissionResponses.learning : null);
   if (learning) {
     pushHeader('Learning enrollment');
-    for (const [key, label] of Object.entries({program:'Program',grade:'Grade',subject:'Subject',format:'Format',strengths:'Strengths',goals:'Goals',schoolSupports:'School supports',emotionalNeeds:'Emotional and learning needs',funding:'Funding to discuss'})) pushLine(label, learning[key]);
+    for (const [key, label] of Object.entries({program:'Program',grade:'Grade',subject:'Subject',format:'Format',subjectDetails:'Specific topics or courses',preferredSchedule:'Preferred days, times, and time zone',learningLanguage:'Preferred language for learning',startingWhen:'Requested start and deadlines',accessNeeds:'Learning and access supports',strengths:'Strengths',goals:'Goals',schoolSupports:'School supports',emotionalNeeds:'Emotional and learning needs',funding:'Funding to discuss'})) pushLine(label, learning[key]);
     if (learning.packageSnapshot) {
       pushLine('Requested package', learning.packageSnapshot.name);
       pushLine('Package quote (USD)', learning.packageSnapshot.totalCents == null ? 'Contact us for pricing' : (learning.packageSnapshot.totalCents / 100).toFixed(2));
@@ -5883,7 +5883,7 @@ const filterPacketDocumentTemplates = (link, allAllowedTemplates, intakeData) =>
     if (seen.has(tid)) continue;
     const template = byId.get(tid);
     const title = step?.title || step?.label || step?.name || template?.name || '';
-    if (!shouldKeepLegacyPacketDocument({ title, link, intakeData })) continue;
+    if (!shouldKeepLegacyPacketDocument({ title, link, intakeData, step })) continue;
     seen.add(tid);
     ordered.push(template);
   }

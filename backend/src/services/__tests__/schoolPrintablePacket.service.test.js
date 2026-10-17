@@ -290,3 +290,13 @@ test('care team grouping drops demo/test identities even if they were school-ass
   assert.equal(grouped.yourCareTeam.length, 1);
   assert.equal(grouped.yourCareTeam[0].fullName, 'Real Provider');
 });
+
+test('print cache refreshes when a provider is added or their disclosure details change',()=>{
+ const base={version:1,providers:[{id:20,fullName:'Example Provider',credential:'Candidate',licenseNumber:'123',schoolAssigned:false}],staffRows:[{id:10,first_name:'Staff',phone_number:'555-0100'}],templateHtml:'Agency policy'};
+ const original=schoolPrintablePacketContentHash(base);
+ for(const change of [{credential:'LPC'},{licenseNumber:'456'},{fullName:'Updated Name'},{schoolAssigned:true},{supervisors:[{fullName:'New Supervisor',type:'Clinical'}]}])assert.notEqual(original,schoolPrintablePacketContentHash({...base,providers:[{...base.providers[0],...change}]}));
+ assert.notEqual(original,schoolPrintablePacketContentHash({...base,providers:[...base.providers,{id:21,fullName:'New Provider'}]}));
+ assert.notEqual(original,schoolPrintablePacketContentHash({...base,staffRows:[{...base.staffRows[0],phone_number:'555-0101'}]}));
+ assert.notEqual(original,schoolPrintablePacketContentHash({...base,templateHtml:'Updated agency policy'}));
+ assert.equal(original,schoolPrintablePacketContentHash({...base,generatedAt:new Date(),packetVersionLabel:'99.9'}));
+});

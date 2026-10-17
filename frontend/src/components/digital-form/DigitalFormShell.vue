@@ -14,7 +14,7 @@
   >
     <header v-if="billingLayout" class="df-billing-header">
       <div class="df-billing-brand">
-        <EnrollmentBrand v-if="enrollmentLayout" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
+        <EnrollmentBrand :branding="branding" v-if="enrollmentLayout" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
         <img v-else-if="resolvedLogo" :src="resolvedLogo" :alt="programTitle" />
         <strong v-else>{{ programTitle }}</strong>
       </div>
@@ -221,7 +221,7 @@
           </div>
         </header>
 
-        <EnrollmentBrand v-if="enrollmentLayout && !billingLayout" class="df-enrollment-brand" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
+        <EnrollmentBrand :branding="branding" v-if="enrollmentLayout && !billingLayout" class="df-enrollment-brand" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
         <nav v-if="enrollmentLayout && !coverMode && progressSteps.length && !billingLayout" class="df-enrollment-progress" :aria-label="language === 'es' ? 'Progreso de inscripción' : 'Enrollment progress'">
           <button v-for="(item, index) in progressSteps" :key="item.id || index" type="button" :aria-current="index === progressIndex ? 'step' : undefined" :disabled="!intakeSidebarInteractive || index > intakeSidebarMaxReachable" @click="$emit('select-step', index)">
             <span>{{ index < progressIndex ? '✓' : index + 1 }}</span>{{ item.label }}

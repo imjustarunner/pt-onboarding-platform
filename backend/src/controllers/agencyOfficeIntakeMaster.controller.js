@@ -1,3 +1,4 @@
+import { assertEnrollmentAgencyMembership } from '../services/enrollmentAgencyAccess.service.js';
 import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import AgencyChannelIntakeMaster from '../models/AgencyChannelIntakeMaster.model.js';
 import OfficePacketTemplate from '../models/OfficePacketTemplate.model.js';
@@ -47,6 +48,7 @@ async function assertAgencyAccess(req, agencyId) {
     e.status = 403;
     throw e;
   }
+  await assertEnrollmentAgencyMembership(req.user, aid);
   const agency = await Agency.findById(aid);
   if (!agency) {
     const e = new Error('Agency not found');

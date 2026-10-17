@@ -46,6 +46,13 @@
       <strong>Active</strong> does not apply here — every school link uses this master live.
     </p>
 
+    <p class="muted msf-tip">
+      Agency documents added here stay in the digital enrollment. For each consent or policy, choose your
+      uploaded document or the corresponding built-in packet section; remove any duplicate section before saving.
+      The printable packet has its own template: preview both versions after document changes before sharing with schools.
+      SchoolCareBridge enrollment does not require an AuricWell subscription.
+    </p>
+
     <details v-if="masterCompare" class="msf-compare" open>
       <summary>Compare English ↔ Spanish masters</summary>
       <p class="muted msf-compare-intro">

@@ -76,7 +76,7 @@ export function gradeNumbers(value) {
   if(['pre-k','preschool','pre k'].includes(s)) return [-1];
   if(s==='college')return [13];
   const n=s.replace(/kindergarten/g,'0').replace(/\bk\b/g,'0').replace(/(st|nd|rd|th)/g,'');
-  if(/^\d{1,2}$/.test(n))return [Number(n)];
+  if(/^\d{1,2}$/.test(n))return Number(n)<=13?[Number(n)]:[];
   const match=n.match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
   if(!match)return [];
   const a=Number(match[1]),b=Number(match[2]);return b>=a&&b<=13?Array.from({length:b-a+1},(_,i)=>a+i):[];
@@ -91,6 +91,7 @@ export function normalizeLearningInquiry(raw) {
  if(!LEARNING_PROGRAMS.includes(raw.program)) fail('Choose a learning program.');
  const out={version:1,program:raw.program};
  for(const key of ['grade','subject','format','strengths','goals','schoolSupports','emotionalNeeds','funding','packageId'])out[key]=String(raw[key]||'').trim().slice(0,['strengths','goals','schoolSupports','emotionalNeeds'].includes(key)?3000:160);
+ for(const [key,limit] of Object.entries({subjectDetails:1000,preferredSchedule:1000,learningLanguage:160,startingWhen:300,accessNeeds:3000}))out[key]=String(raw[key]||'').trim().slice(0,limit);
  if(out.grade&&!gradeNumbers(out.grade).length)fail('Choose a valid grade.');
  if(out.format&&!LEARNING_FORMATS.includes(out.format))fail('Choose a valid learning format.');
  if(raw.reflectionVersion&&!['parent','6-10','11-13','14-18'].includes(raw.reflectionVersion))fail('Choose a valid reflection version.');

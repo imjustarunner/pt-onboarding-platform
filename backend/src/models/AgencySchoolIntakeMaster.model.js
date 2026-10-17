@@ -94,7 +94,8 @@ export function livePacketCoverage(link, intakeData = null) {
   };
 }
 
-export function shouldKeepLegacyPacketDocument({ title, link, intakeData } = {}) {
+export function shouldKeepLegacyPacketDocument({ title, link, intakeData, step } = {}) {
+  if (step?.preserveAgencyDocument === true) return true;
   const kind = documentStepLooksLikeReplacedPacketDoc(title);
   if (!kind) return true;
   const coverage = livePacketCoverage(link, intakeData);
@@ -105,51 +106,42 @@ export function shouldKeepLegacyPacketDocument({ title, link, intakeData } = {})
   return true;
 }
 
-/**
- * Strip legacy uploaded packet PDFs (HIPAA / informed / policy / disclosure)
- * now covered by live packet or smart_disclosure steps, and ensure packet_* steps exist.
- */
+/** Keep agency-authored documents. Fill missing categories from the programmed packet only. */
 export function sanitizeSchoolMasterSteps(steps, templateNameById = null, languageCode = 'en') {
-  let list = Array.isArray(steps) ? [...steps] : [];
+  const documentKinds = new Set();
   const lang = String(languageCode || 'en').toLowerCase();
-  list = list.filter((s) => {
-    const t = String(s?.type || '').toLowerCase();
-    if (t !== 'document') return true;
-    const tid = Number(s?.templateId || s?.template_id || 0);
-    const title =
-      s?.title
-      || s?.label
-      || s?.name
-      || (templateNameById && tid ? templateNameById.get(tid) : '')
-      || '';
+  const list = (Array.isArray(steps) ? steps : []).map((step) => {
+    if (String(step?.type || '').toLowerCase() !== 'document') return step;
+    const tid = Number(step.templateId || step.template_id || 0);
+    const title = step.title || step.label || step.name || templateNameById?.get(tid) || '';
     const kind = documentStepLooksLikeReplacedPacketDoc(title);
-    if (kind === 'hipaa' || kind === 'informed' || kind === 'policy' || kind === 'disclosure') return false;
-    return true;
+    if (kind) documentKinds.add(kind);
+    return { ...step, templateId: tid, preserveAgencyDocument: true };
   });
 
   const hasType = (type) => list.some((s) => String(s?.type || '').toLowerCase() === type);
-  if (!hasType('packet_informed_group_consent')) {
+  if (!documentKinds.has('informed') && !hasType('packet_informed_group_consent')) {
     list.push({
       type: 'packet_informed_group_consent',
       label: 'Informed Consent and Group Counseling Consent',
       visibility: 'always'
     });
   }
-  if (!hasType('packet_policy_services')) {
+  if (!documentKinds.has('policy') && !hasType('packet_policy_services')) {
     list.push({
       type: 'packet_policy_services',
       label: 'Policy and Services Agreement',
       visibility: 'always'
     });
   }
-  if (!hasType('packet_hipaa_notice')) {
+  if (!documentKinds.has('hipaa') && !hasType('packet_hipaa_notice')) {
     list.push({
       type: 'packet_hipaa_notice',
       label: 'HIPAA Privacy Policy and Notice of Privacy Practices',
       visibility: 'always'
     });
   }
-  if (!hasType('smart_disclosure') && !hasType('disclosure')) {
+  if (!documentKinds.has('disclosure') && !hasType('smart_disclosure') && !hasType('disclosure')) {
     list.push({ type: 'smart_disclosure', title: 'Disclosure Statement', visibility: 'always' });
   }
   return ensureSpanishClarificationFirst(list, lang);
@@ -177,6 +169,26 @@ async function loadTemplateNameMap(steps) {
 export async function sanitizeSchoolMasterStepsAsync(steps, languageCode = 'en') {
   const map = await loadTemplateNameMap(steps);
   return sanitizeSchoolMasterSteps(steps, map, languageCode);
+}
+
+
+export async function resolveMasterDocumentIds(steps, agencyId) {
+  const documents = (steps || []).filter(s => s?.type === 'document');
+  const ids = [...new Set(documents.map(s => Number(s.templateId || s.template_id)))];
+  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    throw Object.assign(new Error('Choose a valid enrollment document.'), { status: 400 });
+  }
+  if (!ids.length) return [];
+  const { default: DocumentTemplate } = await import('./DocumentTemplate.model.js');
+  for (const id of ids) {
+    const doc = await DocumentTemplate.findById(id);
+    const agencyOwned = Number(doc?.agency_id) === Number(agencyId);
+    const platformOwned = doc?.agency_id == null && doc?.organization_id == null;
+    if (!doc || Number(doc.is_active) !== 1 || Number(doc.is_user_specific) === 1 || (!agencyOwned && !platformOwned)) {
+      throw Object.assign(new Error('An enrollment document is unavailable for this agency. Please contact support.'), { status: 409 });
+    }
+  }
+  return ids;
 }
 
 class AgencySchoolIntakeMaster {
@@ -343,6 +355,7 @@ class AgencySchoolIntakeMaster {
     }
     const lang = normalizeLang(languageCode);
     const steps = await sanitizeSchoolMasterStepsAsync(intakeSteps, lang);
+    await resolveMasterDocumentIds(steps, aid);
     const existing = await this.findByAgencyLanguage(aid, lang);
     const nextVersion = existing && bumpVersion ? Number(existing.version || 1) + 1 : (existing?.version || 1);
     const safeTitle = title || existing?.title || `School Referral Master (${lang === 'es' ? 'ES' : 'EN'})`;
@@ -544,10 +557,12 @@ class AgencySchoolIntakeMaster {
     const hasSpanishMaster = !!(esMaster && Number(esMaster.id || 0));
     const steps = await sanitizeSchoolMasterStepsAsync(master.intake_steps, lang);
     const overlayTitle = lang === 'es' ? (master.title || link.title) : (link.title || master.title);
+    const masterDocumentIds = await resolveMasterDocumentIds(steps, aid);
     return {
       ...link,
       intake_steps: steps,
       intake_fields: master.intake_fields,
+      allowed_document_template_ids: masterDocumentIds,
       master_form_version: master.version,
       master_form_id: master.id,
       master_language_code: lang,

@@ -111,6 +111,10 @@ export async function buildPublicFormBranding(ctx = {}) {
   const brandingLogoUrl = resolveOrgLogoUrl(brandingOrg, { baseUrl });
 
   return {
+    // SchoolCareBridge supports outside agencies that do not use the EHR.
+    enrollmentProduct: ['school', 'program', 'learning'].includes(String(organization?.organization_type || '').toLowerCase())
+      ? (getMedicalBillingFlags(agency?.feature_flags || {}).clinicalChartEnabled ? 'auricwell' : 'schoolcarebridge')
+      : (getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled ? 'auricwell' : 'tenant'),
     // Use the office owner's EHR entitlement, never an inherited parent theme.
     officeProduct: getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled ? 'auricwell' : 'tenant',
     officeOrigin: getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled

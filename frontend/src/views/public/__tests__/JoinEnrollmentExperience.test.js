@@ -10,7 +10,7 @@ let wrapper;
 beforeEach(() => { sessionStorage.clear(); localStorage.clear(); setPublicLocale('en'); window.scrollTo=vi.fn(); });
 afterEach(() => { wrapper?.unmount(); vi.clearAllMocks(); setPublicLocale('en'); });
 async function render(slug='itsco') {
- const config={agency:{id:2,slug,name:slug==='itsco'?'ITSCO':'Example Care'},branding:{agencyName:slug==='itsco'?'ITSCO':'Example Care'},activeService:{serviceType:'counseling',displayName:'Counseling'},intakeServices:[{serviceType:'counseling'}],pathways:{quick:{enabled:true},full:{enabled:true,publicKey:'office-test'}},selfConcernOptions:[{value:'custom',label:'Published agency concern'}],copy:{}};
+ const config={agency:{id:2,slug,name:slug==='itsco'?'ITSCO':'Example Care'},branding:{enrollmentProduct:'auricwell',agencyName:slug==='itsco'?'ITSCO':'Example Care'},activeService:{serviceType:'counseling',displayName:'Counseling'},intakeServices:[{serviceType:'counseling'}],pathways:{quick:{enabled:true},full:{enabled:true,publicKey:'office-test'}},selfConcernOptions:[{value:'custom',label:'Published agency concern'}],copy:{}};
  api.get.mockResolvedValue({data:config});api.post.mockResolvedValue({data:{translations:{'Published agency concern':'Motivo publicado'}}});
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/join/:agencySlug/:serviceType',component:Join},{path:'/intake/:publicKey',component:{template:'<div/>'}},{path:'/:pathMatch(.*)*',component:{template:'<div/>'}}]});
  await router.push(`/join/${slug}/counseling`);await router.isReady();

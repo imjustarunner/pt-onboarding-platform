@@ -9,7 +9,7 @@
         <p v-if="!view.hidden.tagline" class="ajl-masthead-tagline" v-bind="elementAttrs('tagline')">{{ copy.sidebarTagline }}</p>
         <p v-if="!view.hidden.values" class="ajl-masthead-values" v-bind="elementAttrs('values')"><span v-for="value in mastheadValues" :key="value">{{ value }}</span></p>
       </div>
-      <div class="ajl-platform-brand" translate="no"><small>{{ isSpanish ? 'Inscripción con' : 'Enrollment with' }}</small><span><img src="/auricwell/mark.svg" alt="" />AuricWell</span></div>
+      <div v-if="platform" class="ajl-platform-brand" translate="no"><small>{{ isSpanish ? 'Inscripción con' : 'Enrollment with' }}</small><span><img v-if="platform.icon" :src="platform.icon" alt="" />{{ platform.name }}</span></div>
     </header>
     <aside v-if="!serene" class="ajl-rail" aria-label="Organization and support">
       <router-link v-if="!designMode && publicWebsitePath(agencySlug)" class="ajl-back" :to="publicWebsitePath(agencySlug)">← Back to website</router-link>
@@ -77,6 +77,7 @@
   <JoinPageDesigner v-if="designerOpen && canEdit" :config="config" :agency-slug="agencySlug" :service-type="serviceType" :quick="quick" :full="full" :contact-phone="contactPhone" :contact-tel="contactTel" :contact-email="contactEmail" @close="closeDesigner" @saved="onSaved" />
 </template>
 <script setup>
+import { enrollmentPlatform } from '../../utils/enrollmentPlatform';
 import { i18n } from '../../i18n.js';
 import PublicEntryIcon from '../digital-form/PublicEntryIcon.vue';
 import PublicEntryLegalFooter from '../digital-form/PublicEntryLegalFooter.vue';
@@ -105,6 +106,7 @@ const welcomeParts = computed(() => String(copy.value.welcomeTitle || '').match(
 const elementFor = key => elements.value.find(e => e.id === key);
 const cards = computed(() => joinCards(copy.value, props.quick, props.full));
 const agencyName = computed(() => props.config?.agency?.name || 'Welcome');
+const platform = computed(() => enrollmentPlatform(props.config?.branding));
 const logoUrl = computed(() => safeJoinImage(props.config?.branding?.logoUrl || props.config?.branding?.agencyLogoUrl || props.config?.branding?.organizationLogoUrl || props.config?.agency?.logo_url || props.config?.agency?.logoUrl || (props.agencySlug === 'itsco' ? '/assets/provider-action/itsco-logo.png' : '')));
 const headerLogoUrl = computed(() => props.agencySlug === 'itsco' && (!logoUrl.value || logoUrl.value.startsWith('/assets/itsco/logo.png')) ? '/assets/provider-action/itsco-logo.png' : logoUrl.value);
 const brandColor = computed(() => props.config?.branding?.colorPalette?.primary || props.config?.branding?.color_palette?.primary || props.config?.branding?.colors?.primary || view.value.primaryColor);

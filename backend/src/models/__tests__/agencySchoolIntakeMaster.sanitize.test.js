@@ -22,7 +22,7 @@ describe('documentStepLooksLikeReplacedPacketDoc', () => {
 });
 
 describe('sanitizeSchoolMasterSteps', () => {
-  it('drops retired school PDFs and keeps live packet steps', () => {
+  it('preserves agency documents instead of replacing them by title', () => {
     const out = sanitizeSchoolMasterSteps(
       [
         { type: 'questions' },
@@ -35,15 +35,29 @@ describe('sanitizeSchoolMasterSteps', () => {
       'en'
     );
     const types = out.map((s) => s.type);
-    assert.equal(types.includes('document'), false);
-    assert.equal(types.includes('packet_informed_group_consent'), true);
-    assert.equal(types.includes('packet_policy_services'), true);
-    assert.equal(types.includes('packet_hipaa_notice'), true);
-    assert.equal(types.includes('smart_disclosure'), true);
+    assert.equal(types.filter(t=>t==='document').length, 4);
+    assert.equal(out[1].preserveAgencyDocument, true);
+    assert.equal(types.includes('packet_informed_group_consent'), false);
+    assert.equal(types.includes('packet_policy_services'), false);
+    assert.equal(types.includes('packet_hipaa_notice'), false);
+    assert.equal(types.includes('smart_disclosure'), false);
   });
 });
 
-describe('shouldKeepLegacyPacketDocument', () => {
+it('leaves the existing programmed packet intact and fills only missing categories', () => {
+  const live = [{type:'packet_informed_group_consent'}, {type:'packet_policy_services'}, {type:'packet_hipaa_notice'}, {type:'smart_disclosure'}];
+  assert.deepEqual(sanitizeSchoolMasterSteps(live), live);
+  const withCustom = sanitizeSchoolMasterSteps([{type:'document',templateId:9}], new Map([[9,'Notice of Privacy Practices']]));
+  assert.equal(withCustom.some(s=>s.type==='packet_hipaa_notice'),false);
+  assert.equal(withCustom.some(s=>s.type==='smart_disclosure'),true);
+  assert.deepEqual(sanitizeSchoolMasterSteps(withCustom,new Map([[9,'Notice of Privacy Practices']])),withCustom);
+});
+
+describe('shouldKeepLegacyPacketDocument' , () => {
+  it('requires an agency document even when another consent was signed', () => {
+    assert.equal(shouldKeepLegacyPacketDocument({ title: 'Informed Consent', step: {preserveAgencyDocument:true}, link: {intake_steps:[{type:'packet_informed_group_consent'}]}, intakeData:{packetSections:{informed_group_consent:{signatureData:'signed'}}} }), true);
+  });
+
   const informedTitle = 'Informed Consent (School)';
   const storedMcAuliffeLink = {
     intake_steps: [

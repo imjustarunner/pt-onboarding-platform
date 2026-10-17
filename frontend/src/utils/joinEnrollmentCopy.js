@@ -87,3 +87,15 @@ Object.assign(JOIN_ENROLLMENT_ES, {
  'Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to coordinate care.':'Seleccionar un profesional no garantiza la asignación. Nuestro equipo de apoyo o un coordinador de atención te contactará para coordinar los servicios.',
  'Checking availability and opening full enrollment…':'Verificando disponibilidad y abriendo la inscripción completa…','How would you like to meet?':'¿Qué modalidad prefieres?','Choose a setting to continue to the full enrollment packet.':'Elige una modalidad para continuar al paquete de inscripción completa.','Enroll without a preferred provider':'Inscribirme sin un profesional preferido'
 });
+
+Object.assign(JOIN_ENROLLMENT_ES, {
+  'More matching preferences (optional)': 'Más preferencias para encontrar un tutor (opcional)',
+  'Specific topics or courses': 'Temas o cursos específicos',
+  'For example: fractions, reading fluency, or SAT math': 'Por ejemplo: fracciones, fluidez lectora o matemáticas del SAT',
+  'Preferred days, times, and time zone': 'Días, horarios y zona horaria preferidos',
+  'For example: Tuesdays after 4 p.m., Mountain time': 'Por ejemplo: martes después de las 4 p. m., hora de la montaña',
+  'Preferred language for learning': 'Idioma preferido para aprender',
+  'When would you like to start? Any deadline?': '¿Cuándo te gustaría comenzar? ¿Hay alguna fecha límite?',
+  'What helps this learner succeed? Any access needs?': '¿Qué ayuda al estudiante a aprender? ¿Necesita algún apoyo de accesibilidad?',
+  'Share only what you are comfortable sharing. A diagnosis or school plan is not required to request tutoring. Our team confirms the tutor, schedule, language, and learning supports with you.': 'Comparte solo lo que desees. No se requiere un diagnóstico ni un plan escolar para solicitar tutorías. Nuestro equipo confirmará contigo el tutor, el horario, el idioma y los apoyos para aprender.'
+});

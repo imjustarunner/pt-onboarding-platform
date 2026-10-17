@@ -41,10 +41,15 @@ describe('Join public and design renderer', () => {
 });
 
 it('uses the same welcome layout for other agencies without substituting ITSCO branding', () => {
- const wrapper=mount(Landing,{global:{stubs:{RouterLink:true}},props:{agencySlug:'nlu',config:{agency:{name:'Next Level Up',slug:'nlu'},branding:{logoUrl:'/nlu-logo.svg',colorPalette:{primary:'#125678'}},copy:{}},quick,full}});
+ const wrapper=mount(Landing,{global:{stubs:{RouterLink:true}},props:{agencySlug:'nlu',config:{agency:{name:'Next Level Up',slug:'nlu'},branding:{enrollmentProduct:'auricwell',logoUrl:'/nlu-logo.svg',colorPalette:{primary:'#125678'}},copy:{}},quick,full}});
  expect(wrapper.find('.ajl--serene').exists()).toBe(true);
  expect(wrapper.find('.ajl-header-logo').attributes('src')).toBe('/nlu-logo.svg');
  expect(wrapper.find('.ajl-platform-brand').text()).toContain('AuricWell');
  expect(wrapper.text()).not.toContain('ITSCO');
  expect(wrapper.find('.ajl').attributes('style')).toContain('--ajl-primary-color: #125678');wrapper.unmount();
+});
+
+it('labels outside school enrollment as SchoolCareBridge without AuricWell',()=>{
+ const wrapper=mount(Landing,{global:{stubs:{RouterLink:true}},props:{agencySlug:'external',config:{agency:{name:'External Care'},branding:{enrollmentProduct:'schoolcarebridge'},copy:{}},quick,full}});
+ expect(wrapper.find('.ajl-platform-brand').text()).toContain('SchoolCareBridge');expect(wrapper.text()).not.toContain('AuricWell');wrapper.unmount();
 });

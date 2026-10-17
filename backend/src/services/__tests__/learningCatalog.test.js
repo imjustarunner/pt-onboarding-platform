@@ -39,3 +39,10 @@ test('discounted hourly prices round to cents before session-duration totals',()
  const quote=pricePackage(c,c.packages[0],{tutoring:{providerId:7,profile:{rateOverrides:[{service:'tutoring',format:'virtual',hourlyRateCents:6543}]}}});
  assert.equal(quote.components[0].hourlyRateCents,5889);assert.equal(quote.totalCents,26501);
 });
+
+test('retains bounded matching preferences and rejects impossible grades',()=>{
+ const value=normalizeLearningInquiry({program:'tutoring',grade:'3',subjectDetails:' Fractions ',preferredSchedule:'Tuesday, 4 p.m. Mountain',learningLanguage:'Spanish',startingWhen:'Before finals',accessNeeds:'Large print'});
+ assert.equal(value.subjectDetails,'Fractions');assert.equal(value.preferredSchedule,'Tuesday, 4 p.m. Mountain');assert.equal(value.learningLanguage,'Spanish');assert.equal(value.accessNeeds,'Large print');assert.equal(value.startingWhen,'Before finals');
+ assert.throws(()=>normalizeLearningInquiry({program:'tutoring',grade:'99'}),/valid grade/);
+ assert.equal(normalizeLearningInquiry({program:'tutoring',accessNeeds:'a'.repeat(4000)}).accessNeeds.length,3000);
+});

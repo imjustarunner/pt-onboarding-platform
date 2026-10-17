@@ -1106,14 +1106,18 @@ async function renderSchoolPacketCoverPdf(packetContext = {}) {
 }
 
 export function schoolPrintablePacketContentHash(packetContext = {}) {
-  const staff = (packetContext.staffRows || [])
-    .map((row) => Number(row.school_staff_user_id || row.id || 0))
-    .filter((id) => id > 0)
-    .sort((a, b) => a - b);
-  const providers = (packetContext.providers || [])
-    .map((row) => Number(row.id || row.user_id || 0))
-    .filter((id) => id > 0)
-    .sort((a, b) => a - b);
+  const staff = (packetContext.staffRows || []).map(row => ({
+    id: Number(row.school_staff_user_id || row.id || 0),
+    firstName: row.first_name || '', lastName: row.last_name || '',
+    title: row.role_title || '', phone: row.phone_number || '', email: row.email || ''
+  })).filter(row => row.id > 0).sort((a,b) => a.id-b.id);
+  const providers = (packetContext.providers || []).map(row => ({
+    id: Number(row.id || row.user_id || 0),
+    name: row.fullName || '', title: row.title || '', credential: row.credential || '',
+    licenseNumber: row.licenseNumber || '', education: row.education || '',
+    regulatoryBoard: row.regulatoryBoard || '', supervisors: row.supervisors || [],
+    category: row.category || '', schoolAssigned: !!row.schoolAssigned
+  })).filter(row => row.id > 0).sort((a,b) => a.id-b.id);
   // NOTE: packetVersionLabel is intentionally excluded from the hash.
   // The per-school version label is derived FROM the hash (via school_packet_org_versions),
   // not the other way around, so including it would create a circular dependency.
@@ -1121,6 +1125,7 @@ export function schoolPrintablePacketContentHash(packetContext = {}) {
     v: SCHOOL_PRINTABLE_PACKET_VERSION,
     locale: packetContext.locale || 'en',
     templateVersion: Number(packetContext.version || 1),
+    templateHtml: packetContext.templateHtml || '',
     school: String(packetContext.organization?.name || ''),
     address: String(packetContext.organization?.address || ''),
     staff,

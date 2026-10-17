@@ -1,6 +1,6 @@
 import { describeEnrollmentOpening } from './enrollmentOpeningPreference.service.js';
 import {withoutQuickProviderSelection} from '../utils/intakeProviderPreference.js';
-import {resolveLearningInquiry,validateLearningProviderSelection} from './learningEnrollment.service.js';
+import {resolveLearningInquiry} from './learningEnrollment.service.js';
 import pool from '../config/database.js';
 import * as ClientExchange from './clientExchange.service.js';
 import {
@@ -943,8 +943,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   const learningProviderId = payload.preferredProviderUserId || preferences.preferredProviderUserId;
   const learning = activeService?.serviceType==='tutoring' ? await resolveLearningInquiry(agencyRow.id,preferences.learning || {program:'tutoring'},learningProviderId) : null;
   const extraLearning = new Map();
-  if (learning) for (const person of (Array.isArray(payload.additionalDependents) ? payload.additionalDependents : [])) extraLearning.set(person, await resolveLearningInquiry(agencyRow.id, person.learning || {program: learning.program}));
-  if (learning && learningProviderId) await validateLearningProviderSelection(agencyRow.id,learningProviderId,learning);
+  if (learning) for (const person of (Array.isArray(payload.additionalDependents) ? payload.additionalDependents : [])) extraLearning.set(person, await resolveLearningInquiry(agencyRow.id, person.learning || {program: learning.program}, learningProviderId));
   const accomplishGoal = String(payload.accomplishGoal || payload.goals || '').trim() || null;
   const addressInfo = formatStructuredAddress(
     payload.address,

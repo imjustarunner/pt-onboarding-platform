@@ -500,11 +500,12 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1
          WHERE psa.school_organization_id = ?
            AND COALESCE(psa.is_active, 1) = 1
            ${activeUserClause}
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [schoolId]
+        [aid, schoolId]
       );
       schoolProviders.push(...(rows || []));
     } catch {

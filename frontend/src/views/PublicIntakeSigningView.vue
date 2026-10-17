@@ -3055,6 +3055,7 @@ import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildre
 import SchoolIntakeChildDetails from '../components/public-intake/SchoolIntakeChildDetails.vue';
 import { groupSchoolChildSteps, schoolStepRepeatsForChild, schoolChildDetailFields, childDetailKind, validChildDob, syncSchoolChildIdentity, syncSiblingAddresses, migrateLegacySchoolAnswers } from '../utils/schoolIntakeChildren.js';
 import LearningEnrollmentQuestions from '../components/learning/LearningEnrollmentQuestions.vue';
+import { translateJoinEnrollment } from '../utils/joinEnrollmentCopy.js';
 import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
@@ -4605,6 +4606,7 @@ const intakeLocale = computed(() => {
 });
 
 provide('intakeLocale', intakeLocale);
+provide('enrollmentTranslate', text => translateJoinEnrollment(text, intakeLocale.value));
 
 const spanishClarificationStep = computed(() => {
   if (intakeLocale.value !== 'es') return null;
