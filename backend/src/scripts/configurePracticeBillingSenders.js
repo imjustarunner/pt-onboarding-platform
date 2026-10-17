@@ -31,3 +31,5 @@ try{
  }
  if(apply&&!only){await seedBillingSenders(1,{identityKey:'fundthred_collections'});console.log(JSON.stringify({fundthred:'Collections sender record prepared; separate domain verification and provisioning required.'}));}
 }finally{await pool.end();}
+// Imported app transports can retain background handles after pool shutdown.
+process.exit(0);

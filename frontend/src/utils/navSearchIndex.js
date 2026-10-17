@@ -58,6 +58,7 @@ export function searchNav(query, { orgSlug = null, surface = null, limit = 12 } 
 }
 
 function buildNavFullPath(item, orgSlug) {
+  if (item.scope === 'platform') return item.path;
   if (item.publicPath && orgSlug) {
     if (item.publicPath === 'careers') return `/careers/${orgSlug}`;
     if (item.publicPath === 'join') return `/join/${orgSlug}`;
