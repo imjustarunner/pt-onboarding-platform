@@ -13,13 +13,27 @@ export async function seedBillingSenders(agencyId){
   for(const identity of ['billing','collections'])await pool.execute('INSERT IGNORE INTO family_billing_sender_provisioning (agency_id,identity_key,email_address) VALUES (?,?,?)',[agencyId,identity,`${identity}@${domain}`]);
   const [rows]=await pool.execute('SELECT * FROM family_billing_sender_provisioning WHERE agency_id=?',[agencyId]);return rows;
 }
+export async function billingSenderMembers(agencyId,domain,{db=pool,authorize=requireBillingStaff}={}) {
+  const [users]=await db.execute(`SELECT u.* FROM users u
+    WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND u.status IN ('ACTIVE','ACTIVE_EMPLOYEE')
+      AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.is_active=1
+        AND (ua.has_billing_access=1 OR u.role='super_admin')
+        AND (ua.agency_id=? OR EXISTS(SELECT 1 FROM agency_billing_management bm
+          WHERE bm.agency_id=? AND bm.manager_agency_id=ua.agency_id AND bm.is_active=1)))`,[agencyId,agencyId]);
+  const members=[];
+  for(const user of users){
+    try{await authorize(user,agencyId,db);}catch(e){if(e.status===403)continue;throw e;}
+    const email=String(user.work_email||user.email||'').trim().toLowerCase();
+    if(email.endsWith(`@${domain}`))members.push(email);
+  }
+  return [...new Set(members)];
+}
 export async function provisionBillingSenders({agencyId,actorUserId,adoptExisting=false}){
   const [agencies]=await pool.execute('SELECT * FROM agencies WHERE id=?',[agencyId]);const agency=agencies[0];if(!agency)throw billingError(404,'Organization not found');
   const domain=workspaceDomain(agency),rows=await seedBillingSenders(agencyId);
   if(!Directory.isConfigured())throw billingError(409,'Workspace Directory is not configured');
   // Membership comes only from active, authorized agency billing staff. No guardians.
-  const [users]=await pool.execute("SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND (ua.has_billing_access=1 OR u.role IN ('admin','agency_admin','backoffice_admin')) AND u.status NOT IN ('ARCHIVED','INACTIVE_EMPLOYEE')",[agencyId]);
-  const members=[];for(const user of users){await requireBillingStaff(user,agencyId);const email=String(user.work_email||user.email||'').toLowerCase();if(email.endsWith(`@${domain}`))members.push(email);}
+  const members=await billingSenderMembers(agencyId,domain);
   if(!members.length)throw billingError(409,'Assign an active billing staff member with a Workspace address before creating financial mailboxes');
   const transport=String(getImpersonatedUser()||'').trim().toLowerCase();
   const results=[];
