@@ -57,7 +57,7 @@ export async function createReceivable(input, connection = null) {
   const id = result.insertId;
   if (fingerprint) await db.execute('UPDATE family_receivables SET insurance_fingerprint=? WHERE id=?', [fingerprint, id]);
   const allocated = shares ? allocateCents(amount, shares) : [{ payerUserId: null, amountCents: amount }];
-  for (const row of allocated) await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents) VALUES (?,?,?,?)', [agencyId, id, row.payerUserId, row.amountCents]);
+  for (const row of allocated) await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents,share_basis_points,share_basis) VALUES (?,?,?,?,?,?)', [agencyId, id, row.payerUserId, row.amountCents, shares?.find(s=>s.payerUserId===row.payerUserId)?.basisPoints??null, shares?'total':null]);
   await auditBilling({ agencyId, clientId, userId: input.actorUserId, action: 'receivable_created', objectId: id }, db);
   if (status === 'paid') await db.execute('INSERT IGNORE INTO family_fulfillment_jobs (agency_id,receivable_id) VALUES (?,?)', [agencyId,id]);
   if (status === 'open') {
@@ -87,14 +87,14 @@ export async function allocateBalance({ agencyId, receivableId, shares, actorUse
   const [plans] = await db.execute("SELECT p.id FROM family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('proposed','active') LIMIT 1",[row.id]);
   if (pending.length || plans.length) throw billingError(409,'Resolve pending payments and cancel payment plans before changing shares');
   const paid = existing.reduce((n,a)=>n+Number(a.paid_cents),0), next = allocateCents(Number(row.amount_cents)-paid,shares);
-  for (const a of existing) await db.execute('UPDATE family_receivable_allocations SET amount_cents=paid_cents WHERE id=?',[a.id]);
+  for (const a of existing) await db.execute('UPDATE family_receivable_allocations SET amount_cents=paid_cents,share_basis_points=NULL,share_basis=NULL WHERE id=?',[a.id]);
   for (const s of next) {
     const old=existing.find(a=>Number(a.payer_user_id)===s.payerUserId);
-    if(old) await db.execute('UPDATE family_receivable_allocations SET amount_cents=paid_cents+? WHERE id=?',[s.amountCents,old.id]);
-    else await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents) VALUES (?,?,?,?)',[agencyId,row.id,s.payerUserId,s.amountCents]);
+    if(old) await db.execute('UPDATE family_receivable_allocations SET amount_cents=paid_cents+?,share_basis_points=?,share_basis=? WHERE id=?',[s.amountCents,shares.find(x=>Number(x.payerUserId)===s.payerUserId).basisPoints,paid?'remaining':'total',old.id]);
+    else await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents,share_basis_points,share_basis) VALUES (?,?,?,?,?,?)',[agencyId,row.id,s.payerUserId,s.amountCents,shares.find(x=>Number(x.payerUserId)===s.payerUserId).basisPoints,paid?'remaining':'total']);
   }
   if(row.hold_reason==='payer_assignment') await db.execute("UPDATE family_receivables SET status=?,hold_reason=NULL WHERE id=?",[paid===Number(row.amount_cents)?'paid':'open',row.id]);
-  if(row.hold_reason==='payer_assignment' && paid<Number(row.amount_cents)) {
+  if((row.hold_reason==='payer_assignment'||row.status==='open') && paid<Number(row.amount_cents)) {
     const {queueBalanceNotifications}=await import('./balanceNotifications.js');
     await queueBalanceNotifications({agencyId,receivableId:row.id,clientId:row.client_id},db);
   }
@@ -177,12 +177,13 @@ export async function applyFinalClaimResponsibility(row, amount, payload, actorU
   if(pending.length)throw billingError(409,'Reconcile the pending payment before changing patient responsibility');
   const original=allocations.reduce((n,a)=>n+Number(a.amount_cents),0);
   if(!allocations.length||(!original&&allocations.length>1))throw billingError(409,'Review responsible payer shares before changing this balance');
+  const explicitShares=allocations.every(a=>a.share_basis==='total'&&Number(a.share_basis_points)>0)&&allocations.reduce((n,a)=>n+Number(a.share_basis_points),0)===10000 ? allocateCents(amount,allocations.map(a=>({payerUserId:Number(a.payer_user_id),basisPoints:Number(a.share_basis_points)}))) : null;
   let assigned=0,refundReviewCents=0,effective=0,paid=0;
   for(let index=0;index<allocations.length;index++){
-    const a=allocations[index],target=index===allocations.length-1?amount-assigned:Math.floor(amount*Number(a.amount_cents)/original);
+    const a=allocations[index],target=explicitShares?explicitShares.find(s=>s.payerUserId===Number(a.payer_user_id)).amountCents:index===allocations.length-1?amount-assigned:Math.floor(amount*Number(a.amount_cents)/original);
     assigned+=target;const received=Number(a.paid_cents),next=Math.max(received,target);
     effective+=next;paid+=received;refundReviewCents+=Math.max(0,received-target);
-    await db.execute('UPDATE family_receivable_allocations SET amount_cents=? WHERE id=?',[next,a.id]);
+    await db.execute('UPDATE family_receivable_allocations SET amount_cents=?,share_basis_points=?,share_basis=? WHERE id=?',[next,explicitShares?a.share_basis_points:null,explicitShares?'total':null,a.id]);
   }
   await db.execute("UPDATE family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id SET p.status='cancelled',p.auto_pay=0 WHERE a.receivable_id=? AND p.status IN ('proposed','active')",[row.id]);
   const revised={...payload,finalPatientResponsibilityCents:amount,refundReviewCents,adjustments:[...(payload.adjustments||[]),{fromCents:Number(row.amount_cents),toCents:amount,reason:payload.verificationReason,actorUserId,at:new Date().toISOString()}]};

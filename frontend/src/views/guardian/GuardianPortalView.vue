@@ -18,6 +18,7 @@
       </section>
 
       <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" :organization-name="careAgencyName || currentAgencyName" @contact="navigatePortal('messages')" />
+      <GuardianBillingNeeds v-if="!isSuperadminPreview && ['overview','tutoring'].includes(activePanel)" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
@@ -457,7 +458,7 @@
                 </p>
               </div>
               <template v-else>
-                <FamilyLedgerPanel :agency-id="currentAgencyId" :client-id="selectedChildId" />
+                <FamilyLedgerPanel :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
                 <GuardianBillingTab v-if="learningBillingVisible" :agency-id="currentAgencyId" :client-id="selectedChildId" />
               </template>
             </template>
@@ -489,7 +490,7 @@
               </div>
               <GuardianPaymentInsuranceTab
                 v-else
-                :agency-id="currentAgencyId"
+                :agency-id="selectedChildAgencyId"
                 :guardian-user-id="authStore.user?.id"
               />
             </template>
@@ -635,6 +636,7 @@ import GuardianAppointmentsPanel from '../../components/guardian/GuardianAppoint
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosurePanel.vue';
+import GuardianBillingNeeds from '../../components/billing/GuardianBillingNeeds.vue';
 import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';

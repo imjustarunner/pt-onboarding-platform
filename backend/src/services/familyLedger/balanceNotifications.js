@@ -8,9 +8,8 @@ export async function queueBalanceNotifications({agencyId,receivableId,clientId}
   await db.execute(`INSERT IGNORE INTO family_balance_notifications (agency_id,receivable_id,guardian_user_id)
     SELECT ?,?,cg.guardian_user_id FROM client_guardians cg JOIN clients c ON c.id=cg.client_id
     WHERE c.agency_id=? AND cg.client_id=? AND cg.access_enabled=1 AND (
-      EXISTS(SELECT 1 FROM family_receivable_allocations a JOIN client_billing_payers p ON p.guardian_user_id=cg.guardian_user_id AND p.client_id=cg.client_id AND p.agency_id=c.agency_id AND p.status='active' WHERE a.receivable_id=? AND a.payer_user_id=cg.guardian_user_id)
-      OR EXISTS(SELECT 1 FROM guardian_portal_policies gp WHERE gp.agency_id=c.agency_id AND gp.client_id=c.id AND gp.shared_billing=1)
-      OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=c.agency_id AND s.client_id=c.id AND s.guardian_user_id=cg.guardian_user_id AND s.active=1))`,[agencyId,receivableId,agencyId,clientId,receivableId]);
+      EXISTS(SELECT 1 FROM family_receivable_allocations a JOIN client_billing_payers p ON p.guardian_user_id=cg.guardian_user_id AND p.client_id=cg.client_id AND p.agency_id=c.agency_id AND p.status='active' WHERE a.receivable_id=? AND a.payer_user_id=cg.guardian_user_id AND a.amount_cents>a.paid_cents)
+)`,[agencyId,receivableId,agencyId,clientId,receivableId]);
 }
 
 export async function sendPendingBalanceNotifications() {
@@ -25,7 +24,7 @@ export async function sendPendingBalanceNotifications() {
       locked=Number(lock.acquired)===1;if(!locked)continue;
       const [pending]=await db.execute("SELECT id,receivable_id FROM family_balance_notifications WHERE agency_id=? AND guardian_user_id=? AND status='pending' ORDER BY id LIMIT 200",[agencyId,userId]);
       const balances=await listBalances({agencyId,userId});
-      const due=new Set(balances.filter(b=>b.billingState==='due'&&b.dueCents>0).map(b=>Number(b.receivableId)));
+      const due=new Set(balances.filter(b=>b.isOwnShare&&!b.paymentStatus&&b.billingState==='due'&&b.dueCents>0).map(b=>Number(b.receivableId)));
       for(const row of pending) {
         if(due.has(Number(row.receivable_id)))claimed.push(Number(row.id));
         else await db.execute("UPDATE family_balance_notifications SET status='skipped' WHERE id=? AND status='pending'",[row.id]);

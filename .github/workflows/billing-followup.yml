@@ -1,0 +1,77 @@
+name: Guardian billing and insurance follow-up
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/insuranceCards/**'
+      - 'backend/src/services/__tests__/billingFollowup*'
+      - 'backend/src/services/__tests__/insuranceCards*'
+      - 'backend/src/services/__tests__/guardianAccess.balanceNotifications*'
+      - 'backend/src/routes/insuranceCards.routes.js'
+      - 'backend/src/routes/familyLedger.routes.js'
+      - 'backend/vitest.billing-followup.config.js'
+      - 'frontend/src/components/billing/**'
+      - 'frontend/src/views/guardian/GuardianPortalView.vue'
+      - 'database/migrations/1640_insurance_followups_and_payer_shares.sql'
+      - '.github/workflows/billing-followup.yml'
+  pull_request:
+    paths:
+      - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/insuranceCards/**'
+      - 'backend/src/services/__tests__/billingFollowup*'
+      - 'backend/src/services/__tests__/insuranceCards*'
+      - 'backend/src/routes/insuranceCards.routes.js'
+      - 'frontend/src/components/billing/**'
+      - 'database/migrations/1640_insurance_followups_and_payer_shares.sql'
+      - '.github/workflows/billing-followup.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+          MYSQL_DATABASE: family_billing_test
+          MYSQL_USER: family_billing_test
+          MYSQL_PASSWORD: synthetic-only
+        ports: ['33316:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      DB_HOST: '127.0.0.1'
+      DB_PORT: '33316'
+      DB_NAME: family_billing_test
+      DB_USER: family_billing_test
+      DB_PASSWORD: synthetic-only
+      CLINICAL_DB_HOST: '127.0.0.1'
+      CLINICAL_DB_PORT: '33316'
+      CLINICAL_DB_NAME: family_billing_test
+      CLINICAL_DB_USER: family_billing_test
+      CLINICAL_DB_PASSWORD: synthetic-only
+      FAMILY_BILLING_ENCRYPTION_KEY_BASE64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      BILLING_FOLLOWUP_MYSQL_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend --ignore-scripts
+      - name: Reminder delivery and notification ownership
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-followup.config.js
+      - name: Native SQL workflow and policy checks
+        run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js
+      - name: Guardian and billing workspace screens
+        run: npm --prefix frontend test -- src/components/billing/__tests__/FamilyLedgerPanel.test.js src/components/billing/__tests__/InsuranceCardTasks.test.js src/views/admin/__tests__/BillingWorkspaceView.test.js

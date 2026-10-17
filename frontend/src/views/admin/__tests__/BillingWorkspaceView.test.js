@@ -18,6 +18,7 @@ vi.mock('../../../components/admin/CallBillingQueue.vue', () => ({ default: { te
 vi.mock('../../../components/admin/PlannedBillingServices.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/billing/PayerEftPanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/billing/BankFeedPanel.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../components/billing/InsuranceCardTasks.vue',()=>({default:{props:['agencyId'],template:'<div data-testid="insurance-followup">Insurance follow-up for {{ agencyId }}</div>'}}));
 const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { primary: '#23564f' }, counts: { ready: 4, submitted: 2 }, connection: { configured: true, mode: 'disabled' }, enrollments: [] }, { id: 3, name: 'Company Three', counts: { rejected: 2 }, connection: { configured: false }, enrollments: [] }], claims: [{ id: 8, agency_id: 1, client_id: 12, clinical_note_id: 10, claim_lifecycle: 'submitted', amount_cents: 10000 }], total: 1, capabilities: { claims: true, enrollments: true, paymentPosting: false }, updatedAt: '2026-09-24T12:00:00Z' });
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
 beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
@@ -39,6 +40,7 @@ describe('billing workspace', () => {
     expect(w.find('.company-panel').exists()).toBe(false);
     expect(w.find('.scope-context').text()).toContain('Company Three');
     expect(w.find('.scope-context').text()).toContain('Signed in as Test Biller');
+    expect(w.find('[data-testid="insurance-followup"]').text()).toContain('for 3');
     expect(w.text()).toContain('Claim work queue');
     expect(w.text()).not.toContain('Cross-company');
     expect(w.findAll('th').map(th => th.text())).not.toContain('Organization');

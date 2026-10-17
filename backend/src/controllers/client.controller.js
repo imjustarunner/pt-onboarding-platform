@@ -1,3 +1,4 @@
+import { cardUrlKey } from '../services/insuranceCards/policy.js';
 import { validateFaxFields } from '../services/faxExtraction.service.js';
 import { createClientFromFax, getFaxDraft } from '../services/faxIntake.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -122,10 +123,10 @@ export const getClientInsuranceCard = async (req, res, next) => {
     if (!profileId) return res.status(404).json({ error: { message: 'No assigned insurance card evidence for this client' } });
     const [profiles] = await pool.execute('SELECT DISTINCT p.* FROM guardian_insurance_profiles p LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.id=? AND p.agency_id=? AND (p.client_id=? OR gic.client_id=?)', [profileId, agencyId, clientId, clientId]);
     const profile = decodeInsuranceProfile(profiles[0]);
-    const gsPath = profile?.[`${slot}_url`];
+    const gsPath = profile?.[cardUrlKey(slot)] || profile?.[`${slot}_url`];
     const bucket = await StorageService.getGCSBucket();
     const expectedPrefix = `gs://${bucket?.name}/intake-insurance/${profile?.intake_submission_id}/`;
-    if (!bucket || !profile?.intake_submission_id || !String(gsPath || '').startsWith(expectedPrefix)) return res.status(404).json({ error: { message: 'No insurance card on file for this slot' } });
+    if (!bucket || !((profile?.intake_submission_id && String(gsPath || '').startsWith(expectedPrefix)) || String(gsPath || '').startsWith(`gs://${bucket.name}/insurance-cards/${agencyId}/${profile?.id}/`))) return res.status(404).json({ error: { message: 'No insurance card on file for this slot' } });
     const key = parseGcsPathToKey(gsPath);
     if (!key || key.includes('..')) return res.status(404).json({ error: { message: 'Invalid insurance evidence reference' } });
     const file = bucket.file(key);

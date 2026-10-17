@@ -4,6 +4,7 @@
     <p v-if="loading" role="status">Loading billing…</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
+    <InsuranceCardTasks :key="insuranceRevision" :agency-id="agencyId" />
     <template v-if="data">
       <p v-if="!data.clients.length">No clients are linked to this account in this organization.</p>
       <section class="client-grid">
@@ -47,7 +48,7 @@
             <p>Coverage submitted for: {{ profile.clientIds.map(id => data.clients.find(c => Number(c.clientId) === id)?.clientName).filter(Boolean).join(', ') || 'No client selected' }}</p>
             <p>The office reviews coverage and determines primary and secondary billing before submitting claims.</p>
             <p v-if="profile.secondary">Secondary: {{ profile.secondary.insurerName }} · Member ID: {{ profile.secondary.memberId }}</p>
-            <p v-if="profile.hasPrimaryFront || profile.hasPrimaryBack">Insurance card evidence is on file for office review.</p>
+            <p v-if="profile.hasPrimaryFront || profile.hasPrimaryBack">Primary card: {{ profile.hasPrimaryFront ? 'front received' : 'front missing' }} · {{ profile.hasPrimaryBack ? 'back received' : 'back missing' }}.</p>
             <details v-if="profile.missingClaimFields.length"><summary>Information needed for claims</summary><ul><li v-for="issue in profile.missingClaimFields" :key="issue">{{ issue }}</li></ul></details>
             <button class="btn btn-secondary" type="button" @click="editInsurance(profile)">Review coverage / apply to clients</button>
           </article>
@@ -67,10 +68,12 @@
   </div>
 </template>
 <script setup>
+import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import SecureCardSetup from '../billing/SecureCardSetup.vue';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
+const insuranceRevision = ref(0);
 const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,String] });
 const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''), busy = ref(false), showCard = ref(false), removingCard = ref(null), authorization = ref(null), signature = ref(''), accepted = ref(false), limitDollars = ref(''), cardSelections = ref({}), insuranceDraft = ref(null), hasSecondary = ref(false), coverageConfirmed = ref(false);
 const manageableClients = computed(() => (data.value?.clients || []).filter(c => c.canManageBilling));
@@ -96,7 +99,7 @@ function revoke(client) { return perform(() => api.delete(`/guardian-billing/cli
 function removeCard() { const id=removingCard.value.id; return perform(async () => {await api.delete(`/guardian-billing/payment-cards/${id}`,{params:{agencyId:props.agencyId}});removingCard.value=null;},'Card removed and its authorizations revoked.'); }
 function cardSaved() { showCard.value=false; notice.value='Card saved. Select which clients will use it.'; void load(); }
 function editInsurance(profile) { insuranceDraft.value={profileId:profile?.id,coverageScope:profile?.coverageScope || 'client',clientIds:[...(profile?.clientIds || [])],primary:{...(profile?.primary || {})},secondary:{...(profile?.secondary || {})}}; hasSecondary.value=!!profile?.secondary; coverageConfirmed.value=false; }
-function saveInsurance() { const payload={...insuranceDraft.value,agencyId:props.agencyId,coverageConfirmed:coverageConfirmed.value,secondary:hasSecondary.value ? insuranceDraft.value.secondary : null}; return perform(async()=>{await api.post('/guardian-billing/insurance',payload);insuranceDraft.value=null;},'Insurance saved to the selected client records.'); }
+function saveInsurance() { const payload={...insuranceDraft.value,agencyId:props.agencyId,coverageConfirmed:coverageConfirmed.value,secondary:hasSecondary.value ? insuranceDraft.value.secondary : null}; return perform(async()=>{await api.post('/guardian-billing/insurance',payload);insuranceRevision.value++;insuranceDraft.value=null;},'Insurance saved to the selected client records.'); }
 watch(()=>[props.agencyId,props.guardianUserId],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
 </script>
 <style scoped>

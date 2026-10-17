@@ -21,6 +21,7 @@
         <div class="lifecycle" aria-label="Billing lifecycle"><button @click="setSection('payers')"><b>1</b><span>Payer connection<small>Claims and ERA enrollment</small></span></button><span>→</span><button @click="setSection('claims')"><b>2</b><span>Claim submission<small>Review, approve, track responses</small></span></button><span>→</span><button @click="setSection('payments')"><b>3</b><span>ERA &amp; payment<small>Match, reconcile, post</small></span></button></div>
         <div class="acceptance-note"><span aria-hidden="true">ⓘ</span> <strong>Accepted does not mean paid.</strong> Acknowledgements confirm claim processing; payment requires remittance and reconciliation.</div>
 
+        <InsuranceCardTasks v-if="!route.meta?.auricwellPreview && scopedOrganization && ['workspace','settings'].includes(section)" :key="`insurance-${scopeId}`" :agency-id="scopedOrganization.id" staff />
         <template v-if="['workspace', 'claims', 'reports'].includes(section)">
           <section class="metric-grid" aria-label="Claim workload">
             <button class="metric" @click="filterQueue('all')"><span class="metric-symbol">▤</span><span><small>Active claims</small><strong>{{ totals?.active ?? '—' }}</strong><em>Across selected scope</em></span></button>
@@ -78,6 +79,7 @@
 </template>
 
 <script setup>
+import InsuranceCardTasks from '../../components/billing/InsuranceCardTasks.vue';
 import CallBillingQueue from '../../components/admin/CallBillingQueue.vue';
 import PlannedBillingServices from '../../components/admin/PlannedBillingServices.vue';
 import RemittanceWorkspace from '../../components/billing/RemittanceWorkspace.vue';

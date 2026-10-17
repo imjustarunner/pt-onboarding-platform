@@ -18,7 +18,7 @@ beforeEach(()=>{
   if(sql.includes('SELECT name,slug'))return [[{name:'Tenant',slug:'tenant'}]];
   return [{affectedRows:1}];
  })};pool.getConnection.mockResolvedValue(db);
- listBalances.mockResolvedValue([{receivableId:22,billingState:'due',dueCents:1000}]);
+ listBalances.mockResolvedValue([{receivableId:22,isOwnShare:true,billingState:'due',dueCents:1000}]);
  requireReadySender.mockResolvedValue({id:9,from_email:'billing@tenant.test'});
  sendEmailFromIdentity.mockResolvedValue({id:'accepted',communicationId:77});
 });
@@ -28,3 +28,6 @@ it('keeps a queued email held rather than claiming it was sent',async()=>{sendEm
 it('does not fall back to another sender when billing is unavailable',async()=>{requireReadySender.mockRejectedValue(new Error('Billing sender unavailable'));await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
 it('marks uncertain delivery for review rather than automatic resend',async()=>{sendEmailFromIdentity.mockRejectedValue(new Error('Network interrupted'));await sendPendingBalanceNotifications();expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("IF(status='sending','unknown','held')"),[11]);});
 it('does not send concurrently when another worker owns the recipient lock',async()=>{db.execute.mockResolvedValue([[{acquired:0}]]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalled();});
+
+it('does not bill a guardian just because statements are shared',async()=>{listBalances.mockResolvedValue([{receivableId:22,isOwnShare:false,billingState:'due',dueCents:1000}]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
+it('does not prompt another payment while the guardian payment is pending',async()=>{listBalances.mockResolvedValue([{receivableId:22,isOwnShare:true,paymentStatus:'unknown',billingState:'due',dueCents:1000}]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});

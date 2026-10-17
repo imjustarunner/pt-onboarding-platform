@@ -14,6 +14,7 @@ export function presentBalance(row, { collectible, own, staff = false, responsib
     dueCents: due,
     // Held/unverified gross charges are not patient bills.
     ...(!staff && !collectible && !settled ? {amountCents:null,totalCents:null} : {}),
+    isOwnShare: !!own,
     canPay: !staff && own && due > 0,
     billingState: noResponsibility ? 'closed' : settled ? 'paid' : row.status === 'void' ? 'void' : due > 0 ? 'due' : 'review',
     ...(responsibility.serviceTerm ? {serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis} : {}),

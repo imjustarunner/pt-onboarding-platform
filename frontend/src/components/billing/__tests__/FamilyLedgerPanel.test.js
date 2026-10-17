@@ -42,3 +42,11 @@ describe('client billing portal',()=>{
     expect(api.post).toHaveBeenCalledOnce();expect(api.post).toHaveBeenCalledWith('/family-billing/staff/clients/10/readiness',expect.objectContaining({agencyId:1,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'verified_copay'}));expect(w.text()).toContain('No card was charged');w.unmount();
   });
 });
+
+it('shows only this guardian’s share as due while retaining authorized shared statements',async()=>{
+ balances=[{receivableId:3,allocationId:30,payerName:'First Synthetic',isOwnShare:true,shareBasisPoints:6000,shareBasis:'total',billingState:'due',dueCents:6001,canPay:true,balanceCents:6001},{receivableId:3,allocationId:31,payerName:'Second Synthetic',isOwnShare:false,shareBasisPoints:4000,shareBasis:'total',billingState:'due',dueCents:4000,canPay:false,balanceCents:4000}];
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();expect(w.find('.ledger-summary').text()).toContain('$60.01');expect(w.find('.ledger-summary').text()).not.toContain('$100.01');expect(w.text()).toContain('Your share: 60%');expect(w.text()).toContain('Shared statement · assigned to another payer: 40%');expect(w.findAll('button').filter(b=>b.text()==='Make a payment')).toHaveLength(1);w.unmount();
+});
+it('clears previous financial rows when a refresh fails',async()=>{
+ balances=[{receivableId:3,allocationId:30,isOwnShare:true,billingState:'due',dueCents:4500,balanceCents:4500}];const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();expect(w.text()).toContain('$45.00');api.get.mockRejectedValue(new Error('revoked'));await button(w,'Refresh').trigger('click');await flushPromises();expect(w.text()).not.toContain('$45.00');expect(w.find('[role="alert"]').exists()).toBe(true);w.unmount();
+});

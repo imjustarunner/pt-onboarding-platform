@@ -1,3 +1,5 @@
+import {guardianBillingNeeds} from '../services/familyLedger/needs.js';
+import insuranceCardsRoutes from './insuranceCards.routes.js';
 import {postSignedService,listSignedServiceVisits} from '../services/familyLedger/serviceCharges.js';
 import {listServiceRates,saveServiceRate} from '../services/familyLedger/serviceRates.js';
 import BookingPackage from '../models/BookingPackage.model.js';
@@ -29,6 +31,8 @@ const run=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){next(e);}};
 const staff=run(async(req,res)=>{await requireBillingStaff(req.user,context(req).agencyId);req.billingStaff=true;});
 const staffOnly=async(req,res,next)=>{try{await requireBillingStaff(req.user,context(req).agencyId);next();}catch(e){next(e);}};
 const limited=rateLimit({windowMs:60000,max:30,standardHeaders:true,legacyHeaders:false});
+router.use('/insurance-cards',insuranceCardsRoutes);
+router.get('/needs',run(async(req,res)=>res.json(await guardianBillingNeeds({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null}))));
 router.get('/payers',run(async(req,res)=>{const c=context(req);const [links]=await pool.execute("SELECT client_id FROM client_billing_payers WHERE agency_id=? AND guardian_user_id=? AND status='active'",[c.agencyId,c.userId]);const payers={};for(const link of links){try{await requireResponsiblePayer(c.userId,link.client_id,c.agencyId);}catch(e){if(e.status===403)continue;throw e;}const [rows]=await pool.execute("SELECT p.guardian_user_id AS userId,u.first_name,u.last_name FROM client_billing_payers p JOIN users u ON u.id=p.guardian_user_id WHERE p.agency_id=? AND p.client_id=? AND p.status='active' AND p.guardian_user_id<>?",[c.agencyId,link.client_id,c.userId]);payers[link.client_id]=[];for(const row of rows){try{await requireResponsiblePayer(row.userId,link.client_id,c.agencyId);payers[link.client_id].push({userId:row.userId,name:[row.first_name,row.last_name].filter(Boolean).join(' ')});}catch(e){if(e.status!==403)throw e;}}}res.json({payers});}));
 router.get('/balances',run(async(req,res)=>res.json({balances:await listBalances({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null}),planTermsVersion:PLAN_TERMS_VERSION})));
 router.post('/allocations/:id/pay',limited,run(async(req,res)=>{const result=await payAllocation({...req.body,...context(req),allocationId:positiveId(req.params.id),automatic:false});await fulfillPaidBalances(context(req));res.json(result);}));
@@ -37,7 +41,7 @@ router.get('/statement.pdf',run(async(req,res)=>res.type('pdf').set('Content-Dis
 router.get('/payment-preference',run(async(req,res)=>res.json({preference:await guardianPaymentPreference({...context(req),clientId:positiveId(req.query.clientId)})})));
 router.put('/payment-preference',run(async(req,res)=>res.json(await saveGuardianPaymentPreference({...req.body,...context(req),clientId:positiveId(req.body.clientId)}))));
 router.get('/receipts/:id.pdf',run(async(req,res)=>{const receipt=await receiptFor({...context(req),paymentId:positiveId(req.params.id)});res.type('pdf').set('Content-Disposition',`attachment; filename="receipt-${req.params.id}.pdf"`).send(await renderReceiptPdf(receipt));}));
-router.get('/splits',run(async(req,res)=>res.json({requests:await listSplitRequests(context(req))})));
+router.get('/splits',run(async(req,res)=>res.json({requests:await listSplitRequests({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null})})));
 router.post('/balances/:id/split',run(async(req,res)=>res.json(await requestSplit({...req.body,...context(req),receivableId:positiveId(req.params.id)}))));
 router.post('/splits/:id/respond',run(async(req,res)=>res.json(await respondToSplit({...req.body,...context(req),requestId:positiveId(req.params.id)}))));
 router.post('/plans/:id/accept',run(async(req,res)=>{await acceptPlan({...req.body,...context(req),planId:positiveId(req.params.id)});res.json({success:true});}));

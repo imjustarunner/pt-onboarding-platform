@@ -46,7 +46,23 @@ export async function respondToSplit({agencyId,requestId,userId,accept,signature
     await auditBilling({agencyId,clientId:row.client_id,userId,action:'split_response',objectId:requestId},db);return {status:complete?'accepted':'pending'};
   });
 }
-export async function listSplitRequests({agencyId,userId}) {
-  const [rows]=await pool.execute("SELECT s.*,r.client_id FROM family_split_requests s JOIN family_receivables r ON r.id=s.receivable_id WHERE s.agency_id=? AND s.status='pending' ORDER BY s.id DESC LIMIT 100",[agencyId]);
-  const result=[];for(const row of rows){const evidence=decryptFamilyBilling(row.evidence_encrypted,`split:${agencyId}:${row.receivable_id}`);if(!evidence.requiredUserIds.includes(Number(userId)))continue;try{await requireResponsiblePayer(userId,row.client_id,agencyId);}catch(e){if(e.status===403)continue;throw e;}result.push({id:row.id,receivableId:row.receivable_id,clientId:row.client_id,shares:parseJson(row.shares_json),acceptedUserIds:parseJson(row.accepted_user_ids_json),requestedByUserId:row.requested_by_user_id});}return result;
+export async function listSplitRequests({agencyId,userId,clientId=null}) {
+  const [rows]=await pool.execute(`SELECT s.*,r.client_id FROM family_split_requests s JOIN family_receivables r ON r.id=s.receivable_id
+    WHERE s.agency_id=? AND s.status='pending' AND (? IS NULL OR r.client_id=?)
+    AND (s.requested_by_user_id=? OR JSON_CONTAINS(s.shares_json,JSON_OBJECT('payerUserId',CAST(? AS UNSIGNED))) OR EXISTS(SELECT 1 FROM family_receivable_allocations a WHERE a.receivable_id=r.id AND a.payer_user_id=?))
+    ORDER BY s.id DESC LIMIT 100`,[agencyId,clientId,clientId,userId,userId,userId]);
+  const result=[];
+  for(const row of rows){
+    const evidence=decryptFamilyBilling(row.evidence_encrypted,`split:${agencyId}:${row.receivable_id}`);
+    if(!evidence.requiredUserIds.includes(Number(userId)))continue;
+    try{await requireResponsiblePayer(userId,row.client_id,agencyId);}catch(e){if(e.status===403)continue;throw e;}
+    const shares=parseJson(row.shares_json),acceptedUserIds=parseJson(row.accepted_user_ids_json).map(Number);
+    const payerNames={};
+    for(const share of shares){
+      const [[payer]]=await pool.execute('SELECT u.first_name,u.last_name FROM users u JOIN client_billing_payers p ON p.guardian_user_id=u.id WHERE u.id=? AND p.client_id=? AND p.agency_id=? AND p.status="active"',[share.payerUserId,row.client_id,agencyId]);
+      payerNames[share.payerUserId]=payer?[payer.first_name,payer.last_name].filter(Boolean).join(' '):'Responsible payer';
+    }
+    result.push({id:row.id,receivableId:row.receivable_id,clientId:row.client_id,shares,payerNames,acceptedUserIds,needsMyAcceptance:!acceptedUserIds.includes(Number(userId)),requestedByUserId:row.requested_by_user_id});
+  }
+  return result;
 }
