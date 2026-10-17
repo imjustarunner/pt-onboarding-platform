@@ -144,6 +144,9 @@ describe('billing workspace', () => {
   it('allows a delegated management biller to enter without billing permission on the login organization', () => {
     expect(canAccessBillingWorkspace({ role: 'support', billingAgencyIds: [377] })).toBe(true);
     expect(canAccessBillingWorkspace({ role: 'support', billingAgencyIds: [] })).toBe(false);
+    expect(canAccessBillingWorkspace({ role: 'admin', billingAgencyIds: [] })).toBe(false);
+    expect(canAccessBillingWorkspace({ role: 'admin', billingAgencyIds: [2] })).toBe(true);
+    expect(canAccessBillingWorkspace({ role: 'super_admin', billingAgencyIds: [] })).toBe(true);
     expect(canAccessBillingWorkspace({ role: 'provider', billingAgencyIds: [377] })).toBe(false);
     expect(canAccessBillingWorkspace({ role: 'provider_plus', billingAgencyIds: [377] })).toBe(false);
   });

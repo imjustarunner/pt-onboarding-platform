@@ -11,11 +11,12 @@ test('managed billing SQL enforces memberships, explicit grants, revocation and 
   try {
     await db.query('CREATE DATABASE IF NOT EXISTS managed_billing_test');
     await db.query('USE managed_billing_test');
-    await db.query('CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(100),is_active BOOLEAN,is_archived BOOLEAN)');
+    await db.query('CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(100),is_active BOOLEAN,is_archived BOOLEAN,organization_type VARCHAR(20) DEFAULT \'agency\',feature_flags JSON,icon_id INT)');
+    await db.query('CREATE TABLE icons(id INT PRIMARY KEY,file_path VARCHAR(255))');
     await db.query('CREATE TABLE users(id INT PRIMARY KEY,is_active BOOLEAN,is_archived BOOLEAN,status VARCHAR(40))');
     await db.query('CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN,has_billing_access BOOLEAN,PRIMARY KEY(user_id,agency_id))');
     await db.query(await fs.readFile(new URL('../../../../database/migrations/1625_managed_medical_billing.sql',import.meta.url),'utf8'));
-    await db.query("INSERT INTO agencies VALUES (1,'Management',1,0),(2,'Practice',1,0),(3,'Closed',1,1),(4,'Inactive',0,0),(5,'Unrelated',1,0)");
+    await db.query("INSERT INTO agencies(id,name,is_active,is_archived) VALUES (1,'Management',1,0),(2,'Practice',1,0),(3,'Closed',1,1),(4,'Inactive',0,0),(5,'Unrelated',1,0)");
     await db.query("INSERT INTO users VALUES (10,1,0,'ACTIVE'),(11,1,0,'ACTIVE'),(12,1,0,'ACTIVE')");
     await db.query('INSERT INTO user_agencies VALUES(10,1,1,1),(11,1,1,0),(12,2,1,1),(10,3,1,1),(10,4,1,1)');
     await db.query('INSERT INTO agency_billing_management(agency_id,manager_agency_id) VALUES(2,1),(3,1),(4,1)');

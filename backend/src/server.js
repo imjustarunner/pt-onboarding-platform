@@ -2709,16 +2709,7 @@ const balanceNotificationTimer = setInterval(async () => {
 }, 5 * 60 * 1000);
 balanceNotificationTimer.unref();
 
-// Insurance follow-up has its own per-practice opt-in and durable delivery deduplication.
-let insuranceCardTickRunning=false;
-const insuranceCardTimer=setInterval(async()=>{
-  if(insuranceCardTickRunning)return;
-  insuranceCardTickRunning=true;
-  try {const {runInsuranceCardReminders}=await import('./services/insuranceCards/reminders.js');await runInsuranceCardReminders();}
-  catch {console.warn('[insurance cards] Follow-up requires configuration or migration review');}
-  finally {insuranceCardTickRunning=false;}
-},10*60*1000);
-insuranceCardTimer.unref();
+// Insurance-card follow-ups are reviewed staff tasks; no background email dispatcher.
 
 // Automatic billing is tenant opt-in. This worker never sends collection emails.
 if (process.env.FAMILY_BILLING_AUTOMATION_ENABLED === 'true') {

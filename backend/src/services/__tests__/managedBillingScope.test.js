@@ -55,7 +55,7 @@ it('honors delegated billing on imported reports without granting imported clini
 
 import {requireBillingStaff} from '../familyLedger/policy.js';
 it('supports managed billing in the family balance desk and denies unrelated companies',async()=>{
-  const db={execute:vi.fn(async sql=>sql.includes('agency_billing_management')?[[{id:2}]]:[[]])};
+  const db={execute:vi.fn(async sql=>sql.includes('agency_billing_management')?[[{id:2,organization_type:'agency'}]]:[[]])};
   await expect(requireBillingStaff(identity,2,db)).resolves.toBeUndefined();
   await expect(requireBillingStaff(identity,3,db)).rejects.toMatchObject({status:403});
   await expect(requireBillingStaff({...identity,role:'provider'},2,db)).rejects.toMatchObject({status:403});
@@ -67,3 +67,5 @@ it('rejects conflicting body/query scope but permits a different shell context h
   const valid={...request(),headers:{'x-agency-id':'1'}};await requireMedicalBillingFinancialAccess(valid,response(),vi.fn());
   expect(hasVerifiedBillingScope(valid.user,2)).toBe(true);
 });
+
+it('does not grant family billing to an administrator without explicit access',async()=>{const db={execute:vi.fn(async sql=>sql.includes('agency_billing_management')?[[]]:[[{has_billing_access:0}]])};await expect(requireBillingStaff({id:555,role:'admin'},2,db)).rejects.toMatchObject({status:403});});

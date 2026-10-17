@@ -2,6 +2,7 @@
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
     <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
+    <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
@@ -2359,6 +2360,7 @@ import InactivityWarningModal from './components/InactivityWarningModal.vue';
 import NoteAidClockInPromptModal from './components/NoteAidClockInPromptModal.vue';
 import StatusPromptModal from './components/StatusPromptModal.vue';
 import PlannedOutLoginConflictModal from './components/PlannedOutLoginConflictModal.vue';
+import BillingFollowupSplash from './components/billing/BillingFollowupSplash.vue';
 import OfficeArrivalSplash from './components/kiosk/OfficeArrivalSplash.vue';
 import { isOfficePath } from './utils/officeSite.js';
 import AwaySessionOverlay from './components/AwaySessionOverlay.vue';

@@ -1,3 +1,4 @@
+import { isBillingAgency } from './billingAgencyPolicy.js';
 import { listPayerEft } from './payerEft.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -13,14 +14,14 @@ const dependencies = { main: pool, clinical: clinicalPool, memberships: id => Us
 const pendingChangeSql="EXISTS (SELECT 1 FROM clinical_claim_change_requests ch WHERE ch.agency_id=clinical_claims.agency_id AND ch.clinical_session_id=clinical_claims.clinical_session_id AND ch.status IN ('pending','reconciliation_required'))";
 
 // Resolve scope on the server. Never accept a client-supplied list of agencies.
-export async function billingWorkspace(user, query = {}, deps = dependencies) {
+export async function billingWorkspaceAgencies(user, deps = dependencies) {
   const role = String(user?.role || user?.effectiveRole || '').toLowerCase();
   if (!user?.id || ['provider', 'provider_plus'].includes(role)) throw denied();
   let candidates;
   if (role === 'super_admin') {
-    const sql = `SELECT a.id, a.name, a.slug, a.logo_url, a.color_palette, a.feature_flags,
+    const sql = `SELECT a.id, a.name, a.slug, a.logo_url, a.color_palette, a.feature_flags, a.organization_type, a.is_active, a.is_archived, i.file_path AS icon_file_path,
       m.id AS billing_manager_id, m.name AS billing_manager_name
-      FROM agencies a LEFT JOIN agency_billing_management bm ON bm.agency_id=a.id AND bm.is_active=1
+      FROM agencies a LEFT JOIN icons i ON i.id=a.icon_id LEFT JOIN agency_billing_management bm ON bm.agency_id=a.id AND bm.is_active=1
       LEFT JOIN agencies m ON m.id=bm.manager_agency_id AND m.is_active=1 AND COALESCE(m.is_archived,0)=0
       WHERE a.is_active=1 AND COALESCE(a.is_archived,0)=0`;
     [candidates] = user.auricwellPreviewAgencyId
@@ -32,10 +33,15 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   }
   const organizations = [];
   for (const a of candidates || []) {
-    if (a.is_active === 0 || a.is_active === false || Number(a.is_archived) === 1) continue;
+    if (!isBillingAgency(a)) continue;
     if (!getMedicalBillingFlags(a).medicalBillingEnabled || !await deps.canAccess(user, a.id)) continue;
-    organizations.push({ id: Number(a.id), name: a.name, slug: a.slug, logoUrl: a.logo_url || null, colors: a.color_palette || null, billingManager: a.billing_manager_id ? { id: Number(a.billing_manager_id), name: a.billing_manager_name } : null });
+    organizations.push({ id: Number(a.id), name: a.name, slug: a.slug, logoUrl: a.icon_file_path || a.logo_url || null, colors: a.color_palette || null, billingManager: a.billing_manager_id ? { id: Number(a.billing_manager_id), name: a.billing_manager_name } : null });
   }
+  return organizations;
+}
+
+export async function billingWorkspace(user, query = {}, deps = dependencies) {
+  const organizations = await billingWorkspaceAgencies(user, deps);
   const requested = query.agencyId == null || query.agencyId === '' ? null : Number(query.agencyId);
   if (requested !== null && (!Number.isSafeInteger(requested) || !organizations.some(a => a.id === requested))) throw denied();
   const scope = requested ? organizations.filter(a => a.id === requested) : organizations;

@@ -21,7 +21,8 @@
         <div class="lifecycle" aria-label="Billing lifecycle"><button @click="setSection('payers')"><b>1</b><span>Payer connection<small>Claims and ERA enrollment</small></span></button><span>→</span><button @click="setSection('claims')"><b>2</b><span>Claim submission<small>Review, approve, track responses</small></span></button><span>→</span><button @click="setSection('payments')"><b>3</b><span>ERA &amp; payment<small>Match, reconcile, post</small></span></button></div>
         <div class="acceptance-note"><span aria-hidden="true">ⓘ</span> <strong>Accepted does not mean paid.</strong> Acknowledgements confirm claim processing; payment requires remittance and reconciliation.</div>
 
-        <InsuranceCardTasks v-if="!route.meta?.auricwellPreview && scopedOrganization && ['workspace','settings'].includes(section)" :key="`insurance-${scopeId}`" :agency-id="scopedOrganization.id" staff />
+        <ClientPendingTasks v-if="!route.meta?.auricwellPreview && scopedOrganization && Number(route.query.clientId)>0" :key="`client-tasks-${scopeId}-${route.query.clientId}`" :agency-id="scopedOrganization.id" :client-id="route.query.clientId" :agency-slug="scopedOrganization.slug" billing-enabled />
+        <InsuranceCardTasks v-if="!route.query.clientId && !route.meta?.auricwellPreview && scopedOrganization && ['workspace','settings'].includes(section)" :key="`insurance-${scopeId}`" :agency-id="scopedOrganization.id" staff />
         <template v-if="['workspace', 'claims', 'reports'].includes(section)">
           <section class="metric-grid" aria-label="Claim workload">
             <button class="metric" @click="filterQueue('all')"><span class="metric-symbol">▤</span><span><small>Active claims</small><strong>{{ totals?.active ?? '—' }}</strong><em>Across selected scope</em></span></button>
@@ -79,6 +80,7 @@
 </template>
 
 <script setup>
+import ClientPendingTasks from '../../components/billing/ClientPendingTasks.vue';
 import InsuranceCardTasks from '../../components/billing/InsuranceCardTasks.vue';
 import CallBillingQueue from '../../components/admin/CallBillingQueue.vue';
 import PlannedBillingServices from '../../components/admin/PlannedBillingServices.vue';
@@ -201,6 +203,7 @@ async function reload() {
 }
 watch([scopeId, status, page, search], () => { claims.value = []; closeClaim(); reload(); }, { immediate: true });
 watch(scopeId, () => { page.value = 1; selectedCompanyId.value = null; router.replace({ query: { ...route.query, billingScope: scopeId.value, billingSection: section.value } }); });
+watch(() => route.query.agencyId, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
 watch(() => agencyStore.currentAgency?.id, () => { organizations.value = []; claims.value = []; scopeId.value = 'all'; reload(); });
 async function openClaim(claim) { priorFocus = document.activeElement; selectedClaim.value = claim; await nextTick(); claimDialog.value?.focus(); await claimTools.value?.showHistory(claim.id); }
 function trapClaimFocus(event) {

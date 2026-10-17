@@ -4562,7 +4562,7 @@ const showPayrollAccessToggle = computed(() => {
 const showBillingAccessToggle = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
   // Billing can supplement any staff or clinical role.
-  return ['support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant'].includes(role);
+  return ['admin', 'assistant_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant'].includes(role);
 });
 /** Marketing contact: typically support (or staff) who should receive event marketing photos. */
 const showMarketingContactToggle = computed(() => {

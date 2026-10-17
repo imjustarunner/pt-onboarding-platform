@@ -46,3 +46,5 @@ describe('agency billing permission', () => {
     });
   });
 });
+
+it('requires an explicit billing grant for administrators and support, while preserving superadmin',async()=>{isActiveBillingAgency.mockResolvedValue(true);User.listBillingAgencyIds.mockResolvedValue([]);User.getAgencies.mockResolvedValue([{id:1}]);expect(await hasSchedulingBillingAccess({id:555,role:'admin'},1)).toBe(false);expect(await hasSchedulingBillingAccess({id:555,role:'support'},1)).toBe(false);expect(await hasSchedulingBillingAccess({id:501,role:'super_admin'},1)).toBe(true);User.listBillingAgencyIds.mockResolvedValue([1]);expect(await hasSchedulingBillingAccess({id:559,role:'admin'},1)).toBe(true);});

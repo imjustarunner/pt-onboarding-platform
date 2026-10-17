@@ -56,7 +56,6 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
   const canManageCredentialing = roleForCaps === 'super_admin' || credentialingAgencyIds.length > 0;
   const canManageMedicalBilling =
     roleForCaps === 'super_admin' ||
-    roleForCaps === 'admin' ||
     (!['provider', 'provider_plus'].includes(roleForCaps) && (billingAgencyIds || []).length > 0);
   return {
     payrollAgencyIds,

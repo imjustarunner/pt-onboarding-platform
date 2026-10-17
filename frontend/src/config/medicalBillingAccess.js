@@ -45,12 +45,12 @@ export function isClaimMdEnabled(flags) {
 export function canAccessMedicalBilling(user, agencyId) {
   const role = String(user?.role || user?.effectiveRole || '').toLowerCase();
   if (['provider', 'provider_plus'].includes(role) || !Number(agencyId)) return false;
-  if (['admin', 'super_admin'].includes(role)) return true;
+  if (role === 'super_admin') return true;
   return (user?.billingAgencyIds || []).map(Number).includes(Number(agencyId));
 }
 
 export function canAccessBillingWorkspace(user) {
   const role = String(user?.role || user?.effectiveRole || '').toLowerCase();
   if (['provider', 'provider_plus'].includes(role)) return false;
-  return ['admin', 'super_admin'].includes(role) || (user?.billingAgencyIds || []).some(id => Number(id) > 0);
+  return role === 'super_admin' || (user?.billingAgencyIds || []).some(id => Number(id) > 0);
 }

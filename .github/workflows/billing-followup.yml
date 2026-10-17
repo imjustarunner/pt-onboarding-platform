@@ -14,6 +14,10 @@ on:
       - 'frontend/src/components/billing/**'
       - 'frontend/src/views/guardian/GuardianPortalView.vue'
       - 'database/migrations/1640_insurance_followups_and_payer_shares.sql'
+      - 'database/migrations/1641_reviewed_insurance_email_tasks.sql'
+      - 'backend/src/services/managedBillingAccess.service.js'
+      - 'backend/src/services/claimMdWorkspace.service.js'
+      - 'backend/src/services/billingAgencyPolicy.js'
       - '.github/workflows/billing-followup.yml'
   pull_request:
     paths:
@@ -24,6 +28,10 @@ on:
       - 'backend/src/routes/insuranceCards.routes.js'
       - 'frontend/src/components/billing/**'
       - 'database/migrations/1640_insurance_followups_and_payer_shares.sql'
+      - 'database/migrations/1641_reviewed_insurance_email_tasks.sql'
+      - 'backend/src/services/managedBillingAccess.service.js'
+      - 'backend/src/services/claimMdWorkspace.service.js'
+      - 'backend/src/services/billingAgencyPolicy.js'
       - '.github/workflows/billing-followup.yml'
   workflow_dispatch:
 permissions:
@@ -74,4 +82,4 @@ jobs:
       - name: Native SQL workflow and policy checks
         run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js
       - name: Guardian and billing workspace screens
-        run: npm --prefix frontend test -- src/components/billing/__tests__/FamilyLedgerPanel.test.js src/components/billing/__tests__/InsuranceCardTasks.test.js src/views/admin/__tests__/BillingWorkspaceView.test.js
+        run: npm --prefix frontend test -- src/components/billing/__tests__/FamilyLedgerPanel.test.js src/components/billing/__tests__/InsuranceCardTasks.test.js src/components/billing/__tests__/BillingFollowupTasks.test.js src/views/admin/__tests__/BillingWorkspaceView.test.js

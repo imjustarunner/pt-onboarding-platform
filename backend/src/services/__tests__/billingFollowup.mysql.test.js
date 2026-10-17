@@ -12,13 +12,15 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   // Synthetic fixture only. This guard and local-only database prevent live-data tests.
   let fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');fixture=fixture.slice(fixture.indexOf('CREATE TABLE agencies'));await db.query(fixture);
   for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
-  await db.query(`ALTER TABLE agencies ADD slug VARCHAR(100),ADD portal_url VARCHAR(100),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
-   ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE';
+  await db.query(`ALTER TABLE agencies ADD slug VARCHAR(100),ADD portal_url VARCHAR(100),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD organization_type VARCHAR(20) DEFAULT 'agency',ADD feature_flags JSON;
+   ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
    ALTER TABLE clients ADD date_of_birth DATE,ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME;
    ALTER TABLE family_receivables ADD insurance_fingerprint CHAR(64);
    UPDATE clients SET date_of_birth='2017-01-01';
    INSERT INTO client_billing_payers(agency_id,client_id,guardian_user_id) VALUES(1,101,10),(1,101,20);
    INSERT INTO guardian_portal_policies(agency_id,client_id,shared_billing) VALUES(1,101,1);`);
+  await db.query(await readFile(new URL('../../../../database/migrations/1641_reviewed_insurance_email_tasks.sql',import.meta.url),'utf8'));
+  await db.execute("UPDATE users SET email='synthetic@example.invalid' WHERE id=10");
   const {default:Profiles}=await import('../../models/GuardianInsuranceProfile.model.js');
   const {writeClientInsurance}=await import('../clientInsurance.service.js');
   const {listCardTasks,uploadCard,updateCardTask,cardContext,cardFile}=await import('../insuranceCards/service.js');
@@ -36,6 +38,22 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   const saved=[];const file={mimetype:'application/pdf',buffer:Buffer.from('%PDF-1.7 synthetic'),originalname:'synthetic.pdf'};
   const deps={storage:{getGCSBucket:async()=>({name:'private-fixture',file:key=>({save:async(...args)=>saved.push({key,args})})})},crypto:{isConfigured:()=>true,encryptBuffer:async()=>({encryptedBuffer:Buffer.from('encrypted'),encryptionKeyId:'synthetic',encryptionWrappedKeyB64:'key',encryptionIvB64:'iv',encryptionAuthTagB64:'tag'})}};
   const input={agencyId:1,userId:10,profileId,cycle:task.cycle};
+  // Real SQL locks, durable review/send key and a personal reminder across sessions.
+  const staffTasks=await import('../insuranceCards/staffTasks.js');
+  const staffUser={id:99,role:'super_admin'},staffInput={agencyId:1,profileId,cycle:task.cycle};
+  let sends=0;
+  const staffDeps={agencies:async()=>[{id:1}],preferences:async()=>({channels:{email:true}}),sender:async()=>({id:11,from_email:'billing@example.invalid'}),send:async()=>{sends++;return {id:'synthetic-delivery'};}};
+  await staffTasks.snoozeCardEmail(staffUser,{...staffInput,hours:24},staffDeps);
+  assert.equal((await staffTasks.listStaffCardTasks(staffUser,{},staffDeps)).rows[0].reminderDue,false);
+  assert.equal((await staffTasks.listStaffCardTasks({...staffUser,id:98},{},staffDeps)).rows[0].reminderDue,true);
+  const email=await staffTasks.previewCardEmail(staffUser,staffInput,staffDeps);assert.equal(email.canSend,true);
+  const sendInput={...staffInput,reviewHash:email.reviewHash};
+  const outcomes=await Promise.allSettled([staffTasks.sendReviewedCardEmail(staffUser,sendInput,staffDeps),staffTasks.sendReviewedCardEmail({...staffUser,id:98},sendInput,staffDeps)]);
+  assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);assert.equal(sends,1);
+  const [[delivery]]=await db.execute('SELECT status,reviewed_by_user_id,reviewed_content_hash FROM insurance_card_deliveries WHERE profile_id=?',[profileId]);
+  assert.equal(delivery.status,'sent');assert.equal(delivery.reviewed_content_hash,email.reviewHash);assert.ok([98,99].includes(delivery.reviewed_by_user_id));
+  await assert.rejects(staffTasks.sendReviewedCardEmail(staffUser,sendInput,staffDeps),e=>e.status===409);
+  assert.equal((await staffTasks.listStaffCardTasks(staffUser,{},staffDeps)).rows[0].reminderDue,false);
   // Both sides upload concurrently without losing either encrypted URL.
   await Promise.all(['primary_front','primary_back'].map(slot=>uploadCard({...input,slot},file,deps)));
   [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.state,'review');assert.equal(task.missingSlots.length,0);assert.equal(saved.length,2);

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { billingWorkspace } from '../claimMdWorkspace.service.js';
 
-const agency = id => ({ id, name: `Company ${id}`, feature_flags: { medicalBillingEnabled: true } });
+const agency = id => ({ id, organization_type: 'agency', name: `Company ${id}`, feature_flags: { medicalBillingEnabled: true } });
 function fixture() {
   const deps = {
     managed: vi.fn(async () => []),
@@ -82,3 +82,5 @@ it('limits preview organization metadata, balances and claims before any financi
   expect(deps.eftList.mock.calls.map(([id])=>id)).toEqual([3]);
   for (const [,params] of deps.clinical.execute.mock.calls) expect(params[0]).toBe(3);
 });
+
+it('excludes programs, demos, and disabled billing accounts and resolves shared agency icons',async()=>{const deps=fixture();deps.memberships.mockResolvedValue([{...agency(1),icon_file_path:'icons/practice.svg'},{...agency(2),organization_type:'program'},{...agency(3),feature_flags:{medicalBillingEnabled:true,billingAccountExcluded:true}}]);const data=await billingWorkspace(user,{},deps);expect(data.organizations.map(a=>a.id)).toEqual([1]);expect(data.organizations[0].logoUrl).toBe('icons/practice.svg');await expect(billingWorkspace(user,{agencyId:3},deps)).rejects.toMatchObject({status:403});});

@@ -13,7 +13,7 @@ export async function hasSchedulingBillingAccess(user, agencyId) {
   if (ids.some(id => Number(id) === Number(agencyId))) return true;
   const agencies = await User.getAgencies(user.id);
   if (!(agencies || []).some((a) => Number(a.id) === Number(agencyId))) return false;
-  if (role === 'admin' || await isIndependentPracticeOwner(user.id, agencyId)) return true;
+  if (await isIndependentPracticeOwner(user.id, agencyId)) return true;
   return false;
 }
 

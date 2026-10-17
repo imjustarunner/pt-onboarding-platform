@@ -210,6 +210,7 @@
               </section>
             </template>
           </ClientOverviewHub>
+          <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
         </div>
 
         <div
@@ -2764,6 +2765,8 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } f
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess';
+import ClientPendingTasks from '../billing/ClientPendingTasks.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import ClientCareCoverageSummary from '../billing/ClientCareCoverageSummary.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
@@ -3979,7 +3982,7 @@ const schoolRoiStatusLabel = computed(() => {
 
 const canViewClientBillingImport = computed(() => {
   if (!isClinicalLikeClientType.value) return false;
-  return ['super_admin', 'admin', 'support'].includes(roleNorm.value);
+  return canAccessMedicalBilling(authStore.user, clientAgencyId.value);
 });
 
 /** Missing-claim flag on medical record — billing staff / admin, not providers. */
@@ -4058,6 +4061,7 @@ const {
 } = useClientBillingDiagnoses(clientAgencyId, clientChartClientId, isClinicalLikeClientType);
 
 const {
+  encounters: clientTaskEncounters,
   lastSession,
   sessionCount,
   unsignedNotesCount
