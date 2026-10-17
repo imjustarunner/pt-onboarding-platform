@@ -1,3 +1,4 @@
+import { resolveWorkspaceSubject } from './googleWorkspaceSubject.service.js';
 import { APP_GROUP_OWNER } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
@@ -158,7 +159,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
           }
           if(apply) await write(()=>Directory.applyGroupAccessSettings({groupEmail:plan.email,whoCanJoin:'INVITED_CAN_JOIN',whoCanPostMessage:plan.key==='spanish'?'ALL_IN_DOMAIN_CAN_POST':'ALL_MANAGERS_CAN_POST',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',allowExternalMembers:true,...(plan.key==='spanish'?{membersCanPostAsTheGroup:true}:{})}));
           const spanishOwner=plan.key==='spanish'?rows.find(r=>activeManagedStaff(r)&&normalize(r.first_name)==='michael'&&normalize(r.last_name)==='mendez'):null;
-          const ownerEmail=spanishOwner?selected.get(Number(spanishOwner.id)):null;
+          const ownerEmail=spanishOwner?resolveWorkspaceSubject(selected.get(Number(spanishOwner.id))):null;
           if(plan.key==='spanish'&&apply){
             if(!ownerEmail)throw new Error('Spanish group owner Michael Mendez could not be resolved');
             await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:ownerEmail,role:'OWNER',client:admin,memberType:'USER'}));
