@@ -1,3 +1,4 @@
+import { isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
@@ -209,7 +210,8 @@ export async function finalizeOutboundContent({
   const tt = String(templateType || '').trim().toLowerCase();
   // A mailbox is the transport, not the author. Human-authored Hub email gets
   // exactly the staff signature; department automations keep their own branding.
-  const useStaffSignature = generatedByUserId && (
+  const portal = isPortalIdentity(identity);
+  const useStaffSignature = !portal && generatedByUserId && (
     tt === 'hub_email' || (
       src === 'manual' &&
       !['compliance_digest', 'pre_hire_admin_review_access', 'prehire_portal_access'].includes(tt) &&
@@ -222,7 +224,15 @@ export async function finalizeOutboundContent({
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (useStaffSignature) {
+  if (portal) {
+    const { default: Agency } = await import('../../models/Agency.model.js');
+    const agency = await Agency.findById(aid);
+    if (!agency) throw new Error('A portal message requires its agency branding.');
+    const domain = String(identity.reply_to || identity.from_email).split('@')[1];
+    const brand = enrollmentMailBrand({ agency, domain, school: schoolCommunication,
+      clinicalOverride: identity.identity_key === 'clinical_enrollment_portal' });
+    signed = { text, html: renderPortalEmail({ brand, text, html }) };
+  } else if (useStaffSignature) {
     signed = await applyUserEmailSignatureBlock({
       userId: generatedByUserId,
       agencyId: aid,
@@ -276,7 +286,7 @@ export async function finalizeOutboundContent({
   };
   // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
   try {
-    if (aid && signed.html) {
+    if (!portal && aid && signed.html) {
       const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
       const replyMailto = String(identity?.reply_to || identity?.from_email || '').trim();
       signed = {
@@ -743,7 +753,7 @@ export async function sendNotificationEmail({
     };
   }
 
-  const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
+  const from = pickFromHeader({ displayName: portalSenderName(identity), fromEmail: identity.from_email });
   const replyTo = String(replyToOverride || '').trim() || identity.reply_to || null;
   const signedContent = await finalizeOutboundContent({
     clientId,
@@ -1093,12 +1103,12 @@ export async function sendEmailFromIdentity({
   }
 
   const overrideName = String(fromDisplayNameOverride || '').trim();
-  const effectiveDisplayName = overrideName || identity.display_name;
+  const effectiveDisplayName = isPortalIdentity(identity) ? portalSenderName(identity) : overrideName || identity.display_name;
   const from = pickFromHeader({ displayName: effectiveDisplayName, fromEmail: identity.from_email });
   const replyTo = String(replyToOverride || '').trim() || identity.reply_to || null;
   let signatureSource = identity;
   const sigId = Number(signatureIdentityId || 0);
-  if (sigId && sigId !== Number(identity.id)) {
+  if (!isPortalIdentity(identity) && sigId && sigId !== Number(identity.id)) {
     const sigIdentity = await EmailSenderIdentity.findById(sigId).catch(() => null);
     if (sigIdentity) signatureSource = sigIdentity;
   }

@@ -19,7 +19,7 @@ export async function deliverCoGuardianInvite({ inviteId, enrollmentChannel = nu
   const [insert] = await pool.execute(
     'INSERT INTO co_guardian_invite_deliveries (invite_id, recipient_email, enrollment_channel) VALUES (?, ?, ?)',
     [inviteId, message.to, enrollmentChannel]);
-  const delivery = await emailCoGuardianInvite({ ...message, enrollmentChannel });
+  const delivery = await emailCoGuardianInvite({ ...message, inviteId, enrollmentChannel });
   const state = inviteDeliveryState(delivery);
   await pool.execute(`UPDATE co_guardian_invite_deliveries SET delivery_status=?, communication_id=?, internet_message_id=?, failure_kind=? WHERE id=?`,
     [state, delivery.communicationId || null, delivery.internetMessageId || null, state === 'failed' ? 'send_failed' : null, insert.insertId]);

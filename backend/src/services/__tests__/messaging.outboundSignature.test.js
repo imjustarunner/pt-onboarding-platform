@@ -1,5 +1,6 @@
 import { emailDraftContent, EMAIL_HISTORY_MARKER } from '../../utils/emailReplyContent.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 2, name: 'ITSCO', slug: 'itsco' })) } }));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: () => {} }));
 vi.mock('../schoolCommunicationContext.service.js', () => ({ isSchoolCommunication: vi.fn(async () => false) }));
 vi.mock('../misdirectedEmailReport.service.js', () => ({ createMisdirectedEmailReportLink: vi.fn(async () => 'https://example.org/report') }));
@@ -98,4 +99,19 @@ it('places the author signature after the reply and before formatted quoted hist
  const second=await finalizeOutboundContent({...message,...first});
  expect(second.html.match(/<!-- pt-staff-html-signature -->/g)).toHaveLength(1);
  expect(second.html.match(/Earlier signature/g)).toHaveLength(1);
+});
+
+it.each(['manual', 'co_guardian_invite'])('keeps %s portal mail co-branded without the initiating staff signature', async source => {
+ const result = await finalizeOutboundContent({ ...message, source, templateType: 'guardian_enrollment_forward',
+   identity: { ...identity, identity_key: 'clinical_enrollment_portal', from_email: 'portal@auricwell.com', reply_to: 'support@itsco.health' } });
+ expect(result.html).toContain('AuricWell Portal');
+ expect(result.html).toContain('YOUR CARE AGENCY');
+ expect(result.html).toContain('ITSCO');
+ expect(result.html).not.toContain('pt-staff-html-signature');
+ expect(result.html).not.toContain('pt-department-html-signature');
+ expect(result.html).not.toContain('Michael Mendez');
+ expect(result.html).toContain('Report misdirected email');
+ expect(result.html.match(/data-portal-email=/g)).toHaveLength(1);
+ const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
+ expect(wrapOutboundHtmlWithTenantChrome).not.toHaveBeenCalled();
 });

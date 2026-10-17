@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: async () => ({ identity: { id: 99 }, fromEmail: 'messages@itsco.health', displayName: 'Messages' }) }));
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: () => {} }));
 vi.mock('../emailSettings.service.js', () => ({ getAgencyEmailSettings: async () => ({ clientOooAutoReplyEnabled: true }) }));
 vi.mock('../afterHoursEmailPolicy.service.js', () => ({ eligibleClientAfterHoursReply: vi.fn() }));
 vi.mock('../availabilityWindow.service.js', () => ({ isUserAvailable: vi.fn(async () => ({ available: false, schedule: { enabled: true, timezone: 'America/Denver' } })), nextAvailableAt: () => new Date('2026-09-28T13:00:00Z'), formatReturnAt: () => 'Monday 7 a.m.', addBusinessHours: vi.fn(), resolveAvailabilitySchedule: vi.fn() }));

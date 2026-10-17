@@ -1,3 +1,4 @@
+import { renderPortalEmail } from './portalEmailBranding.service.js';
 import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
@@ -50,9 +51,10 @@ async function deliver({ to, code }, req, role) {
     const {guardianPortalSecurityBrand} = await import('./guardianPortalSecurityBrand.service.js');
     const brand = await guardianPortalSecurityBrand(req);
     const label = [brand.name, ...brand.products].join(' | ');
+    const text = `Your verification code is ${code}.\n\nIt expires in 10 minutes. Enter it only in the portal you opened. Do not share it.\n\nIf you did not request this code, contact your organization’s support team.`;
     await Email.sendEmail({ to, subject: `${brand.name}: your portal verification code`,
-      text: `${label}\n\nYour verification code is ${code}. It expires in 10 minutes. Enter it only in the portal you opened. Do not share it. If you did not request this code, contact your organization’s support team.`,
-      fromAddress: brand.fromEmail, fromName: `${brand.name} Portal`, replyTo: brand.replyTo,
+      text: `${label}\n\n${text}`, html: renderPortalEmail({ brand, text }),
+      fromAddress: brand.fromEmail, fromName: brand.displayName, replyTo: brand.replyTo,
       agencyId: brand.agencyId, userId: req.user.id, securityCode: true });
     return;
   }

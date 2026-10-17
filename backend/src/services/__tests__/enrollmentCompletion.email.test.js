@@ -8,7 +8,7 @@ import { sendEnrollmentPortalEmail,enrollmentMailBrand } from '../enrollmentPort
 beforeEach(()=>{m.agency.mockResolvedValue({id:4,name:'Agency',feature_flags:{medicalBillingEnabled:true}});m.domain.mockResolvedValue('agency.test');m.identity.mockResolvedValue(null);m.create.mockResolvedValue({id:12});m.send.mockResolvedValue({id:'message'});});
 it('uses AuricWell with the agency reply-to and retains SchoolCareBridge role branding',async()=>{
  const result=await sendEnrollmentPortalEmail({agencyId:4,schoolOrganizationId:5,to:'guardian@example.test',subject:'Enrollment',text:'Welcome'});
- expect(result.sent).toBe(true);expect(m.create).toHaveBeenCalledWith(expect.objectContaining({fromEmail:'portal@auricwell.com',replyTo:'support@agency.test',agencyId:4,inboundAddresses:[]}));
+ expect(result.sent).toBe(true);expect(m.create).toHaveBeenCalledWith(expect.objectContaining({displayName:'AuricWell Portal',fromEmail:'portal@auricwell.com',replyTo:'support@agency.test',agencyId:4,inboundAddresses:[]}));
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,replyToOverride:'support@agency.test',text:expect.stringContaining('SchoolCareBridge'),html:expect.stringContaining('AuricWell')}));
 });
 it('uses NLU’s own sender for tutoring and does not imply clinical records',()=>{const brand=enrollmentMailBrand({agency:{name:'Next Level Up',feature_flags:{medicalBillingEnabled:true}},domain:'nextleveluplcc.com',channel:'tutoring'});expect(brand.fromEmail).toBe('portal@nextleveluplcc.com');expect(brand.products).toEqual([]);});

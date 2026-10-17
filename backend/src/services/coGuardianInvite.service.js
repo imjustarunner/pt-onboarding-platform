@@ -1,3 +1,4 @@
+import { requestingGuardianName } from './coGuardianRequestOrigin.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -110,6 +111,7 @@ export function toPublicInviteResult(result) {
 export async function createCoGuardianInvite({
   agencyId,
   invitedByUserId = null,
+  requestingSubmissionId = null,
   otherGuardian,
   clientIds = [],
   source = 'office',
@@ -147,8 +149,8 @@ export async function createCoGuardianInvite({
   const [result] = await pool.execute(
     `INSERT INTO co_guardian_invites
       (agency_id, invited_by_user_id, invited_email, invited_first_name, invited_last_name, invited_phone,
-       relationship_title, legal_authority, token_hash, expires_at, status, source, public_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+       relationship_title, legal_authority, token_hash, expires_at, status, source, public_key, requesting_submission_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
     [
       Number(agencyId),
       invitedByUserId ? Number(invitedByUserId) : null,
@@ -161,7 +163,8 @@ export async function createCoGuardianInvite({
       tokenHash,
       expiresAt,
       String(source || 'office').slice(0, 40),
-      publicKey ? String(publicKey).slice(0, 80) : null
+      publicKey ? String(publicKey).slice(0, 80) : null,
+      requestingSubmissionId ? Number(requestingSubmissionId) : null
     ]
   );
   const inviteId = Number(result.insertId);
@@ -373,7 +376,7 @@ export async function maybeCreateFromIntakeGuardian({
   let inviteResult = null;
   if (email.includes('@')) {
     const created = await createCoGuardianInvite({
-      agencyId, invitedByUserId, enrollmentChannel,
+      agencyId, invitedByUserId, enrollmentChannel, requestingSubmissionId: submissionId,
       otherGuardian: {
         firstName: guardian.other_guardian_first_name,
         lastName: guardian.other_guardian_last_name,
@@ -473,24 +476,22 @@ export function assertCoGuardianSubmissionBinding(submission, binding) {
   if (acceptedUserId && submission?.guardian_user_id && Number(submission.guardian_user_id) !== acceptedUserId) fail();
 }
 
-export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId, enrollmentChannel = null, school = false, reminder = false }) {
+export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, inviteUrl, clientId, enrollmentChannel = null, school = false, reminder = false }) {
   const org = String(agency?.official_name || agency?.name || 'our care team').trim();
   const greeting = firstName ? `Hi ${firstName},` : 'Hello,';
   const subject = `${org}: ${reminder ? 'reminder to complete' : 'complete'} your guardian enrollment`;
+  const requester = await requestingGuardianName({ inviteId, agencyId: agency.id, clientId });
   const text = [
     greeting,
-    '',
+    requester ? `${requester} provided your information as another guardian for enrollment with ${org}.` : `${org} has invited you to complete your own guardian enrollment.`,
     reminder ? `This is a reminder to complete your own guardian enrollment for ${org}.` : `You have been invited to complete your own guardian enrollment for ${org}.`,
     'Review and sign your own required agreements, and share your observations and expectations for your dependent. Your care team can review your submission separately; it will not replace your child’s identifying information.',
     'Use the email address that received this invitation for your own portal account. You will not see the other guardian’s private enrollment answers. Shared appointments, messages, plans, and billing information are available according to the access your agency authorizes.',
     'After submitting, use the portal setup option to receive a secure email and choose your password. If you already have an account, keep using your existing login.',
-    '',
     inviteUrl,
-    '',
     `This link expires in ${INVITE_DAYS} days.`,
-    '',
-    'This message may contain protected health information. If you received it in error, delete it.'
-  ].join('\n');
+    'This invitation is for you. Please do not share your personal enrollment link.'
+  ].join('\n\n');
   try {
     return await sendEnrollmentPortalEmail({
       to,
@@ -501,7 +502,8 @@ export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, 
       enrollmentChannel, schoolEnrollment: school,
       source: 'co_guardian_invite',
       templateType: 'co_guardian_invite',
-      linkUrl: inviteUrl
+      linkUrl: inviteUrl,
+      linkLabel: 'Complete your enrollment'
     });
   } catch (err) {
     console.warn('Co-guardian invite email skipped:', err?.message || err);
