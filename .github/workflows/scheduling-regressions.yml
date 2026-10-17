@@ -118,6 +118,7 @@ jobs:
           npm test --
           src/components/schedule/__tests__/supervisionScheduler.test.js
           src/components/schedule/__tests__/SupervisionRecordPanel.test.js
+          src/components/schedule/__tests__/SupervisionProgress.test.js
           src/components/supervision/__tests__/SupervisionHoursRefresh.test.js
           src/components/schedule/__tests__/SupervisionAttendeeMandatoryPanel.test.js
           src/components/schedule/__tests__/supervisionNotificationSettings.test.js

@@ -2558,6 +2558,7 @@
               :required-individual="supvSuperviseeHours.requiredIndividual"
               :required-group="supvSuperviseeHours.requiredGroup"
               :enabled="supvSuperviseeHours.enabled"
+              :progress-mode="supvSuperviseeHours.mode"
               :loading="supvSuperviseeHoursLoading"
               :error="supvSuperviseeHoursError"
               :roster-mode="showSupervisionParticipantsRoster"
@@ -5780,6 +5781,7 @@ import { createCounselingSession, openCounselingFromAppointment } from '../../se
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
 import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
+import { supervisionProgress } from '../../utils/supervisionProgress.js';
 import { getScheduleSummary, getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
 import {
@@ -23650,11 +23652,7 @@ const loadSupvParticipantHoursRoster = async () => {
         const sup = resp?.data?.supervision || null;
         return {
           ...row,
-          enabled: sup == null ? true : !!sup.enabled,
-          individualHours: Number(sup?.individualHours || 0),
-          groupHours: Number(sup?.groupHours || 0),
-          requiredIndividual: Number(sup?.requiredIndividualHours || 50),
-          requiredGroup: Number(sup?.requiredGroupHours || 50),
+          ...await supervisionProgress(sup, async () => (await api.get(`/supervision/supervisee/${row.id}/hours-summary`,{params,skipGlobalLoading:true})).data),
           loading: false,
           error: ''
         };
@@ -23773,13 +23771,8 @@ const loadSupvSuperviseeHours = async () => {
       ? await api.get('/payroll/me/dashboard-summary', { params, skipGlobalLoading: true })
       : await api.get(`/payroll/supervisee/${superviseeId}/dashboard-summary`, { params, skipGlobalLoading: true });
     const sup = resp?.data?.supervision || null;
-    supvSuperviseeHours.value = {
-      enabled: sup == null ? true : !!sup.enabled,
-      individualHours: Number(sup?.individualHours || 0),
-      groupHours: Number(sup?.groupHours || 0),
-      requiredIndividual: Number(sup?.requiredIndividualHours || 50),
-      requiredGroup: Number(sup?.requiredGroupHours || 50)
-    };
+    supvSuperviseeHours.value = await supervisionProgress(sup, async () =>
+      (await api.get(`/supervision/supervisee/${superviseeId}/hours-summary`,{params,skipGlobalLoading:true})).data);
   } catch (e) {
     supvSuperviseeHoursError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load supervisee hours';
   } finally {

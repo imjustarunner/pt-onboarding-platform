@@ -18,7 +18,7 @@ describe('My Schedule supervision controls',()=>{
   const s=wrapper.vm.$.setupState;
   s.selectedSupervisionParticipantId=8;
   await flushPromises();
-  m.get.mockImplementation(async url=>({data:url.includes('dashboard-summary')?{supervision:{enabled:true,individualHours:16.26,groupHours:1}}:{attendees:[]}}));
+  m.get.mockImplementation(async url=>({data:url.includes('dashboard-summary')?{supervision:{enabled:true,isPrelicensed:true,individualHours:16.26,groupHours:1}}:{attendees:[]}}));
   await s.refreshSupervisionRecord();
   expect(s.supvSuperviseeHours).toMatchObject({individualHours:16.26,groupHours:1});
  });

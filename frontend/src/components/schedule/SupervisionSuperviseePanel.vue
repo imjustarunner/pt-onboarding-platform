@@ -41,6 +41,7 @@
             </span>
           </div>
           <p v-if="row.declineReason" class="ssp-person-meta">Not attending: {{ row.declineReason }}</p>
+          <p v-if="!row.loading && !row.error" class="ssp-person-meta">{{ row.mode === 'attendance' ? 'Recorded attendance' : 'Credited toward supervision requirements' }}</p>
           <div v-if="row.loading" class="muted ssp-person-meta">Loading hours…</div>
           <div v-else-if="row.error" class="error ssp-person-meta">{{ row.error }}</div>
           <div v-else-if="row.enabled === false" class="muted ssp-person-meta">
@@ -73,23 +74,23 @@
       <div v-else class="ssp-cards">
         <div class="ssp-card">
           <div class="ssp-k">Individual</div>
-          <div class="ssp-v">{{ fmt(individualHours) }} / {{ fmt(requiredIndividual) }}</div>
-          <div class="ssp-bar" aria-hidden="true">
+          <div class="ssp-v">{{ fmt(individualHours) }}<template v-if="progressMode !== 'attendance'"> / {{ fmt(requiredIndividual) }}</template><template v-else> hrs attended</template></div>
+          <div v-if="progressMode !== 'attendance'" class="ssp-bar" aria-hidden="true">
             <span class="ssp-bar-fill" :style="{ width: pct(individualHours, requiredIndividual) }" />
           </div>
-          <div class="ssp-meta muted">{{ remaining(individualHours, requiredIndividual) }} hrs remaining</div>
+          <div v-if="progressMode !== 'attendance'" class="ssp-meta muted">{{ remaining(individualHours, requiredIndividual) }} hrs remaining</div>
         </div>
         <div class="ssp-card">
           <div class="ssp-k">Group</div>
-          <div class="ssp-v">{{ fmt(groupHours) }} / {{ fmt(requiredGroup) }}</div>
-          <div class="ssp-bar" aria-hidden="true">
+          <div class="ssp-v">{{ fmt(groupHours) }}<template v-if="progressMode !== 'attendance'"> / {{ fmt(requiredGroup) }}</template><template v-else> hrs attended</template></div>
+          <div v-if="progressMode !== 'attendance'" class="ssp-bar" aria-hidden="true">
             <span class="ssp-bar-fill ssp-bar-fill--group" :style="{ width: pct(groupHours, requiredGroup) }" />
           </div>
-          <div class="ssp-meta muted">{{ remaining(groupHours, requiredGroup) }} hrs remaining</div>
+          <div v-if="progressMode !== 'attendance'" class="ssp-meta muted">{{ remaining(groupHours, requiredGroup) }} hrs remaining</div>
         </div>
         <div class="ssp-card ssp-card--wide">
           <div class="ssp-k">Total</div>
-          <div class="ssp-v">{{ fmt(totalHours) }} hrs logged</div>
+          <div class="ssp-v">{{ fmt(totalHours) }} hrs {{ progressMode === 'attendance' ? 'attended' : 'credited' }}</div>
           <div class="ssp-meta muted">Session type: {{ sessionTypeLabel }}</div>
         </div>
       </div>
@@ -103,6 +104,7 @@ import { computed } from 'vue';
 const props = defineProps({
   participantName: { type: String, default: '' },
   sessionType: { type: String, default: 'individual' },
+  progressMode: { type: String, default: 'requirements' },
   individualHours: { type: Number, default: 0 },
   groupHours: { type: Number, default: 0 },
   requiredIndividual: { type: Number, default: 50 },
@@ -144,7 +146,7 @@ function totalFor(row) {
 }
 function fmt(n) {
   const v = Number(n || 0);
-  return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 function pct(have, need) {
   const n = Number(need || 0);
