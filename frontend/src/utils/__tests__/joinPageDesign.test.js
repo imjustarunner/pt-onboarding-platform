@@ -2,6 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { createJoinDesign, normalizeJoinDesign, resolveJoinPresentation, joinCards, joinDesignIssues } from '../joinPageDesign';
 import { mergeJoinLayout } from '../joinLandingTemplate';
 describe('responsive Join design', () => {
+  it('uses centered ITSCO defaults while preserving saved editor settings and other organizations', () => {
+    const config = { agency: { slug:'itsco', name:'ITSCO' }, copy:{} };
+    expect(resolveJoinPresentation(config, 1440).view.align.cards).toBe('center');
+    expect(resolveJoinPresentation(config, 1440).view.sizes.cardsWidth).toBe(1120);
+    expect(resolveJoinPresentation(config, 1440).view.positions.cards).toEqual({x:0,y:0});
+    expect(resolveJoinPresentation(config, 390).view.sizes.welcome).toBe(2.65);
+    config.copy.layout = {design:{views:{desktop:{sizes:{cardsWidth:1000},align:{cards:'right'},primaryColor:'#123456'}}}};
+    const saved = resolveJoinPresentation(config, 1440).view;
+    expect(saved.sizes.cardsWidth).toBe(1000);
+    expect(saved.align.cards).toBe('right');
+    expect(saved.primaryColor).toBe('#123456');
+    expect(resolveJoinPresentation({agency:{slug:'nlu'}},1440).view.sizes.cardsWidth).toBe(860);
+  });
   it('keeps desktop, tablet, and mobile layout and copy independent through serialization', () => {
     const layout = { design: createJoinDesign() };
     layout.design.views.mobile.copy.welcomeTitle = 'Mobile welcome';

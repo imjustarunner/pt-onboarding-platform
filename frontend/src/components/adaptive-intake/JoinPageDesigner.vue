@@ -84,7 +84,7 @@ import api from '../../services/api';
 import { matchedRouteKey, onBeforeRouteLeave } from 'vue-router';
 import PublicLinkImageEditor from '../public/PublicLinkImageEditor.vue';
 import { JOIN_FONT_OPTIONS, restoreJoinWelcomeCopy } from '../../utils/joinLandingTemplate';
-import { JOIN_DEVICES, JOIN_FIELD_LABELS, JOIN_SIZE_LIMITS, normalizeJoinDesign, joinDesignElements, joinCards, joinDesignIssues } from '../../utils/joinPageDesign';
+import { JOIN_DEVICES, JOIN_FIELD_LABELS, JOIN_SIZE_LIMITS, normalizeJoinDesign, normalizeJoinDesignForAgency, joinDesignElements, joinCards, joinDesignIssues } from '../../utils/joinPageDesign';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { tenantSmsImage } from '../../utils/tenantBrandAssets';
 const props = defineProps({ config: { type: Object, required: true }, agencySlug: { type: String, required: true }, serviceType: { type: String, default: '' }, quick: { type: Object, required: true }, full: { type: Object, required: true }, contactPhone: { type: String, default: '' }, contactTel: { type: String, default: '' }, contactEmail: { type: String, default: '' } });
@@ -93,7 +93,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const initialCopy = restoreJoinWelcomeCopy(clone(props.config.copy || {}), props.config.agency?.name);
 // Seed fields missing from older records from their actual rendered cards.
 for (const [key, card] of Object.entries(joinCards(initialCopy, props.quick, props.full))) for (const field of ['title', 'tagline', 'description', 'duration', 'bullets', 'cta', 'footer']) initialCopy[key + field[0].toUpperCase() + field.slice(1)] = card[field];
-initialCopy.layout = { ...(initialCopy.layout || {}), design: normalizeJoinDesign(initialCopy.layout) };
+initialCopy.layout = { ...(initialCopy.layout || {}), design: normalizeJoinDesignForAgency(initialCopy.layout, props.agencySlug) };
 const model = ref({ copy: initialCopy, contact: { phone: String(props.config.supportContact?.phone ?? props.contactPhone).replace(/\s*(?:ext\.?|x)\s*\S+\s*$/i, ''), phoneExtension: props.config.supportContact?.phoneExtension || '', email: props.config.supportContact?.email ?? props.contactEmail }, logoPath: null, logoUrl: props.config.branding?.logoUrl || '' });
 const design = computed(() => model.value.copy.layout.design);
 const device = ref('desktop'); const deviceInfo = computed(() => JOIN_DEVICES.find(d => d.id === device.value));
@@ -156,7 +156,7 @@ function dropElement(target, event) {
 function move(direction) { commitHistory(); const i = elementIndex.value; const order = groupOrder.value; if (i < 0 || i + direction < 0 || i + direction >= order.length) return; [order[i], order[i + direction]] = [order[i + direction], order[i]]; commitHistory(); }
 function toggleTextOverride(enabled) { const element = selectedElement.value; for (const key of [...element.fields, ...(element.bullets ? [element.bullets] : [])]) { if (enabled) view.value.copy[key] = clone(model.value.copy[key] ?? (key === element.bullets ? [] : '')); else delete view.value.copy[key]; } }
 function addBullet() { const field = selectedElement.value.bullets; if (!Array.isArray(textTarget.value[field])) textTarget.value[field] = []; textTarget.value[field].push(''); }
-function resetView() { commitHistory(); const next = normalizeJoinDesign({ ...model.value.copy.layout, design: { elements: design.value.elements } }).views[device.value]; for (const key of Object.keys(next.positions)) next.positions[key] = { x: 0, y: 0 }; next.copy = clone(view.value.copy); next.backgroundUrl = view.value.backgroundUrl; design.value.views[device.value] = next; commitHistory(); }
+function resetView() { commitHistory(); const next = normalizeJoinDesignForAgency({ ...model.value.copy.layout, design: { elements: design.value.elements } }, props.agencySlug).views[device.value]; for (const key of Object.keys(next.positions)) next.positions[key] = { x: 0, y: 0 }; next.copy = clone(view.value.copy); next.backgroundUrl = view.value.backgroundUrl; design.value.views[device.value] = next; commitHistory(); }
 const previewModel = computed(() => {
   const config = clone(props.config); config.copy = clone(model.value.copy);
   if (model.value.logoPath) config.branding = { ...(config.branding || {}), logoUrl: model.value.logoUrl };

@@ -1,8 +1,16 @@
 <template>
-  <div class="ajl" :class="[`ajl--${presentation.device}`, `ajl--footer-${view.footerStyle}`, { 'ajl--design': designMode, 'ajl--rail-first': view.railPlacement === 'before' }]" :style="themeVars" @click.capture="selectFromCanvas" @keydown="selectWithKeyboard">
+  <div class="ajl" :class="[`ajl--${presentation.device}`, `ajl--footer-${view.footerStyle}`, { 'ajl--serene': serene, 'ajl--design': designMode, 'ajl--rail-first': view.railPlacement === 'before' }]" :style="themeVars" @click.capture="selectFromCanvas" @keydown="selectWithKeyboard">
     <link rel="stylesheet" :href="JOIN_FONT_HREF" />
     <div class="ajl-bg" :style="backgroundStyle" aria-hidden="true" />
-    <aside class="ajl-rail" aria-label="Organization and support">
+    <header v-if="serene" class="ajl-masthead">
+      <router-link v-if="!designMode" class="ajl-back" :to="publicWebsitePath(agencySlug)"><PublicEntryIcon name="arrow-left" />{{ isSpanish ? 'Volver al sitio web' : 'Back to website' }}</router-link>
+      <div class="ajl-masthead-brand">
+        <div v-if="!view.hidden.logo" v-bind="elementAttrs('logo')"><img class="ajl-header-logo" :src="headerLogoUrl" :alt="agencyName" width="310" height="46" /></div>
+        <p v-if="!view.hidden.tagline" class="ajl-masthead-tagline" v-bind="elementAttrs('tagline')">{{ copy.sidebarTagline }}</p>
+      </div>
+      <p v-if="!view.hidden.values" class="ajl-masthead-values" v-bind="elementAttrs('values')"><span v-for="value in mastheadValues" :key="value">{{ value }}</span></p>
+    </header>
+    <aside v-if="!serene" class="ajl-rail" aria-label="Organization and support">
       <router-link v-if="!designMode && publicWebsitePath(agencySlug)" class="ajl-back" :to="publicWebsitePath(agencySlug)">← Back to website</router-link>
       <template v-for="key in view.order.rail" :key="key">
         <section v-if="!view.hidden[key]" class="ajl-block" :class="[`ajl-block--${key}`, { 'ajl-block--selected': designMode && selectedElement === key }]" :style="blockStyle(key)" v-bind="elementAttrs(key)">
@@ -29,29 +37,41 @@
       <template v-for="key in view.order.main" :key="key">
         <section v-if="!view.hidden[key]" class="ajl-block" :class="[`ajl-block--${key}`, { 'ajl-block--selected': designMode && selectedElement === key }]" :style="blockStyle(key)" v-bind="elementAttrs(key)">
           <JoinCustomElement v-if="elementFor(key)?.type" :element="elementFor(key)" :copy="copy" />
-          <h1 v-else-if="key === 'welcome' && copy.welcomeTitle" class="ajl-welcome">{{ copy.welcomeTitle }}</h1>
+          <template v-else-if="key === 'welcome' && copy.welcomeTitle">
+            <h1 class="ajl-welcome"><template v-if="serene && welcomeParts"><span>{{ welcomeParts[1] }}</span> <strong>{{ welcomeParts[2] }}</strong></template><template v-else>{{ copy.welcomeTitle }}</template></h1>
+            <p v-if="serene && !view.hidden.script && copy.sidebarScript" class="ajl-reassurance" v-bind="elementAttrs('script')">{{ copy.sidebarScript }}</p>
+          </template>
           <p v-else-if="key === 'glad' && copy.welcomeGlad" class="ajl-glad">{{ copy.welcomeGlad }}</p>
           <p v-else-if="key === 'lead' && copy.welcomeLead" class="ajl-lead">{{ copy.welcomeLead }}</p>
           <div v-else-if="key === 'cards'" class="ajl-cards">
             <template v-for="cardKey in view.order.cards" :key="cardKey">
               <article v-if="!view.hidden[cardKey]" class="ajl-card" :class="[`ajl-card--${cardKey}`, { 'ajl-card--disabled': cardKey === 'full' && !full.enabled, 'ajl-block--selected': designMode && selectedElement === cardKey }]" :style="{ textAlign: view.align[cardKey] || 'left' }" v-bind="elementAttrs(cardKey)">
                 <div class="ajl-card-band"><strong>{{ choiceLabels[cardKey] }}</strong><span class="ajl-card-time"><PublicEntryIcon name="clock" />{{ cards[cardKey].duration || (cardKey === 'quick' ? '1–5 min' : '10–20 min') }}</span></div>
-                <div class="ajl-card-top"><span class="ajl-card-icon"><PublicEntryIcon :name="cardKey === 'quick' ? 'bolt' : 'document'" /></span></div>
+                <div class="ajl-card-top"><span class="ajl-card-icon"><PublicEntryIcon :name="cardKey === 'quick' ? (serene ? 'leaf' : 'bolt') : 'document'" /></span></div>
                 <h2>{{ cards[cardKey].title }}</h2><p class="ajl-card-tag">{{ cards[cardKey].tagline }}</p><p class="ajl-card-desc">{{ cards[cardKey].description }}</p>
-                <ul v-if="cards[cardKey].bullets?.length"><li v-for="(bullet, i) in cards[cardKey].bullets" :key="i">{{ bullet }}</li></ul>
-                <div class="ajl-card-fit"><strong>{{ isSpanish ? 'Ideal para ti si…' : 'Best for you if…' }}</strong><p>{{ choiceHelp[cardKey] }}</p></div>
+                <ul v-if="cards[cardKey].bullets?.length"><li v-for="(bullet, i) in cards[cardKey].bullets" :key="i"><PublicEntryIcon v-if="serene" name="check" />{{ bullet }}</li></ul>
+                <div class="ajl-card-fit"><span v-if="serene" class="ajl-fit-icon"><PublicEntryIcon :name="cardKey === 'quick' ? 'people' : 'person'" /></span><div><strong>{{ isSpanish ? 'Ideal para ti si…' : 'Best for you if…' }}</strong><p>{{ choiceHelp[cardKey] }}</p></div></div>
                 <button type="button" class="ajl-cta" :disabled="!designMode && cardKey === 'full' && !full.enabled" @click="continueAction('continue', cardKey)">{{ cardKey === 'full' && !full.enabled ? (full.disabledReason || 'Not available yet') : cards[cardKey].cta }}</button>
-                <p class="ajl-card-foot">{{ cards[cardKey].footer }}</p>
+                <p v-if="!serene" class="ajl-card-foot">{{ cards[cardKey].footer }}</p>
               </article>
             </template>
           </div>
         </section>
       </template>
     </main>
+    <div v-if="serene" class="ajl-support-region">
+      <section v-if="!view.hidden.help" class="ajl-support-bar" v-bind="elementAttrs('help')">
+        <div class="ajl-support-intro"><span class="ajl-support-icon"><PublicEntryIcon name="headset" /></span><div><p>{{ copy.helpTitle }}</p><h2>{{ copy.helpBody }}</h2></div></div>
+        <a v-if="contactTel" class="ajl-support-link" :href="`tel:${contactTel}`"><PublicEntryIcon name="phone" /><span>{{ contactPhone }}</span></a>
+        <a v-if="contactEmail" class="ajl-support-link" :href="`mailto:${contactEmail}`"><PublicEntryIcon name="mail" /><span>{{ contactEmail }}</span></a>
+        <button v-if="copy.sendMessage" type="button" class="ajl-help-btn" @click="continueAction('contact-support')"><PublicEntryIcon name="message" />{{ copy.sendMessage }}</button>
+      </section>
+      <section v-for="element in customRailElements" :key="element.id" class="ajl-block" :style="blockStyle(element.id)" v-bind="elementAttrs(element.id)"><JoinCustomElement :element="element" :copy="copy" /></section>
+    </div>
     <footer v-if="view.footerStyle !== 'hidden' && !view.hidden.footer" class="ajl-footer" :style="{ textAlign: view.align.footer, justifyContent: view.align.footer === 'right' ? 'flex-end' : view.align.footer === 'center' ? 'center' : 'flex-start' }" :class="{ 'ajl-block--selected': designMode && selectedElement === 'footer' }" v-bind="elementAttrs('footer')">
-      <span v-for="item in footerTrust" :key="item.icon"><PublicEntryIcon :name="item.icon" />{{ item.label }}</span><strong>{{ copy.slogan }}</strong>
+      <span v-for="item in footerTrust" :key="item.icon"><PublicEntryIcon :name="item.icon" /><span><b>{{ item.label }}</b><small v-if="serene">{{ item.detail }}</small></span></span><strong v-if="!serene">{{ copy.slogan }}</strong>
     </footer>
-    <PublicEntryLegalFooter :language="isSpanish ? 'es' : 'en'" />
+    <PublicEntryLegalFooter :language="isSpanish ? 'es' : 'en'" :organization-slug="agencySlug" />
   </div>
   <JoinPageDesigner v-if="designerOpen && canEdit" :config="config" :agency-slug="agencySlug" :service-type="serviceType" :quick="quick" :full="full" :contact-phone="contactPhone" :contact-tel="contactTel" :contact-email="contactEmail" @close="closeDesigner" @saved="onSaved" />
 </template>
@@ -74,23 +94,35 @@ const props = defineProps({
 const emit = defineEmits(['continue', 'contact-support', 'tenant-updated', 'select-element']);
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth);
 const designerOpen = ref(false); const savedNotice = ref(''); const editButton = ref(null);
-const presentation = computed(() => resolveJoinPresentation(props.config, viewportWidth.value));
+const presentation = computed(() => resolveJoinPresentation(props.config, viewportWidth.value, props.agencySlug || props.config?.agency?.slug));
+const serene = computed(() => String(props.agencySlug || props.config?.agency?.slug).toLowerCase() === 'itsco');
 const view = computed(() => presentation.value.view); const copy = computed(() => presentation.value.copy);
 const elements = computed(() => joinDesignElements(presentation.value.design));
+const customRailElements = computed(() => view.value.order.rail.map(id => elements.value.find(e => e.id === id && e.type && !view.value.hidden[id])).filter(Boolean));
+const welcomeParts = computed(() => String(copy.value.welcomeTitle || '').match(/^(Welcome to|Bienvenid[oa]s? a) (.+?)[!.]?$/));
 const elementFor = key => elements.value.find(e => e.id === key);
 const cards = computed(() => joinCards(copy.value, props.quick, props.full));
 const agencyName = computed(() => props.config?.agency?.name || 'Welcome');
 const logoUrl = computed(() => safeJoinImage(props.config?.branding?.logoUrl || props.config?.branding?.agencyLogoUrl || props.config?.branding?.organizationLogoUrl || props.config?.agency?.logo_url || props.config?.agency?.logoUrl || (props.agencySlug === 'itsco' ? '/assets/provider-action/itsco-logo.png' : '')));
+const headerLogoUrl = computed(() => !logoUrl.value || logoUrl.value.startsWith('/assets/itsco/logo.png') ? '/assets/provider-action/itsco-logo.png' : logoUrl.value);
 const brandColor = computed(() => props.config?.branding?.colorPalette?.primary || props.config?.branding?.color_palette?.primary || props.config?.branding?.colors?.primary || view.value.primaryColor);
-const backgroundStyle = computed(() => ({ backgroundImage: `url(${JSON.stringify(publicEntryBackground(view.value.backgroundUrl || presentation.value.design.backgroundUrl, props.agencySlug || props.config?.agency?.slug))})`, backgroundPosition: `${view.value.backgroundX}% ${view.value.backgroundY}%` }));
+const backgroundStyle = computed(() => {
+  const chosen = view.value.backgroundUrl || presentation.value.design.backgroundUrl;
+  const background = serene.value && (!chosen || /\/assets\/(?:intake-themes|WelcomeImages\/ITSCO)/i.test(chosen)) ? '/assets/WelcomeImages/scenic/regular2.webp' : publicEntryBackground(chosen, props.agencySlug || props.config?.agency?.slug);
+  return { backgroundImage: `url(${JSON.stringify(background)})`, backgroundPosition: `${view.value.backgroundX}% ${view.value.backgroundY}%` };
+});
 const themeVars = computed(() => ({
   '--ajl-brand': brandColor.value, '--ajl-body-font': fontFamilyById(view.value.fonts.body), '--ajl-welcome-font': fontFamilyById(view.value.fonts.welcome), '--ajl-script-font': fontFamilyById(view.value.fonts.script), '--ajl-card-font': fontFamilyById(view.value.fonts.cardTitle),
-  '--ajl-welcome-size': `${view.value.sizes.welcome}rem`, '--ajl-glad-size': `${view.value.sizes.glad}rem`, '--ajl-lead-size': `${view.value.sizes.lead}rem`, '--ajl-card-size': `${view.value.sizes.cardTitle}rem`,
+  '--ajl-script-size': `${view.value.sizes.script}rem`, '--ajl-logo-width': `${view.value.sizes.logoWidth}px`, '--ajl-welcome-size': `${view.value.sizes.welcome}rem`, '--ajl-glad-size': `${view.value.sizes.glad}rem`, '--ajl-lead-size': `${view.value.sizes.lead}rem`, '--ajl-card-size': `${view.value.sizes.cardTitle}rem`,
   '--ajl-background-wash': view.value.backgroundWash / 100, '--ajl-heading-color': view.value.headingColor, '--ajl-primary-color': view.value.primaryColor, '--ajl-secondary-color': view.value.secondaryColor, '--ajl-surface-color': view.value.surfaceColor,
   '--ajl-padding': `${view.value.padding}px`, '--ajl-gap': `${view.value.gap}px`
 }));
 const isSpanish = computed(() => String(props.config?.locale || props.config?.language || document.documentElement.lang || 'en').startsWith('es'));
-const choiceLabels = computed(() => isSpanish.value ? {quick:'Opción breve',full:'Inscripción completa'} : {quick:'Brief option',full:'Full enrollment'});
+const mastheadValues = computed(() => {
+  const shortLabels = { 'Supportive & Welcoming': 'Support', 'Personalized to Your Needs': 'Growth', 'Focused on Growth & Well-Being': 'Well-being', 'Apoyo y bienvenida': 'Apoyo', 'Personalizado a sus necesidades': 'Crecimiento', 'Enfocado en el crecimiento y el bienestar': 'Bienestar' };
+  return [copy.value.value1, copy.value.value2, copy.value.value3].filter(Boolean).map(value => shortLabels[value] || value);
+});
+const choiceLabels = computed(() => isSpanish.value ? {quick:'Opción breve',full:'Inscripción completa'} : {quick:serene.value?'Quick start':'Brief option',full:'Full enrollment'});
 const choiceHelp = computed(() => isSpanish.value ? {
   quick:'Quieres compartir tus datos básicos y que nuestro equipo se comunique contigo. Puedes completar la inscripción después.',
   full:'Estás listo para proporcionar información detallada y completar los documentos de inscripción.'
@@ -102,10 +134,10 @@ const footerTrust = computed(() => {
   const es = isSpanish.value;
   const clinical = (props.serviceType || props.config?.activeService?.serviceType || 'counseling') === 'counseling';
   return [
-    {icon:'shield',label:es?'Su información está segura':'Your Information Is Secure'},
-    ...(clinical ? [{icon:'lock',label:es?'Protegido por HIPAA':'HIPAA Protected'}] : []),
-    {icon:'clock',label:es?'Solo toma unos minutos':'Only Takes a Few Minutes'},
-    {icon:'people',label:es?'Personas reales. Apoyo real.':'Real People. Real Support.'}
+    {icon:'shield',label:es?'Su información está segura':'Your Information Is Secure',detail:es?'Tomamos en serio su privacidad.':'We take your privacy seriously.'},
+    ...(clinical ? [{icon:'lock',label:es?'Protegido por HIPAA':'HIPAA Protected',detail:es?'Su información de salud está protegida.':'Your health information is protected.'}] : []),
+    {icon:'clock',label:es?'Solo toma unos minutos':'Only Takes a Few Minutes',detail:es?'Empiece a su propio ritmo.':'Get started at your own pace.'},
+    {icon:'people',label:es?'Personas reales. Apoyo real.':'Real People. Real Support.',detail:es?'Un equipo que se preocupa por usted.':'A caring team is here to help.'}
   ];
 });
 function blockStyle(key) {
@@ -123,7 +155,7 @@ function blockStyle(key) {
   if (key === 'cards') { style.width = `${sizes.cardsWidth}px`; style.alignSelf = view.value.align.cards === 'center' ? 'center' : view.value.align.cards === 'right' ? 'flex-end' : 'flex-start'; }
   return style;
 }
-function elementAttrs(key) { return { 'data-design-element': key, ...(props.designMode ? { tabindex: 0, 'aria-label': elementFor(key)?.label } : {}) }; }
+function elementAttrs(key) { return { 'data-design-element': key, ...(props.designMode ? { tabindex: 0, 'aria-label': elementFor(key)?.label, class: props.selectedElement === key ? 'ajl-block--selected' : undefined } : {}) }; }
 function selectFromCanvas(event) {
   if (!props.designMode) return;
   const element = event.target.closest('[data-design-element]');
@@ -217,3 +249,4 @@ function onSaved(data) {
   .ajl-card { padding: 22px; --card-padding:22px; }
 }
 </style>
+<style scoped src="./sereneJoinWelcome.css"></style>

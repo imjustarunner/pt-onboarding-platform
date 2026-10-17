@@ -86,10 +86,24 @@ export function normalizeJoinDesign(layout) {
   }
   return result;
 }
-export function resolveJoinPresentation(config, width) {
+export function normalizeJoinDesignForAgency(layout, agencySlug) {
+  const design = normalizeJoinDesign(layout);
+  if (String(agencySlug || '').toLowerCase() !== 'itsco') return design;
+  for (const { id } of JOIN_DEVICES) {
+    const view = design.views[id], saved = layout?.design?.views?.[id] || {}, mobile = id === 'mobile';
+    const sizes = { welcome: mobile ? 2.65 : id === 'tablet' ? 3.75 : 4.875, cardTitle: mobile ? 1.55 : 1.875, glad: mobile ? .9375 : 1.0625, lead: mobile ? .9375 : 1.0625, script: mobile ? .75 : 1.0625, logoWidth: mobile ? 240 : 310, cardsWidth: 1120 };
+    for (const [key, value] of Object.entries(sizes)) if (saved.sizes?.[key] == null) view.sizes[key] = value;
+    for (const key of ['welcome', 'glad', 'lead', 'cards']) if (saved.align?.[key] == null) view.align[key] = 'center';
+    for (const key of Object.keys(view.positions)) if (saved.positions?.[key] == null) view.positions[key] = {x:0,y:0};
+    const defaults = { headingColor:'#193f33', primaryColor:'#245a48', secondaryColor:'#215696', surfaceColor:'#fbfdf9', padding:mobile ? 18 : 24, gap:10, backgroundWash:0, footerStyle:'clear' };
+    for (const [key, value] of Object.entries(defaults)) if (saved[key] == null) view[key] = value;
+  }
+  return design;
+}
+export function resolveJoinPresentation(config, width, agencySlug = config?.agency?.slug) {
   const original = config?.copy || {};
   const copy = restoreJoinWelcomeCopy(original, config?.agency?.name);
-  const design = normalizeJoinDesign(original.layout);
+  const design = normalizeJoinDesignForAgency(original.layout, agencySlug);
   const device = joinDeviceForWidth(width);
   const view = design.views[device];
   return { copy: { ...copy, ...view.copy }, design, view, device };

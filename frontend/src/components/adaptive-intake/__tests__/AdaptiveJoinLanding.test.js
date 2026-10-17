@@ -5,13 +5,27 @@ import { createJoinDesign } from '../../../utils/joinPageDesign';
 const quick = { title: 'Interest form', cta: 'Start', bullets: [] };
 const full = { title: 'Enrollment', cta: 'Enroll', enabled: false, disabledReason: 'Enrollment not enabled', bullets: [] };
 describe('Join public and design renderer', () => {
-  it('keeps real intake actions functional and respects unavailable enrollment', async () => {
-    const wrapper = mount(Landing, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot/></a>' } } }, props: { config: { copy: {} }, quick, full } });
+  it('keeps ITSCO support actions, contact details, custom copy, and legal links in the new layout', async () => {
+    const wrapper = mount(Landing, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot/></a>' } } }, props: {
+      agencySlug: 'itsco', config: { agency: {name:'ITSCO'}, copy: {helpTitle:'Need help?',helpBody:'Our team is here.',sendMessage:'Message us',value1:'Custom value'} }, quick, full,
+      contactPhone:'719-657-7444 Ext 0',contactTel:'+17196577444,0',contactEmail:'Support@ITSCO.health'
+    } });
+    expect(wrapper.find('.ajl-rail').exists()).toBe(false);
+    expect(wrapper.find('.ajl-masthead').text()).toContain('Custom value');
+    expect(wrapper.find('.ajl-support-bar a[href="tel:+17196577444,0"]').text()).toBe('719-657-7444 Ext 0');
+    expect(wrapper.find('.ajl-support-bar a[href="mailto:Support@ITSCO.health"]').exists()).toBe(true);
+    await wrapper.find('.ajl-support-bar button').trigger('click');
+    expect(wrapper.emitted('contact-support')).toHaveLength(1);
+    expect(wrapper.find('.entry-legal a').attributes('href')).toContain('/itsco/');
+    wrapper.unmount();
+  });
+  it.each(['', 'itsco'])('keeps real intake actions functional and respects unavailable enrollment (%s)', async agencySlug => {
+    const wrapper = mount(Landing, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot/></a>' } } }, props: { agencySlug, config: { copy: {} }, quick, full } });
     await wrapper.find('.ajl-card--quick button').trigger('click'); expect(wrapper.emitted('continue')).toEqual([['quick']]);
     expect(wrapper.find('.ajl-card--full button').attributes('disabled')).toBeDefined(); wrapper.unmount();
   });
-  it('selects elements in the canvas without starting an intake', async () => {
-    const wrapper = mount(Landing, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot/></a>' } } }, props: { config: { copy: {} }, quick, full, designMode: true } });
+  it.each(['', 'itsco'])('selects elements in the canvas without starting an intake (%s)', async agencySlug => {
+    const wrapper = mount(Landing, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot/></a>' } } }, props: { agencySlug, config: { copy: {} }, quick, full, designMode: true } });
     await wrapper.find('.ajl-card--quick button').trigger('click');
     expect(wrapper.emitted('continue')).toBeUndefined(); expect(wrapper.emitted('select-element')).toEqual([['quick']]); wrapper.unmount();
   });
