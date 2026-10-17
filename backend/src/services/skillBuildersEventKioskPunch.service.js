@@ -517,7 +517,7 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   const eventType = String(eventPayroll?.eventType || evRows?.[0]?.event_type || '').toLowerCase();
   const schoolPortalEvent = eventType.startsWith('school_') || source === 'school_events_kiosk';
   const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
-  const remainderSlot = eventPayroll?.rateSlot || (schoolPortalEvent ? 'other_1' : 'indirect');
+  const remainderSlot = eventPayroll?.rateSlot || 'indirect';
   const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
   const directHoursCap = useSplit && Number.isFinite(directConfigured) && directConfigured > 0
     ? directConfigured
@@ -714,7 +714,7 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
   const eventPayroll = await loadEventPayrollContext({ agencyId, eventId, db: poolConn }).catch(() => null);
   const schoolPortalEvent = eventType.startsWith('school_');
   const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
-  const remainderSlot = eventPayroll?.rateSlot || (schoolPortalEvent ? 'other_1' : 'indirect');
+  const remainderSlot = eventPayroll?.rateSlot || 'indirect';
   const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
   const directHoursCap = useSplit && Number.isFinite(directConfigured) && directConfigured > 0
     ? directConfigured

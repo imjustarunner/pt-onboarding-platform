@@ -2,8 +2,8 @@
  * Event Type → payroll rate-card slot.
  *
  * Skill Builders keeps its existing direct-cap / leftover-indirect split.
- * School / Outreach kiosk events (and any future type) map to a rate-card slot
- * such as other_1 ("Outreach") without rewriting payroll math per type.
+ * Approved school / outreach events default to the employee indirect rate.
+ * Travel is recorded separately as Support Activity → Approved Travel.
  */
 
 import pool from '../config/database.js';
@@ -13,16 +13,16 @@ export const EVENT_PAYROLL_RATE_SLOTS = ['direct', 'indirect', 'other_1', 'other
 
 export const KNOWN_EVENT_PAYROLL_TYPES = [
   { eventType: 'skills_group', label: 'Skill Builders / Summer Skills', defaultSlot: 'indirect', defaultSplit: true },
-  { eventType: 'school_back_to_school', label: 'Back to School', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_open_house', label: 'Open House', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_resource_fair', label: 'Resource Fair', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_family_night', label: 'Family Night', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_orientation', label: 'Orientation', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_other', label: 'School Event', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_outreach', label: 'District Outreach', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_fall_check_in', label: 'Fall School Check-in', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_spring_event', label: 'Spring School Check-in', defaultSlot: 'other_1', defaultSplit: false },
-  { eventType: 'school_first_day', label: 'First Day of School', defaultSlot: 'other_1', defaultSplit: false },
+  { eventType: 'school_back_to_school', label: 'Back to School', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_open_house', label: 'Open House', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_resource_fair', label: 'Resource Fair', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_family_night', label: 'Family Night', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_orientation', label: 'Orientation', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_other', label: 'School Event', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_outreach', label: 'District Outreach', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_fall_check_in', label: 'Fall School Check-in', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_spring_event', label: 'Spring School Check-in', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_first_day', label: 'First Day of School', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_holiday', label: 'Holiday', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_day_off', label: 'Day Off', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'program_event', label: 'Program Event', defaultSlot: 'indirect', defaultSplit: false },
@@ -84,7 +84,7 @@ export function defaultTreatmentForEventType(eventType) {
     return { eventType: t, rateSlot: 'indirect', useDirectIndirectSplit: true };
   }
   if (isSchoolPortalPayrollEventType(t)) {
-    return { eventType: t, rateSlot: 'other_1', useDirectIndirectSplit: false };
+    return { eventType: t, rateSlot: 'indirect', useDirectIndirectSplit: false };
   }
   return { eventType: t || 'company_event', rateSlot: 'indirect', useDirectIndirectSplit: false };
 }

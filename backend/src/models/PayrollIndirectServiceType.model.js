@@ -16,7 +16,7 @@ export const DEFAULT_INDIRECT_SERVICE_TYPES = [
   { typeKey: 'clinical_supervision_sa', label: 'Clinical Supervision', description: 'Clinical supervision when not auto-logged', iconKey: 'users', payBucket: 'support', sortOrder: 230, displayCode: 'SUP-03' },
   { typeKey: 'onboarding_sa', label: 'Onboarding', description: 'Onboarding activities when not auto-logged', iconKey: 'user-check', payBucket: 'support', sortOrder: 240, displayCode: 'SUP-04' },
   { typeKey: 'fingerprinting_credentialing', label: 'Fingerprinting / Credentialing', description: 'Fingerprinting and credentialing activities', iconKey: 'clipboard', payBucket: 'support', sortOrder: 250, displayCode: 'SUP-05' },
-  { typeKey: 'approved_travel', label: 'Approved Travel', description: 'Approved travel time', iconKey: 'car', payBucket: 'support', sortOrder: 260, displayCode: 'SUP-06' },
+  { typeKey: 'approved_travel', label: 'Approved Travel', description: 'Approved travel to and from events and other assignments, paid at the Support Activity rate', iconKey: 'car', payBucket: 'support', sortOrder: 260, displayCode: 'SUP-06' },
   // Supervision Note Time (supervisors) — paid at Admin Time
   { typeKey: 'supervision_note_time', label: 'Supervision Note Time', description: 'Write and complete supervision notes / related admin after sessions', iconKey: 'file-text', payBucket: 'supervision_note', sortOrder: 310, displayCode: 'SN-01' },
   { typeKey: 'supervisors_meeting', label: 'Supervisor\'s Meeting', description: 'Supervisor meeting when not auto-logged (paid at Admin Time rate)', iconKey: 'users', payBucket: 'supervision_note', sortOrder: 320, displayCode: 'SN-02' }

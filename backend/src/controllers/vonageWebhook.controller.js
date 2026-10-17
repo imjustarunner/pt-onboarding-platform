@@ -5,6 +5,7 @@ import { inspectInboundReception, enqueueCommunicationReview } from '../services
 import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { deliverCompanyEventVoteReply } from '../services/companyEventSmsReply.service.js';
+import { handleCompanyEventCheckinInbound } from '../services/companyEventCheckinSms.service.js';
 import { handleCompanyEventTopicInbound, recordCompanyEventSmsDeliveryStatus } from '../services/companyEventSms.service.js';
 /**
  * Vonage inbound SMS webhook controller.
@@ -171,6 +172,13 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     if (await handleStaffSmsAssistant({from:fromNorm,to:toNorm,body,messageId})) return res.status(200).json({ok:true,staffAssistant:true});
 
+    const eventCheckinHandled = await handleCompanyEventCheckinInbound({ from: fromNorm, to: toNorm, body, messageId });
+    if (eventCheckinHandled?.handled) {
+      try {
+        await deliverCompanyEventVoteReply({ result: eventCheckinHandled, from: fromNorm, to: toNorm, send: options => VonageService.sendSms(options) });
+      } catch (error) { console.warn('Event check-in confirmation not sent:', error?.code || 'delivery_failed'); }
+      return res.status(200).json({ ok: true });
+    }
     const eventTopicHandled = await handleCompanyEventTopicInbound({ from: fromNorm, to: toNorm, body, messageId,
       sendReply: (options) => VonageService.sendSms(options) });
     const companyEventHandled = eventTopicHandled?.handled ? eventTopicHandled : await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body,

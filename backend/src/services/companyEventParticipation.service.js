@@ -63,7 +63,7 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
     travelClaimDefaults: { categoryGroup: 'support_activity', serviceTypeKey: 'approved_travel', companyEventId: Number(event.id), eventWorkType: 'travel' } };
 }
 
-export async function recordEmployeeEventParticipation({ eventId, userId, action, ip = null, now = new Date() }) {
+export async function recordEmployeeEventParticipation({ eventId, userId, action, ip = null, now = new Date(), source = 'employee_event_link', idempotencyKey = null }) {
   if (!['check-in', 'check-out'].includes(action)) fail(400, 'Invalid attendance action');
   const db = await pool.getConnection();
   let result;
@@ -72,6 +72,11 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
     // Attendance and event travel use the same lock, including concurrent phone taps.
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
     const event = await loadEmployeeEvent({ eventId, userId, db });
+    if (idempotencyKey) {
+      const [receipt] = await db.execute(`INSERT IGNORE INTO company_event_checkin_sms_receipts
+        (provider_message_id, user_id, company_event_id, action) VALUES (?, ?, ?, ?)`, [idempotencyKey, userId, event.id, action]);
+      if (!receipt.affectedRows) { await db.commit(); return { ok: true, alreadyProcessed: true }; }
+    }
     const date = utcDateToZonedYmd(now, event.timezone);
     if (action === 'check-in') {
       if (Number(event.is_active) !== 1 || event.school_event_status === 'canceled') fail(409, 'This event is inactive or canceled');
@@ -79,8 +84,11 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
       if (!(await employeeAssignedToEvent({ event, userId, date, db }))) fail(403, 'A coordinator must assign you before you can check in');
     }
     result = action === 'check-in'
-      ? await recordEventEmployeeClockIn(db, { eventId: event.id, agencyId: event.agency_id, userId, kioskDateYmd: date, punchedAt: now, source: 'employee_event_link' })
-      : await recordEventEmployeeClockOut(db, { eventId: event.id, agencyId: event.agency_id, userId, clockOutAt: now, source: 'employee_event_link' });
+      ? await recordEventEmployeeClockIn(db, { eventId: event.id, agencyId: event.agency_id, userId, kioskDateYmd: date, punchedAt: now, source })
+      : await recordEventEmployeeClockOut(db, { eventId: event.id, agencyId: event.agency_id, userId, clockOutAt: now, source });
+    if (idempotencyKey && action === 'check-in' && result.error?.status === 409 && result.error.message.startsWith('Already clocked in')) {
+      await db.commit(); return { ok: true, alreadyProcessed: true };
+    }
     if (result.error) fail(result.error.status, result.error.message);
     if (action === 'check-in') {
       await db.execute(`INSERT INTO event_day_kiosk_checkins
@@ -117,6 +125,7 @@ export async function validateEventTravelPayload({ agencyId, userId, claimDate, 
   if (!(await employeeAssignedToEvent({ event, userId, date, db }))) fail(403, 'Event travel requires a coordinator assignment');
   if (!(await isEmployeeEventDay({ event, date, db }))) fail(400, 'Event travel must be on an event date');
   if (payload.categoryGroup !== 'support_activity') fail(400, 'Event travel must use Support Activity Time');
+  if (payload.travelDirection != null && !['to_event', 'from_event'].includes(payload.travelDirection)) fail(400, 'Choose travel to or from the event');
   const [types] = await db.execute(`SELECT id, label FROM payroll_indirect_service_types WHERE agency_id = ? AND type_key = 'approved_travel' AND pay_bucket = 'support' AND is_active = 1 LIMIT 1`, [agencyId]);
   const type = types?.[0];
   if (!type) fail(409, 'Approved Travel is not enabled for this organization');
@@ -141,7 +150,7 @@ export async function validateEventTravelPayload({ agencyId, userId, claimDate, 
     allocations: [{ serviceTypeId: Number(type.id), serviceTypeKey: 'approved_travel', serviceTypeLabel: type.label, minutes, payBucket: 'support' }] };
 }
 
-export async function buildEventTravelClaim({ eventId, userId, travelStartedAt, travelEndedAt, attestation = false, db = pool }) {
+export async function buildEventTravelClaim({ eventId, userId, travelStartedAt, travelEndedAt, travelDirection = null, attestation = false, db = pool }) {
   const event = await loadEmployeeEvent({ eventId, userId, db });
   const interval = eventTravelInterval({ travelStartedAt, travelEndedAt });
   const [types] = await db.execute(`SELECT id, label FROM payroll_indirect_service_types WHERE agency_id = ? AND type_key = 'approved_travel' AND pay_bucket = 'support' AND is_active = 1 LIMIT 1`, [event.agency_id]);
@@ -149,7 +158,7 @@ export async function buildEventTravelClaim({ eventId, userId, travelStartedAt, 
   if (!type) fail(409, 'Approved Travel is not enabled for this organization');
   const claimDate = utcDateToZonedYmd(interval.end, event.timezone);
   const payload = await validateEventTravelPayload({ agencyId: event.agency_id, userId, claimDate, db, payload: {
-    companyEventId: Number(event.id), eventWorkType: 'travel', categoryGroup: 'support_activity', travelStartedAt, travelEndedAt,
+    companyEventId: Number(event.id), eventWorkType: 'travel', categoryGroup: 'support_activity', travelStartedAt, travelEndedAt, travelDirection,
     attestation: attestation === true, entryMethod: 'manual', allocationMode: 'duration', totalMinutes: interval.minutes,
     allocations: [{ serviceTypeId: type.id, serviceTypeKey: 'approved_travel', serviceTypeLabel: type.label, minutes: interval.minutes, payBucket: 'support' }]
   } });

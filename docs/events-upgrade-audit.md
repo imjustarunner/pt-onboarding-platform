@@ -68,3 +68,15 @@ Verification on the release includes 40 native commitment/attendance/travel test
 The frontend production build uses `NODE_OPTIONS=--max-old-space-size=8192 npm run build`. Dependencies were installed from the existing lockfiles in the isolated checkout. Live carrier delivery was not exercised and no live messages were sent.
 
 Provider policy reference used for the texting audit: [Vonage 10DLC campaign requirements](https://api.support.vonage.com/hc/en-us/articles/12132309081500-10DLC-Campaign-requirements). The implementation preserves campaign-level STOP alongside the additional event preference.
+
+## Assigned-provider check-in reminders (October 17)
+
+Apply **1656_event_employee_checkin_reminders.sql** before deploying this addition. The five-minute worker sends assigned providers an email and an opted-in workforce text during the hour before each event occurrence, catching up until the occurrence ends. It sends only on the local event date and skips providers already checked in. `FRONTEND_URL` or `FRONTEND_BASE_URL` must be configured. Email uses the configured `company_event_checkin` sender or a Notifications/People Operations identity; SMS uses the existing Campaign 2 sender and consent checks.
+
+The email's **Check in** link opens the authenticated staff page. Opening a link does not record time; the employee selects Check in. `CHECKIN` and `CHECKOUT` texts use the same attendance writer as that page. Multiple eligible events require `CHECKIN <event code>` or `CHECKOUT <event code>`. Shared phone numbers must use the signed-in page. Only recipients of a recent successful check-in reminder can use these text commands, and the provider message ID prevents a delayed retry from creating another payroll punch.
+
+Email and SMS delivery attempts are claimed independently per employee/event/date in `company_event_checkin_reminders`. Sent, skipped, held, approval, and review outcomes are retained; uncertain failures are not automatically resent. Existing email and SMS logs retain transport details. Missing sender configuration or delivery failures require operational review.
+
+School-event defaults and existing school-event rate maps now use **Indirect** without a direct-hours split. Existing recorded claims retain their captured rate slot; clinical Skill Builders splits remain in place. The event page records each travel direction separately as **Support Activity → Approved Travel**, using the employee's Support Activity rate and the existing payroll review/overlap checks.
+
+The ITSCO handbook source amendment and matching update draft include approved event work under Indirect Service and travel to/from events under Support Activity. Stage the supplied content and publish the handbook through the existing handbook workflow to make the wording visible to employees. The versioned amendment preserves other source wording and is applied only to ITSCO; full private handbook source files remain outside Git. This code change does not publish the handbook or send live reminders.

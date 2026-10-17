@@ -1,9 +1,9 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
-import { eventTravelInterval, validateEventTravelPayload, employeeAssignedToEvent, loadEmployeeEvent, isEmployeeEventDay } from '../companyEventParticipation.service.js';
+import { eventTravelInterval, validateEventTravelPayload, employeeAssignedToEvent, loadEmployeeEvent, isEmployeeEventDay, recordEmployeeEventParticipation } from '../companyEventParticipation.service.js';
 import PayrollTimeClaim from '../../models/PayrollTimeClaim.model.js';
-import { recordSkillBuilderEventClockIn } from '../skillBuildersEventKioskPunch.service.js';
+import { recordSkillBuilderEventClockIn, recordSkillBuilderEventClockOut } from '../skillBuildersEventKioskPunch.service.js';
 import { loadEventPayrollContext } from '../eventPayrollRate.service.js';
 import { saveEventOperations } from '../companyEventOperations.service.js';
 after(() => pool.end());
@@ -31,6 +31,27 @@ test('travel retains event association and canonical support activity type', asy
   const result = await validate();
   assert.equal(result.companyEventId, 4); assert.equal(result.source, 'company_event_travel');
   assert.equal(result.categoryGroup, 'support_activity'); assert.equal(result.allocations[0].serviceTypeKey, 'approved_travel');
+});
+test('travel records either direction at the support rate and rejects unknown directions', async () => {
+  for (const travelDirection of ['to_event', 'from_event']) {
+    const result = await validate({ payload: { ...payload, travelDirection } });
+    assert.equal(result.travelDirection, travelDirection);
+    assert.equal(result.allocations[0].payBucket, 'support');
+  }
+  await assert.rejects(validate({ payload: { ...payload, travelDirection: 'elsewhere' } }), /to or from/);
+});
+test('a replayed SMS cannot create another punch even after a later checkout', async (t) => {
+  const actions = [];
+  const db = { beginTransaction: async () => actions.push('begin'), commit: async () => actions.push('commit'), rollback: async () => actions.push('rollback'), release: () => actions.push('release'), execute: async sql => {
+    if (sql.includes('FOR UPDATE')) { actions.push('lock'); return [[{ id: 9 }]]; }
+    if (sql.includes('FROM company_events e')) return [[event]];
+    if (sql.includes('INSERT IGNORE INTO company_event_checkin_sms_receipts')) return [{ affectedRows: 0 }];
+    throw new Error(`Replay must not write attendance: ${sql}`);
+  } };
+  t.mock.method(pool, 'getConnection', async () => db);
+  const result = await recordEmployeeEventParticipation({ eventId: 4, userId: 9, action: 'check-in', source: 'employee_event_sms', idempotencyKey: 'original-message' });
+  assert.equal(result.alreadyProcessed, true);
+  assert.deepEqual(actions, ['begin', 'lock', 'commit', 'release']);
 });
 test('travel rejects cross-agency or unassigned event claims', async () => {
   await assert.rejects(validate({ agencyId: 99 }), /organization/);
@@ -95,6 +116,26 @@ test('event payroll rate context keeps all reads in the supplied transaction', a
   } };
   const result = await loadEventPayrollContext({ agencyId: 2, eventId: 4, db });
   assert.equal(result.rateSlot, 'other_1'); assert.equal(result.eventTitle, 'School Outreach');
+});
+
+test('school event checkout generates only indirect pay for actual event time', async (t) => {
+  const claims = [];
+  t.mock.method(PayrollTimeClaim, 'create', async args => { claims.push(args); return { id: 88 }; });
+  const db = { execute: async sql => {
+    if (sql.includes('SELECT id, punched_at, client_id')) return [[{ id: 44, punched_at: new Date('2026-10-24T16:00Z') }]];
+    if (sql.includes('FROM skills_group_providers')) return [[{ ok: 1 }]];
+    if (sql.includes("punch_type = 'clock_out'")) return [[]];
+    if (sql.includes('FROM company_events')) return [[{ ...event, event_type: 'school_open_house', skill_builder_direct_hours: 3 }]];
+    if (sql.includes('FROM payroll_other_rate_titles') || sql.includes('FROM payroll_event_type_rate_maps') || sql.includes('FROM payroll_periods')) return [[]];
+    if (sql.includes('INSERT INTO skill_builders_event_kiosk_punches')) return [{ insertId: 45 }];
+    if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
+    throw new Error(sql);
+  } };
+  const result = await recordSkillBuilderEventClockOut(db, { agencyId: 2, eventId: 4, userId: 9, clockOutAt: new Date('2026-10-24T18:00Z'), source: 'employee_event_sms' });
+  assert.equal(result.directHours, 0); assert.equal(result.indirectHours, 2);
+  assert.equal(claims.length, 1); assert.equal(claims[0].payload.payrollRateSlot, 'indirect');
+  assert.equal(claims[0].payload.directHours, 0); assert.equal(claims[0].payload.workedHours, 2);
+  assert.equal(claims[0].db, db);
 });
 
 test('school detail edits preserve existing coordinator attribution when the public actor is absent', async (t) => {

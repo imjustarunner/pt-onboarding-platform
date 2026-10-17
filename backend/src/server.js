@@ -2135,6 +2135,15 @@ if (!isBootstrap) {
   scheduleCompanyEventReminders();
   setInterval(scheduleCompanyEventReminders, 10 * 60 * 1000);
 
+  const scheduleEventCheckinReminders = async () => {
+    try {
+      const { processCompanyEventCheckinReminders } = await import('./services/companyEventCheckinReminder.service.js');
+      await processCompanyEventCheckinReminders();
+    } catch (error) { console.error('Event check-in reminders failed:', error.code || error.message); }
+  };
+  scheduleEventCheckinReminders();
+  setInterval(scheduleEventCheckinReminders, 5 * 60 * 1000).unref();
+
   // Hiring reference reminders + expiry (hourly)
   const scheduleHiringReferenceReminders = async () => {
     try {

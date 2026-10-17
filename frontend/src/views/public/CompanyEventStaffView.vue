@@ -24,8 +24,9 @@
             </div>
             <p v-if="response" role="status">Response saved: {{ responseLabel }}. {{ participation?.assigned ? 'You are assigned to this event.' : 'Assignment requires coordinator approval.' }}</p>
           </section>
-          <section v-if="participation">
+          <section v-if="participation" id="event-check-in">
             <h2>Event check-in</h2>
+            <p v-if="String(event.eventType || '').startsWith('school_')">Approved event time is compensated at your indirect rate. Record travel separately below.</p>
             <p v-if="participation.clockedIn">You are checked in. Check out when your event work ends.</p>
             <p v-else-if="participation.assigned">You are assigned to this event. {{ participation.isEventDay ? 'Check in when your event work begins.' : 'Check-in opens on the event day.' }}</p>
             <p v-else>The coordinator must assign you before you can check in or submit travel time.</p>
@@ -34,8 +35,10 @@
           </section>
           <section v-if="participation?.assigned || participation?.lastPunch">
             <h2>Travel time</h2>
-            <p>Record your actual time en route as Support Activity → Approved Travel. This is submitted for payroll review separately from time checked in at the event.</p>
+            <p>Record actual travel to and from this event as Support Activity → Approved Travel, paid at your Support Activity rate. Submit each direction separately from time checked in at the event.</p>
             <form @submit.prevent="submitTravel">
+              <label>Travel direction<select v-model="travelDirection" required><option value="to_event">To the event</option><option value="from_event">From the event</option></select></label>
+              <p>Enter times in your device timezone: {{ deviceTimezone }}.</p>
               <div class="travel-fields">
                 <label>Travel started<input v-model="travelStartedAt" type="datetime-local" required /></label>
                 <label>Travel ended<input v-model="travelEndedAt" type="datetime-local" :min="travelStartedAt" required /></label>
@@ -52,7 +55,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -73,6 +76,8 @@ const response = ref('');
 const travelStartedAt = ref('');
 const travelEndedAt = ref('');
 const travelAttestation = ref(false);
+const travelDirection = ref('to_event');
+const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const responseLabel = computed(() => ({ yes: 'Interested', maybe: 'Maybe', no: 'Unavailable' })[response.value] || response.value);
 const formatDate = (value) => value ? new Date(value).toLocaleString() : '';
 const staffEndpoint = () => `/company-events/staff/${eventId.value}/${encodeURIComponent(token.value)}`;
@@ -100,7 +105,7 @@ async function submitTravel() {
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) { error.value = 'Travel end must be after travel start.'; return; }
   busy.value = true; error.value = ''; notice.value = '';
   try {
-    const { data } = await api.post(`/me/company-events/${eventId.value}/travel-context`, { travelStartedAt: start.toISOString(), travelEndedAt: end.toISOString(), attestation: true });
+    const { data } = await api.post(`/me/company-events/${eventId.value}/travel-context`, { travelStartedAt: start.toISOString(), travelEndedAt: end.toISOString(), travelDirection: travelDirection.value, attestation: true });
     await api.post('/payroll/me/time-claims', data);
     notice.value = 'Travel time submitted for review.';
     travelStartedAt.value = ''; travelEndedAt.value = ''; travelAttestation.value = false;
@@ -108,7 +113,12 @@ async function submitTravel() {
   finally { busy.value = false; }
 }
 onMounted(async () => {
-  try { const { data } = await api.get(staffEndpoint(), { skipAuthRedirect: true }); event.value = data.event; branding.value = data.branding || {}; if (signedIn.value) await loadParticipation(); }
+  try {
+    const { data } = await api.get(staffEndpoint(), { skipAuthRedirect: true }); event.value = data.event; branding.value = data.branding || {};
+    if (signedIn.value) await loadParticipation();
+    await nextTick();
+    if (route.hash === '#event-check-in') document.getElementById('event-check-in')?.scrollIntoView?.();
+  }
   catch (e) { error.value = e?.response?.data?.error?.message || 'This event link is unavailable.'; }
   finally { loading.value = false; }
 });

@@ -45,10 +45,11 @@ describe('staff event participation', () => {
     api.post.mockResolvedValueOnce({ data: claim }).mockResolvedValueOnce({ data: { id: 9 } });
     const wrapper = await render();
     const fields = wrapper.findAll('input[type="datetime-local"]');
+    await wrapper.find('select').setValue('from_event');
     await fields[0].setValue('2026-10-24T09:00'); await fields[1].setValue('2026-10-24T09:30');
     await wrapper.find('input[type="checkbox"]').setValue(true);
     await wrapper.find('form').trigger('submit'); await flushPromises();
-    expect(api.post).toHaveBeenNthCalledWith(1, '/me/company-events/8/travel-context', expect.objectContaining({ attestation: true, travelStartedAt: expect.any(String), travelEndedAt: expect.any(String) }));
+    expect(api.post).toHaveBeenNthCalledWith(1, '/me/company-events/8/travel-context', expect.objectContaining({ attestation: true, travelDirection: 'from_event', travelStartedAt: expect.any(String), travelEndedAt: expect.any(String) }));
     expect(api.post).toHaveBeenNthCalledWith(2, '/payroll/me/time-claims', claim);
     expect(wrapper.text()).toContain('Travel time submitted for review');
   });

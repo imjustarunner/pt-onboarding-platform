@@ -1,3 +1,4 @@
+import { applyEventTimeHandbookAmendment, applyEventTimeReviewAmendment } from '../content/eventTimeHandbookAmendment.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import sanitizeHtml from 'sanitize-html';
@@ -26,7 +27,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   // Match the tenant's configured slug, never a fuzzy name or another tenant's ID.
   const tenant = handbookTenant(agency);
   if (!tenant) return null;
-  const source = structuredClone({ itsco, nlu, isi }[tenant]);
+  const source = applyEventTimeHandbookAmendment(structuredClone({ itsco, nlu, isi }[tenant]), tenant);
   const facilitatorUpdate = applyFacilitatorHandbookScope(source, tenant);
   const updateDrafts = { itsco: itscoUpdateDrafts, nlu: nluUpdateDrafts, isi: isiUpdateDrafts }[tenant];
   const trainingTemplate = studentTrainingTemplate();
@@ -57,7 +58,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   validateHandbookSections(source.sections);
   // These are review material only. Never put draft policies into a published
   // section or its metadata merely because their source snapshot is available.
-  source.reviewUpdates = [...structuredClone(updateDrafts.updates), facilitatorUpdate];
+  source.reviewUpdates = [...applyEventTimeReviewAmendment(structuredClone(updateDrafts.updates), tenant), facilitatorUpdate];
   source.reviewUpdatesCapturedAt = updateDrafts.capturedAt;
   return source;
 }
