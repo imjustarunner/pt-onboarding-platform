@@ -3,7 +3,7 @@ import { sharedLoginLimiter } from '../middleware/loginProtection.middleware.js'
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
-import { status, begin, confirm, challenge, reset, forget, sessions, sessionEvents, endSession, sendEmailCode, verifyEmailCode,signInPasswordState,setInitialSignInPassword } from '../controllers/accountSecurity.controller.js';
+import { status, begin, confirm, challenge, reset, forget, sessions, sessionEvents, endSession, sendEmailCode, verifyEmailCode,disableEmailVerification,signInPasswordState,setInitialSignInPassword } from '../controllers/accountSecurity.controller.js';
 import { ownProtection, requestFileAccess, printIntent } from '../controllers/activityProtection.controller.js';
 const router = express.Router();
 router.use(authenticate);
@@ -32,6 +32,7 @@ router.post('/authenticator/verify', authLimiter, challenge);
 router.post('/authenticator/reset', authLimiter, reset);
 router.post('/email/send', authLimiter, sendEmailCode);
 router.post('/email/verify', authLimiter, verifyEmailCode);
+router.post('/email/disable', authLimiter, disableEmailVerification);
 router.delete('/devices/:deviceId', forget);
 router.get('/sessions', sessions);
 router.get('/sessions/:reference/events', sessionEvents);

@@ -38,11 +38,11 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
   if (clientCount > 1 && secondary?.isMedicaid && !(medicaid && info.medicaidPlanPosition === 'secondary') && !assignment?.secondary?.memberId) return null;
   return { primary, secondary, primaryCardFrontUrl: assignment?.primary ? (assignment.primary_front_url || null) : (info.primary_front_url || null), primaryCardBackUrl: assignment?.primary ? (assignment.primary_back_url || null) : (info.primary_back_url || null), secondaryCardFrontUrl: assignment?.primary ? (assignment.secondary_front_url || null) : (info.secondary_front_url || null), secondaryCardBackUrl: assignment?.primary ? (assignment.secondary_back_url || null) : (info.secondary_back_url || null), coverageScope: !assignment?.primary && info.coverageScope === 'account_holder' ? 'account_holder' : 'client', confirmed: !!assignment || clientCount === 1 || !!medicaid };
 }
-export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null }, db = pool) {
+export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null }, db = pool) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
   const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : (previous?.patient || {});
-  const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, confirmedBy, updatedAt: new Date().toISOString() };
+  const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, coverageSources, confirmedBy, updatedAt: new Date().toISOString() };
   const encrypted = encryptFamilyBilling(value, `client-insurance:${agencyId}:${clientId}`);
   const [result] = await db.execute(`UPDATE clients SET billing_insurance_payload = ?, primary_insurer_name = ?, insurance_member_id = NULL, insurance_group_number = NULL, insurance_subscriber_name = NULL WHERE id = ? AND agency_id = ?`, [encrypted, value.primary.insurerName || null, clientId, agencyId]);
   if (!result.affectedRows) throw billingError(404, 'Client not found in agency');
@@ -63,7 +63,12 @@ export async function applySubmittedClientInsurance(input, connection = null) {
   }
   await connection.execute('SELECT id FROM clients WHERE id = ? AND agency_id = ? FOR UPDATE',[input.clientId,input.agencyId]);
   const previous=await readClientInsurance(input.clientId,input.agencyId,connection);
-  if(previous && (!input.profileId || Number(previous.profileId)!==Number(input.profileId))) return false;
+  // Once staff coordinates multiple source policies, a guardian's later edits
+  // remain a separate submission. They cannot erase another holder's coverage.
+  if(previous && ((!input.profileId || Number(previous.profileId)!==Number(input.profileId)) || Object.keys(previous.coverageSources || {}).length)) {
+    if (previous.verifiedForClaims) await writeClientInsurance({...previous,clientId:input.clientId,agencyId:input.agencyId,verifiedForClaims:false},connection);
+    return false;
+  }
   await writeClientInsurance(input,connection);return true;
 }
 

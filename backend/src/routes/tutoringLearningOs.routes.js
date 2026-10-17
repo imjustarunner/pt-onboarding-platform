@@ -1,9 +1,17 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as ctrl from '../controllers/tutoringLearningOs.controller.js';
+import { guardianLearningRouteAllowed } from '../utils/planStaffAccess.js';
 
 const router = express.Router();
 router.use(authenticate);
+// Family accounts use the deliberately shared feed and their own practice or
+// purchase actions. They cannot edit/approve tutor plans or read staff evidence.
+router.use((req, res, next) => {
+  if (!['guardian', 'client_guardian', 'client'].includes(String(req.user?.role || '').toLowerCase())) return next();
+  if (guardianLearningRouteAllowed(req.method, req.path)) return next();
+  return res.status(403).json({ error: { message: 'This action is available to the tutoring team. Use your family portal for shared plans and ratings.' } });
+});
 
 router.get('/taxonomy', ctrl.getTaxonomy);
 router.get('/cas-standards', ctrl.searchCas);

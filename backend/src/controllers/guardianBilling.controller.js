@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
 import { getFamilyBillingSummary, acceptPayer, assignCard, revokeRecurring, saveFamilyInsurance } from '../services/familyBilling.service.js';
-import { positiveId, billingError } from '../services/familyBillingPolicy.service.js';
+import { positiveId, billingError, linkAllowsBillingView } from '../services/familyBillingPolicy.service.js';
 import { createFamilyCardSetup, completeFamilyCardSetup } from '../services/familyCardSetup.service.js';
 
 const context = req => ({ userId: positiveId(req.user?.id), agencyId: positiveId(req.query?.agencyId || req.body?.agencyId), ip: req.ip, userAgent: req.get('user-agent') });
@@ -42,7 +42,7 @@ export const getDependentsSummary = async (req, res, next) => {
     // Get linked clients for this guardian
     const [clientRows] = await pool.query(
       `SELECT c.id, c.full_name, c.status, c.gender, c.grade, c.client_type,
-              cg.relationship_type, cg.permissions_json
+              cg.access_enabled, cg.relationship_type, cg.permissions_json
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
        WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1
@@ -52,6 +52,7 @@ export const getDependentsSummary = async (req, res, next) => {
 
     const dependents = [];
     for (const client of clientRows) {
+      if (!linkAllowsBillingView(client)) continue;
       // Fetch their most recent waiver profile
       const [waiverRows] = await pool.query(
         `SELECT sections_json, updated_at

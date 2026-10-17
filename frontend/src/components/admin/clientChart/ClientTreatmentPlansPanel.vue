@@ -212,13 +212,14 @@
                         :points="sparklinePoints(o)"
                       />
                     </svg>
-                    <span class="ctp-spark__caption muted tiny">Progress (current → goal)</span>
+                    <span class="ctp-spark__caption muted tiny">Provider observations (current → goal)</span>
                   </div>
                   <div v-if="timelineFor(o.id).length" class="ctp-timeline">
                     <span class="ctp-timeline__label">Scale over time</span>
                     <ol>
                       <li v-for="r in timelineFor(o.id)" :key="r.id">
                         <time>{{ formatWhen(r.rated_at) }}</time>
+                        <span>{{ r.observer_name ? `Parent/guardian: ${r.observer_name}` : r.rater_kind === 'client' ? 'Client self-rating' : r.rater_kind === 'other' ? (r.rater_label || 'Other observer') : 'Provider observation' }}</span>
                         <span v-if="r.disposition === 'rated'">
                           {{ r.scale_value }}/10
                           <em v-if="r.progress_label">({{ r.progress_label }})</em>
@@ -477,7 +478,7 @@ function scaleY(value) {
 
 function sparklinePoints(objective) {
   const rated = timelineFor(objective?.id).filter(
-    (r) => r.disposition === 'rated' && r.scale_value != null
+    (r) => r.disposition === 'rated' && r.scale_value != null && (!r.rater_kind || r.rater_kind === 'clinician')
   );
   const values = rated.map((r) => Number(r.scale_value));
   if (!values.length && objective?.scale_current != null) {

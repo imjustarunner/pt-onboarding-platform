@@ -32,9 +32,9 @@ export async function assertLearningClientAccess(req, clientId) {
     return { clientId: cid };
   }
 
-  if (role === 'guardian' || role === 'client_guardian') {
-    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
-    const allowed = linked.some((row) => Number(row.client_id) === cid);
+  if (role === 'guardian' || role === 'client_guardian' || role === 'client') {
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id, requiredClinicalScope: 'treatment_plan' });
+    const allowed = linked.some((row) => Number(row.client_id) === cid && !ClientGuardian.isNoView(row.permissions_json));
     if (!allowed) {
       const err = new Error('You do not have access to this student');
       err.status = 403;

@@ -2,6 +2,7 @@ import { requireResponsiblePayer } from '../services/familyBillingPolicy.service
 import { comfortTaxonomyPayload } from '../constants/tutoringLearningOs.js';
 import { assertLearningClientAccess } from '../utils/learningAccess.js';
 import * as los from '../services/tutoringLearningOs.service.js';
+import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 
 function actorId(req) {
   return req.user?.id || null;
@@ -112,13 +113,30 @@ export async function listEvaluations(req, res, next) {
 
 export async function createOrUpdatePlan(req, res, next) {
   try {
+    requireStaffPlanActor(req.user);
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
     await assertLearningClientAccess(req, subject.client_id);
 
+    const existingGoals = new Map();
+    for (const goal of Array.isArray(req.body.goals) ? req.body.goals : []) {
+      if (!goal.id) continue;
+      const existingGoal = await los.StudentLearningPlan.findGoalById(goal.id);
+      if (!req.body.id || !existingGoal || Number(existingGoal.learning_plan_id) !== Number(req.body.id) || Number(existingGoal.student_subject_id) !== Number(subject.id)) {
+        return res.status(404).json({ error: { message: 'Goal not found in this plan.' } });
+      }
+      existingGoals.set(Number(goal.id), existingGoal);
+    }
+
     let plan;
     if (req.body.id) {
-      plan = await los.StudentLearningPlan.update(req.body.id, req.body, actorId(req));
+      const existing = await los.StudentLearningPlan.findById(req.body.id);
+      if (!existing || Number(existing.client_id) !== Number(subject.client_id) || Number(existing.agency_id) !== Number(subject.agency_id) || Number(existing.student_subject_id) !== Number(subject.id)) {
+        return res.status(404).json({ error: { message: 'Plan not found for this subject.' } });
+      }
+      plan = await los.StudentLearningPlan.update(req.body.id, {
+        ...req.body, ...(req.body.status === 'active' && !existing.approved_at ? { status: 'pending_review' } : {})
+      }, actorId(req));
     } else {
       plan = await los.StudentLearningPlan.create(
         {
@@ -127,7 +145,7 @@ export async function createOrUpdatePlan(req, res, next) {
           studentSubjectId: subject.id,
           evaluationSummaryId: req.body.evaluationSummaryId,
           title: req.body.title || `${subject.subject_label} Learning Plan`,
-          status: req.body.status || 'draft',
+          status: req.body.status === 'active' ? 'pending_review' : (req.body.status || 'draft'),
           strengths: req.body.strengths,
           priorityNeeds: req.body.priorityNeeds,
           instructionalStrategies: req.body.instructionalStrategies,
@@ -143,19 +161,30 @@ export async function createOrUpdatePlan(req, res, next) {
       for (let i = 0; i < req.body.goals.length; i += 1) {
         const g = req.body.goals[i];
         if (g.id) {
-          await los.StudentLearningPlan.updateGoal(g.id, g);
+          const existingGoal = existingGoals.get(Number(g.id));
+          const goalInput = { ...g };
+          if (g.guardianRatingQuestion !== undefined) {
+            const question = String(g.guardianRatingQuestion || '').trim().slice(0, 500);
+            goalInput.metadata = { ...(existingGoal.metadata_json || {}), guardianRatingQuestion: question,
+              guardianRatingQuestionVerifiedAt: question && g.guardianRatingQuestionVerified === true ? new Date().toISOString() : null,
+              guardianRatingQuestionVerifiedBy: question && g.guardianRatingQuestionVerified === true ? actorId(req) : null };
+          } else delete goalInput.metadata;
+          await los.StudentLearningPlan.updateGoal(g.id, goalInput);
         } else {
           await los.StudentLearningPlan.addGoal({
+            ...g,
             learningPlanId: plan.id,
             studentSubjectId: subject.id,
-            ...g,
+            metadata: null,
             sortOrder: g.sortOrder ?? i
           });
         }
       }
     }
 
-    res.json({ plan: await los.StudentLearningPlan.getPlanBundle(plan.id) });
+    const bundle = await los.StudentLearningPlan.getPlanBundle(plan.id);
+    const guardianSharing = await shareSavedLearningPlan(bundle, actorId(req));
+    res.json({ plan: bundle, guardianSharing });
   } catch (e) {
     next(e);
   }
@@ -163,10 +192,12 @@ export async function createOrUpdatePlan(req, res, next) {
 
 export async function getPlan(req, res, next) {
   try {
+    requireStaffPlanActor(req.user);
     const bundle = await los.StudentLearningPlan.getPlanBundle(req.params.planId);
     if (!bundle) return res.status(404).json({ error: { message: 'Not found' } });
     await assertLearningClientAccess(req, bundle.plan.client_id);
-    res.json(bundle);
+    const { learningPlanStaffFeedback } = await import('../services/guardianLearningPlan.service.js');
+    res.json({ ...bundle, guardianFeedback: await learningPlanStaffFeedback(bundle.plan) });
   } catch (e) {
     next(e);
   }
@@ -186,13 +217,25 @@ export async function listPlansForSubject(req, res, next) {
 
 export async function approvePlan(req, res, next) {
   try {
+    requireStaffPlanActor(req.user);
     const existing = await los.StudentLearningPlan.findById(req.params.planId);
     if (!existing) return res.status(404).json({ error: { message: 'Not found' } });
     await assertLearningClientAccess(req, existing.client_id);
     const bundle = await los.approveLearningPlan(existing.id, actorId(req));
-    res.json(bundle);
+    const guardianSharing = await shareSavedLearningPlan(bundle, actorId(req));
+    res.json({ ...bundle, guardianSharing });
   } catch (e) {
     next(e);
+  }
+}
+
+async function shareSavedLearningPlan(bundle, actorUserId) {
+  try {
+    const { shareGuardianLearningPlan } = await import('../services/guardianLearningPlan.service.js');
+    return await shareGuardianLearningPlan({ bundle, actorUserId });
+  } catch (error) {
+    console.warn('[learning-plan] Family sharing needs a retry:', error?.code || error?.status || 'unavailable');
+    return { shared: 0, needsRetry: true, message: 'The plan was saved. Family sharing needs a retry from the plan page.' };
   }
 }
 

@@ -36,6 +36,7 @@ export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId
     text: `${label}\n\n${message.text || ''}`,
     html: `<div style="font-family:Arial,sans-serif;color:#203e34"><p><strong>${escape(brand.name)}</strong><br>${brand.products.map(escape).join('<br>')}</p>${message.html || `<p>${escape(message.text).replaceAll('\n','<br>')}</p>`}</div>`
   });
-  const sent = !!result?.id && !result.queued && !result.skipped && !result.blocked && !result.redirected;
-  return { ...result, sent, fromEmail: brand.fromEmail, replyTo: brand.replyTo, deliveryStatus: sent ? 'sent' : result?.queued ? 'pending' : 'not_sent' };
+  const queued = !!(result?.queued || result?.pendingApproval);
+  const sent = !!result?.id && !queued && !result.skipped && !result.blocked && !result.redirected;
+  return { ...result, sent, queued, fromEmail: brand.fromEmail, replyTo: brand.replyTo, deliveryStatus: sent ? 'sent' : queued ? 'pending' : 'not_sent' };
 }

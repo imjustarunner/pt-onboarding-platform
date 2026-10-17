@@ -65,7 +65,13 @@ export const shareTreatmentPlanToDashboard = async (req, res, next) => {
     const agencyId = parseIntValue(req.body.agencyId);
     const clientId = parseIntValue(req.params.clientId);
     const treatmentPlanId = parseIntValue(req.params.planId);
-    await ensurePlanAccess({ reqUser: req.user, agencyId, clientId, treatmentPlanId });
+    const plan = await ensurePlanAccess({ reqUser: req.user, agencyId, clientId, treatmentPlanId });
+    if (!parseIntValue(req.body.recipientUserId) && req.body.recipientKind !== 'client') {
+      const { shareGuardianPlanRevision } = await import('../services/guardianPlanProgress.service.js');
+      const result = await shareGuardianPlanRevision({ plan, actorUserId: req.user.id });
+      if (!result.eligible) return res.status(409).json({ error: { message: 'No guardian accounts currently have permission to review and sign this plan. Review their access first.' } });
+      return res.status(201).json({ ...result, message: 'Each authorized guardian has an individual request for this plan version.' });
+    }
     const link = await createDashboardShare({
       agencyId,
       clientId,

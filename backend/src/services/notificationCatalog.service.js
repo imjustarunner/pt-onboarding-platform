@@ -31,6 +31,7 @@ const TYPES_BY_CATEGORY = {
     'task_list_activity'
   ],
   clients_documents: [
+    'guardian_plan_review',
     'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
     'client_checklist_updated', 'client_terminated', 'client_assigned', 'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
     'client_ready_to_schedule', 'provider_waitlist_reminder',

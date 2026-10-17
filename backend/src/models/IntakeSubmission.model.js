@@ -48,6 +48,7 @@ class IntakeSubmission {
       ipAddress = null,
       userAgent = null,
       clientId = null,
+      coGuardianInviteId = null,
       guardianUserId = null,
       combinedPdfPath = null,
       combinedPdfHash = null,
@@ -90,8 +91,8 @@ class IntakeSubmission {
        (intake_link_id, status, signer_name, signer_initials, signer_email, signer_phone, intake_data,
         intake_data_hash, payload_encrypted, payload_iv_b64, payload_auth_tag_b64, payload_key_id,
         consent_given_at, submitted_at, ip_address, user_agent, client_id, guardian_user_id,
-        combined_pdf_path, combined_pdf_hash, retention_expires_at, session_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        combined_pdf_path, combined_pdf_hash, retention_expires_at, session_token, co_guardian_invite_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         intakeLinkId,
         status,
@@ -114,7 +115,8 @@ class IntakeSubmission {
         combinedPdfPath,
         combinedPdfHash,
         retentionExpiresAt,
-        sessionToken
+        sessionToken,
+        coGuardianInviteId
       ]
     );
     return this.findById(result.insertId);
@@ -168,8 +170,21 @@ class IntakeSubmission {
     return Number(rows?.[0]?.c || 0);
   }
 
+  // Only controllers holding a resolved invitation may bind a legacy draft.
+  // The conditional write prevents simultaneous requests switching invitations.
+  static async bindCoGuardianInvite(id, inviteId) {
+    if (!Number.isSafeInteger(Number(inviteId)) || Number(inviteId) <= 0) throw Object.assign(new Error('A valid invitation is required.'), { status: 400 });
+    await pool.execute('UPDATE intake_submissions SET co_guardian_invite_id=? WHERE id=? AND (co_guardian_invite_id IS NULL OR co_guardian_invite_id=?)', [inviteId, id, inviteId]);
+    const row = await this.findById(id);
+    if (!row || Number(row.co_guardian_invite_id) !== Number(inviteId)) throw Object.assign(new Error('This enrollment belongs to a different guardian invitation.'), { status: 403 });
+    return row;
+  }
+
   static async updateById(id, updates) {
     if (!id || !updates) return this.findById(id);
+    if (Object.hasOwn(updates, 'co_guardian_invite_id')) {
+      throw Object.assign(new Error('An enrollment invitation binding cannot be edited.'), { status: 409 });
+    }
 
     let effectiveUpdates = { ...updates };
 

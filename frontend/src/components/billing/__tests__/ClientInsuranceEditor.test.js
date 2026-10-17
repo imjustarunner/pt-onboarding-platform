@@ -19,3 +19,11 @@ it('uses patient identity for self subscribers and tracks later identity correct
 });
 it('does not report a failed save as successful',async()=>{api.put.mockRejectedValue({response:{data:{error:{message:'Permission changed'}}}});const w=await setup();await w.find('form').trigger('submit');await flushPromises();expect(w.find('[role="alert"]').text()).toBe('Permission changed');expect(w.find('[role="status"]').exists()).toBe(false);w.unmount();});
 it('discards late reads after switching client',async()=>{let resolve;api.get.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377}});await w.find('button').trigger('click');await w.setProps({clientId:6});resolve({data:{demographics:demographic}});await flushPromises();expect(w.find('form').exists()).toBe(false);w.unmount();});
+it('combines parents’ policies independently, preserves source references, and swaps billing order',async()=>{
+ const first={insurerName:'Parent One Coverage',memberId:'FIRST'},second={insurerName:'Parent Two Coverage',memberId:'SECOND'};
+ api.get.mockResolvedValue({data:{insurance:{primary:first},demographics:demographic,policies:[{id:11,submittedBy:'First parent',primary:first,cardEvidence:{primary_front:true}},{id:22,submittedBy:'Second parent',primary:second,cardEvidence:{primary_front:true,primary_back:true}}]}});
+ const w=await setup();const choices=w.findAll('.coverage-review select');await choices[0].setValue('11:primary');await choices[1].setValue('22:primary');
+ await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({primary:first,secondary:second,coverageSources:{primary:{profileId:11,slot:'primary'},secondary:{profileId:22,slot:'primary'}},verifiedForClaims:false});
+ await w.findAll('button').find(b=>b.text()==='Swap primary and secondary').trigger('click');await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[1][1]).toMatchObject({primary:second,secondary:first,profileId:22,coverageSources:{primary:{profileId:22,slot:'primary'},secondary:{profileId:11,slot:'primary'}}});
+ expect(w.findAll('.coverage-evidence')).toHaveLength(2);expect(w.findAll('.coverage-evidence button')).toHaveLength(3);w.unmount();
+});

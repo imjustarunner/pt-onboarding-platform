@@ -40,7 +40,13 @@ export async function accountSecurityState(req) {
     }
   }
   const ssoAuthenticated = req.authClaims?.authMethod === 'google';
-  const method = row.role === 'school_staff' ? 'email' : 'authenticator';
+  const guardianAccount = row.role === 'client_guardian';
+  let emailEnabled = false;
+  if (guardianAccount) {
+    const [[preference]] = await pool.execute('SELECT enabled_at FROM account_email_preferences WHERE user_id=?', [req.user.id]);
+    emailEnabled = !!preference?.enabled_at;
+  }
+  let method = row.role === 'school_staff' ? 'email' : 'authenticator';
   let maskedEmail;
   if (method === 'email') {
     const { schoolEmailHash, maskedSchoolEmail } = await import('./schoolEmailVerification.service.js');
@@ -60,10 +66,23 @@ export async function accountSecurityState(req) {
       verified ||= passkeyVerified;
     }
   }
-  return (req.accountSecurityState = { method, maskedEmail, enabled: method === 'email' || !!row.enabled_at || passkeyEnabled, authenticatorEnabled: !!row.enabled_at, verified, passkeyEnabled, passkeyVerified, ssoAuthenticated, required: !ssoAuthenticated && (passkeyEnabled || requiresStaffMfa(String(row.role).toLowerCase())), rememberDays: method === 'email' ? 0 : rememberedDays() });
+  // A guardian's email choice is enforced after enrollment. Once they add a
+  // passkey or authenticator, an email code cannot bypass that stronger factor.
+  if (guardianAccount) {
+    const { schoolEmailHash, maskedSchoolEmail } = await import('./schoolEmailVerification.service.js');
+    maskedEmail = maskedSchoolEmail(row.email);
+    if (emailEnabled && !row.enabled_at && !passkeyEnabled) {
+      method = 'email';
+      const [[emailSession]] = await pool.execute('SELECT recipient_hash,verified_at FROM account_email_sessions WHERE user_id=? AND session_key=?', [req.user.id, req.sessionSecurity?.key || '']);
+      verified ||= !!emailSession && emailSession.recipient_hash === schoolEmailHash(row.email) && !!afterReset(emailSession.verified_at);
+    }
+  }
+  return (req.accountSecurityState = { method, maskedEmail, guardianAccount, emailEnabled, emailEnrollmentAvailable: guardianAccount && !row.enabled_at && !passkeyEnabled && !emailEnabled,
+    enabled: method === 'email' || !!row.enabled_at || passkeyEnabled, authenticatorEnabled: !!row.enabled_at, verified, passkeyEnabled, passkeyVerified, ssoAuthenticated,
+    required: !ssoAuthenticated && (passkeyEnabled || (guardianAccount && (emailEnabled || !!row.enabled_at)) || requiresStaffMfa(String(row.role).toLowerCase())), rememberDays: method === 'email' ? 0 : rememberedDays() });
 }
 
-async function primaryProof(req, password) {
+export async function primaryProof(req, password) {
   const [rows] = await pool.execute('SELECT password_hash FROM users WHERE id=?', [req.user.id]);
   if (typeof password === 'string' && password.length <= 256 && rows[0]?.password_hash && await bcrypt.compare(password, rows[0].password_hash)) return;
   if (req.authClaims?.authMethod === 'google' && Number(req.authClaims.iat) * 1000 > Date.now() - 5 * 60000) return;
@@ -90,7 +109,7 @@ export async function beginAuthenticator(req) {
   requireAccountSession(req);
   await primaryProof(req, req.body?.password);
   const security = await accountSecurityState(req);
-  if(security.passkeyEnabled && !security.verified)throw securityError('MFA_REQUIRED','Verify an existing passkey or use passkey recovery before adding an authenticator.',403);
+  if((security.passkeyEnabled || (security.guardianAccount && security.required)) && !security.verified)throw securityError('MFA_REQUIRED','Verify your existing sign-in protection before adding an authenticator.',403);
   const secret = newAuthenticatorSecret();
   const cipher = sealMfaSecret(secret, req.user.id);
   await transaction(async db => {
@@ -106,6 +125,10 @@ export async function beginAuthenticator(req) {
 
 export async function verifyAuthenticator(req, enroll = false, reset = false) {
   requireAccountSession(req);
+  if (enroll) {
+    const security = await accountSecurityState(req);
+    if (security.required && !security.verified) throw securityError('MFA_REQUIRED','Verify your existing sign-in protection before adding an authenticator.',403);
+  }
   if (reset) await primaryProof(req, req.body?.password);
   return transaction(async db => {
     const [rows] = await db.execute('SELECT * FROM account_mfa WHERE user_id=? FOR UPDATE', [req.user.id]);
@@ -125,6 +148,7 @@ export async function verifyAuthenticator(req, enroll = false, reset = false) {
       await db.execute(`INSERT INTO user_auth_revocations (user_id,reject_issued_before,revoked_at,revoked_by_user_id)
         VALUES (?,UNIX_TIMESTAMP()+1,UTC_TIMESTAMP(3),?) ON DUPLICATE KEY UPDATE reject_issued_before=VALUES(reject_issued_before),revoked_at=VALUES(revoked_at),revoked_by_user_id=VALUES(revoked_by_user_id)`, [req.user.id,req.user.id]);
       await db.execute("UPDATE auth_session_security SET revoked_at=COALESCE(revoked_at,UTC_TIMESTAMP(3)),end_reason=COALESCE(end_reason,'Authenticator replaced') WHERE user_id=?", [req.user.id]);
+      delete req.accountSecurityState;
       return { reset: true, mirror: await recordSecurityAction(db,req,'mfa_reset',{recoveryCode:isRecovery}) };
     }
     let recoveryCodes;
@@ -143,6 +167,7 @@ export async function verifyAuthenticator(req, enroll = false, reset = false) {
     }
     await db.execute(`INSERT INTO account_mfa_sessions (session_key,user_id,factor_version,verified_at,device_id)
       VALUES (?,?,?,UTC_TIMESTAMP(3),?) ON DUPLICATE KEY UPDATE factor_version=VALUES(factor_version),verified_at=VALUES(verified_at),device_id=VALUES(device_id)`, [req.sessionSecurity.key, req.user.id, row.factor_version, deviceId]);
+    delete req.accountSecurityState;
     return { recoveryCodes, deviceToken, rememberDays: days, mirror: await recordSecurityAction(db, req, enroll ? 'mfa_enabled' : 'mfa_verified', { recoveryCode: isRecovery, rememberedDevice: !!deviceId }) };
   });
 }

@@ -6,7 +6,7 @@ import { appendSecurityEvidence, mirrorSecurityEvidence } from '../services/secu
 import { sessionReference } from '../utils/securityEvidence.js';
 import { isPrivacyReviewer } from './activityProtection.controller.js';
 import { securityError } from '../utils/accountSecurity.js';
-import { sendSchoolEmailCode, verifySchoolEmailCode } from '../services/schoolEmailVerification.service.js';
+import { sendSchoolEmailCode, verifySchoolEmailCode, disableGuardianEmailVerification } from '../services/schoolEmailVerification.service.js';
 
 const handle = fn => async (req, res, next) => {
   try { requireAccountSession(req); res.setHeader('Cache-Control', 'no-store'); await fn(req, res); }
@@ -19,6 +19,7 @@ export const status = handle(async (req, res) => {
 });
 export const begin = handle(async (req, res) => res.json(await beginAuthenticator(req)));
 export const sendEmailCode = handle(async (req, res) => res.json(await sendSchoolEmailCode(req)));
+export const disableEmailVerification = handle(async (req, res) => res.json(await disableGuardianEmailVerification(req)));
 export const verifyEmailCode = handle(async (req, res) => {
   await verifySchoolEmailCode(req);
   res.json({ verified: true });

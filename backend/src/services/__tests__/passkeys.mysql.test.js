@@ -15,7 +15,7 @@ const enabled=process.env.PASSKEY_MYSQL_TEST==='1';
 describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
  const password='Synthetic passkey test password 84!';let db;
  const b64=b=>Buffer.from(b).toString('base64url'),hash=b=>crypto.createHash('sha256').update(b).digest();
- function request(id=1){const sessionId=crypto.randomUUID();return {user:{id,sessionId,role:'provider',email:`passkey-${id}@example.invalid`},authClaims:{iat:Math.floor(Date.now()/1000)},sessionSecurity:{key:hash(`${id}:${sessionId}`).toString('hex')},headers:{},cookies:{},body:{},get:()=> 'https://portal.example.org',evidenceContext:{requestId:crypto.randomUUID(),method:'POST',route:'/api/account-security/passkeys',clientIp:'127.0.0.1',ipSource:'direct_peer',peerIp:'127.0.0.1',forwardedIps:[]}};}
+ function request(id=1){const sessionId=crypto.randomUUID();return {user:{id,sessionId,role:'provider',email:`passkey-${id}@example.invalid`},authClaims:{iat:Math.floor(Date.now()/1000)},sessionSecurity:{key:hash(`${id}:${sessionId}`).toString('hex')},headers:{},cookies:{},body:{},get:name=>name.toLowerCase()==='origin' ? 'https://portal.example.org' : null,evidenceContext:{requestId:crypto.randomUUID(),method:'POST',route:'/api/account-security/passkeys',clientIp:'127.0.0.1',ipSource:'direct_peer',peerIp:'127.0.0.1',forwardedIps:[]}};}
  const response=req=>({cookie:(name,value)=>{req.cookies[name]=value;}});
  function keypair(){const pair=crypto.generateKeyPairSync('ec',{namedCurve:'prime256v1'}),jwk=pair.publicKey.export({format:'jwk'});return {...pair,id:crypto.randomBytes(32),cose:isoCBOR.encode(new Map([[1,2],[3,-7],[-1,1],[-2,Buffer.from(jwk.x,'base64url')],[-3,Buffer.from(jwk.y,'base64url')]]))};}
  function registration(options,key,{origin='https://portal.example.org',uv=true}={}){
@@ -32,16 +32,18 @@ describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
  async function enroll(req=request()){req.body={password,label:'Synthetic device'};const start=await service.beginPasskeyRegistration(req,response(req)),key=keypair();key.handle=start.options.user.id;req.body={challengeId:start.challengeId,response:registration(start.options,key)};const result=await service.finishPasskeyRegistration(req);return {req,key,result};}
  async function loginRequest(key,patch){const req=request();delete req.user;delete req.authClaims;delete req.sessionSecurity;const start=await service.beginPasskeyAuthentication(req,response(req));req.body={challengeId:start.challengeId,response:assertion(start.options,key,key.handle,patch)};return req;}
  beforeAll(async()=>{
-  const setup=await mysql.createConnection({socketPath:'/tmp/mh4kidz-donation.sock',user:'root'});await setup.query('DROP DATABASE IF EXISTS passkeys_test');await setup.query('CREATE DATABASE passkeys_test');await setup.end();
-  db=mysql.createPool({socketPath:'/tmp/mh4kidz-donation.sock',user:'root',database:'passkeys_test',timezone:'Z',connectionLimit:12});fixture.db=db;
+  const socket=process.env.EVIDENCE_TEST_SOCKET || '/tmp/mh4kidz-donation.sock';
+  if(process.env.EVIDENCE_TEST_SOCKET&&!/^\/private\/tmp\/pt-security-evidence-db\.[^/]+\/mysql\.sock$/.test(socket))throw Error('Use an isolated temporary test socket');
+  const setup=await mysql.createConnection({socketPath:socket,user:'root'});await setup.query('DROP DATABASE IF EXISTS passkeys_test');await setup.query('CREATE DATABASE passkeys_test');await setup.end();
+  db=mysql.createPool({socketPath:socket,user:'root',database:'passkeys_test',timezone:'Z',connectionLimit:12});fixture.db=db;
   await db.query(`CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255),role VARCHAR(64),status VARCHAR(64),is_active INT DEFAULT 1,is_archived INT DEFAULT 0,pending_access_locked INT DEFAULT 0,status_expires_at DATETIME(3),password_hash VARCHAR(255),password_changed_at DATETIME(3),temporary_password_set_at DATETIME(3),failed_login_attempts INT DEFAULT 0,locked_until DATETIME(3))`);
-  for(const file of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','1546_account_passkeys.sql','1547_passkey_enrollment_generation.sql']){
+  for(const file of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','1546_account_passkeys.sql','1547_passkey_enrollment_generation.sql','1463_school_email_verification.sql','1651_guardian_email_verification.sql']){
    for(const statement of splitSqlStatements(await fs.readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8')))await db.query(statement);
   }
  });
  beforeEach(async()=>{
   fixture.sso=false;
-  for(const table of ['account_passkey_challenges','account_passkey_proofs','account_passkeys','account_passkey_accounts','account_mfa_sessions','account_mfa_devices','account_mfa','user_auth_revocations','auth_session_security','users'])await db.query(`DELETE FROM ${table}`);
+  for(const table of ['account_email_preferences','account_email_sessions','account_email_challenges','account_passkey_challenges','account_passkey_proofs','account_passkeys','account_passkey_accounts','account_mfa_sessions','account_mfa_devices','account_mfa','user_auth_revocations','auth_session_security','users'])await db.query(`DELETE FROM ${table}`);
   const pw=await bcrypt.hash(password,4);
   await db.execute("INSERT INTO users (id,email,role,status,password_hash) VALUES (1,'one@example.invalid','provider','ACTIVE_EMPLOYEE',?),(2,'two@example.invalid','client_guardian','ACTIVE_EMPLOYEE',?)",[pw,pw]);
  });
@@ -63,7 +65,7 @@ describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
   await db.query('UPDATE users SET status_expires_at=NULL WHERE id=1');fixture.sso=true;await expect(service.finishPasskeyAuthentication(await loginRequest(key))).rejects.toMatchObject({code:'SSO_REQUIRED'});
   const req=request();req.body={password};await expect(service.beginPasskeyRegistration(req,response(req))).rejects.toMatchObject({code:'SSO_REQUIRED'});
  });
- it('keeps Google account setup unchanged even when SSO is optional',async()=>{const req=request();req.authClaims.authMethod='google';expect(await service.passkeyStatus(req)).toEqual({eligible:false});req.body={password};await expect(service.beginPasskeyRegistration(req,response(req))).rejects.toMatchObject({code:'PASSKEY_SSO_UNCHANGED'});});
+ it('allows an existing fresh Google sign-in to prepare a passkey without changing SSO login requirements',async()=>{const req=request();req.authClaims.authMethod='google';expect(await service.passkeyStatus(req)).toMatchObject({eligible:true,ssoSetup:true,recentlyVerified:true});req.body={};expect(await service.beginPasskeyRegistration(req,response(req))).toMatchObject({challengeId:expect.any(String),options:expect.any(Object)});});
  it('requires user verification at registration and does not reuse a failed challenge',async()=>{const req=request();req.body={password};const start=await service.beginPasskeyRegistration(req,response(req));req.body={challengeId:start.challengeId,response:registration(start.options,keypair(),{uv:false})};await expect(service.finishPasskeyRegistration(req)).rejects.toMatchObject({code:'PASSKEY_INVALID'});await expect(service.finishPasskeyRegistration(req)).rejects.toMatchObject({code:'PASSKEY_INVALID'});});
  it('rejects wrong origin, absent user verification, invalid signature and another account handle',async()=>{
   const {key}=await enroll();for(const patch of [{origin:'https://evil.example.org'},{uv:false},{signer:keypair().privateKey}])await expect(service.finishPasskeyAuthentication(await loginRequest(key,patch))).rejects.toMatchObject({code:'PASSKEY_INVALID'});
@@ -72,12 +74,18 @@ describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
  it('binds challenges to browser, origin, session and expiry',async()=>{
   const {key}=await enroll();const req=await loginRequest(key);req.cookies[service.PASSKEY_COOKIE]='f'.repeat(64);await expect(service.finishPasskeyAuthentication(req)).rejects.toMatchObject({code:'PASSKEY_INVALID'});
   const old=await loginRequest(key);await db.execute('UPDATE account_passkey_challenges SET expires_at=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE id=?',[old.body.challengeId]);await expect(service.finishPasskeyAuthentication(old)).rejects.toMatchObject({code:'PASSKEY_INVALID'});
-  const wrongOrigin=await loginRequest(key);wrongOrigin.get=()=> 'https://other.example.org';await expect(service.finishPasskeyAuthentication(wrongOrigin)).rejects.toMatchObject({code:'PASSKEY_INVALID'});
+  const wrongOrigin=await loginRequest(key);wrongOrigin.get=name=>name.toLowerCase()==='origin' ? 'https://other.example.org' : null;await expect(service.finishPasskeyAuthentication(wrongOrigin)).rejects.toMatchObject({code:'PASSKEY_INVALID'});
   const reg=request(2);reg.body={password};const start=await service.beginPasskeyRegistration(reg,response(reg));reg.sessionSecurity.key='a'.repeat(64);reg.body={challengeId:start.challengeId,response:registration(start.options,keypair())};await expect(service.finishPasskeyRegistration(reg)).rejects.toMatchObject({code:'PASSKEY_INVALID'});
  });
  it('consumes concurrent login assertions exactly once and rejects counter replay',async()=>{const {key}=await enroll(),req=await loginRequest(key);const results=await Promise.allSettled([service.finishPasskeyAuthentication(req),service.finishPasskeyAuthentication(req)]);expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);await expect(service.finishPasskeyAuthentication(await loginRequest(key,{counter:1}))).rejects.toMatchObject({code:'PASSKEY_INVALID'});});
  it('requires the enrolled factor after password or emailed-link login and for additional enrollment',async()=>{await enroll();const req=request();expect(await accountSecurityState(req)).toMatchObject({required:true,verified:false});req.body={password};await expect(service.beginPasskeyRegistration(req,response(req))).rejects.toMatchObject({code:'PASSKEY_PROOF_REQUIRED'});});
  it('cannot enroll an alternate authenticator with only a password to bypass a passkey',async()=>{await enroll();const req=request();req.body={password};await expect(beginAuthenticator(req)).rejects.toMatchObject({code:'MFA_REQUIRED'});});
+ it('cannot bypass a guardian’s enrolled email factor by adding a passkey or authenticator with only the password',async()=>{
+  await db.execute('INSERT INTO account_email_preferences (user_id,enabled_at) VALUES (2,UTC_TIMESTAMP(3))');
+  const req=request(2);req.user.role='client_guardian';req.body={password};
+  await expect(service.beginPasskeyRegistration(req,response(req))).rejects.toMatchObject({code:'PASSKEY_PROOF_REQUIRED'});
+  await expect(beginAuthenticator(req)).rejects.toMatchObject({code:'MFA_REQUIRED'});
+ });
  it('will not verify another user’s passkey for an existing session',async()=>{const {key}=await enroll();const req=request(2),start=await service.beginPasskeyAuthentication(req,response(req),'verify');req.body={challengeId:start.challengeId,response:assertion(start.options,key,key.handle)};await expect(service.finishPasskeyAuthentication(req,'verify')).rejects.toMatchObject({code:'PASSKEY_INVALID'});});
  it('uses a recovery code once, revokes lost keys and other sessions, and preserves the verification gate',async()=>{
   const {key,result}=await enroll(),req=request();req.body={password,code:result.recoveryCodes[0]};
@@ -104,7 +112,7 @@ describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
    const context=await browser.newContext(),page=await context.newPage(),cdp=await context.newCDPSession(page);
    page.setDefaultTimeout(12000);page.on('pageerror',e=>console.error('Browser error:',e.message));
    await cdp.send('WebAuthn.enable');await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
-   const base=request(2);base.get=()=> 'http://localhost:5186';
+   const base=request(2);base.get=name=>name.toLowerCase()==='origin' ? 'http://localhost:5186' : null;
    await page.route('**/api/**',async route=>{
     const raw=route.request(),path=new URL(raw.url()).pathname,req={...base,body:raw.postDataJSON()||{},cookies:{...base.cookies}};
     let data,status=200;

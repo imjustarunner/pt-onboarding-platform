@@ -5,6 +5,7 @@ import User from '../models/User.model.js';
 import { emailCoGuardianInvite, invitePublicUrl, insertGuardianAccessTicket } from './coGuardianInvite.service.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
+import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 
 const failed = status => ['failed', 'bounced', 'undelivered', 'not_sent'].includes(status);
 const json = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
@@ -29,15 +30,45 @@ export async function deliverCoGuardianInvite({ inviteId, enrollmentChannel = nu
 
 export async function listGuardianInvitations({ userId, agencyId }) {
   if (!Number.isSafeInteger(Number(agencyId)) || Number(agencyId) <= 0) fail(400, 'Select an agency.');
-  const [rows] = await pool.execute(`SELECT i.id, i.invited_email AS email, i.status,
+  const [rows] = await pool.execute(`SELECT i.id, i.invited_email AS email, i.status, i.created_at AS invitedAt, i.expires_at AS expiresAt,
+      i.invited_by_user_id AS invitedByUserId, i.source,
+      i.accepted_at AS completedAt, (i.accepted_user_id IS NOT NULL) AS accountConnected,
+      c.agency_id AS clientAgencyId, c.guardian_portal_enabled AS portalEnabled, c.date_of_birth AS dateOfBirth,
+      cg.access_enabled AS accessEnabled, cg.permissions_json AS permissions,
+      d.created_at AS lastSentAt,
+      (SELECT COUNT(*) FROM co_guardian_invite_deliveries history WHERE history.invite_id=i.id) AS deliveryAttempts,
       COALESCE(d.delivery_status, 'not_requested') AS deliveryStatus, d.failure_kind AS failureKind
     FROM co_guardian_invites i LEFT JOIN co_guardian_invite_deliveries d ON d.id=(
       SELECT MAX(latest.id) FROM co_guardian_invite_deliveries latest WHERE latest.invite_id=i.id)
-    WHERE i.invited_by_user_id=? AND i.agency_id=? AND i.status IN ('pending','expired')
-      AND EXISTS (SELECT 1 FROM co_guardian_invite_clients ic JOIN client_guardians cg ON cg.client_id=ic.client_id
-        WHERE ic.invite_id=i.id AND cg.guardian_user_id=? AND cg.access_enabled=1)
-    ORDER BY i.id DESC LIMIT 30`, [userId, agencyId, userId]);
-  return rows;
+    JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id JOIN clients c ON c.id=ic.client_id
+    LEFT JOIN client_guardians cg ON cg.client_id=c.id AND cg.guardian_user_id=?
+    WHERE i.agency_id=? AND i.status IN ('pending','expired','accepted')
+      AND EXISTS (SELECT 1 FROM co_guardian_invite_clients visible JOIN client_guardians linked ON linked.client_id=visible.client_id
+        WHERE visible.invite_id=i.id AND linked.guardian_user_id=? AND linked.access_enabled=1)
+    ORDER BY i.id DESC`, [userId, agencyId, userId]);
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!grouped.has(row.id)) grouped.set(row.id, []);
+    grouped.get(row.id).push(row);
+  }
+  const canSee = row => {
+    let permissions;
+    try { permissions = json(row.permissions); } catch { return false; }
+    return Number(row.clientAgencyId) === Number(agencyId) && Number(row.portalEnabled) === 1
+      && Number(row.accessEnabled) === 1 && permissions && typeof permissions === 'object' && !Array.isArray(permissions)
+      && !permissions.noView && !permissions.noViewOtherGuardian && !isDobAdultLocked(row.dateOfBirth);
+  };
+  return [...grouped.values()].filter(group => group.some(canSee)).slice(0, 30).map(group => {
+    const row = group[0], owner = Number(row.invitedByUserId) === Number(userId);
+    // A linked guardian may see progress of a staff-created invitation, but
+    // receives no other guardian's address, answers, or management authority.
+    return { id: row.id, email: owner ? row.email : `${String(row.email || '').slice(0, 1)}•••@•••`,
+      status: row.status, invitedAt: row.invitedAt, expiresAt: row.expiresAt,
+      completedAt: row.completedAt, accountConnected: row.accountConnected,
+      lastSentAt: row.lastSentAt, deliveryAttempts: row.deliveryAttempts,
+      deliveryStatus: row.deliveryStatus, failureKind: row.failureKind,
+      canManage: owner && row.source !== 'school' && group.every(canSee) };
+  });
 }
 
 export async function assertInvitationOwner({ invite, userId, agencyId, db = pool }) {
@@ -54,8 +85,24 @@ export async function assertInvitationOwner({ invite, userId, agencyId, db = poo
 }
 
 export async function resendGuardianInvitation({ userId, agencyId, inviteId, email }) {
-  const recipient = String(email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || recipient.length > 254) fail(400, 'Enter a valid email address for the other parent or guardian.');
+  return rotateAndSendInvitation({ userId, agencyId, inviteId, email });
+}
+
+/** Explicit staff reminder to the already-confirmed address. Does not alter the
+ * original inviter, guardian permissions, recipient identity, or completed forms. */
+export async function sendStaffGuardianInvitationReminder({ actorUserId, agencyId, inviteId }) {
+  const actor = await User.findById(actorUserId);
+  if (!actor || !['super_admin', 'admin', 'agency_admin', 'clinical_practice_assistant'].includes(actor.role)) {
+    fail(403, 'An authorized agency administrator must send this reminder.');
+  }
+  if (actor.role !== 'super_admin') {
+    const [members] = await pool.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=?', [actorUserId, agencyId]);
+    if (!members.length) fail(403, 'This administrator does not have access to the agency.');
+  }
+  return rotateAndSendInvitation({ userId: actorUserId, agencyId, inviteId, staffReminder: true });
+}
+
+async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staffReminder = false }) {
   const db = await pool.getConnection(), lock = `guardian-invite:${Number(inviteId)}`;
   let locked = false;
   try {
@@ -65,8 +112,25 @@ export async function resendGuardianInvitation({ userId, agencyId, inviteId, ema
     await db.beginTransaction();
     const [rows] = await db.execute('SELECT * FROM co_guardian_invites WHERE id=? FOR UPDATE', [inviteId]);
     const invite = rows[0];
-    const clients = await assertInvitationOwner({ invite, userId, agencyId, db });
-    if (invite.source === 'school') fail(409, 'School invitations are managed by your support team. Please send them the corrected address.');
+    let clients;
+    if (staffReminder) {
+      if (!invite || Number(invite.agency_id) !== Number(agencyId)) fail(404, 'Invitation not found.');
+      if (!['pending', 'expired'].includes(invite.status)) fail(409, 'This invitation has already been used or revoked.');
+      [clients] = await db.execute('SELECT c.id, c.agency_id FROM co_guardian_invite_clients ic JOIN clients c ON c.id=ic.client_id WHERE ic.invite_id=?', [inviteId]);
+      if (!clients.length || clients.some(client => Number(client.agency_id) !== Number(agencyId))) fail(409, 'The invitation does not have a valid dependent in this agency.');
+      // A reminder must land on the published enrollment packet, not activate a
+      // guardian through the older contact-only invitation screen.
+      if (!invite.public_key) fail(409, 'Attach a published enrollment packet before sending this reminder.');
+      const [packets] = await db.execute('SELECT id, is_active, create_guardian, master_channel, scope_type, organization_id FROM intake_links WHERE public_key=?', [invite.public_key]);
+      if (Number(packets[0]?.is_active) !== 1 || Number(packets[0]?.create_guardian) !== 1) fail(409, 'The enrollment packet must be active and provision guardian accounts.');
+      if (packets[0].scope_type === 'agency' && Number(packets[0].organization_id) !== Number(agencyId)) fail(409, 'The enrollment packet belongs to a different agency.');
+      invite.enrollment_channel = packets[0].master_channel || null;
+    } else {
+      clients = await assertInvitationOwner({ invite, userId, agencyId, db });
+      if (invite.source === 'school') fail(409, 'School invitations are managed by your support team. Please send them the corrected address.');
+    }
+    const recipient = String(staffReminder ? invite.invited_email : email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || recipient.length > 254) fail(400, 'Enter a valid email address for the other parent or guardian.');
     const [attempts] = await db.execute('SELECT * FROM co_guardian_invite_deliveries WHERE invite_id=? ORDER BY id DESC LIMIT 1', [inviteId]);
     const last = attempts[0];
     if (last && Date.now() - new Date(last.created_at).getTime() < 60000) fail(429, 'Wait a minute before resending.');
@@ -87,9 +151,9 @@ export async function resendGuardianInvitation({ userId, agencyId, inviteId, ema
     await db.commit();
     const agency = await Agency.findById(agencyId);
     const delivery = await deliverCoGuardianInvite({ inviteId, agency, to: recipient, firstName: invite.invited_first_name,
-      inviteUrl: invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: last?.enrollment_channel || 'counseling' }), clientId: clients[0].id,
-      enrollmentChannel: last?.enrollment_channel || null });
-    return { deliveryStatus: delivery.deliveryStatus, email: recipient };
+      inviteUrl: invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: last?.enrollment_channel || invite.enrollment_channel || 'counseling' }), clientId: clients[0].id,
+      enrollmentChannel: last?.enrollment_channel || invite.enrollment_channel || null, school: invite.source === 'school', reminder: staffReminder });
+    return { deliveryStatus: delivery.deliveryStatus, email: recipient, communicationId: delivery.communicationId || null };
   } catch (error) { await db.rollback(); throw error; }
   finally { if (locked) await db.execute('SELECT RELEASE_LOCK(?)', [lock]); db.release(); }
 }

@@ -82,14 +82,15 @@ class TreatmentPlanAckLink {
     const cid = safeInt(clientId);
     if (!cid) return [];
     const uid = safeInt(recipientUserId);
+    if (!uid) return [];
     const [rows] = await pool.execute(
       `SELECT * FROM treatment_plan_ack_links
        WHERE client_id = ?
          AND dashboard_visible = 1
          AND status NOT IN ('cancelled', 'expired')
-         AND (recipient_user_id IS NULL OR recipient_user_id = ? OR ? IS NULL)
+         AND recipient_user_id = ?
        ORDER BY created_at DESC`,
-      [cid, uid, uid]
+      [cid, uid]
     );
     return (rows || []).map((r) => this.normalize(r));
   }

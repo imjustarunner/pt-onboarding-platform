@@ -39,7 +39,7 @@
       <div class="tp-ack-actions">
         <article class="tp-ack-action-card">
           <h5>Share to dashboard</h5>
-          <p class="muted tiny">Adds a signing task on the guardian dashboard.</p>
+          <p class="muted tiny">Creates a separate request for each authorized guardian. Each person signs through their own account.</p>
           <button
             type="button"
             class="cdp-btn-primary btn-sm"

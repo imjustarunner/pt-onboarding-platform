@@ -12,12 +12,16 @@ export async function cardContext({agencyId,profileId,userId,staff=false},db=poo
   const [[row]]=await db.execute(`SELECT p.*,a.name AS agency_name,a.slug,a.portal_url,u.email,u.first_name,u.last_name,u.status AS user_status,u.is_active AS user_is_active,u.is_archived AS user_is_archived FROM guardian_insurance_profiles p JOIN agencies a ON a.id=p.agency_id JOIN users u ON u.id=p.guardian_user_id WHERE p.id=? AND p.agency_id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`,[positiveId(profileId),positiveId(agencyId)]);
   if(!row || (!staff&&Number(row.guardian_user_id)!==Number(userId)))throw billingError(404,'Insurance record is not available to this account');
   const profile=decodeInsuranceProfile(row);
-  const [links]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials FROM clients c LEFT JOIN guardian_insurance_clients g ON g.client_id=c.id AND g.agency_id=c.agency_id AND g.profile_id=? WHERE c.agency_id=? AND (c.id=? OR g.profile_id IS NOT NULL) AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND c.compliance_archived_at IS NULL`,[profileId,agencyId,profile.client_id||0]);
+  const [links]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,g.profile_id AS assigned_profile_id FROM clients c LEFT JOIN guardian_insurance_clients g ON g.client_id=c.id AND g.agency_id=c.agency_id AND g.profile_id=? WHERE c.agency_id=? AND (c.id=? OR g.profile_id IS NOT NULL) AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND c.compliance_archived_at IS NULL`,[profileId,agencyId,profile.client_id||0]);
   const clients=[];
   for(const c of links) {
     try{await requireBillingLink(profile.guardian_user_id,c.id,agencyId,db);}catch(e){if(e.status===403)continue;throw e;}
     const coverage=await readClientInsurance(c.id,agencyId,db);
-    if(Number(coverage?.profileId)===Number(profileId)&&cardCycle(coverage)===cardCycle(profile))clients.push(c);
+    const currentCoverage=Number(coverage?.profileId)===Number(profileId)&&cardCycle(coverage)===cardCycle(profile);
+    // Another parent's policy remains their private submission while staff
+    // coordinates primary/secondary coverage. They can still upload its cards.
+    const additionalCoverage=Number(c.assigned_profile_id)===Number(profileId);
+    if(currentCoverage||additionalCoverage)clients.push(c);
   }
   if(!clients.length)throw billingError(404,'This policy is no longer assigned to an accessible client');
   return {profile,clients};

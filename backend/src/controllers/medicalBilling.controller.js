@@ -1,4 +1,5 @@
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
+import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 import { listUserOfficeIds } from '../services/officeBillingSites.service.js';
 import {assertNoSelfPayBalance} from '../services/familyLedger/serviceCharges.js';
 import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from '../services/medicalServiceFees.service.js';
@@ -490,7 +491,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     } catch {
       // best-effort
     }
-    return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null });
+    const guardianSharing = await shareSavedPlanToGuardians(refreshed, req.user.id);
+    return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null, guardianSharing });
   } catch (e) {
     next(e);
   }
@@ -942,6 +944,7 @@ export const listClientChart = async (req, res, next) => {
 
 export const createObjectiveRating = async (req, res, next) => {
   try {
+    requireStaffPlanActor(req.user);
     const objectiveId = parseIntValue(req.params.objectiveId);
     const agencyId = parseIntValue(req.body.agencyId);
     const clientId = parseIntValue(req.body.clientId);
@@ -1046,6 +1049,7 @@ export const createObjectiveRating = async (req, res, next) => {
 
 export const listClientObjectiveRatings = async (req, res, next) => {
   try {
+    requireStaffPlanActor(req.user);
     const agencyId = parseIntValue(req.query.agencyId);
     const clientId = parseIntValue(req.params.clientId);
     if (!agencyId || !clientId) {
@@ -1057,9 +1061,17 @@ export const listClientObjectiveRatings = async (req, res, next) => {
       clientId,
       limit: parseIntValue(req.query.limit) || 200
     });
+    const guardianIds = [...new Set(ratings.filter(r => r.rater_kind === 'other' && /^guardian:\d+$/.test(String(r.rater_label || '')))
+      .map(r => Number(r.rated_by_user_id)).filter(Boolean))];
+    let guardianNames = new Map();
+    if (guardianIds.length) {
+      const [observers] = await pool.execute(`SELECT id,first_name,last_name FROM users WHERE id IN (${guardianIds.map(() => '?').join(',')})`, guardianIds);
+      guardianNames = new Map(observers.map(u => [Number(u.id), [u.first_name, u.last_name].filter(Boolean).join(' ')]));
+    }
     const reveal = String(req.query.reveal || '') === '1';
     const sanitized = (ratings || []).map((r) => {
       const row = { ...r };
+      if (guardianNames.has(Number(row.rated_by_user_id))) row.observer_name = guardianNames.get(Number(row.rated_by_user_id));
       if (row.notes) {
         row.notes = maybeDecryptNotePayload(row.notes);
         if (!reveal) {
@@ -1151,7 +1163,8 @@ export const updateTreatmentPlanPrescribedFrequency = async (req, res, next) => 
       clientId,
       prescribedFrequency
     });
-    return res.json({ plan });
+    const guardianSharing = await shareSavedPlanToGuardians(plan, req.user.id);
+    return res.json({ plan, guardianSharing });
   } catch (e) {
     if (e?.status === 404) {
       return res.status(404).json({ error: { message: e.message || 'Treatment plan not found' } });
@@ -1170,7 +1183,7 @@ export const updateObjectiveKioskPrompts = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const [objRows] = await clinicalPool.execute(
-      `SELECT o.*, p.agency_id, p.client_id
+      `SELECT o.*, p.agency_id, p.client_id, p.id AS treatment_plan_id
        FROM clinical_treatment_plan_objectives o
        INNER JOIN clinical_treatment_plan_goals g ON g.id = o.goal_id
        INNER JOIN clinical_treatment_plans p ON p.id = g.treatment_plan_id
@@ -1203,7 +1216,10 @@ export const updateObjectiveKioskPrompts = async (req, res, next) => {
       kioskPrompt: req.body.kioskPrompt !== undefined ? req.body.kioskPrompt : undefined,
       kioskPromptOther: req.body.kioskPromptOther !== undefined ? req.body.kioskPromptOther : undefined
     });
-    return res.json({ ok: true });
+    const guardianSharing = req.body.interventions !== undefined
+      ? await shareSavedPlanToGuardians(await ClinicalTreatmentPlan.findById(objective.treatment_plan_id), req.user.id)
+      : null;
+    return res.json({ ok: true, guardianSharing });
   } catch (e) {
     next(e);
   }
@@ -1265,7 +1281,9 @@ export const amendTreatmentPlan = async (req, res, next) => {
       console.warn('[amendTreatmentPlan] diagnosis attach skipped:', e?.message);
     }
 
-    return res.json({ plan });
+    const refreshedPlan = await ClinicalTreatmentPlan.findById(plan.id);
+    const guardianSharing = await shareSavedPlanToGuardians(refreshedPlan, req.user.id);
+    return res.json({ plan: refreshedPlan, guardianSharing });
   } catch (e) {
     if (String(e.message || '').includes('requires at least one new objective')) {
       return res.status(400).json({ error: { message: e.message } });
@@ -3600,3 +3618,13 @@ export const saveTreatmentPlanRenewalPolicy = async (req, res, next) => {
     res.json({ policy });
   } catch (e) { next(e); }
 };
+
+async function shareSavedPlanToGuardians(plan, actorUserId) {
+  try {
+    const { shareGuardianPlanRevision } = await import('../services/guardianPlanProgress.service.js');
+    return await shareGuardianPlanRevision({ plan, actorUserId });
+  } catch (error) {
+    console.warn('[treatment-plan] Guardian sharing needs a retry:', error?.code || error?.status || 'unavailable');
+    return { shared: 0, needsRetry: true, message: 'The plan was saved, but guardian sharing needs to be retried from the acknowledgment panel.' };
+  }
+}

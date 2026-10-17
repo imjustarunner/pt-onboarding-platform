@@ -5,6 +5,7 @@ import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { deliverCoGuardianInvite } from './coGuardianDelivery.service.js';
+import { buildPublicPortalBaseUrl, buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 
@@ -81,7 +82,8 @@ export function normalizeOtherGuardian(raw = {}) {
 }
 
 export function invitePublicUrl({ agency, token, serviceType = 'counseling', publicKey = null }) {
-  const origin = String(process.env.FRONTEND_URL || process.env.APP_URL || 'https://plottwisthq.com').replace(/\/$/, '');
+  // Enrollment and join routes live at the host root, including dedicated agency hosts.
+  const origin = new URL(buildPublicPortalBaseUrl(agency)).origin;
   const pk = String(publicKey || '').trim();
   if (pk) {
     return `${origin}/intake/${encodeURIComponent(pk)}?coGuardian=${encodeURIComponent(token)}`;
@@ -456,15 +458,32 @@ export async function resolveCoGuardianIntakeBinding(token, scope = {}) {
   };
 }
 
-export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId, enrollmentChannel = null, school = false }) {
+export function assertCoGuardianSubmissionBinding(submission, binding) {
+  let data = submission?.intake_data || {};
+  if (typeof data === 'string') { try { data = JSON.parse(data); } catch { data = {}; } }
+  const attribution = data?.guardianSubmission?.kind === 'additional_guardian' ? data.guardianSubmission : null;
+  const durableId = Number(submission?.co_guardian_invite_id || 0);
+  const fail = () => { throw Object.assign(new Error('Open this enrollment from its original guardian invitation to continue.'), { status: 403, statusCode: 403 }); };
+  if ((durableId || attribution) && !binding) fail();
+  if (!binding) return;
+  if (durableId && durableId !== Number(binding.invite?.id)) fail();
+  if (attribution && Number(attribution.inviteId) !== Number(binding.invite?.id)) fail();
+  const acceptedUserId = Number(binding.acceptedUserId || binding.invite?.accepted_user_id || 0);
+  if (attribution && Number(attribution.guardianUserId || submission?.guardian_user_id || 0) !== acceptedUserId) fail();
+  if (acceptedUserId && submission?.guardian_user_id && Number(submission.guardian_user_id) !== acceptedUserId) fail();
+}
+
+export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId, enrollmentChannel = null, school = false, reminder = false }) {
   const org = String(agency?.official_name || agency?.name || 'our care team').trim();
   const greeting = firstName ? `Hi ${firstName},` : 'Hello,';
-  const subject = `${org}: complete your guardian enrollment`;
+  const subject = `${org}: ${reminder ? 'reminder to complete' : 'complete'} your guardian enrollment`;
   const text = [
     greeting,
     '',
-    `Another parent or guardian invited you to complete your own enrollment for ${org}.`,
-    'You will not see the other guardian’s answers. This link is only for your information, your contact details, and the dependent(s) connected to you.',
+    reminder ? `This is a reminder to complete your own guardian enrollment for ${org}.` : `You have been invited to complete your own guardian enrollment for ${org}.`,
+    'Review and sign your own required agreements, and share your observations and expectations for your dependent. Your care team can review your submission separately; it will not replace your child’s identifying information.',
+    'Use the email address that received this invitation for your own portal account. You will not see the other guardian’s private enrollment answers. Shared appointments, messages, plans, and billing information are available according to the access your agency authorizes.',
+    'After submitting, use the portal setup option to receive a secure email and choose your password. If you already have an account, keep using your existing login.',
     '',
     inviteUrl,
     '',
@@ -676,7 +695,6 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
   );
 
   const agency = await Agency.findById(row.agency_id);
-  const slug = String(agency?.portal_url || agency?.slug || '').trim();
   return {
     accepted: true,
     created,
@@ -684,7 +702,7 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
       email,
       password,
       existingAccount: !created,
-      portalPath: slug ? `/${encodeURIComponent(slug)}/login` : '/login'
+      portalPath: buildPublicPortalLoginUrl(agency)
     },
     dependents: clients.map((c) => ({
       id: c.id,

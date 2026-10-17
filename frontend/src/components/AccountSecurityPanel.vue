@@ -10,20 +10,35 @@
       <section class="security-card">
         <h2>{{ state.method === 'email' ? 'Email verification' : 'Two-step verification' }}</h2>
         <p v-if="state.ssoAuthenticated">You’re signed in with Google. No additional app verification is required.</p>
-        <p v-if="!state.required">We’re rolling out two-step verification for people who sign in without Google SSO to help protect our clients’ information. Setup is optional for now, and we encourage you to get started. We plan to make it mandatory for non-SSO sign-ins over the next few months. Google SSO users do not need additional app verification.</p>
+        <p v-if="state.guardianAccount">Keep your portal private with a passkey, an authenticator app, or email verification. Setup is optional and recommended. Once enabled, you must verify each password sign-in before opening protected information. Each parent manages their own account and security.</p>
+        <p v-else-if="!state.required">We’re rolling out two-step verification for people who sign in without Google SSO to help protect our clients’ information. Setup is optional for now, and we encourage you to get started. We plan to make it mandatory for non-SSO sign-ins over the next few months. Google SSO users do not need additional app verification.</p>
         <p v-if="state.verified">Your current sign-in is verified.</p>
         <p v-else-if="state.required">To protect client privacy, {{ state.enabled ? 'verify your sign-in' : 'set up two-step verification' }} to view full names and open client documents. You can keep using client codes and initials.</p>
-        <div v-if="state.method === 'email' && !state.verified">
-          <p>We’ll send a six-digit code to your school email, {{ state.maskedEmail || 'the address on your account' }}. No authenticator app is needed.</p>
+        <div v-if="state.emailEnrollmentAvailable || (state.method === 'email' && !state.verified)">
+          <h3 v-if="state.emailEnrollmentAvailable">Set up email verification</h3>
+          <p>We’ll send a six-digit code to {{ state.guardianAccount ? 'your account email' : 'your school email' }}, {{ state.maskedEmail || 'the address on your account' }}. No authenticator app is needed.</p>
+          <template v-if="state.emailEnrollmentAvailable">
+            <label>Confirm your password to enable email verification<input v-model="emailPassword" type="password" autocomplete="current-password" /></label>
+            <p class="hint">A Google sign-in within the last five minutes also confirms your identity. Email verification starts only after you enter the code below.</p>
+          </template>
           <button :disabled="busy" @click="sendEmailCode">{{ emailSent ? 'Send a new code' : 'Email me a code' }}</button>
           <p v-if="emailSent" role="status">Code sent. It expires in 10 minutes. Wait one minute before requesting another.</p>
-          <form @submit.prevent="verifyEmailCode">
+          <form v-if="!state.emailEnrollmentAvailable || emailSent" @submit.prevent="verifyEmailCode">
             <label>Email code<input v-model="emailCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label>
             <button class="btn btn-primary" :disabled="busy">Verify email code</button>
           </form>
-          <p class="hint">Verification lasts for this sign-in. If the address is incorrect or you cannot receive the code, contact IT.</p>
+          <p class="hint">Verification lasts for this sign-in. If the address is incorrect or you cannot receive the code, contact your organization’s support team. Protect your email account with its own two-step verification.</p>
         </div>
-        <div v-if="state.method !== 'email' || state.canReviewPrivacy">
+        <details v-if="state.guardianAccount && state.emailEnabled && state.verified">
+          <summary>Turn off email verification</summary>
+          <p>Your enrolled passkey or authenticator, if present, stays enabled.</p>
+          <form @submit.prevent="disableEmail">
+            <label>Confirm your password<input v-model="emailDisablePassword" type="password" autocomplete="current-password" /></label>
+            <label class="security-checkbox"><input v-model="confirmDisableEmail" type="checkbox" required /><span>I want to turn off email verification for future password sign-ins.</span></label>
+            <button :disabled="busy || !confirmDisableEmail">Turn off email verification</button>
+          </form>
+        </details>
+        <div v-if="state.method !== 'email' || state.canReviewPrivacy || state.guardianAccount">
         <p v-if="state.method === 'email' && state.required">Privacy reviewers also need an authenticator code to approve access requests.</p>
         <p>Use Google Authenticator, Microsoft Authenticator, or another authenticator app. No text message or phone number is needed.</p>
         <form v-if="!authenticatorEnabled && !setup" @submit.prevent="beginSetup">
@@ -108,10 +123,11 @@ import QRCode from 'qrcode';
 import api from '../services/api';
 import { evidenceLabel, transferDescription } from '../utils/evidenceTransfer';
 const state = ref(null), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
-const emailCode = ref(''), emailSent = ref(false);
+const emailCode = ref(''), emailSent = ref(false), emailPassword = ref(''), emailDisablePassword = ref(''), confirmDisableEmail = ref(false);
 const authenticatorEnabled = computed(() => state.value?.authenticatorEnabled ?? state.value?.enabled);
-async function sendEmailCode() { await run(async () => { await api.post('/account-security/email/send', {}, options); emailCode.value = ''; emailSent.value = true; }); }
-async function verifyEmailCode() { await run(async () => { await api.post('/account-security/email/verify', { code: emailCode.value }, options); emailCode.value = ''; message.value = 'Your sign-in is verified.'; await load(); window.dispatchEvent(new Event('account-security-changed')); }); }
+async function sendEmailCode() { await run(async () => { await api.post('/account-security/email/send', state.value.emailEnrollmentAvailable ? { enrollEmail: true, password: emailPassword.value } : {}, options); emailPassword.value = ''; emailCode.value = ''; emailSent.value = true; }); }
+async function verifyEmailCode() { await run(async () => { await api.post('/account-security/email/verify', { code: emailCode.value }, options); emailCode.value = ''; emailSent.value = false; message.value = 'Your sign-in is verified.'; await load(); window.dispatchEvent(new Event('account-security-changed')); }); }
+async function disableEmail() { if (!confirmDisableEmail.value) return; await run(async () => { await api.post('/account-security/email/disable', { password: emailDisablePassword.value }, options); emailDisablePassword.value = ''; confirmDisableEmail.value = false; message.value = 'Email verification is turned off. Any enrolled passkey or authenticator remains enabled.'; await load(); window.dispatchEvent(new Event('account-security-changed')); }); }
 const password = ref(''), code = ref(''), setup = ref(null), qr = ref(''), recoveryCodes = ref([]), remember = ref(false), deviceLabel = ref(''), useRecoveryCode = ref(false);
 const replacementPassword = ref(''), replacementCode = ref(''), replacementRecovery = ref(false), confirmReplacement = ref(false);
 const sessions = ref([]), sessionsLoading = ref(false), page = ref(0), hasMore = ref(false), selected = ref(null), events = ref([]), eventCursor = ref(null), endTarget = ref(null);
@@ -123,7 +139,7 @@ async function run(fn) { busy.value = true; error.value = ''; try { await fn(); 
 async function load() { loading.value = true; try { state.value = (await api.get('/account-security')).data; } catch (e) { error.value = e.response?.data?.error?.message || 'Account security could not be loaded.'; } finally { loading.value = false; } }
 async function beginSetup() { await run(async () => { const data = (await api.post('/account-security/authenticator/begin', { password: password.value }, options)).data; password.value = ''; setup.value = data; qr.value = await QRCode.toDataURL(data.uri, { width: 220, margin: 2 }); }); }
 async function verify() { await run(async () => { const data = (await api.post(`/account-security/authenticator/${setup.value ? 'confirm' : 'verify'}`, { code: code.value, useRecoveryCode: useRecoveryCode.value, rememberDevice: remember.value, personalDevice: remember.value, deviceLabel: deviceLabel.value }, options)).data; code.value = ''; setup.value = null; qr.value = ''; recoveryCodes.value = data.recoveryCodes || []; message.value = 'Your sign-in is verified.'; await load(); window.dispatchEvent(new Event('account-security-changed')); }); }
-function saveRecovery() { const url = URL.createObjectURL(new Blob([`PlotTwistHQ recovery codes — keep private\nEach code works once.\n\n${recoveryCodes.value.join('\n')}\n`], { type: 'text/plain' })); const a = document.createElement('a'); a.href = url; a.download = 'PlotTwistHQ-recovery-codes.txt'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+function saveRecovery() { const url = URL.createObjectURL(new Blob([`Portal recovery codes — keep private\nEach code works once.\n\n${recoveryCodes.value.join('\n')}\n`], { type: 'text/plain' })); const a = document.createElement('a'); a.href = url; a.download = 'portal-recovery-codes.txt'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 async function forget(device) { await run(async () => { await api.delete(`/account-security/devices/${device.id}`, options); await load(); message.value = 'Device forgotten. It will need an authenticator code again.'; }); }
 async function loadSessions() { sessionsLoading.value = true; try { const { data } = await api.get('/account-security/sessions', { params: { page: page.value } }); sessions.value = data.items; hasMore.value = data.hasMore; } catch (e) { error.value = e.response?.data?.error?.message || 'Session history could not be loaded.'; } finally { sessionsLoading.value = false; } }
 async function showActivity(session) { selected.value = session; events.value = []; eventCursor.value = null; await loadEvents(false); }

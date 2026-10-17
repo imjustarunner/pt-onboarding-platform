@@ -251,6 +251,10 @@ class StudentLearningPlan {
       updates.push('standards_refs_json = ?');
       values.push(JSON.stringify(payload.standardsRefs || []));
     }
+    if (Object.prototype.hasOwnProperty.call(payload, 'metadata')) {
+      updates.push('metadata_json = ?');
+      values.push(JSON.stringify(payload.metadata || {}));
+    }
     if (!updates.length) return this.findGoalById(id);
     values.push(id);
     await pool.execute(`UPDATE student_learning_plan_goals SET ${updates.join(', ')} WHERE id = ?`, values);

@@ -3,6 +3,11 @@ export function notificationDestination(notification, { organizationSlug = null,
   const base = organizationSlug ? `/${organizationSlug}` : '';
   const entityType = String(n.related_entity_type || '').toLowerCase();
   const entityId = Number(n.related_entity_id || 0);
+  if (n.type === 'guardian_plan_review' && ['client_guardian', 'client'].includes(String(role || '').toLowerCase())) {
+    let audience = n.audience_json || {};
+    if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
+    return { path: `${base}/guardian`, query: { panel: 'plan', ...(Number(audience.clientId) ? { clientId: String(Number(audience.clientId)) } : {}) } };
+  }
   if (n.type === 'company_event_message') {
     let audience = n.audience_json || n.audienceJson || {};
     if (typeof audience === 'string') {
@@ -91,6 +96,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
+  if (notification.type === 'guardian_plan_review') return 'Review and sign plan';
   if (notification.type === 'provider_waitlist_reminder') return 'Review waitlist';
   if(notification.related_entity_type==='provider_availability')return 'Review availability';
   if (notification.type === 'company_event_message') return 'View event and RSVP';

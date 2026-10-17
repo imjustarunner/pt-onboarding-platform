@@ -1394,6 +1394,7 @@
 
         <!-- Demographics Tab -->
         <div v-if="showPanel('demographics')" class="detail-section">
+          <GuardianDemographicReview v-if="canEditAccount" :client-id="Number(client.id)" />
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
               Core demographics from the client record
@@ -2773,6 +2774,7 @@ import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientRenewalPushModal from './ClientRenewalPushModal.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
+import GuardianDemographicReview from './GuardianDemographicReview.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
 import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
 import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';

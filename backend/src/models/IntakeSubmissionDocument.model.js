@@ -162,10 +162,10 @@ class IntakeSubmissionDocument {
               isd.signed_pdf_path,
               isd.pdf_hash,
               isd.signed_at,
-              dt.name AS document_template_name,
+              COALESCE(dt.name, 'Signed enrollment agreement') AS document_template_name,
               il.title AS intake_link_title
        FROM intake_submission_documents isd
-       JOIN document_templates dt ON dt.id = isd.document_template_id
+       LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
        JOIN intake_submissions s ON s.id = isd.intake_submission_id
        JOIN intake_links il ON il.id = s.intake_link_id
        WHERE isd.client_id = ?

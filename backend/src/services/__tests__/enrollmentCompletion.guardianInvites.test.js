@@ -5,7 +5,7 @@ vi.mock('../coGuardianInvite.service.js',()=>({emailCoGuardianInvite:m.email,inv
 vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.notify}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.user}}));
-import { assertInvitationOwner, inviteDeliveryState, deliverCoGuardianInvite, resendGuardianInvitation, notifyInvitationFailure } from '../coGuardianDelivery.service.js';
+import { assertInvitationOwner, inviteDeliveryState, deliverCoGuardianInvite, resendGuardianInvitation, notifyInvitationFailure, listGuardianInvitations } from '../coGuardianDelivery.service.js';
 import { parseGuardianDeliveryReport } from '../../utils/guardianDeliveryReport.js';
 const invite={id:3,agency_id:4,invited_by_user_id:8,status:'pending',source:'office',invited_email:'typo@example.test'};
 const clients=[{id:5,agency_id:4,access_enabled:1,permissions_json:{},date_of_birth:'2015-01-01'}];
@@ -66,4 +66,50 @@ it('requires a structured permanent failure, original message ID and exact recip
  expect(parseGuardianDeliveryReport(report('delayed','4.2.0'))).toEqual([]);
  expect(parseGuardianDeliveryReport({...report(),mimeType:'text/plain'})).toEqual([]);
  const noId=report();noId.parts[0].body.data=Buffer.from('Final-Recipient: rfc822; typo@example.test\nAction: failed\nStatus: 5.1.1').toString('base64url');expect(parseGuardianDeliveryReport(noId)).toEqual([]);
+});
+
+it('staff reminder preserves the confirmed recipient and original inviter while refreshing the link', async () => {
+  const { sendStaffGuardianInvitationReminder } = await import('../coGuardianDelivery.service.js');
+  m.user.mockResolvedValue({ id: 501, role: 'super_admin' });
+  const original = db.execute.getMockImplementation();
+  db.execute.mockImplementation(async sql => sql.includes('SELECT * FROM co_guardian_invites')
+    ? [[{...invite, public_key:'synthetic-office'}]] : sql.includes('FROM intake_links')
+      ? [[{id:20,is_active:1,create_guardian:1,master_channel:'counseling'}]] : original(sql));
+  const result = await sendStaffGuardianInvitationReminder({actorUserId:501,agencyId:4,inviteId:3});
+  expect(result).toMatchObject({deliveryStatus:'sent',email:'typo@example.test',communicationId:7});
+  expect(m.email).toHaveBeenCalledWith(expect.objectContaining({to:'typo@example.test',reminder:true}));
+  expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET invited_by_user_id'))).toBe(false);
+  expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET cg.access_enabled'))).toBe(false);
+});
+it('staff reminder does not send without agency access or a published guardian packet', async () => {
+  const { sendStaffGuardianInvitationReminder } = await import('../coGuardianDelivery.service.js');
+  m.user.mockResolvedValue({id:501,role:'provider'});
+  await expect(sendStaffGuardianInvitationReminder({actorUserId:501,agencyId:4,inviteId:3})).rejects.toThrow('administrator');
+  m.user.mockResolvedValue({id:501,role:'super_admin'});
+  await expect(sendStaffGuardianInvitationReminder({actorUserId:501,agencyId:4,inviteId:3})).rejects.toThrow('published enrollment');
+  expect(m.email).not.toHaveBeenCalled();
+});
+const statusRow={id:18,email:'other@example.test',invitedByUserId:501,source:'office',status:'pending',accountConnected:0,
+ clientAgencyId:4,portalEnabled:1,accessEnabled:1,dateOfBirth:'2015-01-01',permissions:{},deliveryStatus:'sent',
+ invitedAt:'2026-10-01',lastSentAt:'2026-10-02',deliveryAttempts:2};
+it('shows an authorized linked parent masked staff-created invitation progress without management authority',async()=>{
+ m.execute.mockResolvedValue([[statusRow]]);
+ const [result]=await listGuardianInvitations({userId:8,agencyId:4});
+ expect(result).toMatchObject({id:18,email:'o•••@•••',status:'pending',canManage:false,deliveryAttempts:2,lastSentAt:'2026-10-02'});
+ expect(result).not.toHaveProperty('invitedByUserId');expect(result).not.toHaveProperty('dateOfBirth');
+ expect(JSON.stringify(result)).not.toContain('other@example.test');
+ await expect(assertInvitationOwner({invite:{...invite,invited_by_user_id:501},userId:8,agencyId:4,db})).rejects.toHaveProperty('status',404);
+});
+it('keeps status private after restricted, revoked, adult, malformed, or cross-agency access',async()=>{
+ for(const changes of [{permissions:{noView:true}},{permissions:{noViewOtherGuardian:true}},{permissions:'{'},{permissions:[]},
+  {accessEnabled:0},{portalEnabled:0},{dateOfBirth:'1990-01-01'},{clientAgencyId:6}]){
+  m.execute.mockResolvedValue([[{...statusRow,...changes}]]);
+  expect(await listGuardianInvitations({userId:8,agencyId:4})).toEqual([]);
+ }
+});
+it('keeps owner management separate from read-only progress when another linked child is restricted',async()=>{
+ m.execute.mockResolvedValue([[{...statusRow,invitedByUserId:8}]]);
+ expect((await listGuardianInvitations({userId:8,agencyId:4}))[0]).toMatchObject({email:'other@example.test',canManage:true});
+ m.execute.mockResolvedValue([[{...statusRow,invitedByUserId:8},{...statusRow,invitedByUserId:8,accessEnabled:0}]]);
+ expect((await listGuardianInvitations({userId:8,agencyId:4}))[0]).toMatchObject({canManage:false});
 });

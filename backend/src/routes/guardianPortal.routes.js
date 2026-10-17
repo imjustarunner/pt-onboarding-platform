@@ -1,4 +1,5 @@
 import * as guardianInvitations from '../controllers/guardianInvitation.controller.js';
+import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
 import * as notificationSetup from '../controllers/guardianNotificationSetup.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import express from 'express';
@@ -25,7 +26,9 @@ import {
   getMyClientIntakeSignedDocumentDownloadUrl,
   listGuardianCompanyEvents,
   getGuardianCompanyEventDetail,
-  getGuardianDependentPlanProgress
+  getGuardianDependentPlanProgress,
+  postGuardianPlanRating,
+  postGuardianPlanAcknowledgment
 } from '../controllers/guardianPortal.controller.js';
 import {
   getMyClientWaiverProfile,
@@ -76,16 +79,11 @@ router.use((req, res, next) => {
 });
 
 
-// Sensitive client documents use the clinical disclosure grant, independently of billing.
-router.use('/clients/:clientId/intake-documents', async(req,res,next)=>{try{
-  const {default:pool}=await import('../config/database.js');
-  const [rows]=await pool.execute('SELECT agency_id,client_type FROM clients WHERE id=?',[Number(req.params.clientId)]);
-  if(!rows.length)return res.status(404).json({error:{message:'Client not found'}});
-  if(['clinical','mental_health'].includes(String(rows[0].client_type||'').toLowerCase())){
-    const {requireClinicalScope}=await import('../services/guardianClinicalAccess.service.js');
-    await requireClinicalScope({agencyId:rows[0].agency_id,clientId:Number(req.params.clientId),userId:req.user.id,scope:'clinical_documents'});
-  }next();
-}catch(e){next(e);}});
+// These enrollment document handlers restrict both listing and downloads to
+// the signed-in guardian's own submissions, in addition to active-link and
+// document permissions. A broader clinical-disclosure grant is not required
+// to retrieve their own signed forms. Clinical chart documents retain their
+// separate disclosure checks on the clinical routes.
 
 router.get('/clients/:clientId/appointments', guardianAppointments.list);
 router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
@@ -97,6 +95,8 @@ router.get('/clients/:clientId/notification-history', listClientNotificationHist
 router.get('/clients/:clientId/notification-setup', notificationSetup.getSetup);
 router.post('/clients/:clientId/notification-setup/sms-consent', notificationSetup.beginConsent);
 router.get('/clients', listMyGuardianClients);
+router.get('/clients/:clientId/details', guardianDemographics.read);
+router.post('/clients/:clientId/details', guardianDemographics.submit);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);
 router.get('/emails', listGuardianEmails);
@@ -128,6 +128,8 @@ router.get('/skill-builders/events/:eventId/chat-thread', ensureGuardianSkillBui
 
 router.get('/dependents', listGuardianDependentsForAgency);
 router.get('/dependents/:clientId/plan-progress', getGuardianDependentPlanProgress);
+router.post('/dependents/:clientId/plan-progress/ratings', postGuardianPlanRating);
+router.post('/dependents/:clientId/plan-progress/acknowledgments/:linkId', postGuardianPlanAcknowledgment);
 router.get('/registration/catalog', listGuardianRegistrationCatalog);
 router.post('/registration/company-events/:eventId/enroll', guardianEnrollCompanyEvent);
 router.post('/registration/learning-classes/:classId/enroll', guardianEnrollLearningClass);

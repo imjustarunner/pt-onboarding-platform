@@ -144,6 +144,7 @@ import {
   deleteClientAffiliatedContact
 } from '../controllers/clientContactAffiliation.controller.js';
 
+import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
 const router = express.Router();
 
 // All client routes require authentication (controllers assume req.user is present)
@@ -251,6 +252,8 @@ router.get('/:id/insurance-card', getClientInsuranceCard);
 
 // Demographics from profile + latest intake (backfills legacy data)
 router.get('/:id/demographics', getClientDemographics);
+router.get('/:id/demographic-updates', guardianDemographics.staffRead);
+router.post('/:id/demographic-updates/:requestId/review', guardianDemographics.review);
 router.post('/:id/demographics/parse', parseClientDemographicsImport);
 router.post('/:id/demographics/import', importClientDemographics);
 

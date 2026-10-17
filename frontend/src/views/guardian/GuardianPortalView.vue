@@ -114,6 +114,7 @@
                 </p>
               </div>
               <div v-else-if="selectedChild" class="child-panel-content">
+                <GuardianClientDetails v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="Number(selectedChildId)" />
                 <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
                   This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
                   not available for privacy and compliance.
@@ -445,11 +446,13 @@
                   <div class="label">Password</div>
                   <div class="value">
                     <router-link class="link" :to="changePasswordTo">Change password</router-link>
+                    <router-link class="link" to="/account-security">Security &amp; sign-in</router-link>
                     <button class="btn btn-secondary" type="button" @click="authStore.logout()">Sign out</button>
                   </div>
                 </div>
               </div>
               <ClinicalDisclosurePanel v-if="!isSuperadminPreview" :agency-id="currentAgencyId" />
+              <p class="hint">Protect your own account with a passkey, an authenticator app, or optional email verification in Security &amp; sign-in.</p>
             </template>
 
             <template v-else-if="activePanel === 'billing'">
@@ -634,6 +637,7 @@ import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianIntakeDocuments from '../../components/guardian/GuardianIntakeDocuments.vue';
+import GuardianClientDetails from '../../components/guardian/GuardianClientDetails.vue';
 import GuardianAppointmentsPanel from '../../components/guardian/GuardianAppointmentsPanel.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';

@@ -520,7 +520,7 @@ async function persistEmbeddedRoiForClient({ intakeData, updatedSubmission, issu
       });
       const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
       if (roiValidation.valid) {
-        if (boundClient?.id) {
+        if (boundClient?.id && intakeData?.guardianSubmission?.kind !== 'additional_guardian') {
           try {
             await persistClientDateOfBirthIfMissing({
               clientId: boundClient.id,
@@ -1599,7 +1599,7 @@ const parseSubmissionIntakeData = (submission) => {
 };
 
 /** Best-effort repair when a submitted smart ROI already has a bundle but client DOB was never synced. */
-const repairSmartSchoolRoiClientDateOfBirthFromSubmission = async ({
+export const repairSmartSchoolRoiClientDateOfBirthFromSubmission = async ({
   submission,
   link,
   clientId,
@@ -1609,6 +1609,9 @@ const repairSmartSchoolRoiClientDateOfBirthFromSubmission = async ({
   if (!cid || !submission) return;
   const formType = String(link?.form_type || '').toLowerCase();
   const intakeData = parseSubmissionIntakeData(submission);
+  // Even filling an empty DOB is a chart change. An additional guardian's
+  // answer belongs in the review queue, including on completed-packet retries.
+  if (intakeData?.guardianSubmission?.kind === 'additional_guardian') return;
   if (intakeChildRoster(intakeData || {}).length > 1) return;
   const hasRoiPayload = intakeData?.smartSchoolRoi && typeof intakeData.smartSchoolRoi === 'object';
   if (formType !== 'smart_school_roi' && !hasRoiPayload) return;
@@ -1895,7 +1898,7 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
  * Each step is independent — failure in one does not abort the others — and
  * each failure logs with enough context to diagnose later.
  */
-const persistChildIntakeData = async ({
+export const persistChildIntakeData = async ({
   clientId,
   intakeData,
   clientIndex,
@@ -1903,6 +1906,7 @@ const persistChildIntakeData = async ({
   completedAt,
   flowLabel = 'public_intake',
   documentsComplete = true,
+  preserveClientDemographics = false,
   intakeCompletionNote = 'Marked received automatically after intake completion'
 }) => {
   const cid = Number(clientId || 0);
@@ -1910,6 +1914,8 @@ const persistChildIntakeData = async ({
 
   const result = { ok: true, demographicsPersisted: false, insurerPersisted: false, checklistMarked: false };
 
+  // A second guardian supplies their own observations and insurance. Their
+  // enrollment must never replace the established child's identity or address.
   // 1) + 2) Demographics. Per-child responses (intakeData.responses.clients[i])
   // take priority over submission-level fields; without that merge, siblings
   // got each other's grade/DOB/address (or nothing). Normalize flat-shape
@@ -1926,7 +1932,14 @@ const persistChildIntakeData = async ({
       intakeData: normalizedIntakeData,
       clientIndex
     });
-    if (demographicsInfo) {
+    if (preserveClientDemographics) {
+      const source = submissionId ? await IntakeSubmission.findById(submissionId) : null;
+      const { guardianDemographics, enrollmentDemographicValues } = await import('../services/guardianDemographics.service.js');
+      const proposal = enrollmentDemographicValues({ child: normalizedIntakeData?.clients?.[clientIndex] || {},
+        responses: perChildResponses || {}, demographics: demographicsInfo || {} });
+      result.demographicsReview = await guardianDemographics.enqueueFromEnrollment({ clientId: cid, submissionId,
+        guardianUserId: Number(source?.guardian_user_id || 0), values: proposal });
+    } else if (demographicsInfo) {
       await persistClientDemographicsIfProvided({ clientId: cid, demographicsInfo });
       result.demographicsPersisted = true;
     }
@@ -1938,6 +1951,9 @@ const persistChildIntakeData = async ({
       flow: flowLabel,
       error: demoErr?.message || demoErr
     });
+    // A failed review-queue write must remain retryable, not silently discard a
+    // parent's conflicting details while reporting the packet as complete.
+    if (preserveClientDemographics) throw demoErr;
   }
 
   let insuranceCardsMissing = [];
@@ -1949,7 +1965,7 @@ const persistChildIntakeData = async ({
       || intakeData?.responses?.submission?.insuranceInfo
       || intakeData?.submission?.insuranceInfo
       || null;
-    const [clientRows] = await pool.execute('SELECT agency_id, date_of_birth, gender, address_street, address_apt, address_city, address_state, address_zip FROM clients WHERE id = ?', [cid]);
+    const [clientRows] = await pool.execute('SELECT agency_id, full_name, date_of_birth, gender, address_street, address_apt, address_city, address_state, address_zip FROM clients WHERE id = ?', [cid]);
     const agencyId = Number(clientRows[0]?.agency_id || 0);
     const sourceSubmission = submissionId ? await IntakeSubmission.findById(submissionId) : null;
     const guardianUserId = Number(sourceSubmission?.guardian_user_id || 0);
@@ -1965,8 +1981,10 @@ const persistChildIntakeData = async ({
       }
       const person = normalizedForInsurance?.responses?.clients?.[clientIndex] || normalizedForInsurance?.clients?.[clientIndex] || {};
       const demographics = clientRows[0] || {};
+      const { patientFromDemographics } = await import('../services/clientInsurance.service.js');
       await applySubmittedClientInsurance({ clientId: cid, agencyId, ...coverage, profileId, confirmedBy: guardianUserId || null,
-        patient: { firstName: person.firstName || person.legalFirstName || '', lastName: person.lastName || person.legalLastName || '',
+        patient: preserveClientDemographics ? patientFromDemographics(demographics) : {
+          firstName: person.firstName || person.legalFirstName || '', lastName: person.lastName || person.legalLastName || '',
           dateOfBirth: normalizeDateOnly(demographics.date_of_birth) || '', sex: ['M','F','U'].includes(demographics.gender) ? demographics.gender : '',
           addressLine1: demographics.address_street, addressLine2: demographics.address_apt, city: demographics.address_city, state: demographics.address_state, postalCode: demographics.address_zip } });
       result.insurerPersisted = true;
@@ -4420,7 +4438,11 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
   }
   output.push('Clinical Intake Summary');
   output.push('=======================');
-  if (clientName) {
+  if (normalized.guardianSubmission?.kind === 'additional_guardian') {
+    output.push(`Additional guardian report — enrollment submission ${normalized.guardianSubmission.submissionId || ''}.`);
+    output.push('These are this guardian’s observations and expectations, not verified findings or a replacement for the client’s identifying information. Review alongside other reports.');
+    output.push('');
+  } else if (clientName) {
     output.push(`Client: ${clientName}`);
     output.push('');
   }
@@ -6637,9 +6659,9 @@ export const createPublicIntakeSession = async (req, res, next) => {
     if (!link.is_active && !issuedRoiLink) {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
-    if (req.body?.coGuardianToken) await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
+    const coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
-    });
+    }) : null;
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
     const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
@@ -6716,6 +6738,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
     let submission = await IntakeSubmission.create({
       intakeLinkId: link.id,
       status: 'started',
+      coGuardianInviteId: coGuardianBinding?.invite?.id || null,
       sessionToken,
       ipAddress,
       userAgent: req.get('user-agent'),
@@ -7054,13 +7077,18 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
+    const coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
+      agencyId: await resolveAgencyIdForLink(link), publicKey
+    }) : null;
+
     const ipAddress = getClientIpAddress(req);
     const userAgent = req.get('user-agent');
     const now = new Date();
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
 
-    const intakeData = req.body?.intakeData || null;
+    const intakeData = req.body?.intakeData ? { ...req.body.intakeData } : null;
+    if (intakeData) delete intakeData.guardianSubmission;
     validateIntakeMatchingPreferences(intakeData);
     stripIneligibleProviderPreference(link, intakeData);
     await validateSubmittedProviderPreferences(link, intakeData);
@@ -7079,6 +7107,9 @@ export const createPublicConsent = async (req, res, next) => {
     const sessionToken = String(req.body?.sessionToken || '').trim();
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
+      if (Number(submission.intake_link_id) !== Number(link.id)) return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
+      CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, coGuardianBinding);
+      if (coGuardianBinding) submission = await IntakeSubmission.bindCoGuardianInvite(submission.id, coGuardianBinding.invite.id);
       if (String(submission.status || '').toLowerCase() === 'submitted') {
         let downloadUrl = null;
         if (submission.combined_pdf_path) {
@@ -7115,6 +7146,7 @@ export const createPublicConsent = async (req, res, next) => {
       submission = await IntakeSubmission.create({
         intakeLinkId: link.id,
         status: 'consented',
+        coGuardianInviteId: coGuardianBinding?.invite?.id || null,
         signerName: normalizeName(req.body.signerName),
         signerInitials: normalizeName(req.body.signerInitials),
         signerEmail: normalizeName(req.body.signerEmail) || null,
@@ -7861,6 +7893,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     const coGuardianBinding = coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
     }) : null;
+    CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, coGuardianBinding);
     if (coGuardianBinding) {
       if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) {
         return res.status(403).json({ error: { message: 'A valid intake session is required' } });
@@ -7870,6 +7903,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (String(req.body?.guardian?.email || '').trim().toLowerCase() !== invitedEmail) {
         return res.status(400).json({ error: { message: 'Use the email address on your invitation, or request a corrected invitation.' } });
       }
+      await IntakeSubmission.bindCoGuardianInvite(submission.id, coGuardianBinding.invite.id);
     }
 
     const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
@@ -7916,7 +7950,17 @@ export const finalizePublicIntake = async (req, res, next) => {
       // per-child bundle exists, and let downstream handle missing pieces.
       const _existingClientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
       const _hasAnyPerChildBundle = (_existingClientRows || []).some((c) => c?.bundle_pdf_path);
-      if (submission.combined_pdf_path || _hasAnyPerChildBundle) {
+      // Additional-guardian persistence (including demographic review) precedes
+      // each bundle. A partial sibling bundle or a failed background pass must
+      // never short-circuit the remaining parent's enrollment work on retry.
+      const _storedIntakeData = parseSubmissionIntakeData(submission) || {};
+      const _coGuardianArtifactsComplete = !coGuardianBinding || (
+        _storedIntakeData.packetGeneration?.status !== 'needs_review'
+        && coGuardianBinding.clients.every(client =>
+          (_existingClientRows || []).some(row => Number(row.client_id) === Number(client.id) && row.bundle_pdf_path)
+          || (coGuardianBinding.clients.length === 1 && submission.combined_pdf_path))
+      );
+      if ((submission.combined_pdf_path || _hasAnyPerChildBundle) && _coGuardianArtifactsComplete) {
         let downloadUrl = null;
         if (submission.combined_pdf_path) {
           try {
@@ -7957,7 +8001,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           });
         }
         for (const c of _existingClientRows || []) {
-          if (c?.client_id) {
+          if (c?.client_id && !coGuardianBinding) {
             await repairSmartSchoolRoiClientDateOfBirthFromSubmission({
               submission,
               link,
@@ -8026,7 +8070,8 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     const now = new Date();
-    let intakeData = req.body?.intakeData || null;
+    let intakeData = req.body?.intakeData ? { ...req.body.intakeData } : null;
+    if (intakeData) delete intakeData.guardianSubmission;
     const hiringChoiceInput = intakeData?.applicantProfile?.hiringNotifications || intakeData?.responses?.submission?.applicantProfile?.hiringNotifications || intakeData?.submission?.applicantProfile?.hiringNotifications || {channel:'email'};
     if(isJobApplication)validateHiringChoice(hiringChoiceInput,await hiringCommunicationContext(await resolveAgencyIdForLink(link)));
     validateIntakeMatchingPreferences(intakeData);
@@ -8040,7 +8085,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         intakeData?.responses?.submission || intakeData?.submission || {},
         intakeData?.responses?.guardian || {}
       )));
-    const requiredSignatureError = intakeChildRoster(intakeData || {}).length > 1
+    const requiredSignatureError = (coGuardianBinding || intakeChildRoster(intakeData || {}).length > 1)
       ? validateRequiredSharedSignatures(requiredSharedSteps, intakeData || {}) : null;
     if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
     stripIneligibleProviderPreference(link,intakeData);
@@ -8055,7 +8100,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     ensureLinkBoundCompanyEventSelection(intakeData, link);
     stampInsuranceAuthorizationSignatureMeta(intakeData, req, now);
     const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
-    if (currentRoster.length > 1) {
+    if (coGuardianBinding || currentRoster.length > 1) {
       const signed = new Map((await IntakeSubmissionDocument.listBySubmissionId(submissionId)).map(doc => [Number(doc.document_template_id), doc]));
       const missing = packetDocumentTemplates.find(template => !signedPacketTemplate(template, allAllowedTemplates, signed, link.document_translation_map || {}));
       if (missing) return res.status(400).json({ error: { message: `Please review and sign ${missing.name || 'the required document'} before completing enrollment.` } });
@@ -8974,6 +9019,16 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
       newGuardianCreated = accepted.created === true;
       newGuardianTemporaryPassword = accepted.portalAccess?.password || null;
+      // Server-attributed context accompanies this guardian's separate answers.
+      // It does not change the child's demographic record or the first parent's submission.
+      intakeData = { ...intakeData, guardianSubmission: {
+        kind: 'additional_guardian', inviteId: coGuardianBinding.invite.id,
+        guardianUserId: guardian?.id || null, submissionId,
+        clientIds: createdClients.map(client => Number(client.id))
+      } };
+      updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+        intake_data: JSON.stringify(intakeData), intake_data_hash: hashIntakeData(intakeData)
+      });
       const preference = intakeData?.responses?.submission?.paymentInfo || intakeData?.submission?.paymentInfo;
       if (guardian?.id && preference?.arrangement) {
         const { saveGuardianPaymentPreference } = await import('../services/familyLedger/guardianPreferences.js');
@@ -9562,6 +9617,18 @@ export const finalizePublicIntake = async (req, res, next) => {
         })
       );
 
+      // Queue this guardian's proposed details before publishing any completed
+      // bundle for this child. If persistence fails, an accepted invite can be
+      // retried, and partial sibling artifacts cannot report full completion.
+      if (clientId && coGuardianBinding) {
+        await persistChildIntakeData({
+          clientId, intakeData, clientIndex: i, submissionId, completedAt: now,
+          flowLabel: 'co_guardian_enrollment', preserveClientDemographics: true,
+          documentsComplete: !sharedDocuments.failures.has(Number(clientId)),
+          intakeCompletionNote: 'Marked received automatically after guardian enrollment completion'
+        });
+      }
+
       const clientPaths = [];
 
       if (isMultiClient) {
@@ -9874,13 +9941,14 @@ export const finalizePublicIntake = async (req, res, next) => {
 
         // Save per-child intake data (demographics, insurer, checklist
         // auto-mark) — one helper call instead of three duplicated blocks.
-        await persistChildIntakeData({
+        if (!coGuardianBinding) await persistChildIntakeData({
           clientId,
           intakeData,
           clientIndex: i,
           submissionId,
           completedAt: now,
           flowLabel: 'school_roi',
+          preserveClientDemographics: !!coGuardianBinding,
           documentsComplete: !sharedDocuments.failures.has(Number(clientId)),
           intakeCompletionNote: 'Marked received automatically after intake/ROI completion'
         });
@@ -10534,6 +10602,9 @@ export const submitPublicIntake = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
+    if (req.body?.coGuardianToken) {
+      return res.status(409).json({ error: { message: 'Complete each agreement in your guardian enrollment packet, then use its final submit button.' } });
+    }
     const publicKey = String(req.params.publicKey || '').trim();
     const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link || !link.is_active) {
@@ -10551,6 +10622,7 @@ export const submitPublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
+    CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, null);
     const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
     if (billingSteps) {
       if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) return res.status(403).json({ error: { message: 'A valid intake session is required' } });
@@ -10639,7 +10711,8 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const now = new Date();
-    let intakeData = req.body?.intakeData || null;
+    let intakeData = req.body?.intakeData ? { ...req.body.intakeData } : null;
+    if (intakeData) delete intakeData.guardianSubmission;
     validateIntakeMatchingPreferences(intakeData);
     await validateAndStampIntakeCommunications({ link, agencyId: await resolveAgencyIdForLink(link), intakeData, submittedAt: now });
     const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })

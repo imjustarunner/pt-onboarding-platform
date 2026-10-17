@@ -51,3 +51,11 @@ test('public invite payloads omit the raw token and any existing-account hints',
   assert.equal(publicResult.matchedUserId, undefined);
   assert.equal(publicResult.inviteUrl, undefined);
 });
+
+
+test('guardian enrollment stays on the agency host without a duplicated tenant path', () => {
+  const url = invitePublicUrl({agency:{portal_url:'itsco'},publicKey:'office-key',token:'synthetic'});
+  assert.equal(url, 'https://app.itsco.health/intake/office-key?coGuardian=synthetic');
+  const tutoring = invitePublicUrl({agency:{portal_url:'nextlevelup'},publicKey:'tutor-key',token:'synthetic'});
+  assert.equal(new URL(tutoring).hostname, 'app.nextleveluplcc.com');
+});

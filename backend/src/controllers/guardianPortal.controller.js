@@ -1589,103 +1589,30 @@ export const getGuardianCompanyEventDetail = async (req, res, next) => {
  */
 export const getGuardianDependentPlanProgress = async (req, res, next) => {
   try {
-    const uid = req.user?.id;
-    if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    const clientId = parsePositiveInt(req.params.clientId);
-    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    if (isSuperadminGuardianPreview(req)) return res.json({ hasActivePlan: false, plan: null, goals: [], ratings: [], acknowledgments: [], preview: true });
+    const { guardianPlanProgress } = await import('../services/guardianPlanProgress.service.js');
+    return res.json(await guardianPlanProgress(guardianPlanRequestContext(req)));
+  } catch (e) { next(e); }
+};
 
-    if (isSuperadminGuardianPreview(req)) {
-      return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false, preview: true });
-    }
+function guardianPlanRequestContext(req) {
+  const userId = parsePositiveInt(req.user?.id);
+  const clientId = parsePositiveInt(req.params.clientId);
+  const agencyId = parsePositiveInt(req.query.agencyId || req.body?.agencyId);
+  if (!userId || !clientId || !agencyId) throw Object.assign(new Error('Account, client and agency context are required.'), { status: 400 });
+  return { userId, clientId, agencyId, learningPlanId: parsePositiveInt(req.query.learningPlanId), ip: req.ip, userAgent: req.get('user-agent') };
+}
 
-    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid, requiredClinicalScope: 'session_frequency' });
-    const row = (linked || []).find((c) => Number(c.client_id) === clientId);
-    if (!row) {
-      return res.status(403).json({ error: { message: 'Child is not linked to your account' } });
-    }
-    if (ClientGuardian.isNoView(row.permissions_json)) {
-      return res.status(403).json({
-        error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
-      });
-    }
-    if (await isClientAdultLockedForGuardian(clientId)) {
-      return res.status(403).json({
-        error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
-      });
-    }
+export const postGuardianPlanRating = async (req, res, next) => {
+  try {
+    const { recordGuardianPlanRating } = await import('../services/guardianPlanProgress.service.js');
+    return res.status(201).json(await recordGuardianPlanRating(guardianPlanRequestContext(req), req.body));
+  } catch (e) { next(e); }
+};
 
-    const agencyId = parsePositiveInt(req.query.agencyId) || parsePositiveInt(row.agency_id);
-    if (!agencyId) {
-      return res.status(400).json({ error: { message: 'agencyId is required' } });
-    }
-
-    const clientType = String(row.client_type || '').toLowerCase();
-    const orgType = String(row.organization_type || '').toLowerCase();
-    const isLearningOrClinical =
-      clientType === 'learning'
-      || clientType === 'clinical'
-      || orgType === 'learning'
-      || orgType === 'clinical';
-    if (!isLearningOrClinical) {
-      return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false });
-    }
-
-    const { requireClinicalScope } = await import('../services/guardianClinicalAccess.service.js');
-    await requireClinicalScope({agencyId:row.agency_id,clientId,userId:uid,scope:'treatment_plan'});
-    if(Number(agencyId)!==Number(row.agency_id))return res.status(403).json({error:{message:'Organization mismatch'}});
-    const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
-    const active =
-      (plans || []).find((p) => /active|final/i.test(String(p.status || '')))
-      || plans?.[0]
-      || null;
-    if (!active?.id) {
-      return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false });
-    }
-
-    const full = await ClinicalTreatmentPlan.findById(active.id);
-    const ratings = await ClinicalTreatmentObjectiveRating.listByClient({
-      agencyId,
-      clientId,
-      limit: 100
-    });
-
-    const goals = (full?.goals || []).map((g) => ({
-      id: g.id,
-      goalIndex: g.goal_index,
-      goalText: g.goal_text,
-      projectedCompletion: g.projected_completion || null,
-      objectives: (g.objectives || []).map((o) => ({
-        id: o.id,
-        objectiveIndex: o.objective_index,
-        objectiveText: o.objective_text,
-        scaleCurrent: o.scale_current ?? null,
-        scaleTarget: o.scale_target ?? null,
-        scaleDirection: o.scale_direction || null,
-        measurementMethod: o.measurement_method || null
-      }))
-    }));
-
-    return res.json({
-      hasActivePlan: true,
-      plan: {
-        id: full?.id || active.id,
-        title: full?.title || active.title || null,
-        status: full?.status || active.status || null,
-        effectiveDate: full?.effective_date || active.effective_date || null,
-        updatedAt: full?.updated_at || active.updated_at || null
-      },
-      goals,
-      ratings: (ratings || []).map((r) => ({
-        id: r.id,
-        objectiveId: r.objective_id,
-        scaleValue: r.scale_value,
-        progressLabel: r.progress_label,
-        disposition: r.disposition,
-        ratedAt: r.rated_at
-      })),
-      clientType: clientType || (orgType === 'learning' ? 'learning' : 'clinical')
-    });
-  } catch (e) {
-    next(e);
-  }
+export const postGuardianPlanAcknowledgment = async (req, res, next) => {
+  try {
+    const { signGuardianPlan } = await import('../services/guardianPlanProgress.service.js');
+    return res.json(await signGuardianPlan(guardianPlanRequestContext(req), { ...req.body, linkId: parsePositiveInt(req.params.linkId) }));
+  } catch (e) { next(e); }
 };

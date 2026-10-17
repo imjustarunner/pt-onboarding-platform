@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardian portal readiness · October 17, 2026</title>
+<style>
+body{margin:0;background:#f3f7f5;color:#203e34;font:16px/1.6 system-ui}main{max-width:1000px;margin:auto;padding:36px 24px}h1{font-size:34px;line-height:1.2}h2{font-size:23px;margin-top:32px}section{background:#fff;border:1px solid #d4e2db;border-radius:14px;padding:24px;margin:18px 0}table{border-collapse:collapse;width:100%}th,td{padding:13px 10px;text-align:left;vertical-align:top;border-bottom:1px solid #d4e2db}th{background:#f1f6f3}a{color:#185c76}code{font-size:14px;overflow-wrap:anywhere}li{margin:8px 0}.status{font-weight:650}.pending{color:#815816}
+</style>
+<main>
+<p>AURICWELL · AGENCY PORTALS · NEXT LEVEL UP</p>
+<h1>Separate parent accounts, shared care coordination</h1>
+<p>Implementation review, October 17, 2026. This describes the code and checks for this release; it is not a certification of legal compliance or evidence that every agency has completed its access review.</p>
+<section>
+<h2>Included in this release</h2>
+<table>
+<tr><th>Area</th><th>Behavior</th></tr>
+<tr><td>Second-parent enrollment</td><td>The invited parent signs their own required agreements before their enrollment is completed. Their account, submission, observations and expectations remain attributable to them. Their answers do not replace the child's identity or the first parent's submission.</td></tr>
+<tr><td>Client details</td><td>Authorized parents see the recorded legal name, preferred name, birth date and language. Changes and conflicting enrollment details create encrypted review requests. Support compares the recorded and submitted values, applies selected fields and records a reason. Changing birth date requires renewed clinical access review.</td></tr>
+<tr><td>Insurance</td><td>Each parent can submit their own coverage and cards without accepting another parent's financial responsibility. Billing can review both sources, choose primary and secondary, and swap their order. Other parents' private policy and payment data are not exposed.</td></tr>
+<tr><td>Plans</td><td>Publishing or updating a shared treatment or learning plan creates separate review/acknowledgment records and portal notices for eligible guardians. Prior signatures remain in the audit. Clinical access requires the recorded disclosure permission; relationship restrictions still apply.</td></tr>
+<tr><td>Progress ratings</td><td>Parents answer provider-reviewed family questions on a 1–10 scale and can see their own prior response. They cannot see the other parent's ratings. The provider can distinguish observers. A parent rating does not overwrite the clinician's current assessment or tutor mastery score.</td></tr>
+<tr><td>Invitation visibility</td><td>Delivery attempts, failures, reminder times and completion status are recorded. Authorized linked parents can see progress of historical staff-created invitations with the email masked; only the original inviter or authorized staff can manage delivery. Failed delivery does not count as receipt or consent.</td></tr>
+<tr><td>Account security</td><td>Parents can choose email verification after proving their password and email. Existing authenticator/passkey security remains available and is not downgraded. Clinical security messages identify the agency and AuricWell; tutoring messages use the tutoring brand.</td></tr>
+</table>
+</section>
+<section>
+<h2>Existing features verified</h2>
+<ul>
+<li>Separate portal logins and access to each parent's own signed enrollment documents.</li>
+<li>Authorized shared messages and upcoming/past appointments.</li>
+<li>Cancellation and rescheduling requests with reasons, plus existing cancellation policies and provider decisions.</li>
+<li>Separate payment methods, payer allocations and approved expense sharing.</li>
+<li>Portal password setup through a secure email option after enrollment; an existing account retains its login.</li>
+</ul>
+</section>
+<section>
+<h2>Work still required</h2>
+<table>
+<tr><th>Item</th><th>Remaining step</th></tr>
+<tr><td class="status pending">Notifyre</td><td>Supply API/webhook secrets and approved Campaign 1 sender mappings, preserve opt-outs, and verify a consenting test recipient before enabling client texts. SMS is not being claimed as activated. See the <a href="notifyre-setup.html">Notifyre setup guide</a>.</td></tr>
+<tr><td class="status pending">Plan email/text alerts</td><td>Plan review notices are available inside the portal. Automatic external reminders and prompts tied to each session need a dedicated delivery job using each recipient's recorded permissions. Scheduling-only text consent does not authorize treatment-plan alerts. Existing plans need staff sharing/refresh; this release does not notify families about historical plans automatically.</td></tr>
+<tr><td class="status pending">Clinical self-booking</td><td>The clinical guardian panel supports existing appointments and offered replacement times. General booking of a new clinical appointment from this panel is not implemented. Tutoring has its separate session-request flow.</td></tr>
+<tr><td class="status pending">Parent-only sessions</td><td>Scheduling a session for one or both selected parents needs an explicit participant audience enforced in scheduling, reminders, portal display and video-link authorization. A normal child appointment must not be represented as supporting this restriction yet.</td></tr>
+<tr><td class="status pending">Agency access review</td><td>Portal accounts alone do not authorize every clinical disclosure. The agency must review the relationship, applicable client consent and permissions. An unanswered reminder or elapsed deadline never automatically transfers medical decision-making authority.</td></tr>
+</table>
+</section>
+<section>
+<h2>Verification</h2>
+<p>Focused automated checks cover separate submissions, required agreements, invitation ownership and status visibility, actual MySQL demographic review transactions, insurance source/order changes, private plan ratings, account security, and shared messaging boundaries. Security checks include browser WebAuthn registration/login and a narrow mobile viewport. Synthetic records were used for tests; no patient was sent a test email or text.</p>
+<p>Database migrations for this release: <code>1651_guardian_email_verification</code>, <code>1652_guardian_demographic_review</code>, <code>1653_guardian_learning_plan_feedback</code>, and <code>1654</code> for the enrollment invitation binding.</p>
+</section>
+</main>
+</html>

@@ -17,7 +17,7 @@ export async function getClientInsurance(req,res,next) {
     const insurance = await readClientInsurance(c.clientId,c.agencyId);
     const demographics = await insuranceDemographics(c.clientId,c.agencyId);
     const [submitted]=await pool.execute(`SELECT DISTINCT p.*, u.first_name, u.last_name FROM guardian_insurance_profiles p JOIN users u ON u.id=p.guardian_user_id LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.agency_id=? AND (p.client_id=? OR gic.client_id=?) ORDER BY p.collected_at DESC`,[c.agencyId,c.clientId,c.clientId]);
-    const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url};});
+    const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url,cardEvidence:Object.fromEntries(['primary_front','primary_back','secondary_front','secondary_back'].map(slot=>[slot,!!value[`${slot.replace('_','_card_')}_url`]]))};});
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
     res.set('Cache-Control','no-store').json({insurance,policies,demographics,missingClaimFields:claimInsuranceIssues(insurance?.primary)});
   } catch(e){next(e);}
@@ -27,7 +27,19 @@ export async function saveClientInsurance(req,res,next) {
     const c = await authorize(req);
     let profileId = req.body.profileId ? positiveId(req.body.profileId) : null;
     if(profileId){const [matches]=await pool.execute('SELECT p.id FROM guardian_insurance_profiles p LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.id=? AND p.agency_id=? AND (p.client_id=? OR gic.client_id=?)',[profileId,c.agencyId,c.clientId,c.clientId]);if(!matches.length)throw Object.assign(new Error('Policy is not assigned to this client'),{status:403});}
-    const insurance = await writeClientInsurance({...c,primary:req.body.primary,secondary:req.body.secondary,patient:req.body.patient,profileId,confirmedBy:req.user.id,verifiedForClaims:req.body.verifiedForClaims===true,acceptAssignment:req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
+    const coverageSources = {};
+    for (const position of ['primary','secondary']) {
+      const source = req.body.coverageSources?.[position];
+      if (!source || (position === 'secondary' && !req.body.secondary)) continue;
+      const sourceId = positiveId(source.profileId);
+      if (!['primary','secondary'].includes(source.slot)) throw Object.assign(new Error('Choose a valid submitted policy'), {status:400});
+      const [matches] = await pool.execute('SELECT DISTINCT p.* FROM guardian_insurance_profiles p LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.id=? AND p.agency_id=? AND (p.client_id=? OR gic.client_id=?)', [sourceId,c.agencyId,c.clientId,c.clientId]);
+      if (!matches[0] || !decodeInsuranceProfile(matches[0])?.[source.slot]) throw Object.assign(new Error('Submitted coverage is not assigned to this client'), {status:403});
+      coverageSources[position] = {profileId:sourceId,slot:source.slot};
+    }
+    if (coverageSources.primary && coverageSources.secondary && coverageSources.primary.profileId === coverageSources.secondary.profileId && coverageSources.primary.slot === coverageSources.secondary.slot) throw Object.assign(new Error('The same submitted policy cannot be both primary and secondary'), {status:400});
+    if (coverageSources.primary) profileId = coverageSources.primary.profileId;
+    const insurance = await writeClientInsurance({...c,primary:req.body.primary,secondary:req.body.secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:req.body.verifiedForClaims===true,acceptAssignment:req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
     await auditBilling({...c,userId:req.user.id,action:'staff_update_insurance'});
     res.set('Cache-Control','no-store').json({insurance,missingClaimFields:claimInsuranceIssues(insurance.primary)});
   } catch(e){next(e);}

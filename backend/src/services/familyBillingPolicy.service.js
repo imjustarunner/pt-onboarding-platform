@@ -11,14 +11,16 @@ export function positiveId(value) {
   if (!Number.isSafeInteger(n) || n < 1) throw billingError(400, 'A valid identifier is required');
   return n;
 }
-export function linkAllowsBilling(link) {
+export function linkAllowsBillingView(link) {
   let p;
   try { p = typeof link?.permissions_json === 'string' ? JSON.parse(link.permissions_json) : (link?.permissions_json || {}); } catch { return false; }
+  return !!link && Number(link.access_enabled) === 1 && !p.noView && !p.noViewOtherGuardian;
+}
+export function linkAllowsBilling(link) {
   const dob=link?.date_of_birth instanceof Date?link.date_of_birth.toISOString().slice(0,10):String(link?.date_of_birth||'').slice(0,10);
   const cutoff=new Date();cutoff.setUTCFullYear(cutoff.getUTCFullYear()-18);
   const adultSelf=/^\d{4}-\d{2}-\d{2}$/.test(dob)&&Number.isFinite(Date.parse(dob))&&dob<=cutoff.toISOString().slice(0,10);
-  return !!link && Number(link.access_enabled) === 1 && (link.relationship_type !== 'self'||adultSelf)
-    && !p.noView && !p.noViewOtherGuardian;
+  return linkAllowsBillingView(link) && (link.relationship_type !== 'self'||adultSelf);
 }
 export async function requireBillingLink(userId, clientId, agencyId, db = pool) {
   const [rows] = await db.execute(`SELECT cg.*, c.agency_id, c.date_of_birth FROM client_guardians cg

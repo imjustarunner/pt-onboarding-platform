@@ -10,8 +10,14 @@ const base=()=>({clients:[{clientId:10,clientName:'Child One',responsiblePayers:
 const button=(w,text)=>w.findAll('button').find(b=>b.text().includes(text));
 beforeEach(()=>{vi.clearAllMocks();});
 describe('private family billing',()=>{
+ it('lets an authorized second parent add insurance without accepting payment responsibility',async()=>{
+  const value=base();value.clients[0].canManageInsurance=true;value.clients[0].insuranceOnFile=true;api.get.mockResolvedValue({data:value});
+  const w=mount(FamilyBilling,{props:{agencyId:1,guardianUserId:2}});await flushPromises();
+  expect(w.text()).toContain('Insurance information is on file');expect(w.text()).not.toContain('Your saved cards');await button(w,'Add insurance').trigger('click');
+  expect(w.find('form').exists()).toBe(true);expect(w.text()).toContain('without accepting payment responsibility');expect(w.find('fieldset').text()).toContain('Child One');w.unmount();
+ });
  it('shows only responsible payer names to a child or nonpayer',async()=>{
-  api.get.mockResolvedValue({data:base()});const w=mount(FamilyBilling,{props:{agencyId:1,guardianUserId:2}});await flushPromises();expect(w.text()).toContain('Parent One');expect(w.text()).not.toContain('Your saved cards');expect(w.find('form').exists()).toBe(false);expect(api.get).toHaveBeenCalledTimes(1);w.unmount();
+  api.get.mockResolvedValue({data:base()});const w=mount(FamilyBilling,{props:{agencyId:1,guardianUserId:2}});await flushPromises();expect(w.text()).toContain('Parent One');expect(w.text()).not.toContain('Your saved cards');expect(w.find('form').exists()).toBe(false);expect(api.get.mock.calls.filter(([url])=>url==='/guardian-billing/overview')).toHaveLength(1);w.unmount();
  });
  it('requires affirmative signature before accepting responsibility',async()=>{
   const value=base();value.clients[0].canAcceptResponsibility=true;api.get.mockResolvedValue({data:value});api.post.mockResolvedValue({data:{success:true}});

@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import { grantVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
 import User from '../models/User.model.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
+import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 
 async function loadAgencyFlags(agencyId) {
   const id = parseInt(agencyId, 10);
@@ -56,7 +57,14 @@ export function requireMedicalBilling(childFlag = null) {
 }
 
 export const requireMedicalBillingMaster = requireMedicalBilling(null);
-export const requireClinicalChart = requireMedicalBilling('clinicalChartEnabled');
+const requireClinicalChartFlags = requireMedicalBilling('clinicalChartEnabled');
+// Family portal accounts use relationship- and consent-scoped endpoints. Agency
+// membership must never grant them the staff chart or other observers' ratings.
+export async function requireClinicalChart(req, res, next) {
+  try { requireStaffPlanActor(req.user); }
+  catch (error) { return next(error); }
+  return requireClinicalChartFlags(req, res, next);
+}
 export const requireClinicalNoteSigning = requireMedicalBilling('clinicalNoteSigningEnabled');
 export const requireMedicalClaims = requireMedicalBilling('medicalClaimsEnabled');
 export const requireClaimMd = requireMedicalBilling('claimMdEnabled');

@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({ db: null }));
 vi.mock('../../config/database.js', () => ({ default: { execute: (...args) => state.db.execute(...args), getConnection: () => state.db.getConnection() } }));
 vi.mock('../../services/sessionSecurity.service.js', () => ({ loadSessionPolicy: async () => ({ idleBeforeTimedownSeconds: 600, timedownSeconds: 600 }) }));
 import { beginAuthenticator, verifyAuthenticator, accountSecurityState, forgetDevice, DEVICE_COOKIE } from '../../services/accountSecurity.service.js';
-import { sendSchoolEmailCode, verifySchoolEmailCode } from '../../services/schoolEmailVerification.service.js';
+import { sendSchoolEmailCode, verifySchoolEmailCode, disableGuardianEmailVerification } from '../../services/schoolEmailVerification.service.js';
 import { recordAccountSession, personalSessions } from '../../services/personalSessionHistory.service.js';
 import { authenticator } from '../../utils/accountSecurity.js';
 import { sessionReference } from '../../utils/securityEvidence.js';
@@ -25,7 +25,7 @@ describe.skipIf(!socket)('isolated account security integration', () => {
     state.db=mysql.createPool({socketPath:socket,user:'root',database:'account_security_test',timezone:'Z',connectionLimit:4});
     await state.db.query('CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255),role VARCHAR(64),password_hash VARCHAR(255),password_changed_at DATETIME(3),temporary_password_set_at DATETIME(3))');
     const hash=await bcrypt.hash(password,4);await state.db.execute('INSERT INTO users VALUES (1,?,"provider",?,NULL,NULL),(2,?,"provider",?,NULL,NULL)', ['person1@example.invalid',hash,'person2@example.invalid',hash]);
-    for(const name of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','902_user_platform_sessions.sql','1463_school_email_verification.sql','1546_account_passkeys.sql','1547_passkey_enrollment_generation.sql']) {
+    for(const name of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','902_user_platform_sessions.sql','1463_school_email_verification.sql','1546_account_passkeys.sql','1547_passkey_enrollment_generation.sql','1651_guardian_email_verification.sql']) {
       const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');
       for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);
     }
@@ -33,7 +33,7 @@ describe.skipIf(!socket)('isolated account security integration', () => {
   beforeEach(async () => {
     vi.stubEnv('MFA_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,3).toString('base64'));
     vi.spyOn(console,'info').mockImplementation(()=>{});
-    for(const name of ['account_email_sessions','account_email_challenges','account_mfa_sessions','account_mfa_devices','account_mfa','auth_session_security','user_platform_sessions','user_auth_revocations'])await state.db.query(`DELETE FROM ${name}`);
+    for(const name of ['account_email_preferences','account_email_sessions','account_email_challenges','account_mfa_sessions','account_mfa_devices','account_mfa','auth_session_security','user_platform_sessions','user_auth_revocations'])await state.db.query(`DELETE FROM ${name}`);
     await state.db.query("UPDATE users SET password_changed_at=NULL,role='provider',email=CONCAT('person',id,'@example.invalid')");
   });
   afterAll(async () => { if(state.db){await state.db.query('DROP DATABASE account_security_test');await state.db.end();} });
@@ -153,6 +153,45 @@ describe.skipIf(!socket)('isolated account security integration', () => {
     const {req,code}=await schoolChallenge();req.body={code};
     const outcomes=await Promise.allSettled([verifySchoolEmailCode(req),verifySchoolEmailCode(req)]);
     expect(outcomes.filter(x=>x.status==='fulfilled')).toHaveLength(1);
+  });
+
+  async function guardianChallenge(req=request()) {
+    await state.db.query("UPDATE users SET role='client_guardian' WHERE id=1");req.user.role='client_guardian';
+    req.body={enrollEmail:true,password};let code;
+    await sendSchoolEmailCode(req,async message=>{code=message.code;});
+    return {req,code};
+  }
+  it('requires password proof and verified email before enabling guardian email protection',async()=>{
+    await state.db.query("UPDATE users SET role='client_guardian' WHERE id=1");const req=request();req.user.role='client_guardian';
+    expect(await accountSecurityState(req)).toMatchObject({required:false,emailEnrollmentAvailable:true});delete req.accountSecurityState;
+    await expect(sendSchoolEmailCode(req,vi.fn())).rejects.toMatchObject({code:'MFA_SETUP_REQUIRED'});
+    req.body={enrollEmail:true,password:'wrong'};await expect(sendSchoolEmailCode(req,vi.fn())).rejects.toMatchObject({code:'PRIMARY_VERIFICATION_REQUIRED'});
+    const {code}=await guardianChallenge(req);
+    expect(await accountSecurityState(req)).toMatchObject({required:false,emailEnabled:false});delete req.accountSecurityState;
+    req.body={code};await verifySchoolEmailCode(req);
+    expect(await accountSecurityState(req)).toMatchObject({method:'email',required:true,emailEnabled:true,verified:true});
+    const next=request();next.sessionSecurity.key='f'.repeat(64);expect(await accountSecurityState(next)).toMatchObject({required:true,verified:false});
+    const other=request(2);expect(await accountSecurityState(other)).toMatchObject({emailEnabled:false,verified:false});
+  });
+  it('does not allow guardian email verification to downgrade an enrolled authenticator',async()=>{
+    const {req,code}=await guardianChallenge();req.body={code};await verifySchoolEmailCode(req);
+    delete req.accountSecurityState;await setup(req);await verifyAuthenticator(req,true);delete req.accountSecurityState;
+    const other=request();other.sessionSecurity.key='a'.repeat(64);
+    expect(await accountSecurityState(other)).toMatchObject({method:'authenticator',required:true,verified:false});
+    await expect(sendSchoolEmailCode(other,vi.fn())).rejects.toMatchObject({code:'MFA_METHOD_NOT_ALLOWED'});
+  });
+  it('requires an existing email factor before a password holder can enroll an authenticator',async()=>{
+    const {req,code}=await guardianChallenge();req.body={code};await verifySchoolEmailCode(req);
+    const other=request();other.sessionSecurity.key='d'.repeat(64);other.body={password};
+    await expect(beginAuthenticator(other)).rejects.toMatchObject({code:'MFA_REQUIRED'});
+  });
+  it('requires a verified sign-in and password to disable guardian email protection',async()=>{
+    const {req,code}=await guardianChallenge();req.body={code};await verifySchoolEmailCode(req);
+    const other=request();other.sessionSecurity.key='e'.repeat(64);other.body={password};await expect(disableGuardianEmailVerification(other)).rejects.toMatchObject({code:'MFA_REQUIRED'});
+    req.body={password:'wrong'};await expect(disableGuardianEmailVerification(req)).rejects.toMatchObject({code:'PRIMARY_VERIFICATION_REQUIRED'});
+    req.body={password};await disableGuardianEmailVerification(req);
+    expect(await accountSecurityState(req)).toMatchObject({required:false,emailEnabled:false,verified:false});
+    const [[count]]=await state.db.query('SELECT COUNT(*) n FROM account_email_sessions WHERE user_id=1');expect(count.n).toBe(0);
   });
 
 });

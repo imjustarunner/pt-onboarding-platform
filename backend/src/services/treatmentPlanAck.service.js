@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { requireClinicalScope } from './guardianClinicalAccess.service.js';
+import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 /**
  * Treatment plan client/guardian acknowledgment:
  * dashboard share, provider-witnessed session, email token link, print+upload.
@@ -14,7 +14,8 @@ async function requireAckRecipient(link) {
   let userId=link.recipient_user_id;
   if(!userId&&link.recipient_email){const [rows]=await pool.execute('SELECT id FROM users WHERE LOWER(email)=LOWER(?)',[link.recipient_email]);if(rows.length===1)userId=rows[0].id;}
   if(!userId)throw Object.assign(new Error('An identified guardian with a current clinical disclosure grant is required'),{status:403});
-  await requireClinicalScope({agencyId:link.agency_id,clientId:link.client_id,userId,scope:'approve_goals'});
+  const { requireGuardianPlanAccess } = await import('./guardianPlanProgress.service.js');
+  await requireGuardianPlanAccess({agencyId:link.agency_id,clientId:link.client_id,userId,scope:'approve_goals',action:'sign'});
 }
 
 function safeInt(v) {
@@ -62,6 +63,7 @@ async function markPlanAckStatus({ planId, status, at = true }) {
 }
 
 export async function ensurePlanAccess({ reqUser, agencyId, clientId, treatmentPlanId }) {
+  requireStaffPlanActor(reqUser);
   const aid = safeInt(agencyId);
   const cid = safeInt(clientId);
   const pid = safeInt(treatmentPlanId);
@@ -101,9 +103,15 @@ export async function createDashboardShare({
   actorUserId,
   recipientKind = 'guardian',
   recipientUserId = null,
-  recipientName = null
+  recipientName = null,
+  planRevision = null
 }) {
   await requireAckRecipient({agency_id:agencyId,client_id:clientId,recipient_kind:recipientKind,recipient_user_id:recipientUserId});
+  const { guardianPlanRevision, isSharedPlanStatus } = await import('./guardianPlanProgress.service.js');
+  const plan = await ClinicalTreatmentPlan.findById(treatmentPlanId);
+  if (!plan || Number(plan.agency_id) !== Number(agencyId) || Number(plan.client_id) !== Number(clientId) || !isSharedPlanStatus(plan.status)) {
+    throw Object.assign(new Error('Only an active, finalized plan can be shared.'), { status: 409 });
+  }
   const link = await TreatmentPlanAckLink.create({
     agencyId,
     clientId,
@@ -113,7 +121,8 @@ export async function createDashboardShare({
     recipientUserId,
     recipientName,
     issuedByUserId: actorUserId,
-    dashboardVisible: true
+    dashboardVisible: true,
+    meta: { planRevision: planRevision || guardianPlanRevision(plan), portalOnly: true }
   });
   await TreatmentPlanAckEvent.create({
     ackLinkId: link.id,
@@ -260,6 +269,7 @@ export async function openPublicLink(publicKey, { ip = null, userAgent = null } 
     err.status = 404;
     throw err;
   }
+  if (link.meta_json?.portalOnly) throw Object.assign(new Error('Sign in to your portal to review this plan.'), { status: 401 });
   await requireAckRecipient(link);
   if (link.status === 'cancelled' || link.status === 'expired') {
     const err = new Error('This signing link is no longer valid');
@@ -296,6 +306,8 @@ export async function recordViewed(publicKey, { ip = null, userAgent = null } = 
     err.status = 404;
     throw err;
   }
+  if (link.meta_json?.portalOnly) throw Object.assign(new Error('Sign in to your portal to review this plan.'), { status: 401 });
+  await requireAckRecipient(link);
   if (link.status !== 'signed' && link.status !== 'cancelled' && link.status !== 'expired') {
     await TreatmentPlanAckLink.updateFields(link.id, { status: 'viewed' });
   }
@@ -309,7 +321,28 @@ export async function recordViewed(publicKey, { ip = null, userAgent = null } = 
   return TreatmentPlanAckLink.findById(link.id);
 }
 
-export async function signAcknowledgment({
+export async function signAcknowledgment(input) {
+  const link = input.publicKey
+    ? await TreatmentPlanAckLink.findByPublicKey(input.publicKey)
+    : await TreatmentPlanAckLink.findById(input.linkId);
+  if (!link?.meta_json?.planRevision) return signAcknowledgmentUnderLock(input);
+  // Publication and signatures share this lock, so an old acknowledgment
+  // cannot replace the pending status of a newly shared revision.
+  const db = await pool.getConnection();
+  const lock = `guardian-plan-share:${link.treatment_plan_id}`;
+  let locked = false;
+  try {
+    const [[result]] = await db.execute('SELECT GET_LOCK(?, 10) AS acquired', [lock]);
+    if (Number(result?.acquired) !== 1) throw Object.assign(new Error('This plan is being updated. Try again shortly.'), { status: 409 });
+    locked = true;
+    return await signAcknowledgmentUnderLock(input);
+  } finally {
+    try { if (locked) await db.execute('SELECT RELEASE_LOCK(?)', [lock]); }
+    finally { db.release(); }
+  }
+}
+
+async function signAcknowledgmentUnderLock({
   publicKey = null,
   linkId = null,
   signedByName,
@@ -330,18 +363,30 @@ export async function signAcknowledgment({
     throw err;
   }
   await requireAckRecipient(link);
+  if (link.meta_json?.portalOnly && Number(actorUserId) !== Number(link.recipient_user_id)) {
+    throw Object.assign(new Error('Sign in with the account this plan was shared with.'), { status: 403 });
+  }
+  if (link.expires_at && new Date(link.expires_at) < new Date() && link.status !== 'signed') {
+    throw Object.assign(new Error('This acknowledgment request has expired.'), { status: 410 });
+  }
+  if (link.meta_json?.planRevision) {
+    const { guardianPlanRevision, isSharedPlanStatus } = await import('./guardianPlanProgress.service.js');
+    const plan = await ClinicalTreatmentPlan.findById(link.treatment_plan_id);
+    if (!plan || !isSharedPlanStatus(plan.status) || guardianPlanRevision(plan) !== link.meta_json.planRevision) {
+      throw Object.assign(new Error('This plan changed. Open the latest version in your portal.'), { status: 409 });
+    }
+  }
   if (link.status === 'signed') {
     return link;
   }
-  await requireAckRecipient(link);
   if (link.status === 'cancelled' || link.status === 'expired') {
     const err = new Error('This acknowledgment request is no longer valid');
     err.status = 410;
     throw err;
   }
   const name = String(signedByName || '').trim();
-  if (!name) {
-    const err = new Error('Signer name is required');
+  if (!name || name.length > 255) {
+    const err = new Error('Enter your full name, up to 255 characters.');
     err.status = 400;
     throw err;
   }
@@ -382,7 +427,20 @@ export async function signAcknowledgment({
       actorLabel: fields.witnessName || 'Provider witness'
     });
   }
-  await markPlanAckStatus({ planId: link.treatment_plan_id, status: 'signed', at: true });
+  const siblings = link.meta_json?.planRevision ? (await TreatmentPlanAckLink.listForPlan({
+    agencyId: link.agency_id, clientId: link.client_id, treatmentPlanId: link.treatment_plan_id
+  })).filter(l => l.dashboard_visible && l.meta_json?.planRevision === link.meta_json.planRevision && !['cancelled', 'expired'].includes(l.status)) : [];
+  let waiting = false;
+  for (const sibling of siblings.filter(l => Number(l.id) !== Number(link.id) && l.status !== 'signed')) {
+    try { await requireAckRecipient(sibling); waiting = true; }
+    catch (error) { if (error.status !== 403) throw error; }
+  }
+  if (link.meta_json?.planRevision) {
+    const { guardianPlanRevision, isSharedPlanStatus } = await import('./guardianPlanProgress.service.js');
+    const latest = await ClinicalTreatmentPlan.findById(link.treatment_plan_id);
+    if (!latest || !isSharedPlanStatus(latest.status) || guardianPlanRevision(latest) !== link.meta_json.planRevision) return updated;
+  }
+  await markPlanAckStatus({ planId: link.treatment_plan_id, status: waiting ? 'partially_signed' : 'signed', at: !waiting });
   return updated;
 }
 

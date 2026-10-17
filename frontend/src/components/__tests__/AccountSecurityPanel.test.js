@@ -12,6 +12,17 @@ beforeEach(() => {
 });
 async function open() { const wrapper=mount(Panel);await flushPromises();return wrapper; }
 describe('personal security screen', () => {
+  it('encourages guardian email setup and activates it only after code verification',async()=>{
+    state={...state,guardianAccount:true,required:false,emailEnrollmentAvailable:true,emailEnabled:false,maskedEmail:'p•••@example.invalid'};
+    api.post.mockImplementation(async url=>{if(url==='/account-security/email/verify')state={...state,emailEnrollmentAvailable:false,emailEnabled:true,method:'email',verified:true,required:true};return {data:{sent:true}};});
+    const wrapper=await open();expect(wrapper.text()).toContain('Each parent manages their own account');
+    await wrapper.find('input[autocomplete="current-password"]').setValue('fixture-password');
+    await wrapper.findAll('button').find(b=>b.text()==='Email me a code').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/account-security/email/send',{enrollEmail:true,password:'fixture-password'},expect.anything());
+    expect(wrapper.text()).not.toContain('Your current sign-in is verified.');
+    await wrapper.find('input[autocomplete="one-time-code"]').setValue('654321');await wrapper.findAll('form').find(f=>f.find('input[autocomplete="one-time-code"]').exists()).trigger('submit');await flushPromises();
+    expect(wrapper.text()).toContain('Your current sign-in is verified.');expect(wrapper.text()).toContain('Turn off email verification');wrapper.unmount();
+  });
   it('explains the optional rollout and lets enrolled users return without verification',async()=>{
     state={...state,required:false,enabled:true};
     const wrapper=await open();

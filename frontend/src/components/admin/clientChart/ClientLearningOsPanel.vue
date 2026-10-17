@@ -275,8 +275,8 @@
               <strong>{{ p.title }}</strong>
               <span class="los-badge">{{ p.status }}</span>
             </div>
-            <button v-if="p.status !== 'active'" type="button" class="los-btn primary" :disabled="saving" @click="doApprove(p.id)">
-              Approve plan
+            <button type="button" class="los-btn primary" :disabled="saving" @click="doApprove(p.id)">
+              {{ p.status === 'active' && p.approved_at ? 'Refresh family sharing' : 'Approve and share plan' }}
             </button>
             <button type="button" class="los-link" @click="openPlanBundle(p.id)">View goals</button>
           </div>
@@ -285,9 +285,22 @@
             <ul>
               <li v-for="g in planBundle.goals" :key="g.id">
                 {{ g.title }} — <em>{{ statusLabel(g.status) }}</em>
+                <form class="los-form" @submit.prevent="saveFamilyQuestion(g)">
+                  <label>Family rating question (1–10)
+                    <textarea v-model="g.familyQuestionDraft" maxlength="500" rows="2" placeholder="How would you rate your child/dependent’s confidence with this skill, from 1 (very low) to 10 (very high)?" @input="g.familyQuestionVerified = false" />
+                  </label>
+                  <label><input v-model="g.familyQuestionVerified" type="checkbox" /> I reviewed this wording and its 1–10 anchors for the family.</label>
+                  <button type="submit" class="los-btn" :disabled="saving">Save family question</button>
+                </form>
+                <ul v-if="planBundle.guardianFeedback?.ratings?.some(r => Number(r.plan_goal_id) === Number(g.id))">
+                  <li v-for="rating in planBundle.guardianFeedback.ratings.filter(r => Number(r.plan_goal_id) === Number(g.id))" :key="rating.id">{{ rating.observer_name }}: {{ rating.scale_value }}/10 · {{ new Date(rating.rated_at).toLocaleDateString() }}</li>
+                </ul>
               </li>
             </ul>
             <p v-if="planBundle.plan.parent_summary" class="los-muted">{{ planBundle.plan.parent_summary }}</p>
+            <div v-if="planBundle.guardianFeedback?.acknowledgments?.length"><h4>Individual family acknowledgments</h4>
+              <p v-for="review in planBundle.guardianFeedback.acknowledgments" :key="review.id">{{ review.observer_name }} — {{ review.retired_at ? 'Earlier version' : review.signed_at ? 'Acknowledged' : 'Awaiting acknowledgment' }}</p>
+            </div>
           </div>
         </template>
       </div>
@@ -703,12 +716,29 @@ async function loadPlans() {
 
 async function openPlanBundle(planId) {
   planBundle.value = await los.getLearningPlan(planId);
+  for (const goal of planBundle.value.goals || []) {
+    goal.familyQuestionDraft = goal.metadata_json?.guardianRatingQuestion || '';
+    goal.familyQuestionVerified = !!(goal.metadata_json?.guardianRatingQuestionVerifiedAt && goal.metadata_json?.guardianRatingQuestionVerifiedBy);
+  }
+}
+
+async function saveFamilyQuestion(goal) {
+  saving.value = true; error.value = '';
+  try {
+    const saved = await los.saveLearningPlan({ id: planBundle.value.plan.id, studentSubjectId: planBundle.value.plan.student_subject_id,
+      goals: [{ id: goal.id, guardianRatingQuestion: goal.familyQuestionDraft || '', guardianRatingQuestionVerified: goal.familyQuestionVerified === true }] });
+    if (saved.guardianSharing?.needsRetry) error.value = saved.guardianSharing.message;
+    await openPlanBundle(planBundle.value.plan.id);
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Could not save the family question.'; }
+  finally { saving.value = false; }
 }
 
 async function doApprove(planId) {
   saving.value = true;
   try {
     planBundle.value = await los.approveLearningPlan(planId);
+    if (planBundle.value.guardianSharing?.needsRetry) error.value = planBundle.value.guardianSharing.message;
+    await openPlanBundle(planId);
     await loadPlans();
     await refresh();
   } catch (e) {

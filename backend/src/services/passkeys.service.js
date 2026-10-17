@@ -68,7 +68,7 @@ async function confirmExistingAccount(req,user) {
  if(resolveRequiresPasswordChange(user).requiresPasswordChange)throw securityError('PRIMARY_VERIFICATION_REQUIRED','Finish changing your password before setting up a passkey.',403);
  const [[account]]=await pool.execute('SELECT protection_enabled FROM account_passkey_accounts WHERE user_id=?',[user.id]);
  const state=await accountSecurityState(req);
- if((account?.protection_enabled || state.authenticatorEnabled) && !state.verified)throw securityError('PASSKEY_PROOF_REQUIRED','Verify an existing passkey, your authenticator, or a recovery code first.',403);
+ if((account?.protection_enabled || state.authenticatorEnabled || state.emailEnabled) && !state.verified)throw securityError('PASSKEY_PROOF_REQUIRED','Verify your existing passkey, authenticator, email code, or recovery code first.',403);
 }
 async function newChallenge(req,res,purpose,options,site,{userId=null,label=null,authorizationEpoch=1}={}) {
  const id=crypto.randomBytes(32).toString('hex'),browser=crypto.randomBytes(32).toString('hex');
@@ -104,6 +104,8 @@ export async function beginPasskeyRegistration(req,res) {
 }
 export async function finishPasskeyRegistration(req) {
  requireAccountSession(req);const challenge=await consumeChallenge(req,'register');await eligiblePasskeyUser(req.user.id,{enrollment:req.authClaims?.authMethod==='google'});
+ const protection=await accountSecurityState(req);
+ if(protection.required&&!protection.verified)throw invalid();
  let result;try{result=await verifyRegistrationResponse({response:req.body.response,expectedChallenge:challenge.challenge,expectedOrigin:challenge.origin,expectedRPID:challenge.rp_id,requireUserVerification:true,supportedAlgorithmIDs:[-7,-257]});}catch{throw invalid();}
  if(!result.verified)throw invalid();
  const info=result.registrationInfo,key=info.credential;
