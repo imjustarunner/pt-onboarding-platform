@@ -48,7 +48,6 @@
             <p>Coverage submitted for: {{ profile.clientIds.map(id => data.clients.find(c => Number(c.clientId) === id)?.clientName).filter(Boolean).join(', ') || 'No client selected' }}</p>
             <p>The office reviews coverage and determines primary and secondary billing before submitting claims.</p>
             <p v-if="profile.secondary">Secondary: {{ profile.secondary.insurerName }} · Member ID: {{ profile.secondary.memberId }}</p>
-            <p v-if="profile.hasPrimaryFront || profile.hasPrimaryBack">Primary card: {{ profile.hasPrimaryFront ? 'front received' : 'front missing' }} · {{ profile.hasPrimaryBack ? 'back received' : 'back missing' }}.</p>
             <details v-if="profile.missingClaimFields.length"><summary>Information needed for claims</summary><ul><li v-for="issue in profile.missingClaimFields" :key="issue">{{ issue }}</li></ul></details>
             <button class="btn btn-secondary" type="button" @click="editInsurance(profile)">Review coverage / apply to clients</button>
           </article>
