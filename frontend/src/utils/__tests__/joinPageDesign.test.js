@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createJoinDesign, normalizeJoinDesign, resolveJoinPresentation, joinCards, joinDesignIssues } from '../joinPageDesign';
 import { mergeJoinLayout } from '../joinLandingTemplate';
 describe('responsive Join design', () => {
-  it('uses centered ITSCO defaults while preserving saved editor settings and other organizations', () => {
+  it('uses centered defaults for every agency while preserving saved editor settings', () => {
     const config = { agency: { slug:'itsco', name:'ITSCO' }, copy:{} };
     expect(resolveJoinPresentation(config, 1440).view.align.cards).toBe('center');
     expect(resolveJoinPresentation(config, 1440).view.sizes.cardsWidth).toBe(1120);
@@ -13,7 +13,7 @@ describe('responsive Join design', () => {
     expect(saved.sizes.cardsWidth).toBe(1000);
     expect(saved.align.cards).toBe('right');
     expect(saved.primaryColor).toBe('#123456');
-    expect(resolveJoinPresentation({agency:{slug:'nlu'}},1440).view.sizes.cardsWidth).toBe(860);
+    expect(resolveJoinPresentation({agency:{slug:'nlu'}},1440).view.sizes.cardsWidth).toBe(1120);
   });
   it('keeps desktop, tablet, and mobile layout and copy independent through serialization', () => {
     const layout = { design: createJoinDesign() };

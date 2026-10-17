@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  readJoinBrandingForPacket,
+  localizeOfficeStartCopy,
   defaultJoinLayout,
   mergeIntakeStartLayout,
   mergeJoinLayout,
@@ -10,7 +12,7 @@ import {
 } from '../joinLandingTemplate.js';
 
 describe('restoreJoinWelcomeCopy', () => {
-  it('fills missing welcome lines with the original ITSCO wording', () => {
+  it('fills missing welcome lines with enrollment wording', () => {
     const out = restoreJoinWelcomeCopy({
       welcomeTitle: undefined,
       welcomeGlad: undefined,
@@ -18,7 +20,7 @@ describe('restoreJoinWelcomeCopy', () => {
     }, 'ITSCO');
     expect(out.welcomeTitle).toBe('Welcome to ITSCO!');
     expect(out.welcomeGlad).toBe("We're so glad you're here.");
-    expect(out.welcomeLead).toMatch(/Choose the type of intake that works best for you with ITSCO/);
+    expect(out.welcomeLead).toMatch(/Choose the enrollment option that works best for you with ITSCO/);
   });
 
   it('keeps custom welcome text when it is present', () => {
@@ -134,4 +136,17 @@ it('reflows the retired support-photo offsets without erasing custom positions',
  expect(out.positions.logo).toEqual({ x: 0, y: 0 });
  expect(out.positions.card).toEqual({ x: 0, y: 0 });
  expect(out.positions.title).toEqual({ x: 12, y: 10 });
+});
+
+
+it('uses only branding cached for the exact enrollment packet', () => {
+ sessionStorage.clear();
+ sessionStorage.setItem('ajl-boot:first:counseling', JSON.stringify({agency:{name:'First agency'},pathways:{full:{publicKey:'first'}}}));
+ sessionStorage.setItem('ajl-boot:second:counseling', JSON.stringify({agency:{name:'Second agency'},branding:{logoUrl:'/second.svg'},pathways:{full:{publicKey:'second'}}}));
+ expect(readJoinBrandingForPacket('second')).toMatchObject({programTitle:'Second agency',logoUrl:'/second.svg'});
+ expect(readJoinBrandingForPacket('unknown')).toBeNull();sessionStorage.clear();
+});
+it('normalizes a saved legacy start heading before translating it', () => {
+ expect(localizeOfficeStartCopy({startTitle:"Let's get your intake started"},'en').startTitle).toBe("Let's get your enrollment started");
+ expect(localizeOfficeStartCopy({startTitle:"Let's get your intake started"},'es').startTitle).toBe('Empecemos su inscripción');
 });

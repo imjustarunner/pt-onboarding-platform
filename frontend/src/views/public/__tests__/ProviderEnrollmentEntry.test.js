@@ -23,7 +23,7 @@ async function render({ status = { inPerson: { status: 'waitlist' }, virtual: { 
     { path: '/intake/:publicKey', component: { template: '<div />' } }
   ] });
   await router.push(path); await router.isReady();
-  wrapper = shallowMount(Join, { global: { plugins: [router] } });
+  wrapper = shallowMount(Join, { global: { plugins: [router], stubs: { AdaptiveIntakeShell: { template: '<main><slot/></main>' } } } });
   await flushPromises();
   return router;
 }

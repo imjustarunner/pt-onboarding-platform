@@ -61,8 +61,8 @@ function blankStartCopy(source = {}, agencyName = 'ITSCO', t = (k) => k) {
     helpTitle: String(c.helpTitle || 'Need Help?').trim(),
     helpBody: String(c.helpBody || "We're here for you.").trim(),
     sendMessage: String(c.sendMessage || 'Send Us a Message').trim(),
-    startTitle: String(c.startTitle || t('letsGetIntakeStarted')).trim(),
-    startLead: String(c.startLead || t('letsGetIntakeStartedLead')).trim()
+    startTitle: String(restored.startTitle || t('letsGetIntakeStarted')).trim(),
+    startLead: String(restored.startLead || t('letsGetIntakeStartedLead')).trim()
   };
 }
 

@@ -2,6 +2,11 @@
   <DigitalFormShell
     class="ai-shell-host"
     :branding="branding"
+    :enrollment-layout="enrollmentLayout"
+    :logo-url-override="logoUrl"
+    :language="language"
+    :show-language-toggle="enrollmentLayout"
+    @update:language="$emit('update:language', $event)"
     :program-title-override="programTitle"
     :form-title-override="formTitle"
     :form-subtitle="formSubtitle"
@@ -61,6 +66,9 @@ const adaptiveTrustItems = [
 ];
 
 defineProps({
+  enrollmentLayout: { type: Boolean, default: false },
+  logoUrl: { type: String, default: '' },
+  language: { type: String, default: 'en' },
   branding: { type: Object, default: null },
   programTitle: { type: String, default: '' },
   formTitle: { type: String, default: '' },
@@ -87,5 +95,5 @@ defineProps({
   sidebarEditing: { type: Boolean, default: false }
 });
 
-defineEmits(['contact-support', 'update-sidebar-label']);
+defineEmits(['update:language', 'contact-support', 'update-sidebar-label']);
 </script>

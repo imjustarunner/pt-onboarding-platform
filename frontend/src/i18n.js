@@ -34,6 +34,7 @@ export function setPublicLocale(locale) {
   i18n.global.locale.value = next;
   try {
     localStorage.setItem('publicLocale', next);
+    localStorage.setItem('preferredFormLanguage', next);
   } catch { /* ignore */ }
   try {
     document.documentElement.setAttribute('lang', next);

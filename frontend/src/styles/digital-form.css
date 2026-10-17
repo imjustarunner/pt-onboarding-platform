@@ -1096,7 +1096,7 @@
   accent-color: var(--df-primary);
 }
 
-.df-shell .intake-card {
+.df-page:not(.df-page--enrollment) .df-shell .intake-card {
   box-shadow: none !important;
   border: none !important;
   background: transparent !important;
@@ -1210,8 +1210,8 @@ main .df-page--full-bleed .df-shell {
   padding: clamp(1.5rem, 4vw, 3rem) clamp(2rem, 5vw, 4rem);
 }
 
-.df-page--full-bleed .intake-card,
-.public-intake .intake-card {
+.df-page--full-bleed:not(.df-page--enrollment) .intake-card,
+.public-intake:not(.df-page--enrollment) .intake-card {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;

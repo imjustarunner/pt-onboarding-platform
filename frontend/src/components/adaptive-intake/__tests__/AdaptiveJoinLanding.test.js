@@ -39,3 +39,12 @@ describe('Join public and design renderer', () => {
     window.innerWidth = previous; wrapper.unmount();
   });
 });
+
+it('uses the same welcome layout for other agencies without substituting ITSCO branding', () => {
+ const wrapper=mount(Landing,{global:{stubs:{RouterLink:true}},props:{agencySlug:'nlu',config:{agency:{name:'Next Level Up',slug:'nlu'},branding:{logoUrl:'/nlu-logo.svg',colorPalette:{primary:'#125678'}},copy:{}},quick,full}});
+ expect(wrapper.find('.ajl--serene').exists()).toBe(true);
+ expect(wrapper.find('.ajl-header-logo').attributes('src')).toBe('/nlu-logo.svg');
+ expect(wrapper.find('.ajl-platform-brand').text()).toContain('AuricWell');
+ expect(wrapper.text()).not.toContain('ITSCO');
+ expect(wrapper.find('.ajl').attributes('style')).toContain('--ajl-primary-color: #125678');wrapper.unmount();
+});

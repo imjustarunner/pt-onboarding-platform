@@ -4,11 +4,11 @@
   </div>
   <div v-else class="df-field" :class="{ 'df-field--error': error, [`df-field--${size}`]: !!size }">
     <label v-if="label && type !== 'checkbox'" class="df-field-label" :for="inputId">
-      {{ label }}
+      {{ translateEnrollment(label) }}
       <span v-if="required" class="df-field-required">*</span>
-      <span v-else-if="optionalBadge" class="df-field-optional">optional</span>
+      <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
     </label>
-    <p v-if="help && type !== 'checkbox' && String(help).trim().toLowerCase() !== 'optional'" class="df-field-help">{{ help }}</p>
+    <p v-if="help && type !== 'checkbox' && String(help).trim().toLowerCase() !== 'optional'" class="df-field-help">{{ translateEnrollment(help) }}</p>
 
     <template v-if="type === 'email'">
       <input
@@ -20,7 +20,7 @@
         autocapitalize="none"
         spellcheck="false"
         :value="modelValue"
-        :placeholder="placeholder"
+        :placeholder="translateEnrollment(placeholder)"
         :required="required"
         :disabled="disabled"
         :aria-invalid="error ? 'true' : undefined"
@@ -28,7 +28,7 @@
         @blur="$emit('blur')"
       />
       <div v-if="resolvedEmailDomainHints.length" class="df-email-domain-hints">
-        <span class="df-email-domain-hints-label">Quick fill:</span>
+        <span class="df-email-domain-hints-label">{{ translateEnrollment('Quick fill:') }}</span>
         <button
           v-for="domain in resolvedEmailDomainHints"
           :key="domain"
@@ -64,7 +64,7 @@
       class="df-input"
       :type="type === 'text' ? 'text' : type"
       :value="modelValue"
-      :placeholder="placeholder"
+      :placeholder="translateEnrollment(placeholder)"
       :required="required"
       :disabled="disabled"
       @input="$emit('update:modelValue', $event.target.value)"
@@ -76,7 +76,7 @@
       :id="inputId"
       class="df-textarea"
       :value="modelValue"
-      :placeholder="placeholder"
+      :placeholder="translateEnrollment(placeholder)"
       :required="required"
       :disabled="disabled"
       :rows="rows"
@@ -93,9 +93,9 @@
       :disabled="disabled"
       @change="$emit('update:modelValue', $event.target.value)"
     >
-      <option value="" disabled>{{ placeholder || 'Select…' }}</option>
+      <option value="" disabled>{{ translateEnrollment(placeholder || 'Select…') }}</option>
       <option v-for="opt in normalizedOptions" :key="opt.value" :value="opt.value">
-        {{ opt.label }}
+        {{ translateEnrollment(opt.label) }}
       </option>
     </select>
 
@@ -109,7 +109,7 @@
           :disabled="disabled"
           @change="$emit('update:modelValue', opt.value)"
         />
-        {{ opt.label }}
+        {{ translateEnrollment(opt.label) }}
       </label>
     </div>
 
@@ -121,17 +121,19 @@
         @change="$emit('update:modelValue', $event.target.checked)"
       />
       <span>
-        {{ label }}
+        {{ translateEnrollment(label) }}
         <span v-if="required" class="df-field-required">*</span>
-        <span v-if="help" class="df-field-help" style="display:block;">{{ help }}</span>
+        <span v-if="help" class="df-field-help" style="display:block;">{{ translateEnrollment(help) }}</span>
       </span>
     </label>
 
-    <p v-if="error" class="df-field-error">{{ error }}</p>
+    <p v-if="error" class="df-field-error">{{ translateEnrollment(error) }}</p>
   </div>
 </template>
 
 <script setup>
+import { inject } from 'vue';
+const translateEnrollment = inject('enrollmentTranslate', text => text);
 import { computed } from 'vue';
 import { formatUsPhoneInput, applyEmailDomainHint, POPULAR_EMAIL_DOMAINS } from '../../utils/contactInput.js';
 

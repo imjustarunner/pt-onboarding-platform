@@ -149,3 +149,21 @@ it('does not restore a stale hold after someone removes the provider while verif
  await render();await wrapper.vm.setSelectedOfficeProviderIds([]);await flushPromises();finish({data:{active:false}});await flushPromises();
  expect(wrapper.vm.providerHoldToken).toBeNull();expect(wrapper.vm.intakeResponses.submission.requested_opening_preference).toBeNull();expect(sessionStorage.getItem('provider-hold:test')).toBeNull();
 });
+
+it('keeps the enrollment shell while loading and carries Spanish into the full packet', async()=>{
+ const {setPublicLocale}=await import('../../i18n');setPublicLocale('es');
+ let finish;
+ get.mockImplementation(url=>url==='/public-intake/office-test'?new Promise(resolve=>{finish=()=>resolve({data:structuredClone(data)});}):Promise.resolve({data:{}}));
+ wrapper=mount(PublicIntakeSigningView,{global:{plugins:[createPinia()],stubs:{SignaturePad:true,PublicProviderSlotPicker:true}}});await flushPromises();
+ expect(wrapper.find('.df-page--enrollment').exists()).toBe(true);
+ expect(wrapper.find('.df-sidebar').exists()).toBe(false);
+ expect(wrapper.find('.df-page--scenic-side').exists()).toBe(false);
+ expect(wrapper.find('[role="status"]').text()).toContain('Cargando inscripción');
+ finish();await flushPromises();
+ expect(wrapper.find('.enrollment-brand').text()).toContain('Example Agency');
+ expect(wrapper.find('.enrollment-brand').text()).toContain('AuricWell');
+ wrapper.vm.step=0.5;await flushPromises();
+ expect(wrapper.find('.office-enrollment-heading h1').text()).toContain('inscripción');
+ expect(wrapper.find('.df-sidebar').exists()).toBe(false);
+ setPublicLocale('en');
+});

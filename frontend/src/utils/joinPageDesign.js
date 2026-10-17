@@ -88,7 +88,6 @@ export function normalizeJoinDesign(layout) {
 }
 export function normalizeJoinDesignForAgency(layout, agencySlug) {
   const design = normalizeJoinDesign(layout);
-  if (String(agencySlug || '').toLowerCase() !== 'itsco') return design;
   for (const { id } of JOIN_DEVICES) {
     const view = design.views[id], saved = layout?.design?.views?.[id] || {}, mobile = id === 'mobile';
     const sizes = { welcome: mobile ? 2.65 : id === 'tablet' ? 3.75 : 4.875, cardTitle: mobile ? 1.55 : 1.875, glad: mobile ? .9375 : 1.0625, lead: mobile ? .9375 : 1.0625, script: mobile ? .75 : 1.0625, logoWidth: mobile ? 240 : 310, cardsWidth: 1120 };

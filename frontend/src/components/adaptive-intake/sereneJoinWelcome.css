@@ -133,3 +133,10 @@
 }
 
 .ajl--serene .ajl-bg::after { background-color: rgb(255 255 255 / var(--ajl-background-wash)); }
+
+.ajl-agency-name{font-size:24px;color:var(--ajl-heading-color);line-height:1.2}
+.ajl-platform-brand{justify-self:end;display:grid;gap:3px;text-align:left;color:#21496c}
+.ajl-platform-brand small{font:11px/1.4 sans-serif;color:#5f726b}
+.ajl-platform-brand span{display:flex;align-items:center;gap:6px;font:600 17px/1.4 sans-serif}
+.ajl-platform-brand img{width:24px;height:24px}
+@media(max-width:700px){.ajl--serene .ajl-masthead{grid-template-columns:1fr auto}.ajl--serene .ajl-masthead-brand{grid-column:1/-1;grid-row:2}.ajl-platform-brand{grid-column:2;grid-row:1}}

@@ -1,22 +1,24 @@
 <template>
-  <section v-if="isProviderEnrollment" class="provider-enrollment-entry" aria-labelledby="provider-enrollment-title">
-    <h1 id="provider-enrollment-title">Full enrollment with your desired provider</h1>
-    <p>Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to coordinate care.</p>
-    <p v-if="loading" role="status">Checking availability and opening full enrollment…</p>
+  <AdaptiveIntakeShell v-if="isProviderEnrollment" enrollment-layout cover-mode :branding="config?.branding" :program-title="config?.agency?.name || 'Enrollment'" :logo-url="thankYouLogoUrl" :language="locale" @update:language="setPublicLocale">
+  <section class="provider-enrollment-entry" aria-labelledby="provider-enrollment-title">
+    <h1 id="provider-enrollment-title"> {{ tx("Full enrollment with your desired provider") }} </h1>
+    <p> {{ tx("Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to coordinate care.") }} </p>
+    <p v-if="loading" role="status"> {{ tx("Checking availability and opening full enrollment…") }} </p>
     <p v-else-if="loadError" role="alert">{{loadError}}</p>
     <template v-else-if="providerEntryOptions.length">
-      <h2>How would you like to meet?</h2>
-      <p>Choose a setting to continue to the full enrollment packet.</p>
+      <h2> {{ tx("How would you like to meet?") }} </h2>
+      <p> {{ tx("Choose a setting to continue to the full enrollment packet.") }} </p>
       <button v-for="option in providerEntryOptions" :key="option.format" type="button" class="df-btn df-btn-primary" @click="continueProviderEnrollment(option.format)">{{option.label}} · {{option.status==='waitlist'?'Join this provider’s waitlist':'Request this provider'}}</button>
     </template>
-    <button type="button" class="df-btn df-btn-secondary" :disabled="loading" @click="continueWithoutProvider">Enroll without a preferred provider</button>
+    <button type="button" class="df-btn df-btn-secondary" :disabled="loading" @click="continueWithoutProvider"> {{ tx("Enroll without a preferred provider") }} </button>
   </section>
+  </AdaptiveIntakeShell>
   <div
     v-else-if="showJoinBoot"
     class="ajl-boot"
-    :style="{ backgroundImage: `url(${bootThemeUrl})` }"
-    aria-hidden="true"
-  />
+    role="status"
+    aria-live="polite"
+  >{{ tx('Loading enrollment…') }}</div>
   <AdaptiveJoinLanding
     v-else-if="config && !loadError && !submitted && phase === 'pathway'"
     :config="config"
@@ -36,14 +38,18 @@
     v-else-if="!loading || submitted || phase !== 'pathway'"
     class="ai-shell-host--join-flow"
     :branding="config?.branding"
+    enrollment-layout
+    :logo-url="thankYouLogoUrl"
+    :language="locale"
+    @update:language="setPublicLocale"
     :trust-items="resolvedServiceType && resolvedServiceType !== 'counseling' ? [{ icon: 'shield', label: 'Secure online registration' }, { icon: 'check', label: 'Real people. Personal support.' }] : undefined"
     :program-title="config?.agency?.name || 'Join'"
-    :form-title="pageTitle"
-    form-subtitle="Adaptive Intake"
+    :form-title="tx(pageTitle)"
+    form-subtitle="Enrollment"
     :pathway-badge="pathwayBadge"
-    :progress-steps="sidebarSteps"
+    :progress-steps="localizedSidebarSteps"
     :progress-index="stepIndex"
-    :sidebar-steps="sidebarSteps"
+    :sidebar-steps="localizedSidebarSteps"
     :decor-hero-url="decorHero.url"
     :decor-hero-alt="decorHero.alt"
     :decor-hero-frame-style="decorHero.frameStyle"
@@ -55,25 +61,23 @@
     :contact-phone-tel="joinContactTel"
     :contact-email="joinContactEmail"
     :show-contact-support-action="!!joinContactEmail"
-    contact-support-label="Send a message"
+    :contact-support-label="tx('Send a message')"
     :sidebar-editing="editingSidebar"
     @contact-support="openJoinSupport"
     @update-sidebar-label="onSidebarLabel"
   >
     <template #header-left>
-      <router-link v-if="publicWebsitePath(agencySlug)" :to="publicWebsitePath(agencySlug)" class="df-btn df-btn-secondary">← Back to website</router-link>
+      <router-link v-if="phase === 'pathway' && publicWebsitePath(agencySlug)" :to="publicWebsitePath(agencySlug)" class="df-btn df-btn-secondary"> {{ tx("← Back to website") }} </router-link>
       <button
         v-if="phase !== 'pathway' && !submitted"
         type="button"
         class="df-btn df-btn-secondary"
         style="padding: 0.35rem 0.75rem; font-size: 0.85rem;"
-        @click="goBack"
-      >
-        ← Back
-      </button>
+        @click="phase = 'pathway'"
+      > {{ tx("← Back to welcome") }} </button>
     </template>
 
-    <div v-if="loading" class="df-loading">Loading…</div>
+    <div v-if="loading" class="df-loading"> {{ tx("Loading…") }} </div>
     <div v-else-if="loadError" class="df-banner df-banner--warn">{{ loadError }}</div>
 
     <AdaptiveIntakeThankYou
@@ -91,12 +95,12 @@
       <div v-if="canEditLanding || canDevFill" class="ai-join-devfill">
         <template v-if="canEditLanding">
           <template v-if="!editingSidebar">
-            <button type="button" @click="startEditSidebar">Edit side panel</button>
+            <button type="button" @click="startEditSidebar">Edit progress guide</button>
           </template>
           <template v-else>
             <button type="button" @click="cancelEditSidebar">Cancel</button>
             <button type="button" :disabled="savingSidebar" @click="saveSidebarSteps">
-              {{ savingSidebar ? 'Saving…' : 'Save side panel' }}
+              {{ savingSidebar ? 'Saving…' : 'Save progress guide' }}
             </button>
           </template>
         </template>
@@ -127,8 +131,8 @@
         >View page</a>
       </div>
       <div v-if="editingSidebar" class="ai-join-sidebar-editor">
-        <strong>Left-side step guide</strong>
-        <p>These labels show in the green panel on the left. Change them here, then save.</p>
+        <strong>Progress guide</strong>
+        <p>These labels show above the form. Change them here, then save.</p>
         <label v-for="(step, i) in sidebarDraft" :key="step.id || i">
           Step {{ i + 1 }}
           <input v-model="step.label" />
@@ -137,26 +141,19 @@
         <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
       </div>
       <div class="ai-join-sheet ai-join-panel">
-      <p v-if="resolvedServiceType==='tutoring'" class="ai-join-eyebrow">Learning enrollment · {{learningForm.program==='bridge'?'Cognitive & Emotional Enrichment / Bridge':learningForm.program==='academic-acceleration'?'Academic Acceleration':'Tutoring'}}</p><p v-if="pathwayBadge" class="ai-join-eyebrow">{{ pathwayBadge }}</p>
+      <p v-if="resolvedServiceType==='tutoring'" class="ai-join-eyebrow"> {{ tx("Learning enrollment") }} · {{learningForm.program==='bridge'?'Cognitive & Emotional Enrichment / Bridge':learningForm.program==='academic-acceleration'?'Academic Acceleration':'Tutoring'}}</p><p v-if="pathwayBadge" class="ai-join-eyebrow">{{ tx(pathwayBadge) }}</p>
       <!-- Step: who for + basics -->
       <div v-if="quickStep === 0" class="ai-join-form">
         <header class="ai-join-header">
-          <h1 class="ai-page-title">Let's get to know you.</h1>
-          <p v-if="isCoGuardianInvitee" class="ai-page-lead">
-            You are completing your own information. You will not see what the other parent submitted.
-            You can edit your name, phone, and email (email is your username).
-          </p>
-          <p v-else class="ai-page-lead">Just the basics so we can reach out—this only takes a few minutes.</p>
+          <h1 class="ai-page-title"> {{ tx("Let's get to know you.") }} </h1>
+          <p v-if="isCoGuardianInvitee" class="ai-page-lead"> {{ tx("You are completing your own information. You will not see what the other parent submitted. You can edit your name, phone, and email (email is your username).") }} </p>
+          <p v-else class="ai-page-lead"> {{ tx("Just the basics so we can reach out—this only takes a few minutes.") }} </p>
         </header>
 
         <section v-if="!isCoGuardianInvitee" class="ai-join-section">
-          <p class="ai-who-label">Who are you looking for services for?</p>
-          <p v-if="form.whoFor === 'couple'" class="ai-page-lead" style="margin-top:0.35rem;">
-            Tell us who would be participating so we can help you find the right provider.
-          </p>
-          <p v-else-if="form.whoFor === 'family'" class="ai-page-lead" style="margin-top:0.35rem;">
-            Tell us who may participate. You can include adults and children.
-          </p>
+          <p class="ai-who-label"> {{ tx("Who are you looking for services for?") }} </p>
+          <p v-if="form.whoFor === 'couple'" class="ai-page-lead" style="margin-top:0.35rem;"> {{ tx("Tell us who would be participating so we can help you find the right provider.") }} </p>
+          <p v-else-if="form.whoFor === 'family'" class="ai-page-lead" style="margin-top:0.35rem;"> {{ tx("Tell us who may participate. You can include adults and children.") }} </p>
           <div class="ai-who-grid" role="radiogroup" aria-label="Who are you looking for services for?">
             <button
               v-for="opt in whoForOptions"
@@ -170,15 +167,15 @@
             >
               <span class="ai-who-card-radio" aria-hidden="true" />
               <span class="ai-who-card-copy">
-                <span class="ai-who-card-title">{{ opt.label }}</span>
-                <span class="ai-who-card-desc">{{ opt.description }}</span>
+                <span class="ai-who-card-title">{{ tx(opt.label) }}</span>
+                <span class="ai-who-card-desc">{{ tx(opt.description) }}</span>
               </span>
             </button>
           </div>
         </section>
 
         <section class="ai-join-section">
-          <h2 class="ai-join-section-title">Your information</h2>
+          <h2 class="ai-join-section-title"> {{ tx("Your information") }} </h2>
           <div class="ai-join-grid">
             <div class="ai-span-4">
               <DigitalFormField v-model="form.respondent.firstName" label="First name" required />
@@ -237,7 +234,7 @@
 
         <!-- Couple: partner -->
         <section v-if="form.whoFor === 'couple'" class="ai-join-section">
-          <h2 class="ai-join-section-title">Your partner</h2>
+          <h2 class="ai-join-section-title"> {{ tx("Your partner") }} </h2>
           <div class="ai-join-grid">
             <div class="ai-span-4">
               <DigitalFormField v-model="form.partner.firstName" label="First name" required />
@@ -267,15 +264,13 @@
             required
             :options="notifyPartnerOptions"
           />
-          <p class="ai-page-lead" style="margin-top:0.5rem;">
-            This controls communications only. We do not automatically send your partner everything you enter.
-          </p>
+          <p class="ai-page-lead" style="margin-top:0.5rem;"> {{ tx("This controls communications only. We do not automatically send your partner everything you enter.") }} </p>
         </section>
 
         <!-- Family: roster -->
         <section v-if="form.whoFor === 'family'" class="ai-join-section">
-          <h2 class="ai-join-section-title">Family members</h2>
-          <p class="ai-page-lead">Add everyone who may participate. Adult / minor is determined from date of birth.</p>
+          <h2 class="ai-join-section-title"> {{ tx("Family members") }} </h2>
+          <p class="ai-page-lead"> {{ tx("Add everyone who may participate. Adult / minor is determined from date of birth.") }} </p>
           <div
             v-for="(member, idx) in form.familyMembers"
             :key="'fm-' + idx"
@@ -283,13 +278,13 @@
             style="margin-bottom:1rem;"
           >
             <div class="ai-add-dependent-head">
-              <h2>Family member {{ idx + 1 }}</h2>
+              <h2> {{ tx("Family member") }} {{ idx + 1 }}</h2>
               <button
                 v-if="form.familyMembers.length > 1"
                 type="button"
                 class="ai-add-dependent-remove"
                 @click="removeFamilyMember(idx)"
-              >Remove</button>
+              > {{ tx("Remove") }} </button>
             </div>
             <div class="ai-join-grid">
               <div class="ai-span-4">
@@ -327,13 +322,11 @@
               </div>
             </div>
           </div>
-          <button type="button" class="df-btn df-btn-secondary" @click="addFamilyMember">
-            + Add family member
-          </button>
+          <button type="button" class="df-btn df-btn-secondary" @click="addFamilyMember"> {{ tx("+ Add family member") }} </button>
         </section>
 
         <section class="ai-join-section">
-          <h2 class="ai-join-section-title">Address</h2>
+          <h2 class="ai-join-section-title"> {{ tx("Address") }} </h2>
           <template v-if="form.whoFor === 'couple'">
             <DigitalFormField
               v-model="form.partnersSameAddress"
@@ -367,13 +360,9 @@
                 { value: '3plus', label: '3+' }
               ]"
             />
-            <p v-if="form.sameHousehold === 'no'" class="ai-page-lead">
-              Detailed addresses for each household can be collected during full enrollment.
-            </p>
+            <p v-if="form.sameHousehold === 'no'" class="ai-page-lead"> {{ tx("Detailed addresses for each household can be collected during full enrollment.") }} </p>
           </template>
-          <p v-if="form.whoFor === 'couple' || form.whoFor === 'family'" class="ai-page-lead">
-            Primary household / contact address
-          </p>
+          <p v-if="form.whoFor === 'couple' || form.whoFor === 'family'" class="ai-page-lead"> {{ tx("Primary household / contact address") }} </p>
           <div class="ai-join-grid">
             <div class="ai-span-12">
               <DigitalFormField v-model="form.address.street" label="Street address" required />
@@ -392,7 +381,7 @@
             </div>
           </div>
           <template v-if="form.whoFor === 'couple' && form.partnersSameAddress === 'no'">
-            <h3 class="ai-join-section-title" style="margin-top:1rem;">Partner address</h3>
+            <h3 class="ai-join-section-title" style="margin-top:1rem;"> {{ tx("Partner address") }} </h3>
             <div class="ai-join-grid">
               <div class="ai-span-12">
                 <DigitalFormField v-model="form.partner.address.street" label="Street address" required />
@@ -415,8 +404,8 @@
 
         <template v-if="isDependentWhoFor">
           <section class="ai-join-section">
-            <h2 class="ai-join-section-title">Dependent information</h2>
-            <p class="ai-dependent-heading">Dependent 1</p>
+            <h2 class="ai-join-section-title"> {{ tx("Dependent information") }} </h2>
+            <p class="ai-dependent-heading"> {{ tx("Dependent 1") }} </p>
             <div class="ai-join-grid">
               <div class="ai-span-4">
                 <DigitalFormField v-model="form.client.firstName" label="First name" required />
@@ -430,17 +419,17 @@
                   type="button"
                   class="ai-same-as-me"
                   @click="form.client.lastName = form.respondent.lastName"
-                >Same as me</button>
+                > {{ tx("Same as me") }} </button>
                 <DigitalFormField v-model="form.client.lastName" label="Last name" required />
               </div>
             </div>
           </section>
           <section v-if="!isCoGuardianInvitee" class="ai-join-section ai-join-section--custody">
-            <h2 class="ai-join-section-title">Custody &amp; guardianship</h2>
+            <h2 class="ai-join-section-title"> {{ tx("Custody & guardianship") }} </h2>
             <OtherGuardianIntakeFields
               class="ai-other-guardian"
               :model="form.otherGuardian"
-              :copy="otherGuardianCopy"
+              :copy="localizedGuardianCopy" :locale="locale"
               :error="otherGuardianError"
             />
           </section>
@@ -449,8 +438,8 @@
 
       <!-- Step: needs -->
       <div v-else-if="quickStep === 1" class="ai-join-form">
-        <h1 class="ai-page-title">What support are you looking for?</h1>
-        <p class="ai-page-lead">{{ concernsLead }}</p>
+        <h1 class="ai-page-title"> {{ tx("What support are you looking for?") }} </h1>
+        <p class="ai-page-lead">{{ tx(concernsLead) }}</p>
         <div class="ai-concern-grid">
           <button
             v-for="c in concernOptions"
@@ -460,7 +449,7 @@
             :class="{ 'ai-pathway-card--selected': form.concerns.includes(c.value) }"
             @click="toggleConcern(c.value)"
           >
-            <strong>{{ c.label }}</strong>
+            <strong>{{ tx(c.label) }}</strong>
           </button>
         </div>
         <DigitalFormField
@@ -479,8 +468,8 @@
 
       <!-- Step: preferences -->
       <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug" />
-        <h1 class="ai-page-title">Preferences & availability</h1>
-        <p class="ai-page-lead">Optional — helps us match format and timing.</p>
+        <h1 class="ai-page-title"> {{ tx("Preferences & availability") }} </h1>
+        <p class="ai-page-lead"> {{ tx("Optional — helps us match format and timing.") }} </p>
         <div class="field-row">
           <DigitalFormField
             v-model="form.preferences.preferredModality"
@@ -510,98 +499,86 @@
 
       <!-- Step: consent / contact permission -->
       <div v-else-if="quickStep === 4" class="ai-join-form">
-        <h1 class="ai-page-title">Permission to contact you</h1>
-        <p class="ai-page-lead">Please review and accept the following before submitting.</p>
+        <h1 class="ai-page-title"> {{ tx("Permission to contact you") }} </h1>
+        <p class="ai-page-lead"> {{ tx("Please review and accept the following before submitting.") }} </p>
         <div class="ai-consent-box">
           <div class="ai-consent-icon" aria-hidden="true">🔒</div>
           <div class="ai-consent-body">
-            <h3 class="ai-consent-heading">Contact authorization</h3>
-            <p>
-              By submitting this interest form, I authorize {{ config?.agency?.name || 'this organization' }}
-              to contact me via phone, email, or text at the information I provided above, for the purpose
-              of scheduling services and providing follow-up care coordination.
-            </p>
-            <p>
-              I understand that submitting this form does not guarantee service and does not create a
-              treatment relationship. My information will be handled confidentially in accordance with
-              HIPAA and applicable privacy laws.
-            </p>
-            <p class="ai-consent-footnote">
-              You may withdraw consent at any time by contacting the organization directly.
-            </p>
+            <h3 class="ai-consent-heading"> {{ tx("Contact authorization") }} </h3>
+            <p> {{ tx("By submitting this interest form, I authorize") }} {{ config?.agency?.name || 'this organization' }} {{ tx("to contact me via phone, email, or text at the information I provided above, for the purpose of scheduling services and providing follow-up care coordination.") }} </p>
+            <p> {{ tx("I understand that submitting this form does not guarantee service and does not create a treatment relationship. My information will be handled confidentially in accordance with HIPAA and applicable privacy laws.") }} </p>
+            <p class="ai-consent-footnote"> {{ tx("You may withdraw consent at any time by contacting the organization directly.") }} </p>
           </div>
         </div>
         <label class="ai-consent-check">
           <input type="checkbox" v-model="form.consentGiven" />
-          <span>I have read and agree to the above authorization</span>
+          <span> {{ tx("I have read and agree to the above authorization") }} </span>
         </label>
       </div>
 
       <!-- Step: review -->
       <div v-else class="ai-join-form">
-        <h1 class="ai-page-title">Review & submit</h1>
-        <p class="ai-page-lead">Confirm the details below. Our team will follow up within 1–2 business days.</p>
+        <h1 class="ai-page-title"> {{ tx("Review & submit") }} </h1>
+        <p class="ai-page-lead"> {{ tx("Confirm the details below. Our team will follow up within 1–2 business days.") }} </p>
         <div class="ai-help-card" style="margin-bottom: 1rem;">
-          <p><strong>For:</strong> {{ whoForLabel }}</p>
-          <p><strong>Contact:</strong> {{ form.respondent.firstName }} {{ form.respondent.lastName }} · {{ form.respondent.email }} · {{ form.respondent.phone }}</p>
+          <p><strong> {{ tx("For:") }} </strong> {{ tx(whoForLabel) }}</p>
+          <p><strong> {{ tx("Contact:") }} </strong> {{ form.respondent.firstName }} {{ form.respondent.lastName }} · {{ form.respondent.email }} · {{ form.respondent.phone }}</p>
           <p v-if="isDependentWhoFor">
-            <strong>Dependent 1:</strong> {{ form.client.firstName }} {{ form.client.middleName }} {{ form.client.lastName }}
+            <strong> {{ tx("Dependent 1:") }} </strong> {{ form.client.firstName }} {{ form.client.middleName }} {{ form.client.lastName }}
           </p>
           <p v-if="form.whoFor === 'couple'">
-            <strong>Partner:</strong> {{ form.partner.firstName }} {{ form.partner.middleName }} {{ form.partner.lastName }}
-            <span v-if="form.notifyPartner"> · Notify: {{ form.notifyPartner === 'yes' ? 'Yes' : 'Not yet' }}</span>
+            <strong> {{ tx("Partner:") }} </strong> {{ form.partner.firstName }} {{ form.partner.middleName }} {{ form.partner.lastName }}
+            <span v-if="form.notifyPartner"> {{ tx("· Notify:") }} {{ tx(form.notifyPartner === 'yes' ? 'Yes' : 'Not yet') }}</span>
           </p>
           <template v-if="form.whoFor === 'family'">
-            <p><strong>Your role:</strong> {{ familyRoleOptions.find((o) => o.value === form.familyRole)?.label || form.familyRole }}</p>
+            <p><strong> {{ tx("Your role:") }} </strong> {{ familyRoleOptions.find((o) => o.value === form.familyRole)?.label || form.familyRole }}</p>
             <p v-for="(m, i) in form.familyMembers" :key="'rev-fm-' + i">
-              <strong>Member {{ i + 1 }}:</strong> {{ m.firstName }} {{ m.middleName }} {{ m.lastName }}
+              <strong> {{ tx("Member") }} {{ i + 1 }}:</strong> {{ m.firstName }} {{ m.middleName }} {{ m.lastName }}
               <span v-if="m.relationshipToPrimary"> · {{ m.relationshipToPrimary }}</span>
               <span v-if="m.participationStatus"> · {{ m.participationStatus.replace(/_/g, ' ') }}</span>
             </p>
           </template>
           <p v-if="form.additionalDependent.enabled">
-            <strong>Dependent 2:</strong> {{ form.additionalDependent.firstName }} {{ form.additionalDependent.middleName }} {{ form.additionalDependent.lastName }}
+            <strong> {{ tx("Dependent 2:") }} </strong> {{ form.additionalDependent.firstName }} {{ form.additionalDependent.middleName }} {{ form.additionalDependent.lastName }}
             <span v-if="form.additionalDependent.dateOfBirth"> · {{ formatBirthdate(form.additionalDependent.dateOfBirth) }}</span>
           </p>
-          <p v-if="form.birthdate"><strong>Date of birth:</strong> {{ formatBirthdate(form.birthdate) }}</p>
-          <p v-if="formattedHomeAddress"><strong>Home address:</strong> {{ formattedHomeAddress }}</p>
-          <p v-if="form.concerns.length"><strong>Interests:</strong> {{ concernLabels }}</p>
-          <p v-if="form.accomplishGoal"><strong>Goals:</strong> {{ form.accomplishGoal }}</p>
-          <p v-if="form.notes"><strong>Additional notes:</strong> {{ form.notes }}</p>
+          <p v-if="form.birthdate"><strong> {{ tx("Date of birth:") }} </strong> {{ formatBirthdate(form.birthdate) }}</p>
+          <p v-if="formattedHomeAddress"><strong> {{ tx("Home address:") }} </strong> {{ formattedHomeAddress }}</p>
+          <p v-if="form.concerns.length"><strong> {{ tx("Interests:") }} </strong> {{ concernLabels }}</p>
+          <p v-if="form.accomplishGoal"><strong> {{ tx("Goals:") }} </strong> {{ form.accomplishGoal }}</p>
+          <p v-if="form.notes"><strong> {{ tx("Additional notes:") }} </strong> {{ form.notes }}</p>
           <p v-if="form.preferences.preferredModality">
-            <strong>Format:</strong> {{ modalityLabel(form.preferences.preferredModality) }}
+            <strong> {{ tx("Format:") }} </strong> {{ tx(modalityLabel(form.preferences.preferredModality)) }}
           </p>
           <p v-if="form.preferences.preferredTimeOfDay">
-            <strong>Preferred time:</strong> {{ timeLabel(form.preferences.preferredTimeOfDay) }}
+            <strong> {{ tx("Preferred time:") }} </strong> {{ tx(timeLabel(form.preferences.preferredTimeOfDay)) }}
           </p>
           <p v-if="form.preferences.preferredDaysRaw">
-            <strong>Preferred days:</strong> {{ form.preferences.preferredDaysRaw }}
+            <strong> {{ tx("Preferred days:") }} </strong> {{ form.preferences.preferredDaysRaw }}
           </p>
           <p v-if="form.preferences.insuranceOrPayment">
-            <strong>Insurance / payment:</strong> {{ form.preferences.insuranceOrPayment }}
+            <strong> {{ tx("Insurance / payment:") }} </strong> {{ form.preferences.insuranceOrPayment }}
           </p>
-          <p>You can request a provider when completing the full enrollment packet.</p>
+          <p> {{ tx("You can request a provider when completing the full enrollment packet.") }} </p>
           <div v-if="form.consentGiven" class="ai-review-ack">
-            <strong>You acknowledged:</strong>
+            <strong> {{ tx("You acknowledged:") }} </strong>
             <ul>
-              <li>Contact authorization — the team may reach you by phone, email, or text to schedule and coordinate care.</li>
-              <li>This form does not guarantee service or create a treatment relationship.</li>
-              <li>Your information will be handled confidentially under HIPAA and applicable privacy laws.</li>
-              <li>You may withdraw consent at any time by contacting the organization.</li>
+              <li> {{ tx("Contact authorization — the team may reach you by phone, email, or text to schedule and coordinate care.") }} </li>
+              <li> {{ tx("This form does not guarantee service or create a treatment relationship.") }} </li>
+              <li> {{ tx("Your information will be handled confidentially under HIPAA and applicable privacy laws.") }} </li>
+              <li> {{ tx("You may withdraw consent at any time by contacting the organization.") }} </li>
             </ul>
           </div>
         </div>
         <template v-if="isDependentWhoFor">
           <div v-if="!form.additionalDependent.enabled" class="ai-add-dependent">
-            <button type="button" class="df-btn df-btn-secondary" @click="form.additionalDependent.enabled = true">
-              + Add another dependent
-            </button>
-            <p>Only a few extra details — both dependents stay linked to this same contact.</p>
+            <button type="button" class="df-btn df-btn-secondary" @click="form.additionalDependent.enabled = true"> {{ tx("+ Add another dependent") }} </button>
+            <p> {{ tx("Only a few extra details — both dependents stay linked to this same contact.") }} </p>
           </div>
           <div v-else class="ai-add-dependent-form">
             <div class="ai-add-dependent-head">
-              <h2>Dependent 2</h2>
-              <button type="button" class="ai-add-dependent-remove" @click="clearAdditionalDependent">Remove</button>
+              <h2> {{ tx("Dependent 2") }} </h2>
+              <button type="button" class="ai-add-dependent-remove" @click="clearAdditionalDependent"> {{ tx("Remove") }} </button>
             </div>
             <div class="field-row field-row--compact">
               <DigitalFormField v-model="form.additionalDependent.firstName" label="First name" required size="compact" />
@@ -612,7 +589,7 @@
                   type="button"
                   class="ai-same-as-me"
                   @click="form.additionalDependent.lastName = form.client.lastName || form.respondent.lastName"
-                >Same as first child</button>
+                > {{ tx("Same as first child") }} </button>
                 <DigitalFormField v-model="form.additionalDependent.lastName" label="Last name" required size="compact" />
               </div>
               <DigitalFormField v-model="form.additionalDependent.dateOfBirth" type="date" label="Date of birth" required size="xs" />
@@ -630,14 +607,14 @@
       </div>
 
       <div class="df-actions ai-join-actions">
-        <button type="button" class="df-btn df-btn-secondary" @click="goBack">Back</button>
+        <button type="button" class="df-btn df-btn-secondary" @click="goBack"> {{ tx("Back") }} </button>
         <button
           type="button"
           class="df-btn df-btn-primary ai-join-continue"
           :disabled="submitting || !canContinueQuick || (quickStep === 4 && !form.consentGiven)"
           @click="onQuickContinue"
         >
-          <span>{{ quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}</span>
+          <span>{{ tx(quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue') }}</span>
           <span v-if="quickStep < 5" class="ai-join-continue-arrow" aria-hidden="true">→</span>
         </button>
       </div>
@@ -648,9 +625,11 @@
 </template>
 
 <script setup>
+import { i18n, setPublicLocale } from '../../i18n.js';
+import { translateJoinEnrollment, JOIN_ENROLLMENT_ES } from '../../utils/joinEnrollmentCopy.js';
 import LearningEnrollmentQuestions from '../../components/learning/LearningEnrollmentQuestions.vue';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import OtherGuardianIntakeFields from '../../components/public-intake/OtherGuardianIntakeFields.vue';
 import api from '../../services/api';
@@ -688,6 +667,11 @@ import {
 import { pickTenantBackgroundUrl, pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets.js';
 import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
 import { providerEnrollmentFormats, fullProviderEnrollmentPath } from '../../utils/providerEnrollmentEntry.js';
+
+const locale = i18n.global.locale;
+const publishedSpanish = ref({});
+const tx = text => translateJoinEnrollment(text, locale.value, publishedSpanish.value);
+provide('enrollmentTranslate', tx);
 
 const route = useRoute();
 const router = useRouter();
@@ -799,6 +783,8 @@ const otherGuardianCopy = {
   phonePlaceholder: '(555) 123-4567',
   close: 'Close'
 };
+
+const localizedGuardianCopy = computed(() => Object.fromEntries(Object.entries(otherGuardianCopy).map(([k,v]) => [k, typeof v === 'string' ? tx(v) : v])));
 
 function otherGuardianContactOk() {
   const rights = String(form.otherGuardian.hasLegalRights || '').trim().toLowerCase();
@@ -973,6 +959,8 @@ const sidebarSteps = computed(() => {
   });
 });
 
+const localizedSidebarSteps = computed(() => sidebarSteps.value.map(s => ({ ...s, label: tx(s.label) })));
+
 const stepIndex = computed(() => {
   if (phase.value === 'pathway') return 0;
   let qs = quickStep.value;
@@ -1041,13 +1029,29 @@ const concernOptions = computed(() => {
   return config.value?.concernOptions || [];
 });
 
+// Translate only published option labels and agency-authored step names, never answers.
+watch(() => [locale.value, config.value], async ([language, settings], _, onCleanup) => {
+  if (language !== 'es' || !settings) return;
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
+  const labels = ['concernOptions', 'selfConcernOptions', 'dependentConcernOptions', 'coupleConcernOptions', 'familyConcernOptions']
+    .flatMap(key => (settings[key] || []).map(option => option.label));
+  labels.push(settings.activeService?.displayName, ...(settings.copy?.quickSidebarSteps || []).map(step => step.label));
+  const strings = [...new Set(labels.filter(label => typeof label === 'string' && label && !JOIN_ENROLLMENT_ES[label] && !publishedSpanish.value[label]))];
+  if (!strings.length) return;
+  try {
+    const { data } = await api.post('/public/translations/translate-strings', { strings, lang: 'es' }, { skipAuthRedirect: true, skipGlobalLoading: true });
+    if (!cancelled) publishedSpanish.value = { ...publishedSpanish.value, ...data?.translations };
+  } catch { /* Static labels stay translated if custom translations are unavailable. */ }
+}, { immediate: true });
+
 const whoForLabel = computed(
   () => whoForOptions.value.find((o) => o.value === form.whoFor)?.label || form.whoFor
 );
 
 const concernLabels = computed(() =>
   form.concerns
-    .map((v) => concernOptions.value.find((c) => c.value === v)?.label || v)
+    .map((v) => tx(concernOptions.value.find((c) => c.value === v)?.label || v))
     .join(', ')
 );
 
@@ -1123,7 +1127,7 @@ const fullCard = computed(() => {
   const c = config.value?.copy || {};
   return {
     title: resolvedServiceType.value === 'tutoring' ? 'Full Learning Enrollment' : c.fullTitle ?? 'Client Enrollment Packet',
-    tagline: c.fullTagline ?? 'A comprehensive intake experience.',
+    tagline: c.fullTagline ?? 'A comprehensive enrollment experience.',
     description: c.fullDescription ?? 'Best when you are ready to provide full information for personalized care.',
     duration: c.fullDuration ?? '10–20 min',
     bullets: c.fullBullets ?? ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],

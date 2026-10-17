@@ -3,6 +3,7 @@
     class="public-intake ai-shell-host"
     :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5, 'public-intake--compact-start': isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value }"
     :branding="formBranding"
+    :enrollment-layout="(loading || isOfficeInDepthIntake || isSchoolScopedIntake || ['intake', 'smart_registration', 'smart_school_roi'].includes(formTypeKey)) && !isJobApplication && !officeStart.editingStartLayout.value"
     :billing-layout="step === 2 && currentFlowStep?.type === 'insurance_info' && (isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel)"
     :program-title-override="shellProgramTitle"
     :form-title-override="shellFormDocumentTitle"
@@ -77,7 +78,7 @@
         Dev Fill
       </button>
     </template>
-    <div v-if="showFullPageLoading" class="df-loading">{{ loadingText }}</div>
+    <div v-if="showFullPageLoading" class="df-loading" role="status" aria-live="polite">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
 
     <div v-else class="intake-card" :class="{ 'intake-card--job-landing': isJobApplication && step === -1 }">
@@ -3048,6 +3049,8 @@
 </template>
 
 <script setup>
+import { i18n, setPublicLocale } from '../i18n.js';
+import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
 import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
 import SchoolIntakeChildDetails from '../components/public-intake/SchoolIntakeChildDetails.vue';
 import { groupSchoolChildSteps, schoolStepRepeatsForChild, schoolChildDetailFields, childDetailKind, validChildDob, syncSchoolChildIdentity, syncSiblingAddresses, migrateLegacySchoolAnswers } from '../utils/schoolIntakeChildren.js';
@@ -3259,7 +3262,7 @@ const INTAKE_TRANSLATIONS = {
     beginIntakeRegistration: 'Begin registration',
     beginIntakeJob: 'Start job application',
     beginIntakeMedical: 'Start medical records request',
-    loadingLink: 'Loading intake link...',
+    loadingLink: 'Loading enrollment…',
     loadingLinkJob: 'Loading job application...',
     loadingLinkMedical: 'Loading medical records request...',
     loadingLinkRegistration: 'Loading registration...',
@@ -3324,7 +3327,7 @@ const INTAKE_TRANSLATIONS = {
     aCouple: 'A couple',
     aFamily: 'A family',
     needSchoolProvider: 'School / provider details',
-    continueToIntakePacket: 'Continue to Intake Packet',
+    continueToIntakePacket: 'Continue to Enrollment Packet',
     childDateOfBirth: "Child's date of birth",
     dependentDateOfBirth: 'DOB',
     middleNameOptional: 'Middle name',
@@ -3392,7 +3395,7 @@ const INTAKE_TRANSLATIONS = {
     whoIsThisForLead: 'This helps us show the right questions and set up the right kind of account.',
     chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
     letsStartWithBasics: "Let's start with some basics.",
-    letsGetIntakeStarted: "Let's get your intake started",
+    letsGetIntakeStarted: "Let's get your enrollment started",
     letsGetIntakeStartedLead: 'Start with a few details about you. We’ll guide you through the rest, and you can save and return anytime.',
     yourFamily: 'Your family',
     hipaaProtected: 'HIPAA Protected',
@@ -3467,7 +3470,7 @@ const INTAKE_TRANSLATIONS = {
     needHelp: 'Need help?',
     needHelpModalBody: 'Send a message to our team. We’ll follow up by email.',
     notYourSchool: 'Not your school?',
-    intakeAndRegistration: 'Intake & Registration',
+    intakeAndRegistration: 'Enrollment',
     schoolRoi: 'School ROI',
     signingLinkAssigned: 'This signing link is already assigned to this client.',
     releaseOfInformation: 'Release of Information',
@@ -3637,7 +3640,7 @@ const INTAKE_TRANSLATIONS = {
     intakeEmailFailed: 'Email failed to send. You can still view or download your packet below.'
   },
   es: {
-    loadingLink: 'Cargando enlace de admisión...',
+    loadingLink: 'Cargando inscripción…',
     loadingLinkJob: 'Cargando solicitud de empleo...',
     loadingLinkMedical: 'Cargando solicitud de registros médicos...',
     loadingLinkRegistration: 'Cargando registro...',
@@ -3714,7 +3717,9 @@ const INTAKE_TRANSLATIONS = {
     someoneElse: 'Otra persona',
     myChildDependent: 'Mi dependiente',
     needSchoolProvider: 'Datos de la escuela o del proveedor',
-    continueToIntakePacket: 'Continuar al paquete de admisión',
+    continueToIntakePacket: 'Continuar al paquete de inscripción',
+    aCouple: 'Una pareja',
+    aFamily: 'Una familia',
     childDateOfBirth: 'Fecha de nacimiento del niño',
     dependentDateOfBirth: 'Fecha de nacimiento',
     middleNameOptional: 'Segundo nombre',
@@ -3782,7 +3787,7 @@ const INTAKE_TRANSLATIONS = {
     whoIsThisForLead: 'Esto nos ayuda a mostrar las preguntas correctas y preparar la cuenta adecuada.',
     chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
     letsStartWithBasics: 'Empecemos con lo básico.',
-    letsGetIntakeStarted: 'Empecemos su admisión',
+    letsGetIntakeStarted: 'Empecemos su inscripción',
     letsGetIntakeStartedLead: 'Comience con unos datos sobre usted. Le guiaremos en los siguientes pasos y podrá guardar y volver cuando quiera.',
     yourFamily: 'Su familia',
     hipaaProtected: 'Protegido por HIPAA',
@@ -3857,7 +3862,7 @@ const INTAKE_TRANSLATIONS = {
     needHelp: '¿Necesita ayuda?',
     needHelpModalBody: 'Envíe un mensaje a nuestro equipo. Le responderemos por correo electrónico.',
     notYourSchool: '¿No es su escuela?',
-    intakeAndRegistration: 'Admisión y registro',
+    intakeAndRegistration: 'Inscripción',
     schoolRoi: 'Autorización escolar (ROI)',
     signingLinkAssigned: 'Este enlace de firma ya está asignado a este cliente.',
     releaseOfInformation: 'Autorización de divulgación de información',
@@ -4033,7 +4038,7 @@ const link = ref(null);
 // reads those computeds during setup and TDZ-crashes the whole packet (white screen).
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const step = ref(-1);
-const inPageLocale = ref('en');
+const inPageLocale = ref(i18n.global.locale.value);
 const userChoseLocale = ref(false);
 const SCHOOL_ON_ABOUT_KEYS = new Set(['child_school', 'child_grade', 'school_name', 'school_grade']);
 const SAFETY_DENY_ALL_KEYS = [
@@ -4221,7 +4226,6 @@ const devFillUsed = ref(false);
 
 const showFullPageLoading = computed(() =>
   loading.value
-  && !looksLikeOfficeIntake.value
   && !fatalError.value
 );
 
@@ -4247,6 +4251,7 @@ const hasInPageSpanish = computed(
 );
 
 const currentFormLanguage = computed(() => {
+  if (!link.value) return inPageLocale.value;
   if (linkLooksLikeOfficeIntake(link.value) || hasInPageSpanish.value) {
     return inPageLocale.value === 'es' ? 'es' : 'en';
   }
@@ -4582,6 +4587,7 @@ async function fetchStringTranslations() {
  * - We are on the Spanish side and know the English key to return to.
  */
 const hasLinkedLanguageToggle = computed(() => {
+  if (linkLooksLikeOfficeIntake(link.value)) return true;
   if (usesSchoolMaster.value) return true;
   if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') return true;
   if (spanishQuestionLabelsEnabled.value) return true;
@@ -4592,6 +4598,7 @@ const hasLinkedLanguageToggle = computed(() => {
 });
 
 const intakeLocale = computed(() => {
+  if (!link.value) return inPageLocale.value;
   if (linkLooksLikeOfficeIntake(link.value) || hasInPageSpanish.value) return inPageLocale.value;
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
@@ -5353,7 +5360,7 @@ const communicationsWorkforceNoLabel = computed(() =>
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
-const formBranding = ref(null);
+const formBranding = ref(readJoinBrandingForPacket(publicKey));
 const isCoachingIntake = computed(() => isCoachingIntakeLink(link.value));
 
 const showSplashSupportModal = ref(false);
@@ -9440,7 +9447,7 @@ const loadLink = async () => {
     disclosureContextLoad = null;
     let preferredLocale = null;
     try {
-      const stored = localStorage.getItem('preferredFormLanguage');
+      const stored = localStorage.getItem('publicLocale') || localStorage.getItem('preferredFormLanguage');
       if (stored === 'es' || stored === 'en') preferredLocale = stored;
     } catch { /* ignore */ }
     const localeHint = inPageLocale.value === 'es' ? 'es' : 'en';
@@ -9482,7 +9489,8 @@ const loadLink = async () => {
       const officeLike = linkLooksLikeOfficeIntake(link.value)
         && String(resp.data?.organization?.organization_type || '').toLowerCase() !== 'school';
       if (officeLike) {
-        inPageLocale.value = inPageLocale.value === 'es' && userChoseLocale.value ? 'es' : 'en';
+        inPageLocale.value = userChoseLocale.value ? inPageLocale.value : i18n.global.locale.value;
+        if (inPageLocale.value === 'es') fetchStringTranslations();
       } else if (usesSchoolMaster.value) {
         const masterLang = String(link.value?.master_language_code || link.value?.language_code || 'en')
           .toLowerCase()
@@ -9761,6 +9769,7 @@ const hydrateHeavyIntakeAssets = async () => {
 const switchLinkedLanguage = async (target) => {
   const targetLang = String(target || '').toLowerCase().startsWith('es') ? 'es' : 'en';
   if (linkedLanguageSwitching.value) return;
+  setPublicLocale(targetLang);
 
   // Published school masters: stay on this public URL and reload EN/ES content.
   if (usesSchoolMaster.value) {
@@ -9780,7 +9789,7 @@ const switchLinkedLanguage = async (target) => {
   }
 
   // In-page locale switch (document map and/or saved question labels — no separate form navigation).
-  if (hasInPageSpanish.value) {
+  if (hasInPageSpanish.value || linkLooksLikeOfficeIntake(link.value)) {
     userChoseLocale.value = true;
     inPageLocale.value = targetLang;
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
@@ -17857,8 +17866,8 @@ onBeforeUnmount(() => {
 .public-intake--compact-start :deep(.df-main) { background:transparent; }
 .public-intake--compact-start :deep(.df-main::before),
 .public-intake--compact-start :deep(.df-main-decor) { display:none; }
-.public-intake--compact-start :deep(.df-main-header) { width:100%; max-width:908px; margin:0 auto; padding:16px 24px 0; box-sizing:border-box; background:transparent; }
-.public-intake.public-intake--compact-start :deep(.df-main-body--cover) { max-width:908px; margin:0 auto; padding:16px 24px 40px; }
+.public-intake--compact-start :deep(.df-main-header) { width:100%; max-width:1000px; margin:0 auto; padding:16px 24px 0; box-sizing:border-box; background:transparent; }
+.public-intake.public-intake--compact-start :deep(.df-main-body--cover) { max-width:1000px; margin:0 auto; padding:16px 24px 40px; }
 .public-intake--compact-start :deep(.intake-back-btn) { border:0; background:transparent; padding:8px 0; box-shadow:none; font-size:13px; min-height:36px; }
 .public-intake--compact-start .intake-start-meta { display:flex; flex-wrap:wrap; gap:6px 18px; color:#617469; font-size:12px; padding-bottom:16px; border-bottom:1px solid #e5ebe7; }
 .public-intake--compact-start .intake-start-grid { display:block; margin:20px 0 12px; }

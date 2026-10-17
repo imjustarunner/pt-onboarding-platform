@@ -2,54 +2,46 @@
   <div class="ai-thankyou">
     <div class="ai-thankyou-hero">
       <div class="ai-thankyou-icon" aria-hidden="true">✓</div>
-      <h1 class="ai-thankyou-title">You're all set</h1>
-      <p class="ai-thankyou-lead">
-        Your interest form was received. Keep this confirmation for your records — our team will follow up within 1–2 business days.
-      </p>
+      <h1 class="ai-thankyou-title"> {{ enrollmentTx("You're all set") }} </h1>
+      <p class="ai-thankyou-lead"> {{ enrollmentTx("Your interest form was received. Keep this confirmation for your records — our team will follow up within 1–2 business days.") }} </p>
     </div>
 
     <section v-if="portalAccess?.email && !portalDismissed" class="ai-portal-card">
-      <h2>Your portal login</h2>
-      <p class="ai-portal-why">
-        Your username is this email. You can keep it or change it after you sign in.
-        You can skip this for now — for medical records we may still need you to have an account.
-      </p>
+      <h2> {{ enrollmentTx("Your portal login") }} </h2>
+      <p class="ai-portal-why"> {{ enrollmentTx("Your username is this email. You can keep it or change it after you sign in. You can skip this for now — for medical records we may still need you to have an account.") }} </p>
       <dl class="ai-portal-creds">
         <div>
-          <dt>Email</dt>
+          <dt> {{ enrollmentTx("Email") }} </dt>
           <dd>{{ portalAccess.email }}</dd>
         </div>
         <div v-if="portalPassword">
-          <dt>Password</dt>
+          <dt> {{ enrollmentTx("Password") }} </dt>
           <dd class="ai-portal-password">
             <code>{{ portalPassword }}</code>
             <button type="button" class="ai-link-btn" @click="copyPassword">
-              {{ passwordCopied ? 'Copied' : 'Copy' }}
+              {{ enrollmentTx(passwordCopied ? 'Copied' : 'Copy') }}
             </button>
           </dd>
         </div>
         <div v-else>
-          <dt>Password</dt>
-          <dd>Use the password you already have for this email.</dd>
+          <dt> {{ enrollmentTx("Password") }} </dt>
+          <dd> {{ enrollmentTx("Use the password you already have for this email.") }} </dd>
         </div>
       </dl>
-      <a class="df-btn df-btn-primary" :href="portalHref">Sign in</a>
+      <a class="df-btn df-btn-primary" :href="portalHref"> {{ enrollmentTx("Sign in") }} </a>
       <button type="button" class="df-btn df-btn-secondary" :disabled="loginEmailing" @click="emailLoginDetails">
-        {{ loginEmailing ? 'Sending…' : 'Email these login details' }}
+        {{ enrollmentTx(loginEmailing ? 'Sending…' : 'Email these login details') }}
       </button>
-      <button type="button" class="df-btn df-btn-secondary" @click="portalDismissed = true">I'll do this later</button>
+      <button type="button" class="df-btn df-btn-secondary" @click="portalDismissed = true"> {{ enrollmentTx("I'll do this later") }} </button>
       <p v-if="loginEmailStatus" class="ai-email-copy-status">{{ loginEmailStatus }}</p>
     </section>
 
     <section v-if="coGuardianInvite" class="ai-portal-card">
-      <h2>Other guardian</h2>
-      <p>Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.</p>
-      <p v-if="coGuardianInvite.emailed && coGuardianInvite.email">
-        We emailed them at {{ coGuardianInvite.email }}.
+      <h2> {{ enrollmentTx("Other guardian") }} </h2>
+      <p> {{ enrollmentTx("Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.") }} </p>
+      <p v-if="coGuardianInvite.emailed && coGuardianInvite.email"> {{ enrollmentTx("We emailed them at") }} {{ coGuardianInvite.email }}.
       </p>
-      <p v-else-if="coGuardianInvite.pendingContact">
-        We have their phone number — our team will call to start their intake.
-      </p>
+      <p v-else-if="coGuardianInvite.pendingContact"> {{ enrollmentTx("We have their phone number — our team will call to start their intake.") }} </p>
     </section>
 
     <article class="ai-receipt">
@@ -57,62 +49,59 @@
         <img v-if="logoUrl" class="ai-receipt-logo" :src="logoUrl" :alt="agencyName || 'Organization logo'" />
         <div class="ai-receipt-org">
           <strong>{{ agencyName || 'Interest form' }}</strong>
-          <span>Interest form confirmation</span>
+          <span> {{ enrollmentTx("Interest form confirmation") }} </span>
         </div>
         <div v-if="referenceCode" class="ai-receipt-ref">
-          <span>Reference</span>
+          <span> {{ enrollmentTx("Reference") }} </span>
           <strong>{{ referenceCode }}</strong>
         </div>
       </header>
 
-      <p class="ai-receipt-meta">
-        Submitted {{ submittedLabel }}
+      <p class="ai-receipt-meta"> {{ enrollmentTx("Submitted") }} {{ submittedLabel }}
       </p>
 
       <section class="ai-receipt-section">
-        <h3>About you</h3>
+        <h3> {{ enrollmentTx("About you") }} </h3>
         <dl class="ai-receipt-dl">
           <div v-for="row in aboutRows" :key="row.label">
-            <dt>{{ row.label }}</dt>
+            <dt>{{ enrollmentTx(row.label) }}</dt>
             <dd>{{ row.value }}</dd>
           </div>
         </dl>
       </section>
 
       <section v-if="preferenceRows.length" class="ai-receipt-section">
-        <h3>Preferences</h3>
+        <h3> {{ enrollmentTx("Preferences") }} </h3>
         <dl class="ai-receipt-dl">
           <div v-for="row in preferenceRows" :key="row.label">
-            <dt>{{ row.label }}</dt>
+            <dt>{{ enrollmentTx(row.label) }}</dt>
             <dd>{{ row.value }}</dd>
           </div>
         </dl>
       </section>
 
       <section v-if="notesRows.length" class="ai-receipt-section">
-        <h3>What you shared</h3>
+        <h3> {{ enrollmentTx("What you shared") }} </h3>
         <dl class="ai-receipt-dl ai-receipt-dl--stack">
           <div v-for="row in notesRows" :key="row.label">
-            <dt>{{ row.label }}</dt>
+            <dt>{{ enrollmentTx(row.label) }}</dt>
             <dd>{{ row.value }}</dd>
           </div>
         </dl>
       </section>
 
       <section v-if="acknowledgments.length" class="ai-receipt-acks">
-        <h3>You acknowledged</h3>
+        <h3> {{ enrollmentTx("You acknowledged") }} </h3>
         <ul>
           <li v-for="(line, i) in acknowledgments" :key="i">{{ line }}</li>
         </ul>
       </section>
 
-      <footer class="ai-receipt-foot">
-        This confirmation is for your records. Your information is handled confidentially under HIPAA and applicable privacy laws.
-      </footer>
+      <footer class="ai-receipt-foot"> {{ enrollmentTx("This confirmation is for your records. Your information is handled confidentially under HIPAA and applicable privacy laws.") }} </footer>
     </article>
 
     <div class="ai-thankyou-download">
-      <p>Download a branded PDF of this confirmation for your records.</p>
+      <p> {{ enrollmentTx("Download a branded PDF of this confirmation for your records.") }} </p>
       <PhiDownloadNotice />
       <button
         type="button"
@@ -141,7 +130,7 @@
     </div>
 
     <section class="ai-thankyou-next">
-      <h2>What happens next?</h2>
+      <h2> {{ enrollmentTx("What happens next?") }} </h2>
       <ol class="ai-thankyou-timeline">
         <li v-for="step in nextSteps" :key="step.title">
           <strong>{{ step.title }}</strong>
@@ -151,7 +140,7 @@
     </section>
 
     <section class="ai-thankyou-support">
-      <h2>Questions in the meantime?</h2>
+      <h2> {{ enrollmentTx("Questions in the meantime?") }} </h2>
       <div v-if="supportPhone || supportEmail" class="ai-thankyou-contact">
         <a v-if="supportPhone" :href="supportPhoneTel">{{ supportPhoneDisplay }}</a>
         <span v-if="supportPhone && supportEmail"> · </span>
@@ -168,9 +157,9 @@
           required
         />
         <div v-if="supportError" class="df-banner df-banner--warn">{{ supportError }}</div>
-        <div v-if="supportSent" class="df-banner df-banner--success">Message sent. Our team will follow up soon.</div>
+        <div v-if="supportSent" class="df-banner df-banner--success"> {{ enrollmentTx("Message sent. Our team will follow up soon.") }} </div>
         <button type="submit" class="df-btn df-btn-primary" :disabled="supportSending">
-          {{ supportSending ? 'Sending…' : 'Contact support' }}
+          {{ enrollmentTx(supportSending ? 'Sending…' : 'Contact support') }}
         </button>
       </form>
     </section>
@@ -178,6 +167,8 @@
 </template>
 
 <script setup>
+import { inject } from 'vue';
+const enrollmentTx = inject('enrollmentTranslate', text => text);
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { DigitalFormField } from '../digital-form';

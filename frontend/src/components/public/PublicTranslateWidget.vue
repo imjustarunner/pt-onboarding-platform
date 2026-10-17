@@ -130,3 +130,8 @@ function choose(next) {
 </style>
 
 <style scoped>.public-translate-btn{font-size:23px;line-height:1.2}.public-translate-btn.active{background:#e0f2f1;box-shadow:inset 0 -3px #087f8c}</style>
+
+<style>
+/* Enrollment carries the same locale in its header; keep a single visible control. */
+body:has(.df-page--enrollment .df-lang-toggle) .public-translate-widget { display:none; }
+</style>

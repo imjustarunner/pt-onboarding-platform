@@ -268,10 +268,13 @@ export function mergePublicSupportLayout(saved) {
 export function restoreJoinWelcomeCopy(copy, agencyName) {
   const org = String(agencyName || 'our team').trim() || 'our team';
   const c = copy && typeof copy === 'object' ? { ...copy } : {};
+  for (const key of ['welcomeLead', 'fullTagline', 'quickFooter', 'fullFooter', 'startTitle', 'startLead']) {
+    if (typeof c[key] === 'string') c[key] = c[key].replace(/\bintake\b/gi, 'enrollment');
+  }
   if (c.welcomeTitle == null) c.welcomeTitle = `Welcome to ${org}!`;
   if (c.welcomeGlad == null) c.welcomeGlad = "We're so glad you're here.";
   if (c.welcomeLead == null) {
-    c.welcomeLead = `Let's find the right place to start. Choose the type of intake that works best for you with ${org}. You can always add more details later or reach out if you need help.`;
+    c.welcomeLead = `Let's find the right place to start. Choose the enrollment option that works best for you with ${org}. You can always add more details later or reach out if you need help.`;
   }
   return c;
 }
@@ -441,8 +444,8 @@ export const OFFICE_START_COPY_EN = {
   helpTitle: 'Need Help?',
   helpBody: "We're here for you.",
   sendMessage: 'Send Us a Message',
-  startTitle: "Let's get your intake started",
-  startLead: 'This secure intake packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.'
+  startTitle: "Let's get your enrollment started",
+  startLead: 'This secure enrollment packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.'
 };
 
 export const OFFICE_START_COPY_ES = {
@@ -454,14 +457,14 @@ export const OFFICE_START_COPY_ES = {
   helpTitle: '¿Necesita ayuda?',
   helpBody: 'Estamos aquí para usted.',
   sendMessage: 'Envíenos un mensaje',
-  startTitle: 'Empecemos su admisión',
-  startLead: 'Este paquete seguro de admisión ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.'
+  startTitle: 'Empecemos su inscripción',
+  startLead: 'Este paquete seguro de inscripción ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.'
 };
 
 const OFFICE_START_COPY_KEYS = Object.keys(OFFICE_START_COPY_EN);
 
 export function localizeOfficeStartCopy(copy, locale) {
-  const src = copy && typeof copy === 'object' ? copy : {};
+  const src = restoreJoinWelcomeCopy(copy);
   if (String(locale || '').toLowerCase().startsWith('es')) {
     const out = { ...src };
     for (const key of OFFICE_START_COPY_KEYS) {
@@ -527,4 +530,19 @@ export function mergeJoinLayout(saved) {
       base.positions
     )
   };
+}
+
+// Public branding only, matched to the exact packet being opened. Never stores form answers.
+export function readJoinBrandingForPacket(publicKey) {
+  try {
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const key = sessionStorage.key(i);
+      if (!key?.startsWith('ajl-boot:')) continue;
+      const cached = JSON.parse(sessionStorage.getItem(key));
+      if (cached?.pathways?.full?.publicKey !== publicKey) continue;
+      return { ...cached.branding, programTitle: cached.agency?.name || cached.branding?.programTitle,
+        logoUrl: cached.branding?.logoUrl || cached.branding?.agencyLogoUrl || cached.branding?.organizationLogoUrl || (cached.agency?.slug === 'itsco' ? '/assets/provider-action/itsco-logo.png' : '') };
+    }
+  } catch { /* Storage can be unavailable; the server provides authoritative branding. */ }
+  return null;
 }

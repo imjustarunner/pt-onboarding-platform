@@ -5,10 +5,11 @@
     <header v-if="serene" class="ajl-masthead">
       <router-link v-if="!designMode" class="ajl-back" :to="publicWebsitePath(agencySlug)"><PublicEntryIcon name="arrow-left" />{{ isSpanish ? 'Volver al sitio web' : 'Back to website' }}</router-link>
       <div class="ajl-masthead-brand">
-        <div v-if="!view.hidden.logo" v-bind="elementAttrs('logo')"><img class="ajl-header-logo" :src="headerLogoUrl" :alt="agencyName" width="310" height="46" /></div>
+        <div v-if="!view.hidden.logo" v-bind="elementAttrs('logo')"><img v-if="headerLogoUrl" class="ajl-header-logo" :src="headerLogoUrl" :alt="agencyName" width="310" height="46" /><strong v-else class="ajl-agency-name">{{ agencyName }}</strong></div>
         <p v-if="!view.hidden.tagline" class="ajl-masthead-tagline" v-bind="elementAttrs('tagline')">{{ copy.sidebarTagline }}</p>
+        <p v-if="!view.hidden.values" class="ajl-masthead-values" v-bind="elementAttrs('values')"><span v-for="value in mastheadValues" :key="value">{{ value }}</span></p>
       </div>
-      <p v-if="!view.hidden.values" class="ajl-masthead-values" v-bind="elementAttrs('values')"><span v-for="value in mastheadValues" :key="value">{{ value }}</span></p>
+      <div class="ajl-platform-brand" translate="no"><small>{{ isSpanish ? 'Inscripción con' : 'Enrollment with' }}</small><span><img src="/auricwell/mark.svg" alt="" />AuricWell</span></div>
     </header>
     <aside v-if="!serene" class="ajl-rail" aria-label="Organization and support">
       <router-link v-if="!designMode && publicWebsitePath(agencySlug)" class="ajl-back" :to="publicWebsitePath(agencySlug)">← Back to website</router-link>
@@ -32,7 +33,7 @@
       </template>
     </aside>
     <main class="ajl-main">
-      <h1 v-if="view.hidden.welcome" class="ajl-sr-only">{{ agencyName }} intake</h1>
+      <h1 v-if="view.hidden.welcome" class="ajl-sr-only">{{ agencyName }} enrollment</h1>
       <div v-if="canEdit && !designMode" class="ajl-editbar"><button ref="editButton" type="button" class="ajl-edit-btn" @click="designerOpen = true">Edit this page</button><span v-if="savedNotice" role="status">{{ savedNotice }}</span></div>
       <template v-for="key in view.order.main" :key="key">
         <section v-if="!view.hidden[key]" class="ajl-block" :class="[`ajl-block--${key}`, { 'ajl-block--selected': designMode && selectedElement === key }]" :style="blockStyle(key)" v-bind="elementAttrs(key)">
@@ -76,6 +77,7 @@
   <JoinPageDesigner v-if="designerOpen && canEdit" :config="config" :agency-slug="agencySlug" :service-type="serviceType" :quick="quick" :full="full" :contact-phone="contactPhone" :contact-tel="contactTel" :contact-email="contactEmail" @close="closeDesigner" @saved="onSaved" />
 </template>
 <script setup>
+import { i18n } from '../../i18n.js';
 import PublicEntryIcon from '../digital-form/PublicEntryIcon.vue';
 import PublicEntryLegalFooter from '../digital-form/PublicEntryLegalFooter.vue';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
@@ -95,7 +97,7 @@ const emit = defineEmits(['continue', 'contact-support', 'tenant-updated', 'sele
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth);
 const designerOpen = ref(false); const savedNotice = ref(''); const editButton = ref(null);
 const presentation = computed(() => resolveJoinPresentation(props.config, viewportWidth.value, props.agencySlug || props.config?.agency?.slug));
-const serene = computed(() => String(props.agencySlug || props.config?.agency?.slug).toLowerCase() === 'itsco');
+const serene = computed(() => true);
 const view = computed(() => presentation.value.view); const copy = computed(() => presentation.value.copy);
 const elements = computed(() => joinDesignElements(presentation.value.design));
 const customRailElements = computed(() => view.value.order.rail.map(id => elements.value.find(e => e.id === id && e.type && !view.value.hidden[id])).filter(Boolean));
@@ -104,7 +106,7 @@ const elementFor = key => elements.value.find(e => e.id === key);
 const cards = computed(() => joinCards(copy.value, props.quick, props.full));
 const agencyName = computed(() => props.config?.agency?.name || 'Welcome');
 const logoUrl = computed(() => safeJoinImage(props.config?.branding?.logoUrl || props.config?.branding?.agencyLogoUrl || props.config?.branding?.organizationLogoUrl || props.config?.agency?.logo_url || props.config?.agency?.logoUrl || (props.agencySlug === 'itsco' ? '/assets/provider-action/itsco-logo.png' : '')));
-const headerLogoUrl = computed(() => !logoUrl.value || logoUrl.value.startsWith('/assets/itsco/logo.png') ? '/assets/provider-action/itsco-logo.png' : logoUrl.value);
+const headerLogoUrl = computed(() => props.agencySlug === 'itsco' && (!logoUrl.value || logoUrl.value.startsWith('/assets/itsco/logo.png')) ? '/assets/provider-action/itsco-logo.png' : logoUrl.value);
 const brandColor = computed(() => props.config?.branding?.colorPalette?.primary || props.config?.branding?.color_palette?.primary || props.config?.branding?.colors?.primary || view.value.primaryColor);
 const backgroundStyle = computed(() => {
   const chosen = view.value.backgroundUrl || presentation.value.design.backgroundUrl;
@@ -114,10 +116,10 @@ const backgroundStyle = computed(() => {
 const themeVars = computed(() => ({
   '--ajl-brand': brandColor.value, '--ajl-body-font': fontFamilyById(view.value.fonts.body), '--ajl-welcome-font': fontFamilyById(view.value.fonts.welcome), '--ajl-script-font': fontFamilyById(view.value.fonts.script), '--ajl-card-font': fontFamilyById(view.value.fonts.cardTitle),
   '--ajl-script-size': `${view.value.sizes.script}rem`, '--ajl-logo-width': `${view.value.sizes.logoWidth}px`, '--ajl-welcome-size': `${view.value.sizes.welcome}rem`, '--ajl-glad-size': `${view.value.sizes.glad}rem`, '--ajl-lead-size': `${view.value.sizes.lead}rem`, '--ajl-card-size': `${view.value.sizes.cardTitle}rem`,
-  '--ajl-background-wash': view.value.backgroundWash / 100, '--ajl-heading-color': view.value.headingColor, '--ajl-primary-color': view.value.primaryColor, '--ajl-secondary-color': view.value.secondaryColor, '--ajl-surface-color': view.value.surfaceColor,
+  '--ajl-background-wash': view.value.backgroundWash / 100, '--ajl-heading-color': view.value.headingColor, '--ajl-primary-color': props.config?.copy?.layout?.design?.views?.[presentation.value.device]?.primaryColor || brandColor.value, '--ajl-secondary-color': view.value.secondaryColor, '--ajl-surface-color': view.value.surfaceColor,
   '--ajl-padding': `${view.value.padding}px`, '--ajl-gap': `${view.value.gap}px`
 }));
-const isSpanish = computed(() => String(props.config?.locale || props.config?.language || document.documentElement.lang || 'en').startsWith('es'));
+const isSpanish = computed(() => i18n.global.locale.value === 'es');
 const mastheadValues = computed(() => {
   const shortLabels = { 'Supportive & Welcoming': 'Support', 'Personalized to Your Needs': 'Growth', 'Focused on Growth & Well-Being': 'Well-being', 'Apoyo y bienvenida': 'Apoyo', 'Personalizado a sus necesidades': 'Crecimiento', 'Enfocado en el crecimiento y el bienestar': 'Bienestar' };
   return [copy.value.value1, copy.value.value2, copy.value.value3].filter(Boolean).map(value => shortLabels[value] || value);

@@ -2,11 +2,14 @@
   <AdaptiveIntakeShell
     class="ai-shell-host--join-flow public-service-hub"
     :branding="config?.branding"
+    enrollment-layout
+    :language="locale"
+    @update:language="setPublicLocale"
     :scenic-sidebar-url="scenicUrl"
     :trust-items="hubTrust"
     :program-title="config?.agency?.name || 'Join'"
     form-title="Get Started"
-    form-subtitle="Adaptive Intake"
+    form-subtitle="Enrollment"
     :sidebar-steps="hubSidebarSteps"
     :progress-index="0"
     :wide="true"
@@ -14,7 +17,7 @@
   >
     <template #header-left><router-link v-if="publicWebsitePath(agencySlug)" :to="publicWebsitePath(agencySlug)">← Back to website</router-link></template>
     <div v-if="loading || redirecting" class="df-loading">
-      {{ redirecting ? 'Taking you to intake…' : 'Loading…' }}
+      {{ redirecting ? 'Taking you to enrollment…' : 'Loading…' }}
     </div>
     <div v-else-if="loadError" class="df-banner df-banner--warn">{{ loadError }}</div>
 
@@ -49,6 +52,8 @@
 </template>
 
 <script setup>
+import { i18n, setPublicLocale } from '../../i18n.js';
+const locale = i18n.global.locale;
 import { pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, ref, watch } from 'vue';

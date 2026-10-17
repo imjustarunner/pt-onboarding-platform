@@ -7,13 +7,15 @@
       'df-page--full-bleed': isFullBleed,
       'df-page--form-mode': isFormMode,
       'df-page--scenic-side': !!scenicSidebarUrl,
-      'df-page--billing': billingLayout
+      'df-page--billing': billingLayout,
+      'df-page--enrollment': enrollmentLayout
     }"
     :style="mergedShellVars"
   >
     <header v-if="billingLayout" class="df-billing-header">
       <div class="df-billing-brand">
-        <img v-if="resolvedLogo" :src="resolvedLogo" :alt="programTitle" />
+        <EnrollmentBrand v-if="enrollmentLayout" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
+        <img v-else-if="resolvedLogo" :src="resolvedLogo" :alt="programTitle" />
         <strong v-else>{{ programTitle }}</strong>
       </div>
       <div v-if="progressSteps.length" class="df-billing-progress">
@@ -35,7 +37,7 @@
         'df-shell--scenic-side': !!scenicSidebarUrl
       }"
     >
-      <aside v-if="!hideSidebar && !embedded" class="df-sidebar" aria-label="Program branding">
+      <aside v-if="!hideSidebar && !embedded && !enrollmentLayout" class="df-sidebar" aria-label="Program branding">
         <div class="df-sidebar-bg" aria-hidden="true" />
         <div v-if="!isFormMode && !hasIntakeSidebarStepper && !scenicSidebarUrl" class="df-sidebar-wave" aria-hidden="true" />
         <div class="df-sidebar-inner" :class="{ 'df-sidebar-inner--rail': isFormMode, 'df-sidebar-inner--intake': hasIntakeSidebarStepper }">
@@ -219,8 +221,14 @@
           </div>
         </header>
 
+        <EnrollmentBrand v-if="enrollmentLayout && !billingLayout" class="df-enrollment-brand" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
+        <nav v-if="enrollmentLayout && !coverMode && progressSteps.length && !billingLayout" class="df-enrollment-progress" :aria-label="language === 'es' ? 'Progreso de inscripción' : 'Enrollment progress'">
+          <button v-for="(item, index) in progressSteps" :key="item.id || index" type="button" :aria-current="index === progressIndex ? 'step' : undefined" :disabled="!intakeSidebarInteractive || index > intakeSidebarMaxReachable" @click="$emit('select-step', index)">
+            <span>{{ index < progressIndex ? '✓' : index + 1 }}</span>{{ item.label }}
+          </button>
+        </nav>
         <DigitalFormProgress
-          v-if="!billingLayout && progressSteps.length && !coverMode && progressIndex < progressSteps.length - 1"
+          v-if="!enrollmentLayout && !billingLayout && progressSteps.length && !coverMode && progressIndex < progressSteps.length - 1"
           :steps="progressSteps"
           :active-index="progressIndex"
           :class="{ 'df-progress--intake-sidebar-companion': hasIntakeSidebarStepper }"
@@ -242,15 +250,22 @@
         </footer>
       </div>
     </div>
-    <footer v-if="scenicSidebarUrl && !embedded && resolvedTrustItems.length" class="df-entry-trust" aria-label="Information and support">
+    <div v-if="enrollmentLayout && hasSidebarContact" class="df-enrollment-help">
+      <strong>{{ language === 'es' ? '¿Necesita ayuda?' : 'Need help?' }}</strong>
+      <a v-if="contactPhoneTel" :href="`tel:${contactPhoneTel}`">{{ contactPhoneDisplay }}</a>
+      <a v-if="contactEmail" :href="`mailto:${contactEmail}`">{{ contactEmail }}</a>
+      <button v-if="showContactSupportAction" type="button" @click="$emit('contact-support')">{{ contactSupportLabel }}</button>
+    </div>
+    <footer v-if="scenicSidebarUrl && !enrollmentLayout && !embedded && resolvedTrustItems.length" class="df-entry-trust" aria-label="Information and support">
       <span v-for="item in resolvedTrustItems" :key="item.label"><PublicEntryIcon :name="item.icon" />{{ item.label }}</span>
     </footer>
-    <PublicEntryLegalFooter v-if="scenicSidebarUrl && !embedded" :language="language" :organization-slug="branding?.legalOrganizationSlug || branding?.slug || branding?.portalUrl || ''" />
+    <PublicEntryLegalFooter v-if="(scenicSidebarUrl || enrollmentLayout) && !embedded" :language="language" :organization-slug="branding?.legalOrganizationSlug || branding?.slug || branding?.portalUrl || ''" />
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import EnrollmentBrand from './EnrollmentBrand.vue';
 import PublicEntryIcon from './PublicEntryIcon.vue';
 import PublicEntryLegalFooter from './PublicEntryLegalFooter.vue';
 import '../../styles/digital-form.css';
@@ -260,9 +275,11 @@ import AdaptiveIntakeSidebarSteps from '../adaptive-intake/AdaptiveIntakeSidebar
 import { useDigitalFormTheme } from './useDigitalFormTheme';
 import '../../styles/adaptive-intake.css';
 import '../../styles/public-entry.css';
+import '../../styles/enrollment-layout.css';
 import { publicEntryBackground } from '../../utils/tenantBrandAssets';
 
 const props = defineProps({
+  enrollmentLayout: { type: Boolean, default: false },
   branding: { type: Object, default: null },
   billingLayout: { type: Boolean, default: false },
   programTitleOverride: { type: String, default: '' },
@@ -347,7 +364,7 @@ const { shellVars, logoUrl, programTitle: themeProgramTitle } = useDigitalFormTh
   computed(() => props.branding)
 );
 
-const scenicSidebarUrl = computed(() => props.scenicSidebarUrl ? publicEntryBackground(props.scenicSidebarUrl) : '');
+const scenicSidebarUrl = computed(() => !props.enrollmentLayout && props.scenicSidebarUrl ? publicEntryBackground(props.scenicSidebarUrl) : '');
 
 const mergedShellVars = computed(() => {
   const vars = { ...(shellVars.value || {}) };
@@ -381,7 +398,7 @@ const displayFormTitle = computed(
 );
 
 const showIntakeDecor = computed(
-  () => hasIntakeSidebarStepper.value && !!String(props.decorHeroUrl || '').trim()
+  () => !props.enrollmentLayout && hasIntakeSidebarStepper.value && !!String(props.decorHeroUrl || '').trim()
 );
 
 const decorHeroImageStyle = computed(() => ({
