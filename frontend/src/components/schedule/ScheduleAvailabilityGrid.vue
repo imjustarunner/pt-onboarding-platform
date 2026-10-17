@@ -1345,7 +1345,7 @@
               'sched-cell-drop-target': isAppointmentDropTarget(d, slot.hour, slot.minute),
               'sched-cell--quiet': isQuietHourCell(d, slot.hour, slot.minute)
             }"
-            :title="canBookFromGrid ? `${hourLabel(slot.hour)}: click to schedule, or click and drag to select hours` : undefined"
+            :aria-label="canBookFromGrid ? `${hourLabel(slot.hour)}: click to schedule, or click and drag to select hours` : undefined"
             data-sched-cell="1"
             :data-day="d"
             :data-hour="slot.hour"
@@ -1395,10 +1395,11 @@
                 type="button" @mousedown.stop @pointerdown.stop @click.stop="toggleCalendarStack($event, d, slot.hour, slot.minute)"
                 :aria-expanded="isCellPickExpanded(d, slot.hour, slot.minute)"
                 class="cell-multi-pick-badge"
-                :title="scheduleSideBySide ? 'Enlarge schedule items' : 'View overlapping items side by side'"
+                :aria-label="scheduleSideBySide ? 'Enlarge schedule items' : 'View overlapping items side by side'"
               >{{ scheduleSideBySide ? 'Zoom' : `${cellPickableBlocks(d, slot.hour, slot.minute).length} items` }}</button>
               <div v-if="isCellPickExpanded(d, slot.hour, slot.minute)" class="cell-expanded-list"
                 :style="calendarStackPosition" role="group" :aria-label="scheduleSideBySide ? 'Enlarged schedule items' : 'Overlapping schedule items'"
+                @mouseenter="clearCalendarStackClose"
                 @mousedown.stop @pointerdown.stop @click.stop>
                 <div class="cell-expanded-header">
                   <strong>{{ calendarStackContext.day }} · {{ hourLabel(calendarStackContext.hour) }} — {{ calendarStackItems.length }} {{ calendarStackItems.length === 1 ? 'item' : 'items' }}</strong>
@@ -1413,6 +1414,8 @@
                     @click.stop="openExpandedCalendarItem($event, item)">
                     <strong>{{ cellBlockKindLabel(item) }}</strong>
                     <span>{{ item.title || item.shortLabel }}</span>
+                    <span v-if="staffAlertForBlock(item)">Staff reminder: {{ staffAlertForBlock(item) }}</span>
+                    <span v-if="item.schedulingNoteSnippet">{{ item.schedulingNoteSnippet }}</span>
                   </button>
                 </div>
               </div>
@@ -1445,7 +1448,7 @@
                       && cellPickableBlocks(d, slot.hour, slot.minute).some((pb) => pb.key === b.key)
                   }
                 ]"
-                :title="b.title"
+                :aria-label="b.title"
                 :style="{ ...cellBlockStyle(b), ...schedResizeOverrideStyle(b, d, slot.hour, slot.minute) }"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
@@ -1454,12 +1457,12 @@
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
-                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`" :title="`Staff only: ${staffAlertForBlock(b)}`">⚑</span>
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`">⚑</span>
                 <!-- Top resize handle — any draggable block -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
                   class="cell-block-resize-handle cell-block-resize-handle--top"
-                  title="Drag to adjust start time"
+                  aria-label="Drag to adjust start time"
                   @pointerdown.stop="onCellBlockResizePointerDown($event, b, d, slot.hour, slot.minute, 'top')"
                 ></div>
                 <span
@@ -1472,7 +1475,7 @@
                   class="cell-block-peer-face"
                   :src="b.peerPhotoUrl"
                   alt=""
-                  :title="b.title"
+                  :aria-label="b.title"
                 />
                 <span
                   v-else-if="b.kind === 'peerbusy' && b.shortLabel"
@@ -1485,18 +1488,18 @@
                   class="cell-block-agency-icon"
                   :src="blockAgencyIconUrl(b)"
                   alt=""
-                  :title="agencyBadgeTitle(b)"
+                  :aria-label="agencyBadgeTitle(b)"
                 />
                 <span
                   v-else-if="hasAgencyBadge(b) && !b.hideAgencyDot && !colorBlocksByTenant && b.kind !== 'peerbusy'"
                   class="cell-block-agency-dot"
                   :style="agencyBadgeStyle(b)"
-                  :title="agencyBadgeTitle(b)"
+                  :aria-label="agencyBadgeTitle(b)"
                 ></span>
                 <template v-if="b.isOfficeBlock">
                   <span class="cell-block-office-body">
                     <span class="cell-block-text">{{ b.officeRoomLabel || b.shortLabel }}</span>
-                    <span class="cell-block-office-status" :title="b.officeStatusLabel">
+                    <span class="cell-block-office-status" :aria-label="b.officeStatusLabel">
                       <svg class="cell-block-door-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 21h18" /><path d="M5 21V7l7-4v18" /><path d="M19 21V11l-7-4" /><circle cx="10" cy="12" r="0.8" fill="currentColor" stroke="none" />
                       </svg>
@@ -1507,7 +1510,7 @@
                 </template>
                 <span v-else-if="b.kind === 'supv-signup'" class="cell-block-text cell-block-text--signup-supv">
                   <span v-if="b.signupTimeRange && !hideGridBlockTime(b)" class="cell-block-signup-range">{{ b.signupTimeRange }}</span>
-                  <span class="cell-block-signup-headline" title="Open group supervision — agency signup session">OPEN GROUP SUPERVISION</span>
+                  <span class="cell-block-signup-headline" aria-label="Open group supervision — agency signup session">OPEN GROUP SUPERVISION</span>
                   <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
                   <SupervisionSignupCountdown
                     v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
@@ -1525,31 +1528,31 @@
                   <span
                     v-if="b.confirmationState === 'confirmed'"
                     class="cell-block-confirm-chip cell-block-confirm-chip--ok"
-                    title="Client confirmed"
+                    aria-label="Client confirmed"
                   >Confirmed</span>
                   <span
                     v-else-if="b.confirmationState === 'unconfirmed'"
                     class="cell-block-confirm-chip cell-block-confirm-chip--pending"
-                    title="Awaiting client confirmation"
+                    aria-label="Awaiting client confirmation"
                   >Unconfirmed</span>
                   <span>{{ gridBlockLabel(b) }}</span>
                   <span
                     v-if="b.schedulingNoteSnippet"
                     class="cell-block-note-snip"
-                    :title="b.schedulingNoteSnippet"
+                    :aria-label="b.schedulingNoteSnippet"
                   >{{ b.schedulingNoteSnippet }}</span>
                 </span>
                 <span v-else-if="b.kind === 'peerbusy' && b.shortLabel" class="cell-block-text">{{ peerActivityShortFromBlock(b) }}</span>
                 <span
                   v-if="b.hasPendingRequest"
                   class="cell-block-pending-badge"
-                  :title="b.pendingRequestCount > 1 ? `${b.pendingRequestCount} pending requests` : 'Pending request'"
+                  :aria-label="b.pendingRequestCount > 1 ? `${b.pendingRequestCount} pending requests` : 'Pending request'"
                 >{{ b.pendingRequestCount > 1 ? `Req×${b.pendingRequestCount}` : 'Req' }}</span>
                 <!-- Bottom resize handle -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
                   class="cell-block-resize-handle cell-block-resize-handle--bottom"
-                  title="Drag to adjust end time"
+                  aria-label="Drag to adjust end time"
                   @pointerdown.stop="onCellBlockResizePointerDown($event, b, d, slot.hour, slot.minute, 'bottom')"
                 ></div>
               </div>
@@ -12006,8 +12009,37 @@ const calendarStackItems = computed(() => {
   const context = calendarStackContext.value;
   return context ? cellBlocks(context.day, context.hour, context.minute, true) : [];
 });
-function openCalendarStack(event, day, hour, minute) {
-  const container = event.currentTarget;
+let calendarStackCloseTimer = null;
+function clearCalendarStackClose() {
+  clearTimeout(calendarStackCloseTimer);
+  calendarStackCloseTimer = null;
+}
+function closeCalendarStack() {
+  clearCalendarStackClose();
+  hoveredPickCellKey.value = '';
+}
+function onCalendarStackViewportChange(event) {
+  // Scrolling a long preview itself should not dismiss it.
+  if (event.target?.closest?.('.cell-expanded-list')) return;
+  closeCalendarStack();
+}
+onMounted(() => {
+  window.addEventListener('scroll', onCalendarStackViewportChange, true);
+  window.addEventListener('resize', onCalendarStackViewportChange);
+});
+onUnmounted(() => {
+  closeCalendarStack();
+  window.removeEventListener('scroll', onCalendarStackViewportChange, true);
+  window.removeEventListener('resize', onCalendarStackViewportChange);
+});
+function openCalendarStack(event, day, hour, minute, explicit = false) {
+  clearCalendarStackClose();
+  const container = event.currentTarget.closest?.('.cell-blocks') || event.currentTarget;
+  const preview = container.querySelector?.('.cell-expanded-list')?.getBoundingClientRect();
+  // Entering the preview also re-enters its DOM parent across the gap. Keep
+  // its original hour instead of interpreting the preview as a later row.
+  if (!explicit && preview && event.clientX >= preview.left && event.clientX < preview.right
+    && event.clientY >= preview.top && event.clientY < preview.bottom) return;
   // A long event is rendered in its starting row. Use the row under the pointer
   // so hovering its later hours also reveals the events overlapping there.
   const rows = container.closest?.('.sched-wrap')?.querySelectorAll('.sched-cell[data-day]') || [];
@@ -12020,12 +12052,27 @@ function openCalendarStack(event, day, hour, minute) {
     ? { day, hour:Number(row.dataset.hour), minute:Number(row.dataset.minute || 0) }
     : { day, hour, minute };
   const items = cellBlocks(context.day, context.hour, context.minute, true);
-  if (!items.length || (!scheduleSideBySide.value && items.length < 2)) return;
-  const rect = container.getBoundingClientRect();
-  const width = Math.min(620, window.innerWidth - 24);
-  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
-  const top = Math.max(12, Math.min(Number(event.clientY) || rect.top, window.innerHeight - 240));
-  calendarStackPosition.value = { position:'fixed', left:`${left}px`, top:`${top}px`, width:`${width}px`, maxHeight:`${window.innerHeight-top-12}px` };
+  if (!items.length) return;
+  // Keep the entire day column clear, including its next-hour plus buttons.
+  const rect = (container.closest?.('.sched-cell') || container).getBoundingClientRect();
+  const margin = 12;
+  const gap = 8;
+  const rightSpace = window.innerWidth - rect.right - gap - margin;
+  const leftSpace = rect.left - gap - margin;
+  const side = rightSpace >= 360 || rightSpace >= leftSpace ? 'right' : 'left';
+  const space = side === 'right' ? rightSpace : leftSpace;
+  // On a narrow screen, don't cover the day with a hover. An explicit click
+  // can still open the preview; tapping an event also opens its details.
+  if (space < 200 && !explicit) {
+    closeCalendarStack();
+    return;
+  }
+  const width = Math.min(420, space >= 200 ? space : window.innerWidth - margin * 2);
+  const left = space < 200 ? (window.innerWidth - width) / 2
+    : side === 'right' ? rect.right + gap : rect.left - gap - width;
+  const maxHeight = Math.min(440, window.innerHeight - margin * 2);
+  const top = Math.max(margin, Math.min(Number(event.clientY) || rect.top, window.innerHeight - maxHeight - margin));
+  calendarStackPosition.value = { position:'fixed', left:`${left}px`, top:`${top}px`, width:`${width}px`, maxHeight:`${maxHeight}px` };
   calendarStackContext.value = context;
   hoveredPickCellKey.value = cellPickKey(day, hour, minute);
 }
@@ -12040,12 +12087,17 @@ function openExpandedCalendarItem(event, item) {
 }
 async function toggleCalendarStack(event, day, hour, minute) {
   const container = event.currentTarget?.parentElement;
-  openCalendarStack(event, day, hour, minute);
+  openCalendarStack(event, day, hour, minute, true);
   await nextTick();
   container?.querySelector('.cell-expanded-item')?.focus();
 }
 function onCalendarStackMouseLeave(event) {
-  if (!event.currentTarget.contains(document.activeElement)) hoveredPickCellKey.value = '';
+  const container = event.currentTarget;
+  clearCalendarStackClose();
+  // Allow the pointer to cross the small gap to the adjacent preview.
+  calendarStackCloseTimer = setTimeout(() => {
+    if (!container.contains(document.activeElement)) closeCalendarStack();
+  }, 160);
 }
 function onCalendarStackFocusOut(event) {
   if (!event.currentTarget.contains(event.relatedTarget)) hoveredPickCellKey.value = '';
@@ -28921,7 +28973,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .cell-expanded-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
 .cell-layout-toggle { border:1px solid #a5b4fc; border-radius:8px; padding:6px 9px; background:#eef2ff; color:#3730a3; font:inherit; font-weight:700; cursor:pointer; }
-.cell-expanded-cards { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(140px, 1fr); gap:8px; overflow-x:auto; padding:2px; }
+.cell-expanded-cards { display:grid; grid-template-columns:minmax(0, 1fr); gap:8px; padding:2px; }
 .cell-expanded-item {
   display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
   border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px;

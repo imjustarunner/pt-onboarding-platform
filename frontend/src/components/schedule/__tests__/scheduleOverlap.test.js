@@ -123,3 +123,77 @@ it('uses distinct custom appointment colors and saves only the viewer color pref
   await s.saveScheduleColors();
   expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{schedule_color_overrides:expect.objectContaining({interview:'#123456',supervision:'#654321'})},expect.anything());
 });
+
+it.each([
+  { left: 100, right: 240, side: 'right' },
+  { left: 800, right: 940, side: 'left' }
+])('positions the preview to the $side without covering the hovered day', async ({ left, right, side }) => {
+  const s = await mount();
+  const cell = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"]');
+  vi.spyOn(cell.element, 'getBoundingClientRect').mockReturnValue({ left, right, top: 200, bottom: 280 });
+  await cell.find('.cell-blocks').trigger('mouseenter', { clientY: 220 });
+  const style = s.calendarStackPosition;
+  const x = parseFloat(style.left), width = parseFloat(style.width);
+  if (side === 'right') expect(x).toBeGreaterThanOrEqual(right);
+  else expect(x + width).toBeLessThanOrEqual(left);
+  expect(x).toBeGreaterThanOrEqual(12);
+  expect(x + width).toBeLessThanOrEqual(window.innerWidth - 12);
+  expect(parseFloat(style.top) + parseFloat(style.maxHeight)).toBeLessThanOrEqual(window.innerHeight - 12);
+  expect(cell.attributes('title')).toBeUndefined();
+  expect(cell.findAll('[title]')).toHaveLength(0);
+  expect(cell.find('.cell-block').attributes('aria-label')).toBeTruthy();
+});
+
+it('closes on calendar scroll and resize but allows scrolling within the preview', async () => {
+  await mount();
+  const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
+  await owner.trigger('mouseenter');
+  await wrapper.find('.cell-expanded-list').trigger('scroll');
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
+  window.dispatchEvent(new Event('scroll')); await nextTick();
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+  await owner.trigger('mouseenter');
+  window.dispatchEvent(new Event('resize')); await nextTick();
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+});
+
+it('lets the pointer cross into the side preview and dismisses after leaving', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  await mount();
+  const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
+  await owner.trigger('mouseenter');
+  await owner.trigger('mouseleave');
+  await vi.advanceTimersByTimeAsync(80);
+  await wrapper.find('.cell-expanded-list').trigger('mouseenter');
+  await vi.advanceTimersByTimeAsync(200);
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
+  await owner.trigger('mouseleave');
+  await vi.advanceTimersByTimeAsync(200);
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+});
+
+it('keeps narrow days clear on hover while retaining explicit preview access', async () => {
+  await mount();
+  const cell = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"]');
+  vi.spyOn(cell.element, 'getBoundingClientRect').mockReturnValue({ left: 12, right: window.innerWidth - 12, top: 200, bottom: 280 });
+  await cell.find('.cell-blocks').trigger('mouseenter');
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+  await cell.find('.cell-multi-pick-badge').trigger('click');
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
+  await cell.find('.cell-blocks').trigger('keydown', { key: 'Escape' });
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+});
+
+it('keeps the original hour when crossing the gap into a preview beside a later row', async () => {
+  const s = await mount();
+  const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
+  await owner.trigger('mouseenter');
+  vi.spyOn(wrapper.find('.cell-expanded-list').element, 'getBoundingClientRect')
+    .mockReturnValue({ left: 250, right: 670, top: 200, bottom: 640 });
+  vi.spyOn(wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="13"]').element, 'getBoundingClientRect')
+    .mockReturnValue({ left: 100, right: 240, top: 400, bottom: 480 });
+  await owner.trigger('mouseleave');
+  await owner.trigger('mouseenter', { clientX: 300, clientY: 450 });
+  expect(s.calendarStackContext.hour).toBe(11);
+  expect(s.calendarStackItems.map(b => b.eventId)).toEqual([1, 2]);
+});
