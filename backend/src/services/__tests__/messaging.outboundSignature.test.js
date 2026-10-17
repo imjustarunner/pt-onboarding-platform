@@ -105,7 +105,7 @@ it.each(['manual', 'co_guardian_invite'])('keeps %s portal mail co-branded witho
  const result = await finalizeOutboundContent({ ...message, source, templateType: 'guardian_enrollment_forward',
    identity: { ...identity, identity_key: 'clinical_enrollment_portal', from_email: 'portal@auricwell.com', reply_to: 'support@itsco.health' } });
  expect(result.html).toContain('AuricWell Portal');
- expect(result.html).toContain('YOUR CARE AGENCY');
+ expect(result.html).toContain('aria-label="AuricWell Portal"');
  expect(result.html).toContain('ITSCO');
  expect(result.html).not.toContain('pt-staff-html-signature');
  expect(result.html).not.toContain('pt-department-html-signature');

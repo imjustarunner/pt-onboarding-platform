@@ -2,7 +2,8 @@ import Directory from './googleWorkspaceDirectory.service.js';
 import { APP_GROUP_OWNER, APP_GROUP_MANAGER } from './appGroupOwnership.service.js';
 
 /** Resolve an existing account or provision a new application address as a
- * Google Group. User aliases must be migrated explicitly, never adopted as-is.
+ * Google Group. Preserve aliases owned by individual staff; only the shared
+ * application transport aliases require explicit migration.
  */
 export async function ensureWorkspaceSenderGroup({ email, displayName, directory = Directory }) {
   let group;
@@ -11,14 +12,16 @@ export async function ensureWorkspaceSenderGroup({ email, displayName, directory
     if (Number(error.code || error.response?.status) !== 403) throw error;
     const user = await directory.getUser({ primaryEmail: email });
     if (!user) throw error;
-    if (String(user.primaryEmail).toLowerCase() === String(email).toLowerCase()) return { existingUser: true };
-    throw Object.assign(new Error('This sending address is a user alias. Convert it to a Google Group before provisioning.'), { code: 'APP_SENDER_ALIAS_CONFLICT' });
+    if (String(user.primaryEmail).toLowerCase() === String(email).toLowerCase()
+        || String(user.primaryEmail).toLowerCase() !== APP_GROUP_MANAGER) return { existingUser: true };
+    throw Object.assign(new Error('This address is an alias of the shared application mailbox. Convert that app alias to a Google Group before provisioning.'), { code: 'APP_SENDER_ALIAS_CONFLICT' });
   }
   if (!group) {
     const user = await directory.getUser({ primaryEmail: email });
     if (user) {
-      if (String(user.primaryEmail).toLowerCase() === String(email).toLowerCase()) return { existingUser: true };
-      throw Object.assign(new Error('This sending address is a user alias. Convert it to a Google Group before provisioning.'), { code: 'APP_SENDER_ALIAS_CONFLICT' });
+      if (String(user.primaryEmail).toLowerCase() === String(email).toLowerCase()
+        || String(user.primaryEmail).toLowerCase() !== APP_GROUP_MANAGER) return { existingUser: true };
+      throw Object.assign(new Error('This address is an alias of the shared application mailbox. Convert that app alias to a Google Group before provisioning.'), { code: 'APP_SENDER_ALIAS_CONFLICT' });
     }
   }
   if (!group) {

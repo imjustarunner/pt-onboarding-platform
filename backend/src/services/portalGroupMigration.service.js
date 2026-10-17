@@ -3,10 +3,10 @@ import { APP_EMAIL_TRANSPORT } from './unifiedEmail/transportMailbox.js';
 import { PORTAL_GROUP_DESCRIPTION, PORTAL_GROUP_SETTINGS } from './portalGroupSender.service.js';
 
 /** Stage and secure a group before moving its address. Only explicit aliases on
- * the explicitly identified mailbox may be converted; primary accounts are excluded.
+ * the shared application mailbox may be converted; staff aliases and primary accounts are excluded.
  * Restore the original alias if Google cannot complete the address handoff.
  */
-export async function convertPortalAliasToGroup({ address, displayName, directory, apply = false, suffix = Date.now(), expectedOwner, retryDelayMs = 10000, retryAttempts = 12 }) {
+export async function convertPortalAliasToGroup({ address, displayName, directory, apply = false, suffix = Date.now(), retryDelayMs = 10000, retryAttempts = 12 }) {
   const email = String(address || '').trim().toLowerCase();
   if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)) throw new Error('A valid sender address is required.');
   const retryHandoff = async operation => {
@@ -31,8 +31,8 @@ export async function convertPortalAliasToGroup({ address, displayName, director
     if (existing) return { address: email, state: 'already_group', groupId: existing.id };
     throw new Error('No existing sender alias found. Use group provisioning for a new address.');
   }
-  if (owner.primaryEmail !== (expectedOwner || APP_EMAIL_TRANSPORT) || !(owner.aliases || []).includes(email)) {
-    throw new Error('Only an explicit alias of the expected mailbox can be converted.');
+  if (owner.primaryEmail !== APP_EMAIL_TRANSPORT || !(owner.aliases || []).includes(email)) {
+    throw new Error('Only an explicit alias of the shared application mailbox can be converted. Staff aliases must remain on their own accounts.');
   }
   if (!apply) return { address: email, state: 'ready_to_convert', source: owner.primaryEmail, deliveryMember: APP_EMAIL_TRANSPORT };
   const admin = await directory.getClient();
@@ -45,9 +45,6 @@ export async function convertPortalAliasToGroup({ address, displayName, director
     await directory.applyGroupAccessSettings({ groupEmail: stagingAddress, ...PORTAL_GROUP_SETTINGS });
     await directory.addGroupMember({ groupEmail: stagingAddress, memberEmail: APP_EMAIL_TRANSPORT, role: 'MANAGER', memberType: 'USER' });
     await directory.addGroupMember({ groupEmail: stagingAddress, memberEmail: APP_GROUP_OWNER, role: 'OWNER', memberType: 'USER' });
-    if (![APP_EMAIL_TRANSPORT, APP_GROUP_OWNER].includes(owner.primaryEmail)) {
-      await admin.members.insert({ groupKey: group.id, requestBody: { email: owner.primaryEmail, role: 'MEMBER', delivery_settings: 'ALL_MAIL' } });
-    }
     deletionAttempted = true;
     await admin.users.aliases.delete({ userKey: owner.id, alias: email });
     aliasRemoved = true;

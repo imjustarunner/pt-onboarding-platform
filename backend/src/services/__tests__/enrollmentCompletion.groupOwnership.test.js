@@ -21,10 +21,10 @@ it('new app senders are groups, with the owner and manager added',async()=>{
  expect(directory.addGroupMember).toHaveBeenCalledWith(expect.objectContaining({memberEmail:'michael@plottwistco.com',role:'OWNER'}));
  expect(directory.addGroupMember).toHaveBeenCalledWith(expect.objectContaining({memberEmail:'ai@plottwistco.com',role:'MANAGER'}));
 });
-it('does not replace real user accounts or quietly adopt a user alias',async()=>{
+it('preserves staff user accounts and their personal aliases',async()=>{
  const directory={getGroup:vi.fn(async()=>{throw {code:403};}),getUser:vi.fn(async()=>({primaryEmail:'person@agency.test'})),createGroup:vi.fn()};
  expect(await ensureWorkspaceSenderGroup({email:'person@agency.test',directory})).toEqual({existingUser:true});
- await expect(ensureWorkspaceSenderGroup({email:'alias@agency.test',directory})).rejects.toHaveProperty('code','APP_SENDER_ALIAS_CONFLICT');
+ expect(await ensureWorkspaceSenderGroup({email:'alias@agency.test',directory})).toEqual({existingUser:true});
  expect(directory.createGroup).not.toHaveBeenCalled();
 });
 
@@ -32,4 +32,10 @@ it('resolves groups without querying the user endpoint, which rejects group IDs'
  const directory={getGroup:vi.fn(async()=>({id:'g'})),getUser:vi.fn(),addGroupMember:vi.fn()};
  expect(await ensureWorkspaceSenderGroup({email:'portal@agency.test',directory})).toEqual({group:{id:'g'}});
  expect(directory.getUser).not.toHaveBeenCalled();
+});
+
+it('requires migration only for aliases of the shared AI transport',async()=>{
+ const directory={getGroup:vi.fn(async()=>{throw {code:403};}),getUser:vi.fn(async()=>({primaryEmail:'ai@plottwistco.com'})),createGroup:vi.fn()};
+ await expect(ensureWorkspaceSenderGroup({email:'portal@agency.test',directory})).rejects.toHaveProperty('code','APP_SENDER_ALIAS_CONFLICT');
+ expect(directory.createGroup).not.toHaveBeenCalled();
 });

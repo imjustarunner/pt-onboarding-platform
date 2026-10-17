@@ -1,4 +1,4 @@
-import { isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
+import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
@@ -230,7 +230,8 @@ export async function finalizeOutboundContent({
     if (!agency) throw new Error('A portal message requires its agency branding.');
     const domain = String(identity.reply_to || identity.from_email).split('@')[1];
     const brand = enrollmentMailBrand({ agency, domain, school: schoolCommunication,
-      clinicalOverride: identity.identity_key === 'clinical_enrollment_portal' });
+      clinicalOverride: isClinicalPortalIdentity(identity) });
+    brand.displayName = portalSenderName(identity);
     signed = { text, html: renderPortalEmail({ brand, text, html }) };
   } else if (useStaffSignature) {
     signed = await applyUserEmailSignatureBlock({

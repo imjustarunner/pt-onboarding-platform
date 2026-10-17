@@ -1,4 +1,3 @@
-import { resolveWorkspaceSubject } from './googleWorkspaceSubject.service.js';
 import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
 import { google } from 'googleapis';
 
@@ -70,7 +69,7 @@ export async function buildImpersonatedJwtClient({
     );
   }
 
-  const subject = resolveWorkspaceSubject(subjectEmail);
+  const subject = String(subjectEmail || '').trim().toLowerCase();
   if (!subject) throw new Error('Missing subject (employee email) for Google Workspace impersonation');
 
   const auth = new google.auth.JWT({

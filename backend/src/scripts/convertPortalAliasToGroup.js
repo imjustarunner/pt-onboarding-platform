@@ -5,9 +5,9 @@ import pool from '../config/database.js';
 const value = name => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 const address = value('address'), displayName = value('name');
 try {
-  if (!address || !displayName) throw new Error('Usage: --address=sender@domain --name="Sender name" [--expected-owner=mailbox@domain] [--apply]');
+  if (!address || !displayName) throw new Error('Usage: --address=sender@domain --name="Sender name" [--apply]');
   const apply = process.argv.includes('--apply');
-  const result = await convertPortalAliasToGroup({ address, displayName, directory: Directory, apply, expectedOwner: value('expected-owner') });
+  const result = await convertPortalAliasToGroup({ address, displayName, directory: Directory, apply });
   console.log(JSON.stringify(result));
   if (apply) {
     const sending = await ensureSendAsAlias({ sendAsEmail: address, displayName, treatAsAlias: false });

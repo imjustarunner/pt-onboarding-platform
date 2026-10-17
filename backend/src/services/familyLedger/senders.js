@@ -1,4 +1,3 @@
-import { resolveWorkspaceSubject } from '../googleWorkspaceSubject.service.js';
 import { APP_GROUP_OWNER } from '../appGroupOwnership.service.js';
 import pool from '../../config/database.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
@@ -47,7 +46,7 @@ export async function billingSenderMembers(agencyId,domain,{db=pool,authorize=re
 export async function ensureBillingGroup({email,name,agencyId,groupId,adoptExisting,members,transport},{directory=Directory}={}) {
   // Canonical account IDs handle Workspace aliases without granting outside users access.
   const allowedEmails=new Set(),allowedIds=new Set();
-  for(const address of [...new Set([...members,transport,APP_GROUP_OWNER].map(resolveWorkspaceSubject))]){
+  for(const address of [...new Set([...members,transport,APP_GROUP_OWNER])]){
     const user=await directory.getUser({primaryEmail:address});
     if(!user||user.suspended||user.archived)throw billingError(409,'A billing group member is not an active managed Workspace user');
     allowedEmails.add(address.toLowerCase());allowedEmails.add(user.primaryEmail.toLowerCase());allowedIds.add(String(user.id));
@@ -62,7 +61,7 @@ export async function ensureBillingGroup({email,name,agencyId,groupId,adoptExist
     group=await directory.createGroup({email,name,description:`Managed financial correspondence for agency ${agencyId}`,allowExternalMembers:false,whoCanJoin:'INVITED_CAN_JOIN',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',whoCanPostMessage:'ALL_MEMBERS_CAN_POST',includeInGlobalAddressList:false});
     await directory.applyGroupAccessSettings({groupEmail:email,allowExternalMembers:false,whoCanJoin:'INVITED_CAN_JOIN',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',whoCanPostMessage:'ALL_MEMBERS_CAN_POST',includeInGlobalAddressList:false,isArchived:false});
   }
-  for(const address of [...new Set([...members,transport,APP_GROUP_OWNER].map(resolveWorkspaceSubject))])await directory.addGroupMember({groupEmail:email,memberEmail:address,role:'MEMBER',memberType:'USER'});
+  for(const address of [...new Set([...members,transport,APP_GROUP_OWNER])])await directory.addGroupMember({groupEmail:email,memberEmail:address,role:'MEMBER',memberType:'USER'});
   const delivery=await directory.setGroupMemberDeliverySettings({groupEmail:email,memberEmail:transport,deliverySettings:'ALL_MAIL'});
   if(delivery?.delivery_settings!=='ALL_MAIL')throw billingError(409,'Confirm delivery to the app sending account before activating this sender');
   return group;

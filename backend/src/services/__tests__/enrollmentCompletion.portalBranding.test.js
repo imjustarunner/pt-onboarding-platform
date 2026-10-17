@@ -9,7 +9,10 @@ it('leads with AuricWell and tags the agency with a real logo, paragraphs, and a
  const brand = enrollmentMailBrand({ agency, domain: 'itsco.health' });
  const html = renderPortalEmail({ brand, text: 'Hi Sam,\n\nAlex requested this invitation.\n\nhttps://example.test/enroll\n\nUse your own account.', linkUrl: 'https://example.test/enroll', linkLabel: 'Complete your enrollment' });
  expect(brand.displayName).toBe('AuricWell Portal');
- expect(html.indexOf('AuricWell Portal')).toBeLessThan(html.indexOf('YOUR CARE AGENCY'));
+ expect(html).toContain('aria-label="AuricWell Portal"');
+ expect(html).toContain('width="32"');
+ expect(html).not.toContain('YOUR CARE AGENCY');
+ expect(html).not.toContain('max-height:56px');
  expect(html).toContain('itsco-logo.png');
  expect(html).toContain('auricwell/logo.png');
  expect(html).toContain('>Complete your enrollment</a>');
@@ -52,4 +55,12 @@ it.each([{ client_id: 99 }, { status: 'draft' }, { co_guardian_invite_id: 7 }])(
  m.execute.mockResolvedValue([[{ requesting_submission_id: 80 }]]);
  m.submission.mockResolvedValue({ client_id: 20, status: 'submitted', submitted_at: '2026-10-01', intake_data: { guardian: { firstName: 'Wrong', other_guardian_has_legal_rights: 'yes' } }, ...extra });
  expect(await requestingGuardianName({ inviteId: 18, agencyId: 2, clientId: 20 })).toBeNull();
+});
+
+it('keeps clinical reminders separate from nonclinical agency mail',()=>{
+ expect(portalSenderName({identity_key:'clinical_appointment_reminders'})).toBe('AuricWell Reminders');
+ const brand=enrollmentMailBrand({agency,domain:'itsco.health'});
+ const html=renderPortalEmail({brand:{...brand,displayName:'AuricWell Reminders'},text:'Your upcoming appointment.'});
+ expect(html).toContain('AuricWell Reminders');
+ expect(html).toContain('REMINDERS');
 });

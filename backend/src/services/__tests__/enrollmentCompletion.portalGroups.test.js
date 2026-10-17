@@ -72,3 +72,10 @@ it('never restores an alias when an accepted rename is still propagating',async(
  expect(admin.users.aliases.insert).not.toHaveBeenCalled();
  expect(admin.groups.delete).not.toHaveBeenCalled();
 });
+
+it('rejects converting a staff alias even when the caller supplies its owner',async()=>{
+ d.getUser.mockResolvedValue({id:'staff',primaryEmail:'person@agency.test',aliases:[args.address]});
+ await expect(convertPortalAliasToGroup({...args,expectedOwner:'person@agency.test',directory:d,apply:true})).rejects.toThrow('Staff aliases must remain');
+ expect(d.createGroup).not.toHaveBeenCalled();
+ expect(admin.users.aliases.delete).not.toHaveBeenCalled();
+});
