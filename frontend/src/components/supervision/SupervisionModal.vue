@@ -82,6 +82,7 @@
             </nav>
             <section id="supervision-snapshot" class="supervision-detail-section at-a-glance-card">
               <h3>At a glance</h3>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="summaryLoading" @click="refreshSupervisionLog">Refresh hours</button>
               <div v-if="summaryLoading" class="supervision-placeholder">Loading snapshot…</div>
               <div v-else-if="summaryError" class="supervision-error-inline">{{ summaryError }}</div>
               <div v-else-if="summary" class="supervision-summary-grid">
@@ -110,14 +111,16 @@
                     v-if="supervisionSessionHours != null"
                     class="summary-meta"
                   >
-                    Recent attendance {{ fmtNum(supervisionSessionHours) }} hrs
+                    Recorded attendance {{ fmtNum(supervisionSessionHours) }} hrs
                     <template v-if="supervisionSessionCount != null"> · {{ supervisionSessionCount }} session(s)</template>
-                    — credited sessions add to Individual/Group above
+                    — {{ fmtNum(supervisionAttendanceIndividualHours) }} individual · {{ fmtNum(supervisionAttendanceGroupHours) }} group
+                    <br>Requirement totals above include eligible session attendance and previously recorded hours.
                   </span>
                 </div>
                 <div class="summary-cell" v-else-if="supervisionSessionHours != null">
                   <span class="summary-label">Supervision attendance</span>
                   <span class="summary-value">{{ fmtNum(supervisionSessionHours) }} hrs</span>
+                  <span class="summary-meta">Individual {{ fmtNum(supervisionAttendanceIndividualHours) }} · Group {{ fmtNum(supervisionAttendanceGroupHours) }}</span>
                   <span class="summary-meta" v-if="supervisionSessionCount != null">{{ supervisionSessionCount }} session(s) attended</span>
                 </div>
                 <div class="summary-cell" v-if="compliance24Plus.length > 0">
@@ -761,6 +764,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import { onSupervisionHoursChanged } from '../../utils/supervisionHoursRefresh.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
@@ -789,6 +793,8 @@ const summaryLoading = ref(false);
 const summaryError = ref('');
 const supervisionSessionHours = ref(null);
 const supervisionSessionCount = ref(null);
+const supervisionAttendanceIndividualHours = ref(null);
+const supervisionAttendanceGroupHours = ref(null);
 const compliance24Plus = ref([]);
 const scheduleSummary = ref(null);
 const scheduleLoading = ref(false);
@@ -1739,7 +1745,10 @@ function fmtPct(ratio) {
 }
 
 async function refreshSupervisionLog() {
-  await Promise.all([fetchSessionHistory(), fetchSuperviseeSummary(), fetchSuperviseeExtras()]);
+  // History/hours reads may finalize an overdue session and add its credits.
+  // Read the requirement balance after those operations finish.
+  await Promise.all([fetchSessionHistory(), fetchSuperviseeExtras()]);
+  await fetchSuperviseeSummary();
 }
 
 async function fetchSuperviseeSummary() {
@@ -1753,6 +1762,7 @@ async function fetchSuperviseeSummary() {
   summaryError.value = '';
   try {
     const response = await api.get(`/payroll/supervisee/${s.supervisee_id}/dashboard-summary`, { params: { agencyId } });
+    if (selectedSupervisee.value !== s || selectedSuperviseeAgencyId.value !== agencyId) return;
     summary.value = response.data;
   } catch (err) {
     console.error('Failed to fetch supervisee summary:', err);
@@ -1769,15 +1779,20 @@ async function fetchSuperviseeExtras() {
   if (!s?.supervisee_id || !agencyId) return;
   supervisionSessionHours.value = null;
   supervisionSessionCount.value = null;
+  supervisionAttendanceIndividualHours.value = null;
+  supervisionAttendanceGroupHours.value = null;
   compliance24Plus.value = [];
   try {
     const [hoursRes, complianceRes] = await Promise.all([
       api.get(`/supervision/supervisee/${s.supervisee_id}/hours-summary`, { params: { agencyId } }).catch(() => ({ data: null })),
       api.get(`/psychotherapy-compliance/supervisee/${s.supervisee_id}/clients-24-plus`, { params: { agencyId } }).catch(() => ({ data: null }))
     ]);
+    if (selectedSupervisee.value !== s || selectedSuperviseeAgencyId.value !== agencyId) return;
     if (hoursRes?.data?.ok) {
       supervisionSessionHours.value = hoursRes.data.totalHours;
       supervisionSessionCount.value = hoursRes.data.sessionCount;
+      supervisionAttendanceIndividualHours.value = hoursRes.data.individualHours;
+      supervisionAttendanceGroupHours.value = hoursRes.data.groupHours;
     }
     if (complianceRes?.data?.clientAbbrevs) {
       compliance24Plus.value = complianceRes.data.clientAbbrevs;
@@ -1985,25 +2000,33 @@ watch(selectedSupervisee, (v) => {
   sessionHistoryError.value = '';
   sessionFinalizeLoadingById.value = {};
   if (v) {
-    fetchSuperviseeSummary();
-    fetchSuperviseeExtras();
+    void refreshSupervisionLog();
     fetchScheduleSummary();
     fetchChecklist();
     fetchDocuments();
     fetchClients();
     fetchCompliancePending();
     fetchAffiliatedPortals();
-    fetchSessionHistory();
   } else {
     summaryLoading.value = false;
   }
 });
 
+let stopHoursRefresh;
+const refreshVisibleSupervision = () => {
+  if (selectedSupervisee.value && document.visibilityState !== 'hidden') void refreshSupervisionLog();
+};
 onMounted(() => {
   fetchSupervisees();
+  stopHoursRefresh = onSupervisionHoursChanged(event => {
+    if (Number(event.detail?.agencyId) === Number(selectedSuperviseeAgencyId.value)) refreshVisibleSupervision();
+  });
+  window.addEventListener('focus', refreshVisibleSupervision);
 });
 
 onUnmounted(() => {
+  stopHoursRefresh?.();
+  window.removeEventListener('focus', refreshVisibleSupervision);
   if (showAppVideoModal.value && String(appVideoToken.value || '').trim()) {
     resumeInactivityTimeout();
   }

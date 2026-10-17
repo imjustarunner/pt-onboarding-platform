@@ -48,14 +48,23 @@ async function recordParticipants(session, db = pool) {
 export async function getSupervisionRecord(sessionId, actor) {
   const { session, canManage } = await supervisionRecordAccess(sessionId, actor);
   const participants = await recordParticipants(session);
+  const [credits] = await pool.execute(`SELECT user_id,individual_hours,group_hours,total_seconds,source_json
+    FROM supervision_session_hour_credits WHERE session_id=?`, [session.id]);
+  const hourCredits = credits.filter(c => (canManage || Number(c.user_id) === Number(actor.id))
+    && participants.some(p => Number(p.userId) === Number(c.user_id))).map(c => {
+    let source = c.source_json;
+    if (typeof source === 'string') { try { source = JSON.parse(source); } catch { source = {}; } }
+    return { userId:Number(c.user_id), individualHours:Number(c.individual_hours), groupHours:Number(c.group_hours),
+      totalSeconds:Number(c.total_seconds), countable:source?.countable !== false, effectiveStartDate:source?.effectiveStartDate || null };
+  });
   const [[agency]] = await pool.execute('SELECT name FROM agencies WHERE id=?',[session.agency_id]);
   const [corrections] = await pool.execute(`SELECT c.*,CONCAT_WS(' ',COALESCE(NULLIF(TRIM(u.preferred_name),''),u.first_name),u.last_name) AS requestedByName
     FROM supervision_time_corrections c JOIN users u ON u.id=c.requested_by_user_id
     WHERE c.session_id=? AND (?=1 OR c.user_id=?) ORDER BY c.id DESC`, [session.id, canManage ? 1 : 0, actor.id]);
   const [events] = await pool.execute(`SELECT user_id AS userId,event_type AS eventType,event_at AS at
     FROM supervision_session_attendance_events WHERE session_id=? ORDER BY event_at,id`, [session.id]);
-  return { session: { id: session.id, agencyName: agency?.name || '', startAt: session.start_at, endAt: session.end_at, status: session.status,
-    finalizedAt: session.finalized_at, endedAt: session.live_ended_at }, participants, events, corrections,
+  return { session: { id: session.id, agencyId:session.agency_id, sessionType:session.session_type, agencyName: agency?.name || '', startAt: session.start_at, endAt: session.end_at, status: session.status,
+    finalizedAt: session.finalized_at, endedAt: session.live_ended_at }, participants, events, corrections, hourCredits,
     canManage, actorUserId: Number(actor.id), canCorrect: instant(session.end_at) < new Date() && !['CANCELLED','RESCHEDULED','MANUAL_RECORDING','MANUAL_PENDING'].includes(String(session.status).toUpperCase()) };
 }
 

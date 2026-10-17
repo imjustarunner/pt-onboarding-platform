@@ -4441,6 +4441,8 @@ export const getSuperviseeHoursSummary = async (req, res, next) => {
       totalHours: summary.totalHours,
       totalSeconds: summary.totalSeconds,
       sessionCount: summary.sessionCount,
+      individualHours: summary.individualHours,
+      groupHours: summary.groupHours,
       recentSessions
     });
   } catch (e) {

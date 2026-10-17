@@ -40,6 +40,13 @@ describe('supervision actual time corrections', () => {
     expect(result.session).toMatchObject({status:'FINALIZED',agencyName:'ITSCO'});expect(result.canManage).toBe(true);
     expect(writes()).toEqual([]);
   });
+  it('limits requirement credit details to the requesting supervisee unless the actor can manage the session',async() => {
+    const execute=m.execute.getMockImplementation();
+    m.execute.mockImplementation((sql,args) => sql.includes('FROM supervision_session_hour_credits')
+      ? Promise.resolve([[{user_id:20,individual_hours:'0.92',group_hours:'0',total_seconds:3300,source_json:{countable:true}},{user_id:10,individual_hours:'1',group_hours:'0',total_seconds:3600}]])
+      : execute(sql,args));
+    expect((await getSupervisionRecord(1,student)).hourCredits).toEqual([expect.objectContaining({userId:20,individualHours:0.92})]);
+  });
   it('blocks unrelated users, cross-tenant administrators and access to other participants',async() => {
     m.join.mockResolvedValue(false);m.membership.mockResolvedValue(false);
     await expect(getSupervisionRecord(1,{id:99,role:'admin'})).rejects.toMatchObject({status:403});

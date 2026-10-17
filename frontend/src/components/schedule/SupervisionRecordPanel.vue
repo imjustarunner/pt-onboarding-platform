@@ -15,10 +15,11 @@
       <template v-else>
         <p>Scheduled: {{ when(record.session.startAt) }} – {{ when(record.session.endAt) }} · {{ timezone }}</p>
         <div class="record-table-wrap">
-          <table><thead><tr><th>Participant</th><th>Recorded attendance</th><th>First joined / last left</th></tr></thead>
+          <table><thead><tr><th>Participant</th><th>Recorded attendance</th><th>Requirement credit</th><th>First joined / last left</th></tr></thead>
             <tbody><tr v-for="person in record.participants" :key="person.userId">
               <td>{{ person.name }} <small>{{ person.role }}</small></td>
               <td>{{ minutesLabel(person.totalSeconds) }}<small v-if="person.correctionId">Corrected actual time</small><small v-else>Platform record</small></td>
+              <td>{{ creditLabel(person) }}</td>
               <td>{{ when(person.firstJoinedAt) }} / {{ when(person.lastLeftAt) }}</td>
             </tr></tbody>
           </table>
@@ -70,6 +71,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { toZonedDatetimeLocalValue, parseScheduleUtcInstant } from '../../utils/scheduleEventInstants.js';
 import { zonedDatetimeLocalToIso } from '../../utils/timezones.js';
+import { notifySupervisionHoursChanged } from '../../utils/supervisionHoursRefresh.js';
 const props = defineProps({ sessionId: { type: Number, required: true }, timezone: { type: String, default: 'America/Denver' }, compact: Boolean });
 const emit = defineEmits(['record','open-attendance','open-notes','changed']);
 const record = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref('');
@@ -83,6 +85,16 @@ const canRetry = computed(() => record.value?.canManage && record.value.correcti
 function minutesLabel(seconds) { return seconds == null ? 'No attendance recorded' : `${Math.round(Number(seconds) / 6) / 10} min`; }
 function when(value) { const date = parseScheduleUtcInstant(value); return date ? new Intl.DateTimeFormat(undefined,{ timeZone:props.timezone,month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit' }).format(date) : '—'; }
 function participantName(id) { return record.value?.participants.find(p => Number(p.userId) === Number(id))?.name || 'Participant'; }
+function creditLabel(person) {
+  if (person.role === 'Supervisor' || (!record.value?.canManage && Number(person.userId) !== Number(record.value?.actorUserId))) return '—';
+  const credit = record.value?.hourCredits?.find(c => Number(c.userId) === Number(person.userId));
+  if (credit?.countable === false) return credit.effectiveStartDate
+    ? `Attendance logged; before the supervision start date (${credit.effectiveStartDate}).`
+    : 'Attendance logged; requirement tracking needs a supervision start date.';
+  if (credit) return `${credit.individualHours.toFixed(2)} individual · ${credit.groupHours.toFixed(2)} group hrs`;
+  if (!(Number(person.totalSeconds) > 0)) return 'No attendance recorded';
+  return record.value?.session.status === 'FINALIZED' ? 'Hours reconciliation pending' : 'Calculated when the session is finalized';
+}
 let loadVersion = 0;
 async function load(reset = false) {
   const version = ++loadVersion;
@@ -99,7 +111,11 @@ async function load(reset = false) {
 }
 async function save(action, success) {
   busy.value = true; error.value = ''; notice.value = '';
-  try { const {data} = await action(); await load(); notice.value = data?.message || success; emit('changed'); return true; }
+  try {
+    const {data} = await action(); await load(); notice.value = data?.message || success;
+    notifySupervisionHoursChanged({sessionId:props.sessionId,agencyId:record.value?.session.agencyId});
+    emit('changed'); return true;
+  }
   catch(e) { error.value = e?.response?.data?.error?.message || e.message || 'Unable to save the correction.'; return false; }
   finally { busy.value = false; }
 }

@@ -13,6 +13,15 @@ let wrapper;
 beforeEach(()=>{vi.clearAllMocks();invalidateScheduleSummaryCacheForUser(7);setActivePinia(createPinia());localStorage.clear();sessionStorage.clear();m.route=reactive({path:'/dashboard',params:{},query:{}});m.get.mockImplementation(async url=>({data:url.includes('supervision/providers')?{providers:[{id:8,firstName:'Supervisee'}],facilitators:[{id:7,firstName:'Supervisor'}]}:url.includes('agencies')?[]:{}}));m.post.mockResolvedValue({data:{session:{id:10}}});});
 afterEach(async()=>{wrapper?.unmount();await flushPromises();invalidateScheduleSummaryCacheForUser(7);});
 describe('My Schedule supervision controls',()=>{
+ it('refreshes the supervisee balance immediately after an attendance correction',async()=>{
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+  const s=wrapper.vm.$.setupState;
+  s.selectedSupervisionParticipantId=8;
+  await flushPromises();
+  m.get.mockImplementation(async url=>({data:url.includes('dashboard-summary')?{supervision:{enabled:true,individualHours:16.26,groupHours:1}}:{attendees:[]}}));
+  await s.refreshSupervisionRecord();
+  expect(s.supvSuperviseeHours).toMatchObject({individualHours:16.26,groupHours:1});
+ });
  it('enables creation for a supervisor and sends the chosen recurrence to the supervision state',async()=>{
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;

@@ -1509,8 +1509,8 @@ class SupervisionSession {
   }
 
   /**
-   * Get total completed/scheduled supervision hours for a supervisee in an agency.
-   * Sums (end_at - start_at) for sessions where supervisee_user_id = superviseeUserId, agency_id = agencyId, status <> 'CANCELLED'.
+   * Actual recorded attendance, separated by session type. This includes logged
+   * attendance that does not yet qualify for the prelicensed requirement tracker.
    */
   static async getHoursSummaryForSupervisee(agencyId, superviseeUserId) {
     const aId = parseInt(agencyId, 10);
@@ -1518,6 +1518,8 @@ class SupervisionSession {
     const [rows] = await pool.execute(
       `SELECT
          COALESCE(SUM(ssar.total_seconds), 0) AS total_seconds,
+         COALESCE(SUM(CASE WHEN LOWER(ss.session_type) = 'group' THEN ssar.total_seconds ELSE 0 END), 0) AS group_seconds,
+         COALESCE(SUM(CASE WHEN LOWER(COALESCE(ss.session_type, 'individual')) <> 'group' THEN ssar.total_seconds ELSE 0 END), 0) AS individual_seconds,
          COUNT(DISTINCT ss.id) AS session_count
        FROM supervision_session_attendance_rollups ssar
        JOIN supervision_sessions ss ON ss.id = ssar.session_id
@@ -1536,6 +1538,8 @@ class SupervisionSession {
     return {
       totalSeconds,
       totalHours: Math.round(totalHours * 100) / 100,
+      individualHours: Math.round(Number(r?.individual_seconds || 0) / 36) / 100,
+      groupHours: Math.round(Number(r?.group_seconds || 0) / 36) / 100,
       sessionCount: Number(r?.session_count || 0)
     };
   }

@@ -23714,9 +23714,12 @@ const applySupervisionRecord = (record) => {
   const actor = (record.participants || []).find(p => Number(p.userId) === Number(authStore.user?.id));
   supvAttendanceSeconds.value = actor?.totalSeconds == null ? null : Number(actor.totalSeconds);
 };
-const refreshSupervisionRecord = () => {
+const refreshSupervisionRecord = async () => {
   invalidateScheduleSummaryCacheForUser(props.userId);
   invalidateScheduleSummaryCacheForUser(authStore.user?.id);
+  await loadSupvAttendees(selectedSupvSessionId.value);
+  if (showSupervisionParticipantsRoster.value) await loadSupvParticipantHoursRoster();
+  else await loadSupvSuperviseeHours();
 };
 
 const loadSupvArtifact = async (sessionId) => {

@@ -41,3 +41,11 @@ it('retains a failed correction and its request identifier for a safe retry',asy
   const button=w.findAll('button').find(b => b.text()==='Save time correction');await button.trigger('click');await flushPromises();await button.trigger('click');await flushPromises();
   expect(api.post.mock.calls[0][1].requestKey).toBe(api.post.mock.calls[1][1].requestKey);expect(w.text()).toContain('Overlapping attendance');w.unmount();
 });
+it('shows credited hours and explains logged attendance that does not count toward requirements',async() => {
+  data.hourCredits=[{userId:567,individualHours:0.92,groupHours:0,countable:true}];
+  const w=mount(SupervisionRecordPanel,{props:{sessionId:102}});await flushPromises();
+  expect(w.text()).toContain('0.92 individual · 0.00 group hrs');w.unmount();
+  data.hourCredits=[{userId:567,individualHours:0,groupHours:0,countable:false,effectiveStartDate:null}];
+  const other=mount(SupervisionRecordPanel,{props:{sessionId:102}});await flushPromises();
+  expect(other.text()).toContain('Attendance logged; requirement tracking needs a supervision start date.');other.unmount();
+});
