@@ -40,9 +40,11 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   const input={agencyId:1,userId:10,profileId,cycle:task.cycle};
   // Real SQL locks, durable review/send key and a personal reminder across sessions.
   const staffTasks=await import('../insuranceCards/staffTasks.js');
+  const {INTAKE_COMMUNICATION_VERSION}=await import('../intakeCommunicationChoices.service.js');
   const staffUser={id:99,role:'super_admin'},staffInput={agencyId:1,profileId,cycle:task.cycle};
   let sends=0;
-  const staffDeps={agencies:async()=>[{id:1}],preferences:async()=>({channels:{email:true}}),sender:async()=>({id:11,from_email:'billing@example.invalid'}),send:async()=>{sends++;return {id:'synthetic-delivery'};}};
+  // Consent is covered by the policy tests; this fixture exercises SQL locks and delivery deduplication.
+  const staffDeps={choices:async()=>({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:10,emailPreference:'all',signatureAccepted:true,signedAt:'2026-10-01'}),agencies:async()=>[{id:1}],preferences:async()=>({channels:{email:true}}),sender:async()=>({id:11,from_email:'billing@example.invalid'}),send:async()=>{sends++;return {id:'synthetic-delivery'};}};
   await staffTasks.snoozeCardEmail(staffUser,{...staffInput,hours:24},staffDeps);
   assert.equal((await staffTasks.listStaffCardTasks(staffUser,{},staffDeps)).rows[0].reminderDue,false);
   assert.equal((await staffTasks.listStaffCardTasks({...staffUser,id:98},{},staffDeps)).rows[0].reminderDue,true);
