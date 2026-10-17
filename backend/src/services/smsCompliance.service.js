@@ -250,7 +250,7 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
   } else {
     reply = `${brand}: For help, contact ${contact || 'your practice through its website'}. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.`;
   }
-  if (registration?.keywordOwner !== 'vonage') {
+  if (!['vonage', 'notifyre'].includes(registration?.keywordOwner)) {
     const capability = { to: phone, from: sender.phone_number, body: reply };
     controlReplies.add(capability);
     await sendReply({ ...capability, complianceReply: capability });

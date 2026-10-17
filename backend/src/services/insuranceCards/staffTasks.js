@@ -1,3 +1,4 @@
+import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '../intakeCommunicationChoices.service.js';
 import crypto from 'node:crypto';
 import pool from '../../config/database.js';
 import { billingWorkspaceAgencies } from '../claimMdWorkspace.service.js';
@@ -15,8 +16,13 @@ const uncertainStatuses = ['sending', 'unknown', 'held'];
 const activeEmail = profile => profile.email && ![0,false,'0'].includes(profile.user_is_active) && ![1,true,'1'].includes(profile.user_is_archived) && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(profile.user_status).toUpperCase());
 const depsFor = overrides => ({ db: pool, agencies: billingWorkspaceAgencies, authorize: requireBillingStaff,
   activeAgency: isActiveBillingAgency, context: cardContext, refresh: refreshCardFollowup,
-  preferences: guardianReminderPreferences, sender: requireReadySender, send: sendEmailFromIdentity,
+  choices: latestIntakeCommunicationChoices, preferences: guardianReminderPreferences, sender: requireReadySender, send: sendEmailFromIdentity,
   audit: auditBilling, now: new Date(), ...overrides });
+
+function insuranceEmailAllowed(choice,userId) {
+  return choice?.version === INTAKE_COMMUNICATION_VERSION && Number(choice.guardianUserId) === Number(userId)
+    && choice.signatureAccepted === true && !!choice.signedAt && choice.emailPreference === 'all';
+}
 
 export function emailTaskStatus(progress, deliveries, now = new Date()) {
   const ordinal = reminderOrdinal(progress.first_requested_at, now);
@@ -61,7 +67,8 @@ export async function listStaffCardTasks(user, query = {}, overrides = {}) {
       if (!activeEmail(context.profile)) email.blocked = 'An active portal account with an email address is required.';
       if (!email.blocked) for (const client of context.clients) {
         const preferences = await deps.preferences({userId:context.profile.guardian_user_id,clientId:client.id});
-        if (preferences.channels?.email === false || preferences.optionalRemindersEnabled === false) email.blocked = 'The account holder’s communication preferences do not allow this email.';
+        const choice=await deps.choices(client.id,profile.agency_id);
+        if (!insuranceEmailAllowed(choice,context.profile.guardian_user_id) || preferences.channels?.email === false || preferences.optionalRemindersEnabled === false) email.blocked = 'The account holder’s communication preferences do not allow this email.';
       }
       const snoozed = personal?.snoozed_until && new Date(personal.snoozed_until) > deps.now;
       rows.push({ profileId: profile.id, agencyId: profile.agency_id, organization: agencies.find(a => a.id === Number(profile.agency_id)),
@@ -85,7 +92,8 @@ async function emailPreview(input, deps, db, { locked = false } = {}) {
   if (!activeEmail(profile)) blocked = 'An active portal account with an email address is required.';
   for (const client of context.clients) {
     const preferences = await deps.preferences({ userId: profile.guardian_user_id, clientId: client.id });
-    if (preferences.channels?.email === false || preferences.optionalRemindersEnabled === false) blocked = 'The account holder’s communication preferences do not allow this email.';
+    const choice=await deps.choices(client.id,input.agencyId);
+    if (!insuranceEmailAllowed(choice,profile.guardian_user_id) || preferences.channels?.email === false || preferences.optionalRemindersEnabled === false) blocked = 'The account holder’s communication preferences do not allow this email.';
   }
   let sender;
   try { sender = await deps.sender(input.agencyId, 'billing'); }

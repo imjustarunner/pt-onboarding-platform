@@ -1,3 +1,4 @@
+import * as guardianInvitations from '../controllers/guardianInvitation.controller.js';
 import * as notificationSetup from '../controllers/guardianNotificationSetup.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import express from 'express';
@@ -110,6 +111,8 @@ router.get('/support-tickets/:ticketId', getGuardianSupportTicket);
 router.post('/support-tickets/:ticketId/messages', sendGuardianSupportTicketMessage);
 router.get('/clients/:clientId/intake-documents', listMyClientIntakeSignedDocuments);
 router.get('/clients/:clientId/intake-documents/:documentId/download-url', getMyClientIntakeSignedDocumentDownloadUrl);
+router.get('/invitations', guardianInvitations.list);
+router.post('/invitations/:inviteId/resend', guardianInvitations.resend);
 router.get('/overview', getGuardianPortalOverview);
 router.get('/skill-builders/events', listGuardianSkillBuilderEvents);
 router.get('/skill-builders/events/:eventId/detail', getGuardianSkillBuilderEventDetail);

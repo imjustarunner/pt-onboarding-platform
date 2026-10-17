@@ -1,0 +1,69 @@
+import { it, expect, vi, beforeEach } from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),email:vi.fn(),notify:vi.fn(),agency:vi.fn(),user:vi.fn(),ticket:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
+vi.mock('../coGuardianInvite.service.js',()=>({emailCoGuardianInvite:m.email,invitePublicUrl:()=> 'https://agency.test/intake/new-token',insertGuardianAccessTicket:m.ticket}));
+vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.notify}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:m.user}}));
+import { assertInvitationOwner, inviteDeliveryState, deliverCoGuardianInvite, resendGuardianInvitation, notifyInvitationFailure } from '../coGuardianDelivery.service.js';
+import { parseGuardianDeliveryReport } from '../../utils/guardianDeliveryReport.js';
+const invite={id:3,agency_id:4,invited_by_user_id:8,status:'pending',source:'office',invited_email:'typo@example.test'};
+const clients=[{id:5,agency_id:4,access_enabled:1,permissions_json:{},date_of_birth:'2015-01-01'}];
+let db;
+beforeEach(()=>{
+ vi.clearAllMocks();
+ db={execute:vi.fn(async sql=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.includes('SELECT * FROM co_guardian_invites'))return [[invite]];
+  if(sql.includes('SELECT c.id'))return [clients];
+  if(sql.includes('SELECT * FROM co_guardian_invite_deliveries'))return [[]];
+  if(sql.includes('COUNT(*)'))return [[{n:0}]];
+  return [[],[]];
+ }),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};
+ m.getConnection.mockResolvedValue(db);m.execute.mockResolvedValue([{insertId:13}]);m.agency.mockResolvedValue({id:4,name:'Agency',slug:'itsco'});
+ m.email.mockResolvedValue({sent:true,communicationId:7,internetMessageId:'<opaque@example.test>'});
+});
+it('distinguishes sent, pending approval and failed mail',()=>{
+ expect(inviteDeliveryState({sent:true})).toBe('sent');expect(inviteDeliveryState({queued:true})).toBe('pending');expect(inviteDeliveryState({skipped:true})).toBe('failed');
+});
+it('records a delivery attempt before sending and tracks the provider ID',async()=>{
+ await deliverCoGuardianInvite({inviteId:3,agency:{id:4},to:'correct@example.test'});
+ expect(m.execute.mock.calls[0][0]).toContain('INSERT');expect(m.execute.mock.calls[1][1]).toEqual(['sent',7,'<opaque@example.test>',null,13]);
+});
+it('blocks another parent, another agency, accepted invites, revoked access and adult clients',async()=>{
+ for(const changed of [{userId:9},{agencyId:7},{invite:{...invite,status:'accepted'}}])await expect(assertInvitationOwner({invite,userId:8,agencyId:4,db,...changed})).rejects.toThrow();
+ db.execute.mockResolvedValue([[{...clients[0],permissions_json:{noView:true}}]]);await expect(assertInvitationOwner({invite,userId:8,agencyId:4,db})).rejects.toThrow('current guardian');
+ db.execute.mockResolvedValue([[{...clients[0],date_of_birth:'1990-01-01'}]]);await expect(assertInvitationOwner({invite,userId:8,agencyId:4,db})).rejects.toThrow('adult');
+});
+it('rotates the old invitation token and only revokes links restricted by that invite',async()=>{
+ const result=await resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:'correct@example.test'});
+ expect(result.deliveryStatus).toBe('sent');expect(db.commit).toHaveBeenCalled();
+ const revoke=db.execute.mock.calls.find(([sql])=>sql.includes('SET cg.access_enabled=0'));
+ expect(revoke[0]).toContain('coGuardianInviteRestricted');expect(revoke[0]).toContain('coGuardianInviteId');
+ const tokenUpdate=db.execute.mock.calls.find(([sql])=>sql.includes('SET invited_email='));
+ expect(tokenUpdate[1][0]).toBe('correct@example.test');expect(tokenUpdate[1][1]).toMatch(/^[a-f0-9]{64}$/);
+ expect(JSON.stringify(result)).not.toContain('token');
+});
+it('rate limits retries without sending or changing accounts',async()=>{
+ db.execute.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT * FROM co_guardian_invites')?[[invite]]:sql.includes('SELECT c.id')?[clients]:sql.includes('SELECT * FROM co_guardian_invite_deliveries')?[[{created_at:new Date()}]]:[[]]);
+ await expect(resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:'a@example.test'})).rejects.toThrow('Wait a minute');expect(m.email).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();
+});
+it('notifies only the stored submitting parent with agency branding and no child details',async()=>{
+ const row={id:13,invite_id:3,agency_id:4,invited_by_user_id:8,source:'office',delivery_status:'bounced',failure_kind:'mailbox_rejected'};
+ db.execute.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT d.*')?[[row]]:[[]]);
+ m.user.mockResolvedValue({id:8,email:'parent@example.test',role:'client_guardian'});m.notify.mockResolvedValue({sent:true,communicationId:9});
+ await notifyInvitationFailure(13);
+ expect(m.notify).toHaveBeenCalledWith(expect.objectContaining({agencyId:4,to:'parent@example.test',text:expect.stringContaining('receiving email service rejected')}));
+ expect(m.ticket).not.toHaveBeenCalled();
+});
+it('creates a staff follow-up if the submitting parent cannot be notified',async()=>{
+ db.execute.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT d.*')?[[{id:13,invite_id:3,agency_id:4,delivery_status:'failed'}]]:[[]]);
+ await notifyInvitationFailure(13);expect(m.ticket).toHaveBeenCalledWith(expect.objectContaining({subject:expect.stringContaining('contact the submitting parent')}));
+});
+function report(action='failed',status='5.1.1') {return {mimeType:'multipart/report',headers:[{name:'Content-Type',value:'multipart/report; report-type=delivery-status'}],parts:[{mimeType:'message/delivery-status',body:{data:Buffer.from(`Original-Message-ID: <opaque@example.test>\r\n\r\nFinal-Recipient: rfc822; typo@example.test\r\nAction: ${action}\r\nStatus: ${status}\r\n`).toString('base64url')}}]};}
+it('requires a structured permanent failure, original message ID and exact recipient',()=>{
+ expect(parseGuardianDeliveryReport(report())).toEqual([{messageId:'<opaque@example.test>',recipient:'typo@example.test'}]);
+ expect(parseGuardianDeliveryReport(report('delayed','4.2.0'))).toEqual([]);
+ expect(parseGuardianDeliveryReport({...report(),mimeType:'text/plain'})).toEqual([]);
+ const noId=report();noId.parts[0].body.data=Buffer.from('Final-Recipient: rfc822; typo@example.test\nAction: failed\nStatus: 5.1.1').toString('base64url');expect(parseGuardianDeliveryReport(noId)).toEqual([]);
+});

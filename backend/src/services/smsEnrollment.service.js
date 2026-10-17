@@ -94,7 +94,7 @@ export async function saveSmsRegistration({ numberId, registration, actorUserId 
   if (conflicts.length) throw smsPolicyError('sms_cross_tenant_campaign', 'A campaign cannot be shared across independent agencies or brands');
   const [peers] = await pool.execute('SELECT registration_json FROM sms_sender_registrations WHERE campaign_id = ? AND number_id <> ?', [registration.campaignId, numberId]);
   const program = (value) => JSON.stringify([
-    ...['brandId', 'brandName', 'legalName', 'resellerId', 'website', 'privacyUrl', 'termsUrl', 'supportContact', 'keywordOwner'].map((key) => value[key]),
+    ...['provider', 'brandId', 'brandName', 'legalName', 'resellerId', 'website', 'privacyUrl', 'termsUrl', 'supportContact', 'keywordOwner'].map((key) => value[key]),
     value.allowRestart === true, [...value.purposes].sort()
   ]);
   if (peers.some((peer) => program(typeof peer.registration_json === 'string' ? JSON.parse(peer.registration_json) : peer.registration_json) !== program(registration))) {

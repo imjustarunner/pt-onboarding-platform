@@ -39,7 +39,8 @@
     <section v-if="coGuardianInvite" class="ai-portal-card">
       <h2> {{ enrollmentTx("Other guardian") }} </h2>
       <p> {{ enrollmentTx("Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.") }} </p>
-      <p v-if="coGuardianInvite.emailed && coGuardianInvite.email"> {{ enrollmentTx("We emailed them at") }} {{ coGuardianInvite.email }}.
+      <p v-if="['failed','bounced','undelivered','not_sent'].includes(coGuardianInvite.deliveryStatus)" role="alert">{{ enrollmentTx('The invitation could not be sent. Your enrollment is saved. Sign in to your portal to review the email and resend, or contact your support team.') }}</p>
+      <p v-else-if="coGuardianInvite.emailed && coGuardianInvite.email"> {{ enrollmentTx("We emailed them at") }} {{ coGuardianInvite.email }}.
       </p>
       <p v-else-if="coGuardianInvite.pendingContact"> {{ enrollmentTx("We have their phone number — our team will call to start their intake.") }} </p>
     </section>

@@ -1,3 +1,4 @@
+import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
 /**
  * Password recovery (Forgot Password) — first principles
@@ -237,8 +238,10 @@ async function sendResetEmail({
   text,
   html,
   userId,
-  existingCommunicationId
+  existingCommunicationId,
+  enrollment = null
 }) {
+  if (enrollment) return sendEnrollmentPortalEmail({ agencyId, to, subject, text, html, userId, existingCommunicationId, schoolOrganizationId: enrollment.schoolOrganizationId || null, enrollmentChannel: enrollment.channel || null, source: 'manual', templateType: 'password_reset' });
   const { identity, replyTo } = await resolveRecoverySender(agencyId);
   const result = await sendEmailFromIdentity({
     senderIdentityId: identity.id,
@@ -271,7 +274,8 @@ export async function requestPasswordRecoveryEmail({
   includeDebug = false,
   targetUser = null,
   existingTokenResult = null,
-  generatedByUserId = null
+  generatedByUserId = null,
+  enrollment = null
 } = {}) {
   const requestedEmail = String(email || '').trim().toLowerCase();
   const orgSlug = normalizeOrgSlug(organizationSlug);
@@ -297,6 +301,7 @@ export async function requestPasswordRecoveryEmail({
     return { ok: true, outcome: 'sso_required' };
   }
   const agency = await resolveContextAgency({ userId: user.id, orgSlug });
+  if (enrollment?.agencyId && Number(agency.id) !== Number(enrollment.agencyId)) return { ok:true, outcome:'support_required' };
   const loginEmail = resolveLoginEmail(user);
   const to = pickRecipientEmail(user, requestedEmail);
   // Sender, branding, and communication history belong to the account tenant.
@@ -386,7 +391,8 @@ export async function requestPasswordRecoveryEmail({
       text: body,
       html,
       userId: user.id,
-      existingCommunicationId: comm?.id || null
+      existingCommunicationId: comm?.id || null,
+      enrollment
     });
   } catch (e) {
     await markCommFailed(comm?.id, e?.message || 'send failed');

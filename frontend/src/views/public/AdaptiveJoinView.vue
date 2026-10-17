@@ -1126,7 +1126,7 @@ const quickCard = computed(() => {
 const fullCard = computed(() => {
   const c = config.value?.copy || {};
   return {
-    title: resolvedServiceType.value === 'tutoring' ? 'Full Learning Enrollment' : c.fullTitle ?? 'Client Enrollment Packet',
+    title: resolvedServiceType.value === 'tutoring' ? 'Tutoring Enrollment' : c.fullTitle ?? 'Client Enrollment Packet',
     tagline: c.fullTagline ?? 'A comprehensive enrollment experience.',
     description: c.fullDescription ?? 'Best when you are ready to provide full information for personalized care.',
     duration: c.fullDuration ?? '10–20 min',
@@ -1810,6 +1810,7 @@ async function submitQuick() {
       consentGiven: form.consentGiven,
       acknowledgments: form.consentGiven ? consentAcknowledgmentLines : [],
       additionalDependents,
+      otherGuardian: isDependentWhoFor.value ? { ...form.otherGuardian } : null,
       partner: partnerPayload,
       notifyPartner: form.notifyPartner,
       partnersSameAddress: form.partnersSameAddress,
@@ -1821,39 +1822,7 @@ async function submitQuick() {
     });
     confirmation.value = data?.confirmation || null;
     submitted.value = true;
-    const rights = form.otherGuardian.hasLegalRights;
-    const otherEmailOk = String(form.otherGuardian.email || '').includes('@');
-    const otherPhoneOk = String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
-    if (
-      !isCoGuardianInvitee.value
-      && isDependentWhoFor.value
-      && (rights === 'yes' || rights === 'shared')
-      && (otherEmailOk || otherPhoneOk)
-    ) {
-      const clientIds = (data?.confirmation?.packetClients || [])
-        .map((row) => Number(row.clientId))
-        .filter(Boolean);
-      if (clientIds.length) {
-        try {
-          const inviteResp = await api.post(`/public/adaptive-intake/${agencySlug.value}/co-guardian-invite`, {
-            source: 'quick',
-            clientIds,
-            sendEmail: otherEmailOk,
-            otherGuardian: {
-              ...form.otherGuardian,
-              legalAuthority: rights,
-              sendInvite: true
-            }
-          });
-          confirmation.value = {
-            ...confirmation.value,
-            coGuardianInvite: inviteResp.data
-          };
-        } catch {
-          /* invite is optional — form already submitted */
-        }
-      }
-    }
+
   } catch (e) {
     submitError.value = e?.response?.data?.error?.message || e?.message || 'Unable to submit';
   } finally {

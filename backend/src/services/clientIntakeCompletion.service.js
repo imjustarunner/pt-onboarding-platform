@@ -41,6 +41,7 @@ export async function applyClientIntakeCompletion({
   completedAt = new Date(),
   note = 'Marked received automatically after intake completion',
   actorUserId = null,
+  neededKeys = [],
   statusKeys = ALL_INTAKE_FULFILLED_KEYS
 } = {}) {
   const cid = Number(clientId || 0);
@@ -104,7 +105,14 @@ export async function applyClientIntakeCompletion({
       if (key === 'completed') completedStatusId = Number(row.id);
     }
 
-    const targets = wantedKeys
+    // An enrollment signature does not fulfill missing insurance evidence.
+    for (const key of neededKeys) {
+      const statusId = statusByKey.get(key);
+      if (statusId) await connection.execute(`INSERT INTO client_paperwork_items
+        (client_id, paperwork_status_id, is_needed) VALUES (?, ?, TRUE)
+        ON DUPLICATE KEY UPDATE is_needed = TRUE, received_at = NULL, received_by_user_id = NULL`, [cid, statusId]);
+    }
+    const targets = wantedKeys.filter(key => !neededKeys.includes(key))
       .map((k) => ({ key: k, id: statusByKey.get(k) || null }))
       .filter((t) => t.id);
 

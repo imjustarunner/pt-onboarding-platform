@@ -2503,6 +2503,7 @@
       </div>
 
       <div v-else-if="step === 3 && isOfficeInDepthIntake" class="step office-complete">
+        <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="locale" />
         <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
           ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
           : 'Your answers and signatures are saved. One of the packets needs our office to review it. You do not need to complete enrollment again.' }}</p>
@@ -2521,7 +2522,7 @@
                 <p>{{ t('officeCompleteFollowup') }}</p>
               </div>
               <div class="office-complete-grid">
-                <div><span aria-hidden="true">✉️</span><strong>{{ t('confirmationEmailSent') }}</strong><p>{{ intakeSuccessEmailMessage }}</p></div>
+                <div><span aria-hidden="true">✉️</span><strong>{{ locale === 'es' ? 'Confirmación por correo' : 'Email confirmation' }}</strong><p>{{ intakeSuccessEmailMessage }}</p></div>
                 <div><span aria-hidden="true">👥</span><strong>{{ t('personalizedMatch') }}</strong><p>{{ t('personalizedMatchBody') }}</p></div>
                 <div><span aria-hidden="true">📅</span><strong>{{ t('wellReachOut') }}</strong><p>{{ t('wellReachOutBody') }}</p></div>
                 <div><span aria-hidden="true">♡</span><strong>{{ t('wereHereToHelp') }}</strong><p>{{ t('wereHereToHelpBody') }}</p></div>
@@ -2579,54 +2580,14 @@
                 </div>
                 <p v-if="officeEmailStatus" class="office-complete-phi">{{ officeEmailStatus }}</p>
               </div>
-              <div v-if="!officePortalDismissed && guardianEmail" class="office-complete-portal">
-                <div class="office-complete-portal-head">
-                  <h3>{{ t('portalLoginTitle') || 'Your parent/guardian portal login' }}</h3>
-                  <p>Use this login on the website to check status, upload documents, and manage care for your dependent(s).</p>
-                </div>
-                <div class="office-complete-portal-creds">
-                  <div>
-                    <span>Website</span>
-                    <strong>
-                      <a :href="officePortalCreds?.portalLoginUrl || officePortalHref">
-                        {{ officePortalCreds?.portalLoginUrl || officePortalHref }}
-                      </a>
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Username</span>
-                    <strong>{{ officePortalCreds?.username || guardianEmail }}</strong>
-                  </div>
-                  <p v-if="officePortalCredsLoading" class="muted">Preparing your portal sign-in link…</p>
-                  <p v-else-if="officePortalCreds?.note" class="muted">{{ officePortalCreds.note }}</p>
-                </div>
-                <div class="office-complete-portal-actions">
-                  <a
-                    v-if="officePortalCreds?.setPasswordUrl"
-                    class="df-btn df-btn-primary"
-                    :href="officePortalCreds.setPasswordUrl"
-                  >Set password now</a>
-                  <a class="df-btn df-btn-secondary" :href="officePortalCreds?.portalLoginUrl || officePortalHref">
-                    Login later
-                  </a>
-                  <button
-                    type="button"
-                    class="df-btn df-btn-secondary"
-                    :disabled="officeLoginEmailing || officePortalCredsLoading"
-                    @click="emailOfficeLoginDetails"
-                  >
-                    {{ officeLoginEmailing ? t('saving') : (t('emailLoginDetails') || 'Email these login details') }}
-                  </button>
-                  <button type="button" class="df-btn df-btn-secondary" @click="officePortalDismissed = true">
-                    {{ t('portalLoginSkip') || 'Skip for now' }}
-                  </button>
-                </div>
-                <p v-if="officeLoginEmailStatus" class="office-complete-phi">{{ officeLoginEmailStatus }}</p>
-              </div>
+
               <div v-if="showCoGuardianOutreach" class="office-complete-download">
                 <p><strong>{{ t('otherGuardianInviteTitle') }}</strong></p>
                 <p>{{ isSchoolScopedIntake ? t('otherGuardianInviteLeadSchool') : t('otherGuardianInviteLead') }}</p>
-                <p v-if="coGuardianInviteResult.emailed && coGuardianInviteResult.email">
+                <p v-if="['failed','bounced','undelivered','not_sent'].includes(coGuardianInviteResult.deliveryStatus)" role="alert">
+                  {{ locale === 'es' ? 'No se pudo enviar la invitación al otro tutor. Su inscripción está guardada. Ingrese a su portal para revisar y corregir el correo electrónico y reenviar la invitación, o contacte al equipo de apoyo.' : 'The other guardian’s invitation could not be sent. Your enrollment is saved. Sign in to your portal to review and correct their email address and resend, or contact your support team.' }}
+                </p>
+                <p v-else-if="coGuardianInviteResult.emailed && coGuardianInviteResult.email">
                   {{ t('otherGuardianInviteEmailed').replace('{email}', coGuardianInviteResult.email) }}
                 </p>
                 <p v-else-if="isSchoolScopedIntake && (coGuardianInviteResult.inviteId || coGuardianInviteResult.queued)">
@@ -2658,6 +2619,7 @@
       </div>
 
       <div v-else-if="step === 3" class="step">
+        <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="locale" />
         <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
           ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
           : 'Your answers and signatures are saved. One of the packets needs our office to review it. You do not need to complete enrollment again.' }}</p>
@@ -2738,47 +2700,7 @@
                 </a>
               </div>
             </div>
-            <div class="reg-success-account">
-              <div class="reg-success-account-label">Your account</div>
-              <div v-if="registrationCompletion?.loginEmail || guardianEmail" class="reg-success-username">
-                {{ registrationCompletion?.loginEmail || guardianEmail }}
-              </div>
-              <div v-if="registrationCompletion?.portalLoginUrl" class="reg-success-account-actions" style="margin-top: 10px;">
-                <a
-                  :href="registrationCompletion.portalLoginUrl"
-                  target="_blank"
-                  rel="noopener"
-                  class="btn btn-primary btn-sm"
-                >
-                  Sign in to your portal →
-                </a>
-              </div>
-              <div class="reg-success-account-hint" style="margin-top: 8px;">
-                <span v-if="registrationCompletion?.newGuardianAccount">
-                  A sign-in link has been emailed to you (valid 72 hours). After signing in you will set your password.
-                </span>
-                <span v-else-if="registrationCompletion?.loginEmail">
-                  Use the button above to sign in to your guardian portal. Check your email if you need a sign-in link.
-                </span>
-                <span v-else>
-                  Check your email for a sign-in link to access your guardian portal.
-                </span>
-              </div>
-              <div v-if="guardianEmail" class="muted" style="font-size: 12px; margin-top: 4px;">
-                Email: {{ guardianEmail }}
-              </div>
-              <div style="margin-top: 10px;">
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="loginHelpSending"
-                  @click="sendPublicIntakeLoginHelp"
-                >
-                  {{ loginHelpSending ? 'Sending…' : 'Need help signing in? Notify staff' }}
-                </button>
-                <span v-if="loginHelpMessage" class="muted" style="margin-left: 8px;">{{ loginHelpMessage }}</span>
-              </div>
-            </div>
+
           </div>
 
           <!--
@@ -3049,6 +2971,7 @@
 </template>
 
 <script setup>
+import EnrollmentPortalAccess from '../components/public-intake/EnrollmentPortalAccess.vue';
 import { i18n, setPublicLocale } from '../i18n.js';
 import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
 import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
@@ -7300,17 +7223,12 @@ const officePdfEmailIdentities = ref([]);
 const officePdfEmailSaving = ref(false);
 const officePdfEmailStatus = ref('');
 const officePdfEmailLoaded = ref(false);
-const officePortalDismissed = ref(false);
-const officePortalCreds = ref(null);
-const officePortalCredsLoading = ref(false);
 const coGuardianInviteResult = ref(null);
 const showCoGuardianOutreach = computed(() => {
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   if (rights !== 'yes' && rights !== 'shared') return false;
   return !!coGuardianInviteResult.value;
 });
-const officeLoginEmailing = ref(false);
-const officeLoginEmailStatus = ref('');
 const downloadUrl = ref('');
 const officeSummaryDownloading = ref(false);
 const officeSummaryError = ref('');
@@ -10210,53 +10128,6 @@ const officePortalHref = computed(() =>
   buildPublicPortalLoginUrl(agencyInfo.value || {})
 );
 
-async function ensureOfficePortalCredentials() {
-  if (!isOfficeInDepthIntake.value || !submissionId.value || !guardianEmail.value) return;
-  if (officePortalCreds.value?.portalLoginUrl || officePortalCredsLoading.value) return;
-  officePortalCredsLoading.value = true;
-  try {
-    const resp = await api.post(
-      `/public-intake/${encodeURIComponent(publicKey)}/${submissionId.value}/portal-credentials`,
-      {
-        sessionToken: sessionToken.value || null,
-        email: guardianEmail.value
-      },
-      { skipGlobalLoading: true }
-    );
-    officePortalCreds.value = resp.data || null;
-  } catch (err) {
-    officePortalCreds.value = {
-      username: guardianEmail.value,
-      portalLoginUrl: officePortalHref.value,
-      note: err?.response?.data?.error?.message || 'Unable to prepare the portal sign-in link right now.'
-    };
-  } finally {
-    officePortalCredsLoading.value = false;
-  }
-}
-
-async function emailOfficeLoginDetails() {
-  officeLoginEmailStatus.value = '';
-  officeLoginEmailing.value = true;
-  try {
-    const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
-    if (!slug || !guardianEmail.value) return;
-    if (!officePortalCreds.value?.portalLoginUrl) {
-      await ensureOfficePortalCredentials();
-    }
-    await api.post(`/public/adaptive-intake/${encodeURIComponent(slug)}/portal-login-email`, {
-      email: guardianEmail.value,
-      username: officePortalCreds.value?.username || guardianEmail.value,
-      portalPath: officePortalCreds.value?.portalLoginUrl || officePortalHref.value
-    });
-    officeLoginEmailStatus.value = t('loginDetailsSent');
-  } catch (err) {
-    officeLoginEmailStatus.value = err?.response?.data?.error?.message || t('unableToStartSession');
-  } finally {
-    officeLoginEmailing.value = false;
-  }
-}
-
 async function emailOfficeSummaryPdf() {
   officeEmailStatus.value = '';
   officeEmailSending.value = true;
@@ -10298,30 +10169,6 @@ async function maybeCreateOfficeCoGuardianInvite(finalizeData) {
   if (finalizeData?.coGuardianInvite) {
     coGuardianInviteResult.value = finalizeData.coGuardianInvite;
     return;
-  }
-  const rights = otherGuardian.hasLegalRights;
-  if (intakeForSelf.value !== false || (rights !== 'yes' && rights !== 'shared')) return;
-  const hasEmail = String(otherGuardian.email || '').includes('@');
-  const hasPhone = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
-  if (!hasEmail && !hasPhone) return;
-  const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
-  if (!slug) return;
-  const ids = (finalizeData?.clientBundles || [])
-    .map((b) => Number(b?.clientId || b?.client_id || b?.id))
-    .filter(Boolean);
-  if (!ids.length) return;
-  try {
-    const { data } = await api.post(`/public/adaptive-intake/${encodeURIComponent(slug)}/co-guardian-invite`, {
-      source: isSchoolScopedIntake.value ? 'school' : 'office',
-      publicKey,
-      clientIds: ids,
-      // School secondary guardians: create invite record but do not email until prefs/settings are ready.
-      sendEmail: hasEmail && !isSchoolScopedIntake.value,
-      otherGuardian: { ...otherGuardian, legalAuthority: rights, sendInvite: !isSchoolScopedIntake.value }
-    });
-    coGuardianInviteResult.value = data;
-  } catch {
-    /* optional */
   }
 }
 
@@ -12042,9 +11889,6 @@ const finalizePacket = async () => {
     if (downloadUrl.value || jobApplicationSubmitted.value || hasPerChildPackets) {
       pollingForDownload.value = false;
     }
-    if (isOfficeInDepthIntake.value) {
-      ensureOfficePortalCredentials();
-    }
     step.value = 3;
     clearPersistedDraft();
     void maybeCreateOfficeCoGuardianInvite(resp.data);
@@ -12099,7 +11943,7 @@ const pollForDownloadUrl = async (attemptLimit) => {
       // building, instead of waiting for ALL children to be ready.
       if (Array.isArray(resp.data?.clientBundles)) {
         clientBundleLinks.value = resp.data.clientBundles;
-        if (!coGuardianInviteResult.value?.inviteUrl) {
+        if (!coGuardianInviteResult.value?.inviteId) {
           void maybeCreateOfficeCoGuardianInvite(resp.data);
         }
       }
@@ -12141,17 +11985,17 @@ const pollForDownloadUrl = async (attemptLimit) => {
 };
 
 async function pollOfficeCoGuardianInvite() {
-  if (coGuardianInviteResult.value?.inviteUrl || isCoGuardianInvitee.value) return;
+  if (coGuardianInviteResult.value?.inviteId || isCoGuardianInvitee.value) return;
   for (let i = 0; i < 12; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    if (coGuardianInviteResult.value?.inviteUrl) return;
+    if (coGuardianInviteResult.value?.inviteId) return;
     try {
       const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`, {
         skipGlobalLoading: true
       });
       if (Array.isArray(resp.data?.clientBundles) && resp.data.clientBundles.length) {
         await maybeCreateOfficeCoGuardianInvite(resp.data);
-        if (coGuardianInviteResult.value?.inviteUrl) return;
+        if (coGuardianInviteResult.value?.inviteId) return;
       }
     } catch {
       /* keep trying */

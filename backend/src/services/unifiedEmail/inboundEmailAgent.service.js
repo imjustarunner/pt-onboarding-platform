@@ -933,6 +933,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     try {
     const full = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
     const payload = full.data?.payload || null;
+    const { reconcileGuardianDeliveryReport } = await import('../coGuardianBounce.service.js');
+    await reconcileGuardianDeliveryReport(payload);
     const hdrs = headerMap(payload?.headers || []);
     const fromHeader = hdrs.get('from') || '';
     const rawFromEmail = extractEmails(fromHeader)[0] || '';

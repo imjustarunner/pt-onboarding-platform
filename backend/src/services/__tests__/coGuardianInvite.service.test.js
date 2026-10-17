@@ -49,5 +49,5 @@ test('public invite payloads omit the raw token and any existing-account hints',
   assert.equal(publicResult.token, undefined);
   assert.equal(publicResult.existingAccount, undefined);
   assert.equal(publicResult.matchedUserId, undefined);
-  assert.match(publicResult.inviteUrl, /co-guardian/);
+  assert.equal(publicResult.inviteUrl, undefined);
 });

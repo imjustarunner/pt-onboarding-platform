@@ -345,6 +345,7 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
   let branding = null;
   try {
     branding = await buildPublicFormBranding({
+      enrollmentChannel: activeService?.serviceType,
       organization: agencyRow,
       agency: agencyRow,
       baseUrl: requestBaseUrl(req)
@@ -506,7 +507,7 @@ function defaultJoinLanding(vertical, agencyName) {
   const base = {
     welcomeTitle: `Welcome to ${org}!`,
     welcomeGlad: "We're so glad you're here.",
-    welcomeLead: `Let's find the right place to start. Choose the type of intake that works best for you with ${org}. You can always add more details later or reach out if you need help.`,
+    welcomeLead: `Let's find the right place to start. Choose the type of enrollment that works best for you with ${org}. You can always add more details later or reach out if you need help.`,
     sidebarScript: "You're Not Alone.",
     sidebarTagline: 'HEAL • GROW • THRIVE',
     value1: 'Supportive & Welcoming',
@@ -516,7 +517,7 @@ function defaultJoinLanding(vertical, agencyName) {
     helpBody: "We're here for you.",
     sendMessage: 'Send Us a Message',
     slogan: 'Better Days Start Here.',
-    welcomeSubtitle: `Choose the type of intake that works best for you with ${org}. You can always add more details later.`,
+    welcomeSubtitle: `Choose the type of enrollment that works best for you with ${org}. You can always add more details later.`,
     quickTitle: 'Initial Interest Form',
     quickTagline: 'A short form to get you started.',
     quickDescription: 'Perfect if you are exploring services and want our team to follow up.',
@@ -525,7 +526,7 @@ function defaultJoinLanding(vertical, agencyName) {
     quickCta: 'Start Form →',
     quickFooter: 'You will complete the full client enrollment packet at a later time.',
     fullTitle: 'Client Enrollment Packet',
-    fullTagline: 'A comprehensive intake experience.',
+    fullTagline: 'A comprehensive enrollment experience.',
     fullDescription: 'Best when you are ready to provide full information for personalized care.',
     fullDuration: '10–20 min',
     fullBullets: ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
@@ -537,25 +538,25 @@ function defaultJoinLanding(vertical, agencyName) {
       ...base,
       welcomeSubtitle: `Choose how you’d like to connect with ${org}. You can start light and add details later.`,
       quickTitle: 'Quick Interest Form',
-      fullTitle: 'Full Coaching Intake'
+      fullTitle: 'Coaching Enrollment'
     };
   }
   if (vertical === 'consultant') {
     return {
       ...base,
-      welcomeSubtitle: `Tell us a little about your needs, or complete a fuller intake for ${org}.`,
+      welcomeSubtitle: `Tell us a little about your needs, or complete a full enrollment for ${org}.`,
       quickTitle: 'Quick Inquiry',
-      fullTitle: 'Full Consulting Intake'
+      fullTitle: 'Consulting Enrollment'
     };
   }
   if (vertical === 'tutoring') {
     return {
       ...base,
-      welcomeSubtitle: `Start with a short interest form or a fuller tutoring intake for ${org}.`,
+      welcomeSubtitle: `Start with a short interest form or a full tutoring enrollment for ${org}.`,
       sidebarTagline: 'LEARN • GROW • THRIVE',
       value3: 'Focused on Learning & Confidence',
       quickTitle: 'Quick Interest Form',
-      fullTitle: 'Full Tutoring Intake'
+      fullTitle: 'Tutoring Enrollment'
     };
   }
   return base;
@@ -635,7 +636,7 @@ export function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
     quickDuration: [['5–10 min', '1–5 min'], ['5-10 min', '1–5 min'], ['~ 5–10 min', '1–5 min']],
     quickCta: [['Start Quick Intake →', 'Start Form →'], ['Start Quick Intake ->', 'Start Form →']],
     quickFooter: [['You can add more details later.', 'You will complete the full client enrollment packet at a later time.']],
-    fullTitle: [['In-Depth Intake Packet', 'Client Enrollment Packet']],
+    fullTitle: [['In-Depth Intake Packet', 'Client Enrollment Packet'], ['Full Tutoring Intake', 'Tutoring Enrollment'], ['Full Coaching Intake', 'Coaching Enrollment'], ['Full Consulting Intake', 'Consulting Enrollment']],
     fullCta: [
       ['Start Full Intake →', 'Start Full Enrollment Packet →'],
       ['Start Full Intake ->', 'Start Full Enrollment Packet →']
@@ -741,6 +742,7 @@ export async function updateJoinLandingCopy({
     branding = await buildPublicFormBranding({
       organization: row,
       agency: row,
+      enrollmentChannel: key,
       baseUrl: requestBaseUrl(req)
     });
   } catch {
@@ -1382,9 +1384,26 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     )
   ];
 
+  let coGuardianInvite = null;
+  if (['child','legal'].includes(whoFor) && payload.otherGuardian) {
+    const other = payload.otherGuardian;
+    try {
+      const { maybeCreateFromIntakeGuardian } = await import('./coGuardianInvite.service.js');
+      coGuardianInvite = await maybeCreateFromIntakeGuardian({ agencyId: agencyRow.id,
+        invitedByUserId: temporaryAccess?.userId || null, enrollmentChannel: activeService?.serviceType || null,
+        clientIds: packetClients.map(row => row.clientId), source: 'quick', intakeData: { guardian: {
+          other_guardian_has_legal_rights: other.hasLegalRights || other.legalAuthority,
+          other_guardian_first_name: other.firstName, other_guardian_last_name: other.lastName,
+          other_guardian_email: other.email, other_guardian_phone: other.phone,
+          other_guardian_relationship: other.relationship, other_guardian_send_intake_link: 'yes'
+        } } });
+    } catch { coGuardianInvite = { deliveryStatus:'failed', emailed:false }; }
+  }
+
   return {
     client,
     confirmation: {
+      coGuardianInvite,
       identifierCode: client.identifier_code,
       clientId: client.id,
       packetClients,

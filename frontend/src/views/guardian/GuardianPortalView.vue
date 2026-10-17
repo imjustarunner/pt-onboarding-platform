@@ -17,6 +17,8 @@
         <div class="portal-program-picker"><GuardianProgramSelector :programs="programs" /><button class="btn btn-secondary btn-sm" @click="refreshAll" :disabled="loading">Refresh</button></div>
       </section>
 
+      <GuardianInvitations v-if="!isSuperadminPreview" :agency-id="selectedChildAgencyId || currentAgencyId" />
+
       <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" :organization-name="careAgencyName || currentAgencyName" @contact="navigatePortal('messages')" />
       <GuardianBillingNeeds v-if="!isSuperadminPreview && ['overview','tutoring'].includes(activePanel)" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
 
@@ -639,6 +641,7 @@ import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosure
 import GuardianBillingNeeds from '../../components/billing/GuardianBillingNeeds.vue';
 import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
+import GuardianInvitations from '../../components/guardian/GuardianInvitations.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
 import GuardianPlanProgressPanel from '../../components/guardian/GuardianPlanProgressPanel.vue';

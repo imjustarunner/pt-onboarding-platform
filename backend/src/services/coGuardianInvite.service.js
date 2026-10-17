@@ -3,7 +3,8 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
-import { sendGuardianNotificationEmail } from './guardianNotificationEmail.service.js';
+import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
+import { deliverCoGuardianInvite } from './coGuardianDelivery.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 
@@ -94,6 +95,7 @@ export function toPublicInviteResult(result) {
   if (!result) return null;
   const {
     token,
+    inviteUrl,
     existingAccount,
     matchedUserId,
     matched,
@@ -111,12 +113,13 @@ export async function createCoGuardianInvite({
   source = 'office',
   publicKey = null,
   sendEmail = true,
-  enablePortalOnMatch = true
+  enablePortalOnMatch = true,
+  enrollmentChannel = null
 }) {
   const agency = await Agency.findById(agencyId);
   if (!agency) throw new Error('Organization not found');
   const person = normalizeOtherGuardian(otherGuardian);
-  if (!person.email || !person.email.includes('@')) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email)) {
     throw new Error('The other guardian needs an email address so we can send their link.');
   }
   const ids = [...new Set((Array.isArray(clientIds) ? clientIds : []).map((id) => Number(id)).filter(Boolean))];
@@ -176,11 +179,11 @@ export async function createCoGuardianInvite({
     enablePortal: enablePortalOnMatch !== false
   });
 
-  const inviteUrl = invitePublicUrl({ agency, token, publicKey });
+  const inviteUrl = invitePublicUrl({ agency, token, publicKey, serviceType: enrollmentChannel || 'counseling' });
   let delivery = { sent: false, queued: false, deliveryStatus: 'not_requested' };
   if (sendEmail !== false && person.sendInvite !== false) {
-    delivery = await emailCoGuardianInvite({
-      agency,
+    delivery = await deliverCoGuardianInvite({
+      inviteId, agency, enrollmentChannel, school: source === 'school',
       to: person.email,
       firstName: person.firstName,
       inviteUrl,
@@ -240,7 +243,7 @@ async function silentlyLinkMatchingGuardian({
   }
 }
 
-async function insertGuardianAccessTicket({ agencyId, subject, question, fallbackUserId = null }) {
+export async function insertGuardianAccessTicket({ agencyId, subject, question, fallbackUserId = null }) {
   const sourceKey = normalizeSupportTicketSourceKey(SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_ACCESS_TOKEN);
   const qEnc = prepareEncryptedTicketText(question);
   try {
@@ -347,7 +350,9 @@ export async function maybeCreateFromIntakeGuardian({
   clientIds = [],
   source = 'office',
   publicKey = null,
-  submissionId = null
+  submissionId = null,
+  invitedByUserId = null,
+  enrollmentChannel = null
 } = {}) {
   const guardian = intakeData?.guardian && typeof intakeData.guardian === 'object'
     ? intakeData.guardian
@@ -366,7 +371,7 @@ export async function maybeCreateFromIntakeGuardian({
   let inviteResult = null;
   if (email.includes('@')) {
     const created = await createCoGuardianInvite({
-      agencyId,
+      agencyId, invitedByUserId, enrollmentChannel,
       otherGuardian: {
         firstName: guardian.other_guardian_first_name,
         lastName: guardian.other_guardian_last_name,
@@ -451,14 +456,14 @@ export async function resolveCoGuardianIntakeBinding(token, scope = {}) {
   };
 }
 
-export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId }) {
+export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId, enrollmentChannel = null, school = false }) {
   const org = String(agency?.official_name || agency?.name || 'our care team').trim();
   const greeting = firstName ? `Hi ${firstName},` : 'Hello,';
-  const subject = `${org}: complete your guardian intake`;
+  const subject = `${org}: complete your guardian enrollment`;
   const text = [
     greeting,
     '',
-    `Another parent or guardian invited you to complete your own intake for ${org}.`,
+    `Another parent or guardian invited you to complete your own enrollment for ${org}.`,
     'You will not see the other guardian’s answers. This link is only for your information, your contact details, and the dependent(s) connected to you.',
     '',
     inviteUrl,
@@ -468,19 +473,20 @@ export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, 
     'This message may contain protected health information. If you received it in error, delete it.'
   ].join('\n');
   try {
-    return await sendGuardianNotificationEmail({
+    return await sendEnrollmentPortalEmail({
       to,
       subject,
       text,
       agencyId: agency.id,
       clientId,
+      enrollmentChannel, schoolEnrollment: school,
       source: 'co_guardian_invite',
       templateType: 'co_guardian_invite',
       linkUrl: inviteUrl
     });
   } catch (err) {
     console.warn('Co-guardian invite email skipped:', err?.message || err);
-    return { sent: false, queued: false, deliveryStatus: 'failed' };
+    return { sent: false, queued: false, deliveryStatus: 'failed', communicationId: err?.communicationId || null };
   }
 }
 
@@ -718,7 +724,7 @@ export async function emailPortalLoginInfo({
     '',
     'You can skip portal setup for now, but an account may still be needed for medical records.'
   ];
-  const delivery = await sendGuardianNotificationEmail({
+  const delivery = await sendEnrollmentPortalEmail({
     to: email,
     subject: `${org}: your parent/guardian portal login`,
     text: lines.join('\n'),

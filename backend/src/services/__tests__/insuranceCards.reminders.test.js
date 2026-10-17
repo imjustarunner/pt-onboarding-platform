@@ -5,6 +5,7 @@ vi.mock('../insuranceCards/service.js',()=>({cardContext:vi.fn(),refreshCardFoll
 vi.mock('../guardianAppointments.service.js',()=>({guardianReminderPreferences:vi.fn()}));
 vi.mock('../familyLedger/senders.js',()=>({requireReadySender:vi.fn()}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
+import { INTAKE_COMMUNICATION_VERSION } from '../intakeCommunicationChoices.service.js';
 import {runInsuranceCardReminders} from '../insuranceCards/reminders.js';
 import {emailTaskStatus,previewCardEmail,sendReviewedCardEmail,snoozeCardEmail,listStaffCardTasks} from '../insuranceCards/staffTasks.js';
 const user={id:99,role:'support'},input={agencyId:1,profileId:5,cycle:'synthetic-cycle'};
@@ -22,7 +23,7 @@ beforeEach(()=>{
   return [[]];
  })};
  deps={db:{execute:(...args)=>connection.execute(...args),getConnection:vi.fn().mockResolvedValue(connection)},now:new Date('2026-10-01T12:00:00Z'),authorize:vi.fn(),activeAgency:vi.fn(async()=>true),agencies:vi.fn(async()=>[{id:1,name:'Synthetic agency'}]),audit:vi.fn(),
- context:vi.fn().mockResolvedValue({profile:{id:5,guardian_user_id:10,email:'synthetic@example.invalid',user_status:'ACTIVE',slug:'synthetic'},clients:[{id:101,full_name:'Synthetic Client'}]}),refresh:vi.fn().mockImplementation(async()=>({...progress})),preferences:vi.fn().mockResolvedValue({channels:{email:true},optionalRemindersEnabled:true}),sender:vi.fn().mockResolvedValue({id:1,from_email:'billing@example.invalid'}),send:vi.fn().mockResolvedValue({id:'synthetic',communicationId:7})};
+ context:vi.fn().mockResolvedValue({profile:{id:5,guardian_user_id:10,email:'synthetic@example.invalid',user_status:'ACTIVE',slug:'synthetic'},clients:[{id:101,full_name:'Synthetic Client'}]}),refresh:vi.fn().mockImplementation(async()=>({...progress})),choices:vi.fn().mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:10,emailPreference:'all',signatureAccepted:true,signedAt:'2026-10-01'}),preferences:vi.fn().mockResolvedValue({channels:{email:true},optionalRemindersEnabled:true}),sender:vi.fn().mockResolvedValue({id:1,from_email:'billing@example.invalid'}),send:vi.fn().mockResolvedValue({id:'synthetic',communicationId:7})};
 });
 const reviewed=async()=>({...input,reviewHash:(await previewCardEmail(user,input,deps)).reviewHash});
 it('never sends missing-card emails from the background, even when settings were enabled',async()=>{expect(await runInsuranceCardReminders(deps)).toEqual([]);expect(deps.send).not.toHaveBeenCalled();});
@@ -50,3 +51,6 @@ it('keeps a minimum three-day interval if a biller reviews a late task',()=>{exp
 it('holds queued or redirected messages for investigation',async()=>{const request=await reviewed();deps.send.mockResolvedValue({id:'held',queued:true});expect(await sendReviewedCardEmail(user,request,deps)).toEqual({status:'held'});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);});
 
 it('holds inactive or archived recipient accounts even if their legacy status says active',async()=>{const context=await deps.context();deps.context.mockResolvedValue({...context,profile:{...context.profile,user_is_active:0}});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);expect((await listStaffCardTasks(user,{},deps)).rows[0].reminderDue).toBe(false);deps.context.mockResolvedValue({...context,profile:{...context.profile,user_is_archived:1}});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);});
+
+it.each(['scheduling_only','no'])('does not expand %s consent to insurance follow-up',async emailPreference=>{deps.choices.mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:10,emailPreference,signatureAccepted:true,signedAt:'2026-10-01'});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);expect((await listStaffCardTasks(user,{},deps)).rows[0].reminderDue).toBe(false);expect(deps.send).not.toHaveBeenCalled();});
+it('does not borrow the other guardian’s consent',async()=>{deps.choices.mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:11,emailPreference:'all',signatureAccepted:true,signedAt:'2026-10-01'});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);});

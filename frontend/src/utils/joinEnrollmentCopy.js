@@ -1,5 +1,6 @@
 // Only application-authored labels are localized. Never send enrollment answers to a translator.
 export const JOIN_ENROLLMENT_ES = {
+  'The invitation could not be sent. Your enrollment is saved. Sign in to your portal to review the email and resend, or contact your support team.': 'No se pudo enviar la invitación. Su inscripción está guardada. Ingrese a su portal para revisar el correo y reenviar, o contacte al equipo de apoyo.',
   "Let's get to know you.": 'Vamos a conocerte.',
   'Just the basics so we can reach out—this only takes a few minutes.': 'Solo los datos básicos para poder contactarte; esto toma unos minutos.',
   'Who are you looking for services for?': '¿Para quién buscas servicios?',

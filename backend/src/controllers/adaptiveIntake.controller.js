@@ -212,48 +212,6 @@ async function resolveAgencyFromSlug(slugOrId) {
   return (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
 }
 
-export async function createPublicCoGuardianInvite(req, res, next) {
-  try {
-    const agency = await resolveAgencyFromSlug(req.params.agencySlug);
-    if (!agency) return res.status(404).json({ error: { message: 'Organization not found' } });
-    const og = req.body?.otherGuardian || req.body || {};
-    const source = String(req.body?.source || 'quick').trim().toLowerCase() || 'quick';
-    const isSchool = source === 'school';
-    // School secondary guardians: record + agency follow-up; do not auto-email until settings are ready.
-    const sendEmail = !isSchool && req.body?.sendEmail !== false && og.sendInvite !== false;
-    const rights = String(og.hasLegalRights || og.legalAuthority || '').trim().toLowerCase();
-    const result = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
-      agencyId: agency.id,
-      intakeData: {
-        guardian: {
-          other_guardian_has_legal_rights: rights,
-          other_guardian_first_name: og.firstName,
-          other_guardian_last_name: og.lastName,
-          other_guardian_email: og.email,
-          other_guardian_phone: og.phone,
-          other_guardian_relationship: og.relationship,
-          other_guardian_send_intake_link: sendEmail ? 'yes' : 'no'
-        }
-      },
-      clientIds: req.body?.clientIds || [],
-      source,
-      publicKey: req.body?.publicKey || null,
-      submissionId: req.body?.submissionId || null
-    });
-    if (!result) {
-      return res.status(400).json({
-        error: { message: 'The other guardian needs an email or a phone number we can use to collect consent.' }
-      });
-    }
-    return res.status(201).json({ ok: true, ...result });
-  } catch (e) {
-    const msg = e?.message || 'Unable to create invite';
-    if (/email|dependent|required|not found/i.test(msg)) {
-      return res.status(400).json({ error: { message: msg } });
-    }
-    next(e);
-  }
-}
 
 export async function getPublicCoGuardianInvite(req, res, next) {
   try {
@@ -317,10 +275,10 @@ export async function emailPublicPortalLogin(req, res, next) {
     const delivery = await CoGuardianInvite.emailPortalLoginInfo({
       to: email,
       agency,
-      username: String(req.body?.username || email).trim(),
-      temporaryPassword: req.body?.temporaryPassword || req.body?.password || null,
-      portalPath: req.body?.portalPath || `/${encodeURIComponent(agency.portal_url || agency.slug || '')}/login`,
-      clientId: req.body?.clientId || null
+      username: email,
+      temporaryPassword: null,
+      portalPath: `/${encodeURIComponent(agency.portal_url || agency.slug || '')}/login`,
+      clientId: null
     });
     return res.status(delivery.sent ? 200 : 202).json({ ok: delivery.sent, sent: delivery.sent, queued: !!delivery.queued, deliveryStatus: delivery.deliveryStatus });
   } catch (e) {

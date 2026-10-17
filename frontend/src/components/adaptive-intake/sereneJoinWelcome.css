@@ -140,3 +140,6 @@
 .ajl-platform-brand span{display:flex;align-items:center;gap:6px;font:600 17px/1.4 sans-serif}
 .ajl-platform-brand img{width:24px;height:24px}
 @media(max-width:700px){.ajl--serene .ajl-masthead{grid-template-columns:1fr auto}.ajl--serene .ajl-masthead-brand{grid-column:1/-1;grid-row:2}.ajl-platform-brand{grid-column:2;grid-row:1}}
+
+.ajl-platforms{justify-self:end;display:flex;gap:18px;flex-wrap:wrap}.ajl-platforms .ajl-platform-brand{grid-column:auto;grid-row:auto}
+@media(max-width:700px){.ajl-platforms{grid-column:1/-1;grid-row:3;justify-self:center;gap:16px}.ajl-platform-brand span{font-size:13px}.ajl-platform-brand small{font-size:10px}}

@@ -335,7 +335,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     // An ordinary inbound message is not recurring or marketing consent and must
     // never overwrite STOP. Recipient permissions are managed by the shared gate.
 
-    const metadata = { provider: 'vonage', numberId };
+    const metadata = { provider: req.smsProvider || 'vonage', numberId };
     if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
     if (appointmentReplyContext?.needsSupport) {
       metadata.appointment_reply = {
@@ -443,11 +443,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
             body,
             fromNumber: from,
             toNumber: to,
-            metadata: { vacationReply: true, provider: 'vonage', triggerInboundId: inboundLog?.id }
+            metadata: { vacationReply: true, provider: req.smsProvider || 'vonage', triggerInboundId: inboundLog?.id }
           });
 
           const msg = await VonageService.sendSms({ purpose: 'care', to, from, body });
-          await MessageLog.markSent(outboundLog.id, msg.sid, { vacationReply: true, provider: 'vonage', status: msg.status });
+          await MessageLog.markSent(outboundLog.id, msg.sid, { vacationReply: true, provider: req.smsProvider || 'vonage', status: msg.status });
         } catch (e) {
           console.warn('[VonageWebhook] Vacation SMS reply failed:', e.message);
         }
@@ -636,7 +636,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
                 fromNumber: number?.phone_number || ownerUser.system_phone_number,
                 toNumber: fromNorm,
                 deliveryStatus: 'pending',
-                metadata: { autoReply: true, provider: 'vonage', numberId }
+                metadata: { autoReply: true, provider: req.smsProvider || 'vonage', numberId }
               });
 
               const msg = await VonageService.sendSms({ purpose: 'care',
@@ -645,7 +645,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
                 body: autoReplyMessage
               });
 
-              await MessageLog.markSent(outboundLog.id, msg.sid, { autoReply: true, provider: 'vonage', status: msg.status });
+              await MessageLog.markSent(outboundLog.id, msg.sid, { autoReply: true, provider: req.smsProvider || 'vonage', status: msg.status });
               if (ownerUser?.id) {
                 await MessageAutoReplyThrottle.upsertNow(ownerUser.id, fromNorm);
               }
@@ -693,9 +693,9 @@ export const deliveryStatusWebhook = async (req, res) => {
       await recordCompanyEventSmsDeliveryStatus(messageId, normalizedStatus);
       await pool.execute(
         `UPDATE message_logs
-         SET delivery_status = ?, updated_at = NOW()
+         SET delivery_status = ?
          WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.sid')) = ?
-            OR provider_message_sid = ?`,
+            OR twilio_message_sid = ?`,
         [normalizedStatus, messageId, messageId]
       );
     }

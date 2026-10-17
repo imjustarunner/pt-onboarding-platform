@@ -1,3 +1,4 @@
+import { smsTransport, sendNotifyreSms } from './notifyre.service.js';
 import { Vonage } from '@vonage/server-sdk';
 import { prepareSmsDelivery } from './smsCompliance.service.js';
 import { verifyCarrierSmsDelivery } from './vonage10dlc.service.js';
@@ -27,14 +28,17 @@ class VonageService {
 
   static async sendSms(options) {
     const delivery = await prepareSmsDelivery(options);
-    await verifyCarrierSmsDelivery(delivery);
+    const transport = smsTransport(delivery);
+    if (transport === 'vonage') await verifyCarrierSmsDelivery(delivery);
     // A combined enrollment confirmation still checks consent and live carrier
     // approval for every selected type before making one outbound request.
     for (const purpose of new Set(options.confirmationPurposes || [])) {
       if (purpose === options.purpose) continue;
       const additional = await prepareSmsDelivery({ ...options, purpose });
-      await verifyCarrierSmsDelivery(additional);
+      if (smsTransport(additional) !== transport) throw new Error('Confirmation purposes must use the same carrier.');
+      if (transport === 'vonage') await verifyCarrierSmsDelivery(additional);
     }
+    if (transport === 'notifyre') return sendNotifyreSms(delivery);
     const { to, from, body } = delivery;
     const vonage = this.getClient();
     const result = await vonage.sms.send({ to, from, text: body });

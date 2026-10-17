@@ -1,3 +1,6 @@
+import { safeEnrollmentPortalUrl } from '../utils/enrollmentPortalAccess.js';
+import { missingInsuranceCards } from '../utils/insuranceCardRequirements.js';
+import { enrollmentPortalAccess } from '../services/enrollmentPortalAccess.service.js';
 import {FOCUS_GROUPS,validateMatchingPreferences} from '../../../frontend/src/navigation/providerFocus.js';
 import { intakeCommunicationDisclosure, ensureEnrollmentCommunicationStep, validateAndStampIntakeCommunications } from '../services/intakeCommunicationChoices.service.js';
 import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
@@ -1937,6 +1940,7 @@ const persistChildIntakeData = async ({
     });
   }
 
+  let insuranceCardsMissing = [];
   // 3) Primary insurer + charge fields from the insurance step.
   try {
     const normalizedForInsurance = normalizeIntakeDataShape(intakeData);
@@ -1951,6 +1955,7 @@ const persistChildIntakeData = async ({
     const guardianUserId = Number(sourceSubmission?.guardian_user_id || 0);
     const clientCount = Math.max(1, normalizedForInsurance?.responses?.clients?.length || normalizedForInsurance?.clients?.length || 1);
     const coverage = insuranceForIntakeClient(insuranceInfo, clientIndex, clientCount);
+    insuranceCardsMissing = missingInsuranceCards(coverage);
     if (coverage && agencyId) {
       let profileId = null;
       if (guardianUserId) {
@@ -2034,6 +2039,7 @@ const persistChildIntakeData = async ({
       clientId: cid,
       completedAt: completedAt || new Date(),
       note: intakeCompletionNote,
+      neededKeys: insuranceCardsMissing.length ? ['new_insurance'] : [],
       actorUserId: null
     });
     result.checklistMarked = true;
@@ -2865,6 +2871,7 @@ const deliverPacketCompletionEmail = async ({
       agencyId: agencyId || link?.agency_id || null,
       organizationId,
       scopeType,
+      enrollmentChannel: link?.master_channel || null,
       to,
       subject,
       text,
@@ -6252,6 +6259,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       intakeLegal: resolveIntakeLegalFromTheme(agency?.theme_settings, link.language_code || 'en'),
       officeCommunications: resolveOfficeCommunicationsFromTheme(agency?.theme_settings),
       branding: await buildPublicFormBranding({
+        enrollmentChannel: link.master_channel,
         organization,
         agency,
         baseUrl: requestBaseUrl(req)
@@ -7265,6 +7273,7 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       }
     }
 
+    if (intakeData?.responses?.submission) intakeData.responses.submission.registration_completion_portal_url = safeEnrollmentPortalUrl(intakeData.responses.submission.registration_completion_portal_url);
     const sub = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
       ? intakeData.responses.submission
       : {};
@@ -7278,7 +7287,7 @@ export const getPublicIntakeStatus = async (req, res, next) => {
         ? {
             newGuardianAccount: !!sub.registration_completion_new_guardian,
             loginEmail: sub.registration_completion_login_email || null,
-            portalLoginUrl: sub.registration_completion_portal_url || null,
+            portalLoginUrl: safeEnrollmentPortalUrl(sub.registration_completion_portal_url),
             eventSummary: sub.registration_completion_event || null
           }
         : null;
@@ -9262,6 +9271,8 @@ export const finalizePublicIntake = async (req, res, next) => {
           const scope = String(link.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
           coGuardianInviteResult = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
             agencyId: agencyIdForInvite,
+            invitedByUserId: updatedSubmission?.guardian_user_id || null,
+            enrollmentChannel: link?.master_channel || null,
             intakeData,
             clientIds: ids,
             source: scope,
@@ -9271,6 +9282,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         }
       } catch (inviteErr) {
         console.warn('[publicIntake] co-guardian invite skipped', inviteErr?.message || inviteErr);
+        coGuardianInviteResult = { deliveryStatus: 'failed', emailed: false, email: intakeData?.guardian?.other_guardian_email || null };
       }
     }
 
@@ -10201,10 +10213,12 @@ export const finalizePublicIntake = async (req, res, next) => {
             ? orgContextHoisted
             : await resolveIntakeOrgContext(link, { boundClient: null });
           const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
-          const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
+          const registrationLoginPageUrl = buildPublicPortalLoginUrl(agency);
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
+          const portalGuardian = updatedSubmission.guardian_user_id ? await User.findById(updatedSubmission.guardian_user_id) : null;
+          const ownsPortalEmail = portalGuardian && [portalGuardian.email, portalGuardian.personal_email, portalGuardian.work_email].some(email => email && String(email).trim().toLowerCase() === String(updatedSubmission.signer_email).trim().toLowerCase());
           const registrationPasswordlessUrl =
-            link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
+            ownsPortalEmail && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
               ? (newGuardianPasswordlessLoginUrl || '')
               : '';
           // Build a per-child signed-documents list so the single confirmation
@@ -10256,7 +10270,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             downloadUrl,
             expiresInDays: 14,
             registrationLoginEmail: updatedSubmission.signer_email || '',
-            registrationNeedsSetup: regFlow && link.create_guardian && newGuardianCreated,
+            registrationNeedsSetup: !!(link.create_guardian && newGuardianCreated),
             registrationTempPassword: regFlow && link.create_guardian && newGuardianCreated
               ? (newGuardianTemporaryPassword || '')
               : '',
@@ -10395,7 +10409,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         const merged = mergeIntakeSubmissionPatch(intakeData, {
           registration_completion_new_guardian: !!newGuardianCreated,
           registration_completion_login_email: updatedSubmission.signer_email || null,
-          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl,
+          registration_completion_portal_url: loginPageUrl,
           registration_completion_event: registrationEventSummary || null
         });
         await IntakeSubmission.updateById(submissionId, {
@@ -11507,10 +11521,12 @@ export const submitPublicIntake = async (req, res, next) => {
           ? orgContextHoisted
           : await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
-        const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
+        const registrationLoginPageUrl = buildPublicPortalLoginUrl(agency);
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
+        const portalGuardian = updatedSubmission.guardian_user_id ? await User.findById(updatedSubmission.guardian_user_id) : null;
+        const ownsPortalEmail = portalGuardian && [portalGuardian.email, portalGuardian.personal_email, portalGuardian.work_email].some(email => email && String(email).trim().toLowerCase() === String(updatedSubmission.signer_email).trim().toLowerCase());
         const registrationPasswordlessUrl =
-          link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
+          ownsPortalEmail && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
             ? (newGuardianPasswordlessLoginUrl || '')
             : '';
         // Per-child enrichment for the single confirmation email (multi-child).
@@ -11607,7 +11623,7 @@ export const submitPublicIntake = async (req, res, next) => {
           downloadUrl,
           expiresInDays: 7,
           registrationLoginEmail: updatedSubmission.signer_email || '',
-          registrationNeedsSetup: regFlowEmail && link.create_guardian && newGuardianCreated,
+          registrationNeedsSetup: !!(link.create_guardian && newGuardianCreated),
           registrationTempPassword: regFlowEmail && link.create_guardian && newGuardianCreated
             ? (newGuardianTemporaryPassword || '')
             : '',
@@ -11794,7 +11810,7 @@ export const submitPublicIntake = async (req, res, next) => {
         const merged = mergeIntakeSubmissionPatch(intakeData, {
           registration_completion_new_guardian: !!newGuardianCreated,
           registration_completion_login_email: updatedSubmission.signer_email || null,
-          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl,
+          registration_completion_portal_url: loginPageUrl,
           registration_completion_event: registrationEventSummary || null
         });
         await IntakeSubmission.updateById(submissionId, {
@@ -12082,6 +12098,24 @@ export const submitPublicIntake = async (req, res, next) => {
       console.warn('[publicIntake] clinician AI summary failed', err?.message || err);
     });
 
+    // Legacy document packets use submit instead of finalize. Create the same
+    // invitation server-side, using only clients created/linked by this submission.
+    let coGuardianInvite = null;
+    if (!req.body?.coGuardianToken && link.create_guardian && createdClients.length) {
+      try {
+        const agencyIdForInvite = sharedOrgContext?.agency?.id || await resolveAgencyIdForLink(link);
+        coGuardianInvite = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
+          agencyId: agencyIdForInvite,
+          invitedByUserId: updatedSubmission?.guardian_user_id || null,
+          enrollmentChannel: link.master_channel || null,
+          intakeData, clientIds: createdClients.map(client => Number(client.id)).filter(Boolean),
+          source: link.scope_type === 'school' ? 'school' : 'office', publicKey, submissionId
+        });
+      } catch {
+        coGuardianInvite = { deliveryStatus: 'failed', emailed: false };
+      }
+    }
+
     res.json({
       success: true,
       submission: updatedSubmission,
@@ -12090,6 +12124,7 @@ export const submitPublicIntake = async (req, res, next) => {
       reservationNotice: intakeData?.responses?.submission?.requested_opening_preference?.reservationNotice || null,
       emailDelivery,
       clientBundles,
+      coGuardianInvite,
       registrationReturningAutoMatch: returningAutoMatchInitialsForEmailSubmit
         ? { matched: true, initials: returningAutoMatchInitialsForEmailSubmit }
         : null
@@ -12138,6 +12173,7 @@ export const getPublicRegistrationReceipt = async (req, res) => {
     const branding = await buildPublicFormBranding({
       organization,
       agency,
+      enrollmentChannel: link.master_channel,
       baseUrl: requestBaseUrl(req)
     });
     return res.json({
@@ -12523,7 +12559,7 @@ export const verifyIntakeIdentity = async (req, res, next) => {
 
 /**
  * POST /:publicKey/:submissionId/portal-credentials
- * Issue a 7-day temporary password + set-password-now link for the guardian portal.
+ * Return non-secret portal details or email a verified password-setup link.
  */
 export const issuePublicIntakePortalCredentials = async (req, res, next) => {
   try {
@@ -12546,27 +12582,10 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
     }
 
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
-    const intakeData = typeof submission.intake_data === 'string'
-      ? (() => { try { return JSON.parse(submission.intake_data); } catch { return {}; } })()
-      : (submission.intake_data || {});
-    const guardian = intakeData?.guardian || {};
-    const email = String(
-      req.body?.email
-      || guardian.email
-      || submission.signer_email
-      || ''
-    ).trim().toLowerCase();
-    if (!email || !email.includes('@')) {
-      return res.status(400).json({ error: { message: 'Guardian email is required to create portal login details.' } });
-    }
-
-    // Possession of an intake session is not proof of ownership of the email
-    // entered on it. Never reset a guardian password or return login tokens here.
-    return res.json({
-      username: email, temporaryPassword: null, expiresAt: null,
-      portalLoginUrl: buildPublicPortalLoginUrl(agency), setPasswordUrl: null,
-      note: 'Sign in to your guardian account or use the verified email recovery flow to set your password.'
-    });
+    return res.json(await enrollmentPortalAccess({
+      submission, agency, req, enrollmentChannel: link.master_channel || null, sendSetupEmail: req.body?.sendSetupEmail === true,
+      schoolOrganizationId: link.scope_type === 'school' ? link.organization_id : null
+    }));
   } catch (error) {
     next(error);
   }

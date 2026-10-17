@@ -29,7 +29,7 @@ export function validateSmsRegistration(registration) {
   if (registration?.purposes?.includes('marketing') && registration.purposes.length > 1) {
     errors.push('AuricWell requires a separate marketing campaign and sender');
   }
-  if (!['application', 'vonage'].includes(registration?.keywordOwner)) errors.push('keywordOwner must be application or vonage');
+  if (!['application', 'vonage', 'notifyre'].includes(registration?.keywordOwner)) errors.push('keywordOwner must be application, vonage or notifyre');
   if (registration?.approved !== true || registration?.numberLinked !== true) errors.push('Carrier approval and number linking must be verified');
   return errors;
 }

@@ -6,7 +6,6 @@ import {
   submitSupportInquiry,
   listProviders,
   updateJoinLanding,
-  createPublicCoGuardianInvite,
   getPublicCoGuardianInvite,
   acceptPublicCoGuardianInvite,
   submitCoGuardianQuick,
@@ -27,7 +26,8 @@ router.post('/:agencySlug/quick', submitQuick);
 router.post('/:agencySlug/summary-pdf', downloadQuickIntakeSummaryPdf);
 router.post('/:agencySlug/summary-pdf/email', emailQuickIntakeSummaryPdf);
 router.post('/:agencySlug/support-inquiry', submitSupportInquiry);
-router.post('/:agencySlug/co-guardian-invite', createPublicCoGuardianInvite);
+// Older clients must not create invitations from arbitrary public client IDs.
+router.post('/:agencySlug/co-guardian-invite', (req,res) => res.status(410).json({ error: { message: 'Invitations are created with enrollment. Sign in to your portal to correct or resend one.' } }));
 router.post('/:agencySlug/portal-login-email', emailPublicPortalLogin);
 router.patch('/:agencySlug/landing', authenticate, updateJoinLanding);
 

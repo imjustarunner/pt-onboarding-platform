@@ -144,6 +144,7 @@ import userPreferencesRoutes from './routes/userPreferences.routes.js';
 import officeScheduleRoutes from './routes/officeSchedule.routes.js';
 import voiceVideoRoutes from './routes/voiceVideo.routes.js';
 import vonageRoutes from './routes/vonage.routes.js';
+import notifyreRoutes from './routes/notifyre.routes.js';
 import messageRoutes from './routes/message.routes.js';
 import smsNumbersRoutes from './routes/smsNumbers.routes.js';
 import { publicSmsConsentRouter } from './routes/smsConsent.routes.js';
@@ -397,6 +398,7 @@ app.use(clinicalVideoCallbackPaths, securityEvidenceMiddleware, clinicalVideoCal
 // 10mb gives plenty of slack for the legitimate intake payload while still
 // being far smaller than what a malicious actor could meaningfully exploit.
 // Base64 encoding adds a third to email attachments (25 MB maximum).
+app.use('/api/notifyre', notifyreRoutes);
 app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({ limit: '36mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -2179,6 +2181,21 @@ if (!isBootstrap) {
   };
   scheduleUnfinishedEnrollmentReminders();
   setInterval(scheduleUnfinishedEnrollmentReminders, 60 * 60 * 1000);
+
+  let guardianInvitationsRunning = false;
+  const checkGuardianInvitations = async () => {
+    if (guardianInvitationsRunning) return;
+    guardianInvitationsRunning = true;
+    try {
+      const { runGuardianInvitationDeliveryTick } = await import('./services/coGuardianDelivery.service.js');
+      await runGuardianInvitationDeliveryTick();
+      const { pollGuardianInvitationBounces } = await import('./services/coGuardianBounce.service.js');
+      await pollGuardianInvitationBounces();
+      await runGuardianInvitationDeliveryTick();
+    } catch { console.warn('Guardian invitation delivery monitor needs attention; check migration and Gmail configuration.'); }
+    finally { guardianInvitationsRunning = false; }
+  };
+  setInterval(checkGuardianInvitations, 5 * 60 * 1000).unref();
 
   // School assignment/waitlist notices are individual transactional emails.
   const scheduleSchoolClientStatusEmails = async () => {

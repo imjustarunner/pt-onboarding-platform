@@ -1,3 +1,4 @@
+import rateLimit from 'express-rate-limit';
 import { requireIntakeBillingSession } from '../middleware/intakeBillingSession.middleware.js';
 import express from 'express';
 import { viewApplicationDocument } from '../services/jobApplicationRecord.service.js';
@@ -209,6 +210,7 @@ router.post(
 router.post(
   '/:publicKey/:submissionId/portal-credentials',
   requireIntakeBillingSession,
+  rateLimit({ windowMs: 15 * 60 * 1000, max: 3, standardHeaders: true, legacyHeaders: false, skip: req => req.body?.sendSetupEmail !== true, keyGenerator: req => String(req.params.submissionId) }),
   issuePublicIntakePortalCredentials
 );
 
