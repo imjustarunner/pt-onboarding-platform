@@ -1,3 +1,4 @@
+import { resolveWorkspaceSubject } from './googleWorkspaceSubject.service.js';
 import { googleScheduleAllowedForEmail, GOOGLE_SCHEDULE_DISABLED } from './scheduleCalendarPolicy.service.js';
 import { google } from 'googleapis';
 import { randomUUID } from 'crypto';
@@ -54,7 +55,7 @@ export class GoogleCalendarService {
   }
 
   static buildCalendarClientForSubject(subjectEmail) {
-    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const subject = resolveWorkspaceSubject(subjectEmail);
     if (!subject) throw new Error('Missing subject (provider email) for calendar impersonation');
 
     // Keep this synchronous for existing callers (e.g. office-event sync).
