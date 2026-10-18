@@ -435,6 +435,10 @@ async function applyCommand(ctx, event, command, db) {
 export async function acceptNotifyreWebhook(raw, header) {
   const { settings } = await platformIntegrations();
   const parsed = verifyNotifyreSignature(raw, header, settings.notifyre.webhookSecret);
+  if (['fax_received', 'fax_sent'].includes(parsed.Event ?? parsed.event)) {
+    const { acceptFaxEvent } = await import('./faxMessaging.js');
+    return acceptFaxEvent(settings, parsed);
+  }
   const event = normalizeNotifyreEvent(parsed);
   const route = event.type === 'inbound' ? settings.clientMessaging.routes.find(r => [r.mainNumber, r.providerNumber].includes(event.to)) : null;
   if (event.type === 'inbound' && !route) throw fail(409, 'This receiving number has no agency route.');

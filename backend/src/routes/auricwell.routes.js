@@ -1,3 +1,4 @@
+import * as faxMessaging from '../services/auricwell/faxMessaging.js';
 import auricwellOfficeRoutes from './auricwellOffice.routes.js';
 import officePublicRoutes from './officePublic.routes.js';
 import express from "express";
@@ -74,7 +75,7 @@ import * as recordsRequests from "../services/auricwell/recordsRequests.js";
 
 import { listToasts, saveToast, deleteToast, requireToastOperator, practiceToastAgency } from '../services/toastAnnouncements.service.js';
 
-import { integrationStatus, savePlatformIntegrations, verifyNotifyre, verifyVonageAgency, requireOfficeEnabled } from '../services/auricwell/platformIntegrations.js';
+import { integrationStatus, savePlatformIntegrations, verifyNotifyreFax, verifyNotifyre, verifyVonageAgency, requireOfficeEnabled } from '../services/auricwell/platformIntegrations.js';
 import { joinAppointmentVideo, joinGuestVideo } from '../services/auricwell/appointmentVideo.js';
 import { sessionPreferences, saveSessionPreferences, sessionDeliveryStatus, retrySessionDelivery } from '../services/auricwell/sessionReminders.js';
 import * as clientMessaging from '../services/auricwell/clientMessaging.js';
@@ -190,6 +191,7 @@ router.post(
 router.use(requireVerified);
 router.get('/platform/integrations', run(async (req, res) => res.json(await integrationStatus(req.aw))));
 router.put('/platform/integrations', run(async (req, res) => res.json(await savePlatformIntegrations(req.aw, req.body))));
+router.post('/platform/integrations/notifyre/fax/verify', run(async (req,res) => res.json(await verifyNotifyreFax(req.aw, req.body.practiceId))));
 router.post('/platform/integrations/notifyre/verify', run(async (req, res) => res.json(await verifyNotifyre(req.aw, req.body.practiceId || null))));
 router.post('/platform/integrations/vonage/verify', run(async (req,res) => res.json(await verifyVonageAgency(req.aw,req.body.practiceId))));
 router.get(
@@ -231,6 +233,10 @@ router.post(
   run(async (req, res) => res.json(await applyConsolidation(req.aw, req.body))),
 );
 const p = "/practices/:slug";
+router.get(`${p}/faxes`, run(async (req,res) => res.json(await faxMessaging.faxInbox(req.aw))));
+router.post(`${p}/faxes`, run(async (req,res) => res.status(202).json(await faxMessaging.sendFax(req.aw,req.body))));
+router.get(`${p}/faxes/:id/document`, run(async (req,res) => { res.set('Cache-Control','no-store'); res.json(await faxMessaging.downloadFax(req.aw,req.params.id)); }));
+router.post(`${p}/faxes/:id/review`, run(async (req,res) => res.json(await faxMessaging.reviewFax(req.aw,req.params.id))));
 router.get(`${p}/sms/preferences/:patientId`, run(async (req,res) => res.json(await clientMessaging.clientSmsPreferences(req.aw,req.params.patientId))));
 router.put(`${p}/sms/preferences/:patientId`, run(async (req,res) => res.json(await clientMessaging.saveClientSmsPreferences(req.aw,req.params.patientId,req.body))));
 router.get(`${p}/sms/threads`, run(async (req,res) => res.json(await clientMessaging.smsInbox(req.aw,req.query.patientId || null))));

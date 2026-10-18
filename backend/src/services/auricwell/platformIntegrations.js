@@ -120,3 +120,22 @@ export async function requireOfficeEnabled() {
   if (!(await platformIntegrations()).settings.alwaysAvailableOffice)
     throw fail(403, 'Always-available virtual offices are turned off for AuricWell. Join your scheduled appointment instead.');
 }
+
+export async function verifyNotifyreFax(ctx, practiceId) {
+  requirePlatformSuperadmin(ctx);
+  const current = await platformIntegrations();
+  const route = current.settings.clientMessaging.routes.find(r => r.practiceId === practiceId);
+  const n = current.settings.notifyre;
+  if (!route?.mainNumber || !n.apiToken || !n.baaReference || !n.webhookSecret)
+    throw fail(409, 'Save the primary number, executed BAA reference, API token and webhook secret first.');
+  const { notifyreFaxNumbers } = await import('./faxPolicy.js');
+  const numbers = notifyreFaxNumbers(await notifyreRequest(n.apiToken, '/fax/numbers'));
+  if (!numbers.includes(route.mainNumber)) throw fail(409, 'The primary number is not an active fax number in this Notifyre account. Ask Notifyre to confirm fax capability and number hosting first.');
+  await transaction(async db => {
+    const latest = await platformIntegrations(db, true);
+    if (latest.revision !== current.revision) throw fail(409, 'Settings changed during verification. Try again.');
+    route.faxVerifiedAt = new Date().toISOString();
+    await write(ctx, { ...latest.settings, clientMessaging: current.settings.clientMessaging }, latest.revision, db, 'platform.notifyre_fax_verified');
+  });
+  return integrationStatus(ctx);
+}

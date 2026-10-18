@@ -1,7 +1,7 @@
 <template>
   <section class="card platform-integrations">
     <span class="eyebrow">Platform superadmin · all AuricWell practices</span>
-    <h2>Virtual sessions and client texting</h2>
+    <h2>Virtual sessions, client texting and fax</h2>
     <p>These choices apply across AuricWell. Practice admins and individual providers cannot override them.</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
@@ -34,7 +34,7 @@
         <p v-if="form.notifyre.apiTokenManaged" class="muted">API token is configured in Google Secret Manager.</p>
         <label v-else>Notifyre API token<input v-model="form.notifyre.apiToken" type="password" autocomplete="new-password" :placeholder="form.notifyre.hasApiToken ? 'Saved securely — leave blank to keep' : 'From Notifyre Settings → Developer'" /></label>
         <label v-if="!form.notifyre.apiTokenManaged" class="check-row"><input v-model="form.notifyre.removeToken" type="checkbox" /><span>Remove the saved Notifyre token</span></label>
-        <ClientMessagingSetup :settings="form" :practices="state.practices" :busy="busy" @verify="verify" />
+        <ClientMessagingSetup :settings="form" :practices="state.practices" :busy="busy" @verify="verify" @verify-fax="verifyFax" />
         <h3>Vonage Campaign 1 connection</h3>
         <div class="integration-grid">
           <label>Registered patient SMS number<input v-model="form.vonage.from" type="tel" placeholder="+17195550123" /></label>
@@ -56,6 +56,7 @@ function accept(value) { state.value = value; form.value = structuredClone(value
 async function run(fn) { busy.value = true; error.value = ''; notice.value = ''; try { await fn(); } catch(e) { error.value = e.message; } finally { busy.value = false; } }
 const save = () => run(async () => { accept(await api('/platform/integrations', { method: 'PUT', body: { revision: state.value.revision, settings: form.value } })); notice.value = 'Platform settings saved for all AuricWell practices.'; emit('changed'); });
 const verify = (practiceId) => run(async () => { accept(await api(`/platform/integrations/${form.value.smsProvider==='vonage'?'vonage':'notifyre'}/verify`, { method: 'POST', body: {practiceId} })); notice.value = 'Agency numbers verified. Signed webhooks and campaign approval must also be ready before texting.'; });
+const verifyFax = (practiceId) => run(async () => { accept(await api('/platform/integrations/notifyre/fax/verify', {method:'POST',body:{practiceId}})); notice.value='Primary fax number verified. Enable fax sending, save, and test incoming and outgoing faxes before clinical use.'; });
 onMounted(() => run(async () => accept(await api('/platform/integrations'))));
 </script>
 <style scoped>

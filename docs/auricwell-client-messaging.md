@@ -20,8 +20,8 @@ implementation commit `f8dfc3cef`. The required database migrations are present.
 - Notifyre webhook: `https://auricwell-65v3jdyqba-wm.a.run.app/api/auricwell-sms/webhook`
 
 The backend values below have already been configured. Secret Manager entries
-and backend access permissions are created; secret values still need to be added
-and pinned to a backend revision. Clinical SMS remains disabled. No practice
+and backend access permissions are created; both secret versions have been saved
+and attached to the backend. Clinical SMS remains disabled. No practice
 routes or campaign approvals have been invented. The custom domain has not moved.
 
 The public frontend uses Cloud Run's `--no-invoker-iam-check`, like the existing
@@ -110,7 +110,7 @@ change sender numbers or turn on permanent virtual offices.
    ITSCO's numbers are not placeholders for the other agencies. Configuration
    does not buy or port numbers, change voice service, or submit campaigns.
 4. In Notifyre **Developer → Webhooks**, register the displayed HTTPS webhook
-   address for SMS received and SMS sent. Save that endpoint's signing secret in
+   address for SMS received, SMS sent, Fax received and Fax sent. Save that endpoint's signing secret in
    Secret Manager and attach its version to the backend, or use the encrypted
    AuricWell field. Signed callbacks are accepted while outbound sending is paused.
 5. Receive a real signed callback on a configured number. The setup screen shows
@@ -268,3 +268,58 @@ legacy receiver and must not be substituted. In Notifyre select **SMS Sent** and
 **SMS Received**; optionally select **MMS Received** to flag incoming media for
 staff review. No fax events are required. Keep the carrier disabled and agency
 routes off while campaign approval and number hosting/porting are pending.
+
+
+## Agency primary-number faxing
+
+Fax sending and receiving use Notifyre's fax API, independently of the SMS
+provider switch, campaign approval and SMS opt-outs. Each agency's **main number**
+is its only fax route; the provider conversation number cannot receive agency
+faxes in this integration. This does not buy, port or modify voice service.
+
+1. Ask Notifyre to confirm fax hosting on each agency primary number alongside
+   the services you intend to retain. SMS campaign assignment alone does not
+   establish fax capability. As of the October 17 read-only account check, the
+   saved API token works but Notifyre lists **zero fax numbers**.
+2. In Notifyre, enable the appropriate receive-fax service and assign/host the
+   agreed primary number. Do not change a live voice route just to pass this check.
+3. Open AuricWell **Platform settings → Agency campaigns and numbers**. Save the
+   agency's primary number and executed BAA reference, with fax sending off.
+   Keep SMS disabled while its campaign is pending.
+4. Select **Verify saved primary fax number**. This checks the active fax-number
+   inventory at `/fax/numbers`; SMS verification cannot substitute for it.
+5. On the existing Notifyre webhook, select **Fax received** and **Fax sent**, in
+   addition to the two SMS events. Use the same signing secret already configured
+   on the backend and this exact URL:
+   `https://auricwell-65v3jdyqba-wm.a.run.app/api/auricwell-sms/webhook`.
+6. Enable fax sending and save. Send a non-patient PDF to a known fax destination,
+   and send a non-patient fax back to the primary number. Confirm its delivery
+   receipt, inbox appearance and PDF download before clinical use.
+
+Support opens **Communications Hub → Agency texts and faxes → Faxes**. The
+standalone AuricWell **Messages** page includes the same inbox for scheduling or
+administrative staff. An active linked practice membership, verified sign-in and
+practice data activation are required. Individual providers cannot configure fax
+numbers or access the support fax inbox with clinical-only permission.
+
+The inbox separates Received and Sent, provides PDF downloads and review status,
+and tracks carrier delivery receipts. Send one PDF up to 5 MB/100 pages; include
+any cover sheet in that PDF. Outgoing PDFs are stored encrypted before submission.
+Incoming metadata is stored on signed receipt; PDFs are fetched from Notifyre on
+first download and then cached encrypted. Larger inbound PDFs must be retrieved
+through Notifyre. This release does not import historical carrier faxes or attach
+faxes to patient charts automatically; use the existing reviewed fax-intake flow
+where appropriate. Download received faxes before their carrier retention expires.
+
+Repeated callbacks and repeated send requests do not create duplicate sends.
+An uncertain HTTP response is marked **Check carrier receipt** and is never
+retried automatically. Check Notifyre before submitting a new request. A later
+signed delivery receipt can resolve that status. Turning sending off does not
+stop inbound fax receipts on a verified route. Changing the primary number,
+BAA reference or API credential requires number verification again.
+
+No new database migration is required: fax metadata and documents use encrypted
+AuricWell records, with the existing practice isolation and audit trail.
+
+API reference: <https://docs.notifyre.com/> (fax send, number inventory, received
+fax download, fax sent/received webhooks).

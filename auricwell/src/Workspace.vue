@@ -558,7 +558,7 @@
               </article></template
             >
             <template v-else-if="section === 'messages'"
-              ><ClientSmsInbox v-if="!patientPortal" :base="base" /><details v-if="can('admin')"><summary>Texting coverage, automatic answers and delivery activity</summary><ClientMessagingOperations :base="base" /></details><p>New messages about a child are shared with all authorized guardians and their care team. There are no private child-related conversations here.</p><article
+              ><ClientSmsInbox v-if="!patientPortal" :base="base" /><AgencyFaxInbox v-if="!patientPortal && (can('admin') || can('schedule'))" :base="base" :request="api" /><details v-if="can('admin')"><summary>Texting coverage, automatic answers and delivery activity</summary><ClientMessagingOperations :base="base" /></details><p>New messages about a child are shared with all authorized guardians and their care team. There are no private child-related conversations here.</p><article
                 v-for="m in data.messages"
                 :key="m.id"
                 class="card message-card"
@@ -655,6 +655,7 @@ import ToastAnnouncementManager from '../../frontend/src/components/admin/ToastA
 import Settings from "./Settings.vue";
 import SessionPreferences from "./SessionPreferences.vue";
 import ClientSmsInbox from "./ClientSmsInbox.vue";
+import AgencyFaxInbox from "../../frontend/src/components/communications/AgencyFaxInbox.vue";
 import ClientMessagingOperations from "./ClientMessagingOperations.vue";
 import SmsPreferenceNotices from "./SmsPreferenceNotices.vue";
 import SessionDeliveries from "./SessionDeliveries.vue";

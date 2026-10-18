@@ -1,3 +1,4 @@
+import * as faxMessaging from '../services/auricwell/faxMessaging.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { accountSecurityState } from '../services/accountSecurity.service.js';
@@ -41,4 +42,8 @@ router.get('/practices/:id/sms/threads/:threadId',run(req=>messaging.smsConversa
 router.post('/practices/:id/sms/threads/:threadId/replies',run(req=>messaging.replySms(req.clinicalSmsContext,req.params.threadId,req.body)));
 router.post('/practices/:id/sms/threads/:threadId/resolve',run(req=>messaging.closeSmsThread(req.clinicalSmsContext,req.params.threadId)));
 router.put('/practices/:id/sms/threads/:threadId/assignment',run(req=>messaging.assignSmsThread(req.clinicalSmsContext,req.params.threadId,req.body.accountId)));
+router.get('/practices/:id/faxes',run(req=>faxMessaging.faxInbox(req.clinicalSmsContext)));
+router.post('/practices/:id/faxes',run(req=>faxMessaging.sendFax(req.clinicalSmsContext,req.body)));
+router.get('/practices/:id/faxes/:faxId/document',run(req=>faxMessaging.downloadFax(req.clinicalSmsContext,req.params.faxId)));
+router.post('/practices/:id/faxes/:faxId/review',run(req=>faxMessaging.reviewFax(req.clinicalSmsContext,req.params.faxId)));
 export default router;

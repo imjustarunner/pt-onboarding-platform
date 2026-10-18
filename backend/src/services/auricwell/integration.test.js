@@ -4133,3 +4133,40 @@ test('one STOP suppresses the same phone across agency routes, without cancellin
  assert.equal((await get(otherCtx,'patient',secondPatient.id)).data.status,'active');
  assert.equal((await get(otherCtx,'ledger',charge.id)).data.amountCents,10000);
 });
+
+test('primary fax inbox isolates practices, validates signed events, archives PDFs and deduplicates sends',async()=>{
+ const {m,c,portal,settings}=await messagingFixture();
+ const fax=await import('./faxMessaging.js');
+ const route=settings.clientMessaging.routes[0];route.faxEnabled=true;route.faxVerifiedAt=new Date().toISOString();
+ settings.smsProvider='disabled';route.enabled=false;route.approval='submitted';
+ await pool.execute('UPDATE auricwell_platform_integrations SET payload=? WHERE id=1',[seal(settings,'auricwell:platform:integrations')]);
+ const stamp=Math.floor(Date.now()/1000);
+ const incoming={Event:'fax_received',Timestamp:stamp,Payload:{ID:crypto.randomUUID(),From:'+17195550444',To:route.mainNumber,Page:1}};
+ const post=async event=>{const raw=Buffer.from(JSON.stringify(event));const header=`t=${stamp},v=${crypto.createHmac('sha256','test-webhook').update(`${stamp}.${raw}`).digest('hex')}`;return m.acceptNotifyreWebhook(raw,header);};
+ await assert.rejects(m.acceptNotifyreWebhook(Buffer.from(JSON.stringify(incoming)),`t=${stamp},v=${'0'.repeat(64)}`),{status:403});
+ await post(incoming);await post(incoming);
+ await assert.rejects(post({...incoming,Payload:{...incoming.Payload,ID:crypto.randomUUID(),To:route.providerNumber}}),{status:409});
+ let inbox=await fax.faxInbox(c);const received=inbox.records.filter(r=>r.data.carrierId===incoming.Payload.ID);assert.equal(received.length,1);
+ await assert.rejects(fax.faxInbox(portal),{status:403});
+ await assert.rejects(fax.downloadFax({...c,practiceId:otherCtx.practiceId},received[0].id),{status:404});
+ await assert.rejects(fax.reviewFax({...c,permissions:['clinical']},received[0].id),{status:403});
+ const pdf=await PDFDocument.create();pdf.addPage();const base64=Buffer.from(await pdf.save()).toString('base64');
+ let downloads=0;const download=async(_token,path)=>{downloads++;assert.ok(path.endsWith('/download'));assert.ok(!path.includes('delete'));return{Base64Str:base64,Type:'application/pdf'};};
+ assert.equal((await fax.downloadFax(c,received[0].id,download)).base64,base64);await fax.downloadFax(c,received[0].id,download);assert.equal(downloads,1);
+ assert.ok((await fax.reviewFax(c,received[0].id)).data.reviewedAt);
+ const input={requestId:crypto.randomUUID(),to:'+17195550333',base64};let sends=0;
+ const send=async(_token,path,body)=>{sends++;assert.equal(path,'/fax/send');assert.equal(body.Faxes.SendFrom,route.mainNumber);assert.equal(body.Faxes.Documents[0].Data,base64);return{FaxID:'synthetic-fax'};};
+ const [one,two]=await Promise.all([fax.sendFax(c,input,send),fax.sendFax(c,input,send)]);assert.equal(one.id,two.id);assert.equal(sends,1);
+ await assert.rejects(fax.sendFax(c,{...input,to:'+17195550444'},send),{status:409});
+ const delivery={Event:'fax_sent',Timestamp:stamp,Payload:{ID:'synthetic-fax',FromNumber:route.mainNumber,To:input.to,Reference:one.id,Status:'successful',Pages:1}};
+ await post(delivery);await post({...delivery,Timestamp:stamp+1,Payload:{...delivery.Payload,Status:'in_progress'}});
+ assert.equal((await get(c,'fax',one.id)).data.status,'delivered');
+ const uncertain={...input,requestId:crypto.randomUUID()};let attempts=0;
+ const timeout=async()=>{attempts++;throw new Error('synthetic timeout after carrier acceptance');};
+ const unknown=await fax.sendFax(c,uncertain,timeout);await fax.sendFax(c,uncertain,timeout);assert.equal(attempts,1);assert.equal(unknown.data.status,'needs_review');
+ await post({...delivery,Payload:{...delivery.Payload,ID:'late-receipt',Reference:unknown.id}});assert.equal((await get(c,'fax',unknown.id)).data.status,'delivered');
+ route.faxEnabled=false;await pool.execute('UPDATE auricwell_platform_integrations SET payload=? WHERE id=1',[seal(settings,'auricwell:platform:integrations')]);
+ await assert.rejects(fax.sendFax(c,{...input,requestId:crypto.randomUUID()},send),{status:409});
+ await post({...incoming,Payload:{...incoming.Payload,ID:crypto.randomUUID()}}); // Receive even while outgoing fax is paused.
+ const [[stored]]=await pool.execute('SELECT payload FROM auricwell_records WHERE id=?',[received[0].id]);assert.ok(!stored.payload.includes(incoming.Payload.From));
+});

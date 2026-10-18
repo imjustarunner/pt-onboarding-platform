@@ -17,6 +17,7 @@ export function runtimeIntegrationSecrets(settings, env = process.env) {
       if (field === 'apiToken') {
         result.notifyre.verifiedAt = null;
         for (const route of result.clientMessaging?.routes || []) {
+          route.faxVerifiedAt = null; route.faxEnabled = false;
           if (route.verifiedProvider === 'notifyre') { route.verifiedAt = null; route.enabled = false; }
         }
       }

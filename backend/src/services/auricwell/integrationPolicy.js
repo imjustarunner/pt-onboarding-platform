@@ -68,6 +68,12 @@ export function cleanPlatformSettings(input, current) {
     if (old?.verifiedProvider === settings.smsProvider && ['campaignId','approval','approvalReference','mainNumber','providerNumber'].every(k => old[k] === result[k])
       && settings.notifyre.apiToken === current.notifyre.apiToken) result.verifiedAt = old.verifiedAt;
     result.verifiedProvider = old?.verifiedProvider || null;
+    result.faxVerifiedAt = old?.mainNumber === result.mainNumber
+      && settings.notifyre.apiToken === current.notifyre.apiToken
+      && settings.notifyre.baaReference === current.notifyre.baaReference ? old?.faxVerifiedAt || null : null;
+    result.faxEnabled = r.faxEnabled === true;
+    if (result.faxEnabled && (!result.faxVerifiedAt || !result.mainNumber || !settings.notifyre.apiToken || !settings.notifyre.baaReference || !settings.notifyre.webhookSecret))
+      throw fail(409, 'Save with fax sending off, verify the primary fax number and Notifyre connection, then enable fax sending.');
     if (result.approval === 'approved' && !result.approvalReference) throw fail(400, 'Record the carrier approval reference before marking a campaign approved.');
     if (result.enabled && (result.approval !== 'approved' || !result.verifiedAt || !result.mainNumber)) throw fail(409, 'Save with the agency disabled, then verify its approved campaign and numbers before enabling.');
     return result;

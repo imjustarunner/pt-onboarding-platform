@@ -1,6 +1,6 @@
 <template>
   <div class="container sms-inbox conversa-surface">
-    <details class="clinical-sms-section"><summary>Agency client texting — Notifyre / AuricWell</summary><ClinicalClientTexts /></details>
+    <details class="clinical-sms-section"><summary>Agency texts and faxes</summary><ClinicalClientTexts /></details>
     <div class="header">
       <div>
         <ConversaBrand heading="h2" compact />

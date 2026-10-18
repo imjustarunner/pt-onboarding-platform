@@ -1,6 +1,6 @@
 <template>
   <div class="cc-shell conversa-surface">
-    <details v-if="canUseSmsInbox" class="cc-clinical-texts"><summary>Agency client text inbox</summary><ClinicalClientTexts /></details>
+    <details v-if="canUseSmsInbox" class="cc-clinical-texts"><summary>Agency texts and faxes</summary><ClinicalClientTexts /></details>
     <div class="cc-bg" aria-hidden="true" />
 
     <header class="cc-top">
