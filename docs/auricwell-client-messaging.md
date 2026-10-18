@@ -10,12 +10,25 @@ API tokens or signing secrets in source control, tickets or chat.
 
 ### Current hosting and exact deployment controls
 
-Read-only Cloud Run inspection on October 17, 2026 confirmed project
-`ptonboard-dev`, region `us-west3`, with `onboarding-backend` and
-`onboarding-frontend`. There was no standalone AuricWell service yet. No
-`AURICWELL_*` settings were present on the backend; its existing encryption-key
-configuration was present. The local implementation must be reviewed and
-committed to the deployment branch before GitHub Actions can deploy it.
+Deployed October 17, 2026 in project `ptonboard-dev`, region `us-west3`.
+The backend, main frontend and standalone AuricWell deployments passed for
+implementation commit `f8dfc3cef`. The required database migrations are present.
+
+- AuricWell service: `https://auricwell-65v3jdyqba-wm.a.run.app`
+- Sign in: `https://auricwell-65v3jdyqba-wm.a.run.app/app`
+- Platform settings: `https://auricwell-65v3jdyqba-wm.a.run.app/platform/settings`
+- Notifyre webhook: `https://auricwell-65v3jdyqba-wm.a.run.app/api/auricwell-sms/webhook`
+
+The backend values below have already been configured. Secret Manager entries
+and backend access permissions are created; secret values still need to be added
+and pinned to a backend revision. Clinical SMS remains disabled. No practice
+routes or campaign approvals have been invented. The custom domain has not moved.
+
+The public frontend uses Cloud Run's `--no-invoker-iam-check`, like the existing
+frontend, because domain-restricted sharing prevents an `allUsers` IAM binding.
+Application authentication, MFA and signed-webhook checks remain enforced.
+The deployment checks the public login page so an unreachable frontend fails
+validation instead of reporting success.
 
 Use GitHub repository **imjustarunner/pt-onboarding-platform → Actions**:
 
@@ -27,8 +40,7 @@ Use GitHub repository **imjustarunner/pt-onboarding-platform → Actions**:
    workflow builds `auricwell/Dockerfile` from the repository root, uses the
    existing project credentials/artifact repository, and creates service
    `auricwell`. Its GitHub run summary prints the exact service URL, settings URL
-   and Notifyre webhook URL. The workflow must first be committed to GitHub to
-   appear in Actions.
+   and Notifyre webhook URL. The workflow is available in Actions.
 
 In **Google Cloud Console → project ptonboard-dev → Cloud Run →
 onboarding-backend → Edit & deploy new revision → Variables & Secrets**, add or
@@ -37,8 +49,8 @@ update these variables, retaining all existing configuration:
 | Name | Value during initial service testing |
 | --- | --- |
 | `AURICWELL_ENABLED` | `true` |
-| `AURICWELL_ORIGINS` | `https://auricwell.com,` followed by the exact new service origin from the workflow summary (no trailing slash) |
-| `AURICWELL_PUBLIC_ORIGIN` | The exact new service origin, until auricwell.com is routed to this service |
+| `AURICWELL_ORIGINS` | `https://auricwell.com,https://auricwell-65v3jdyqba-wm.a.run.app` |
+| `AURICWELL_PUBLIC_ORIGIN` | `https://auricwell-65v3jdyqba-wm.a.run.app` |
 
 Click **Deploy**. These variables belong to **onboarding-backend**, not the
 frontend, GoDaddy DNS or Notifyre. Do not change the existing encryption key.
@@ -81,7 +93,8 @@ Practice administrators and individual providers cannot activate a carrier,
 change sender numbers or turn on permanent virtual offices.
 
 1. Leave client SMS **Disabled**.
-2. Enter the executed Notifyre BAA reference and API token in the password field.
+2. Enter the executed Notifyre BAA reference. Configure the API token using
+   **Credentials outside the application** below, or use the encrypted app field.
    Use an account/API role permitted to send and receive SMS, not a developer-only
    role. Blank secret fields preserve the saved encrypted values.
 3. Add one agency route per practice. Set campaign status to **Submitted —
@@ -98,7 +111,8 @@ change sender numbers or turn on permanent virtual offices.
    does not buy or port numbers, change voice service, or submit campaigns.
 4. In Notifyre **Developer → Webhooks**, register the displayed HTTPS webhook
    address for SMS received and SMS sent. Save that endpoint's signing secret in
-   AuricWell. Signed callbacks are accepted while outbound sending is paused.
+   Secret Manager and attach its version to the backend, or use the encrypted
+   AuricWell field. Signed callbacks are accepted while outbound sending is paused.
 5. Receive a real signed callback on a configured number. The setup screen shows
    successful signature verification. Unsigned, altered or stale callbacks fail
    closed. This test is still required against the real account.
