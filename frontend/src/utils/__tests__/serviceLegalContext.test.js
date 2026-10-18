@@ -15,7 +15,7 @@ describe('service-specific terms across tenant hosts',()=>{
  it('retains practice terms alongside AuricWell platform terms for clinical staff',()=>{
   const context=serviceLegalContext({host:'app.nextleveluplcc.com',role:'provider'});
   expect(context.name).toBe('AuricWell');
-  expect(context.links.map(x=>x.href)).toContain('https://plottwisthq.com/auricwell/terms');
+  expect(context.links.map(x=>x.href)).toContain('https://auricwell.com/auricwell/terms');
   expect(context.links.map(x=>x.href)).toContain('https://nextleveluplcc.com/nlu/terms');
  });
  it('publishes the education-record boundary and separates user notices from organization signatures',()=>{

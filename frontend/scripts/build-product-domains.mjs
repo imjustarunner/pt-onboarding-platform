@@ -1,3 +1,6 @@
+import { tenantLegalProfiles } from '../src/content/tenantLegalProfiles.js';
+import { legalRouteEntries } from '../src/utils/tenantLegalRoutes.js';
+import { renderItscoLegalHtml } from '../src/utils/itscoLegalHtml.js';
 import {readFileSync, writeFileSync, mkdirSync, appendFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {renderWebsite, pages as auricwellPages} from '../src/auricwell/website/render.mjs';
@@ -66,7 +69,14 @@ const auricwellLocations=Object.keys(auricwellPages).map(section=>location(secti
 // each private office retains its requested URL, without identifiers in metadata.
 page('tenant-office','index',injectShareMetaIntoHtml(shell,buildShareMeta({host:'plottwisthq.com',path:'/join/my-room/office'})));
 const officeShell=page('auricwell-office','index',injectPublicFavicon(injectShareMetaIntoHtml(shell,AURICWELL_OFFICE_META),'auricwell.com'));
+const auricwellLegalLocations = legalRouteEntries(tenantLegalProfiles.auricwell).map(entry => {
+ const canonical = `https://auricwell.com${entry.canonical}`;
+ const file = page('auricwell-domain', `legal-${entry.type}`, renderItscoLegalHtml(entry.type, tenantLegalProfiles.auricwell));
+ return (entry.path === entry.canonical ? location(entry.path, file) : `location = ${entry.path} { return 301 ${canonical}$is_args$args; }`)
+   + `\n location = ${entry.path}/ { return 301 ${canonical}$is_args$args; }`;
+}).join('\n');
 server('auricwell.com',`${auricwellLocations}
+ ${auricwellLegalLocations}
  location ^~ /join/my-room/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex, nofollow" always; try_files ${officeShell} =404; }
  location = /app { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }
  location ^~ /app/ { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }

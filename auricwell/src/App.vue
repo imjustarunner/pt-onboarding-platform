@@ -3,9 +3,9 @@
   <footer class="auricwell-service-terms">
     <p>AuricWell is software operated by Plot Twist Co. Your practice is responsible for its care and clinical records.</p>
     <nav aria-label="AuricWell terms and privacy">
-      <a href="/auricwell/terms">Terms of Use</a>
-      <a href="/auricwell/privacypolicy">Privacy Policy</a>
-      <a href="/auricwell/platformhipaa">Health Information & Privacy</a>
+      <a href="https://auricwell.com/auricwell/terms">Terms of Use</a>
+      <a href="https://auricwell.com/auricwell/privacypolicy">Privacy Policy</a>
+      <a href="https://auricwell.com/auricwell/platformhipaa">Health Information & Privacy</a>
       <a href="https://mh4kidz.org/schoolcarebridge/terms">SchoolCareBridge terms, when using that service</a>
     </nav>
     <p>Organization service agreements and BAAs require separate authorized signatures. Reading these notices does not authorize recording, record sharing or SMS enrollment.</p>

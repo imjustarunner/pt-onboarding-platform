@@ -118,8 +118,8 @@ export const itscoLegalDocuments = {
       ], [], [
         { label: 'SchoolCareBridge terms of use', href: 'https://schoolcarebridge.org/terms' },
         { label: 'SchoolCareBridge privacy policy', href: 'https://schoolcarebridge.org/privacypolicy' },
-        { label: 'AuricWell platform terms', href: 'https://plottwisthq.com/auricwell/terms' },
-        { label: 'AuricWell privacy policy', href: 'https://plottwisthq.com/auricwell/privacypolicy' }
+        { label: 'AuricWell platform terms', href: 'https://auricwell.com/auricwell/terms' },
+        { label: 'AuricWell privacy policy', href: 'https://auricwell.com/auricwell/privacypolicy' }
       ]),
       section('availability', '6. Availability, external services, and content', [
         'Digital services may be interrupted for maintenance, technical failures, or events outside our control. We cannot guarantee uninterrupted access or message delivery. Contact ITSCO through another available channel if a time-sensitive task cannot be completed online.',
