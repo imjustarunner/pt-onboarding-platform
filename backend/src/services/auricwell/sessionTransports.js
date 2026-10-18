@@ -39,13 +39,21 @@ export async function notifyreRequest(token, path, body, fetcher = fetch) {
       ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20000), redirect: 'error',
     });
     const result = await response.json();
-    if (!response.ok || result.Success !== true) throw new Error('Rejected');
-    return result.Payload;
+    if (!response.ok || (result?.success ?? result?.Success) !== true) throw new Error('Rejected');
+    return result.payload ?? result.Payload;
   } catch { throw fail(503, 'Notifyre did not confirm the request. Check the account activity before retrying a send.'); }
 }
 export function notifyreNumbers(payload) {
-  const values = Array.isArray(payload) ? payload : payload?.Numbers || payload?.numbers || payload?.VirtualNumbers || [];
+  const values = Array.isArray(payload) ? payload : payload?.smsNumbers ?? payload?.SmsNumbers ?? payload?.Numbers ?? payload?.numbers ?? payload?.VirtualNumbers;
   if (!Array.isArray(values)) throw fail(503, 'Notifyre returned an unrecognized number list. Contact support before enabling texts.');
   return values.map(n => typeof n === 'string' ? n : n.Number || n.PhoneNumber || n.number || n.phoneNumber).filter(Boolean)
     .map(n => `+${String(n).replace(/\D/g, '')}`);
+}
+
+export function notifyreReceipt(payload) {
+  const invalid = payload?.invalidToNumbers ?? payload?.InvalidToNumbers ?? [];
+  const id = payload?.smsMessageID || payload?.SmsMessageID || payload?.ID || payload?.MessageID || payload?.id || payload?.SmsID;
+  if (!id || !Array.isArray(invalid) || invalid.length)
+    throw fail(503, 'The SMS receipt is uncertain. Review carrier activity before retrying.');
+  return String(id);
 }

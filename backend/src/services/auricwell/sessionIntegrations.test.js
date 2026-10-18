@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { integrationDefaults, cleanPlatformSettings, publicPlatformSettings, requirePlatformSuperadmin, assertVideoWindow, smsScope, normalizeSessionPhone } from './integrationPolicy.js';
-import { notifyreRequest, notifyreNumbers } from './sessionTransports.js';
+import { notifyreRequest, notifyreNumbers, notifyreReceipt } from './sessionTransports.js';
 
 test('only MFA-verified platform operators can change services', () => {
   for (const ctx of [{}, { profile: { operator: false }, verified: true, permissions: ['admin'] }, { profile: { operator: true }, verified: false }])
@@ -48,4 +48,22 @@ test('Notifyre transport uses its documented token header and rejects provider f
   assert.equal(request.options.headers['x-api-token'], 'test-secret'); assert.equal(request.options.redirect, 'error');
   await assert.rejects(() => notifyreRequest('test-secret', '/sms/send', {}, async () => ({ ok: true, json: async () => ({ Success: false, Message: 'test-secret' }) })), e => e.status === 503 && !e.message.includes('test-secret'));
   assert.deepEqual(notifyreNumbers([{ Number: '17195550123' }]), ['+17195550123']);
+});
+
+test('Notifyre live lowercase envelope and number inventory are recognized', async () => {
+  const payload = { smsNumbers: [], smsSenderIds: [] };
+  const result = await notifyreRequest('synthetic-token', '/sms/numbers', undefined,
+    async () => ({ ok: true, json: async () => ({ success: true, payload, statusCode: 200, message: '', errors: [] }) }));
+  assert.deepEqual(notifyreNumbers(result), []);
+  assert.deepEqual(notifyreNumbers({ smsNumbers: [{ number: '+17195550123' }], smsSenderIds: ['BRAND'] }), ['+17195550123']);
+  assert.throws(() => notifyreNumbers({ unexpected: [] }), { status: 503 });
+  for (const envelope of [{ success: false, Success: true }, { success: 'true' }, {}])
+    await assert.rejects(() => notifyreRequest('synthetic-token', '/sms/numbers', undefined,
+      async () => ({ ok: true, json: async () => envelope })), { status: 503 });
+});
+test('Notifyre receipts recognize message IDs and reject invalid recipients', () => {
+  assert.equal(notifyreReceipt({ smsMessageID: 'synthetic-message', invalidToNumbers: [] }), 'synthetic-message');
+  assert.equal(notifyreReceipt({ SmsMessageID: 'synthetic-message', InvalidToNumbers: [] }), 'synthetic-message');
+  for (const receipt of [{}, { smsMessageID: 'synthetic-message', invalidToNumbers: ['+17195550123'] }, { smsMessageID: 'synthetic-message', invalidToNumbers: {} }])
+    assert.throws(() => notifyreReceipt(receipt), { status: 503 });
 });

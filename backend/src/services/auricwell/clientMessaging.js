@@ -4,7 +4,7 @@ import { fail, hash, json, has, requirePhi, requirePermission, ledgerBalance } f
 import { patientAccess } from './clinical.js';
 import { platformIntegrations, recordNotifyreWebhookVerified } from './platformIntegrations.js';
 import { normalizeSessionPhone } from './integrationPolicy.js';
-import { notifyreRequest } from './sessionTransports.js';
+import { notifyreRequest, notifyreReceipt } from './sessionTransports.js';
 import { SMS_CATEGORIES, emptyCategories, CATEGORY_COMMANDS, phoneKey, routeFor, assertMessagingReady,
   smsCommand, smsFooter, verifyNotifyreSignature, normalizeNotifyreEvent, parseRelayReply, onRelayShift } from './clientMessagingPolicy.js';
 
@@ -174,12 +174,10 @@ export async function sendClientSmsTransport(settings, route, { to, body, line, 
   const from = route[`${line}Number`];
   if (settings.smsProvider === 'notifyre') {
     const result = await (deps.notifyreRequest || notifyreRequest)(settings.notifyre.apiToken, '/sms/send', {
-      From: from, Body: body + smsFooter(category), Recipients: [{ Type: 'mobile_number', Value: to }], AddUnsubscribeLink: false,
+      From: from, Body: body + smsFooter(category), Recipients: [{ type: 'mobile_number', value: to }], AddUnsubscribeLink: false,
       Metadata: { dispatchId: id },
     });
-    const providerId = result?.ID || result?.MessageID || result?.id || result?.SmsID;
-    if (!providerId) throw fail(503, 'The SMS receipt is uncertain. Review carrier activity before retrying.');
-    return String(providerId);
+    return notifyreReceipt(result);
   }
   const { getSmsSender, recordSmsPermission } = await import('../smsCompliance.service.js');
   const sender = await getSmsSender(from);
