@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
@@ -91,4 +92,16 @@ export function selfSubscriberPolicy(policy, patient) {
   if(!policy || policy.relationshipToSubscriber!=='self' || !patient || !Object.keys(patient).length)return policy;
   return {...policy,subscriberFirstName:patient.firstName,subscriberLastName:patient.lastName,subscriberDob:patient.dateOfBirth,subscriberSex:patient.sex,
     subscriberAddressLine1:patient.addressLine1,subscriberAddressLine2:patient.addressLine2,subscriberCity:patient.city,subscriberState:patient.state,subscriberPostalCode:patient.postalCode};
+}
+
+/** Versioned, agency-scoped read for clinical products sharing this coverage. */
+export async function readClientInsuranceSnapshot(clientId, agencyId, db = pool, { lock = false } = {}) {
+  const [rows] = await db.execute(`SELECT id,billing_insurance_payload FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]);
+  if (!rows.length) throw billingError(404, 'Client not found in agency');
+  const raw = rows[0].billing_insurance_payload;
+  const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  return {
+    data: decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),
+    fingerprint: crypto.createHash('sha256').update(JSON.stringify({ agencyId: Number(agencyId), clientId: Number(clientId), payload })).digest('hex')
+  };
 }

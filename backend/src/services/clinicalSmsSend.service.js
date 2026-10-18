@@ -100,6 +100,15 @@ export async function sendClinicalSms({
     throw Object.assign(new Error('Recipient does not have a contact phone assigned'), { status: 400 });
   }
 
+  if (process.env.AURICWELL_ENABLED === 'true' && targetAgencyId) {
+    const { platformIntegrations } = await import('./auricwell/platformIntegrations.js');
+    const { settings } = await platformIntegrations();
+    const [practices] = await pool.execute("SELECT id FROM auricwell_practices WHERE agency_id=? AND status='active'", [targetAgencyId]);
+    if (settings.clientMessaging.routes.some(r => practices.some(p => p.id === r.practiceId))) {
+      throw Object.assign(new Error('Use the Agency client text inbox in Communications. This agency uses its configured clinical messaging workflow.'), { status: 409 });
+    }
+  }
+
   const phoneThread = threadKey ? parseSmsThreadKey(threadKey) : null;
   if (threadKey && (!phoneThread || phoneThread.clientId !== cid || phoneThread.contactId !== aid)) throw Object.assign(new Error('SMS conversation does not match recipient'), { status: 400 });
   if (phoneThread) {

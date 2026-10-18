@@ -1,3 +1,4 @@
+import { requireOfficeEnabled } from '../services/auricwell/platformIntegrations.js';
 import express from 'express';
 import pool from '../config/database.js';
 import * as c from '../controllers/providerMyRoom.controller.js';
@@ -5,6 +6,7 @@ import * as c from '../controllers/providerMyRoom.controller.js';
 const router=express.Router();
 router.use(async(req,res,next)=>{
  try{
+  await requireOfficeEnabled();
   if(req.aw?.actorType!=='staff'||!req.aw.permissions?.includes('clinical'))return res.status(403).json({error:{message:'A clinical staff account is required.'}});
   const [rows]=await pool.execute(`SELECT u.id,u.role FROM auricwell_accounts a JOIN users u ON u.id=a.canonical_user_id JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1 WHERE a.id=? AND a.status='active'`,[req.aw.agencyId,req.aw.accountId]);
   if(!rows[0])return res.status(403).json({error:{message:'Connect your provider identity before opening your office.'}});

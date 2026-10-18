@@ -410,6 +410,7 @@ async function affiliatedRecipientAllowsChannel(appt, clientId, contact, channel
 export async function buildDeliveryPlan(appointmentId) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) return { appointment: null, deliveries: [] };
+  if (appt.productOrigin === 'auricwell_ehr') return { appointment: appt, deliveries: [] };
   const tenant = await getTenantSettings(appt.agencyId);
   const platform = tenant.platform || (await getPlatformSettings());
   const effectiveChannels = resolveEffectiveChannels(platform, tenant.channelsEnabled);
@@ -657,6 +658,7 @@ export async function scheduleDefaultCadenceReminders(appointmentId, {
 } = {}) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  if (appt.productOrigin === 'auricwell_ehr') return [];
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
   // School visits use the family's normal reminder preferences, without a
   // confirmation-driven escalation cadence.
@@ -813,6 +815,7 @@ export async function applyConfirmReply(appointmentId, {
 } = {}) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  if (appt.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Manage this appointment in the secure AuricWell practice workspace.'), { status: 409 });
 
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
   if (serviceSetting.isSchool) return appt;
@@ -943,7 +946,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
   // Prefer new columns; fall back to Phase 4 processor shape
   let rows;
   try {
-    [rows] = await pool.execute(
+    [rows] = await pool.query(
       `SELECT r.* FROM appointment_reminders r
        JOIN agencies a ON a.id = r.agency_id AND a.is_active = 1 AND COALESCE(a.is_archived, 0) = 0
        WHERE r.status = 'pending' AND r.scheduled_for <= NOW()
@@ -968,7 +971,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       const [[current]] = await lock.execute('SELECT status FROM appointment_reminders WHERE id = ?', [row.id]);
       if (current?.status !== 'pending') continue;
     const appt = await Appointment.findById(row.appointment_id);
-    if (!appt || /cancel/i.test(appt.status || '') || ['completed', 'no_show', 'rescheduled', 'draft'].includes(appt.status)) {
+    if (!appt || appt.productOrigin === 'auricwell_ehr' || /cancel/i.test(appt.status || '') || ['completed', 'no_show', 'rescheduled', 'draft'].includes(appt.status)) {
       await pool.execute(
         `UPDATE appointment_reminders SET status = 'canceled', skip_reason = 'canceled_appt' WHERE id = ?`,
         [row.id]
@@ -1293,6 +1296,7 @@ export async function queuePushUpdate(appointmentId, {
 } = {}) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  if (appt.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('AuricWell notifications remain in its secure practice workspace.'), { status: 409 });
   if (!changes.length) throw Object.assign(new Error('No changes to notify'), { status: 400 });
   // Never send raw diffs (which can include internal notes) to the client.
   const startChange = changes.find(c => c.field === 'startAt');

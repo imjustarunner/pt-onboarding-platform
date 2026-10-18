@@ -1,5 +1,6 @@
 <template>
   <div class="container sms-inbox conversa-surface">
+    <details class="clinical-sms-section"><summary>Agency client texting — Notifyre / AuricWell</summary><ClinicalClientTexts /></details>
     <div class="header">
       <div>
         <ConversaBrand heading="h2" compact />
@@ -120,6 +121,7 @@
 </template>
 
 <script setup>
+import ClinicalClientTexts from '../../components/communications/ClinicalClientTexts.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';

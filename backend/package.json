@@ -47,7 +47,9 @@
     "test:assistant-deterministic": "node --test --test-force-exit src/services/agents/__tests__/assistantCapabilityCatalog.service.test.js src/services/agents/__tests__/assistantResearch.service.test.js src/services/agents/__tests__/assistantCapabilitySemanticRouter.service.test.js src/services/agents/__tests__/assistantCapabilityGeminiRouter.service.test.js src/services/agents/__tests__/assistantRouteFeedback.service.test.js",
     "billing:check": "node src/scripts/familyBillingRollout.js",
     "billing:backfill": "node src/scripts/familyBillingRollout.js --apply",
-    "billing:generate-key": "node src/scripts/generateFamilyBillingKey.js"
+    "billing:generate-key": "node src/scripts/generateFamilyBillingKey.js",
+    "test:auricwell": "node src/scripts/testAuricwellLocal.js",
+    "auricwell:imports": "node src/scripts/auricwellImportWorker.js"
   },
   "keywords": [],
   "author": "",
@@ -97,6 +99,7 @@
     "xlsx": "^0.18.5",
     "yaml": "^2.8.0",
     "zxcvbn": "^4.4.2",
-    "@simplewebauthn/server": "14.0.0"
+    "@simplewebauthn/server": "14.0.0",
+    "@pdf-lib/fontkit": "^1.1.1"
   }
 }

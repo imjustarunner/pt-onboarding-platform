@@ -54,6 +54,7 @@ export async function settleAppointmentOutcome(appointmentId, {
 
   const appointment = await Appointment.findById(id);
   if (!appointment) return { settled: false, reason: 'NOT_FOUND' };
+  if (appointment.productOrigin === 'auricwell_ehr') return { settled: false, reason: 'PRODUCT_BILLING_REVIEW_REQUIRED' };
 
   const billing = await Appointment.getBilling(id);
   if (billing?.paymentStatus === 'review') return { settled: false, reason: 'BILLING_REVIEW_REQUIRED', paymentStatus: 'review' };

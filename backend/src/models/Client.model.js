@@ -9,6 +9,21 @@ import { normalizeGradeForSave } from '../utils/clientGrade.js';
  * - School users: Restricted access (no sensitive data)
  */
 class Client {
+  static async findForAgency(id, agencyId, { executor = pool, lock = false } = {}) {
+    const [rows] = await executor.execute(
+      `SELECT * FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`,
+      [id, agencyId]
+    );
+    return rows[0] || null;
+  }
+
+  static async findManyForAgency(ids, agencyId, { executor = pool } = {}) {
+    if (!ids.length) return [];
+    if (ids.length > 500) throw new Error('Read at most 500 client IDs per page');
+    const [rows] = await executor.query('SELECT * FROM clients WHERE agency_id=? AND id IN (?)', [agencyId, ids]);
+    return rows;
+  }
+
   static normalizePhone(phone) {
     if (!phone) return null;
     const str = String(phone).trim();

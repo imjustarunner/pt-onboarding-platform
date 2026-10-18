@@ -1,3 +1,4 @@
+import { assertFullSuiteIdentity, fullSuiteIdentityAllowed } from '../services/productIdentity.service.js';
 import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
 import pool, { onTableWrite } from '../config/database.js';
@@ -46,6 +47,52 @@ if (USER_AGENCIES_CACHE_ENABLED) {
 }
 
 class User {
+  static async createClinicalIdentity({ name, email }, { executor = pool } = {}) {
+    const words = String(name || '').trim().split(/\s+/);
+    const lastName = words.length > 1 ? words.pop() : '';
+    const firstName = words.join(' ');
+    if (!firstName || firstName.length > 100 || lastName.length > 100)
+      throw Object.assign(new Error('Review staff name; first and last name each support 100 characters.'), { status: 400 });
+    try {
+      const [result] = await executor.execute(
+        `INSERT INTO users (email,password_hash,role,status,first_name,last_name,is_active,identity_product)
+         VALUES (?,?,'provider','EHR_ONLY',?,?,TRUE,'auricwell_ehr')`,
+        [String(email).trim().toLowerCase(), '!no-full-suite-password!', firstName, lastName]
+      );
+      return { id: result.insertId };
+    } catch (error) {
+      if (error.code === 'ER_DUP_ENTRY') throw Object.assign(new Error('This email already has a shared identity. Review its practice membership and connect it explicitly; accounts are never merged automatically.'), { status: 409 });
+      throw error;
+    }
+  }
+
+  static async findIdentitiesForAgency(ids, agencyId, { executor = pool, lock = false } = {}) {
+    const uniqueIds = [...new Set(ids.map(Number))];
+    if (!uniqueIds.length) return [];
+    if (uniqueIds.length > 500 || !Number.isSafeInteger(Number(agencyId)) || Number(agencyId) <= 0 ||
+        uniqueIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+      throw Object.assign(new Error('Invalid practice identity scope.'), { status: 400 });
+    }
+    const [rows] = await executor.execute(
+      `SELECT u.id,u.first_name,u.last_name,u.credential,u.role,u.status,u.is_active,u.is_archived,u.identity_product,
+              ua.is_active AS membership_active
+       FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+       WHERE ua.agency_id=? AND u.id IN (${uniqueIds.map(() => '?').join(',')})${lock === 'update' ? ' FOR UPDATE' : lock ? ' FOR SHARE' : ''}`,
+      [Number(agencyId), ...uniqueIds]
+    );
+    return rows;
+  }
+
+  static async updateClinicalIdentity(id, agencyId, { firstName, lastName, credential }, { executor = pool } = {}) {
+    const [result] = await executor.execute(
+      `UPDATE users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
+       SET u.first_name=?,u.last_name=?,u.credential=?
+       WHERE u.id=? AND u.identity_product='auricwell_ehr'`,
+      [agencyId, firstName, lastName, credential || null, id]
+    );
+    return result.affectedRows > 0;
+  }
+
   static _statusEnumCache = null;
 
   static async _getUserStatusEnumValues() {
@@ -2701,6 +2748,7 @@ class User {
   }
 
   static async generatePasswordlessToken(userId, expiresInHours = 48, purpose = 'setup') {
+    await assertFullSuiteIdentity(userId);
     const crypto = (await import('crypto')).default;
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date();
@@ -2819,6 +2867,7 @@ class User {
   }
 
   static async changePassword(userId, newPassword) {
+    await assertFullSuiteIdentity(userId);
     const bcrypt = (await import('bcrypt')).default;
     const passwordHash = await bcrypt.hash(newPassword, 10);
 

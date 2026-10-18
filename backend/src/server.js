@@ -399,6 +399,7 @@ app.use(clinicalVideoCallbackPaths, securityEvidenceMiddleware, clinicalVideoCal
 // being far smaller than what a malicious actor could meaningfully exploit.
 // Base64 encoding adds a third to email attachments (25 MB maximum).
 app.use('/api/notifyre', notifyreRoutes);
+app.use('/api/auricwell-sms', (await import('./routes/notifyreWebhook.routes.js')).default);
 app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({ limit: '36mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -416,6 +417,9 @@ app.use('/api/my-room', providerMyRoomRoutes);
 // Request logging middleware with body sanitization
 // Must be after body parsing middleware (express.json, express.urlencoded)
 // This ensures req.body is available for sanitization
+app.use('/api/auricwell', process.env.AURICWELL_ENABLED === 'true'
+  ? (await import('./routes/auricwell.routes.js')).default
+  : (_req, res) => res.status(503).json({ error: { message: 'AuricWell is not enabled on this deployment.' } }));
 app.use(requestLoggingMiddleware);
 
 
@@ -1689,6 +1693,25 @@ if (!isBootstrap) {
 
   // Clinical Note Generator drafts: auto-archive >7 days; hard-delete >7 years.
   // Run daily at 2:00 AM (best-effort; safe if table doesn't exist yet).
+  let auricwellRemindersRunning = false;
+  const auricwellReminderTick = async () => {
+    if (auricwellRemindersRunning) return;
+    auricwellRemindersRunning = true;
+    try {
+      // A video/email outage must not prevent STOP processing or inbox delivery.
+      for (const [name, run] of [
+        ['reminders', async () => (await import('./services/auricwell/sessionReminders.js')).runSessionReminders()],
+        ['client-messaging', async () => (await import('./services/auricwell/clientMessaging.js')).runClientMessaging()],
+      ]) {
+        try { await run(); }
+        catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') console.error(`[auricwell-${name}]`, e.code || 'WORKER_FAILED'); }
+      }
+    }
+    catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') console.error('[auricwell-session-reminders]', e.code || 'REMINDER_FAILED'); }
+    finally { auricwellRemindersRunning = false; }
+  };
+  void auricwellReminderTick();
+  setInterval(auricwellReminderTick, 60000).unref();
   let clinicalMaintenanceRunning=false;
   const clinicalMaintenance=async()=>{if(clinicalMaintenanceRunning)return;clinicalMaintenanceRunning=true;try{const {runClinicalSessionMaintenance}=await import('./services/clinicalSessionRetention.service.js');await runClinicalSessionMaintenance();}catch(error){console.error('[clinical-session-maintenance]',error.code||'MAINTENANCE_FAILED');}finally{clinicalMaintenanceRunning=false;}};
   void clinicalMaintenance();

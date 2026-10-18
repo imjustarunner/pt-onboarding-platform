@@ -1,6 +1,6 @@
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
-import { withAppointmentWindow, appointmentOccupiesTime } from '../services/appointmentConflict.service.js';
+import { withAppointmentWindow, appointmentOccupiesTime, assertAppointmentWindowAvailable } from '../services/appointmentConflict.service.js';
 
 const LIVE_STATUSES = new Set([
   'draft',
@@ -21,7 +21,7 @@ const LIVE_STATUSES = new Set([
 ]);
 
 const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room']);
-const NOTIFICATION_MODES = new Set(['default', 'customizable']);
+const NOTIFICATION_MODES = new Set(['default', 'customizable', 'in_app']);
 
 function parseJsonSafe(raw, fallback = null) {
   if (raw == null) return fallback;
@@ -80,6 +80,8 @@ class Appointment {
       canceledAt: r.canceled_at || null,
       canceledByUserId: r.canceled_by_user_id == null ? null : Number(r.canceled_by_user_id),
       source: String(r.source || 'staff_grid'),
+      productOrigin: String(r.product_origin || 'full_suite'),
+      locationLabel: r.location_label || null,
       title: r.title != null ? String(r.title) : null,
       notes: r.notes != null ? String(r.notes) : null,
       othersPresentNames: r.others_present_names != null ? String(r.others_present_names) : null,
@@ -99,8 +101,8 @@ class Appointment {
     };
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM appointments WHERE id = ? LIMIT 1`, [Number(id)]);
+  static async findById(id, { executor = pool, agencyId = null } = {}) {
+    const [rows] = await executor.execute(`SELECT * FROM appointments WHERE id = ?${agencyId ? ' AND agency_id = ?' : ''} LIMIT 1`, [Number(id), ...(agencyId ? [Number(agencyId)] : [])]);
     return this.mapRow(rows?.[0]);
   }
 
@@ -200,11 +202,15 @@ class Appointment {
     return map;
   }
 
-  static async create(row) {
+  static async create(row, { executor = pool } = {}) {
+    if (executor !== pool) {
+      await assertAppointmentWindowAvailable(executor, row);
+      return this.createInAvailableWindow(row, { executor });
+    }
     return withAppointmentWindow(pool, row, null, () => this.createInAvailableWindow(row));
   }
 
-  static async createInAvailableWindow(row) {
+  static async createInAvailableWindow(row, { executor = pool } = {}) {
     const othersPresentNames = row.othersPresentNames != null
       ? String(row.othersPresentNames).trim().slice(0, 500) || null
       : null;
@@ -237,7 +243,7 @@ class Appointment {
       row.updatedByUserId || row.createdByUserId || null
     ];
     try {
-      const [result] = await pool.execute(
+      const [result] = await executor.execute(
         `INSERT INTO appointments (
            agency_id, parent_agency_id, business_type, tenant_service_id, provider_user_id,
            start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
@@ -255,10 +261,10 @@ class Appointment {
           baseParams[23]
         ]
       );
-      return this.findById(result.insertId);
+      return this.findById(result.insertId, { executor });
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [result] = await pool.execute(
+      const [result] = await executor.execute(
         `INSERT INTO appointments (
            agency_id, parent_agency_id, business_type, tenant_service_id, provider_user_id,
            start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
@@ -268,11 +274,11 @@ class Appointment {
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         baseParams
       );
-      return this.findById(result.insertId);
+      return this.findById(result.insertId, { executor });
     }
   }
 
-  static async setServiceCodes(id, { serviceCode = null, addonServiceCodes = [] } = {}) {
+  static async setServiceCodes(id, { serviceCode = null, addonServiceCodes = [] } = {}, { executor = pool } = {}) {
     const aid = Number(id || 0);
     if (!aid) return null;
     const code = serviceCode ? String(serviceCode).trim().toUpperCase().slice(0, 32) : null;
@@ -281,7 +287,7 @@ class Appointment {
       : [];
     const json = addons.length ? JSON.stringify(addons) : null;
     try {
-      await pool.execute(
+      await executor.execute(
         `UPDATE appointments
          SET service_code = COALESCE(?, service_code),
              addon_service_codes_json = ?,
@@ -291,12 +297,19 @@ class Appointment {
       );
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      return this.findById(aid);
+      return this.findById(aid, { executor });
     }
-    return this.findById(aid);
+    return this.findById(aid, { executor });
   }
 
-  static async update(id, patch = {}) {
+  static async update(id, patch = {}, { executor = pool, agencyId = null } = {}) {
+    if (executor !== pool) {
+      const existing = await this.findById(id, { executor, agencyId });
+      if (!existing) return null;
+      const next = { ...existing, ...patch };
+      await assertAppointmentWindowAvailable(executor, next, Number(id));
+      return this.updateInAvailableWindow(id, patch, existing, { executor, agencyId });
+    }
     const existing = await this.findById(id);
     if (!existing) return null;
     const next = { ...existing, ...patch };
@@ -308,8 +321,8 @@ class Appointment {
       : this.updateInAvailableWindow(id, patch);
   }
 
-  static async updateInAvailableWindow(id, patch = {}, expected = null) {
-    const existing = await this.findById(id);
+  static async updateInAvailableWindow(id, patch = {}, expected = null, { executor = pool, agencyId = null } = {}) {
+    const existing = await this.findById(id, { executor });
     if (!existing) return null;
     const instant = value => value instanceof Date ? +value : Date.parse(String(value).replace(' ', 'T').replace(/Z?$/, 'Z'));
     if (expected && (Number(existing.providerUserId) !== Number(expected.providerUserId)
@@ -327,7 +340,7 @@ class Appointment {
     const videoRoomMode = normalizeVideoRoomMode(next.videoRoomMode, existing.videoRoomMode || 'unique_session');
     const notificationMode = normalizeNotificationMode(next.notificationMode, existing.notificationMode || 'default');
     try {
-      await pool.execute(
+      await executor.execute(
         `UPDATE appointments SET
            business_type = ?, tenant_service_id = ?, provider_user_id = ?,
            start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?, service_location_id = ?,
@@ -374,7 +387,7 @@ class Appointment {
       );
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      await pool.execute(
+      await executor.execute(
         `UPDATE appointments SET
            business_type = ?, tenant_service_id = ?, provider_user_id = ?,
            start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?, service_location_id = ?,
@@ -416,11 +429,11 @@ class Appointment {
         ]
       );
     }
-    return this.findById(id);
+    return this.findById(id, { executor });
   }
 
-  static async listParticipants(appointmentId) {
-    const [rows] = await pool.execute(
+  static async listParticipants(appointmentId, { executor = pool } = {}) {
+    const [rows] = await executor.execute(
       `SELECT * FROM appointment_participants WHERE appointment_id = ? ORDER BY sort_order ASC, id ASC`,
       [Number(appointmentId)]
     );
@@ -437,15 +450,15 @@ class Appointment {
     }));
   }
 
-  static async replaceParticipants(appointmentId, participants = []) {
+  static async replaceParticipants(appointmentId, participants = [], { executor = pool } = {}) {
     const aid = Number(appointmentId);
-    await pool.execute(`DELETE FROM appointment_participants WHERE appointment_id = ?`, [aid]);
+    await executor.execute(`DELETE FROM appointment_participants WHERE appointment_id = ?`, [aid]);
     let i = 0;
     for (const p of participants || []) {
       const clientId = Number(p.clientId || p.client_id || 0) || null;
       const userId = Number(p.userId || p.user_id || 0) || null;
       if (!clientId && !userId && !String(p.displayName || p.display_name || '').trim()) continue;
-      await pool.execute(
+      await executor.execute(
         `INSERT INTO appointment_participants (
            appointment_id, role, client_id, user_id, display_name,
            is_billing_responsible, receives_reminders, sort_order
@@ -463,13 +476,13 @@ class Appointment {
       );
       i += 1;
     }
-    const [scheduled]=await pool.execute("SELECT created_by_user_id FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
+    const [scheduled]=await executor.execute("SELECT created_by_user_id FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
     if(scheduled.length) {
       for(const clientId of new Set(participants.map(p=>Number(p.clientId || p.client_id || 0)).filter(Boolean))) {
-        await resolveClientProviderHolds(pool,{clientId,userId:scheduled[0].created_by_user_id,reason:'PLACED_ON_SCHEDULE'});
+        await resolveClientProviderHolds(executor,{clientId,userId:scheduled[0].created_by_user_id,reason:'PLACED_ON_SCHEDULE'});
       }
     }
-    return this.listParticipants(aid);
+    return this.listParticipants(aid, { executor });
   }
 
   static async upsertBilling(appointmentId, billing = {}) {

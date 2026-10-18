@@ -1,3 +1,4 @@
+import { productBillingContext } from './productBillingContext.service.js';
 import User from '../models/User.model.js';
 import { isActiveBillingAgency } from './managedBillingAccess.service.js';
 import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
@@ -5,6 +6,8 @@ import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js
 // Billing is an agency permission in addition to the user's clinical role.
 export async function hasSchedulingBillingAccess(user, agencyId) {
   if (!user?.id || !Number(agencyId)) return false;
+  const product = productBillingContext(user);
+  if (product) return product.agencyId === Number(agencyId) && await isActiveBillingAgency(agencyId);
   const role = String(user.role || user.effectiveRole || '').toLowerCase();
   if (['provider', 'provider_plus'].includes(role)) return false;
   if (!await isActiveBillingAgency(agencyId)) return false;

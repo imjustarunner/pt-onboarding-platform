@@ -1,3 +1,4 @@
+import clinicalMessagingBridge from './clinicalMessagingBridge.routes.js';
 import { getEmailDeliveryReceipt } from '../services/emailDeliveryReceipt.service.js';
 import {getCallBilling,listCallBilling,putCallBilling} from '../controllers/callBillingReview.controller.js';
 import {conversationFilingChoices,fileExistingConversation} from '../services/clientConversationRecord.service.js';
@@ -65,6 +66,7 @@ import {
 } from '../controllers/calls.controller.js';
 
 const router = express.Router();
+router.use('/client-texts', clinicalMessagingBridge);
 router.use(authenticate);
 router.use('/drafts', emailDraftRoutes);
 

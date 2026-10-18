@@ -1,5 +1,6 @@
 <template>
   <div class="cc-shell conversa-surface">
+    <details v-if="canUseSmsInbox" class="cc-clinical-texts"><summary>Agency client text inbox</summary><ClinicalClientTexts /></details>
     <div class="cc-bg" aria-hidden="true" />
 
     <header class="cc-top">
@@ -238,6 +239,7 @@
 </template>
 
 <script setup>
+import ClinicalClientTexts from '../../components/communications/ClinicalClientTexts.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaTeamCommunications from '../../components/conversa/ConversaTeamCommunications.vue';
 import { canManageConversaTeam } from '../../constants/conversa';

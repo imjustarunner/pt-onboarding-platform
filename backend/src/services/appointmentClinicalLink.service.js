@@ -31,6 +31,7 @@ export async function assertAppointmentClients(agencyId, participants, { allowTe
 export async function ensureAppointmentClinicalLink(appointmentId, actorUserId = null) {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  if (appointment.productOrigin === 'auricwell_ehr') return [];
   const participants = await Appointment.listParticipants(appointmentId);
   await assertAppointmentClients(appointment.agencyId, participants, { allowTerminated: true });
   if ((appointment.packageEntitlementId && !['mental_health', 'healthcare'].includes(appointment.businessType)) || ['tutoring', 'learning', 'coaching', 'consulting', 'mentorship', 'skills_development'].includes(appointment.businessType)) return [];

@@ -1,3 +1,4 @@
+import { fullSuiteIdentityAllowed } from './productIdentity.service.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
 /**
@@ -289,6 +290,7 @@ export async function requestPasswordRecoveryEmail({
     return { ok: true, outcome: 'unknown_user' };
   }
 
+  if (!(await fullSuiteIdentityAllowed(found.id))) return { ok: true, outcome: 'unknown_user' };
   const user = targetUser || (await User.findById(found.id)) || found;
   if (passwordRecoveryRequiresSupport(user)) {
     const agency = await resolveContextAgency({ userId: user.id, orgSlug });

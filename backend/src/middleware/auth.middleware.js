@@ -1,3 +1,4 @@
+import { assertFullSuitePrincipal } from '../services/productIdentity.service.js';
 import { assertPasskeySession } from '../services/passkeys.service.js';
 import { requireUnexpiredGuardianTestAccess } from '../services/guardianTestAccess.service.js';
 import { assertHireStaffAccess } from '../services/hireStaffAccess.service.js';
@@ -233,6 +234,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, config.jwt.secret);
+    await assertFullSuitePrincipal(decoded);
     await assertHireStaffAccess(decoded);
     await assertPasskeySession(decoded);
     req.authClaims = decoded;
@@ -387,6 +389,7 @@ export const authenticateOptional = async (req, res, next) => {
     for (const token of candidates) {
       try {
         const decoded = jwt.verify(token, config.jwt.secret);
+    await assertFullSuitePrincipal(decoded);
         await assertHireStaffAccess(decoded);
         await assertPasskeySession(decoded);
         if (applyOptionalUserFromDecoded(req, decoded)) {

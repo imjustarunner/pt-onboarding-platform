@@ -133,6 +133,7 @@ export async function applyAppointmentReply({
   if (!appt) {
     throw Object.assign(new Error('Appointment not found'), { status: 404 });
   }
+  if (appt.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Manage this appointment in the secure AuricWell practice workspace.'), { status: 409 });
   const aid = Number(agencyId || appt.agencyId);
   if (aid !== Number(appt.agencyId)) throw Object.assign(new Error('Appointment not found'), { status: 404 });
   const serviceSetting = await resolveAppointmentServiceSetting(appt);

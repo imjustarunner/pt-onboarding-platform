@@ -95,3 +95,7 @@ deliverables/plotline/website/
 /backend/src/content/provider-guides/
 /backend/src/content/school-practice-guides/
 /backend/src/content/skill-development-guides/
+
+# Standalone AuricWell local build dependencies
+auricwell/node_modules
+auricwell/dist/

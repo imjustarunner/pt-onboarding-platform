@@ -391,6 +391,7 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
 async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR workflow for this appointment while shared clinical and billing orchestration is being connected.'), { status: 409 });
   if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {
     const { requireAppointmentRequestProvider, requireGuardianCancellation } = await import('./guardianAppointments.service.js');
     if (guardianCancellationClientId && ['canceled_by_client','canceled_by_guardian','late_canceled'].includes(patch.status) && patch.startAt == null && patch.endAt == null) {
@@ -536,6 +537,7 @@ export async function cancelAppointment(appointmentId, {
 } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR cancellation workflow for this appointment.'), { status: 409 });
 
   const { requireAppointmentRequestProvider, recordGuardianAppointmentApproval } = await import('./guardianAppointments.service.js');
   if (actorRole === 'guardian') {
@@ -768,6 +770,7 @@ export async function settleAppointment(appointmentId, {
 } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR billing workflow for this appointment.'), { status: 409 });
   const status = String(outcome || existing.status || '').toLowerCase();
   if (status === 'completed' || status === 'no_show') {
     if (String(existing.status || '').toLowerCase() !== status) {

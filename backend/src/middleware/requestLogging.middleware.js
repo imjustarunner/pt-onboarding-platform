@@ -40,6 +40,7 @@ import config from '../config/config.js';
  * // because the middleware ensures sensitive fields are never in req.sanitizedBody.
  */
 export const requestLoggingMiddleware = (req, res, next) => {
+  if (/^\/api\/communications\/client-texts(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE CLIENT TEXT REQUEST]'; return next(); }
   if (/\/(?:safety-plans|clinical-forms)(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE CLINICAL FORM]'; return next(); }
   if (/\/handbook\/answer\/?$/.test(req.path)) { req.sanitizedBody = { question: '[REDACTED]', history: '[REDACTED]' }; return next(); }
   if (/\/evaluations\/student-training(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE STUDENT EVALUATION]'; return next(); }

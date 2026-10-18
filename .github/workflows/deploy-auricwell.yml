@@ -1,0 +1,66 @@
+name: Deploy AuricWell to Cloud Run
+
+# Explicit launch: deploying the standalone service does not move auricwell.com
+# or enable clinical messaging. Those are separate reviewed configuration steps.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-auricwell
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-west3
+  SERVICE_NAME: auricwell
+  IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-frontend/auricwell
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Resolve existing backend
+        run: |
+          set -euo pipefail
+          upstream=$(gcloud run services describe onboarding-backend --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')
+          test -n "$upstream"
+          echo "AURICWELL_API_UPSTREAM=$upstream" >> "$GITHUB_ENV"
+      - name: Build and push standalone AuricWell
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
+          docker build -f auricwell/Dockerfile -t "$IMAGE_NAME:$GITHUB_SHA" .
+          docker push "$IMAGE_NAME:$GITHUB_SHA"
+      - name: Deploy standalone service
+        env:
+          CLOUD_RUN_SA_EMAIL: ${{ secrets.CLOUD_RUN_SA_EMAIL }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUD_RUN_SA_EMAIL"
+          gcloud run deploy "$SERVICE_NAME" \
+            --project "$PROJECT_ID" --region "$REGION" --platform managed \
+            --image "$IMAGE_NAME:$GITHUB_SHA" \
+            --service-account "$CLOUD_RUN_SA_EMAIL" \
+            --allow-unauthenticated --port 8080 \
+            --update-env-vars "NODE_ENV=production,AURICWELL_API_UPSTREAM=$AURICWELL_API_UPSTREAM" \
+            --memory 256Mi --cpu 1 --min-instances 0 --max-instances 3 \
+            --timeout 90
+          url=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')
+          {
+            echo "Standalone AuricWell: $url"
+            echo "Platform settings: $url/platform/settings"
+            echo "Notifyre webhook: $url/api/auricwell-sms/webhook"
+            echo "Next: add this origin to AURICWELL_ORIGINS on onboarding-backend."
+            echo "This workflow does not change DNS, enable SMS, or port numbers."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,3 +1,4 @@
+import { productBillingContext } from './productBillingContext.service.js';
 import { isBillingAgency } from './billingAgencyPolicy.js';
 import { listPayerEft } from './payerEft.service.js';
 import pool from '../config/database.js';
@@ -16,7 +17,8 @@ const pendingChangeSql="EXISTS (SELECT 1 FROM clinical_claim_change_requests ch 
 // Resolve scope on the server. Never accept a client-supplied list of agencies.
 export async function billingWorkspaceAgencies(user, deps = dependencies) {
   const role = String(user?.role || user?.effectiveRole || '').toLowerCase();
-  if (!user?.id || ['provider', 'provider_plus'].includes(role)) throw denied();
+  const agencyScope = productBillingContext(user)?.agencyId ?? null;
+  if (!user?.id || (agencyScope === null && ['provider', 'provider_plus'].includes(role))) throw denied();
   let candidates;
   if (role === 'super_admin') {
     const sql = `SELECT a.id, a.name, a.slug, a.logo_url, a.color_palette, a.feature_flags, a.organization_type, a.is_active, a.is_archived, i.file_path AS icon_file_path,
@@ -31,6 +33,7 @@ export async function billingWorkspaceAgencies(user, deps = dependencies) {
     const [memberships, managed] = await Promise.all([deps.memberships(user.id), deps.managed(user.id)]);
     candidates = [...new Map([...memberships, ...managed].map(a => [Number(a.id), a])).values()];
   }
+  if (agencyScope !== null) candidates = (candidates || []).filter(a => Number(a.id) === Number(agencyScope));
   const organizations = [];
   for (const a of candidates || []) {
     if (!isBillingAgency(a)) continue;
@@ -77,6 +80,11 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   if (!result.capabilities.claims) return result;
   const params = scope.map(a => a.id);
   let where = `agency_id IN (${params.map(() => '?').join(',')}) AND is_deleted = 0`;
+  if (query.clientId != null && query.clientId !== '') {
+    const clientId = Number(query.clientId);
+    if (!Number.isSafeInteger(clientId) || clientId < 1) throw Object.assign(new Error('Invalid client filter.'), { status: 400 });
+    where += ' AND client_id = ?'; params.push(clientId);
+  }
   const filters = { draft: ['draft'], ready: ['ready'], in_progress: ['queued', 'submitted'], rejected: ['rejected'], denied: ['denied'], paid: ['paid'], attention: ['rejected', 'denied'] };
   if (query.status && query.status !== 'all') {
     if (!filters[query.status]) throw Object.assign(new Error('Invalid claim queue filter.'), { status: 400 });

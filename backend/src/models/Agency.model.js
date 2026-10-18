@@ -37,6 +37,14 @@ function slugLookupVisibilitySql(alias = 'a') {
  * - 'consultant': Solo/small-practice consulting SaaS tenant
  */
 class Agency {
+  static async createClinicalPractice({ name, slug }, { executor = pool } = {}) {
+    const [result] = await executor.execute(
+      "INSERT INTO agencies (name,slug,organization_type,is_active) VALUES (?,?,'clinical',FALSE)",
+      [name, slug]
+    );
+    return { id: result.insertId, name, slug, organization_type: 'clinical', is_active: false };
+  }
+
   /**
    * Find all organizations (agencies, schools, programs, learning)
    * @param {Object} options - Query options

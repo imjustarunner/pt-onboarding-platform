@@ -148,6 +148,7 @@ export async function listReminders(appointmentId) {
 export async function scheduleRemindersForAppointment(appointmentId, { replace = false } = {}) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) return [];
+  if (appt.productOrigin === 'auricwell_ehr') return [];
   const start = parseStartAt(appt.startAt);
   if (!start) return [];
 

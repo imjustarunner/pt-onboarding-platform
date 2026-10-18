@@ -133,6 +133,17 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const fromNorm = from.startsWith('+') ? from : `+${from}`;
     const toNorm = to.startsWith('+') ? to : `+${to}`;
 
+    if (req.smsProvider !== 'notifyre') {
+    const { acceptVonageClientInbound } = await import('../services/auricwell/clientMessaging.js');
+    if (await acceptVonageClientInbound({ from: fromNorm, to: toNorm, body, messageId, timestamp: body_payload.timestamp })) {
+      // Retain Vonage's transport-level suppression and standard control replies.
+      const handled = await processSmsKeyword({ from: fromNorm, to: toNorm, body, messageId, sendReply: options => VonageService.sendSms(options) });
+      if (!handled) await recordInboundConversation({ from: fromNorm, to: toNorm, messageId });
+      return res.status(200).json({ ok: true });
+    }
+
+    }
+
     // Extract MMS media URLs (Vonage Messages API sends media array).
     const mediaUrls = [];
     if (Array.isArray(body_payload.media)) {
@@ -698,6 +709,7 @@ export const deliveryStatusWebhook = async (req, res) => {
     if (messageId && status) {
       // Map Vonage status to a normalized value.
       const normalizedStatus = String(status).toLowerCase();
+      await (await import('../services/auricwell/clientMessaging.js')).acceptVonageClientDelivery(messageId, normalizedStatus);
       await recordCompanyEventSmsDeliveryStatus(messageId, normalizedStatus);
       await pool.execute(
         `UPDATE message_logs
