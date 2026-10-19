@@ -514,7 +514,7 @@
                         <option value="BULK_IMPORT">Bulk Import</option>
                         <option value="SCHOOL_UPLOAD">School Upload</option>
                         <option value="SCHOOL_UPLOAD_INTERNAL">Packet Upload (Internal)</option>
-                        <option value="PUBLIC_INTAKE_LINK">Public Intake Link</option>
+                        <option value="PUBLIC_INTAKE_LINK">Public Enrollment Link</option>
                         <option value="DIGITAL_FORM">Digital Form</option>
                         <option value="ADMIN_CREATED">Admin Created</option>
                       </select>
@@ -964,7 +964,7 @@
                   class="btn btn-primary btn-sm"
                   @click="openAddGuardian"
                 >
-                  Add guardian from intake info
+                  Add guardian from enrollment info
                 </button>
               </header>
               <div class="ov-card-body">
@@ -1591,11 +1591,15 @@
               <div class="hint">
                 <template v-if="canManageGuardians">
                   Add one or more guardian accounts (e.g., divorced guardians) with their own logins.
+                  <p v-if="isSchoolClientType" style="margin:6px 0 0;">Adding a school guardian creates and links their account. Send a portal invitation when you are ready.</p>
                 </template>
                 <template v-else>
                   Guardians linked to this client (view only — ask an admin to add or edit).
                 </template>
               </div>
+              <button v-if="canManageGuardians" type="button" class="btn btn-secondary" @click="showPortalInvites = true">
+                Invite linked guardians
+              </button>
               <button
                 v-if="canManageGuardians"
                 type="button"
@@ -1786,7 +1790,7 @@
                   v-if="addGuardianFormPrefilledFromIntake"
                   class="add-guardian-intake-hint"
                 >
-                  Pre-filled from latest intake. Add a different guardian? Click <strong>Clear</strong> to start fresh.
+                  Pre-filled from latest enrollment. Add a different guardian? Click <strong>Clear</strong> to start fresh.
                 </div>
                 <div class="form-group">
                   <label>Email *</label>
@@ -1855,13 +1859,15 @@
                   <div style="flex:1;" />
                   <button type="button" class="btn btn-secondary" @click="closeAddGuardian" :disabled="addingGuardian">Cancel</button>
                   <button type="button" class="btn btn-primary" @click="addGuardian" :disabled="addingGuardian">
-                    {{ addingGuardian ? 'Creating…' : 'Create + Generate invite link' }}
+                    {{ addingGuardian ? 'Creating…' : isSchoolClientType ? 'Create guardian account' : 'Create + Generate invite link' }}
                   </button>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" @close="showPortalInvites = false" />
 
         <!-- Assignments Tab (backoffice only) -->
         <div v-if="showPanel('assignments')" class="detail-section casg">
@@ -2782,6 +2788,7 @@ import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import GuardianDemographicReview from './GuardianDemographicReview.vue';
 import ClientGuardianContactEditor from './ClientGuardianContactEditor.vue';
+import ClientPortalInviteDialog from '../clients/ClientPortalInviteDialog.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
 import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
 import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
@@ -4563,6 +4570,7 @@ const messageGuardian = (g) => {
   }
 };
 const showAddGuardianModal = ref(false);
+const showPortalInvites = ref(false);
 const addingGuardian = ref(false);
 const creatingIntakeGuardian = ref(false);
 const addGuardianForm = ref({

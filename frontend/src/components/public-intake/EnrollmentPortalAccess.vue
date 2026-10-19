@@ -1,11 +1,12 @@
 <template>
-  <section v-if="details || error || loading" class="enrollment-portal" aria-labelledby="enrollment-portal-title">
-    <h3 id="enrollment-portal-title">{{ es ? 'Su portal' : 'Your portal' }}</h3>
-    <p>{{ es ? 'Abra el enlace de su correo para crear una contraseña y acceder al portal. Si ya tiene una cuenta, puede iniciar sesión con su contraseña actual.' : 'Open the link in your email to choose a password and access your portal. If you already have an account, sign in with your existing password.' }}</p>
+  <section v-if="optional || details || error || loading" class="enrollment-portal" aria-labelledby="enrollment-portal-title">
+    <h3 id="enrollment-portal-title">{{ optional ? (es ? 'Acceso opcional al portal' : 'Optional portal setup') : (es ? 'Su portal' : 'Your portal') }}</h3>
+    <p v-if="optional">{{ es ? 'Su inscripción está completa. Si desea usar el portal, solicite un enlace seguro para crear su contraseña. Puede hacerlo ahora o esperar una invitación de su equipo. No es necesario para recibir servicios.' : 'Your enrollment is complete. If you would like to use the portal, request a secure link to create your password. You can do this now or wait for an invitation from your care team. Portal setup is not required to receive services.' }}</p>
+    <p v-else>{{ es ? 'Abra el enlace de su correo para crear una contraseña y acceder al portal. Si ya tiene una cuenta, puede iniciar sesión con su contraseña actual.' : 'Open the link in your email to choose a password and access your portal. If you already have an account, sign in with your existing password.' }}</p>
     <p v-if="details?.username"><strong>{{ es ? 'Correo de la cuenta:' : 'Account email:' }}</strong> {{ details.username }}</p>
-    <div class="portal-actions" v-if="details">
-      <a class="btn btn-primary" :href="details.portalLoginUrl">{{ es ? 'Abrir mi portal' : 'Open my portal' }} →</a>
-      <button class="btn btn-secondary" type="button" :disabled="sending || cooldown" @click="load(true)">{{ sending ? (es ? 'Enviando…' : 'Sending…') : (es ? 'Enviar enlace para crear contraseña' : 'Email password setup link') }}</button>
+    <div class="portal-actions" v-if="optional || details">
+      <a v-if="details?.portalLoginUrl" class="btn btn-primary" :href="details.portalLoginUrl">{{ es ? 'Abrir mi portal' : 'Open my portal' }} →</a>
+      <button class="btn btn-secondary" type="button" :disabled="sending || cooldown" @click="load(true)">{{ sending ? (es ? 'Enviando…' : 'Sending…') : (es ? 'Enviarme un enlace para crear contraseña' : 'Email me a password setup link') }}</button>
     </div>
     <p v-if="loading">{{ es ? 'Preparando el acceso…' : 'Preparing portal access…' }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
@@ -16,7 +17,7 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ publicKey: String, submissionId: [String, Number], sessionToken: String, language: String });
+const props = defineProps({ publicKey: String, submissionId: [String, Number], sessionToken: String, language: String, optional: Boolean });
 const es = computed(() => props.language === 'es');
 const details = ref(null), error = ref(''), notice = ref(''), loading = ref(false), sending = ref(false), cooldown = ref(false);
 let timer;
@@ -35,7 +36,7 @@ async function load(sendSetupEmail = false) {
     error.value = es.value ? 'No pudimos preparar el acceso al portal. Contacte a su agencia si el problema continúa.' : 'We could not prepare portal access. Contact your agency if this continues.';
   } finally { loading.value = false; sending.value = false; }
 }
-onMounted(() => load(false));
+onMounted(() => { if (!props.optional) load(false); });
 onBeforeUnmount(() => clearTimeout(timer));
 </script>
 <style scoped>

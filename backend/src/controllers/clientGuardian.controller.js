@@ -1,4 +1,5 @@
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -123,14 +124,15 @@ export const upsertClientGuardian = async (req, res, next) => {
       // best effort
     }
 
-    // Generate a setup token link (48 hours).
-    const tokenResult = await User.generatePasswordlessToken(guardian.id, 48, 'setup');
     const Agency = (await import('../models/Agency.model.js')).default;
+    const organization = client.organization_id ? await Agency.findById(Number(client.organization_id)) : null;
+    const invitationDeferred = deferSchoolGuardianInvitation({ ...client, organization_type: organization?.organization_type });
+    const tokenResult = invitationDeferred ? null : await User.generatePasswordlessToken(guardian.id, 48, 'setup');
     const tenant = await Agency.findById(Number(client.agency_id));
-    const passwordlessTokenLink = buildPublicAppUrl(tenant, `/passwordless-login/${tokenResult.token}`);
+    const passwordlessTokenLink = tokenResult ? buildPublicAppUrl(tenant, `/passwordless-login/${tokenResult.token}`) : null;
 
     let setupEmailSent = false;
-    if (created) {
+    if (created && !invitationDeferred) {
       const to = [guardian.email, guardian.username, guardian.work_email, guardian.personal_email]
         .filter(Boolean)
         .map((e) => String(e).trim().toLowerCase())
@@ -161,6 +163,7 @@ export const upsertClientGuardian = async (req, res, next) => {
       ok: true,
       createdGuardianUser: created,
       setupEmailSent,
+      invitationDeferred,
       guardianUser: {
         id: guardian.id,
         email: guardian.email,
@@ -169,7 +172,7 @@ export const upsertClientGuardian = async (req, res, next) => {
         role: guardian.role,
         status: guardian.status
       },
-      passwordlessToken: tokenResult.token,
+      passwordlessToken: tokenResult?.token || null,
       passwordlessTokenLink
     });
   } catch (e) {
@@ -234,4 +237,3 @@ export const listMyGuardianClients = async (req, res, next) => {
     next(e);
   }
 };
-

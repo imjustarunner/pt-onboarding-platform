@@ -1,5 +1,6 @@
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
 import { safeEnrollmentPortalUrl } from '../utils/enrollmentPortalAccess.js';
+import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { missingInsuranceCards } from '../utils/insuranceCardRequirements.js';
 import { enrollmentPortalAccess } from '../services/enrollmentPortalAccess.service.js';
 import {FOCUS_GROUPS,validateMatchingPreferences} from '../../../frontend/src/navigation/providerFocus.js';
@@ -2417,11 +2418,12 @@ const resolvePacketCompletionEmailContent = async ({
     selectedTemplate = await EmailTemplate.findByTypeAndAgency(selectedTemplateType, agencyId);
   }
 
-  const regLogin = String(registrationLoginEmail || signerEmail || '').trim();
-  const regPw = String(registrationTempPassword || '').trim();
-  const needsSetup = !!registrationNeedsSetup;
-  const regPlainLogin = String(portalLoginUrl || '').trim();
-  const regPasswordless = String(registrationPasswordlessUrl || '').trim();
+  const deferInvitation = deferSchoolGuardianInvitation(link);
+  const regLogin = deferInvitation ? '' : String(registrationLoginEmail || signerEmail || '').trim();
+  const regPw = deferInvitation ? '' : String(registrationTempPassword || '').trim();
+  const needsSetup = !deferInvitation && !!registrationNeedsSetup;
+  const regPlainLogin = deferInvitation ? '' : String(portalLoginUrl || '').trim();
+  const regPasswordless = deferInvitation ? '' : String(registrationPasswordlessUrl || '').trim();
   const regPortalPrimary = regPasswordless || regPlainLogin;
   const regEvent = String(registrationEventSummary || '').trim();
 
@@ -2495,7 +2497,7 @@ const resolvePacketCompletionEmailContent = async ({
           const label = String(bundle.clientName || `Client ${idx + 1}`).trim();
           lines.push(`${idx + 1}. ${label}`);
           if (bundle.downloadUrl) {
-            lines.push(`   Intake packet: ${bundle.downloadUrl}`);
+                  lines.push(`   Enrollment packet: ${bundle.downloadUrl}`);
           }
           const docs = Array.isArray(bundle.signedDocuments) ? bundle.signedDocuments : [];
           docs.forEach((d) => {
@@ -2509,7 +2511,7 @@ const resolvePacketCompletionEmailContent = async ({
       ].join('\n')
     : '';
 
-  const fallbackSubject = `Thank you for completing your intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}`;
+  const fallbackSubject = `Thank you for completing your enrollment packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}`;
   // Plain-text version of the standalone event details block. Mirrors the
   // HTML eventDetailsHtmlBlock so non-HTML email clients (or quoted-only
   // forwards) still surface what the family registered for. We compose
@@ -2539,16 +2541,16 @@ const resolvePacketCompletionEmailContent = async ({
     `Hello ${params.SIGNER_NAME || 'there'},`,
     '',
     params.RETURNING_MATCH_NOTICE ? `${params.RETURNING_MATCH_NOTICE}\n` : '',
-    `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n` : ''}Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}.`,
+    `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n` : ''}Thank you for completing the enrollment packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}.`,
     'Our staff will be in touch with next steps.',
-    'Once your client is assigned to a provider, they will reach out to schedule intake and begin services.',
+    'Once your client is assigned to a provider, they will reach out to schedule the first appointment and begin services.',
     eventDetailsTextBlock,
     credsBlock,
     perChildTextBlock,
     '',
     params.DOWNLOAD_URL
       ? (isMultiChildSummary
-        ? `Combined intake packet (all clients):\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`
+        ? `Combined enrollment packet (all clients):\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`
         : `You can view/download your signed copy here:\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`)
       : 'Your signed copy is available in our system. If you would like a copy resent, reply to this email and our team can help.',
     '',
@@ -2664,9 +2666,9 @@ const resolvePacketCompletionEmailContent = async ({
     : `
       <div style="font-family: Arial, sans-serif; line-height: 1.5;">
         ${params.CLIENT_COUNT > 1 ? `<p><strong>Clients:</strong> ${params.CLIENT_COUNT}</p>` : (params.CLIENT_NAME ? `<p><strong>Client:</strong> ${escapeHtml(params.CLIENT_NAME)}</p>` : '')}
-        <p>Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for <strong>${escapeHtml(params.SCHOOL_NAME)}</strong>` : ''}.</p>
+        <p>Thank you for completing the enrollment packet${params.SCHOOL_NAME ? ` for <strong>${escapeHtml(params.SCHOOL_NAME)}</strong>` : ''}.</p>
         <p>Our staff will be in touch with next steps.</p>
-        <p>Once your client is assigned to a provider, they will reach out to schedule intake and begin services.</p>
+        <p>Once your client is assigned to a provider, they will reach out to schedule the first appointment and begin services.</p>
         ${eventDetailsHtmlBlock}
         ${(needsSetup || regPw || regPasswordless)
           ? `<div style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f9fafb;">
@@ -6142,6 +6144,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         job_description_id: link.job_description_id ?? null,
         create_client: link.create_client,
         create_guardian: link.create_guardian,
+        guardian_portal_invitation_deferred: deferSchoolGuardianInvitation({ ...link, organization_type: organization?.organization_type }),
         intake_fields: link.intake_fields,
         intake_steps: ensureEnrollmentCommunicationStep(link, hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link)),
         office_questionnaire_fields: linkLooksLikeOfficeIntake(link)
@@ -12550,6 +12553,7 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     return res.json(await enrollmentPortalAccess({
       submission, agency, req, enrollmentChannel: link.master_channel || null, sendSetupEmail: req.body?.sendSetupEmail === true,
+      invitationDeferred: deferSchoolGuardianInvitation(link),
       schoolOrganizationId: link.scope_type === 'school' ? link.organization_id : null
     }));
   } catch (error) {

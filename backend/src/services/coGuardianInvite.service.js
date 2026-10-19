@@ -487,7 +487,9 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
     reminder ? `This is a reminder to complete your own guardian enrollment for ${org}.` : `You have been invited to complete your own guardian enrollment for ${org}.`,
     'Review and sign your own required agreements, and share your observations and expectations for your dependent. Your care team can review your submission separately; it will not replace your child’s identifying information.',
     'Use the email address that received this invitation for your own portal account. You will not see the other guardian’s private enrollment answers. Shared appointments, messages, plans, and billing information are available according to the access your agency authorizes.',
-    'After submitting, use the portal setup option to receive a secure email and choose your password. If you already have an account, keep using your existing login.',
+    school
+      ? 'After submitting, you may optionally request a secure email to create your portal password, or wait for an invitation from your care team. Portal setup is not required for enrollment. If you already have an account, keep using your existing login.'
+      : 'After submitting, use the portal setup option to receive a secure email and choose your password. If you already have an account, keep using your existing login.',
     inviteUrl,
     `This link expires in ${INVITE_DAYS} days.`,
     'This invitation is for you. Please do not share your personal enrollment link.'
@@ -638,7 +640,7 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
       [firstName, lastName, phone, user.id]
     );
   } else {
-    password = await User.generateTemporaryPassword();
+    password = isSchool ? null : await User.generateTemporaryPassword();
     user = await User.create({
       email,
       role: 'client_guardian',
@@ -647,7 +649,7 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
       phoneNumber: phone,
       status: 'active'
     });
-    await User.changePassword(user.id, password);
+    if (password) await User.changePassword(user.id, password);
     created = true;
   }
 

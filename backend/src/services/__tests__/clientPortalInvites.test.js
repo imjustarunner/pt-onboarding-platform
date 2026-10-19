@@ -21,6 +21,14 @@ beforeEach(() => {
   sendHubPortalInvitation.mockResolvedValue({ delivery: { id: 'email-1' } });
 });
 describe('client portal invitation selection', () => {
+  it('includes two separately linked guardians and sends only the staff-selected account', async () => {
+    ClientGuardian.listForClient.mockResolvedValue([contact, { ...contact, guardian_user_id: 11, email: 'second@example.com' }]);
+    const result = await previewClientPortalInvites({ actor, clientIds: [1, 2] });
+    expect(result.recipients.map(r => r.key)).toEqual(['2:10', '2:11']);
+    expect(result.recipients.every(r => r.clients.length === 2)).toBe(true);
+    await sendClientPortalInvite({ actor, clientIds: [1, 2], recipientKey: '2:11' });
+    expect(sendHubPortalInvitation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ guardianUserId: 11, existingLinkOnly: true }));
+  });
   it('deduplicates shared accounts and repeated client IDs without sending on preview', async () => {
     const result = await previewClientPortalInvites({ actor, clientIds: [1, 2, 1] });
     expect(result.recipients).toHaveLength(1);

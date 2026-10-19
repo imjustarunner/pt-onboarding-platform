@@ -37,6 +37,12 @@ async function setTwoChildren() {
   wrapper.vm.guardianFirstName = 'Pat'; wrapper.vm.guardianLastName = 'Example'; wrapper.vm.guardianEmail = 'pat@example.com'; wrapper.vm.guardianPhone = '3035550100'; wrapper.vm.otherGuardian.hasLegalRights = 'no'; await flushPromises();
 }
 describe('school enrollment parent journey', () => {
+  it('keeps guardian accounts out of the automatic portal invitation flow', async () => {
+    await render(); wrapper.vm.link.create_guardian = 1; wrapper.vm.step = 3; await flushPromises();
+    expect(wrapper.vm.guardianPortalInvitationDeferred).toBe(true);
+    expect(wrapper.findComponent({ name: 'EnrollmentPortalAccess' }).props('optional')).toBe(true);
+    expect(post.mock.calls.some(([url]) => url.endsWith('/portal-credentials'))).toBe(false);
+  });
   it('asks for both DOBs up front and blocks an incomplete second identity at its input', async () => {
     await setTwoChildren(); await wrapper.get('#clientDob_1').setValue(''); await wrapper.vm.submitConsent(); await flushPromises();
     expect(wrapper.vm.step).toBe(1); expect(wrapper.get('#clientDob_1').attributes('aria-invalid')).toBe('true'); expect(post.mock.calls.some(([url]) => url.endsWith('/consent'))).toBe(false);

@@ -1,4 +1,5 @@
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -384,6 +385,7 @@ class PublicIntakeClientService {
 
     const createdClients = [];
     const createGuardian = !!link.create_guardian || !!options.forceGuardian;
+    const deferGuardianInvitation = deferSchoolGuardianInvitation({ ...link, organization_type: orgType });
     for (const clientPayload of rawClients) {
       const client = await provisionSingleIntakeClient({
         link,
@@ -419,8 +421,8 @@ class PublicIntakeClientService {
           const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
           try {
             const agencyRecord = await Agency.findById(agencyId);
-            const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
-            newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+            const tokenResult = deferGuardianInvitation ? null : await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+            newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult?.token);
           } catch (tokenErr) {
             console.error('[publicIntakeClient] existing guardian passwordless token failed', {
               userId: guardianUser.id,
@@ -448,8 +450,8 @@ class PublicIntakeClientService {
         const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
         try {
           const agencyRecord = await Agency.findById(agencyId);
-          const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
-          newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+          const tokenResult = deferGuardianInvitation ? null : await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+          newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult?.token);
         } catch (tokenErr) {
           console.error('[publicIntakeClient] guardian passwordless token failed', {
             userId: guardianUser.id,
@@ -577,6 +579,7 @@ class PublicIntakeClientService {
    */
   static async provisionGuardianForIntakeClients({ link, agencyId, clients = [], payload = {} }) {
     const createdClients = Array.isArray(clients) ? clients.filter((c) => c && Number(c.id)) : [];
+    const deferGuardianInvitation = deferSchoolGuardianInvitation(link) || createdClients.some(deferSchoolGuardianInvitation);
     let guardianUser = null;
     let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;
@@ -603,8 +606,8 @@ class PublicIntakeClientService {
         const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
         try {
           const agencyRecord = await Agency.findById(agencyId);
-          const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
-          newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+          const tokenResult = deferGuardianInvitation ? null : await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+          newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult?.token);
         } catch (tokenErr) {
           console.error('[publicIntakeClient] returning guardian passwordless token failed', {
             userId: guardianUser.id,
@@ -630,8 +633,8 @@ class PublicIntakeClientService {
       const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
       try {
         const agencyRecord = await Agency.findById(agencyId);
-        const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
-        newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+        const tokenResult = deferGuardianInvitation ? null : await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+        newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult?.token);
       } catch (tokenErr) {
         console.error('[publicIntakeClient] returning guardian passwordless token failed (new user)', {
           userId: guardianUser.id,

@@ -2504,7 +2504,7 @@
       </div>
 
       <div v-else-if="step === 3 && isOfficeInDepthIntake" class="step office-complete">
-        <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="locale" />
+        <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :optional="guardianPortalInvitationDeferred" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="intakeLocale" />
         <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
           ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
           : 'Your answers and signatures are saved. One of the packets needs our office to review it. You do not need to complete enrollment again.' }}</p>
@@ -2620,7 +2620,7 @@
       </div>
 
       <div v-else-if="step === 3" class="step">
-        <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="locale" />
+        <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :optional="guardianPortalInvitationDeferred" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="intakeLocale" />
         <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
           ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
           : 'Your answers and signatures are saved. One of the packets needs our office to review it. You do not need to complete enrollment again.' }}</p>
@@ -5315,6 +5315,8 @@ const isSchoolScopedIntake = computed(() => {
   const orgType = String(organizationInfo.value?.organization_type || '').toLowerCase();
   return scope === 'school' || orgType === 'school';
 });
+const guardianPortalInvitationDeferred = computed(() => isSchoolScopedIntake.value
+  || usesSchoolMaster.value || link.value?.guardian_portal_invitation_deferred === true);
 
 const isOfficeInDepthIntake = computed(() => {
   if (isSchoolScopedIntake.value) return false;
