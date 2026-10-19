@@ -6,6 +6,7 @@ import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolC
 import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';
 import axios from 'axios';
+import { getApiBaseUrl } from '../utils/apiBaseUrl';
 import { isOfficePath, officeSiteForHost } from '../utils/officeSite';
 import { applicantInterviewMode } from '../utils/applicantInterviewMode';
 import { attachSupervisionAccess } from '../utils/supervisionInvitationAccess';
@@ -18,7 +19,7 @@ import {
 import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 
 const api = axios.create({
-  baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3000/api'),
+  baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json'
   },
