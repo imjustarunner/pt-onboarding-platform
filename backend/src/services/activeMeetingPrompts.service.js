@@ -19,7 +19,9 @@ export async function activeMeetingPrompts(userId) {
     FROM provider_schedule_events p JOIN agencies org ON org.id=p.agency_id AND org.is_active=1
     WHERE p.kind IN ('TEAM_MEETING','HUDDLE') AND p.status='ACTIVE' AND p.meeting_completed_at IS NULL
       AND (COALESCE(p.platform_video_link,1)=1 OR NULLIF(TRIM(p.google_meet_link),'') IS NOT NULL)
-      AND (p.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=p.id AND a.user_id=?))
+      AND (p.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a
+        LEFT JOIN meeting_participant_preferences preference ON preference.event_id=a.event_id AND preference.user_id=a.user_id
+        WHERE a.event_id=p.id AND a.user_id=? AND COALESCE(preference.rsvp,'pending')<>'declined'))
       AND ${member('p')}
       AND p.start_at <= DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE)
       AND (p.end_at >= UTC_TIMESTAMP()

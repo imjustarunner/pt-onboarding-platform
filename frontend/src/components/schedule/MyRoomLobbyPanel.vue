@@ -1,5 +1,6 @@
-<template><PrivateVirtualOffice :key="agencies.currentAgency?.id" :agency-id="Number(agencies.currentAgency?.id||0)" :request="request" /></template>
+<template><div><VirtualOfficeUseNotice /><PrivateVirtualOffice :key="agencies.currentAgency?.id" :agency-id="Number(agencies.currentAgency?.id||0)" :request="request" /></div></template>
 <script setup>
+import VirtualOfficeUseNotice from '../meetings/VirtualOfficeUseNotice.vue';
 import {computed} from 'vue';
 import api from '../../services/api';
 import {useAgencyStore} from '../../store/agency';

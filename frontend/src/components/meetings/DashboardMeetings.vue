@@ -3,7 +3,7 @@
     <details class="dashboard-shortcut">
       <summary>My virtual office <span class="shortcut-hint">Open your private space</span></summary>
       <div class="shortcut-content">
-    <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" title="Open your AuricWell virtual office. Guests may add a name and photo, then wait for you to admit them." @click="notifyNavigation">AuricWell virtual office ↗</RouterLink>
+    <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" @click="notifyNavigation">My Room ↗</RouterLink>
       </div>
     </details>
     <details class="dashboard-shortcut" @toggle="onMeetingsToggle">
@@ -19,6 +19,7 @@
       <RouterLink v-else :to="scheduleLink(meeting)" class="meeting-details" @click="notifyNavigation"><CalendarDays :size="16" aria-hidden="true" /> Details <ChevronRight :size="16" aria-hidden="true" /></RouterLink>
     </article>
     <p v-if="!meetings.length">No upcoming meetings this week.</p>
+    <RouterLink :to="{path:`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`,query:{category:'training'}}" @click="notifyNavigation">Training · upcoming dates and attendance log</RouterLink>
       </div>
     </details>
   </section>

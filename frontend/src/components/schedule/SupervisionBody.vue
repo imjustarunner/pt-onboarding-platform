@@ -33,7 +33,7 @@
             <span class="supb-switch-title">Agency signup session</span>
             <p class="supb-hint muted">
               Open to everyone in the agency. Appears on all schedules with a signup countdown.
-              Signup closes 1 hour before start; cancels automatically if no one signs up.
+              Signup opens 24 hours before each date and closes 1 hour before start; cancels automatically if no one signs up.
             </p>
           </div>
           <label class="supb-switch" :class="{ disabled: disabled }">

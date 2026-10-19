@@ -1,11 +1,12 @@
 // Shared by the calendar and personal preferences. Fill opacity is intentionally
 // fixed below 1, even when a user chooses an opaque color in the color picker.
 export const SCHEDULE_COLOR_OPTIONS = [
-  ['client_session', 'Client session', '#059669'],
+  ['client_session', 'Client session', '#1D4ED8'],
   ['supervision', 'Individual supervision', '#7C3AED'],
-  ['supervision_group', 'Group supervision', '#E11D48'],
+  ['supervision_group', 'Group supervision', '#A21CAF'],
   ['supervision_triadic', 'Triadic supervision', '#C026D3'],
-  ['supervision_open', 'Open group supervision', '#0D9488'],
+  ['supervision_open', 'Open group supervision · signup required', '#C2410C'],
+  ['training', 'Training', '#9A3412'],
   ['interview', 'Interview', '#BE185D'],
   ['evaluation', 'Employee evaluation', '#65A30D'],
   ['cpa_meeting', 'CPA meeting', '#B7791F'],
@@ -24,12 +25,12 @@ export const SCHEDULE_COLOR_OPTIONS = [
   ['school_visit', 'School visit', '#15803D'],
   ['school_visit_hold', 'School visit opening', '#94A3B8'],
   ['school', 'School assignment', '#2D9CDB'],
-  ['office_assigned', 'Office assigned available', '#27AE60'],
+  ['office_assigned', 'Office assigned', '#A16207'],
   ['office_temporary', 'Temporary office hold', '#EA580C'],
-  ['office_booked', 'Office booked', '#EB5757'],
+  ['office_booked', 'Office booked', '#334155'],
   ['intake_in_person', 'In-person intake', '#B45309'],
   ['intake_virtual', 'Virtual intake', '#0284C7'],
-  ['availability', 'Open for new clients', '#16A34A'],
+  ['availability', 'Virtual opening', '#06B6D4'],
   ['request', 'Pending request', '#CA8A04'],
   ['google_event', 'Google event', '#4285F4'],
   ['google_busy', 'Google busy', '#475569'],
@@ -38,13 +39,24 @@ export const SCHEDULE_COLOR_OPTIONS = [
 
 export const defaultScheduleColors = () => Object.fromEntries(SCHEDULE_COLOR_OPTIONS.map(o => [o.key, o.color]));
 
+// Earlier saves included the entire default palette. Upgrade those defaults
+// without discarding colors someone actually customized.
+export function resolveScheduleColors(saved = {}, version = 0) {
+  const colors = {...defaultScheduleColors(), ...(saved || {})};
+  const legacy = {client_session:'#059669',supervision_group:'#E11D48',supervision_open:'#0D9488',office_assigned:'#27AE60',office_booked:'#EB5757',availability:'#16A34A'};
+  if (Number(version) < 2) for (const [key,color] of Object.entries(legacy)) {
+    if (String(saved?.[key] || '').toLowerCase() === color.toLowerCase()) colors[key] = defaultScheduleColors()[key];
+  }
+  return colors;
+}
+
 export function scheduleBlockColorKey(block = {}) {
   if (block.kind === 'supv-signup') return 'supervision_open';
   if (block.kind === 'supv') return { group:'supervision_group', triadic:'supervision_triadic' }[block.sessionType] || 'supervision';
   if (block.kind === 'sevt') {
     const kind = String(block.eventKind || '').toUpperCase();
     if (kind === 'TEAM_MEETING') {
-      const subtype = { admin:'admin_meeting', interview:'interview', evaluation:'evaluation', town_hall:'town_hall', leadership_circle:'leadership_circle', supervisors_meeting:'supervisors_meeting' }[block.meetingSubtype];
+      const subtype = { training:'training', admin:'admin_meeting', interview:'interview', evaluation:'evaluation', town_hall:'town_hall', leadership_circle:'leadership_circle', supervisors_meeting:'supervisors_meeting' }[block.meetingSubtype];
       return subtype || (block.isGroupMeeting || block.attendeeCount >= 2 ? 'group_meeting' : 'team_meeting');
     }
     if (kind === 'HUDDLE') return { cpa:'cpa_meeting', mentorship:'mentorship_meeting' }[block.meetingSubtype] || (block.isGroupMeeting || block.attendeeCount >= 2 ? 'group_huddle' : 'huddle');

@@ -7,7 +7,7 @@
       <p>{{ meeting.attendance.description }}</p>
       <p>RSVP confirms your plans; it does not record attendance time.</p>
     </section>
-    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button v-if="(!meeting?.isTraining && meeting?.attendance?.tier) !== 'optional'" class="btn btn-secondary" :disabled="saving" @click="declining = true">Decline</button>
+    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button v-if="meeting?.attendance?.tier !== 'optional'" class="btn btn-secondary" :disabled="saving" @click="declining = true">Decline</button> <button v-else class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Not interested · Stop reminders</button>
       <div v-if="declining">
         <fieldset v-if="meeting?.canSkipRecurring" class="absence-options">
           <legend>Which dates can’t you attend?</legend>
@@ -30,7 +30,8 @@
         <h3>Agenda</h3>
         <ol v-if="meeting.agenda?.length"><li v-for="(item, index) in meeting.agenda" :key="index">{{ item.title }}</li></ol>
         <p v-else>No agenda items have been added yet.</p>
-        <h3>Participants</h3>
+        <h3>RSVP responses</h3>
+        <p v-if="!meeting.canSeeDeclined">Confirmed attendees and pending invitations. Declined responses are visible only to event organizers and authorized staff.</p>
         <ul><li v-for="person in meeting.participants" :key="person.name">{{ person.name }} · {{ ['SIGNED_UP','accepted'].includes(person.status) ? 'Confirmed' : ['DECLINED','declined'].includes(person.status) ? 'Not attending' : person.status || 'Host' }}{{ person.isPresenter ? ' · Presenter' : '' }}{{ person.isRequired ? ' · Required' : '' }}<p v-if="person.declineReason">Reason: {{ person.declineReason }}</p></li></ul>
         <RouterLink :to="{path:route.path,query:{rsvp:'1',eventId:route.query.eventId}}">RSVP</RouterLink>
         <RouterLink :to="route.path">Open session</RouterLink>

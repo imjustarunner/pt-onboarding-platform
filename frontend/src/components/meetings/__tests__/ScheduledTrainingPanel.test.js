@@ -18,3 +18,14 @@ it('shows the configured test reminder and requires a reason before mandatory tr
  await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');const confirm=w.findAll('button').find(b=>b.text()==='Confirm decline');expect(confirm.element.disabled).toBe(true);
  await w.get('textarea').setValue('attended in the spring');await confirm.trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/rsvp',{response:'declined',reason:'attended in the spring'});w.unmount();
 });
+it('lets optional staff register from agency-visible training and dismiss without a reason',async()=>{
+ const value={...data(false),invited:false,canRegister:true,viewerInvitation:{id:4,is_required:0,rsvp:'pending'}};m.get.mockResolvedValue({data:value});m.post.mockResolvedValue({data:{ok:true}});
+ const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Decline and stop reminders').trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/rsvp',{response:'declined',reason:''});expect(w.find('textarea').exists()).toBe(false);expect(w.emitted('rsvp-saved')).toHaveLength(1);w.unmount();
+});
+it('shows confirmed attendees to everyone and uses separate own response after a decline',async()=>{
+ const value={...data(false),invited:true,viewerInvitation:{id:4,is_required:0,rsvp:'declined'},participants:[{id:1,name:'Trainer',isHost:true,rsvp:'pending'},{id:9,name:'Confirmed person',rsvp:'accepted'},{id:10,name:'Pending person',rsvp:'pending'}]};m.get.mockResolvedValue({data:value});
+ const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
+ expect(w.text()).toContain('RSVP: declined');expect(w.text()).toContain('Confirmed person');expect(w.text()).not.toContain('Pending person');w.unmount();
+});

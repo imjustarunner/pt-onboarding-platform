@@ -1,10 +1,10 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),release:vi.fn(),signup:vi.fn(),sms:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),release:vi.fn(),signup:vi.fn(),signupState:vi.fn(),sms:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,release:m.release})}}));
 vi.mock('../../models/SupervisionSession.model.js',()=>({default:{resolveByJoinRef:async()=>({participant_join_token:'s'.repeat(32)})}}));
 vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{resolveByJoinRef:async()=>({participant_join_token:'h'.repeat(32)})}}));
 vi.mock('../meetingInvitations.service.js',()=>({personalMeetingInvitation:async()=>({url:'https://tenant.test/join/invitation/personal'})}));
-vi.mock('../supervisionSignup.service.js',()=>({canUserSignup:m.signup}));
+vi.mock('../supervisionSignup.service.js',()=>({canUserSignup:m.signup,getViewerSignupState:m.signupState}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async()=>({email:'participant@tenant.test'})}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://tenant.test'}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantMessageMailboxes:async()=>({domain:'tenant.test',notifications:{id:6,from_email:'notifications@tenant.test'}})}));
@@ -15,7 +15,7 @@ vi.mock('../supervisionRsvpSms.service.js',()=>({sendSupervisionRsvpSms:m.sms}))
 import {sendSupervisionEmail,sendSupervisionDayAheadReminders,prepareSupervisionEmail,signupInvitationDue} from '../supervisionEmail.service.js';
 const session={id:10,agency_id:2,session_type:'group',supervisor_user_id:3,status:'SCHEDULED',start_at:'2099-01-01 18:00:00',end_at:'2099-01-01 19:00:00',notify_participants:1};
 const user={id:8,first_name:'Ada'};
-beforeEach(()=>{vi.clearAllMocks();m.signup.mockResolvedValue({ok:true});m.send.mockResolvedValue({id:'sent',internetMessageId:'<actual@test>',communicationId:123});m.execute.mockImplementation(async sql=>{
+beforeEach(()=>{vi.clearAllMocks();m.signup.mockResolvedValue({ok:true});m.signupState.mockResolvedValue({signedUp:false,status:null});m.send.mockResolvedValue({id:'sent',internetMessageId:'<actual@test>',communicationId:123});m.execute.mockImplementation(async sql=>{
  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
  if(sql.startsWith('SELECT * FROM supervision_email_deliveries'))return [[]];
  if(sql.startsWith('SELECT u.id'))return [[{id:3,first_name:'Host'},{id:8,first_name:'Ada',status:'INVITED',is_required:1,participant_role:'supervisee'}]];
@@ -118,4 +118,27 @@ it('can finish the paired text after an already-sent email without emailing twic
  m.execute.mockResolvedValueOnce([[{acquired:1}]]).mockResolvedValueOnce([[{delivery_status:'sent'}]]);
  await sendSupervisionEmail({session,user,kind:'join:60'});
  expect(m.send).not.toHaveBeenCalled();expect(m.sms).toHaveBeenCalledOnce();
+});
+
+it('catches up a delayed signup invitation within the same 24h window and never sends before it',()=>{
+ const event={...session,enrollment_mode:'signup_only',meeting_settings_json:{signupInvitationEnabled:true}};
+ expect(signupInvitationDue(event,new Date('2098-12-31T17:59:59Z'))).toBe(false);
+ expect(signupInvitationDue(event,new Date('2099-01-01T00:00:00Z'))).toBe(true);
+ expect(signupInvitationDue(event,new Date('2099-01-01T17:00:00Z'))).toBe(false);
+});
+it('never sends the signup broadcast after an optional participant dismisses it',async()=>{
+ m.signupState.mockResolvedValue({signedUp:false,status:'DECLINED'});
+ expect(await prepareSupervisionEmail({session:{...session,enrollment_mode:'signup_only',meeting_settings_json:{signupInvitationEnabled:true}},user,kind:'signup_invitation'})).toEqual({skipped:true,reason:'not_interested'});
+ expect(m.send).not.toHaveBeenCalled();
+});
+
+it('keeps legacy copied signup invitees out of generic invitations and week/three-day reminders',async()=>{
+ const event={...session,enrollment_mode:'signup_only',meeting_settings_json:{signupInvitationEnabled:true}};
+ for(const kind of ['invitation','join:10080','join:4320','day_before','join:5']) {
+  expect(await prepareSupervisionEmail({session:event,user,kind})).toEqual({skipped:true,reason:'signup_registration_required'});
+ }
+ expect(await prepareSupervisionEmail({session:event,user,kind:'signup_invitation'})).toMatchObject({subject:expect.stringContaining('sign up')});
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT u.id')?[[{id:3,first_name:'Host',status:'INVITED',is_required:1},{id:8,first_name:'Ada',status:'SIGNED_UP',is_required:0}]]:[[]]);
+ expect(await prepareSupervisionEmail({session:event,user,kind:'join:5'})).toMatchObject({to:'participant@tenant.test'});
+ expect(await prepareSupervisionEmail({session:event,user:{id:3,first_name:'Host'},kind:'invitation'})).toMatchObject({to:'participant@tenant.test'});
 });

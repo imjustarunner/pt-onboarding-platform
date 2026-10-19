@@ -98,3 +98,36 @@ describe('waitlist scheduling labels', () => {
     expect(waitlistOpeningLabel({ ...first.requestedOpening, timeZone: 'invalid' })).toContain('MST');
   });
 });
+
+describe('compact schedule waitlist',()=>{
+ it('hides a disabled empty waitlist and exposes an enabled empty one',async()=>{
+  api.get.mockResolvedValue({data:{requests:[],waitlistEnabled:false}});
+  const wrapper=mount(ProviderEnrollmentWaitlist,{props:{providerId:9,agencyIds:[2],compact:true,hideUnlessEnabled:true}});
+  await flushPromises();expect(wrapper.find('.pew').exists()).toBe(false);
+  api.get.mockResolvedValue({data:{requests:[],waitlistEnabled:true}});
+  await wrapper.setProps({refreshKey:1});await flushPromises();
+  expect(wrapper.find('.pew--compact').exists()).toBe(true);
+  await wrapper.find('.pew-toggle').trigger('click');expect(wrapper.find('.pew-body').exists()).toBe(true);
+  document.body.dispatchEvent(new MouseEvent('click',{bubbles:true}));await flushPromises();
+  expect(wrapper.find('.pew-body').exists()).toBe(false);wrapper.unmount();
+ });
+ it('keeps existing waiting clients accessible when new waitlist intake is disabled',async()=>{
+  api.get.mockResolvedValue({data:{requests:[first],waitlistEnabled:false}});
+  const wrapper=mount(ProviderEnrollmentWaitlist,{props:{providerId:9,agencyIds:[2],compact:true,hideUnlessEnabled:true}});
+  await flushPromises();expect(wrapper.find('.pew-count').text()).toBe('1');wrapper.unmount();
+ });
+});
+
+
+it('keeps the known same-scope queue visible during a failed refresh and clears it when the provider changes',async()=>{
+  const wrapper=render({compact:true,hideUnlessEnabled:true,initiallyExpanded:true});await flushPromises();
+  expect(wrapper.find('.pew-count').text()).toBe('1');
+  api.get.mockRejectedValue(new Error('Unavailable'));
+  await wrapper.setProps({refreshKey:1});await flushPromises();
+  expect(wrapper.find('.pew--compact').exists()).toBe(true);
+  expect(wrapper.find('.pew-count').text()).toBe('1');
+  expect(wrapper.text()).toContain('Example Client');
+  expect(wrapper.find('[role="alert"]').text()).toContain('Refresh to try again');
+  await wrapper.setProps({providerId:10});await flushPromises();
+  expect(wrapper.find('.pew').exists()).toBe(false);expect(wrapper.text()).not.toContain('Example Client');
+});

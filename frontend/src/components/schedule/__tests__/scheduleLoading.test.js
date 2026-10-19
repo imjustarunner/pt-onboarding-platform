@@ -3,8 +3,8 @@ import { flushPromises, shallowMount, mount as mountComponent } from '@vue/test-
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
-vi.mock('../../../services/api', () => ({ default: { get: m.get, put: vi.fn(), post: m.post }, isApiRateLimited: () => false }));
+const m = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
+vi.mock('../../../services/api', () => ({ default: { get: m.get, put: m.put, post: m.post }, isApiRateLimited: () => false }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
@@ -21,6 +21,7 @@ beforeEach(() => {
   localStorage.clear();
   clearScheduleSummaryCache();
   vi.clearAllMocks();
+  m.put.mockReset().mockResolvedValue({ data: {} });
   m.failSchedule = false;
   m.route = reactive({ path: '/dashboard', params: {}, query: {} });
   m.get.mockImplementation(async (url) => {
@@ -199,6 +200,8 @@ it('toggles personal reservations independently of available-room counts and rem
 
 it('keeps usable actions ahead of a preferred but unavailable school action, including under More', async () => {
   const state = await mount();
+  // This ordering fixture represents a provider whose session rollout is enabled.
+  state.clientSessionBookingEnabled = true;
   state.modalDay = 'Tuesday'; state.modalHour = 15; state.modalEndHour = 20;
   state.slotActionPrefs = { order: ['school', 'schedule_hold', 'personal_event'], usage: { school: 999 } };
   await flushPromises();
@@ -312,4 +315,97 @@ it('keeps a one-time room request unsent when the user cancels confirmation', as
  state.editorOfficeLocationId=1;state.editorPreferredRoomIds=[7];state.editorRecurrenceFrequency='ONCE';
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
  try {await state.submitRequest();expect(confirm).toHaveBeenCalled();expect(m.post.mock.calls.some(([url])=>url==='/availability/office-requests')).toBe(false);}finally{confirm.mockRestore();}
+});
+
+it('keeps Book Session coming soon visible in the primary chooser and leaves nonclinical actions enabled', async () => {
+  const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
+  state.showRequestModal=true;state.modalActionSource='plus_or_blank';
+  await flushPromises();
+  const book=state.displayedChooserActions.find(action=>action.id==='individual_session');
+  expect(book).toMatchObject({label:'Book Session · Coming soon'});expect(book.disabledReason).toBeTruthy();
+  for(const id of ['portal_intake','office_request_only','supervision'])expect(state.availableQuickActions.find(action=>action.id===id).disabledReason).toBe('');
+  const button=wrapper.findAll('button').find(button=>button.text().includes('Book session · Coming soon'));
+  expect(button?.attributes('disabled')).toBeDefined();
+  state.onQuickActionSelect({id:'individual_session',disabledReason:''});expect(state.requestType).toBe('');
+  state.openAppointmentEditor({mode:'create',kind:'group_session'});expect(state.requestType).toBe('');
+});
+
+it('resolves a client-session deep link to the chooser when rollout is disabled', async () => {
+  const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
+  await state.openSlotActionModal({dayName:'Tuesday',hour:10,dateYmd:'2026-10-13',initialRequestType:'individual_session',preserveSelectionRange:false});
+  await flushPromises();expect(state.showRequestModal).toBe(true);expect(state.showActionChooser).toBe(true);expect(state.requestType).toBe('');
+  state.requestType='individual_session';await state.submitRequest();
+  expect(state.modalError).toContain('coming soon');expect(m.post.mock.calls.some(([url])=>url==='/appointments')).toBe(false);
+});
+
+it('uses the chosen action agency and provider, and ignores an earlier provider’s delayed permission', async () => {
+  const original=m.get.getMockImplementation();let resolveOld;
+  m.get.mockImplementation(async (url,options)=>{
+    if(url==='/appointments/booking-access') {
+      if(options.params.providerUserId===7 && options.params.agencyId===2)return new Promise(resolve=>{resolveOld=resolve;});
+      return {data:{enabled:options.params.providerUserId===8 && options.params.agencyId===3}};
+    }
+    return original(url,options);
+  });
+  const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
+  state.bookingTargetUserId=8;expect(state.clientSessionBookingEnabled).toBe(false);await flushPromises();
+  resolveOld({data:{enabled:true}});await flushPromises();expect(state.clientSessionBookingEnabled).toBe(false);
+  state.selectedActionAgencyId=3;await flushPromises();
+  expect(m.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:{agencyId:3,providerUserId:8}}));
+  expect(state.clientSessionBookingEnabled).toBe(true);
+  state.bookingTargetUserId=9;expect(state.clientSessionBookingEnabled).toBe(false);await flushPromises();
+});
+
+it('opens a new clinical editor only for an enabled provider and preserves existing session edits', async () => {
+  const original=m.get.getMockImplementation();m.get.mockImplementation(async (url,options)=>url==='/appointments/booking-access'?{data:{enabled:true}}:original(url,options));
+  const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
+  state.openAppointmentEditor({mode:'create',kind:'individual_session'});expect(state.requestType).toBe('individual_session');
+  state.clientSessionBookingEnabled=false;
+  state.openAppointmentEditor({mode:'edit',kind:'individual_session',id:45});expect(state.requestType).toBe('edit_schedule_event');
+});
+
+
+it('persists the updated palette once and preserves a later custom choice that matches an old default', async () => {
+  const original=m.get.getMockImplementation();
+  const preferences={
+    schedule_color_overrides:{client_session:'#059669',availability:'#16A34A',interview:'#123456'},
+    schedule_display_prefs:{spanMode:'day',scheduleSideBySide:false,hideWeekend:true,customFuturePreference:'keep'}
+  };
+  m.get.mockImplementation(async (url,options)=>url==='/users/7/preferences'?{data:structuredClone(preferences)}:original(url,options));
+  m.put.mockImplementation(async(url,body)=>{if(url==='/users/7/preferences')Object.assign(preferences,structuredClone(body));return {data:{}};});
+  const state=await mount();
+  expect(state.scheduleColors.client_session).toBe('#1D4ED8');
+  expect(state.scheduleColors.availability).toBe('#06B6D4');
+  expect(state.scheduleColors.interview).toBe('#123456');
+  expect(preferences.schedule_display_prefs).toMatchObject({schedulePaletteVersion:2,customFuturePreference:'keep'});
+  expect(state.scheduleSpanMode).toBe('week');expect(state.focusedDays).toEqual([]);
+  expect(state.scheduleSideBySide).toBe(true);expect(state.hideWeekend).toBe(false);
+  // This is now an intentional personal choice, not the unmigrated default.
+  state.scheduleColors.client_session='#059669';await state.saveScheduleColors();
+  expect(preferences.schedule_display_prefs.schedulePaletteVersion).toBe(2);
+  wrapper.unmount();const restored=await mount();
+  expect(restored.scheduleColors.client_session).toBe('#059669');
+  expect(restored.scheduleColors.interview).toBe('#123456');
+});
+
+it('does not mark palette migration complete when its atomic save fails', async () => {
+  const original=m.get.getMockImplementation();
+  const preferences={schedule_color_overrides:{client_session:'#059669'},schedule_display_prefs:{spanMode:'day'}};
+  m.get.mockImplementation(async(url,options)=>url==='/users/7/preferences'?{data:preferences}:original(url,options));
+  m.put.mockRejectedValue(new Error('Unavailable'));
+  const state=await mount();
+  expect(state.scheduleColors.client_session).toBe('#1D4ED8');
+  expect(state.collectDisplayPrefs().schedulePaletteVersion).toBe(0);
+  expect(JSON.parse(localStorage.getItem('schedule.displayPrefs.v1:7')).schedulePaletteVersion).toBe(0);
+});
+
+it('starts each visit with a whole week while preserving a deliberate current-version layout choice', async () => {
+  const original=m.get.getMockImplementation();
+  m.get.mockImplementation(async(url,options)=>url==='/users/7/preferences'?{data:{schedule_display_prefs:{layoutDefaultsVersion:2,schedulePaletteVersion:2,spanMode:'day',scheduleSideBySide:false,hideWeekend:false}}}:original(url,options));
+  const state=await mount();
+  expect(state.scheduleSpanMode).toBe('week');expect(state.focusedDays).toEqual([]);
+  expect(state.scheduleSideBySide).toBe(false);expect(state.hideWeekend).toBe(false);
+  // Ordinary schedule refreshes do not revert choices made during this visit.
+  state.scheduleSpanMode='day';await state.load({forceRefresh:true});await flushPromises();
+  expect(state.scheduleSpanMode).toBe('day');
 });

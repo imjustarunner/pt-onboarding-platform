@@ -7,20 +7,20 @@
       </span>
     </div>
     <details>
-      <summary>More appointment colors</summary>
+      <summary>Other event colors</summary>
       <div class="legend-items">
         <span v-for="option in remaining" :key="option.key" class="legend-item">
           <span class="legend-swatch" :style="swatch(option)" aria-hidden="true"></span>{{ option.label }}
         </span>
       </div>
     </details>
-    <span class="legend-hint">Customize in Settings → Appointment colors.</span>
+    <span class="legend-hint">Change colors in Settings → Appointment colors.</span>
   </section>
 </template>
 <script setup>
 import { SCHEDULE_COLOR_OPTIONS } from '../../utils/scheduleAppearance.js';
 const props = defineProps({ colors: { type: Object, default: () => ({}) }, dark: Boolean });
-const primaryKeys = ['client_session', 'supervision', 'supervision_group', 'interview', 'office_assigned', 'office_booked', 'schedule_hold'];
+const primaryKeys = ['client_session', 'supervision', 'supervision_group', 'interview', 'office_assigned', 'office_booked', 'schedule_hold', 'availability', 'intake_in_person', 'intake_virtual', 'supervision_open', 'training'];
 const primary = SCHEDULE_COLOR_OPTIONS.filter(option => primaryKeys.includes(option.key));
 const remaining = SCHEDULE_COLOR_OPTIONS.filter(option => !primaryKeys.includes(option.key));
 const swatch = option => {

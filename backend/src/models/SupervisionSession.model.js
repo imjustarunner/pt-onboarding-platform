@@ -1136,7 +1136,7 @@ class SupervisionSession {
              FROM supervision_session_attendees ssa2
              WHERE ssa2.session_id = ss.id
                AND ssa2.participant_role = 'supervisee'
-               AND UPPER(COALESCE(ssa2.status, '')) IN ('SIGNED_UP', 'JOINED', 'INVITED')
+               AND UPPER(COALESCE(ssa2.status, '')) IN ('SIGNED_UP', 'JOINED')
            ) AS signup_count
          FROM supervision_sessions ss
          JOIN users sup ON sup.id = ss.supervisor_user_id

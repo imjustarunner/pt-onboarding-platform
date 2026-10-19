@@ -1,3 +1,4 @@
+import { getSupervisionSignupWindow } from './supervisionSignupWindow.js';
 import { applySupervisionAbsences } from './supervisionRsvpAbsence.service.js';
 import { withRecurringScheduleEdit } from './recurringScheduleCancellation.service.js';
 import pool from '../config/database.js';
@@ -42,6 +43,7 @@ export async function copyRecurringRoster(db, kind, oldId, newId) {
       FROM supervision_session_attendees a JOIN supervision_sessions s ON s.id=a.session_id
       JOIN users u ON u.id=a.user_id
       WHERE a.session_id=? AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')
+        AND (COALESCE(s.enrollment_mode,'invited')<>'signup_only' OR a.participant_role IN ('supervisor','co_facilitator'))
         AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_archived,0)=0
         AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED')
         AND EXISTS(SELECT 1 FROM user_agencies ua JOIN agencies org ON org.id=ua.agency_id AND org.is_active=1
@@ -99,6 +101,10 @@ async function appendOccurrence(db, kind, template, window, index) {
     }
     return field.endsWith('_json') && value && typeof value !== 'string' ? JSON.stringify(value) : value;
   });
+  if (kind === 'supervision' && template.enrollment_mode === 'signup_only') {
+    columns.push('signup_closes_at');
+    values.push(getSupervisionSignupWindow({start_at:window.startAt}).signupClosesAt?.slice(0,19).replace('T',' ') || null);
+  }
   if (template.kind !== 'SCHEDULE_HOLD') {
     const participant = generateJoinToken();
     columns.push('join_token','participant_join_token','host_join_token');

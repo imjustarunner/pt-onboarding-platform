@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ execute: vi.fn(), create: vi.fn(), find: vi.fn(), attendees: vi.fn(), presenters: vi.fn(), membership: vi.fn(), calendar: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), create: vi.fn(), find: vi.fn(), attendees: vi.fn(), presenters: vi.fn(), membership: vi.fn(), calendar: vi.fn(), roster:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute }, onTableWrite: vi.fn() }));
 vi.mock('../../models/User.model.js', () => ({ default: {
   getAgencies: async id => Number(id) === 7 ? [{ id: 3 }] : [{ id: 2 }, { id: 3 }],
@@ -9,7 +9,7 @@ vi.mock('../../models/User.model.js', () => ({ default: {
 } }));
 vi.mock('../../models/SupervisionSession.model.js', () => ({ default: {
   create: m.create, findById: m.find, upsertAttendees: m.attendees, setPresenters: m.presenters,
-  resolveByJoinRef: m.find, listAttendees: async () => []
+  resolveByJoinRef: m.find, listAttendees:m.roster, listPresentersForSession:async()=>[]
 } }));
 vi.mock('../../models/SupervisorAssignment.model.js', () => ({ default: { ensure: vi.fn() } }));
 vi.mock('../../models/SupervisionCasePresentation.model.js', () => ({ default: { ensureForPresenters: vi.fn() } }));
@@ -22,7 +22,7 @@ vi.mock('../../services/meetingJoinPolicy.service.js', () => ({
   requirePersonalSupervisionInvitation: vi.fn()
 }));
 
-import { createSupervisionSession, patchSupervisionSession } from '../supervisionSessions.controller.js';
+import { createSupervisionSession, patchSupervisionSession, getSessionAttendees } from '../supervisionSessions.controller.js';
 
 const session = { id: 100, agency_id: 2, supervisor_user_id: 1, supervisee_user_id: 7, session_type: 'group', status: 'SCHEDULED' };
 const body = {
@@ -34,6 +34,7 @@ const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 beforeEach(() => {
   vi.clearAllMocks();
   m.membership.mockResolvedValue(true);
+  m.roster.mockResolvedValue([]);
   m.create.mockResolvedValue(session);
   m.find.mockResolvedValue(session);
   m.calendar.mockResolvedValue({ skipped: true });
@@ -81,4 +82,15 @@ it('allows an explicitly invited cross-agency cohost through edit authorization'
   // the explicit cohost passed both edit gates without host-tenant membership.
   expect(res.status).toHaveBeenCalledWith(400);
   expect(res.json).toHaveBeenCalledWith({ error: { message: 'Invalid startAt/endAt' } });
+});
+
+it.each([['provider',false],['support',true],['admin',true]])('returns confirmed supervision RSVPs but protects declines from ordinary %s viewers',async(role,canSeeDeclined)=>{
+ m.roster.mockResolvedValue([{user_id:7,first_name:'Yes',status:'SIGNED_UP'},{user_id:9,first_name:'No',status:'DECLINED',decline_reason:'Private reason'}]);
+ const res=response(),next=vi.fn();
+ m.find.mockResolvedValue({...session,supervisee_user_id:8});
+ await getSessionAttendees({params:{id:100},user:{id:8,role}},res,next);
+ expect(next).not.toHaveBeenCalled();const result=res.json.mock.calls[0][0];
+ expect(result.canSeeDeclined).toBe(canSeeDeclined);
+ expect(result.attendees.map(p=>p.userId)).toEqual(canSeeDeclined?[7,9]:[7]);
+ if(!canSeeDeclined)expect(JSON.stringify(result)).not.toContain('Private reason');
 });

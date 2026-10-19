@@ -1,11 +1,11 @@
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invitationKey, meetingInvitationContent, reminderMinutes } from '../meetingInvitationPolicy.js';
-const m = vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),lock:vi.fn(),release:vi.fn()}));
+const m = vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),lock:vi.fn(),release:vi.fn(),participants:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.lock,release:m.release})}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:m.send}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async id=>`https://tenant${id}.example.com`}));
-vi.mock('../meetingParticipants.service.js',()=>({meetingReplyTo:async()=> 'host@example.com',meetingParticipantRows:async()=>[],meetingEmailDetails:async()=>''}));
+vi.mock('../meetingParticipants.service.js',()=>({meetingReplyTo:async()=> 'host@example.com',meetingParticipantRows:m.participants,meetingEmailDetails:async()=>''}));
 import { personalMeetingInvitation, resolvePersonalMeetingInvitation, sendDueMeetingInvitations, invitationEvents } from '../meetingInvitations.service.js';
 const token = 'a'.repeat(32);
 const event = {id:10,agency_id:2,provider_id:3,title:'Leadership <meeting>',start_at:'2026-09-28 22:00:00',end_at:'2026-09-28 23:00:00',event_timezone:'America/Denver',participant_join_token:'participant',host_join_token:'SECRET',recurrence_series_id:'series',recurrence_frequency:'WEEKLY'};
@@ -17,6 +17,7 @@ beforeEach(()=>{
   m.execute.mockImplementation(async sql=>sql.includes('SELECT * FROM meeting_email_invitations')?[[invite]]:sql.includes('SELECT p.*')?[[event]]:[]);
   m.lock.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT id FROM meeting_email')?[[{id:1}]]:sql.includes('SELECT id,email')?[[{id:5,email:'person@example.com'},{id:3,first_name:'Host'}]]:[[]]);
   m.send.mockResolvedValue({messageId:'sent'});
+  m.participants.mockResolvedValue([]);
 });
 describe('meeting invitation content and settings',()=>{
   it('defaults to five minutes, supports no reminder, and rejects invalid settings',()=>{
@@ -68,6 +69,10 @@ describe('personal invitation authorization',()=>{
   });
 });
 describe('durable invitation delivery',()=>{
+  it('does not deliver a queued invitation after the recipient already dismissed it',async()=>{
+    m.participants.mockResolvedValue([{id:5,rsvp:'declined',is_required:0}]);await sendDueMeetingInvitations();
+    expect(m.send).not.toHaveBeenCalled();expect(m.lock).toHaveBeenCalledWith("UPDATE meeting_email_invitations SET delivery_status='cancelled' WHERE id=?",[1]);
+  });
   it('sends once per queued recipient, using the tenant email pipeline',async()=>{
     await sendDueMeetingInvitations();expect(m.send).toHaveBeenCalledOnce();
     expect(m.send).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,to:'person@example.com',triggerKey:'meeting_invited',userId:5}));

@@ -14,6 +14,11 @@
           <span class="category-count" :aria-label="`${categoryCount(card.key)} attended meetings`">{{ categoryCount(card.key) }}</span>
         </button>
       </section>
+      <section v-if="category === 'training' && agencyId" class="training-meeting-area" aria-label="Scheduled training">
+        <button v-if="canScheduleTraining(auth.user)" type="button" class="primary" @click="trainingEditorOpen=true">Schedule training</button>
+        <ScheduledTrainingLog :key="trainingLogVersion" :agency-id="Number(agencyId)" expanded />
+      </section>
+      <ScheduledTrainingEditor v-if="trainingEditorOpen && agencyId && canScheduleTraining(auth.user)" :agency-id="Number(agencyId)" @close="trainingEditorOpen=false" @saved="trainingLogVersion++;load(false)" />
       <section class="history-panel" aria-label="Attended meetings">
         <div class="history-heading"><div><h2>{{ category ? categories[category] : 'All attended meetings' }}</h2><p>{{ total }} {{ total === 1 ? 'record' : 'records' }} · Most recent first</p></div><button v-if="category || from || to || search" @click="category='';from='';to='';search='';load()">View all meetings</button></div>
         <nav v-if="isAdminCategory" class="admin-tabs" aria-label="Administrative meeting types"><button v-for="key in ['administrative',...adminCategories]" :key="key" :aria-pressed="category===key" @click="chooseCategory(key)">{{ categories[key] }}</button></nav>
@@ -71,6 +76,10 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import ManualMeetingLog from '../components/meetings/ManualMeetingLog.vue';
+import ScheduledTrainingLog from '../components/schedule/ScheduledTrainingLog.vue';
+import ScheduledTrainingEditor from '../components/schedule/ScheduledTrainingEditor.vue';
+import { canScheduleTraining } from '../utils/scheduledTraining';
+import { useAuthStore } from '../store/auth';
 import { Users, UserRound, Building2, Landmark, MessagesSquare, ClipboardList, ArrowLeft, ArrowRight, CalendarDays, Search } from '@lucide/vue';
 const props = defineProps({ embedded: Boolean });
 import { useRoute, useRouter } from 'vue-router';
@@ -80,12 +89,13 @@ import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
 const route = useRoute(), router = useRouter(), agencies = useAgencyStore();
+const auth = useAuthStore(), trainingEditorOpen = ref(false), trainingLogVersion = ref(0);
 const prefix = computed(() => route.params.organizationSlug ? `/${route.params.organizationSlug}` : '');
 const agencyId = computed(() => agencies.currentAgency?.id || agencies.userAgencies?.[0]?.id || agencies.agencies?.[0]?.id);
 const categories = { training:'Training', administrative:'All administrative',group_supervision:'Group supervision', general:'General',huddle:'Huddle',cpa:'CPA',mentorship:'Mentorship',admin:'Administrative',town_hall:'Town hall',interview:'Interview',evaluation:'Evaluation',leadership_circle:'Leadership circle',supervisors_meeting:'Supervisors meeting',supervision:'Individual supervision' };
 const tabs = ['Overview','Chat & activity','Summary','Tasks by person','Suggested next steps','Transcript','My notes'];
 const counts=ref({}),total=ref(0);
-const category=ref(''),from=ref(''),to=ref(''),search=ref(''),rows=ref([]),hasMore=ref(false),loading=ref(false),error=ref('');
+const category=ref(Object.hasOwn(categories,route.query.category) ? route.query.category : ''),from=ref(''),to=ref(''),search=ref(''),rows=ref([]),hasMore=ref(false),loading=ref(false),error=ref('');
 const selected=ref(null),detail=ref(null),detailLoading=ref(false),tab=ref(tabs.includes(route.query.meetingTab || (!props.embedded && route.query.tab)) ? (route.query.meetingTab || route.query.tab) : 'Overview'),note=ref(''),noteDirty=ref(false),saving=ref(false),noteSaved=ref(false);
 const activity=ref([]),activityLoading=ref(false),activityLoaded=ref(false),activityMore=ref(false),activityError=ref('');
 let timer,loadVersion=0,detailVersion=0,activityVersion=0;
@@ -115,6 +125,7 @@ const duration=(start,end)=>{const a=parseScheduleUtcInstant(start),b=parseSched
 const statusLabel=row=>row.meeting_completed_at||row.live_ended_at||row.completedAt||String(row.status).toUpperCase()==='FINALIZED'?'Completed':String(row.status).toUpperCase()==='CANCELLED'?'Cancelled':'Attendance recorded';
 const detailQuery=()=>({ ...route.query,type:selected.value.type,meetingId:selected.value.id,[props.embedded?'meetingTab':'tab']:tab.value });
 function chooseCategory(key){category.value=key;void load();}
+watch(()=>route.query.category,value=>{if(Object.hasOwn(categories,value))chooseCategory(value);});
 async function closeMeeting(){
   if(noteDirty.value){error.value='Save your personal notes before returning to meetings.';return;}
   ++detailVersion;++activityVersion;selected.value=null;detail.value=null;error.value='';

@@ -185,7 +185,7 @@ export const SETTINGS_SEARCH_ALIASES = {
   'client-settings': ['clients', 'client catalog', 'programs', 'paths', 'client paths'],
   'school-settings': ['schools', 'school catalog', 'school portal', 'school directory'],
   'provider-settings': ['providers', 'provider catalog', 'clinicians', 'therapists'],
-  'provider-scheduling': ['scheduling', 'schedule templates', 'provider schedule', 'booking templates'],
+  'provider-scheduling': ['scheduling', 'schedule templates', 'provider schedule', 'booking templates', 'session booking rollout', 'TherapyNotes transition', 'provider cohort', 'coming soon'],
   'availability-intake': ['availability', 'intake', 'provider management', 'availability intake'],
   'shift-programs': ['shifts', 'shift publishing', 'shift program'],
   'payroll-schedule': [

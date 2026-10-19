@@ -4,8 +4,8 @@
   <template v-if="state">
    <h3>{{state.event.title}}</h3><p v-if="state.event.startAt">{{trainingTime}}</p><p>Trainers: {{proctors.map(p=>p.name).join(', ')}}</p><p>{{state.event.topic}}</p>
    <p v-if="state.invited">{{myInvitation?.is_required ? 'Mandatory attendance' : 'Optional attendance'}} · Training in the app</p>
-   <div v-if="!live && state.invited"><p>RSVP: {{myInvitation?.rsvp || 'pending'}}. This applies to all remaining dates of this training.</p><p v-if="myInvitation?.rsvp_decline_reason">Reason: {{myInvitation.rsvp_decline_reason}}</p><button type="button" @click="rsvp('accepted')">I’m attending</button><button type="button" @click="declining=true">{{Number(myInvitation?.is_required) ? 'Decline' : 'Decline and stop reminders'}}</button><div v-if="declining"><label>Reason for not attending{{Number(myInvitation?.is_required) ? ' (required)' : ' (optional)'}}<textarea v-model="declineReason" maxlength="2000" rows="3" /></label><button type="button" :disabled="Number(myInvitation?.is_required)===1 && !declineReason.trim()" @click="rsvp('declined')">Confirm decline</button></div><p>{{state.reminderDescription || 'Accepting stops registration reminders. Confirmed attendees receive one 24-hour reminder and the join link 5 minutes before each date.'}}</p></div>
-   <div v-if="state.proctor && !live"><h4>RSVP responses</h4><ul><li v-for="person in state.participants" :key="person.id">{{person.name}} · {{person.rsvp || 'pending'}}<span v-if="person.rsvp_decline_reason"> · Reason: {{person.rsvp_decline_reason}}</span></li></ul></div>
+   <div v-if="!live && (state.invited || state.canRegister)"><p>RSVP: {{myInvitation?.rsvp || 'pending'}}. This applies to all remaining dates of this training.</p><p v-if="myInvitation?.rsvp_decline_reason">Reason: {{myInvitation.rsvp_decline_reason}}</p><button type="button" @click="rsvp('accepted')">I’m attending</button><button type="button" @click="Number(myInvitation?.is_required) ? declining=true : rsvp('declined')">{{Number(myInvitation?.is_required) ? 'Decline' : 'Decline and stop reminders'}}</button><div v-if="declining"><label>Reason for not attending{{Number(myInvitation?.is_required) ? ' (required)' : ' (optional)'}}<textarea v-model="declineReason" maxlength="2000" rows="3" /></label><button type="button" :disabled="Number(myInvitation?.is_required)===1 && !declineReason.trim()" @click="rsvp('declined')">Confirm decline</button></div><p>{{state.reminderDescription || 'Accepting stops registration reminders. Confirmed attendees receive one 24-hour reminder and the join link 5 minutes before each date.'}}</p></div>
+   <div v-if="!live"><h4>{{ state.canSeeDeclined ? 'RSVP responses' : 'Attending' }}</h4><p v-if="!visibleResponses.length">No confirmed attendees yet.</p><ul><li v-for="person in visibleResponses" :key="person.id">{{person.name}} · {{person.rsvp || 'pending'}}<span v-if="person.rsvp_decline_reason"> · Reason: {{person.rsvp_decline_reason}}</span></li></ul></div>
    <p v-if="state.proctor">You are a proctor / trainer.</p>
    <div v-if="state.proctor" class="training-controls">
     <label><input type="checkbox" :checked="state.event.videoAllowed" @change="change({videoAllowed:$event.target.checked})" /> Allow attendee video</label>
@@ -31,10 +31,11 @@ import api from '../../services/api';
 import {useAuthStore} from '../../store/auth';
 import MeetingAgendaPanel from './MeetingAgendaPanel.vue';
 import MeetingGoalsActionsPanel from './MeetingGoalsActionsPanel.vue';
-const props=defineProps({eventId:{type:[Number,String],required:true},live:Boolean});const emit=defineEmits(['state','private-chat']);
+const props=defineProps({eventId:{type:[Number,String],required:true},live:Boolean});const emit=defineEmits(['state','private-chat','rsvp-saved']);
 const auth=useAuthStore(),state=ref(null),error=ref(''),busy=ref(false),topic=ref('');let timer=null;
 const declining=ref(false),declineReason=ref('');
-const myInvitation=computed(()=>state.value?.participants.find(p=>Number(p.id)===Number(state.value?.viewerUserId || auth.user?.id)));
+const myInvitation=computed(()=>state.value?.viewerInvitation || state.value?.participants.find(p=>Number(p.id)===Number(state.value?.viewerUserId || auth.user?.id)));
+const visibleResponses=computed(()=>state.value?.participants.filter(p=>state.value?.canSeeDeclined || p.rsvp==='accepted') || []);
 const myHand=computed(()=>state.value?.hands.find(p=>Number(p.user_id)===Number(state.value?.viewerUserId || auth.user?.id)));
 const raisedHands=computed(()=>state.value?.hands.filter(p=>p.status==='raised') || []);
 const proctors=computed(()=>state.value?.participants.filter(p=>p.isHost || Number(p.is_cohost)) || []);
@@ -42,7 +43,7 @@ const trainingTime=computed(()=>{const format=new Intl.DateTimeFormat('en-US',{d
 const base=computed(()=>`/team-meetings/${props.eventId}/training`);
 async function load(){try{const {data}=await api.get(base.value,{skipGlobalLoading:true});if(!state.value)topic.value=data.event.topic || '';state.value=data;error.value='';emit('state',data);}catch(e){error.value=e.response?.data?.error?.message || 'Could not load training.';}}
 watch(()=>[props.eventId,props.live],()=>{state.value=null;clearInterval(timer);void load();if(props.live)timer=setInterval(load,2500);},{immediate:true});onUnmounted(()=>clearInterval(timer));
-async function rsvp(response){try{await api.post(`${base.value}/rsvp`,{response,reason:response==='declined'?declineReason.value:''});declining.value=false;declineReason.value='';await load();}catch(e){error.value=e.response?.data?.error?.message || 'Could not save RSVP.';}}
+async function rsvp(response){try{await api.post(`${base.value}/rsvp`,{response,reason:response==='declined'?declineReason.value:''});declining.value=false;declineReason.value='';await load();emit('rsvp-saved');window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));}catch(e){error.value=e.response?.data?.error?.message || 'Could not save RSVP.';}}
 async function change(body){try{await api.patch(base.value,body);await load();}catch(e){error.value=e.response?.data?.error?.message || 'Could not update training.';}}
 async function hand(action,userId){try{await api.post(`${base.value}/hand`,{action,userId});await load();return true;}catch(e){error.value=e.response?.data?.error?.message || 'Could not update hand.';return false;}}
 async function deny(id){if(await hand('deny',id))emit('private-chat',id);}

@@ -25,12 +25,9 @@
         </div>
       </template>
     </details>
-    <ProviderEnrollmentWaitlist v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id) && !hideOfficeAndCalendarIntegration" :provider-id="Number(userId)" :agency-ids="String(route.query.waitlist || '') === '1' && Number(route.query.agencyId) > 0 ? [Number(route.query.agencyId)] : effectiveAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" />
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
     <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
-    <ScheduledTrainingLog v-if="Number(effectiveAgencyId)>0" :agency-id="Number(effectiveAgencyId)" />
-    <button v-if="canScheduleTraining(authStore.user) && Number(effectiveAgencyId)>0" type="button" class="btn btn-secondary btn-sm" @click="trainingEditorOpen=true">Schedule training</button>
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
         Personal events
@@ -88,6 +85,8 @@
             </div>
           </div>
 
+          <ProviderEnrollmentWaitlist v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id) && !hideOfficeAndCalendarIntegration" compact hide-unless-enabled :provider-id="Number(userId)" :agency-ids="String(route.query.waitlist || '') === '1' && Number(route.query.agencyId) > 0 ? [Number(route.query.agencyId)] : effectiveAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" />
+
           <div class="sched-command__nav" role="group" aria-label="Week navigation" data-tour="my-schedule-week-nav">
             <button
               class="sched-nav-btn"
@@ -141,12 +140,12 @@
               v-if="Number(effectiveAgencyId || 0) > 0"
               class="sched-command__book"
               type="button"
-              title="Book a session with a client"
-              :disabled="loading || !effectiveAgencyId"
+              :title="clientSessionBookingEnabled ? 'Book a session with a client' : 'Coming soon — your practice will enable session booking when your transition is ready'"
+              :disabled="loading || !effectiveAgencyId || !clientSessionBookingEnabled"
               @click="openUnifiedBookingPanel()"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-              Book session
+              {{ clientSessionBookingEnabled ? 'Book session' : 'Book session · Coming soon' }}
             </button>
             <button
               v-if="Number(effectiveAgencyId || 0) > 0"
@@ -204,7 +203,7 @@
             <button
               type="button"
               class="sched-command__settings"
-              :class="{ on: calendarSettingsOpen }"
+              :class="{ on: calendarSettingsOpen, 'sched-settings-discovery': showScheduleSettingsTip }"
               aria-label="Calendar settings"
               :aria-expanded="calendarSettingsOpen"
               title="People, office, feeds, layout, and more tools"
@@ -217,6 +216,7 @@
               </svg>
               <span class="sched-command__chev" aria-hidden="true">▾</span>
             </button>
+            <button v-if="showScheduleSettingsTip" type="button" class="sched-settings-tip" @click="toggleCalendarSettings">Click here to change your layout, days &amp; colors</button>
           </div>
         </div>
 
@@ -316,10 +316,10 @@
             class="sched-nav-btn"
             type="button"
             title="Book a session with a client using unified tenant booking"
-            :disabled="loading || !effectiveAgencyId"
+            :disabled="loading || !effectiveAgencyId || !clientSessionBookingEnabled"
             @click="openUnifiedBookingPanel()"
           >
-            Book session
+            {{ clientSessionBookingEnabled ? 'Book session' : 'Book session · Coming soon' }}
           </button>
           <button
             v-if="Number(effectiveAgencyId || 0) > 0"
@@ -1218,12 +1218,14 @@
                   <div class="sched-day-card__title">
                     <template v-if="b.kind === 'supv-signup'">
                       <span class="cell-block-signup-headline">OPEN GROUP SUPERVISION</span>
+                      <span v-if="!b.viewerSignedUp && !b.isCancelled" class="cell-block-signup-status">SIGNUP REQUIRED</span>
                       <SupervisionSignupCountdown
-                        v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
+                        v-if="b.signupClosesAt && !b.viewerSignedUp && !b.isCancelled"
                         class="cell-block-signup-countdown"
                         :closes-at="b.signupClosesAt"
+                        :opens-at="b.signupOpensAt"
                         :timezone="bookingTimezoneIana"
-                        prefix="Signup now"
+                        prefix="Signup closes in"
                         format="clock"
                       />
                       <span v-else-if="b.viewerSignedUp" class="cell-block-signup-status cell-block-signup-status--ok">Signed up</span>
@@ -1515,17 +1517,19 @@
                 <span v-else-if="b.kind === 'supv-signup'" class="cell-block-text cell-block-text--signup-supv">
                   <span v-if="b.signupTimeRange && !hideGridBlockTime(b)" class="cell-block-signup-range">{{ b.signupTimeRange }}</span>
                   <span class="cell-block-signup-headline" aria-label="Open group supervision — agency signup session">OPEN GROUP SUPERVISION</span>
-                  <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
+                  <span v-if="!b.viewerSignedUp && !b.isCancelled" class="cell-block-signup-status">SIGNUP REQUIRED</span>
                   <SupervisionSignupCountdown
-                    v-if="b.signupClosesAt && b.signupOpen && !b.viewerSignedUp"
+                    v-if="b.signupClosesAt && !b.viewerSignedUp && !b.isCancelled"
                     class="cell-block-signup-countdown"
                     :closes-at="b.signupClosesAt"
+                    :opens-at="b.signupOpensAt"
                     :timezone="bookingTimezoneIana"
-                    prefix="Signup now"
+                    prefix="Signup closes in"
                     format="clock"
                   />
                   <span v-else-if="b.viewerSignedUp" class="cell-block-signup-status cell-block-signup-status--ok">Signed up</span>
-                  <span v-else class="cell-block-signup-status">Signup closed</span>
+                  <span v-else class="cell-block-signup-status">{{ b.signupStatusLabel }}</span>
+                  <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
                 </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
                   <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
@@ -1783,6 +1787,11 @@
             @changed="refreshSupervisionRecord"
             @open-attendance="editorWorkspaceTab = 'attendance'"
             @open-notes="editorWorkspaceTab = 'note'"
+          />
+          <SupervisionRsvpSummary
+            v-if="editorIsSupervision && isAppointmentEditMode && Number(selectedSupvSessionId) > 0 && editorWorkspaceTab === 'info'"
+            :people="supvSessionAttendees" :can-see-declined="supvCanSeeDeclined"
+            :loading="supvSessionAttendeesLoading" :error="supvSessionAttendeesError"
           />
           <div
             v-show="editorWorkspaceTab === 'info'"
@@ -4650,12 +4659,14 @@
             :class="{ 'supv-signup-footer--enrolled': selectedSupvSession?.viewerSignedUp }"
           >
             <div class="supv-signup-footer__copy">
-              <strong>Open group supervision</strong>
+              <strong>Open group supervision · Signup required</strong>
+              <small v-if="selectedSupvSession?.enrollmentMode === 'signup_only'">Signup opens 24 hours before each session and closes 1 hour before it starts.</small>
               <SupervisionSignupCountdown
-                v-if="selectedSupvSession?.signupClosesAt && isSelectedSupvSignupOpen && !selectedSupvSession?.viewerSignedUp"
+                v-if="selectedSupvSession?.signupClosesAt && !selectedSupvSession?.viewerSignedUp"
                 :closes-at="selectedSupvSession.signupClosesAt"
+                :opens-at="selectedSupvSession.signupOpensAt"
                 :timezone="bookingTimezoneIana"
-                prefix="Signup now"
+                prefix="Signup closes in"
                 format="clock"
               />
               <span v-if="selectedSupvSession?.viewerSignedUp" class="supv-signup-footer__badge">You are signed up</span>
@@ -5772,7 +5783,6 @@
 
 <script setup>
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
-import ScheduledTrainingLog from './ScheduledTrainingLog.vue';
 import ScheduledTrainingPanel from '../meetings/ScheduledTrainingPanel.vue';
 import { canScheduleTraining } from '../../utils/scheduledTraining';
 import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
@@ -5781,7 +5791,7 @@ import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests'
 import CalendarSharing from '../CalendarSharing.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
-import { defaultScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
+import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
@@ -5792,6 +5802,7 @@ import { createCounselingSession, openCounselingFromAppointment } from '../../se
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
 import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
+import SupervisionRsvpSummary from './SupervisionRsvpSummary.vue';
 import { supervisionProgress } from '../../utils/supervisionProgress.js';
 import { getScheduleSummary, getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
@@ -5851,6 +5862,7 @@ import { confirmOneTimeRoom, ANY_ROOM_NOTE } from '../../utils/officeRequestConf
 import { isWorkplaceSchedulePerson } from '../../utils/workplacePeople';
 import SupervisionAttendeeMandatoryPanel from './SupervisionAttendeeMandatoryPanel.vue';
 import SupervisionSignupCountdown from './SupervisionSignupCountdown.vue';
+import { supervisionSignupState, supervisionSignupLabel } from '../../utils/supervisionSignupState.js';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
 import SupervisionGoalsActionsPanel from './SupervisionGoalsActionsPanel.vue';
 import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
@@ -5972,6 +5984,7 @@ const buildUnifiedBookingWallTime = (dayName, hour, minute = 0) => {
 };
 
 const openUnifiedBookingPanel = (dayName = null, hour = null) => {
+  if (!clientSessionBookingEnabled.value) return;
   const today = String(todayLocalYmd.value || '').slice(0, 10);
   const dn = dayName
     || (today ? dayNameForDateYmd(today) : null)
@@ -6004,6 +6017,8 @@ const openScheduleNoteAid = () => {
 const supvAppVideoOrgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const scheduleColors = ref(defaultScheduleColors());
+// Advance only with a persisted palette so a layout save cannot skip color migration.
+const schedulePaletteVersion = ref(0);
 const scheduleColorsSaving = ref(false);
 const scheduleColorsStatus = ref('');
 const scheduleColorsError = ref('');
@@ -6014,7 +6029,13 @@ const saveScheduleColors = async () => {
   scheduleColorsStatus.value = '';
   scheduleColorsError.value = '';
   try {
-    await api.put(`/users/${uid}/preferences`, {schedule_color_overrides:{...scheduleColors.value}}, {skipGlobalLoading:true});
+    const { data } = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
+    const display = parseJsonMaybe(data?.schedule_display_prefs) || {};
+    await api.put(`/users/${uid}/preferences`, {
+      schedule_color_overrides: { ...scheduleColors.value },
+      schedule_display_prefs: { ...display, schedulePaletteVersion: 2 }
+    }, { skipGlobalLoading: true });
+    schedulePaletteVersion.value = 2;
     scheduleColorsStatus.value = 'Your schedule colors are saved.';
   } catch {
     scheduleColorsError.value = 'Colors could not be saved. Please try again.';
@@ -6039,10 +6060,20 @@ const loadMyScheduleColors = async () => {
     if (!myId) return;
     const resp = await api.get(`/users/${myId}/preferences`);
     const colors = parseJsonMaybe(resp.data?.schedule_color_overrides);
-    scheduleColors.value = { ...defaultScheduleColors(), ...(colors || {}) };
     const display = parseJsonMaybe(resp.data?.schedule_display_prefs);
+    schedulePaletteVersion.value = Number(display?.schedulePaletteVersion || 0);
+    scheduleColors.value = resolveScheduleColors(colors, schedulePaletteVersion.value);
+    if (schedulePaletteVersion.value < 2) {
+      try {
+        await api.put(`/users/${myId}/preferences`, {
+          schedule_color_overrides: { ...scheduleColors.value },
+          schedule_display_prefs: { ...display, schedulePaletteVersion: 2 }
+        }, { skipGlobalLoading: true });
+        schedulePaletteVersion.value = 2;
+      } catch { /* Keep the old version so a later visit retries the migration. */ }
+    }
     loadCustomHoldReasonsFromPrefs(display);
-    if (display?.scheduleSideBySide != null) scheduleSideBySide.value = !!display.scheduleSideBySide;
+    if (display?.layoutDefaultsVersion === 2 && display.scheduleSideBySide != null) scheduleSideBySide.value = !!display.scheduleSideBySide;
     if (display && props.mode === 'self') {
       applyDisplayPrefs(display);
       saveDisplayPrefsLocal();
@@ -6539,7 +6570,11 @@ const openMobileDayHour = (hour) => {
   });
 };
 const rowHeightMode = ref('normal');
-const scheduleSideBySide = ref(false);
+const scheduleSideBySide = ref(true);
+const scheduleSettingsTipSeen = ref(false);
+const showScheduleSettingsTip = computed(() => props.mode === 'self' && !scheduleSettingsTipSeen.value
+  && Date.now() >= Date.parse('2026-10-19T06:00:00Z') && Date.now() < Date.parse('2026-12-19T07:00:00Z'));
+watch(calendarSettingsOpen, open => { if (open) scheduleSettingsTipSeen.value = true; });
 const initializedOverlayDefaults = ref(false);
 
 const displayPrefsKey = computed(() => {
@@ -6565,25 +6600,22 @@ const showOfficeQuickGlance = ref(false);
 
 const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   if (!prefs || typeof prefs !== 'object') return;
-  if (prefs.scheduleSideBySide != null) scheduleSideBySide.value = !!prefs.scheduleSideBySide;
+  scheduleSideBySide.value = prefs.layoutDefaultsVersion === 2 ? prefs.scheduleSideBySide !== false : true;
   if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
-  if (prefs.spanMode != null) {
-    const next = normalizeSpanMode(prefs.spanMode);
-    scheduleSpanMode.value = next;
-    if (focusDay) {
-      if (next === 'day' || next === 'agenda') ensureSingleDayFocus();
-      else focusedDays.value = [];
-    }
-  }
+  // Each visit starts with the whole week; Day/Agenda remain available for this visit.
+  scheduleSpanMode.value = 'week';
+  focusedDays.value = [];
   if (prefs.weekStartsOn != null && props.mode === 'self') {
     weekStartsOnLocal.value = String(prefs.weekStartsOn).toLowerCase() === 'sunday' ? 'sunday' : 'monday';
   }
-  if (prefs.hideWeekend != null) hideWeekend.value = !!prefs.hideWeekend;
+  hideWeekend.value = prefs.layoutDefaultsVersion === 2 ? !!prefs.hideWeekend : false;
   if (prefs.showAllHours != null) showAllHours.value = !!prefs.showAllHours;
   if (prefs.showOfficeQuickGlance != null) showOfficeQuickGlance.value = !!prefs.showOfficeQuickGlance;
 };
 
 const collectDisplayPrefs = () => ({
+  layoutDefaultsVersion: 2,
+  schedulePaletteVersion: schedulePaletteVersion.value,
   scheduleSideBySide: scheduleSideBySide.value,
   rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
   spanMode: normalizeSpanMode(scheduleSpanMode.value),
@@ -6648,7 +6680,7 @@ const saveDisplayPrefs = () => {
 // Restore display prefs immediately from localStorage (skip day focus until focusableDays exists).
 try {
   const ownLocal = loadDisplayPrefsLocal();
-  if (ownLocal?.scheduleSideBySide != null) scheduleSideBySide.value = !!ownLocal.scheduleSideBySide;
+  if (ownLocal?.layoutDefaultsVersion === 2 && ownLocal.scheduleSideBySide != null) scheduleSideBySide.value = !!ownLocal.scheduleSideBySide;
   if (props.mode === 'self') {
     const local = (() => {
       const uid = Number(authStore.user?.id || props.userId || 0);
@@ -7631,7 +7663,7 @@ try {
         : !!saved.showAllHours;
       viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
       if (saved.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(saved.rowHeightMode);
-      if (saved.spanMode != null) scheduleSpanMode.value = normalizeSpanMode(saved.spanMode);
+      scheduleSpanMode.value = 'week';
       lastCalendarPrefs.value = saved.lastCalendarPrefs ? { ...saved.lastCalendarPrefs } : null;
       // If saved selection is empty, we do NOT auto-select all — user explicitly hid calendars.
       shouldDefaultSelectAllExternal.value = false;
@@ -7665,7 +7697,11 @@ onMounted(() => {
       /* ignore */
     }
   }
-  if (props.mode === 'self' && isDayOrAgendaSpan.value) ensureSingleDayFocus();
+  if (props.mode === 'self') {
+    viewMode.value = 'open_finder';
+    scheduleSpanMode.value = 'week'; focusedDays.value = [];
+    if (loadDisplayPrefsLocal()?.layoutDefaultsVersion !== 2) hideWeekend.value = false;
+  }
   try {
     narrowScheduleMql = window.matchMedia('(max-width: 820px)');
     let narrowInitialized = false;
@@ -8938,6 +8974,35 @@ const scheduleActorUserId = computed(() => {
   return Number(props.userId || authStore.user?.id || 0) || 0;
 });
 
+const clientSessionBookingEnabled = ref(false);
+const clientSessionBookingAgencyId = computed(() => Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0));
+let bookingAccessGeneration = 0;
+const refreshClientSessionBookingAccess = async () => {
+  const generation = ++bookingAccessGeneration;
+  const agencyId = clientSessionBookingAgencyId.value;
+  const providerUserId = scheduleActorUserId.value;
+  if (!agencyId || !providerUserId) { clientSessionBookingEnabled.value = false; return false; }
+  try {
+    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId},skipGlobalLoading:true});
+    if (generation !== bookingAccessGeneration) return false;
+    clientSessionBookingEnabled.value = result.data?.enabled === true;
+    return clientSessionBookingEnabled.value;
+  } catch {
+    if (generation === bookingAccessGeneration) clientSessionBookingEnabled.value = false;
+    return false;
+  }
+};
+watch([clientSessionBookingAgencyId, scheduleActorUserId], () => {
+  // Revoke the previous provider/agency capability synchronously, before another click.
+  clientSessionBookingEnabled.value = false;
+  void refreshClientSessionBookingAccess();
+}, {immediate:true, flush:'sync'});
+onMounted(() => window.addEventListener('focus', refreshClientSessionBookingAccess));
+onUnmounted(() => {
+  bookingAccessGeneration++;
+  window.removeEventListener('focus', refreshClientSessionBookingAccess);
+});
+
 const showMyRoomLobbyModal = ref(false);
 const canOpenMyRoomLobby = computed(() => {
   const me = Number(authStore.user?.id || 0);
@@ -10084,11 +10149,11 @@ watch(scheduleSideBySide, async () => {
   if (!uid) return;
   try {
     const local = loadDisplayPrefsLocal() || {};
-    window.localStorage.setItem(displayPrefsKey.value, JSON.stringify({ ...local, scheduleSideBySide:scheduleSideBySide.value }));
+    window.localStorage.setItem(displayPrefsKey.value, JSON.stringify({ ...local, layoutDefaultsVersion:2, scheduleSideBySide:scheduleSideBySide.value }));
     const response = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading:true });
     const prefs = parseJsonMaybe(response.data?.schedule_display_prefs) || {};
     await api.put(`/users/${uid}/preferences`, {
-      schedule_display_prefs:{ ...prefs, scheduleSideBySide:scheduleSideBySide.value }
+      schedule_display_prefs:{ ...prefs, layoutDefaultsVersion:2, scheduleSideBySide:scheduleSideBySide.value }
     }, { skipGlobalLoading:true });
   } catch { /* local choice remains available offline */ }
 });
@@ -10387,25 +10452,7 @@ const isSignupSupervisionEvent = (ev) => {
   return !!ev?.isOpenJoinOffering;
 };
 
-const isSignupSupervisionOpen = (ev) => {
-  if (!isSignupSupervisionEvent(ev)) return false;
-  const raw = ev?.signupClosesAt;
-  if (raw) {
-    const text = String(raw).trim();
-    // UTC ISO (preferred) or naked UTC DATETIME digits.
-    const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}:\d{2}$/.test(text))
-      ? `${text.replace(' ', 'T')}Z`
-      : (text.includes('T') ? text : text.replace(' ', 'T'));
-    const closes = new Date(normalized);
-    if (!Number.isNaN(closes.getTime())) return Date.now() < closes.getTime();
-  }
-  // Hybrid open-join offerings: claimable until the session ends.
-  if (ev?.isOpenJoinOffering) {
-    const end = parseScheduleInstant(ev?.endAt);
-    return !!(end && Date.now() < end.getTime());
-  }
-  return false;
-};
+const isSignupSupervisionOpen = (ev) => supervisionSignupState(ev, joinPromptNowMs.value) === 'open';
 
 const isSupervisionSessionLive = (ev) => {
   const start = parseScheduleInstant(ev?.startAt);
@@ -10415,8 +10462,8 @@ const isSupervisionSessionLive = (ev) => {
   return now >= start.getTime() && now <= end.getTime();
 };
 
-const OPEN_GROUP_SUPERVISION_LABEL = 'Open group supervision';
-const OPEN_GROUP_SUPERVISION_HEADLINE = 'OPEN GROUP SUPERVISION';
+const OPEN_GROUP_SUPERVISION_LABEL = 'Open group supervision · Signup required';
+const OPEN_GROUP_SUPERVISION_HEADLINE = 'OPEN GROUP · SIGNUP REQUIRED';
 
 const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { multiline = false } = {}) => {
   const hits = supervisionSessionsInCell(dayName, hour, minute);
@@ -10424,7 +10471,6 @@ const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { 
   if (signupHit) {
     const who = String(signupHit.counterpartyName || signupHit.supervisorName || '').trim();
     const signedUp = !!signupHit.viewerSignedUp;
-    const open = isSignupSupervisionOpen(signupHit);
     const live = isSupervisionSessionLive(signupHit);
     const seg = String(segmentClass || 'single');
     if (seg === 'middle' || seg === 'end') {
@@ -10438,7 +10484,7 @@ const supervisionLabel = (dayName, hour, minute = 0, segmentClass = 'single', { 
       if (who) lines.push(who);
       if (live) lines.push('Occurring');
       else if (signedUp) lines.push('Signed up');
-      else if (!open) lines.push('Signup closed');
+      else lines.push(supervisionSignupLabel(signupHit, joinPromptNowMs.value));
       return lines.filter(Boolean).join('\n');
     }
     return clipBlockLabel(OPEN_GROUP_SUPERVISION_HEADLINE, 56);
@@ -10472,9 +10518,8 @@ const supervisionTitle = (dayName, hour, minute = 0) => {
     const who = String(signupHit.counterpartyName || signupHit.supervisorName || 'Facilitator').trim();
     const timeText = clockRangeLabel(signupHit?.startAt, signupHit?.endAt) || hourLabel(hour);
     const count = Number(signupHit?.signupCount || 0);
-    const open = isSignupSupervisionOpen(signupHit);
     const live = isSupervisionSessionLive(signupHit);
-    let status = open ? 'Signup open' : 'Signup closed';
+    let status = supervisionSignupLabel(signupHit, joinPromptNowMs.value);
     if (signupHit.viewerSignedUp) {
       status = live ? 'Occurring — you are signed up' : 'You are signed up';
     }
@@ -11644,6 +11689,8 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       startAt: first?.startAt || null,
       endAt: first?.endAt || null,
       signupClosesAt: first?.signupClosesAt || null,
+      signupOpensAt: first?.signupOpensAt || null,
+      signupStatusLabel: supervisionSignupLabel(first, joinPromptNowMs.value),
       viewerSignedUp,
       signupOpen,
       sessionLive,
@@ -12233,8 +12280,8 @@ const showAdditionalParticipantsPicker = ref(false);
 // Keep modal “Schedule for” in sync when parent changes the viewed user (declared after showRequestModal to avoid TDZ).
 watch(() => props.userId, (uid) => {
   const id = Number(uid || 0);
-  if (id > 0 && showRequestModal.value) {
-    bookingTargetUserId.value = id;
+  if (id > 0) {
+    bookingTargetUserId.value = showRequestModal.value ? id : 0;
   }
 });
 const showSlotInfoModal = ref(false);
@@ -12292,6 +12339,13 @@ const AGENCY_OPTIONAL_ACTIONS = new Set([
   'extend_assignment'
 ]);
 const SESSION_BOOKING_ACTIONS = new Set(['individual_session', 'group_session', 'portal_intake']);
+const CLIENT_SESSION_CREATE_ACTIONS = new Set(['individual_session', 'group_session']);
+watch(clientSessionBookingEnabled, (enabled) => {
+  if (!enabled && showRequestModal.value && CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value)) {
+    requestType.value = '';
+    requestTypeChosenByUser.value = false;
+  }
+});
 
 const officeSlotStatusLabel = (rawState) => {
   const st = String(rawState || '').trim().toUpperCase();
@@ -12848,11 +12902,11 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'individual_session',
-      label: 'Book Session',
+      label: clientSessionBookingEnabled.value ? 'Book Session' : 'Book Session · Coming soon',
       description: hasOffice
         ? 'Schedule a client session — add more than one client to make it a group session'
         : 'Schedule a session (office optional). Add more than one client to make it a group session.',
-      disabledReason: '',
+      disabledReason: clientSessionBookingEnabled.value ? '' : 'Your practice will enable session booking after your TherapyNotes transition.',
       visible: !supervisionOnlyMode,
       tone: 'violet',
       chooserPriority: 10
@@ -13233,16 +13287,20 @@ const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
   const occupiedOffice = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
   // Date/time/provider edit lives in the top bar — keep Advanced assign in More for occupied slots.
-  const rows = chooserCardActions.value.filter((r) => !r.disabledReason && !(occupiedOffice && r.id === 'admin_assign'));
+  const rows = chooserCardActions.value.filter((r) => (!r.disabledReason || r.id === 'individual_session') && !(occupiedOffice && r.id === 'admin_assign'));
+  const includeBookingNotice = (actions) => {
+    const booking = actions.find(action => action.id === 'individual_session');
+    return booking?.disabledReason ? [booking, ...actions.filter(action => action.id !== 'individual_session')] : actions;
+  };
   const isEmptyOffice = modalActionSource.value === 'office_block' && state === 'ASSIGNED_AVAILABLE';
   if (isEmptyOffice) {
     const byId = new Map(rows.map((r) => [String(r.id), r]));
     const preferred = EMPTY_OFFICE_PRIMARY_IDS.map((id) => byId.get(id)).filter(Boolean);
     const preferredIds = new Set(preferred.map((r) => r.id));
     const rest = rows.filter((r) => !preferredIds.has(r.id));
-    return sortQuickActionsSmart([...preferred, ...rest]).slice(0, SLOT_ACTION_PRIMARY_COUNT);
+    return includeBookingNotice(sortQuickActionsSmart([...preferred, ...rest])).slice(0, SLOT_ACTION_PRIMARY_COUNT);
   }
-  return rows.slice(0, SLOT_ACTION_PRIMARY_COUNT);
+  return includeBookingNotice(rows).slice(0, SLOT_ACTION_PRIMARY_COUNT);
 });
 const moreQuickActions = computed(() => {
   const primaryIds = new Set((primaryQuickActions.value || []).map((r) => r.id));
@@ -15584,6 +15642,7 @@ function onAppointmentChangeCompleted(result) {
  */
 function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = {} } = {}) {
   const k = String(kind || '').trim();
+  if (mode === 'create' && CLIENT_SESSION_CREATE_ACTIONS.has(k) && !clientSessionBookingEnabled.value) return;
   // Never treat a schedule-event / supervision id as an appointment id.
   editorAppointmentId.value = Number(defaults.appointmentId || 0) || 0;
   editorClinicalSessionId.value = Number(defaults.clinicalSessionId || 0) || 0;
@@ -16808,6 +16867,7 @@ const supervisionPresenterDates = computed(() => {
 watch(showRequestModal, (open) => { if (!open) { supervisionOccurrencePresenters.value = {}; supervisionOccurrenceCancellations.value = {}; } });
 /** Invited attendees for the open supervision session (edit / info / roster). */
 const supvSessionAttendees = ref([]);
+const supvCanSeeDeclined = ref(false);
 const supvSessionAttendeesLoading = ref(false);
 const supvSessionAttendeesError = ref('');
 const supvParticipantHoursRows = ref([]);
@@ -18920,6 +18980,12 @@ const openSlotActionModal = async ({
     modalStartMinute.value = snapQuarterMinute(Number(minute));
     modalEndMinute.value = Number(modalEndHour.value) < 24 ? modalStartMinute.value : 0;
   }
+  // Deep links use the same rollout boundary as the header and chooser, after
+  // resolving the office/tenant and booking provider for this particular action.
+  if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !(await refreshClientSessionBookingAccess())) {
+    requestType.value = '';
+    requestTypeChosenByUser.value = false;
+  }
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   void loadSupervisionProviders();
@@ -20645,6 +20711,7 @@ const submitOfficeAssign = async () => {
 
 const onQuickActionSelect = (act) => {
   const id = String(act?.id || '');
+  if (CLIENT_SESSION_CREATE_ACTIONS.has(id) && !clientSessionBookingEnabled.value) return;
   if (act?.disabledReason) return;
   recordSlotActionUsage(id);
   requestTypeChosenByUser.value = true;
@@ -20732,6 +20799,7 @@ const dismissMeetingCreatedShare = async () => {
 const closeModal = () => {
   appointmentEditOpenGen += 1;
   showRequestModal.value = false;
+  bookingTargetUserId.value = 0;
   meetingCreatedShare.value = null;
   modalActionSource.value = 'general';
   requestType.value = '';
@@ -21339,6 +21407,10 @@ const completePlatformVirtualSessionBooking = async ({
 
 const submitRequest = async () => {
   bookingSubmitAttempted.value = true;
+  if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !clientSessionBookingEnabled.value) {
+    modalError.value = 'Client session booking is coming soon for this provider. Your practice will enable it when their transition is ready.';
+    return;
+  }
   if (actionRequiresAgency.value && !effectiveAgencyId.value) {
     modalError.value = 'Select an agency for this action.';
     return;
@@ -23659,6 +23731,7 @@ const loadSupvAttendees = async (sessionId) => {
   const sid = Number(sessionId || 0);
   if (!sid) {
     supvSessionAttendees.value = [];
+    supvCanSeeDeclined.value = false;
     supvSessionAttendeesError.value = '';
     return;
   }
@@ -23667,8 +23740,10 @@ const loadSupvAttendees = async (sessionId) => {
     supvSessionAttendeesError.value = '';
     const resp = await api.get(`/supervision/sessions/${sid}/attendees`, { skipGlobalLoading: true });
     supvSessionAttendees.value = Array.isArray(resp.data?.attendees) ? resp.data.attendees : [];
+    supvCanSeeDeclined.value = resp.data?.canSeeDeclined === true;
   } catch (e) {
     supvSessionAttendees.value = [];
+    supvCanSeeDeclined.value = false;
     supvSessionAttendeesError.value = e.response?.data?.error?.message || e.message || 'Failed to load attendees';
   } finally {
     supvSessionAttendeesLoading.value = false;
@@ -23916,6 +23991,7 @@ const closeSupvModal = () => {
   supvPresentersLoading.value = false;
   supvPresentersError.value = '';
   supvSessionAttendees.value = [];
+  supvCanSeeDeclined.value = false;
   supvSessionAttendeesLoading.value = false;
   supvSessionAttendeesError.value = '';
   supvParticipantHoursRows.value = [];
@@ -31909,4 +31985,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 <style scoped>
 .training-detail-backdrop{position:fixed;inset:0;z-index:12000;background:#0008;display:flex;align-items:center;justify-content:center;padding:20px}
 .training-detail-dialog{background:var(--bg-primary,#fff);color:var(--text-primary,#17212d);border-radius:12px;max-width:860px;width:100%;max-height:90vh;overflow:auto;padding:20px}
+</style>
+
+<style scoped>
+.sched-settings-tip { max-width:220px; padding:6px 10px; border:1px solid #c7d2fe; border-radius:8px; color:#3730a3; background:#eef2ff; font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.sched-settings-discovery { animation:schedule-settings-pulse 1.6s ease-in-out 4; }
+@keyframes schedule-settings-pulse { 50% { box-shadow:0 0 0 5px #6366f138; background:#e0e7ff; } }
+@media(prefers-reduced-motion:reduce) { .sched-settings-discovery { animation:none; outline:2px solid #818cf8; } }
 </style>

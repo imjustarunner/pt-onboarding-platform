@@ -15,7 +15,7 @@ describe('personal meeting entry',()=>{
     m.post.mockResolvedValue({data:{ok:true}});
     const wrapper=render();expect(wrapper.findAll('button')).toHaveLength(0);await flushPromises();
     expect(m.get).toHaveBeenCalledWith('/meeting-invitations/personal',{skipAuthRedirect:true,params:{details:1,eventId:'19'}});
-    expect(wrapper.findAll('button')).toHaveLength(label.startsWith('Optional') ? 1 : 2);expect(wrapper.find('textarea').exists()).toBe(false);
+    expect(wrapper.findAll('button')).toHaveLength(2);expect(wrapper.find('textarea').exists()).toBe(false);
     expect(wrapper.text()).toContain(label);expect(wrapper.text()).toContain('does not record attendance time');
     expect(wrapper.text()).not.toContain('no online video link');
     await wrapper.get('button').trigger('click');await flushPromises();
@@ -83,4 +83,15 @@ it('shows meeting details and agenda without signing in, then opens the session 
  m.get.mockResolvedValueOnce({data:{joinUrl:`${window.location.origin}/join/supervision/19`,supervisionAccess:{sessionId:19,token:'scoped-only',expiresAt:Date.now()+60000}}});
  delete m.query.details;delete m.query.eventId;await flushPromises();
  expect(m.replace).toHaveBeenCalledWith('/join/supervision/19');wrapper.unmount();
+});
+
+it('lets an optional invitee stop reminders immediately without an absence reason',async()=>{
+ Object.assign(m.query,{rsvp:'1',eventId:'19'});
+ m.get.mockResolvedValue({data:{meeting:{title:'Group supervision',attendance:{tier:'optional',label:'Optional'}}}});
+ m.post.mockResolvedValue({data:{ok:true}});
+ const wrapper=render();await flushPromises();
+ await wrapper.findAll('button').find(b=>b.text().includes('Stop reminders')).trigger('click');await flushPromises();
+ expect(wrapper.find('textarea').exists()).toBe(false);
+ expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:''},{skipAuthRedirect:true});
+ wrapper.unmount();
 });

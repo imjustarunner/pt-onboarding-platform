@@ -17,7 +17,8 @@ import { ensureTenantMessageMailboxes } from './tenantMessageMailboxes.service.j
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { duePresenterReminders } from './supervisionPresenterReminderPolicy.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
-import { canUserSignup } from './supervisionSignup.service.js';
+import { getSupervisionSignupWindow } from './supervisionSignupWindow.js';
+import { canUserSignup, getViewerSignupState } from './supervisionSignup.service.js';
 import { escapeMeetingHtml as esc } from './meetingInvitationPolicy.js';
 import { pendingOptionalSupervision } from './supervisionAttendancePolicy.js';
 
@@ -25,9 +26,9 @@ import { pendingOptionalSupervision } from './supervisionAttendancePolicy.js';
 // never start broadcasting signup emails when this code is deployed.
 export function signupInvitationDue(session, now = new Date()) {
  const settings = parseMeetingSettings(session.meeting_settings_json);
- const hours = (parseUtcDate(session.start_at) - now) / 3600000;
+ const window = getSupervisionSignupWindow(session, now);
  return session.enrollment_mode === 'signup_only' && settings.signupInvitationEnabled === true
-   && session.status === 'SCHEDULED' && Number(session.notify_participants ?? 1) !== 0 && hours > 23 && hours <= 24;
+   && session.status === 'SCHEDULED' && Number(session.notify_participants ?? 1) !== 0 && window.signupOpen;
 }
 
 export function supervisionCalendar(session, joinUrl) {
@@ -52,13 +53,14 @@ export async function supervisionEmailPeople(session) {
 }
 export async function prepareSupervisionEmail({session,user,joinUrl,kind='invitation'}) {
  if (kind === 'signup_invitation') {
+  if (['DECLINED','WITHDRAWN'].includes((await getViewerSignupState(session.id,user.id)).status)) return {skipped:true,reason:'not_interested'};
   if (session.enrollment_mode !== 'signup_only' || parseMeetingSettings(session.meeting_settings_json).signupInvitationEnabled !== true
     || !(await canUserSignup({sessionRow:session,userId:user.id})).ok) return {skipped:true,reason:'not_signup_eligible'};
   const identity = await resolveMeetingRecipient({agencyId:session.agency_id,user});
   const mailboxes = await ensureTenantMessageMailboxes(session.agency_id);
   const base = await tenantMeetingBase(session.agency_id);
   const when = new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:session.event_timezone || 'America/Denver'}).format(parseUtcDate(session.start_at));
-  const text = `Hi ${user.first_name || ''},\n\nOptional group supervision is available ${when} (${session.event_timezone || 'America/Denver'}). Participation is optional and not compensated.${isStudentIntern(user) ? ' Record attended supervision as indirect hours toward your master’s internship requirements.' : ''} RSVP only if you plan to attend; no decline or reason is needed.\n\nOpen My Schedule and select this group supervision to sign up. Registration closes one hour before the session; the session is canceled if nobody signs up.\n\n${base}/dashboard?tab=my_schedule\n\nThis is your one signup invitation for this date. You have not been registered automatically.`;
+  const text = `Hi ${user.first_name || ''},\n\nOptional group supervision is available ${when} (${session.event_timezone || 'America/Denver'}). Participation is optional and not compensated.${isStudentIntern(user) ? ' Record attended supervision as indirect hours toward your master’s internship requirements.' : ''} RSVP only if you plan to attend; no decline or reason is needed.\n\nOpen My Schedule and select this group supervision to sign up. Signup opens 24 hours before the session and closes one hour before it starts; the session is canceled if nobody signs up.\n\n${base}/dashboard?tab=my_schedule\n\nThis is your one signup invitation for this date. You have not been registered automatically.`;
   return {to:identity.email,senderIdentityId:mailboxes.notifications.id,replyToOverride:`leadership@${mailboxes.domain || mailboxes.notifications.from_email.split('@')[1]}`,
    subject:`Optional group supervision — sign up for ${when}`,text,html:`<p>${esc(text).replace(/\n/g,'<br>')}</p><p><a href="${esc(base)}/dashboard?tab=my_schedule">Open My Schedule to sign up</a></p>`,
    agencyId:session.agency_id,userId:user.id,templateType:'meeting_invited',source:'auto'};
@@ -66,6 +68,12 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const people=await supervisionEmailPeople(session);
  const recipient=people.find(p=>Number(p.id)===Number(user.id));
  if(!recipient||['DECLINED','WITHDRAWN','REMOVED','CANCELLED'].includes(recipient.status))return {skipped:true,reason:'not_attending'};
+ // Older recurring copies may have an INVITED row for last week's registrants.
+ // That is not registration for this date: only the dedicated 24-hour signup
+ // invitation may reach them until they explicitly sign up again.
+ if(session.enrollment_mode==='signup_only'
+   && ![session.supervisor_user_id,session.co_facilitator_user_id].some(id=>Number(id)>0 && Number(id)===Number(user.id))
+   && !['SIGNED_UP','JOINED'].includes(String(recipient.status || '').toUpperCase()))return {skipped:true,reason:'signup_registration_required'};
  const huddle=session.kind==='HUDDLE';
  if(!huddle && kind.startsWith('presenter:') && !recipient.isPresenter)return {skipped:true,reason:'no_longer_presenting'};
  // Presenter preparation has its own five deadlines. Do not also send the

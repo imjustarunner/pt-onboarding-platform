@@ -1,3 +1,4 @@
+import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
 import { counselingClinicalToken,endClinicalCounseling } from '../services/counselingClinicalVideo.service.js';
 import * as visitService from '../services/counselingSessionVisit.service.js';
@@ -337,6 +338,7 @@ export async function createSession(req, res) {
     }
 
     await assertCanCreateCounselingSession(req, agencyId);
+    await requireClientSessionBooking(agencyId, providerUserId);
 
     const roomUniqueName = `counseling-${agencyId}-${Date.now()}`;
     const vonageSessionId = null;

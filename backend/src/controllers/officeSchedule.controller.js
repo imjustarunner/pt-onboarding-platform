@@ -1,3 +1,4 @@
+import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import {indexPendingRoomRequest,pendingBookingOccurrences} from '../utils/officePendingRequests.js';
 import {listPendingOfficeBookingRequests as readPendingOfficeBookingRequests} from '../services/pendingOfficeBookingRequests.service.js';
@@ -2623,6 +2624,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
+    if (clientId) await requireClientSessionBooking(Number(req.body?.agencyId || policyAgencyId), requestedProviderId);
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
@@ -2630,7 +2632,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
         participants:[{role:'client',clientId}],occurrences,timeZone:loc.timezone || 'America/Denver' })) return;
     }
     const validatedSelection = {
-      ...(await validateSchedulingSelection({
+      ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,
@@ -3268,8 +3270,9 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
     const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
+    if (reqRow.client_id) await requireClientSessionBooking(Number(reqRow.agency_id || policyAgencyId), requestedProvider.id);
     const validatedSelection = {
-      ...(await validateSchedulingSelection({
+      ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,

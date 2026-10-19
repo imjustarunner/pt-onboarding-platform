@@ -15,12 +15,11 @@ export async function saveSupervisionRsvp({sessionId,userId,response,reason='',s
  if(!session||session.status!=='SCHEDULED'||parseUtcDate(session.start_at)<=now)throw Object.assign(new Error('This supervision RSVP is no longer available.'),{status:410});
  if(response==='accepted'&&session.enrollment_mode==='signup_only'&&!['SIGNED_UP','JOINED'].includes(session.attendee_status)&&!isSignupOpen(session,now))throw Object.assign(new Error('Registration for this session has closed.'),{status:409});
  const required = Number(session.is_required) === 1 || Number(session.is_presenter) === 1 || [session.supervisor_user_id,session.co_facilitator_user_id,session.session_type==='individual'?session.supervisee_user_id:null].some(id=>Number(id)>0 && Number(id)===Number(userId));
- if (response==='declined' && !required) throw Object.assign(new Error('This session is optional. RSVP only if you plan to attend; no decline or reason is needed.'),{status:400});
- const declineReason = String(reason || '').trim();
+ const declineReason = required ? String(reason || '').trim() : '';
  if (response==='declined' && required && !declineReason) throw Object.assign(new Error('Please explain why you cannot attend this required supervision.'),{status:400});
  if (declineReason.length>2000) throw Object.assign(new Error('Keep your reason under 2,000 characters.'),{status:400});
  if(scope==='until_date') {
-  if(session.session_type!=='group'||!session.recurrence_series_id||session.enrollment_mode==='signup_only')throw Object.assign(new Error('A recurring absence is only available for regular recurring group supervision.'),{status:400});
+  if(!required || session.session_type!=='group'||!session.recurrence_series_id||session.enrollment_mode==='signup_only')throw Object.assign(new Error('A recurring absence is only available for regular recurring group supervision.'),{status:400});
   const window=supervisionAbsenceWindow(session,untilDate);
   await db.execute(`INSERT INTO supervision_rsvp_absences (agency_id,recurrence_series_id,user_id,source_session_id,starts_at,ends_at,through_date,weekday,reason) VALUES (?,?,?,?,?,?,?,?,?)`,[session.agency_id,session.recurrence_series_id,userId,sessionId,window.startsAt,window.endsAt,window.throughDate,window.weekday,declineReason]);
   const [occurrences]=await db.execute(`SELECT s.* FROM supervision_sessions s JOIN supervision_session_attendees a ON a.session_id=s.id AND a.user_id=? WHERE s.agency_id=? AND s.recurrence_series_id=? AND s.session_type='group' AND s.status='SCHEDULED' AND s.start_at>=? AND s.start_at<? AND s.start_at>? AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN') FOR UPDATE`,[userId,session.agency_id,session.recurrence_series_id,window.startsAt,window.endsAt,now]);

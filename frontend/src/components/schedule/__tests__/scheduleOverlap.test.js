@@ -44,7 +44,7 @@ it('renders every event rather than capping crowded slots',async()=>{
   expect(new Set(blocks.map(b=>b.sideBySideLane.col)).size).toBe(6);
 });
 it('offers the saved side-by-side toggle on hover and zooms a single item when enabled',async()=>{
-  const s=await mount();
+  const s=await mount();s.scheduleSideBySide=false;await nextTick();
   const overlap=wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
   await overlap.trigger('mouseenter');
   expect(wrapper.findAll('.cell-expanded-item')).toHaveLength(2);
@@ -62,7 +62,7 @@ it('uses the viewer preference when displaying someone else and preserves their 
   m.prefs={scheduleSideBySide:true,rowHeightMode:'large',holdReasons:[{code:'CUSTOM',label:'Custom'}]};
   const s=await mount({mode:'admin',userId:91});expect(s.scheduleSideBySide).toBe(true);
   s.scheduleSideBySide=false;await flushPromises();
-  expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{schedule_display_prefs:{...m.prefs,scheduleSideBySide:false}},expect.anything());
+  expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{schedule_display_prefs:{...m.prefs,layoutDefaultsVersion:2,scheduleSideBySide:false}},expect.anything());
   expect(m.put.mock.calls.some(([url])=>url.includes('/91/'))).toBe(false);
   wrapper.unmount();m.prefs={scheduleSideBySide:true};await mount();
   expect(wrapper.vm.$.setupState.scheduleSideBySide).toBe(true);
@@ -196,4 +196,36 @@ it('keeps the original hour when crossing the gap into a preview beside a later 
   await owner.trigger('mouseenter', { clientX: 300, clientY: 450 });
   expect(s.calendarStackContext.hour).toBe(11);
   expect(s.calendarStackItems.map(b => b.eventId)).toEqual([1, 2]);
+});
+
+it('starts legacy schedules in a full week with side-by-side items at either entry point', async () => {
+  m.prefs = {spanMode:'day',scheduleSideBySide:false,hideWeekend:true};
+  for (const path of ['/dashboard','/itsco/my-schedule']) {
+    m.route.path=path;
+    const s=await mount({mode:'self',compactPageChrome:true});
+    expect(s.scheduleSpanMode).toBe('week');
+    expect(s.focusedDays).toEqual([]);
+    expect(s.hideWeekend).toBe(false);
+    expect(s.scheduleSideBySide).toBe(true);
+    wrapper.unmount();
+  }
+});
+it('keeps post-rollout layout choices but always starts a new visit on the week', async () => {
+  m.prefs={layoutDefaultsVersion:2,spanMode:'agenda',scheduleSideBySide:false,hideWeekend:true};
+  const s=await mount({mode:'self'});
+  expect(s.scheduleSpanMode).toBe('week');
+  expect(s.scheduleSideBySide).toBe(false);
+  expect(s.hideWeekend).toBe(true);
+  s.setScheduleSpanMode('day');await nextTick();
+  expect(s.scheduleSpanMode).toBe('day');
+});
+it('shows the layout helper during the two-month introduction and dismisses on opening settings', async () => {
+  vi.setSystemTime(new Date('2026-10-19T18:00:00Z'));
+  const s=await mount({mode:'self',compactPageChrome:true});
+  expect(wrapper.find('.sched-settings-tip').text()).toContain('change your layout');
+  await wrapper.find('[data-testid="schedule-command-settings"]').trigger('click');
+  expect(wrapper.find('.sched-settings-tip').exists()).toBe(false);
+  wrapper.unmount();vi.setSystemTime(new Date('2026-12-20T18:00:00Z'));
+  await mount({mode:'self',compactPageChrome:true});
+  expect(wrapper.find('.sched-settings-tip').exists()).toBe(false);
 });

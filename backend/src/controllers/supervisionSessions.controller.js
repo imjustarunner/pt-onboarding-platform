@@ -1,3 +1,6 @@
+import { userBelongsToAgency } from '../services/supervisionSignup.service.js';
+import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
+import { saveSupervisionRsvp } from '../services/supervisionRsvp.service.js';
 import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
 import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
@@ -4726,7 +4729,7 @@ export const getSessionAttendees = async (req, res, next) => {
       supervisorUserId: row.supervisor_user_id,
       superviseeUserId: row.supervisee_user_id,
       sessionId: id
-    });
+    }) || (row.enrollment_mode === 'signup_only' && await userBelongsToAgency(req.user.id,row.agency_id));
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const [attendees, presenters] = await Promise.all([
@@ -4736,7 +4739,8 @@ export const getSessionAttendees = async (req, res, next) => {
     const presenterIds = new Set(
       (presenters || []).map((p) => Number(p.user_id || p.userId || 0)).filter((n) => n > 0)
     );
-    const out = (attendees || []).map((a) => {
+    const canSeeDeclined = canViewDeclinedMeetingParticipants(row, req.user, attendees);
+    const out = visibleMeetingRsvpParticipants(attendees || [], canSeeDeclined).map((a) => {
       const userId = Number(a.user_id || a.userId || 0);
       const firstName = String(a.first_name || a.firstName || '').trim();
       const lastName = String(a.last_name || a.lastName || '').trim();
@@ -4750,11 +4754,11 @@ export const getSessionAttendees = async (req, res, next) => {
         participantRole: String(a.participant_role || a.participantRole || '').trim() || null,
         isRequired: Number(a.is_required || a.isRequired || 0) === 1,
         status: String(a.status || '').trim() || null,
-        ...([row.supervisor_user_id,row.co_facilitator_user_id].some(id => Number(id) === Number(req.user.id)) && a.decline_reason ? { declineReason: a.decline_reason } : {}),
+        ...(canSeeDeclined && a.decline_reason ? { declineReason: a.decline_reason } : {}),
         isPresenter: presenterIds.has(userId)
       };
     });
-    res.json({ ok: true, attendees: out });
+    res.json({ ok: true, attendees: out, canSeeDeclined });
   } catch (e) {
     next(e);
   }
@@ -4874,7 +4878,8 @@ export const signupForSupervisionSession = async (req, res, next) => {
     } catch (err) {
       const code = String(err?.code || err?.message || '');
       if (code === 'not_signup_session') return res.status(400).json({ error: { message: 'This session is not open for signup' } });
-      if (code === 'signup_closed') return res.status(400).json({ error: { message: 'Signup has closed for this session' } });
+      if (code === 'signup_not_open') return res.status(400).json({ error: { message: 'Signup opens 24 hours before this session starts.' } });
+      if (code === 'signup_closed') return res.status(400).json({ error: { message: 'Signup closed one hour before this session starts.' } });
       if (code === 'already_signed_up') return res.status(409).json({ error: { message: 'You are already signed up' } });
       if (code === 'not_in_agency') return res.status(403).json({ error: { message: 'You are not a member of this agency' } });
       if (code === 'facilitator') return res.status(400).json({ error: { message: 'Facilitators cannot sign up for their own session' } });
@@ -4903,4 +4908,12 @@ export const withdrawFromSupervisionSession = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const respondToSupervisionSession = async (req,res,next) => {
+  try {
+    const sessionId = Number(req.params.id);
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) return res.status(400).json({error:{message:'Invalid session.'}});
+    res.json(await saveSupervisionRsvp({sessionId,userId:Number(req.user.id),response:req.body.response,reason:req.body.reason,scope:req.body.scope,untilDate:req.body.untilDate}));
+  } catch (error) { next(error); }
 };

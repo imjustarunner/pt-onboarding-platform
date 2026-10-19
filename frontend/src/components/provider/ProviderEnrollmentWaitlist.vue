@@ -1,5 +1,5 @@
 <template>
-  <section v-if="scopedAgencyIds.length && (staffView || providerId)" class="pew" aria-label="Provider enrollment waitlist">
+  <section v-if="scopedAgencyIds.length && (staffView || providerId) && (!hideUnlessEnabled || waitlistEnabled || requests.length)" ref="panel" class="pew" :class="{'pew--compact':compact}" @keydown.esc="expanded=false" aria-label="Provider enrollment waitlist">
     <div class="pew-heading">
       <button type="button" class="pew-toggle" :aria-expanded="expanded" :aria-controls="listId" @click="expanded = !expanded">
         <span>{{ staffView ? 'Provider waitlists' : 'My waitlist' }}</span>
@@ -41,10 +41,12 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import api from '../../services/api';
 import { waitlistOpeningLabel, waitlistPreferenceText, waitlistSettingLabel, waitlistWaitingLabel } from './providerEnrollmentWaitlistPresentation.js';
 const props = defineProps({
+  compact: Boolean,
+  hideUnlessEnabled: Boolean,
   providerId: { type: Number, default: null },
   agencyIds: { type: Array, default: () => [] },
   staffView: { type: Boolean, default: false },
@@ -52,6 +54,11 @@ const props = defineProps({
   refreshKey: { type: Number, default: 0 }
 });
 const emit = defineEmits(['review', 'loaded']);
+const panel = ref(null);
+const waitlistEnabled = ref(false);
+const closeOutside = event => { if (props.compact && !panel.value?.contains(event.target)) expanded.value = false; };
+onMounted(() => document.addEventListener('click',closeOutside));
+onBeforeUnmount(() => document.removeEventListener('click',closeOutside));
 const expanded = ref(props.initiallyExpanded);
 const requests = ref([]);
 const error = ref('');
@@ -78,17 +85,23 @@ async function load() {
       unique.set(`${request.agencyId}-${request.providerId}-${request.clientId || request.id}`, { ...request, canManage: props.staffView && item.value?.data?.canManage === true });
     }
   }
-  requests.value = [...unique.values()].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
-  loaded.value = successful.length > 0;
+  // A failed refresh is not evidence that the existing queue is empty or disabled.
+  if (successful.length) {
+    waitlistEnabled.value = successful.some(item => item.value?.data?.waitlistEnabled === true);
+    requests.value = [...unique.values()].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
+    loaded.value = true;
+  }
   loading.value = false;
   if (failures.length) error.value = successful.length ? 'Some agency waitlists could not be loaded. The count may be incomplete; refresh to try again.' : 'Waitlist requests could not be loaded. Refresh to try again.';
   emit('loaded', { count: requests.value.length, complete: !failures.length });
 }
-watch(() => `${props.providerId}|${props.staffView}|${scopedAgencyIds.value.join(',')}|${props.refreshKey}`, () => {
+watch(() => `${props.providerId}|${props.staffView}|${scopedAgencyIds.value.join(',')}`, () => {
   requests.value = [];
+  waitlistEnabled.value = false;
   loaded.value = false;
   void load();
 }, { immediate: true });
+watch(() => props.refreshKey, () => { void load(); });
 watch(() => props.initiallyExpanded, value => { if (value) expanded.value = true; });
 onBeforeUnmount(() => { generation += 1; });
 defineExpose({ reload: load });
@@ -121,4 +134,12 @@ defineExpose({ reload: load });
 .pew-error { margin: 8px 16px 12px; color: #9c3e30; font-size: 0.85rem; }
 .pew :focus-visible { outline: 3px solid #268667; outline-offset: 3px; }
 @media(max-width:480px) { .pew-heading { gap: 8px; } .pew-count-caption { flex-basis: 75%; } .pew-preferences { grid-template-columns: 1fr; } }
+</style>
+
+<style scoped>
+.pew--compact{position:relative;margin:0;overflow:visible;flex-shrink:0;}
+.pew--compact .pew-heading{padding:0 8px;gap:6px;}
+.pew--compact .pew-toggle{min-height:34px;padding:4px;font-size:12px;}
+.pew--compact .pew-count-caption,.pew--compact .pew-refresh{display:none;}
+.pew--compact .pew-body{position:absolute;z-index:60;top:calc(100% + 8px);left:0;width:min(600px,calc(100vw - 48px));max-height:60vh;box-sizing:border-box;background:var(--bg-primary,#fff);border:1px solid #b8d1c0;border-radius:12px;box-shadow:0 8px 24px #0f172a25;}
 </style>

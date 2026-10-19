@@ -700,8 +700,8 @@ const allCategories = [
         icon: '🗓️',
         component: 'ProviderSchedulingManagement',
         requiresAgency: true,
-        roles: ['super_admin', 'admin'],
-        excludeRoles: ['support', 'clinical_practice_assistant'],
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true
       },
       {

@@ -15,8 +15,11 @@ it('finds individual types, changes their colors and resets the shared palette',
 it('shows a labeled key using the same personal colors, with transparent fills', async () => {
  const wrapper=mount(Legend,{props:{colors:{interview:'#123456'}}});
  const interview=()=>wrapper.findAll('.legend-item').find(item=>item.text()==='Interview');
- expect(wrapper.text()).toContain('Office assigned available');
+ expect(wrapper.text()).toContain('Office assigned');
  expect(wrapper.text()).toContain('Office booked');
+ expect(wrapper.find('.legend-items').text()).toContain('Virtual opening');
+ expect(wrapper.find('.legend-items').text()).toContain('In-person intake');
+ expect(wrapper.text()).not.toContain('Office assigned available');
  expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(18, 52, 86, 0.22)');
  await wrapper.setProps({colors:{interview:'#654321'},dark:true});
  expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(101, 67, 33, 0.32)');

@@ -172,7 +172,15 @@ export async function sendDueMeetingInvitations() {
       if (!recipient?.email) continue;
       const recipientIdentity = await resolveMeetingRecipient({agencyId:invitation.agency_id,user:recipient});
       const joinUrl = `${await tenantMeetingBase(invitation.agency_id)}/join/invitation/${invitation.join_token}`;
-      const content = meetingInvitationContent({events,joinUrl,recipientUserId:invitation.user_id,hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants:await meetingParticipantRows(events[0],{resolveEmails:events[0].meeting_subtype!=='training'}),details:await meetingEmailDetails(events[0])});
+      const participants = await meetingParticipantRows(events[0],{resolveEmails:events[0].meeting_subtype!=='training'});
+      const preference = participants.find(person => Number(person.id) === Number(invitation.user_id));
+      if (preference?.rsvp === 'declined') {
+        await db.execute("UPDATE meeting_email_invitations SET delivery_status='cancelled' WHERE id=?",[invitation.id]);
+        continue;
+      }
+      const content = meetingInvitationContent({events,joinUrl,recipientUserId:invitation.user_id,
+        recipientRsvp:preference?.rsvp,recipientRequired:Number(preference?.is_required ?? 1)===1,
+        hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants,details:await meetingEmailDetails(events[0])});
       const result = (invitation.meeting_type === 'supervision' || events[0].kind==='HUDDLE')
         ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:events[0],user:recipient,joinUrl})
         : await sendNotificationEmail({agencyId:invitation.agency_id,triggerKey:'meeting_invited',replyToOverride:await meetingReplyTo(events[0]),to:recipientIdentity.email,...content,source:'auto',userId:invitation.user_id,templateType:'meeting_invited'});

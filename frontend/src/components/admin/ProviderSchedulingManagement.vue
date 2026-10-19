@@ -9,7 +9,9 @@
       <p>Select an agency first.</p>
     </div>
 
-    <div v-else class="panel">
+    <ClientSessionBookingRollout v-if="agencyId" :agency-id="Number(agencyId)" />
+
+    <div v-if="agencyId && canManageSchoolAssignments" class="panel">
       <div class="form-row">
         <div class="field">
           <label>Provider</label>
@@ -119,9 +121,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import ClientSessionBookingRollout from './ClientSessionBookingRollout.vue';
+import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const canManageSchoolAssignments = computed(() => ['admin','super_admin'].includes(authStore.user?.role));
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -144,7 +150,7 @@ const form = ref({
 });
 
 const reload = async () => {
-  if (!agencyId.value) return;
+  if (!agencyId.value || !canManageSchoolAssignments.value) return;
   try {
     loading.value = true;
     error.value = '';
@@ -169,7 +175,7 @@ const reload = async () => {
 };
 
 const save = async () => {
-  if (!agencyId.value) return;
+  if (!agencyId.value || !canManageSchoolAssignments.value) return;
   if (!form.value.providerUserId || !form.value.schoolOrganizationId || !form.value.dayOfWeek) {
     error.value = 'Provider, school, and day are required.';
     return;

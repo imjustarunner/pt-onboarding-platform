@@ -11,12 +11,10 @@ it('requires an active agency membership and existing attendee record',async()=>
 it('allows an invited person to change a prior decline',async()=>{m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[{...session,attendee_status:'DECLINED'}]]:[{affectedRows:1}]);await saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'});expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['SIGNED_UP',null,1,2]);});
 it('does not reopen closed signup or past supervision',async()=>{m.execute.mockResolvedValue([[{...session,enrollment_mode:'signup_only',signupOpen:false}]]);await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'})).rejects.toMatchObject({status:409});m.execute.mockResolvedValue([[{...session,start_at:'2020-01-01 12:00:00'}]]);await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined'})).rejects.toMatchObject({status:410});});
 
-it('requires a reason for mandatory attendees and presenters but does not accept optional declines',async()=>{
+it('requires a reason for mandatory attendees and presenters',async()=>{
  await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined'})).rejects.toMatchObject({status:400});
  m.execute.mockResolvedValue([[{...session,is_required:0,is_presenter:1}]]);
  await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',reason:'  '})).rejects.toMatchObject({status:400});
- m.execute.mockResolvedValue([[{...session,is_required:0}]]);
- await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined'})).rejects.toMatchObject({status:400});
  expect(m.commit).not.toHaveBeenCalled();
 });
 it('allows optional attendees to RSVP attending without an explanation',async()=>{
@@ -46,4 +44,11 @@ it.each([null,'','2026-02-30','2026-10-19'])('rejects missing, impossible, or ea
  m.execute.mockResolvedValue([[{...session,session_type:'group',recurrence_series_id:'a',start_at:'2026-10-20 23:00:00'}]]);
  await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',reason:'Class',scope:'until_date',untilDate,now:new Date('2026-10-19T00:00:00Z')})).rejects.toMatchObject({status:400});
  expect(m.commit).not.toHaveBeenCalled();
+});
+
+it('lets optional invitees stop reminders without requiring or storing an absence reason',async()=>{
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[{...session,is_required:0,session_type:'group'}]]:[{affectedRows:1}]);
+ await saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',reason:'Unnecessary private detail'});
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['DECLINED',null,1,2]);
+ expect(m.commit).toHaveBeenCalledOnce();
 });

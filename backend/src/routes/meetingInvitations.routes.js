@@ -1,3 +1,4 @@
+import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { saveTrainingRsvp } from '../services/scheduledTrainingRsvp.service.js';
 import { trainingReminderDescription } from '../services/meetingReminderPolicy.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
@@ -17,6 +18,7 @@ import { invitationResponseContext } from '../services/meetingInvitationResponse
 import { meetingParticipantRows } from '../services/meetingParticipants.service.js';
 import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { activeMeetingPrompts } from '../services/activeMeetingPrompts.service.js';
+import { upcomingMeetingInvitations } from '../services/upcomingMeetingInvitations.service.js';
 import { resolveSupervisionInvitationAccess } from '../services/supervisionInvitationAccess.service.js';
 
 const router = express.Router();
@@ -46,6 +48,10 @@ router.get('/:token/calendar.ics', async (req,res,next) => {
 router.get('/active' , authenticate, async (req,res,next) => {
   res.set('Cache-Control','no-store');
   try { res.json({prompts: await activeMeetingPrompts(req.user.id)}); }
+  catch (error) { next(error); }
+});
+router.get('/upcoming', authenticate, async (req,res,next) => {
+  try { res.json({prompts: await upcomingMeetingInvitations(req.user.id)}); }
   catch (error) { next(error); }
 });
 router.post('/:token/rsvp', async (req,res,next) => {
@@ -87,8 +93,8 @@ router.get('/:token', async (req,res,next) => {
         label:Number(recipient?.is_required) ? 'Mandatory training' : 'Optional training',
         description:`${Number(recipient?.is_required) ? 'Your attendance is required.' : 'You are welcome to attend.'} RSVP applies to all remaining training dates. ${trainingReminderDescription(event,{isRequired:Number(recipient?.is_required)===1})}`
       } : null;
-      const canSeeDeclineReasons = invitation.meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(userId))
-        || event.meeting_subtype==='training' && (Number(event.provider_id)===Number(userId) || Number(recipient?.is_cohost)===1);
+      const [[recipientAccount]] = await pool.execute('SELECT id,role FROM users WHERE id=?',[userId]);
+      const canSeeDeclineReasons = canViewDeclinedMeetingParticipants(event,recipientAccount || {id:userId},people);
       if(event.meeting_subtype==='training') {
         const [reasons]=await pool.execute('SELECT user_id,rsvp_decline_reason FROM meeting_participant_preferences WHERE event_id=? AND (?=1 OR user_id=?)',[event.id,Number(canSeeDeclineReasons),userId]);
         for(const person of people)person.rsvp_decline_reason=reasons.find(r=>Number(r.user_id)===Number(person.id))?.rsvp_decline_reason || null;
@@ -99,12 +105,13 @@ router.get('/:token', async (req,res,next) => {
         recipientName:recipient?.name || '',
         agenda:agendaRows.map(mapMeetingAgendaItem).map(i=>({title:i.title})),
         attendance, rsvp:recipient?.status || recipient?.rsvp || null, declineReason:recipient?.rsvp_decline_reason || recipient?.decline_reason || null,
-        canSkipRecurring:invitation.meeting_type==='supervision' && event.session_type==='group' && !!event.recurrence_series_id && event.enrollment_mode!=='signup_only',
+        canSkipRecurring:attendance?.tier==='mandatory' && invitation.meeting_type==='supervision' && event.session_type==='group' && !!event.recurrence_series_id && event.enrollment_mode!=='signup_only',
         sessionDate:new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(parseUtcDate(event.start_at)),
         title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||(invitation.meeting_type==='supervision'?'Supervision':'Meeting'),
         when:format.format(parseUtcDate(event.start_at))+' – '+format.format(parseUtcDate(event.end_at))+` (${tz})`,
         location:event.location_text || (['IN_PERSON','IN-PERSON'].includes(String(event.modality).toUpperCase())?'In person':'Virtual'),
-        participants:people.map(p=>({name:p.name,status:p.status||p.rsvp,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter,
+        canSeeDeclined:canSeeDeclineReasons,
+        participants:visibleMeetingRsvpParticipants(people,canSeeDeclineReasons).map(p=>({name:p.name,status:p.status||p.rsvp,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter,
           ...((canSeeDeclineReasons || Number(p.id)===Number(userId)) && (p.decline_reason || p.rsvp_decline_reason) ? {declineReason:p.decline_reason || p.rsvp_decline_reason} : {})}))
       }});
     }

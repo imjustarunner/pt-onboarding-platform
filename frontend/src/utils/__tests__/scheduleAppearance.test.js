@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SCHEDULE_COLOR_OPTIONS, defaultScheduleColors, scheduleBlockColorKey, scheduleTypePalette, isExactHourAppointment } from '../scheduleAppearance.js';
+import { SCHEDULE_COLOR_OPTIONS, defaultScheduleColors, resolveScheduleColors, scheduleBlockColorKey, scheduleTypePalette, isExactHourAppointment } from '../scheduleAppearance.js';
 import { layoutScheduleDayBlocks } from '../scheduleOverlapLayout.js';
 const hour=(start,end,rest={})=>({kind:'sevt',startAt:`2026-10-13T${start}:00`,endAt:`2026-10-13T${end}:00`,...rest});
 describe('schedule appearance',()=>{
@@ -28,4 +28,14 @@ describe('schedule appearance',()=>{
   const cancelled=layoutScheduleDayBlocks([{hour:9,blocks:[hold,{key:'cancelled',isCancelled:true}]}]);
   expect(cancelled.get('9:0:hold').background).toBeUndefined();
  });
+});
+
+it('updates the old default palette while preserving intentional custom colors', () => {
+ const saved={client_session:'#059669',office_assigned:'#27AE60',availability:'#123456'};
+ const upgraded=resolveScheduleColors(saved);
+ expect(upgraded.client_session).toBe(defaultScheduleColors().client_session);
+ expect(upgraded.office_assigned).toBe(defaultScheduleColors().office_assigned);
+ expect(upgraded.availability).toBe('#123456');
+ expect(resolveScheduleColors(saved,2).client_session).toBe('#059669');
+ expect(scheduleBlockColorKey({kind:'sevt',eventKind:'TEAM_MEETING',meetingSubtype:'training'})).toBe('training');
 });

@@ -1,3 +1,4 @@
+import { getClientSessionBookingAccess, getClientSessionBookingRollout, putClientSessionBookingRollout } from '../controllers/clientSessionBookingRollout.controller.js';
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
 import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, requestOffice as requestReplacementOffice, details as replacementSlotDetails } from '../controllers/appointmentReplacementOffer.controller.js';
@@ -40,6 +41,9 @@ const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
 router.use((req,res,next)=>{if(req.method!=='GET'&&['client_guardian','guardian'].includes(req.user?.role))return res.status(403).json({error:{message:'Please request appointment changes through your guardian portal for provider approval.'}});next();});
+router.get('/booking-access', getClientSessionBookingAccess);
+router.get('/booking-rollout', getClientSessionBookingRollout);
+router.put('/booking-rollout', putClientSessionBookingRollout);
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
 router.get('/staff-alerts', listAppointmentStaffAlerts);
 router.post('/replacement-slots/:slotId/release', releaseReplacementSlot);

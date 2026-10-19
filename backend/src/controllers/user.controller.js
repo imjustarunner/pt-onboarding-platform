@@ -1,3 +1,5 @@
+import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
+import { getSupervisionSignupWindow } from '../services/supervisionSignupWindow.js';
 import { isPrivateFamilyProfile, workplacePersonSql } from '../utils/workplacePeople.js';
 import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
@@ -4641,6 +4643,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
         if (id > 0 && !seenIds.has(id)) {
           seenIds.add(id);
           mergedRows.push(row);
+        } else if (id > 0) {
+          // The regular calendar query lacks signup count/viewer status. Preserve
+          // those fields when the same event is also an open offering.
+          Object.assign(mergedRows.find(existing => Number(existing.id) === id), row);
         }
       }
       const agencyTzMap = new Map();
@@ -4690,9 +4696,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const isPrimarySupervisee = Number(r?.supervisee_user_id || 0) === Number(providerId);
         const isRequired = hasViewerRequired ? Number(r.viewer_is_required) === 1 : isPrimarySupervisee;
         const viewerAttendeeStatus = String(r?.viewer_attendee_status || '').trim().toUpperCase();
-        const viewerSignedUp = ['SIGNED_UP', 'JOINED', 'INVITED'].includes(viewerAttendeeStatus)
+        const viewerSignedUp = (isSignupOffering ? ['SIGNED_UP','JOINED'] : ['SIGNED_UP', 'JOINED', 'INVITED']).includes(viewerAttendeeStatus)
           && viewerAttendeeStatus !== 'WITHDRAWN';
-        const signupClosesAt = toIsoUtcForSchedule(r.signup_closes_at) || r.signup_closes_at || null;
+        const signupWindow = isSignupOffering ? getSupervisionSignupWindow(r) : {};
+        const signupClosesAt = signupWindow.signupClosesAt || null;
         const signupCount = Number(r?.signup_count || 0);
         const startWall = toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at;
         const endWall = toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at;
@@ -4772,6 +4779,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           notifyParticipants,
           superviseeUserId: Number(r.supervisee_user_id || 0) || null,
           supervisorUserId: Number(r.supervisor_user_id || 0) || null,
+          coFacilitatorUserId: Number(r.co_facilitator_user_id || 0) || null,
           superviseeName: `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim() || null,
           supervisorName: `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim() || null,
           agencyId: Number(r.agency_id || agencyId || 0) || null,
@@ -4783,6 +4791,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           isOpenJoinOffering,
           inviteAudienceAllSupervised: !!(r.invite_audience_all_supervised === 1 || r.invite_audience_all_supervised === true),
           inviteAudienceGroupSupport: !!(r.invite_audience_group_support === 1 || r.invite_audience_group_support === true),
+          ...signupWindow,
           signupClosesAt,
           signupCount,
           viewerSignedUp,
@@ -6332,6 +6341,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       || req.body?.sendCalendarInvites === 'false'
     );
 
+    if (Number(req.body?.clientId || 0) > 0) await requireClientSessionBooking(agencyId, userId);
     const isAppMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(kind);
     assertRecurringWindow({ recurrenceSeriesId, startAt: allDay ? null : clientScheduleInstantToUtcMysql(rawStartAt,timeZone), startDate: allDay ? startDate : null, eventTimezone: timeZone });
     const meetingReminderMinutes = isAppMeeting ? normalizeMeetingReminder(req.body?.reminderMinutes) : undefined;

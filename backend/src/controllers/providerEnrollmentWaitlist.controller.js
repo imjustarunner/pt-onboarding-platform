@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import User from '../models/User.model.js';
 import { loadEnrollmentWaitlist } from '../services/providerEnrollmentWaitlist.service.js';
 
@@ -25,6 +26,9 @@ export async function getEnrollmentWaitlist(req, res, next) {
     // Internal email routing fields stay off this scheduling-only response.
     const requests = rows.map(({ providerEmail, contactEmail, submissionId, ...row }) => row);
     res.setHeader('Cache-Control', 'no-store');
-    return res.json({ count: requests.length, requests, canManage });
+    const profile = providerId ? await ProviderPublicProfile.getForProvider({providerUserId:providerId,agencyId}) : null;
+    const details = profile?.details || {};
+    const waitlistEnabled = details.waitlistEnabled === true || ['officeAvailability','virtualAvailability','schoolAvailability'].some(key => details[key] === 'waitlist');
+    return res.json({ count: requests.length, requests, canManage, waitlistEnabled });
   } catch (error) { next(error); }
 }

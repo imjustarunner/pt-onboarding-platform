@@ -2,9 +2,10 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {reactive} from 'vue';
 import {flushPromises,mount} from '@vue/test-utils';
 import MyMeetingsView from '../MyMeetingsView.vue';
-const mocks=vi.hoisted(()=>({get:vi.fn(),put:vi.fn(),post:vi.fn(),replace:vi.fn(),query:{},agency:null}));
+const mocks=vi.hoisted(()=>({get:vi.fn(),put:vi.fn(),post:vi.fn(),replace:vi.fn(),query:{},agency:null,role:'provider'}));
 vi.mock('../../services/api',()=>({default:mocks}));
 vi.mock('../../store/agency',()=>({useAgencyStore:()=>mocks.agency}));
+vi.mock('../../store/auth',()=>({useAuthStore:()=>({user:{id:7,role:mocks.role}})}));
 vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'itsco'},query:mocks.query}),useRouter:()=>({replace:mocks.replace})}));
 const record={meeting:{id:7,type:'team',title:'CPA review',startAt:'2026-10-01T17:00:00Z'},attendance:[{user_id:12,name:'Sam',total_seconds:1800}],presence:[],agenda:[{id:1,title:'Intake workflow',status:'discussed'}],workspace:{goals:[],actionItems:[]},personalNote:'My draft',transcript:'Shared conversation',summary:'',summaryStatus:'generating'};
 let wrapper;
@@ -51,6 +52,12 @@ describe('My meetings records',()=>{
 });
 
 describe('Meetings dashboard navigation and activity',()=>{
+ it.each(['provider','admin'])('places the training log in Training and restricts scheduling for %s',async(role)=>{
+  mocks.role=role;mocks.query={tab:'meetings',category:'training'};
+  wrapper=mount(MyMeetingsView,{props:{embedded:true},global:{stubs:{RouterLink:true,ScheduledTrainingLog:{template:'<div>Upcoming training and attendance log</div>'},ScheduledTrainingEditor:true}}});await flushPromises();
+  expect(wrapper.text()).toContain('Upcoming training and attendance log');
+  expect(wrapper.findAll('button').some(button=>button.text()==='Schedule training')).toBe(role==='admin');mocks.role='provider';
+ });
  it('keeps the dashboard rail tab while opening and switching record tabs',async()=>{
   mocks.query={tab:'meetings'};
   wrapper=mount(MyMeetingsView,{props:{embedded:true},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();

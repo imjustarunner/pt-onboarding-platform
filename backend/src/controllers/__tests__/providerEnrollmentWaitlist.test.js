@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), load: vi.fn(), findUser: vi.fn(), isSupervisor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), load: vi.fn(), findUser: vi.fn(), isSupervisor: vi.fn(), profile:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
+vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{getForProvider:mocks.profile}}));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser, isSupervisor: mocks.isSupervisor } }));
 vi.mock('../../services/providerEnrollmentWaitlist.service.js', () => ({ loadEnrollmentWaitlist: mocks.load }));
 import { getEnrollmentWaitlist } from '../providerEnrollmentWaitlist.controller.js';
@@ -9,6 +10,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.execute.mockResolvedValue([[{ user_id: 8 }]]);
   mocks.isSupervisor.mockReturnValue(false);
+  mocks.profile.mockResolvedValue({details:{}});
   mocks.load.mockResolvedValue([{ clientId: 30, providerId: 8, clientName: 'Test Client', status: 'WAITLIST', providerEmail: 'internal@example.test', contactEmail: 'contact@example.test', submissionId: 90, contact: { email: 'contact@example.test' } }]);
   req = { user: { id: 8, role: 'provider' }, params: { providerId: '8' }, query: { agencyId: '2' } };
   res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn() };
@@ -52,4 +54,10 @@ describe('provider waitlist scheduling access', () => {
     await getEnrollmentWaitlist(req, res, next);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ canManage: true }));
   });
+});
+
+it.each([{officeAvailability:'waitlist'},{virtualAvailability:'waitlist'},{waitlistEnabled:true}])('exposes whether the scoped provider waitlist is enabled', async details => {
+ mocks.profile.mockResolvedValue({details});await getEnrollmentWaitlist(req,res,next);
+ expect(mocks.profile).toHaveBeenCalledWith({providerUserId:8,agencyId:2});
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({waitlistEnabled:true}));
 });

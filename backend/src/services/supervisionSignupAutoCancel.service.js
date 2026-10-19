@@ -11,7 +11,7 @@ export async function runSupervisionSignupAutoCancelTick() {
   try {
     const [result] = await pool.execute(
       `SELECT ss.id,
-              DATE_FORMAT(ss.signup_closes_at, '%Y-%m-%d %H:%i:%s') AS signup_closes_at,
+              DATE_FORMAT(DATE_SUB(ss.start_at, INTERVAL 1 HOUR), '%Y-%m-%d %H:%i:%s') AS signup_closes_at,
               ss.google_event_id,
               ss.google_calendar_id,
               ss.google_host_email
@@ -19,14 +19,13 @@ export async function runSupervisionSignupAutoCancelTick() {
        WHERE LOWER(COALESCE(ss.enrollment_mode, 'invited')) = 'signup_only'
          AND UPPER(COALESCE(ss.status, 'SCHEDULED')) = 'SCHEDULED'
          AND COALESCE(ss.auto_cancel_if_empty, 0) = 1
-         AND ss.signup_closes_at IS NOT NULL
-         AND ss.signup_closes_at <= UTC_TIMESTAMP()
+         AND DATE_SUB(ss.start_at, INTERVAL 1 HOUR) <= UTC_TIMESTAMP()
          AND NOT EXISTS (
            SELECT 1
            FROM supervision_session_attendees ssa
            WHERE ssa.session_id = ss.id
              AND ssa.participant_role = 'supervisee'
-             AND UPPER(COALESCE(ssa.status, '')) IN ('SIGNED_UP', 'JOINED', 'INVITED')
+             AND UPPER(COALESCE(ssa.status, '')) IN ('SIGNED_UP', 'JOINED')
          )`
     );
     rows = result || [];
@@ -45,16 +44,19 @@ export async function runSupervisionSignupAutoCancelTick() {
     // Defensive: ensure close instant is parseable as UTC
     if (!utcMysqlToIso(row?.signup_closes_at)) continue;
     try {
-      await pool.execute(
+      const [result] = await pool.execute(
         `UPDATE supervision_sessions
          SET status = 'CANCELLED',
              cancel_reason = 'NO_SIGNUPS',
              auto_cancelled_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?
-           AND UPPER(COALESCE(status, 'SCHEDULED')) = 'SCHEDULED'`,
+           AND UPPER(COALESCE(status, 'SCHEDULED')) = 'SCHEDULED'
+           AND DATE_SUB(start_at, INTERVAL 1 HOUR) <= UTC_TIMESTAMP()
+           AND NOT EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=supervision_sessions.id AND a.participant_role='supervisee' AND UPPER(a.status) IN ('SIGNED_UP','JOINED'))`,
         [sid]
       );
+      if (!result.affectedRows) continue;
       cancelled += 1;
       const eventId = String(row?.google_event_id || '').trim();
       const calendarId = String(row?.google_calendar_id || 'primary').trim() || 'primary';

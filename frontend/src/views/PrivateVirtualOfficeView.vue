@@ -1,5 +1,6 @@
-<template><div class="office-page"><router-link class="office-back" :to="dashboardPath">← Back to my dashboard</router-link><PrivateVirtualOffice :key="selectedAgencyId" :request="request" :agency-id="selectedAgencyId" :initial-selection="pendingSelection" @change-agency="changeAgency" /></div></template>
+<template><div class="office-page"><router-link class="office-back" :to="dashboardPath">← Back to my dashboard</router-link><VirtualOfficeUseNotice /><PrivateVirtualOffice :key="selectedAgencyId" :request="request" :agency-id="selectedAgencyId" :initial-selection="pendingSelection" @change-agency="changeAgency" /></div></template>
 <script setup>
+import VirtualOfficeUseNotice from '../components/meetings/VirtualOfficeUseNotice.vue';
 import {computed,ref} from 'vue';
 import {useRoute} from 'vue-router';
 const route=useRoute();

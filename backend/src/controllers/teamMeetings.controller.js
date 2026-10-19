@@ -1,3 +1,4 @@
+import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { isTrainingProctor } from '../services/scheduledTraining.service.js';
 import { isStudentIntern } from '../services/internMeetingPolicy.service.js';
 import { canManageMeetingCompensation, meetingClaimCompensation, saveMeetingClaimRate } from '../services/meetingClaimRate.service.js';
@@ -2346,9 +2347,10 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     const summary = await listAttendanceSummary(eventId);
     const { meetingParticipantRows } = await import('../services/meetingParticipants.service.js');
     const preferences = await meetingParticipantRows(event);
+    const canSeeDeclined = canViewDeclinedMeetingParticipants(event,req.user,preferences);
     for (const participant of summary?.participants || []) {
       const pref=preferences.find(p=>Number(p.id)===Number(participant.userId));
-      if(pref)Object.assign(participant,{isRequired:!!pref.is_required,isCohost:!!pref.is_cohost,rsvp:pref.rsvp});
+      if(pref)Object.assign(participant,{isRequired:!!pref.is_required,isCohost:!!pref.is_cohost,...(canSeeDeclined || pref.rsvp!=='declined' ? {rsvp:pref.rsvp} : {})});
     }
     res.json({
       ...(summary || { eventId, participants: [], copyNamesCsv: '', copyNamesWithTimeCsv: '' }),
@@ -2595,7 +2597,9 @@ export const getMeetingParticipantPreferences = async (req,res,next) => {
     const role=String(req.user.role||'').toLowerCase();
     const admin=['admin','super_admin','superadmin'].includes(role);
     const { meetingParticipantRows }=await import('../services/meetingParticipants.service.js');
-    res.json({participants:await meetingParticipantRows(event,{includeCompensation:admin}),canEdit:Number(event.provider_id)===Number(req.user.id)||admin});
+    const people=await meetingParticipantRows(event,{includeCompensation:admin});
+    const canSeeDeclined=canViewDeclinedMeetingParticipants(event,req.user,people);
+    res.json({participants:visibleMeetingRsvpParticipants(people,canSeeDeclined),canSeeDeclined,canEdit:Number(event.provider_id)===Number(req.user.id)||admin});
   }catch(error){next(error);}
 };
 export const putMeetingParticipantPreferences = async (req,res,next) => {

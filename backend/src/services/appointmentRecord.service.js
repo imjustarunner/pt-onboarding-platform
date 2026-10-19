@@ -1,3 +1,4 @@
+import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import crypto from "node:crypto";
 import Appointment from "../models/Appointment.model.js";
 
@@ -84,6 +85,7 @@ export async function createAppointmentRecord(
   actorUserId,
   db,
 ) {
+  await requireClientSessionBooking(agencyId, data.providerUserId, db);
   await assertSharedAppointmentAvailable(agencyId, data, clientId, null, db);
   const appointment = await Appointment.create(
     {
@@ -128,6 +130,9 @@ export async function updateAppointmentRecord(
       409,
       "This appointment changed in the shared backend. Refresh before saving.",
     );
+  if (Number(data.providerUserId) !== Number(current.data.providerUserId)) {
+    await requireClientSessionBooking(agencyId, data.providerUserId, db);
+  }
   // Preserve canonical care/calendar/package links until their shared workflow
   // orchestration is connected. Do not silently bypass their own invariants.
   if (

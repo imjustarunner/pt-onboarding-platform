@@ -1,3 +1,4 @@
+import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import { readStaffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
@@ -263,6 +264,7 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
 }
 
 export async function validateSchedulingSelection({
+  enforceSessionRollout = false,
   agencyId = null,
   providerId = null,
   userRole,
@@ -275,6 +277,7 @@ export async function validateSchedulingSelection({
   scheduledEndAt = null
 }) {
   const normalizedAppointmentTypeCode = normalizeCode(appointmentTypeCode);
+  if (enforceSessionRollout && DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) await requireClientSessionBooking(agencyId, providerId);
   const normalizedAppointmentSubtypeCode = normalizeCode(appointmentSubtypeCode);
   const normalizedServiceCode = normalizeCode(serviceCode);
   const normalizedModality = normalizeModality(modality);

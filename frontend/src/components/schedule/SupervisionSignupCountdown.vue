@@ -7,7 +7,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 const props = defineProps({
   closesAt: { type: [String, Date, Number], default: null },
-  prefix: { type: String, default: 'Sign up by' },
+  opensAt: { type: [String, Date, Number], default: null },
+  prefix: { type: String, default: 'Signup closes in' },
   /** duration = "2h 47m"; clock = "2:47" (hours:minutes left). */
   format: { type: String, default: 'duration' },
   /** Kept for API compat; closesAt is UTC ISO after supervision UTC migration. */
@@ -40,6 +41,11 @@ function parseClosesAt(raw) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const opensInMs = computed(() => {
+  const opens = parseClosesAt(props.opensAt);
+  return opens ? opens.getTime() - nowMs.value : 0;
+});
+
 const remainingMs = computed(() => {
   const closes = parseClosesAt(props.closesAt);
   if (!closes) return 0;
@@ -47,7 +53,8 @@ const remainingMs = computed(() => {
 });
 
 const label = computed(() => {
-  const diff = remainingMs.value;
+  const upcoming = opensInMs.value > 0;
+  const diff = upcoming ? opensInMs.value : remainingMs.value;
   if (!props.closesAt) return '';
   if (diff <= 0) return 'Signup closed';
   const totalMins = Math.floor(diff / 60000);
@@ -56,12 +63,12 @@ const label = computed(() => {
   const body = String(props.format || '').toLowerCase() === 'clock'
     ? (hrs > 0 ? `${hrs}:${String(mins).padStart(2, '0')}` : `${Math.max(mins, 1)}m`)
     : (hrs > 0 ? `${hrs}h ${mins}m` : `${Math.max(mins, 1)}m`);
-  const pre = String(props.prefix || '').trim();
+  const pre = upcoming ? 'Signup opens in' : String(props.prefix || '').trim();
   return pre ? `${pre} ${body}` : body;
 });
 
 const closed = computed(() => label.value === 'Signup closed');
-const urgent = computed(() => remainingMs.value > 0 && remainingMs.value <= (2 * 60 * 60 * 1000));
+const urgent = computed(() => opensInMs.value <= 0 && remainingMs.value > 0 && remainingMs.value <= (2 * 60 * 60 * 1000));
 </script>
 
 <style scoped>

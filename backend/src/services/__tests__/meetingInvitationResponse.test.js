@@ -26,6 +26,7 @@ beforeEach(()=>{
  event={id:19,agency_id:2,supervisor_user_id:8,session_type:'group',start_at:'2099-10-15 16:00:00',end_at:'2099-10-15 17:00:00',event_timezone:'America/Denver'};
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.includes('meeting_email_invitations'))return [args[0]===token?[invitation]:[]];
+ if(sql.startsWith('SELECT id,role FROM users'))return [[{id:7,role:'provider'}]];
  if(sql.includes('meeting_agenda_items'))return [[{title:'Presentation',notes:'Private notes'}]];
   if(sql.startsWith('SELECT user_id,rsvp_decline_reason'))return [[{user_id:7,rsvp_decline_reason:'attended in the spring'},...(args[1]?[{user_id:9,rsvp_decline_reason:'Private reason'}]:[])]];
   return [{affectedRows:1}];
@@ -90,7 +91,17 @@ it.each([false,true])('shows training decline reasons only to their author or a 
  invitation.meeting_type='team_meeting';event.kind='TEAM_MEETING';event.meeting_subtype='training';event.provider_id=8;delete event.session_type;
  m.team.mockResolvedValue([{id:7,name:'Ryn',is_required:1,is_cohost:Number(proctor),rsvp:'declined'},{id:9,name:'Attendee',is_required:1,rsvp:'declined'}]);
  const r=await fetch(`${await url()}/${token}?details=1&eventId=19`);expect(r.status).toBe(200);const body=await r.json();
- expect(body.meeting.declineReason).toBe('attended in the spring');expect(body.meeting.participants[0].declineReason).toBe('attended in the spring');
- expect(body.meeting.participants[1].declineReason).toBe(proctor?'Private reason':undefined);
+ expect(body.meeting.declineReason).toBe('attended in the spring');
+ if(proctor){expect(body.meeting.participants[0].declineReason).toBe('attended in the spring');expect(body.meeting.participants[1].declineReason).toBe('Private reason');}
+ else expect(body.meeting.participants).toEqual([]);
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('(?=1 OR user_id=?)'),[19,Number(proctor),7]);
+});
+
+it.each(['admin','super_admin','support'])('shows declined supervision RSVPs to an authorized %s invitation recipient',async role=>{
+ const base=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT id,role FROM users')?[[{id:7,role}]]:base(sql,args));
+ const r=await fetch(`${await url()}/${token}?details=1&eventId=19`);
+ expect(r.status).toBe(200);const body=await r.json();
+ expect(body.meeting.canSeeDeclined).toBe(true);
+ expect(body.meeting.participants.find(p=>p.name==='Attendee')).toMatchObject({status:'DECLINED',declineReason:'Private reason'});
 });

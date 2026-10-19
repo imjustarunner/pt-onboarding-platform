@@ -116,3 +116,12 @@ it('extends from the original weekday after a single-date move without cloning t
  const [,params]=m.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO supervision_sessions'));
  expect(params).toContain('2027-10-08 16:00:00');expect(params).toContain('{"reminders":[60]}');expect(JSON.stringify(params)).not.toContain('recurrenceOriginalStartAt');
 });
+
+it('gives each renewed signup-only date its own deadline and does not register last week’s participants',async()=>{
+ rows=[session({session_type:'group',enrollment_mode:'signup_only',signup_closes_at:'2027-10-01 15:00:00'})];
+ await maintainRecurringScheduleWindow({now:new Date('2026-10-09T18:00:00Z')});
+ const [sql,values]=m.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO supervision_sessions'));
+ expect(sql).toContain('signup_closes_at');expect(values).toContain('2027-10-08 15:00:00');expect(values).not.toContain('2027-10-01 15:00:00');
+ const [copy]=m.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO supervision_session_attendees'));
+ expect(copy).toContain("COALESCE(s.enrollment_mode,'invited')<>'signup_only' OR a.participant_role IN ('supervisor','co_facilitator')");
+});

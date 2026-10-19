@@ -1,3 +1,5 @@
+vi.mock('../clientSessionBookingRollout.service.js', () => ({ requireClientSessionBooking: vi.fn().mockResolvedValue({ enabled: true }) }));
+import { requireClientSessionBooking } from '../clientSessionBookingRollout.service.js';
 vi.mock('../appointmentScheduleNotice.service.js', () => ({ appointmentScheduleNotices: { queue: vi.fn() } }));
 vi.mock('../clientSchedulingGuard.service.js', () => ({ withClientSchedulingLock: async (ids, work) => work() }));
 vi.mock('../staffCareEligibility.service.js', () => ({ requireStaffCareEligibility: vi.fn().mockResolvedValue({ canProvideCare: true }) }));
@@ -36,6 +38,12 @@ beforeEach(() => {
   Appointment.listParticipants.mockResolvedValue(args.participants); Appointment.getBilling.mockResolvedValue({});
 });
 describe('self-pay booking integration', () => {
+  it('blocks a direct clinical booking before the provider is enabled, even with a self-pay package', async () => {
+    requireClientSessionBooking.mockRejectedValueOnce(Object.assign(new Error('Coming soon'), {status:403}));
+    await expect(createAppointment({ ...args, packageEntitlementId: 4 })).rejects.toMatchObject({status:403});
+    expect(Appointment.create).not.toHaveBeenCalled();
+    expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();
+  });
   it('requires a care assignment for self-pay care too', async () => {
     requireStaffCareEligibility.mockRejectedValueOnce(Object.assign(new Error('Care assignment required'), {status:403}));
     await expect(createAppointment(args)).rejects.toMatchObject({status:403});

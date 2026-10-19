@@ -1,3 +1,4 @@
+import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
@@ -225,6 +226,9 @@ async function createLockedAppointment({
   }
 
   const bookingClients = await assertAppointmentClients(aid, participants);
+  if (!businessType || ['mental_health', 'healthcare'].includes(businessType) || bookingClients.some(client => ['clinical', 'school'].includes(client.client_type))) {
+    await requireClientSessionBooking(aid, providerUserId);
+  }
   if (serviceLocationId) {
     const location = await AgencyServiceLocation.findById(serviceLocationId);
     if (!location || Number(location.agency_id) !== aid) {
@@ -391,6 +395,9 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
 async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
+    await requireClientSessionBooking(existing.agencyId, patch.providerUserId);
+  }
   if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR workflow for this appointment while shared clinical and billing orchestration is being connected.'), { status: 409 });
   if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {
     const { requireAppointmentRequestProvider, requireGuardianCancellation } = await import('./guardianAppointments.service.js');
