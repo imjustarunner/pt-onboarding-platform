@@ -112,8 +112,9 @@ it('omits exact-hour time from the grid but retains it in hover and off-hour car
   expect(wrapper.find('.cell-expanded-item').text()).toContain(s.clockRangeLabel(full.startAt,full.endAt));
   s.scheduleSideBySide=false;expect(s.gridBlockLabel(full)).toContain(s.clockRangeLabel(full.startAt,full.endAt));
 });
-it('uses distinct custom appointment colors and saves only the viewer color preferences',async()=>{
+it('uses distinct custom appointment colors and saves the palette version only to the viewer preferences',async()=>{
   m.colors={interview:'#123456'};
+  m.prefs={rowHeightMode:'large',holdReasons:[{code:'CUSTOM',label:'Custom'}]};
   const s=await mount({mode:'admin',userId:91});
   expect(s.scheduleColors.interview).toBe('#123456');
   const interview={kind:'sevt',eventKind:'TEAM_MEETING',meetingSubtype:'interview'};
@@ -121,7 +122,11 @@ it('uses distinct custom appointment colors and saves only the viewer color pref
   s.scheduleColors={...s.scheduleColors,interview:'#123456',supervision:'#654321'};
   expect(s.cellBlockStyle(interview)['--blockFill']).toBe('rgba(18, 52, 86, 0.22)');
   await s.saveScheduleColors();
-  expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{schedule_color_overrides:expect.objectContaining({interview:'#123456',supervision:'#654321'})},expect.anything());
+  expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{
+    schedule_color_overrides:expect.objectContaining({interview:'#123456',supervision:'#654321'}),
+    schedule_display_prefs:{...m.prefs,schedulePaletteVersion:2}
+  },expect.anything());
+  expect(m.put.mock.calls.some(([url])=>url.includes('/91/'))).toBe(false);
 });
 
 it.each([
