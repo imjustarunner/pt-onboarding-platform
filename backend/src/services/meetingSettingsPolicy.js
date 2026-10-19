@@ -29,6 +29,12 @@ export function normalizeMeetingSettings(raw, defaults = defaultMeetingSettings(
     }
     result.reminders = [...new Set(input.reminders)];
   }
+  if (input.trainingReminderMode !== undefined) {
+    if (!['standard', 'configured_only'].includes(input.trainingReminderMode)) {
+      throw Object.assign(new Error('Choose a valid training reminder policy.'), { status: 400 });
+    }
+    result.trainingReminderMode = input.trainingReminderMode;
+  }
   return result;
 }
 

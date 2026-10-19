@@ -368,11 +368,11 @@ async function endFromExit() {
 }
 async function endLiveSessionForEveryone() {
   if (!canEndForEveryone.value) {
-    window.alert('Only the last host or cohost in the room can end it for everyone. You can leave without closing the session.');
+    window.alert('Only the assigned supervisor can end this meeting for everyone. You can leave without ending it.');
     return false;
   }
   const sid = numericSessionId.value || sessionId.value;
-  if (!sid) return;
+  if (!sid || !window.confirm('Are you sure you want to end this meeting for everyone?')) return false;
   try {
     await finishMeetingTranscription(`/supervision/sessions/${encodeURIComponent(sid)}`);
     const { data } = await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/end-live`, {}, {
@@ -382,7 +382,7 @@ async function endLiveSessionForEveryone() {
     applyClosurePayload(data || {});
     return true;
   } catch (e) {
-    if (Number(e?.response?.status) === 409) canEndForEveryone.value = false;
+    if ([403, 409].includes(Number(e?.response?.status))) canEndForEveryone.value = false;
     window.alert(e?.response?.data?.error?.message || e?.message || 'Unable to end the session. Please retry.');
     return false;
   }

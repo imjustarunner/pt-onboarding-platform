@@ -32,6 +32,13 @@ it('stops registration prompts after RSVP and sends only one day and five-minute
  expect(meetingReminderSchedule(event,{rsvp:'accepted'}).map(r=>r.key)).toEqual(['1440','5']);
  expect(meetingReminderSchedule(event,{rsvp:'declined'})).toEqual([]);
  expect(meetingReminderSchedule(event,{rsvp:'pending'}).map(r=>r.key)).toEqual(['10080','1440','60']);
+ expect(meetingReminderSchedule(event,{rsvp:'pending',isRequired:false}).map(r=>r.key)).toEqual(['10080','4320']);
+ expect(meetingReminderSchedule(event,{rsvp:'accepted',isRequired:false}).map(r=>r.key)).toEqual(['1440','5']);
  const content=meetingInvitationContent({events:[{...event,id:4,title:'Crisis Training',end_at:'2026-10-28 01:00:00'}],recipientUserId:1,recipientRsvp:'accepted',participants:[{id:1,is_required:1}],joinUrl:'https://app.test/personal-join'});
  expect(content.text).toContain('Your RSVP is confirmed');expect(content.text).not.toContain('RSVP attending or decline');expect(content.text).toContain('https://app.test/personal-join');
+});
+it('uses only the configured test reminder for accepted and pending invitations while honoring declines',()=>{
+ const event={meeting_subtype:'training',start_at:'2026-10-19 22:00:00',meeting_settings_json:{reminders:[60],trainingReminderMode:'configured_only'}};
+ for(const rsvp of ['pending','accepted'])for(const isRequired of [true,false])expect(meetingReminderSchedule(event,{rsvp,isRequired}).map(r=>r.key)).toEqual(['60']);
+ expect(meetingReminderSchedule(event,{rsvp:'declined'})).toEqual([]);
 });

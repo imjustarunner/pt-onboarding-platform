@@ -35,4 +35,9 @@ describe('editable meeting reminders',()=>{
     expect(queries[0][1]).toEqual(['2026-09-28 21:30:00','2026-09-28 21:30:00']);
     expect(queries[1][0]).toContain('INTERVAL 3 MINUTE');
   });
+  it('previews training reminders using each invitee’s RSVP and requirement',async()=>{
+    m.execute.mockImplementation(async sql=>sql.includes('SELECT user_id FROM provider_schedule_event_attendees')?[[{user_id:6},{user_id:7},{user_id:8}]]:sql.includes('SELECT user_id,is_required,rsvp')?[[{user_id:5,is_required:1,rsvp:'pending'},{user_id:6,is_required:0,rsvp:'pending'},{user_id:7,is_required:0,rsvp:'accepted'},{user_id:8,is_required:1,rsvp:'declined'}]]:[[]]);
+    const plan=await buildScheduleEventNotificationPlan({...event,meeting_subtype:'training',meeting_settings_json:{reminders:[10080,1440,60]}});
+    expect(plan.items.filter(i=>i.id.startsWith('configured-')).map(i=>i.id).sort()).toEqual(['configured-5-10080','configured-5-1440','configured-5-60','configured-6-10080','configured-6-4320','configured-7-1440','configured-7-5'].sort());
+  });
 });

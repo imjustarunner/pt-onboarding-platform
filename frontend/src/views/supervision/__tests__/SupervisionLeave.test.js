@@ -9,11 +9,11 @@ vi.mock('vue-router',()=>({useRoute:()=>({params:{sessionId:'101',organizationSl
 import JoinSupervisionView from '../JoinSupervisionView.vue';
 let wrapper;
 beforeEach(()=>{
-  vi.clearAllMocks();vi.useFakeTimers();m.host=true;
+  vi.clearAllMocks();vi.useFakeTimers();m.host=true;vi.spyOn(window,'confirm').mockReturnValue(true);
   m.get.mockImplementation(async url=>({data:url.includes('join-info')?{orgSlug:'tenant',sessionId:101}:{token:'video',sessionId:'room',applicationId:'app',supervisionSessionId:101,isSupervisor:m.host,identity:'user-9',sessionType:'group',hostPresent:true}}));
   m.post.mockResolvedValue({data:{ok:true,canEndForEveryone:true}});m.finish.mockResolvedValue(true);
 });
-afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();});
+afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();vi.restoreAllMocks();});
 async function render(){wrapper=mount(JoinSupervisionView,{global:{stubs:{SupervisionLiveRoom:true,MeetingSessionExitPanel:true}}});await flushPromises();return wrapper.findComponent({name:'SupervisionLiveRoom'});}
 describe('supervision leave versus explicit meeting closure',()=>{
   it('keeps a retry available after a connection interruption and a failed rejoin request',async()=>{
@@ -50,12 +50,21 @@ describe('supervision leave versus explicit meeting closure',()=>{
     const room=await render();room.vm.$emit('leave',{endForAll:'false'});await flushPromises();
     expect(m.post.mock.calls.some(([url])=>url.endsWith('/end-live'))).toBe(false);
   });
+  it('does not end the meeting or transcript when the supervisor cancels confirmation', async () => {
+    const room = await render(); window.confirm.mockReturnValue(false);
+    room.vm.$emit('leave', { endForAll: true }); await flushPromises();
+    expect(window.confirm).toHaveBeenCalledWith('Are you sure you want to end this meeting for everyone?');
+    expect(m.finish).not.toHaveBeenCalled();
+    expect(m.post.mock.calls.some(([url]) => url.endsWith('/end-live'))).toBe(false);
+    expect(wrapper.findComponent({ name: 'SupervisionLiveRoom' }).exists()).toBe(true);
+  });
   it('ends for everyone only on the explicit end action',async()=>{
     const room=await render();room.vm.$emit('leave',{endForAll:true});await flushPromises();
+    expect(window.confirm).toHaveBeenCalledWith('Are you sure you want to end this meeting for everyone?');
     expect(m.post).toHaveBeenCalledWith('/supervision/sessions/101/end-live',{},expect.any(Object));expect(m.finish).toHaveBeenCalledOnce();
     expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).props('canRejoin')).toBe(false);
   });
-  it('does not finish the transcript or end the room when another host remains',async()=>{
+  it('does not finish the transcript or end the room when the viewer is not the assigned supervisor',async()=>{
     const alert=vi.spyOn(window,'alert').mockImplementation(()=>{});
     m.post.mockResolvedValue({data:{ok:true,canEndForEveryone:false}});
     const room=await render();expect(room.props('canEndForEveryone')).toBe(false);
@@ -65,7 +74,7 @@ describe('supervision leave versus explicit meeting closure',()=>{
   });
   it('keeps the user connected when the server rejects stale end permission',async()=>{
     const alert=vi.spyOn(window,'alert').mockImplementation(()=>{});
-    m.finish.mockRejectedValue({response:{status:409,data:{error:{message:'Another host is present'}}}});
+    m.finish.mockRejectedValue({response:{status:403,data:{error:{message:'Only the assigned supervisor may end this meeting'}}}});
     const room=await render();room.vm.$emit('leave',{endForAll:true});await flushPromises();
     expect(m.post.mock.calls.some(([url])=>url.endsWith('/end-live'))).toBe(false);
     expect(wrapper.findComponent({name:'SupervisionLiveRoom'}).props('canEndForEveryone')).toBe(false);

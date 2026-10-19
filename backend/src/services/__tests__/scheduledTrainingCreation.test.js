@@ -17,3 +17,22 @@ it('atomically saves all dates, invitations and coproctor assignments before que
 });
 it('rejects a foreign-agency trainer or participant',async()=>{await expect(createScheduledTraining({...input,proctorId:99},{id:1,role:'admin'})).rejects.toMatchObject({status:400});await expect(createScheduledTraining({...input,inviteAll:false,participants:[{userId:99,required:true}]},{id:1,role:'admin'})).rejects.toMatchObject({status:400});expect(m.write).not.toHaveBeenCalled();});
 it('rolls back every date and queues no mail if one session fails',async()=>{m.write.mockRejectedValueOnce(new Error('write failed'));await expect(createScheduledTraining(input,{id:1,role:'admin'})).rejects.toThrow('write failed');expect(m.rollback).toHaveBeenCalledOnce();expect(m.queue).not.toHaveBeenCalled();});
+it('persists an admin-authorized participant pay override before invitations are queued',async()=>{
+ await createScheduledTraining({...input,compensationOverrides:[{userId:3,rateType:'admin_time',reason:'Leadership meeting'}]},{id:501,role:'super_admin'});
+ expect(m.write).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_compensation_overrides'),[40,3,2,'admin_time','Leadership meeting',501]);
+ expect(m.queue.mock.invocationCallOrder[0]).toBeGreaterThan(m.commit.mock.invocationCallOrder[0]);
+});
+it.each(['provider_plus','clinical_practice_assistant'])('does not let scheduler %s authorize a pay override',async role=>{
+ await expect(createScheduledTraining({...input,compensationOverrides:[{userId:3,rateType:'admin_time',reason:'Leadership meeting'}]},{id:1,role})).rejects.toMatchObject({status:403});
+ expect(m.write).not.toHaveBeenCalled();
+});
+it.each([
+ {userId:4,rateType:'admin_time',reason:'Intern'},
+ {userId:2,rateType:'admin_time',reason:'Optional participant'},
+ {userId:999,rateType:'admin_time',reason:'Not invited'},
+ {userId:3,rateType:'custom',reason:'Unsupported category'},
+ {userId:3,rateType:'admin_time',reason:''}
+])('rejects an invalid or ineligible compensation override %j',async override=>{
+ await expect(createScheduledTraining({...input,compensationOverrides:[override]},{id:1,role:'admin'})).rejects.toMatchObject({status:400});
+ expect(m.write).not.toHaveBeenCalled();
+});

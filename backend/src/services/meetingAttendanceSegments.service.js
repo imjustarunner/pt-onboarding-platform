@@ -3,7 +3,7 @@
  * Segments sum leave/rejoin time; clamped to scheduled start through meeting_completed_at.
  */
 import pool from '../config/database.js';
-import { closeMeetingAsLastHost } from './meetingEndPermission.service.js';
+import { closeMeetingAsHost } from './meetingEndPermission.service.js';
 import AgencyMeetingAttendanceRollup from '../models/AgencyMeetingAttendanceRollup.model.js';
 
 /** UTC MySQL DATETIME for attendance segments (matches meeting start_at storage). */
@@ -471,7 +471,7 @@ export async function completeMeetingSession({
 
   const now = new Date();
   if (!event.meeting_completed_at) {
-    await closeMeetingAsLastHost('team-meeting', eid, actorUserId);
+    await closeMeetingAsHost('team-meeting', eid, actorUserId);
   }
 
   await closeAllOpenSegmentsForEvent({ eventId: eid, at: now });

@@ -16,6 +16,21 @@ describe('configured meeting reminders',()=>{
  it('records pending approval without claiming the email was sent',async()=>{m.send.mockResolvedValue({pendingApproval:true});await sendConfiguredMeetingReminders(new Date('2026-09-22T18:25:00Z'));expect(m.db.mock.calls.filter(([sql])=>sql.startsWith('INSERT')).every(([,args])=>args[4]==='pending_approval')).toBe(true);});
  it('keeps legacy staff delivery separate while including the candidate',async()=>{m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[{...event,meeting_settings_json:null}]]:[[{id:1,email:'host@tenant.test'},{id:2,email:'guest@example.test',guest_join_token:'guest'}]]);await sendConfiguredMeetingReminders(new Date('2026-09-22T18:25:00Z'));expect(m.send).toHaveBeenCalledTimes(1);expect(m.send.mock.calls[0][0].to).toBe('guest@example.test');});
 });
+it('sends optional pending invitations only at one week and a clearly labeled final three-day reminder',async()=>{
+ const training={...event,title:'Crisis Training',meeting_subtype:'training',end_at:'2026-09-22 20:30:00',meeting_settings_json:{reminders:[10080,1440,60]}};
+ m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[training]]:[[{id:1,email:'optional@test.local',is_required:0,training_rsvp:'pending'}]]);
+ for(const date of ['2026-09-21T18:30:00Z','2026-09-22T17:30:00Z','2026-09-22T18:25:00Z'])await sendConfiguredMeetingReminders(new Date(date));
+ expect(m.send).not.toHaveBeenCalled();
+ await sendConfiguredMeetingReminders(new Date('2026-09-15T18:30:00Z'));expect(m.send).toHaveBeenCalledTimes(1);expect(m.send.mock.calls[0][0].subject).toContain('Optional training');
+ m.send.mockClear();await sendConfiguredMeetingReminders(new Date('2026-09-19T18:30:00Z'));expect(m.send).toHaveBeenCalledTimes(1);expect(m.send.mock.calls[0][0]).toMatchObject({subject:'Final optional training reminder: Crisis Training',text:expect.stringContaining('This is your final reminder')});
+});
+it('honors a one-hour-only test override for all nondeclined invitees',async()=>{
+ const training={...event,title:'Test Training',meeting_subtype:'training',end_at:'2026-09-22 20:30:00',meeting_settings_json:{reminders:[60],trainingReminderMode:'configured_only'}};
+ m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[training]]:[[{id:1,email:'optional@test.local',is_required:0,training_rsvp:'pending'},{id:2,email:'accepted@test.local',is_required:1,training_rsvp:'accepted'},{id:3,email:'declined@test.local',is_required:1,training_rsvp:'declined'}]]);
+ await sendConfiguredMeetingReminders(new Date('2026-09-22T17:30:00Z'));expect(m.send).toHaveBeenCalledTimes(2);
+ expect(m.send.mock.calls.every(([content])=>content.text.includes('1 hour before each date'))).toBe(true);
+ m.send.mockClear();await sendConfiguredMeetingReminders(new Date('2026-09-21T18:30:00Z'));await sendConfiguredMeetingReminders(new Date('2026-09-22T18:25:00Z'));expect(m.send).not.toHaveBeenCalled();
+});
 it('uses RSVP status to switch training from registration reminders to 24-hour and 5-minute join links',async()=>{
  const training={...event,title:'Crisis Training',meeting_subtype:'training',end_at:'2026-09-22 20:30:00',meeting_settings_json:{reminders:[10080,1440,60]}};
  m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[training]]:[[{id:1,email:'pending@test.local',training_rsvp:'pending'},{id:2,email:'confirmed@test.local',training_rsvp:'accepted'},{id:3,email:'declined@test.local',training_rsvp:'declined'}]]);

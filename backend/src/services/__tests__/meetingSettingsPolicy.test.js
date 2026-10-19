@@ -9,4 +9,5 @@ describe('meeting defaults and reminders',()=>{
   expect(schedule.map(r=>r.at.toISOString())).toEqual(['2026-03-05T19:30:00.000Z','2026-03-09T18:30:00.000Z','2026-03-10T18:25:00.000Z']);
  });
  it('keeps explicit legacy reminder off',()=>expect(meetingReminderSchedule({start_at:'2026-09-22 18:30:00',reminder_minutes:null})).toEqual([]));
+ it('preserves the explicit test-only reminder policy and rejects unknown policies',()=>{expect(normalizeMeetingSettings({trainingReminderMode:'configured_only',reminders:[60]})).toMatchObject({trainingReminderMode:'configured_only',reminders:[60]});expect(()=>normalizeMeetingSettings({trainingReminderMode:'invalid'})).toThrow();});
 });

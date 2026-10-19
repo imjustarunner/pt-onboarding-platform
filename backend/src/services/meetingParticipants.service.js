@@ -9,6 +9,7 @@ import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { isCompensationClaimMeeting } from './meetingCompensationClaims.service.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
+import { trainingCompensationOverrides } from './scheduledTrainingCompensation.service.js';
 export async function meetingParticipantRows(event,{includeCompensation=false,resolveEmails=true}={}) {
   if(event.meeting_type==='supervision') {
     const [people]=await pool.execute(`SELECT DISTINCT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name FROM users u WHERE u.id=? OR u.id=? OR u.id IN (SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('DECLINED','REMOVED','CANCELLED'))`,[event.provider_id,event.co_facilitator_user_id||null,event.id]);
@@ -21,6 +22,7 @@ export async function meetingParticipantRows(event,{includeCompensation=false,re
     WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?)
       OR u.id IN (SELECT candidate_user_id FROM hiring_interviews WHERE provider_schedule_event_id=?)`,[event.id,event.id,event.provider_id,event.id,event.id]);
   const date=parseUtcDate(event.start_at);const asOfDate=date?new Intl.DateTimeFormat('en-CA',{timeZone:event.event_timezone||'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(date):null;
+  const trainingOverrides = includeCompensation ? await trainingCompensationOverrides(event) : new Map();
   for(const row of rows) {
     const identity=resolveEmails ? await resolveMeetingRecipient({agencyId:event.agency_id,user:row,guest:!!Number(row.isInterviewCandidate)}) : {email:row.work_email || row.email};
     row.email=identity.email;delete row.work_email;delete row.isInterviewCandidate;
@@ -32,8 +34,11 @@ export async function meetingParticipantRows(event,{includeCompensation=false,re
       if (event.meeting_subtype==='training' && !Number(row.is_required)) row.compensation='Optional attendance · no automatic training pay';
       else if (event.meeting_subtype==='training' && isStudentIntern(row)) row.compensation='Unpaid indirect training time · recorded attendance';
       else if (event.meeting_subtype==='training') {
-        const rate=await meetingClaimHourlyRate({agency_id:event.agency_id,user_id:row.id,claim_date:asOfDate,payload:{serviceCode:'MEETING'}},null);
-        row.compensation=Number(rate)>0 ? `Support Activity · $${Number(rate).toFixed(2)}/hour · recorded attendance` : 'Support Activity rate needed before compensation';
+        const override = trainingOverrides.get(Number(row.id));
+        const label = override ? 'Administrative time override' : 'Support Activity';
+        const rate=await meetingClaimHourlyRate({agency_id:event.agency_id,user_id:row.id,claim_date:asOfDate,payload:{serviceCode:override ? 'Admin Time' : 'MEETING'}},null);
+        row.compensation=Number(rate)>0 ? `${label} · $${Number(rate).toFixed(2)}/hour · recorded attendance` : `${label} rate needed before compensation`;
+        if (override) row.compensationOverride = { rateType:override.rate_type, reason:override.reason };
       }
       else if (event.kind==='HUDDLE' && row.role==='intern') row.compensation='Unpaid indirect time · recorded attendance';
       else if (['admin','super_admin','superadmin'].includes(row.role)) row.compensation='Not compensated · administrator';

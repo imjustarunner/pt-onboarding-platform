@@ -1,4 +1,5 @@
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { trainingReminderDescription } from './meetingReminderPolicy.js';
 
 export const escapeMeetingHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function reminderMinutes(value) {
@@ -13,13 +14,14 @@ export function reminderMinutes(value) {
 export function invitationKey(event) {
   return `${event.meeting_type || 'team_meeting'}:${event.agency_id}:${event.provider_id}:${event.recurrence_series_id ? `series:${event.recurrence_series_id}` : `event:${event.id}`}`;
 }
-export function meetingInvitationContent({ events, joinUrl, hostName, participants = [], guest = false, details = '', recipientUserId = null, recipientRsvp = null }) {
+export function meetingInvitationContent({ events, joinUrl, hostName, participants = [], guest = false, details = '', recipientUserId = null, recipientRsvp = null, recipientRequired = null, finalOptionalReminder = false }) {
   const first = events[0];
   const training = first.meeting_subtype === 'training';
   const recipient = participants.find(p=>Number(p.id)===Number(recipientUserId));
   const confirmed = training && (recipientRsvp || recipient?.rsvp)==='accepted';
-  const requirement = training ? (Number(recipient?.is_required)===1 ? 'Mandatory training' : 'Optional training') : '';
-  if (training) details = `${requirement}: ${confirmed ? 'Your RSVP is confirmed. Use your personal join link below.' : Number(recipient?.is_required)===1 ? 'Your attendance is required. Please RSVP.' : 'You are welcome to attend. Please RSVP if you plan to join.'}\nTopic: ${first.description || first.title}\n${details}`;
+  const isRequired = recipientRequired ?? (Number(recipient?.is_required)===1);
+  const requirement = training ? (isRequired ? 'Mandatory training' : 'Optional training') : '';
+  if (training) details = `${requirement}: ${confirmed ? 'Your RSVP is confirmed. Use your personal join link below.' : isRequired ? 'Your attendance is required. Please RSVP. If you cannot attend, decline with a reason.' : 'You are welcome to attend. Please RSVP if you plan to join; no decline is required if you will not attend.'}\n${finalOptionalReminder ? 'This is your final reminder for this optional training. You will not receive further reminders unless you RSVP to attend.\n' : ''}${trainingReminderDescription(first,{isRequired})}\nTopic: ${first.description || first.title}\n${details}`;
   const recurring = !!first.recurrence_series_id;
   const title = first.title || 'Meeting';
   const isInPerson = ['IN_PERSON','IN-PERSON'].includes(String(first.modality || '').toUpperCase()) || (first.platform_video_link != null && Number(first.platform_video_link)===0 && !first.google_meet_link);
@@ -36,10 +38,11 @@ export function meetingInvitationContent({ events, joinUrl, hostName, participan
   const roster = participants.length ? `Attendees: ${participants.map(p => p.name || p.email || 'Guest').join(', ')}` : '';
   const rsvpEnabled = first.meeting_type !== 'supervision' && !confirmed;
   const rsvpUrl = guest ? joinUrl.replace('/join/team-meeting/','/interview-rsvp/') : `${joinUrl}?rsvp=1&eventId=${first.id}`;
+  const rsvpLabel = training && !isRequired ? 'RSVP if attending' : 'RSVP attending or decline';
   return {
     trainingRequirement: requirement,
     subject: training ? `${requirement} invitation: ${title}` : `${recurring ? 'Recurring meeting invitation' : 'Meeting invitation'}: ${title}`,
-    text: `${heading}\n\n${roster}\n${details}\n${rsvpEnabled ? `RSVP attending or decline: ${rsvpUrl}` : ''}\n\n${when}\n${seriesNote}\n\nJoin: ${joinUrl}\n\n${instructions}`,
-    html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `<p><a href="${escapeMeetingHtml(rsvpUrl)}">RSVP: attending or decline</a></p>` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p><p><a href="${escapeMeetingHtml(joinUrl)}">${action}</a></p><p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
+    text: `${heading}\n\n${roster}\n${details}\n${rsvpEnabled ? `${rsvpLabel}: ${rsvpUrl}` : ''}\n\n${when}\n${seriesNote}\n\nJoin: ${joinUrl}\n\n${instructions}`,
+    html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `<p><a href="${escapeMeetingHtml(rsvpUrl)}">${escapeMeetingHtml(rsvpLabel)}</a></p>` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p><p><a href="${escapeMeetingHtml(joinUrl)}">${action}</a></p><p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
   };
 }

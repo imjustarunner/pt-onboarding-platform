@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',() => ({default:{execute:async sql => sql.inc
 vi.mock('../../models/User.model.js',() => ({default:{findById:m.user}}));
 vi.mock('../../models/SupervisionSession.model.js',() => ({default:{findById:async() => ({id:1,supervisor_user_id:501,modality:'VIRTUAL',status:'SCHEDULED'})}}));
 vi.mock('../meetingJoinPolicy.service.js',() => ({canJoinSupervision:m.join}));
-vi.mock('../meetingEndPermission.service.js',() => ({assertLastMeetingHost:vi.fn()}));
+vi.mock('../meetingEndPermission.service.js',() => ({assertMeetingEndAllowed:vi.fn()}));
 vi.mock('../groupSupervisionConsent.service.js',() => ({isGroupSupervision:vi.fn(),acceptGroupTranscriptionConsent:vi.fn()}));
 vi.mock('../../controllers/counselingRecordingConsent.controller.js',() => ({clientRecordingContext:vi.fn()}));
 vi.mock('../meetingTranscription.service.js',() => ({transcriptionState:vi.fn(),controlTranscription:vi.fn(),appendMeetingAudio:vi.fn()}));

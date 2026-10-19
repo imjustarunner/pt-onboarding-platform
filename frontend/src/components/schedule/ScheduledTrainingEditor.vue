@@ -2,7 +2,7 @@
   <div class="training-overlay" role="dialog" aria-modal="true" aria-labelledby="training-title">
     <form class="training-editor" @submit.prevent="save">
       <h2 id="training-title">Schedule training</h2>
-      <p>Live training in the app. Invitations include RSVP links; mandatory and optional attendees receive the same reminders.</p>
+      <p>Live training in the app. Each invitation includes an RSVP link and clearly states whether attendance is mandatory or optional.</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <label>Title <input v-model="form.title" required maxlength="200" /></label>
       <label>Topic / information <textarea v-model="form.topic" maxlength="4000" /></label>
@@ -23,7 +23,7 @@
       </fieldset>
       <div class="training-columns"><label>Agenda (optional, one item per line)<textarea v-model="agenda" /></label><label>Goals (optional, one per line)<textarea v-model="goals" /></label></div>
       <fieldset><legend>Meeting defaults</legend><label class="check"><input v-model="form.videoAllowed" type="checkbox" /> Attendees may use video</label><label class="check"><input v-model="form.videoDefaultOn" type="checkbox" :disabled="!form.videoAllowed" /> Attendee video starts on</label><label class="check"><input v-model="form.muteAll" type="checkbox" /> Attendees stay muted until a proctor approves their raised hand</label><label class="check"><input v-model="transcription" type="checkbox" /> Transcribe training</label><p>Proctors have priority for screen sharing. Required attendance is recorded as unpaid indirect time for students, or Support Activity for paid staff.</p></fieldset>
-      <MeetingReminderEditor v-model="reminders" /><p>These RSVP reminders stop after a response. Confirmed attendees receive one join reminder 24 hours before and one 5 minutes before. Declined invitations receive no reminders.</p>
+      <MeetingReminderEditor v-model="reminders" /><p>These registration reminders apply to mandatory attendees who have not responded. Optional attendees receive a reminder one week before and one final reminder three days before; no decline is required if they will not attend. Registration reminders stop after an RSVP. Confirmed attendees receive one join reminder 24 hours before and one 5 minutes before. Declined invitations receive no reminders.</p>
       <label>Documents and assets (optional, up to 25 MB each)<input type="file" multiple @change="files=Array.from($event.target.files || [])" /></label>
       <p v-if="createdId">Training is scheduled. {{ uploadStatus }}</p>
       <div class="training-actions"><button type="button" :disabled="saving" @click="$emit('close')">{{ createdId ? 'Close' : 'Cancel' }}</button><button v-if="!createdId" type="submit" :disabled="saving || loading">{{ saving ? 'Scheduling…' : 'Schedule and invite' }}</button></div>

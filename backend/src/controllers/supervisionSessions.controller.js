@@ -12,7 +12,7 @@ import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { normalizeAttendanceReminders } from '../services/supervisionAttendancePolicy.js';
-import { meetingEndPermission, closeMeetingAsLastHost } from '../services/meetingEndPermission.service.js';
+import { meetingEndPermission, closeMeetingAsHost } from '../services/meetingEndPermission.service.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
@@ -2061,20 +2061,8 @@ export const endSupervisionLiveSession = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const isSupervisor = actorUserId === Number(row.supervisor_user_id || 0)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
-    let isPresenter = false;
-    try {
-      const [presenterRows] = await pool.execute(
-        `SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1`,
-        [id, actorUserId]
-      );
-      isPresenter = !!(presenterRows?.length);
-    } catch {
-      isPresenter = false;
-    }
-    if (!isSupervisor && !isPresenter) {
-      return res.status(403).json({ error: { message: 'Only the facilitator can end the live session for everyone.' } });
+    if (actorUserId !== Number(row.supervisor_user_id || 0)) {
+      return res.status(403).json({ error: { message: 'Only the assigned supervisor can end this meeting for everyone.' } });
     }
 
     const liveEndedAt = row.live_ended_at || null;
@@ -2090,7 +2078,7 @@ export const endSupervisionLiveSession = async (req, res, next) => {
       });
     }
 
-    await closeMeetingAsLastHost('supervision', id, actorUserId);
+    await closeMeetingAsHost('supervision', id, actorUserId);
     const updated = await SupervisionSession.findById(id);
     const closedByName = await resolveSupervisionClosedByName(updated || row, actorUserId);
 

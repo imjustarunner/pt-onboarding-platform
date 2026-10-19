@@ -19,6 +19,7 @@ import { duePresenterReminders } from './supervisionPresenterReminderPolicy.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 import { canUserSignup } from './supervisionSignup.service.js';
 import { escapeMeetingHtml as esc } from './meetingInvitationPolicy.js';
+import { pendingOptionalSupervision } from './supervisionAttendancePolicy.js';
 
 // Explicit organizer opt-in only. Existing sessions and regular invited sessions
 // never start broadcasting signup emails when this code is deployed.
@@ -70,6 +71,7 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  // Presenter preparation has its own five deadlines. Do not also send the
  // generic attendee reminder at the same time (or the default five-minute one).
  if(!huddle && recipient.isPresenter && kind!=='invitation' && !kind.startsWith('presenter:'))return {skipped:true,reason:'presenter_reminder_schedule'};
+ if(pendingOptionalSupervision(session,recipient) && kind!=='invitation' && !['join:10080','join:4320'].includes(kind))return {skipped:true,reason:'optional_registration_reminder_schedule'};
  const hostIds=huddle?[Number(session.provider_id),...people.filter(p=>Number(p.is_cohost)).map(p=>Number(p.id))]:[session.supervisor_user_id,session.co_facilitator_user_id].map(Number);
  const hosts=people.filter(p=>hostIds.includes(Number(p.id)));
  const base=await tenantMeetingBase(session.agency_id);
@@ -137,6 +139,7 @@ export async function sendSupervisionDayAheadReminders(now=new Date()) {
   const presenterOffsets=duePresenterReminders(session,now);
   const hours=(parseUtcDate(session.start_at)-now)/3600000;
   for(const user of people){
+   if(pendingOptionalSupervision(session,user))continue;
    const kinds=user.isPresenter
     ? presenterOffsets.map(minutes=>`presenter:${minutes}`)
     : !parseMeetingSettings(session.meeting_settings_json).attendanceReminders && session.reminder_minutes != null && hours>23 && hours<=24 ? ['day_before'] : [];

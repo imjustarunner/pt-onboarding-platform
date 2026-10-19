@@ -34,7 +34,7 @@
         </button>
         <span class="gsl__count" title="Participants">{{ participantHint }}</span>
         <button type="button" class="btn btn-danger btn-sm" @click="onLeaveClick">
-          {{ isSupervisor ? 'Leave / End session' : 'Leave session' }}
+          {{ canEndForEveryone ? 'Leave / End session' : 'Leave session' }}
         </button>
       </div>
     </header>
@@ -380,15 +380,15 @@
       <div class="gsl__modal">
         <h3 id="gsl-leave-title">Leave Group Supervision?</h3>
         <p>
-          Leave only disconnects you. The other host, cohosts, and participants can continue,
-          and you can rejoin. Only the last host or cohost in the room can end the session for everyone.
+          Leave without ending disconnects you. The other participants can continue,
+          and you can rejoin. Only the assigned supervisor can end the meeting for everyone.
         </p>
         <div class="gsl__modal-actions">
           <button type="button" class="btn btn-primary" :disabled="endingBusy" @click="confirmLeaveOnly">
-            Leave only
+            Leave without ending
           </button>
           <button v-if="canEndForEveryone" type="button" class="btn btn-danger" :disabled="endingBusy" @click="confirmEndForAll">
-            {{ endingBusy ? 'Ending…' : 'End for everyone' }}
+            {{ endingBusy ? 'Ending…' : 'Leave and end meeting for everyone' }}
           </button>
           <button type="button" class="btn btn-ghost" :disabled="endingBusy" @click="showHostLeaveModal = false">
             Cancel
@@ -641,7 +641,7 @@ const canGrantScreenShare = computed(() => {
 
 async function onLeaveClick() {
   if (editingSlide.value && !await saveSlideEdits()) return;
-  if (props.isSupervisor) {
+  if (props.canEndForEveryone) {
     endingBusy.value = false;
     showHostLeaveModal.value = true;
     return;

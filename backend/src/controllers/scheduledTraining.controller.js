@@ -1,4 +1,5 @@
 import { saveTrainingRsvp } from '../services/scheduledTrainingRsvp.service.js';
+import { trainingReminderDescription } from '../services/meetingReminderPolicy.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import { createScheduledTraining, trainingRoster, trainingAccess, trainingError } from '../services/scheduledTraining.service.js';
@@ -13,9 +14,11 @@ export const getTraining = async(req,res,next) => {
     const [assets]=await pool.execute(`SELECT a.id,a.filename,a.size_bytes,a.created_at FROM scheduled_training_assets a JOIN scheduled_trainings t ON t.event_id=a.event_id WHERE t.series_key=? ORDER BY a.created_at`,[event.series_key]);
     const [hands]=await pool.execute(`SELECT h.user_id,h.status,h.raised_at,CONCAT_WS(' ',u.first_name,u.last_name) name FROM scheduled_training_hands h JOIN users u ON u.id=h.user_id WHERE h.event_id=? AND (?=1 OR h.user_id=?) ORDER BY h.raised_at`,[event.id,Number(proctor),req.user.id]);
     const [log]=await pool.execute('SELECT * FROM scheduled_training_logs WHERE event_id=? AND user_id=?',[event.id,req.user.id]);
-    const [participants]=await pool.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name,(u.id=?) isHost,COALESCE(p.is_required,0) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp FROM users u LEFT JOIN meeting_participant_preferences p ON p.event_id=? AND p.user_id=u.id WHERE u.id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=? AND a.user_id=u.id)`,[event.provider_id,event.id,event.provider_id,event.id]);
+    const [participants]=await pool.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name,(u.id=?) isHost,COALESCE(p.is_required,0) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp,p.rsvp_decline_reason FROM users u LEFT JOIN meeting_participant_preferences p ON p.event_id=? AND p.user_id=u.id WHERE u.id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=? AND a.user_id=u.id)`,[event.provider_id,event.id,event.provider_id,event.id]);
+    const self=participants.find(p=>Number(p.id)===Number(req.user.id));
+    for(const participant of participants)if(!proctor && Number(participant.id)!==Number(req.user.id))delete participant.rsvp_decline_reason;
     const [approvals]=await pool.execute("SELECT user_id FROM scheduled_training_hands WHERE event_id=? AND status='approved'",[event.id]);
-    res.json({viewerUserId:Number(req.user.id),invited:proctor || !!event.actor_invited,approvedIds:approvals.map(p=>Number(p.user_id)),event:{id:event.id,title:event.title,topic:event.topic,startAt:event.start_at,endAt:event.end_at,timeZone:event.event_timezone,agencyVisible:!!event.agency_visible,videoDefaultOn:!!event.video_default_on,videoAllowed:!!event.video_allowed,muteAll:!!event.mute_all},proctor,assets,hands,log:log[0] || null,participants});
+    res.json({viewerUserId:Number(req.user.id),invited:proctor || !!event.actor_invited,reminderDescription:trainingReminderDescription(event,{isRequired:Number(self?.is_required)===1}),approvedIds:approvals.map(p=>Number(p.user_id)),event:{id:event.id,title:event.title,topic:event.topic,startAt:event.start_at,endAt:event.end_at,timeZone:event.event_timezone,agencyVisible:!!event.agency_visible,videoDefaultOn:!!event.video_default_on,videoAllowed:!!event.video_allowed,muteAll:!!event.mute_all},proctor,assets,hands,log:log[0] || null,participants});
   }catch(e){next(e);}
 };
 export const updateTraining = async(req,res,next) => {
@@ -105,6 +108,6 @@ export const trainingCalendar = async(req,res,next) => {
 export const trainingRsvp = async(req,res,next) => {
  try {
   const {event}=await trainingAccess(Number(req.params.eventId),req.user);
-  res.json(await saveTrainingRsvp(event,req.user.id,req.body.response));
+  res.json(await saveTrainingRsvp(event,req.user.id,req.body.response,req.body.reason));
  }catch(e){next(e);}
 };

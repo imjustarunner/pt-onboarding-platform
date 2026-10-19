@@ -55,10 +55,11 @@ export async function meetingClaimCompensation(claim) {
   const override = await getMeetingClaimRateOverride(claim);
   const hourlyRate = await meetingClaimHourlyRate(claim, override);
   const rateType = override?.rate_type || 'default';
-  const rateLabel = MEETING_RATE_TYPES[rateType] || ({ MEETING: 'Support Activity', 'Admin Time': 'Administrative time', INDIRECT: 'Indirect time' })[claim.payload?.serviceCode]
+  const trainingOverride = claim.payload?.trainingCompensationOverride;
+  const rateLabel = MEETING_RATE_TYPES[rateType] || (trainingOverride?.rateType === 'admin_time' && claim.payload?.serviceCode === 'Admin Time' ? 'Administrative time (training override)' : null) || ({ MEETING: 'Support Activity', 'Admin Time': 'Administrative time', INDIRECT: 'Indirect time' })[claim.payload?.serviceCode]
     || claim.payload?.serviceCode || 'Support Activity';
   return {
-    rateType, rateLabel, hourlyRate, reason: override?.reason || '',
+    rateType, rateLabel, hourlyRate, reason: override?.reason || trainingOverride?.reason || '',
     estimatedAmount: hourlyRate == null ? null : Math.round(hourlyRate * Number(claim.payload?.totalMinutes || 0) / 60 * 100) / 100,
     appliedAmount: claim.applied_amount == null ? null : Number(claim.applied_amount)
   };

@@ -36,7 +36,20 @@ export function supervisionReminderEvent(session, person) {
   const settings = parseMeetingSettings(session.meeting_settings_json);
   const attendance = supervisionAttendance(session, person);
   const reminders = attendance && settings.attendanceReminders?.[attendance.tier];
+  if (pendingOptionalSupervision(session,person)) {
+    // Respect an explicit reminder opt-out. Otherwise stop prompting an
+    // unanswered optional invitation after its final three-day reminder.
+    const optedOut = Array.isArray(reminders) ? reminders.length === 0
+      : Array.isArray(settings.reminders) ? settings.reminders.length === 0 : session.reminder_minutes === null;
+    return {...session,meeting_settings_json:{...settings,reminders:optedOut ? [] : [10080,4320]}};
+  }
   return Array.isArray(reminders)
     ? { ...session, meeting_settings_json: { ...settings, reminders } }
     : session;
+}
+
+export function pendingOptionalSupervision(session, person = {}) {
+  return session.kind !== 'HUDDLE' && session.session_type === 'group' && session.enrollment_mode !== 'signup_only'
+    && supervisionAttendance(session,person)?.tier === 'optional'
+    && !['SIGNED_UP','JOINED','LEFT','DECLINED','WITHDRAWN','REMOVED','CANCELLED'].includes(String(person.status || '').toUpperCase());
 }

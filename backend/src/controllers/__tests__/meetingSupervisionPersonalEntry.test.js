@@ -53,13 +53,23 @@ describe('identified supervision room roles and attendance', () => {
     expect(invalid.status).toHaveBeenCalledWith(400);expect(log).not.toHaveBeenCalled();
     log.mockRestore();
   });
-  it('does not disconnect the room or close attendance when another host blocks ending',async()=>{
+  it('does not disconnect the room or close attendance when closure permission changes',async()=>{
     session.session_type='group';session.co_facilitator_user_id=9;
     const original=m.execute.getMockImplementation();
     m.execute.mockImplementation(async(sql,args)=>sql.startsWith('UPDATE supervision_sessions e')?[{affectedRows:0}]:original(sql,args));
     const res=response(),next=vi.fn();await endSupervisionLiveSession(request(7),res,next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));
     expect(m.complete).not.toHaveBeenCalled();expect(m.record).not.toHaveBeenCalled();expect(m.rollup).not.toHaveBeenCalled();
+  });
+  it('only lets the assigned supervisor end group supervision, not a cofacilitator or presenter', async () => {
+    session.session_type = 'group'; session.co_facilitator_user_id = 9;
+    for (const userId of [9, 8]) {
+      const res = await invoke(endSupervisionLiveSession, request(userId));
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({ error: { message: 'Only the assigned supervisor can end this meeting for everyone.' } });
+    }
+    expect(m.complete).not.toHaveBeenCalled();
+    expect(m.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE supervision_sessions e'))).toBe(false);
   });
   it.each([7,9])('leaving facilitator %s closes only their attendance and leaves the other facilitator connected',async userId=>{
     session.session_type='group';session.co_facilitator_user_id=9;

@@ -1907,11 +1907,8 @@ export const completeTeamMeetingSession = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Meeting not found' } });
     }
     const actorId = Number(req.user?.id || 0);
-    const role = String(req.user?.role || '').toLowerCase();
-    const isHost = await isMeetingHost(event,actorId);
-    const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
-    if (!isHost && !isPrivileged) {
-      return res.status(403).json({ error: { message: 'Only the host or admin/support/super admin can complete this meeting.' } });
+    if (!await canAccessTeamMeeting(req, event) || !await isMeetingHost(event, actorId)) {
+      return res.status(403).json({ error: { message: 'Only the host or a cohost can end this meeting for everyone.' } });
     }
     const { completeMeetingSession } = await import('../services/meetingAttendanceSegments.service.js');
     const result = await completeMeetingSession({ eventId, actorUserId: actorId });

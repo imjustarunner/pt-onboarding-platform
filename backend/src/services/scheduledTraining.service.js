@@ -5,6 +5,7 @@ import { canJoinTeamMeeting, hasActiveMeetingMembership } from './meetingJoinPol
 import { defaultMeetingSettings, normalizeMeetingSettings } from './meetingSettingsPolicy.js';
 import { canScheduleTraining, isScheduledTraining, trainingRequirement, validateTrainingInput } from './scheduledTrainingPolicy.js';
 import { maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { validateTrainingCompensationOverrides } from './scheduledTrainingCompensation.service.js';
 
 export const trainingError = (status, message) => Object.assign(new Error(message), { status });
 export async function trainingRoster(agencyId, actor) {
@@ -54,6 +55,7 @@ export async function createScheduledTraining(input, actor) {
   }));
   if (![proctorId,...coproctors].every(id => allowed.has(id))) throw trainingError(400, 'Proctors must be active staff in this agency.');
   for (const id of [proctorId,...coproctors]) if (!participants.has(id)) participants.set(id,false);
+  const compensationOverrides = validateTrainingCompensationOverrides(input.compensationOverrides, actor, roster, participants);
   if (input.agenda && (!Array.isArray(input.agenda) || input.agenda.length>50)) throw trainingError(400,'Choose up to 50 agenda items.');
   if (input.goals && (!Array.isArray(input.goals) || input.goals.length>50)) throw trainingError(400,'Choose up to 50 goals.');
   const settings = normalizeMeetingSettings(input.meetingSettings, defaultMeetingSettings('training'));
@@ -76,6 +78,10 @@ export async function createScheduledTraining(input, actor) {
       for (const [uid,required] of participants) {
         if (uid!==proctorId) await db.execute('INSERT INTO provider_schedule_event_attendees (event_id,user_id) VALUES (?,?)',[eventId,uid]);
         await db.execute('INSERT INTO meeting_participant_preferences (event_id,user_id,is_required,is_cohost) VALUES (?,?,?,?)',[eventId,uid,Number(required),Number(coproctors.includes(uid))]);
+      }
+      for (const override of compensationOverrides) {
+        await db.execute(`INSERT INTO scheduled_training_compensation_overrides (event_id,user_id,agency_id,rate_type,reason,authorized_by_user_id) VALUES (?,?,?,?,?,?)`,
+          [eventId,override.userId,agencyId,override.rateType,override.reason,actor.id]);
       }
       if (Array.isArray(input.agenda) && input.agenda.length) {
         const [agenda]=await db.execute("INSERT INTO meeting_agendas (agency_id,meeting_type,meeting_id,created_by_user_id) VALUES (?,'provider_schedule_event',?,?)",[agencyId,eventId,actor.id]);

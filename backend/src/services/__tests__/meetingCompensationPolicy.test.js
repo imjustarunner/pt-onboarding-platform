@@ -96,3 +96,17 @@ it('records mandatory nonstudent training at Support Activity even for a salarie
  await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'training'}});
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:60})}));
 });
+it('applies an audited Administrative time override only to its mandatory participant and actual attendance',async()=>{
+ m.attendees.mockResolvedValue([2,3,4]);m.rollups.mockResolvedValue([1,2,3,4].map(user_id=>({user_id,total_seconds:user_id===1?1215:1800})));
+ m.execute.mockImplementation(async(sql,args)=>
+  sql.includes('FROM scheduled_training_compensation_overrides')?[[1,3,4].map(user_id=>({user_id,rate_type:'admin_time',reason:'Leadership meeting',authorized_by_user_id:501}))]:
+  sql.includes('SELECT user_id,is_required')?[[1,2,3,4].map(user_id=>({user_id,is_required:user_id===4?0:1}))]:
+  sql.includes('SELECT role')?[[{role:args[0]===3?'intern':'provider',credential:'BA'}]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'training'}});
+ expect(m.create).toHaveBeenCalledTimes(2);
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'Admin Time',totalMinutes:20.25,payRateSource:'training_admin_time_override',trainingCompensationOverride:{rateType:'admin_time',reason:'Leadership meeting',authorizedByUserId:501}})}));
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:2,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:30})}));
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,1,2,1215,'admin_time',1,1]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,3,2,1800,'indirect',1,0]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,4,2,1800,'attendance',0,0]);
+});

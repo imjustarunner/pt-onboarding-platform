@@ -69,6 +69,8 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduled-training.config.js
           npm test --prefix frontend -- --run src/utils/__tests__/scheduledTraining.test.js src/utils/__tests__/teamMeetingInvitationAccess.test.js src/components/meetings/__tests__/ScheduledTrainingPanel.test.js src/components/video/__tests__/VideoSessionRoom.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-launch.config.js backend/src/controllers/__tests__/meetingEndAuthority.test.js backend/src/services/__tests__/meetingEndPermission.test.js backend/src/services/__tests__/meetingLastHostCompletion.test.js
+          npm test --prefix frontend -- --run src/views/teamMeeting/__tests__/TeamMeetingLeave.test.js src/views/supervision/__tests__/SupervisionLeave.test.js src/components/supervision/__tests__/SupervisionLeaveControls.test.js
       - name: Personal meeting links without app login
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

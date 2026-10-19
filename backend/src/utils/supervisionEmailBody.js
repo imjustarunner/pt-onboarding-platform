@@ -1,9 +1,12 @@
 import { escapeMeetingHtml as esc } from '../services/meetingInvitationPolicy.js';
-import { supervisionAttendance } from '../services/supervisionAttendancePolicy.js';
+import { supervisionAttendance, pendingOptionalSupervision } from '../services/supervisionAttendancePolicy.js';
 
 export function supervisionEmailBody({session,recipientName,hostNames,people,calendar,joinUrl,rsvpUrl,presentationUrl,detailsUrl,isRequired,isPresenter,isHost,kind='invitation',meetingTitle=null,hostLabel=null,leadershipReplyTo=null,preparationComplete=false,recipient={}}) {
  const group=String(session.session_type).toLowerCase()==='group';
  const attendance=supervisionAttendance(session,{...recipient,is_required:isRequired == null ? (isHost ? 1 : 0) : Number(isRequired),isPresenter});
+ const pendingOptional = pendingOptionalSupervision(session,{...recipient,is_required:isRequired == null ? (isHost ? 1 : 0) : Number(isRequired),isPresenter});
+ const finalOptional = pendingOptional && kind==='join:4320';
+ const optionalReminderNote = pendingOptional ? finalOptional ? 'This is your final reminder for this optional session. No response is needed if you will not attend. You will receive no further reminders for this date unless you RSVP to attend.' : 'This session is optional. Unanswered invitations receive a reminder one week before and one final reminder three days before. No response is needed if you will not attend, and reminders then stop for this date.' : '';
  const title=meetingTitle||(group?'Group supervision':'Individual supervision');
  const signup=session.enrollment_mode==='signup_only';
  const accepted=people.filter(p=>['SIGNED_UP','JOINED','LEFT'].includes(p.status)&&p.participant_role==='supervisee');
@@ -21,6 +24,7 @@ export function supervisionEmailBody({session,recipientName,hostNames,people,cal
  <h1 style="font-size:32px;line-height:1.2;color:#103e2f;margin:0 0 15px;">${title}</h1>
  <p style="font-size:20px;font-weight:bold;color:#34734f;">${status}</p><p>${intro}</p>
  ${attendance?`<p><strong>${esc(attendance.label)}</strong><br>${esc(attendance.description)}</p>`:''}
+ ${optionalReminderNote?`<p>${esc(optionalReminderNote)}</p>`:''}
  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f1f6f2" style="border-radius:14px;background:#f1f6f2;margin:20px 0;">
  ${row('Date',calendar.dateLabel)}${row('Time',calendar.timeLabel)}${row('Time zone',session.event_timezone||'America/Denver')}${row('Format',inPerson?session.location_text||'In person':meetingTitle?'Virtual meeting':'Virtual supervision')}${row(hostLabel||(group?'Host':'Supervisor'),hostNames.join(', '))}${presenters.length?row('Case conceptualization presenter',presenters.join(', ')):''}</table>
  ${presentationAgenda.length ? `<h2 style="font-size:18px;color:#183d31;">Presentation schedule for ${esc(calendar.dateLabel)}</h2><ol>${presentationAgenda.map(item => `<li>${esc(item)}</li>`).join('')}</ol>` : ''}
@@ -37,6 +41,6 @@ export function supervisionEmailBody({session,recipientName,hostNames,people,cal
  </div>`;
  const text=[!meetingTitle ? 'AuricWell · Supervision' : '',`Hi ${recipientName},`,title,status,intro,presentationAgenda.length ? `Presentation schedule for ${calendar.dateLabel}:\n${presentationAgenda.join('\n')}` : '',`${calendar.dateLabel}, ${calendar.timeLabel} (${session.event_timezone||'America/Denver'})`,`Supervisor / hosts: ${hostNames.join(', ')}`,`Join: ${joinUrl}`,'Your email join link is personal and identifies you without signing in. Do not share or forward it. Calendar links join as a guest unless you are signed in.',!isHost?`RSVP: ${rsvpUrl}`:'',isPresenter?`${preparationComplete ? 'View' : 'Edit'} presentation: ${presentationUrl}`:'',`Confirmed: ${accepted.map(p=>p.name).join(', ')||'None yet'}`,`Google Calendar: ${calendar.googleUrl}`,`Outlook: ${calendar.outlookUrl}`,`Apple Calendar / iCal: ${calendar.downloadUrl}`,`Details: ${detailsUrl}`,replyInstructions].filter(Boolean).join('\n\n');
  const rsvpText=isHost ? `${text}\n\nRSVP: ${rsvpUrl}` : text;
- const attendanceText=attendance ? `${attendance.label}\n${attendance.description}\n\n${rsvpText}` : rsvpText;
- return {subject:`${attendance ? `[${attendance.tier === 'mandatory' ? 'Mandatory' : 'Optional'}] ` : ''}${kind.startsWith('presenter:')?'You’re presenting — reminder':kind==='invitation'?'Invitation':'Reminder'}: ${title} with ${hostNames.join(' and ')}`,html,text:attendanceText};
+ const attendanceText=attendance ? `${attendance.label}\n${attendance.description}\n${optionalReminderNote}\n\n${rsvpText}` : rsvpText;
+ return {subject:`${attendance ? `[${attendance.tier === 'mandatory' ? 'Mandatory' : 'Optional'}] ` : ''}${kind.startsWith('presenter:')?'You’re presenting — reminder':kind==='invitation'?'Invitation':finalOptional?'Final reminder':'Reminder'}: ${title} with ${hostNames.join(' and ')}`,html,text:attendanceText};
 }

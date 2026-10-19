@@ -278,7 +278,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
   it('prioritizes a shared screen, permits another layout, and restores priority from Layout', async () => {
     const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'screen-test',token:'eyJ.test.token',allowTileFocus:true,tileFocus:'collapsed',playJoinTone:false}});
     await flushPromises(); await vi.dynamicImportSettled();
-    videoSdk.session.subscribe=vi.fn((_stream,target)=>({element:target,streamId:'screen-1',on:vi.fn()}));
+    videoSdk.session.subscribe=vi.fn((stream,target)=>({element:target,stream,on:vi.fn()}));
     videoSdk.session._handlers.streamCreated({stream:{streamId:'screen-1',videoType:'screen',connection:{connectionId:'presenter'},hasVideo:true,hasAudio:false}});
     await flushPromises();
     expect(wrapper.find('.vsr__stage--screen').exists()).toBe(true);
@@ -292,6 +292,38 @@ describe('VideoSessionRoom connection lifecycle', () => {
     await wrapper.findAll('.vsr__layout-item').find(b=>b.text().includes('Shared screen')).trigger('click');
     expect(wrapper.find('.vsr__stage--screen').exists()).toBe(true);
     expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('keeps the lead trainer screen ahead of coproctors and ignores the end of another screen', async()=>{
+    const policy={userId:4,proctor:false,primaryId:1,proctorIds:[1,2],approvedIds:[],muteAll:true,videoAllowed:false,canUnmute:false};
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'training-screen',token:'eyJ.test.token',trainingPolicy:policy,startMuted:true,startVideoOff:true,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session.subscribe=vi.fn((stream,target)=>({element:target,stream,on:vi.fn()}));
+    const screen=(userId,name)=>({streamId:`screen-${userId}`,name,videoType:'screen',connection:{connectionId:`c-${userId}`,data:JSON.stringify({identity:`user-${userId}`})},hasVideo:true,hasAudio:false});
+    const lead=screen(1,'Megan'),co=screen(2,'Co-trainer'),attendee=screen(5,'Attendee');
+    for(const stream of [lead,co,attendee]){videoSdk.session._handlers.streamCreated({stream});await flushPromises();}
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);
+    expect(wrapper.find('.vsr__tile--screen').text()).toContain('Megan');
+    videoSdk.session._handlers.streamDestroyed({stream:co});await flushPromises();
+    videoSdk.session._handlers.streamDestroyed({stream:attendee});await flushPromises();
+    expect(videoSdk.session.unsubscribe).not.toHaveBeenCalled();
+    expect(wrapper.find('.vsr__tile--screen').text()).toContain('Megan');
+    videoSdk.session._handlers.streamDestroyed({stream:lead});await flushPromises();
+    expect(videoSdk.session.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('replaces a coproctor screen when the lead trainer begins sharing',async()=>{
+    const policy={userId:4,proctor:false,primaryId:1,proctorIds:[1,2],approvedIds:[],muteAll:true,videoAllowed:false,canUnmute:false};
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'training-priority',token:'eyJ.test.token',trainingPolicy:policy,startMuted:true,startVideoOff:true,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session.subscribe=vi.fn((stream,target)=>({element:target,stream,on:vi.fn()}));
+    for(const userId of [2,1]){videoSdk.session._handlers.streamCreated({stream:{streamId:`screen-${userId}`,name:`Trainer ${userId}`,videoType:'screen',connection:{connectionId:`c-${userId}`,data:JSON.stringify({identity:`user-${userId}`})},hasVideo:true,hasAudio:false}});await flushPromises();}
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(2);
+    expect(videoSdk.session.unsubscribe).toHaveBeenCalledWith(expect.objectContaining({stream:expect.objectContaining({streamId:'screen-2'})}));
+    expect(wrapper.find('.vsr__tile--screen').text()).toContain('Trainer 1');
     wrapper.unmount();
   });
 

@@ -536,7 +536,7 @@
           <h3>Leave interview meeting?</h3>
           <p>
             Use <strong>End Interview</strong> to close candidate access while your team stays in the room.
-            Only the last host or cohost still present can end the call for everyone.
+            The host or a cohost can leave and end the meeting for everyone.
           </p>
           <p v-if="completeError" class="error-inline">{{ completeError }}</p>
           <div class="join-modal-actions">
@@ -544,10 +544,10 @@
               {{ endingInterviewGuest ? 'Ending…' : 'End Interview (candidate only)' }}
             </button>
             <button v-if="canEndForEveryone" type="button" class="btn btn-danger" :disabled="completing || endingInterviewGuest" @click="markCompletedAndLeave">
-              {{ completing ? 'Closing…' : 'End call for everyone' }}
+              {{ completing ? 'Closing…' : 'Leave and end meeting for everyone' }}
             </button>
             <button type="button" class="btn btn-secondary" :disabled="completing || endingInterviewGuest" @click="leaveWithoutClosing">
-              Leave without closing
+              Leave without ending
             </button>
             <button type="button" class="btn btn-ghost" :disabled="completing || endingInterviewGuest" @click="showHostLeaveModal = false">
               Cancel
@@ -557,16 +557,16 @@
         <template v-else>
           <h3>Leave meeting?</h3>
           <p>
-            Leave without closing to let everyone else continue. Only the last host or cohost
-            still present can mark the session completed and end it for everyone.
+            Leave without ending to let everyone else continue. The host or a cohost can
+            leave and end the meeting for everyone.
           </p>
           <p v-if="completeError" class="error-inline">{{ completeError }}</p>
           <div class="join-modal-actions">
-            <button v-if="canEndForEveryone" type="button" class="btn btn-primary" :disabled="completing" @click="markCompletedAndLeave">
-              {{ completing ? 'Closing…' : 'Mark Completed & Close' }}
-            </button>
             <button type="button" class="btn btn-secondary" :disabled="completing" @click="leaveWithoutClosing">
-              Leave without closing
+              Leave without ending
+            </button>
+            <button v-if="canEndForEveryone" type="button" class="btn btn-danger" :disabled="completing" @click="markCompletedAndLeave">
+              {{ completing ? 'Closing…' : 'Leave and end meeting for everyone' }}
             </button>
             <button type="button" class="btn btn-ghost" :disabled="completing" @click="showHostLeaveModal = false">
               Cancel
@@ -1923,12 +1923,13 @@ function requestLeave() {
 }
 
 async function markCompletedAndLeave() {
+  if (completing.value) return;
   if (!canEndForEveryone.value) {
-    completeError.value = 'Only the last host or cohost still present can end the meeting for everyone. You can leave without closing.';
+    completeError.value = 'Only the host or a cohost can end this meeting for everyone. You can leave without ending it.';
     return;
   }
   const eid = resolvedEventId.value || eventId.value;
-  if (!eid) return;
+  if (!eid || !window.confirm('Are you sure you want to end this meeting for everyone?')) return;
   completing.value = true;
   completeError.value = '';
   // Server force-disconnect may fire before the POST returns — don't re-open the modal.
@@ -1941,7 +1942,7 @@ async function markCompletedAndLeave() {
     void finishLeave({ variant: 'ended-by-you', canRejoin: false });
   } catch (e) {
     intentionalLeave.value = false;
-    if (Number(e?.response?.status) === 409) canEndForEveryone.value = false;
+    if ([403, 409].includes(Number(e?.response?.status))) canEndForEveryone.value = false;
     completeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to complete meeting';
   } finally {
     completing.value = false;

@@ -11,3 +11,10 @@ it('uses the authenticated invitation identity even if a different account is in
  const value=data(false);value.viewerUserId=8;value.hands=[{user_id:8,status:'approved'}];m.get.mockResolvedValue({data:value});
  const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();expect(w.text()).toContain('Your request was approved');w.unmount();
 });
+it('shows the configured test reminder and requires a reason before mandatory training decline',async()=>{
+ const value={...data(false),invited:true,reminderDescription:'Special schedule: 1 hour before.'};m.get.mockResolvedValue({data:value});m.post.mockResolvedValue({data:{ok:true}});
+ const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
+ expect(w.text()).toContain('Special schedule: 1 hour before.');expect(w.text()).not.toContain('24-hour reminder');
+ await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');const confirm=w.findAll('button').find(b=>b.text()==='Confirm decline');expect(confirm.element.disabled).toBe(true);
+ await w.get('textarea').setValue('attended in the spring');await confirm.trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/rsvp',{response:'declined',reason:'attended in the spring'});w.unmount();
+});

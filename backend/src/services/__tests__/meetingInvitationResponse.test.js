@@ -2,10 +2,11 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {once} from 'node:events';
 import {readFileSync} from 'node:fs';
 import express from 'express';
-const m=vi.hoisted(()=>({execute:vi.fn(),events:vi.fn(),save:vi.fn(),people:vi.fn(),team:vi.fn(),join:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),events:vi.fn(),save:vi.fn(),trainingSave:vi.fn(),people:vi.fn(),team:vi.fn(),join:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../meetingInvitations.service.js',()=>({invitationEvents:m.events}));
 vi.mock('../supervisionRsvp.service.js',()=>({saveSupervisionRsvp:m.save}));
+vi.mock('../scheduledTrainingRsvp.service.js',()=>({saveTrainingRsvp:m.trainingSave}));
 vi.mock('../supervisionEmail.service.js',()=>({supervisionCalendar:vi.fn(),supervisionEmailPeople:m.people}));
 vi.mock('../meetingParticipants.service.js',()=>({meetingParticipantRows:m.team}));
 vi.mock('../supervisionInvitationAccess.service.js',()=>({resolveSupervisionInvitationAccess:m.join}));
@@ -25,10 +26,11 @@ beforeEach(()=>{
  event={id:19,agency_id:2,supervisor_user_id:8,session_type:'group',start_at:'2099-10-15 16:00:00',end_at:'2099-10-15 17:00:00',event_timezone:'America/Denver'};
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.includes('meeting_email_invitations'))return [args[0]===token?[invitation]:[]];
-  if(sql.includes('meeting_agenda_items'))return [[{title:'Presentation',notes:'Private notes'}]];
+ if(sql.includes('meeting_agenda_items'))return [[{title:'Presentation',notes:'Private notes'}]];
+  if(sql.startsWith('SELECT user_id,rsvp_decline_reason'))return [[{user_id:7,rsvp_decline_reason:'attended in the spring'},...(args[1]?[{user_id:9,rsvp_decline_reason:'Private reason'}]:[])]];
   return [{affectedRows:1}];
  });
- m.events.mockResolvedValue([event]);m.save.mockResolvedValue({ok:true,response:'accepted'});
+ m.events.mockResolvedValue([event]);m.save.mockResolvedValue({ok:true,response:'accepted'});m.trainingSave.mockResolvedValue({ok:true,response:'declined'});
  m.people.mockResolvedValue([{id:7,name:'Ryn',is_required:1,status:'INVITED',email:'private@example.test'},{id:9,name:'Attendee',status:'DECLINED',decline_reason:'Private reason'}]);
  m.team.mockResolvedValue([{id:7,name:'Ryn',rsvp:'accepted',email:'private@example.test'}]);
  m.join.mockResolvedValue({joinUrl:'https://tenant.test/join/supervision/19',supervisionAccess:{sessionId:19,token:'scoped-only'}});
@@ -78,4 +80,17 @@ it('uses team RSVP status without implying supervision compensation',async()=>{
  invitation.meeting_type='team_meeting';event.kind='TEAM_MEETING';delete event.session_type;
  const r=await fetch(`${await url()}/${token}?details=1&eventId=19`);expect(r.status).toBe(200);
  expect((await r.json()).meeting).toMatchObject({title:'Meeting',attendance:null,rsvp:'accepted',participants:[{name:'Ryn',status:'accepted'}]});
+});
+it('stores a mandatory training decline reason under the invitation identity',async()=>{
+ invitation.meeting_type='team_meeting';event.kind='TEAM_MEETING';event.meeting_subtype='training';event.provider_id=8;delete event.session_type;
+ const r=await fetch(`${await url()}/${token}/rsvp`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:19,userId:999,response:'declined',reason:'attended in the spring'})});
+ expect(r.status).toBe(200);expect(m.trainingSave).toHaveBeenCalledWith(event,7,'declined','attended in the spring');
+});
+it.each([false,true])('shows training decline reasons only to their author or a trainer: proctor=%s',async proctor=>{
+ invitation.meeting_type='team_meeting';event.kind='TEAM_MEETING';event.meeting_subtype='training';event.provider_id=8;delete event.session_type;
+ m.team.mockResolvedValue([{id:7,name:'Ryn',is_required:1,is_cohost:Number(proctor),rsvp:'declined'},{id:9,name:'Attendee',is_required:1,rsvp:'declined'}]);
+ const r=await fetch(`${await url()}/${token}?details=1&eventId=19`);expect(r.status).toBe(200);const body=await r.json();
+ expect(body.meeting.declineReason).toBe('attended in the spring');expect(body.meeting.participants[0].declineReason).toBe('attended in the spring');
+ expect(body.meeting.participants[1].declineReason).toBe(proctor?'Private reason':undefined);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('(?=1 OR user_id=?)'),[19,Number(proctor),7]);
 });

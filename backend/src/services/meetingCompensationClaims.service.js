@@ -1,4 +1,5 @@
 import { recordTrainingAttendance } from './scheduledTrainingAttendance.service.js';
+import { trainingCompensationOverrides } from './scheduledTrainingCompensation.service.js';
 import { isStudentIntern, loadMeetingPayIdentity } from './internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate} from './meetingClaimRate.service.js';
 import { huddleTitle, huddleHostServiceCode } from './huddlePolicy.js';
@@ -321,6 +322,7 @@ async function syncCompensationClaimsUnlocked({
 
     const attendanceRows = await AgencyMeetingAttendanceRollup.listForEvent(eid);
     const training = row.meeting_subtype === 'training';
+    const trainingOverrides = training ? await trainingCompensationOverrides(row) : new Map();
     let trainingPreferences = [];
     if (training) {
       await recordTrainingAttendance(row, attendanceRows);
@@ -375,6 +377,12 @@ async function syncCompensationClaimsUnlocked({
         results.push({ userId: uid, ok: true, skipped: true, error: 'intern_unpaid_indirect' });
         continue;
       }
+      const trainingOverride = trainingOverrides.get(uid);
+      if (trainingOverride) {
+        serviceCode = ADMIN_TIME_SERVICE_CODE;
+        payRateSource = 'training_admin_time_override';
+        compensationNote = `Administrative time override: ${trainingOverride.reason}`;
+      }
       if (kind === 'HUDDLE' && isHost) {
         serviceCode = huddleHostServiceCode(row, role);
         payRateSource = serviceCode === 'Admin Time' ? 'admin_time' : 'individual_meeting';
@@ -417,6 +425,11 @@ async function syncCompensationClaimsUnlocked({
         compensationNote
       });
       if (training) payload.totalMinutes = mins;
+      if (trainingOverride) payload.trainingCompensationOverride = {
+        rateType: trainingOverride.rate_type,
+        reason: trainingOverride.reason,
+        authorizedByUserId: Number(trainingOverride.authorized_by_user_id)
+      };
       if (manualPerson) Object.assign(payload, { manualMeetingLogId:manualLog.id, attendanceSource:'manual',
         platform:({in_person:'In person',phone:'Phone call',google_meet:'Google Meet',app_issue:'App meeting — attendance issue',other:'Other'})[manualLog.platform],
         compensationNote:[payload.compensationNote,'Manually recorded attendance; submitted for payroll review.'].filter(Boolean).join(' ') });

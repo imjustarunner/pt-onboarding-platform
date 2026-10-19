@@ -32,7 +32,7 @@ describe('supervision multiple reminder delivery',()=>{
  it('sends separate tier schedules, includes cohosts, and respects optional opt-out',async()=>{
   session.session_type='group';session.co_facilitator_user_id=9;
   session.meeting_settings_json=JSON.stringify({reminders:[5],attendanceReminders:{mandatory:[60],optional:[30]}});
-  attendees=[{user_id:8,is_required:1,status:'INVITED'},{user_id:10,is_required:0,status:'INVITED'},{user_id:11,is_required:0,status:'DECLINED'}];
+  attendees=[{user_id:8,is_required:1,status:'INVITED'},{user_id:10,is_required:0,status:'SIGNED_UP'},{user_id:11,is_required:0,status:'DECLINED'}];
   await runJoinReminderTick({now:new Date('2026-10-05T17:00:00Z')});
   expect(m.send.mock.calls.map(([p])=>p.user.id).sort()).toEqual([7,8,9]);
   expect(m.send.mock.calls.every(([p])=>p.kind==='join:60')).toBe(true);
@@ -54,6 +54,13 @@ describe('supervision multiple reminder delivery',()=>{
   session.notify_participants=1;session.meeting_settings_json='{"reminders":[]}';await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
   expect(m.send).not.toHaveBeenCalled();
  });
+});
+it('sends unanswered optional group invitations one week and three days before, with no day-of prompt',async()=>{
+ session.session_type='group';session.supervisee_user_id=null;session.meeting_settings_json=JSON.stringify({attendanceReminders:{mandatory:[],optional:[1440,5]}});
+ attendees=[{user_id:10,is_required:0,status:'INVITED'}];
+ for(const time of ['2026-09-28T18:00:00Z','2026-10-02T18:00:00Z'])await runJoinReminderTick({now:new Date(time)});
+ expect(m.send.mock.calls.map(([p])=>[p.user.id,p.kind])).toEqual([[10,'join:10080'],[10,'join:4320']]);
+ m.send.mockClear();for(const time of ['2026-10-04T18:00:00Z','2026-10-05T17:55:00Z'])await runJoinReminderTick({now:new Date(time)});expect(m.send).not.toHaveBeenCalled();
 });
 
 it('uses the session agency approved workforce sender and an authenticated invitation, without a meeting title in SMS',async()=>{

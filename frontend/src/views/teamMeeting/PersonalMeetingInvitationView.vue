@@ -16,7 +16,7 @@
           <label v-if="absenceScope === 'until_date'">Last date you cannot attend <input v-model="absenceUntil" type="date" :min="meeting.sessionDate" required /></label>
           <p>You cannot cancel recurring supervision forever. Choose a known end date; your invitations resume after that date. This records your absence and does not cancel the meeting for others.</p>
         </fieldset>
-        <label for="decline-reason">Reason for not attending<span v-if="(!meeting?.isTraining && meeting?.attendance?.tier) === 'mandatory'"> (required)</span></label><textarea id="decline-reason" v-model="declineReason" maxlength="2000" rows="3" /><button class="btn btn-primary" :disabled="saving || ((!meeting?.isTraining && meeting?.attendance?.tier) === 'mandatory' && !declineReason.trim()) || (absenceScope === 'until_date' && (!absenceUntil || absenceUntil < meeting.sessionDate))" @click="respond('declined')">Confirm decline</button></div>
+        <label for="decline-reason">Reason for not attending<span v-if="meeting?.attendance?.tier === 'mandatory'"> (required)</span></label><textarea id="decline-reason" v-model="declineReason" maxlength="2000" rows="3" /><button class="btn btn-primary" :disabled="saving || (meeting?.attendance?.tier === 'mandatory' && !declineReason.trim()) || (absenceScope === 'until_date' && (!absenceUntil || absenceUntil < meeting.sessionDate))" @click="respond('declined')">Confirm decline</button></div>
     </section>
     <p v-if="rsvpSaved" role="status">Your response has been saved: {{ rsvpSaved === 'accepted' ? 'Attending' : absenceScope === 'until_date' ? `Not attending this recurring day through ${absenceUntil}; invitations resume afterward` : meeting?.isTraining ? 'Not attending the remaining training dates' : 'Not attending this date' }}.</p>
     <p v-if="error" role="alert">{{ error }}</p>
@@ -24,6 +24,7 @@
     <section v-else-if="meeting">
       <h2>{{ meeting.title }}</h2>
       <p>{{ meeting.when }}</p>
+      <p v-if="meeting.declineReason">Your decline reason: {{meeting.declineReason}}</p>
       <p v-if="meeting.location">{{ meeting.location }}</p>
       <template v-if="route.query.details">
         <h3>Agenda</h3>

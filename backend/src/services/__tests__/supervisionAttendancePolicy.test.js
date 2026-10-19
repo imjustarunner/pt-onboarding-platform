@@ -26,4 +26,11 @@ describe('group supervision attendance notification policy', () => {
     expect(meetingReminderSchedule(event).map(r=>r.key)).toEqual(['5']);
     expect(meetingReminderSchedule(supervisionReminderEvent(session,{is_required:1})).map(r=>r.key)).toEqual(['5']);
   });
+  it('ends unanswered optional reminders after the three-day final reminder without changing confirmed or mandatory schedules',()=>{
+    const event={...session,meeting_settings_json:{attendanceReminders:{mandatory:[1440,60],optional:[1440,5]}}};
+    expect(meetingReminderSchedule(supervisionReminderEvent(event,{is_required:0,status:'INVITED'})).map(r=>r.key)).toEqual(['10080','4320']);
+    expect(meetingReminderSchedule(supervisionReminderEvent(event,{is_required:0,status:'SIGNED_UP'})).map(r=>r.key)).toEqual(['1440','5']);
+    expect(meetingReminderSchedule(supervisionReminderEvent(event,{is_required:1,status:'INVITED'})).map(r=>r.key)).toEqual(['1440','60']);
+    expect(meetingReminderSchedule(supervisionReminderEvent({...event,enrollment_mode:'signup_only'},{is_required:0,status:'SIGNED_UP'})).map(r=>r.key)).toEqual(['1440','5']);
+  });
 });

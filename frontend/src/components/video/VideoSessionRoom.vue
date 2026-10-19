@@ -2030,11 +2030,11 @@ async function subscribeStreamOnce(stream, owner) {
       const permission=trainingStreamPermission(stream);
       if (!permission.proctor) return;
       if (!permission.primary && props.trainingPolicy.primaryId===props.trainingPolicy.userId && sharingScreen.value) return;
-      const current=availableStreams.get(String(screenSubscriber?.streamId || ''));
+      const current=screenSubscriber?.stream;
       if (!permission.primary && current && trainingStreamPermission(current).primary) return;
       if (permission.primary && sharingScreen.value) stopScreenShare();
     }
-    if (screenSubscriber && String(screenSubscriber.streamId || '') === streamId) return;
+    if (screenSubscriber && String(screenSubscriber.stream?.streamId || '') === streamId) return;
     if (screenSubscriber) {
       try { session.unsubscribe(screenSubscriber); } catch { /* ignore */ }
       screenSubscriber = null;
@@ -2432,9 +2432,11 @@ async function connect() {
       const stream = event.stream;
       const streamId = String(stream?.streamId || '');
       forgetStream(streamId);
-      if (isScreenStream(stream) || (screenSubscriber && String(screenSubscriber.streamId || '') === streamId)) {
+      // Ignored attendee/co-trainer shares can end while the lead trainer is still
+      // presenting. Only clear the screen subscription that actually ended.
+      if (screenSubscriber && String(screenSubscriber.stream?.streamId || '') === streamId) {
         clearScreenShareTile();
-      } else if (streamId) {
+      } else if (streamId && !isScreenStream(stream)) {
         const sub = subscribers.get(streamId);
         if (sub) {
           try { session?.unsubscribe(sub); } catch { /* ignore */ }

@@ -2,7 +2,7 @@ import multer from 'multer';
 import pool from '../config/database.js';
 import { supervisionSpeakerLabel } from '../utils/supervisionSpeakerLabels.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
-import { assertLastMeetingHost } from '../services/meetingEndPermission.service.js';
+import { assertMeetingEndAllowed } from '../services/meetingEndPermission.service.js';
 import { isGroupSupervision, acceptGroupTranscriptionConsent } from '../services/groupSupervisionConsent.service.js';
 import {canJoinSupervision} from '../services/meetingJoinPolicy.service.js';
 import {clientRecordingContext} from './counselingRecordingConsent.controller.js';
@@ -42,7 +42,7 @@ export async function setMeetingTranscription(req,res,next){try{
     return res.json(await participantTranscriptionState(context));
   }
   if (req.body.action === 'finish' && context.type === 'supervision' && !context.inPerson) {
-    await assertLastMeetingHost('supervision',context.session.id,context.userId);
+    await assertMeetingEndAllowed('supervision',context.session.id,context.userId);
   }
   await controlTranscription(context,req.body.action);
   res.json(await participantTranscriptionState(context));

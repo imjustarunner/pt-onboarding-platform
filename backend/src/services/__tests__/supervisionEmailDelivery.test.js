@@ -18,7 +18,7 @@ const user={id:8,first_name:'Ada'};
 beforeEach(()=>{vi.clearAllMocks();m.signup.mockResolvedValue({ok:true});m.send.mockResolvedValue({id:'sent',internetMessageId:'<actual@test>',communicationId:123});m.execute.mockImplementation(async sql=>{
  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
  if(sql.startsWith('SELECT * FROM supervision_email_deliveries'))return [[]];
- if(sql.startsWith('SELECT u.id'))return [[{id:3,first_name:'Host'},{id:8,first_name:'Ada',status:'INVITED',participant_role:'supervisee'}]];
+ if(sql.startsWith('SELECT u.id'))return [[{id:3,first_name:'Host'},{id:8,first_name:'Ada',status:'INVITED',is_required:1,participant_role:'supervisee'}]];
  return [{affectedRows:1}];
 });});
 it('sends branded HTML from notifications, replies to tenant leadership, and records the actual RFC id',async()=>{await sendSupervisionEmail({session,user});expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:6,replyToOverride:'leadership@tenant.test',templateType:'meeting_invited',to:'participant@tenant.test',attachments:[expect.objectContaining({filename:'supervision.ics'})]}));expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_email_deliveries SET delivery_status='),expect.arrayContaining(['sent','<actual@test>']));});
@@ -41,6 +41,11 @@ it('sends personal presenter reminders once and checks the current assignment ev
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({subject:expect.stringContaining('You’re presenting'),html:expect.stringContaining('Edit Your Presentation'),replyToOverride:'leadership@tenant.test'}));
  assigned=false;await sendSupervisionDayAheadReminders(new Date(start.getTime()-2880*60000));
  expect(m.send).toHaveBeenCalledOnce();
+});
+it('suppresses late optional registration reminders and clearly labels the last three-day email',async()=>{
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT u.id')?[[{id:3,first_name:'Host'},{id:8,first_name:'Ada',status:'INVITED',is_required:0}]]:[[]]);
+ for(const kind of ['day_before','join:60','join:5'])expect(await prepareSupervisionEmail({session,user,kind})).toEqual({skipped:true,reason:'optional_registration_reminder_schedule'});
+ expect(await prepareSupervisionEmail({session,user,kind:'join:4320'})).toMatchObject({subject:expect.stringContaining('[Optional] Final reminder'),text:expect.stringContaining('This is your final reminder for this optional session')});
 });
 it('does not double-send generic attendee reminders to presenters or use stale assignments',async()=>{
  m.execute.mockResolvedValue([[{id:8,isPresenter:1}]]);

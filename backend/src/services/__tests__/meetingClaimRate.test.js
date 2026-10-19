@@ -69,3 +69,10 @@ it('preserves the change history when resetting to the meeting default', async (
   const insert = m.tx.mock.calls.find(([sql]) => sql.includes('INSERT INTO meeting_claim_rate_overrides'));
   expect(insert[1][3]).toBe('default'); expect(JSON.parse(insert[1][7])).toHaveLength(2);
 });
+it('uses the assigned Administrative time rate and exposes the training override reason',async()=>{
+ const adjusted={...claim,payload:{...claim.payload,serviceCode:'Admin Time',trainingCompensationOverride:{rateType:'admin_time',reason:'Leadership meeting',authorizedByUserId:501}}};
+ m.context.mockResolvedValue({enabled:true,rateProfile:{roleCompensation:{cpa:{adminRate:28}}}});
+ expect(await meetingClaimCompensation(adjusted)).toMatchObject({rateType:'default',rateLabel:'Administrative time (training override)',hourlyRate:28,estimatedAmount:14,reason:'Leadership meeting'});
+ m.execute.mockResolvedValue([[{rate_type:'custom',hourly_rate:30,reason:'Payroll correction'}]]);
+ expect(await meetingClaimCompensation(adjusted)).toMatchObject({rateType:'custom',hourlyRate:30,estimatedAmount:15,reason:'Payroll correction'});
+});

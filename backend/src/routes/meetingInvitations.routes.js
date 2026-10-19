@@ -1,4 +1,5 @@
 import { saveTrainingRsvp } from '../services/scheduledTrainingRsvp.service.js';
+import { trainingReminderDescription } from '../services/meetingReminderPolicy.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import { resolveTeamMeetingInvitationAccess } from '../services/teamMeetingInvitationAccess.service.js';
@@ -54,7 +55,7 @@ router.post('/:token/rsvp', async (req,res,next) => {
     if(invitation.meeting_type==='supervision') {
       return res.json(await saveSupervisionRsvp({sessionId:event.id,userId,response:req.body.response,reason:req.body.reason,scope:req.body.scope,untilDate:req.body.untilDate}));
     }
-    if(event.meeting_subtype==='training') return res.json(await saveTrainingRsvp(event,userId,req.body.response));
+    if(event.meeting_subtype==='training') return res.json(await saveTrainingRsvp(event,userId,req.body.response,req.body.reason));
     await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,rsvp,rsvp_at) VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE rsvp=VALUES(rsvp),rsvp_at=VALUES(rsvp_at)`,[event.id,userId,req.body.response]);
     res.json({ok:true,response:req.body.response});
   }catch(error){next(error);}
@@ -84,22 +85,27 @@ router.get('/:token', async (req,res,next) => {
       const attendance=recipient && invitation.meeting_type==='supervision' ? supervisionAttendance(event,recipient) : event.meeting_subtype==='training' ? {
         tier:Number(recipient?.is_required) ? 'mandatory' : 'optional',
         label:Number(recipient?.is_required) ? 'Mandatory training' : 'Optional training',
-        description:`${Number(recipient?.is_required) ? 'Your attendance is required.' : 'You are welcome to attend.'} RSVP applies to all remaining training dates. Confirmed attendees receive one 24-hour reminder and a join link 5 minutes before each date.`
+        description:`${Number(recipient?.is_required) ? 'Your attendance is required.' : 'You are welcome to attend.'} RSVP applies to all remaining training dates. ${trainingReminderDescription(event,{isRequired:Number(recipient?.is_required)===1})}`
       } : null;
-      const canSeeDeclineReasons = invitation.meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(userId));
+      const canSeeDeclineReasons = invitation.meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(userId))
+        || event.meeting_subtype==='training' && (Number(event.provider_id)===Number(userId) || Number(recipient?.is_cohost)===1);
+      if(event.meeting_subtype==='training') {
+        const [reasons]=await pool.execute('SELECT user_id,rsvp_decline_reason FROM meeting_participant_preferences WHERE event_id=? AND (?=1 OR user_id=?)',[event.id,Number(canSeeDeclineReasons),userId]);
+        for(const person of people)person.rsvp_decline_reason=reasons.find(r=>Number(r.user_id)===Number(person.id))?.rsvp_decline_reason || null;
+      }
       const format = new Intl.DateTimeFormat('en-US', {dateStyle:'full', timeStyle:'short', timeZone:tz});
       return res.json({meeting:{
         isTraining:event.meeting_subtype==='training',
         recipientName:recipient?.name || '',
         agenda:agendaRows.map(mapMeetingAgendaItem).map(i=>({title:i.title})),
-        attendance, rsvp:recipient?.status || recipient?.rsvp || null,
+        attendance, rsvp:recipient?.status || recipient?.rsvp || null, declineReason:recipient?.rsvp_decline_reason || recipient?.decline_reason || null,
         canSkipRecurring:invitation.meeting_type==='supervision' && event.session_type==='group' && !!event.recurrence_series_id && event.enrollment_mode!=='signup_only',
         sessionDate:new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(parseUtcDate(event.start_at)),
         title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||(invitation.meeting_type==='supervision'?'Supervision':'Meeting'),
         when:format.format(parseUtcDate(event.start_at))+' – '+format.format(parseUtcDate(event.end_at))+` (${tz})`,
         location:event.location_text || (['IN_PERSON','IN-PERSON'].includes(String(event.modality).toUpperCase())?'In person':'Virtual'),
         participants:people.map(p=>({name:p.name,status:p.status||p.rsvp,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter,
-          ...(canSeeDeclineReasons && p.decline_reason ? {declineReason:p.decline_reason} : {})}))
+          ...((canSeeDeclineReasons || Number(p.id)===Number(userId)) && (p.decline_reason || p.rsvp_decline_reason) ? {declineReason:p.decline_reason || p.rsvp_decline_reason} : {})}))
       }});
     }
     return res.status(404).json({error:{message:'Invitation not found.'}});

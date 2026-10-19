@@ -28,6 +28,12 @@ describe('personal meeting entry',()=>{
     expect(wrapper.findAll('button')[2].element.disabled).toBe(true);await wrapper.get('textarea').setValue('School examination');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
     expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'School examination'},{skipAuthRedirect:true});wrapper.unmount();
   });
+  it('stores a spring-attended reason when declining mandatory training',async()=>{
+    Object.assign(m.query,{rsvp:'1',eventId:'19'});m.get.mockResolvedValue({data:{meeting:{isTraining:true,attendance:{tier:'mandatory',label:'Mandatory training'},title:'Crisis Training'}}});m.post.mockResolvedValue({data:{ok:true}});
+    const wrapper=render();await flushPromises();await wrapper.findAll('button')[1].trigger('click');expect(wrapper.findAll('button')[2].element.disabled).toBe(true);
+    await wrapper.get('textarea').setValue('attended in the spring');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
+    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'attended in the spring'},{skipAuthRedirect:true});expect(wrapper.text()).toContain('Not attending the remaining training dates');wrapper.unmount();
+  });
   it('requires sign-in before displaying protected RSVP details',async()=>{
     Object.assign(m.query,{rsvp:'1',eventId:'19'});m.get.mockRejectedValue({response:{status:401,data:{error:{message:'Sign in required'}}}});
     const wrapper=render();await flushPromises();expect(wrapper.findAll('button')).toHaveLength(0);

@@ -10,28 +10,26 @@ let wrapper;
 beforeEach(()=>{vi.useFakeTimers();});
 afterEach(async()=>{wrapper?.unmount();await flushPromises();vi.restoreAllMocks();vi.clearAllTimers();vi.useRealTimers();});
 const props={supervisionSessionId:101,isSupervisor:true,canEndForEveryone:true,isInLobby:false,token:'token',vonageSessionId:'room',applicationId:'app'};
-it('puts Leave only first and keeps a cohost departure separate from End for everyone',async()=>{
+it('puts leaving without ending first and keeps meeting closure separate',async()=>{
   wrapper=shallowMount(GroupRoom,{props});await flushPromises();
   await wrapper.findAll('button').find(b=>b.text()==='Leave / End session').trigger('click');
   const dialog=wrapper.get('[role="dialog"]');expect(dialog.text()).toContain('participants can continue');
-  expect(dialog.findAll('button')[0].text()).toBe('Leave only');await dialog.findAll('button')[0].trigger('click');
+  expect(dialog.findAll('button')[0].text()).toBe('Leave without ending');await dialog.findAll('button')[0].trigger('click');
   expect(wrapper.emitted('leave')).toEqual([[{endForAll:false}]]);
 });
-it('leaves individual supervision without ending it, and requires confirmation to end it',async()=>{
+it('keeps individual supervision departure separate from the parent-confirmed end action',async()=>{
   wrapper=shallowMount(IndividualRoom,{props});await flushPromises();
-  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
   await wrapper.findAll('button').find(b=>b.text()==='Leave session').trigger('click');
-  expect(wrapper.emitted('leave')).toEqual([[{endForAll:false}]]);expect(confirm).not.toHaveBeenCalled();
-  const end=wrapper.findAll('button').find(b=>b.text()==='End for everyone');await end.trigger('click');
-  expect(wrapper.emitted('leave')).toHaveLength(1);
-  confirm.mockReturnValue(true);await end.trigger('click');expect(wrapper.emitted('leave')[1]).toEqual([{endForAll:true}]);
+  expect(wrapper.emitted('leave')).toEqual([[{endForAll:false}]]);
+  const end=wrapper.findAll('button').find(b=>b.text()==='Leave and end meeting for everyone');await end.trigger('click');
+  expect(wrapper.emitted('leave')[1]).toEqual([{endForAll:true}]);
 });
-it.each([GroupRoom,IndividualRoom])('hides End for everyone when another host remains',async component=>{
+it.each([GroupRoom,IndividualRoom])('hides ending for everyone for an unassigned supervisor',async component=>{
   wrapper=shallowMount(component,{props:{...props,canEndForEveryone:false}});await flushPromises();
   const open=wrapper.findAll('button').find(b=>b.text()==='Leave / End session');
   if(open) await open.trigger('click');
-  expect(wrapper.findAll('button').some(b=>b.text()==='End for everyone')).toBe(false);
+  expect(wrapper.findAll('button').some(b=>b.text()==='Leave and end meeting for everyone')).toBe(false);
   const scope=open?wrapper.get('[role="dialog"]'):wrapper;
-  const leave=scope.findAll('button').find(b=>['Leave only','Leave session'].includes(b.text()));
+  const leave=scope.findAll('button').find(b=>['Leave without ending','Leave session'].includes(b.text()));
   await leave.trigger('click');expect(wrapper.emitted('leave')).toEqual([[{endForAll:false}]]);
 });
