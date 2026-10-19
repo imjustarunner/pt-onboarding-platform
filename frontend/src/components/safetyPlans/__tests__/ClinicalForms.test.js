@@ -144,3 +144,9 @@ it('only makes a safety plan editable in the portal when completion was requeste
  const w=mount(Portal,{props:{clientId:41},global:{stubs:{SafetyPlanSigning:true}}});await flushPromises();await button(w,'Safety plan').trigger('click');await flushPromises();expect(w.getComponent(Document).props('editable')).toBe(false);
  allowed=true;await button(w,'Safety plan').trigger('click');await flushPromises();expect(w.getComponent(Document).props('editable')).toBe(true);await w.get('textarea[aria-label="Things I can do to help myself"]').setValue('Portal answer');expect(w.getComponent(Signing).props('updateData').coping).toBe('Portal answer');w.unmount();
 });
+it('opens enrollment snapshots directly without requesting an unsupported blank template',async()=>{
+ const enrollment={...record,documentKey:'enrollment-document',template:{key:'enrollment-document',title:'Agency privacy notice',sourceHtml:'<p>Official notice</p>',sections:[]},recipients:[{id:21,kind:'client',name:'Synthetic Client'}]};api.get.mockResolvedValue({data:enrollment});api.post.mockResolvedValue({data:enrollment});
+ const w=await mounted(Panel,{agencyId:2,clientId:41,initialRecordId:4,recordOnly:true,initialDocumentKey:'enrollment-document'});await flushPromises();
+ expect(api.get.mock.calls.map(c=>c[0])).toEqual(['/clinical-forms/4']);expect(w.find('.template-picker').exists()).toBe(false);expect(w.text()).toContain('Official notice');
+ await w.findAll('.signer-setup select')[1].setValue(21);await w.get('.signer-setup').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/clinical-forms/4/signers',expect.objectContaining({allowCompletion:true,userId:21}));w.unmount();
+});

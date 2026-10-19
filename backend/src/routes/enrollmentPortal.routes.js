@@ -1,0 +1,12 @@
+import {Router} from 'express';
+import {authenticate} from '../middleware/auth.middleware.js';
+import {requireClinicalStaffSecurity} from '../middleware/clinicalStaffSecurity.middleware.js';
+import {enrollmentPortalCatalog} from '../services/enrollmentPortal.service.js';
+import {savePlan} from '../services/safetyPlans/records.js';
+const router=Router();
+router.use(authenticate,requireClinicalStaffSecurity);
+router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
+const handle=fn=>async(req,res)=>{try{res.json(await fn(req));}catch(e){res.status(e.status||503).json({error:{message:e.status?e.message:'Enrollment documents are temporarily unavailable. Please try again.'}});}};
+router.get('/clients/:clientId/catalog',handle(req=>enrollmentPortalCatalog(req.user,req.params.clientId,req.query)));
+router.post('/clients/:clientId/documents',handle(req=>savePlan(req.user,{clientId:req.params.clientId,agencyId:req.body.agencyId,documentKey:'enrollment-document',foundationKey:req.body.foundationKey,enrollmentContext:req.body.context,data:req.body.data})));
+export default router;

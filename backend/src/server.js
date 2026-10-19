@@ -42,6 +42,8 @@ import courseTemplateRoutes from './routes/courseTemplate.routes.js';
 import trainingMediaLibraryRoutes from './routes/trainingMediaLibrary.routes.js';
 import trainingSavedRoutes from './routes/trainingSaved.routes.js';
 import libraryRoutes from './routes/library.routes.js';
+import enrollmentFoundationsRoutes from './routes/enrollmentFoundations.routes.js';
+import enrollmentPortalRoutes from './routes/enrollmentPortal.routes.js';
 import documentAnalyticsRoutes from './routes/documentAnalytics.routes.js';
 import signatureRoutes from './routes/signature.routes.js';
 import agencyRoutes from './routes/agency.routes.js';
@@ -895,6 +897,8 @@ app.use('/api/course-templates', courseTemplateRoutes);
 app.use('/api/training-media', trainingMediaLibraryRoutes);
 app.use('/api/training-saved', trainingSavedRoutes);
 app.use('/api/library', libraryRoutes);
+app.use('/api/enrollment-foundations', enrollmentFoundationsRoutes);
+app.use('/api/enrollment-portal', enrollmentPortalRoutes);
 app.use('/api/document-analytics', documentAnalyticsRoutes);
 app.use('/api/signatures', signatureRoutes);
 // Mount agency public routes (resolve, slug, portal, login-theme) FIRST so unauthenticated

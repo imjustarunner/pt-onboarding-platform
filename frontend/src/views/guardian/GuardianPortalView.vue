@@ -89,8 +89,8 @@
             <template v-else-if="activePanel === 'appointments'"><p v-if="isSuperadminPreview">Appointment details are available in the signed-in guardian account.</p><GuardianAppointmentsPanel v-else :client-id="selectedChildId" /></template>
             <template v-else-if="activePanel === 'documents'">
               <div class="panel-head">
-                <div class="panel-title">Documents</div>
-                <div class="panel-subtitle">Documents are scoped to your selected program.</div>
+                <div class="panel-title">AuricWell documents &amp; forms</div>
+                <div class="panel-subtitle">Enrollment documents, shared forms, and your signed copies for the selected client.</div>
               </div>
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">

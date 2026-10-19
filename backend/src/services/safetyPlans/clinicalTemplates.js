@@ -1,3 +1,4 @@
+import {matchesShowIf} from '../../utils/intakeShowIf.js';
 import {cssrsTemplate,validateCssrsComplete} from './cssrs.js';
 import {buildCounselingSelfEnSteps} from '../../data/counselingIntakeSelfEn.js';
 import AgencyOfficeIntakeMaster from '../../models/AgencyOfficeIntakeMaster.model.js';
@@ -41,7 +42,7 @@ export function normalizeClinicalData(input,template){
  if(!input||typeof input!=='object'||Array.isArray(input))fail(400,'Complete the form.');
  const out={documentName:clean(input.documentName,160),personLabel:clean(input.personLabel,200),planDate:clean(input.planDate,10)};
  for(const section of template.sections)for(const [key,,spec={}] of section.fields||[]){
-  if(spec.showIf&&input[spec.showIf.fieldKey]!==spec.showIf.equals){out[key]='';continue;}
+  if(!matchesShowIf(spec.showIf,input)){out[key]='';continue;}
   const options=(spec.options||[]).map(o=>typeof o==='string'?o:String(o.value));
   if(spec.type==='multi'){if(input[key]!=null&&!Array.isArray(input[key]))fail(400,'Choose the applicable options.');out[key]=[...new Set(input[key]||[])];if(out[key].some(v=>!options.includes(v)))fail(400,'Select a listed option.');}
   else {out[key]=clean(input[key]);if(['select','radio'].includes(spec.type)&&out[key]&&!options.includes(out[key]))fail(400,'Select a listed option.');if(spec.type==='date'&&out[key]&&!validDate(out[key]))fail(400,'Enter a valid date.');if(spec.type==='time'&&out[key]&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(out[key]))fail(400,'Enter a valid time.');}
@@ -55,6 +56,12 @@ export function validateClinicalReady(data,template){
  if(template.key==='safety-plan')return validateReady(data);
  if(!data.personLabel||!data.planDate)fail(400,'Enter the client name and document date.');
  if(template.key==='cssrs-screener')validateCssrsComplete(data);
+ if(template.key==='enrollment-document'){
+  for(const section of template.sections||[])for(const [key,label,spec={}] of section.fields||[]){
+   if(!matchesShowIf(spec.showIf,data))continue;
+   if(spec.required&&(!data[key]||(Array.isArray(data[key])&&!data[key].length)))fail(400,`Complete ${label} before signing.`);
+  }
+ }
  if(template.key==='release-of-information'){
   if(!data.recipientName||!(data.recipientPhone||data.recipientEmail||data.recipientAddress)||!data.purpose||!data.direction?.length||!data.information?.length||!(data.expirationDate||data.expirationEvent))fail(400,'Complete the recipient, contact, purpose, information, direction, and expiration before signing.');
   if(data.expirationDate&&data.expirationDate<new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()))fail(400,'This authorization has expired. Create a current authorization.');

@@ -91,57 +91,9 @@ ${buildPacketStyleBlock(brand)}
 </html>`;
 }
 
-export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en', variant = 'self' } = {}) {
-  const aid = Number(agencyId || 0);
-  if (!aid) throw new Error('Invalid agencyId');
-  const loc = normalizeLocale(locale);
-  const pack = normalizeOfficePacketVariant(variant);
-
-  const agency = await Agency.findById(aid);
-  if (!agency) {
-    const err = new Error('Agency not found');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc, variant: pack });
-  const agencyName = String(agency.official_name || agency.name || 'Agency').trim();
-  const agencyAddress = buildAgencyAddress(agency);
-  const agencyPhone = String(agency.phone_number || agency.phone || '').trim();
-  const brand = await resolvePacketBrandChrome(agency, { packetKind: 'office' });
-  let templateHtml = String(template?.html_content || defaultHtmlForLocale(loc, pack));
-  if (isNluPacketChromeAgency(agency)) {
-    templateHtml = applyNluOfficeLegalIfNeeded(templateHtml);
-  } else {
-    templateHtml = tokenizeOfficeDisclosureEntity(templateHtml);
-  }
-
-  let providers = [];
-  try {
-    const raw = await listDisclosureProviders({ agencyId: aid });
-    providers = await expandYourCareTeamProviders(raw, { agencyId: aid });
-  } catch {
-    providers = [];
-  }
-
-  return {
-    version: Number(template?.version || 1),
-    locale: loc,
-    variant: pack,
-    packetVersionLabel: brand.versionLabel || OFFICE_PRINTABLE_PACKET_VERSION,
-    brand,
-    generatedAt: new Date(),
-    agencyId: aid,
-    agency: {
-      id: aid,
-      name: agencyName,
-      slug: String(agency.portal_url || agency.slug || '').trim(),
-      address: agencyAddress,
-      phone: agencyPhone
-    },
-    templateHtml,
-    providers
-  };
+export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en', variant = 'self', service = 'counseling' } = {}) {
+  const { buildEnrollmentPacketContext } = await import('./enrollmentPacket.service.js');
+  return buildEnrollmentPacketContext({ agencyId, locale, channel: 'office', audience: normalizeOfficePacketVariant(variant) === 'parent' ? 'guardian' : 'self', service });
 }
 
 function buildOfficePacketBodyContentHtml(packetContext = {}) {
@@ -196,48 +148,9 @@ function buildOfficePrintablePacketBodyDocument(packetContext = {}) {
   );
 }
 
-export async function generateOfficePrintablePacketPdf({ agencyId, locale = 'en', variant = 'self' } = {}) {
-  const packetContext = await buildOfficePrintablePacketContext({ agencyId, locale, variant });
-
-  const coverHtml = buildOfficePrintablePacketCoverDocument(packetContext);
-  const bodyHtml = buildOfficePrintablePacketBodyDocument(packetContext);
-  const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
-
-  const [coverPdfBytes, bodyPdfBytes] = await DocumentSigningService.convertHTMLDocumentsToPdfs(
-    [
-      {
-        html: coverHtml,
-        options: {
-          printBackground: true,
-          margin: COVER_PDF_MARGIN,
-          preferCSSPageSize: false,
-          displayHeaderFooter: false
-        }
-      },
-      {
-        html: bodyHtml,
-        options: {
-          printBackground: true,
-          margin: BODY_PDF_MARGIN,
-          preferCSSPageSize: false,
-          displayHeaderFooter: true,
-          headerTemplate,
-          footerTemplate
-        }
-      }
-    ],
-    { disableFallback: true }
-  );
-
-  const merged = await PDFDocument.create();
-  const coverDoc = await PDFDocument.load(coverPdfBytes);
-  const bodyDoc = await PDFDocument.load(bodyPdfBytes);
-  const coverPages = await merged.copyPages(coverDoc, coverDoc.getPageIndices());
-  coverPages.forEach((p) => merged.addPage(p));
-  const bodyPages = await merged.copyPages(bodyDoc, bodyDoc.getPageIndices());
-  bodyPages.forEach((p) => merged.addPage(p));
-
-  return Buffer.from(await merged.save());
+export async function generateOfficePrintablePacketPdf({ agencyId, locale = 'en', variant = 'self', service = 'counseling' } = {}) {
+  const { generateEnrollmentPacketPdf } = await import('./enrollmentPacket.service.js');
+  return generateEnrollmentPacketPdf({ agencyId, locale, channel: 'office', audience: normalizeOfficePacketVariant(variant) === 'parent' ? 'guardian' : 'self', service });
 }
 
 export async function getOfficePacketTemplateForAgency(agencyId, { locale = 'en', variant = 'self' } = {}) {
@@ -282,37 +195,6 @@ export async function getOfficePacketTemplateForAgency(agencyId, { locale = 'en'
   };
 }
 
-export async function saveOfficePacketTemplateForAgency({
-  agencyId,
-  htmlContent,
-  actorUserId = null,
-  locale = 'en',
-  variant = 'self'
-}) {
-  const aid = Number(agencyId || 0);
-  const loc = normalizeLocale(locale);
-  const pack = normalizeOfficePacketVariant(variant);
-  const agency = await Agency.findById(aid);
-  if (!agency) {
-    const err = new Error('Agency not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  const saved = await OfficePacketTemplate.upsertContent({
-    agencyId: aid,
-    htmlContent,
-    actorUserId,
-    locale: loc,
-    variant: pack
-  });
-  return {
-    agencyId: aid,
-    locale: loc,
-    variant: pack,
-    title: officePacketTitle(pack, loc),
-    html_content: String(saved?.html_content || ''),
-    version: Number(saved?.version || 1),
-    updatedAt: saved?.updated_at ? new Date(saved.updated_at).toISOString() : null,
-    updatedByUserId: saved?.updated_by_user_id || null
-  };
+export async function saveOfficePacketTemplateForAgency() {
+  throw Object.assign(new Error('Enrollment packets are assembled from individual documents. Edit their source documents in Library → Enrollment documents.'), { status: 409, statusCode: 409 });
 }

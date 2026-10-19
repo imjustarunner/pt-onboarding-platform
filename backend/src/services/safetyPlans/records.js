@@ -1,3 +1,4 @@
+import {resolveEnrollmentFoundation} from '../enrollmentPortal.service.js';
 import {queueClinicalFormNotification} from './notificationQueue.js';
 import {createHash} from 'node:crypto';
 import pool from '../../config/clinicalDatabase.js';
@@ -6,7 +7,7 @@ import {safetyPlanTemplate,positiveId,fail,normalizeSafetyPlan,validateReady,sig
 import {getClinicalTemplate,clinicalFormCatalog,normalizeClinicalData,validateClinicalReady} from './clinicalTemplates.js';
 import {appointmentPrefill} from './appointment.js';
 import {staffRole,agencyAccess,clientAccess,planAccess,recipientAccess,recipientOptions,agencyBrand} from './access.js';
-const portalEditableKeys=new Set(['safety-plan','release-of-information','client-information-update']);
+const portalEditableKeys=new Set(['safety-plan','release-of-information','client-information-update','enrollment-document']);
 const decode=value=>JSON.parse(decrypt(value));
 const encode=value=>encrypt(JSON.stringify(value));
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -38,7 +39,7 @@ export async function savePlan(user,input,id=null){
   if(previous?.revocation)fail(409,'This authorization was revoked. Create a new authorization instead.');
   const documentKey=row?.document_key||input.documentKey||'safety-plan';
   if(row&&input.documentKey&&input.documentKey!==documentKey)fail(400,'The document type cannot be changed.');
-  const template=previous?.template||await getClinicalTemplate(documentKey,agencyId);
+  const template=previous?.template||(documentKey==='enrollment-document'?await resolveEnrollmentFoundation(user,{...(input.enrollmentContext||{}),clientId,agencyId,foundationKey:input.foundationKey}):await getClinicalTemplate(documentKey,agencyId));
   const data=normalizeClinicalData(input?.data,template);
   const unlinked=client?null:previous?.unlinked||{reason:typeof input.overrideReason==='string'?input.overrideReason.trim():''};
   if(!client&&(!data.personLabel||(!previous&&input.allowUnlinked!==true)||!unlinked.reason||unlinked.reason.length>2000))fail(400,'Select a client, or explicitly choose an unlinked draft and record the person’s name and reason.');
@@ -64,7 +65,7 @@ export async function listPlans(user,{agencyId,clientId,mine}){
  else if(mine==='1'){await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND created_by_user_id=? AND client_id IS NULL ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id]);}
  else{await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND (created_by_user_id=? OR (client_id IS NULL AND ?=1)) ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id,['admin','super_admin'].includes(user.role)?1:0]);}
  const plans=[];
- for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,documentName:data.data.documentName||'',name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,reviewStatus:data.reviewStatus,screenStatus:data.data.screenStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
+ for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);const [signers]=await pool.execute('SELECT * FROM clinical_form_signers WHERE plan_id=? AND version=? ORDER BY id',[row.id,data.reviewOfVersion||row.current_version]);const active=signers.filter(s=>!s.revoked_at);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,documentName:data.data.documentName||'',name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,sharedCount:active.filter(s=>s.portal_shared_at).length,signedCount:active.filter(s=>s.signed_at).length,pendingSignatures:active.filter(s=>!s.signed_at&&!decode(s.details_encrypted).copyOnly).length,source:data.template.source||null,reviewStatus:data.reviewStatus,screenStatus:data.data.screenStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
  return {plans};
 }
 export async function linkPlan(user,id,input){
@@ -109,8 +110,8 @@ export async function signPlan(user,id,signerId,input,{portal=false}={}){
 }
 export async function portalList(user,clientId){
  if(!['client','client_guardian'].includes(user.role)||user.demoMode||user.switchedFromUserId)fail(403,'Use your own client or guardian account.');
- const [rows]=await pool.execute('SELECT s.id,s.plan_id,s.version,s.signer_kind,p.agency_id,p.client_id,p.document_key FROM clinical_form_signers s JOIN clinical_form_records p ON p.id=s.plan_id WHERE s.recipient_user_id=? AND p.client_id=? AND s.portal_shared_at IS NOT NULL AND s.revoked_at IS NULL ORDER BY s.id DESC LIMIT 100',[user.id,positiveId(clientId)]);
- const shares=[];for(const r of rows){try{await recipientAccess(r,user.id,r.signer_kind);shares.push({id:r.id,planId:r.plan_id,version:r.version,documentKey:r.document_key,title:clinicalFormCatalog.find(t=>t.key===r.document_key)?.title||'Safety plan'});}catch(e){if(e.status!==403)throw e;}}return {shares};
+ const [rows]=await pool.execute('SELECT s.id,s.plan_id,s.version,s.signer_kind,s.signed_at,s.details_encrypted,p.agency_id,p.client_id,p.document_key FROM clinical_form_signers s JOIN clinical_form_records p ON p.id=s.plan_id WHERE s.recipient_user_id=? AND p.client_id=? AND s.portal_shared_at IS NOT NULL AND s.revoked_at IS NULL ORDER BY s.id DESC LIMIT 100',[user.id,positiveId(clientId)]);
+ const shares=[];for(const r of rows){try{await recipientAccess(r,user.id,r.signer_kind);const payload=decode((await versionById(pool,{id:r.plan_id,current_version:r.version})).payload_encrypted);shares.push({id:r.id,planId:r.plan_id,version:r.version,documentKey:r.document_key,title:payload.data.documentName||payload.template.title||'Clinical document',signedAt:r.signed_at||null,copyOnly:r.details_encrypted?!!decode(r.details_encrypted).copyOnly:false});}catch(e){if(e.status!==403)throw e;}}return {shares};
 }
 export async function portalRead(user,shareId){
  if(!['client','client_guardian'].includes(user.role)||user.demoMode||user.switchedFromUserId)fail(403,'Use your own client or guardian account.');

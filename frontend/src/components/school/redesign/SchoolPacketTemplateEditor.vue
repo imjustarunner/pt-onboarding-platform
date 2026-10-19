@@ -2,14 +2,9 @@
   <div class="packet-editor">
     <div class="packet-editor-header">
       <div>
-        <h2 style="margin:0;">Edit printable packet</h2>
+        <h2 style="margin:0;">Enrollment packet documents</h2>
         <div class="muted" style="margin-top:4px;">
-          Agency-wide blank referral packet template. Merge tokens
-          <code>{{ tokenSchoolName }}</code>,
-          <code>{{ tokenSchoolAddress }}</code>,
-          <code>{{ tokenStaffTable }}</code>, and
-          <code>{{ tokenDisclosure }}</code>
-          are filled automatically when the packet is generated.
+          Edit each source document in the library. Printed school packets include the current saved text, school staff, and provider disclosure automatically.
         </div>
         <div class="locale-tabs" role="tablist" aria-label="Packet language">
           <button
@@ -18,7 +13,7 @@
             class="locale-tab"
             :class="{ active: locale === 'en' }"
             :aria-selected="locale === 'en'"
-            :disabled="loading || saving"
+            :disabled="loading"
             @click="switchLocale('en')"
           >
             English
@@ -29,7 +24,7 @@
             class="locale-tab"
             :class="{ active: locale === 'es' }"
             :aria-selected="locale === 'es'"
-            :disabled="loading || saving"
+            :disabled="loading"
             @click="switchLocale('es')"
           >
             Español
@@ -41,14 +36,11 @@
       </div>
       <div class="packet-editor-actions">
         <span class="version-pill">{{ localeLabel }} · V{{ version || '—' }}</span>
-        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="toggleHistory">
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="toggleHistory">
           {{ showHistory ? 'Hide history' : 'Version history' }}
         </button>
-        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="$emit('close')">
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="$emit('close')">
           Close
-        </button>
-        <button class="btn btn-primary btn-sm" type="button" :disabled="loading || saving || !dirty" @click="save">
-          {{ saving ? 'Saving…' : 'Save' }}
         </button>
       </div>
     </div>
@@ -59,7 +51,7 @@
 
     <div v-else-if="showHistory" class="version-history">
       <div v-if="historyLoading" class="muted">Loading versions…</div>
-      <div v-else-if="!versions.length" class="muted">No archived versions yet. Save the template to create V1.</div>
+      <div v-else-if="!versions.length" class="muted">No archived packet versions are available.</div>
       <ul v-else class="version-list">
         <li v-for="v in versions" :key="v.id || v.version" class="version-row">
           <div>
@@ -75,11 +67,16 @@
           <strong>V{{ previewVersion }} (read-only)</strong>
           <button class="btn btn-ghost btn-sm" type="button" @click="previewHtml = ''; previewVersion = null">Close preview</button>
         </div>
-        <iframe class="version-preview-frame" :srcdoc="previewHtml" title="Packet version preview" />
+        <iframe class="version-preview-frame" :srcdoc="previewHtml" title="Packet version preview" sandbox="" />
       </div>
     </div>
 
     <div v-else class="packet-editor-body">
+      <section class="legal-copy-card">
+        <h3>Individual enrollment documents</h3>
+        <p class="muted">Open the library to update individual consents and policies, review the current packet, or share a document with a client.</p>
+        <router-link v-if="packetAgencyId" class="btn btn-primary btn-sm" :to="enrollmentTo">Open enrollment documents</router-link>
+      </section>
       <section class="legal-copy-card">
         <h3>Age of consent &amp; other-guardian resources</h3>
         <p class="muted">Shown on school/office intake when another parent has medical decision-making rights, and injected into the Minor Consent packet section. Support/admin can also edit this on the live intake page.</p>
@@ -94,20 +91,14 @@
           {{ legalSaving ? 'Saving…' : 'Save resource copy' }}
         </button>
       </section>
-      <HtmlDocumentBuilder
-        v-model="htmlContent"
-        placeholder="Packet template HTML…"
-        paper-mode
-        :merge-tokens="mergeTokens"
-      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, reactive } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, reactive } from 'vue';
 import api from '../../../services/api';
-import HtmlDocumentBuilder from '../../documents/HtmlDocumentBuilder.vue';
+import { enrollmentLibraryLocation } from '../../../utils/enrollmentLibraryLocation.js';
 import { useAgencyStore } from '../../../store/agency';
 
 const props = defineProps({
@@ -115,27 +106,12 @@ const props = defineProps({
   initialLocale: { type: String, default: 'en' }
 });
 
-const emit = defineEmits(['close', 'saved']);
-
-const tokenSchoolName = '{{' + 'SCHOOL_NAME}}';
-const tokenSchoolAddress = '{{' + 'SCHOOL_ADDRESS}}';
-const tokenStaffTable = '{{' + 'SCHOOL_STAFF_TABLE}}';
-const tokenDisclosure = '{{' + 'DISCLOSURE_CARE_TEAM}}';
-
-const mergeTokens = [
-  { token: '{{SCHOOL_NAME}}', label: 'School name' },
-  { token: '{{SCHOOL_ADDRESS}}', label: 'School address' },
-  { token: '{{SCHOOL_STAFF_TABLE}}', label: 'School staff ROI table' },
-  { token: '{{DISCLOSURE_CARE_TEAM}}', label: 'Disclosure care team' }
-];
+defineEmits(['close']);
 
 const locale = ref(String(props.initialLocale || 'en').toLowerCase() === 'es' ? 'es' : 'en');
 const loading = ref(false);
-const saving = ref(false);
 const error = ref('');
 const success = ref('');
-const htmlContent = ref('');
-const originalHtml = ref('');
 const version = ref(null);
 const showHistory = ref(false);
 const historyLoading = ref(false);
@@ -150,11 +126,14 @@ const legalDraft = reactive({
   resources: [{ label: '', url: '' }, { label: '', url: '' }]
 });
 const agencyStore = useAgencyStore();
-const agencySlug = computed(() =>
-  String(agencyStore.currentAgency?.portal_url || agencyStore.currentAgency?.slug || '').trim()
-);
+const packetAgencyId = ref(null);
+let loadSequence = 0;
+const enrollmentTo = computed(() => enrollmentLibraryLocation({ agencyId: packetAgencyId.value, agencies: [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])], setting: 'school', locale: locale.value, schoolId: props.schoolOrganizationId }));
+const agencySlug = computed(() => {
+  const agency = [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(item => item && Number(item.id) === packetAgencyId.value);
+  return String(agency?.slug || agency?.portal_url || '').trim();
+});
 
-const dirty = computed(() => htmlContent.value !== originalHtml.value);
 const localeLabel = computed(() => (locale.value === 'es' ? 'ES' : 'EN'));
 
 function formatWhen(v) {
@@ -201,8 +180,10 @@ const viewVersion = async (ver) => {
 };
 
 const load = async () => {
+  const sequence = ++loadSequence;
   try {
     loading.value = true;
+    packetAgencyId.value = null;
     error.value = '';
     success.value = '';
     showHistory.value = false;
@@ -210,24 +191,20 @@ const load = async () => {
     const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet/template`, {
       params: { locale: locale.value }
     });
-    htmlContent.value = String(res.data?.html_content || '');
-    originalHtml.value = htmlContent.value;
+    if (sequence !== loadSequence) return;
+    packetAgencyId.value = Number(res.data?.agencyId) || null;
     version.value = Number(res.data?.version || 1);
     await loadLegalCopy();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to load packet template';
+    if (sequence === loadSequence) error.value = e.response?.data?.error?.message || e.message || 'Failed to load packet template';
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) loading.value = false;
   }
 };
 
 const switchLocale = async (next) => {
   const loc = next === 'es' ? 'es' : 'en';
   if (loc === locale.value) return;
-  if (dirty.value) {
-    const ok = window.confirm('You have unsaved changes for this language. Discard them and switch?');
-    if (!ok) return;
-  }
   locale.value = loc;
   await load();
 };
@@ -266,28 +243,6 @@ const saveLegalCopy = async () => {
   }
 };
 
-const save = async () => {
-  try {
-    saving.value = true;
-    error.value = '';
-    success.value = '';
-    const res = await api.put(`/school-portal/${props.schoolOrganizationId}/printable-packet/template`, {
-      html_content: htmlContent.value,
-      locale: locale.value
-    });
-    htmlContent.value = String(res.data?.html_content || htmlContent.value);
-    originalHtml.value = htmlContent.value;
-    version.value = Number(res.data?.version || version.value || 1);
-    success.value = `Saved ${localeLabel.value} as V${version.value} (archived).`;
-    emit('saved', { version: version.value, locale: locale.value });
-    if (showHistory.value) await loadVersions();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to save packet template';
-  } finally {
-    saving.value = false;
-  }
-};
-
 watch(() => props.schoolOrganizationId, () => load());
 watch(() => props.initialLocale, (v) => {
   const loc = String(v || 'en').toLowerCase() === 'es' ? 'es' : 'en';
@@ -298,6 +253,7 @@ watch(() => props.initialLocale, (v) => {
 });
 
 onMounted(load);
+onBeforeUnmount(() => { loadSequence++; });
 </script>
 
 <style scoped>

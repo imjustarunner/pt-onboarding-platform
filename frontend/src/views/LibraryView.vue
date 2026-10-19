@@ -33,6 +33,7 @@
           <button class="lib-btn lib-btn--ghost lib-btn--sm document-back" @click="closeReference">← Back to documents</button>
           <CompanyReferenceLibrary :key="referenceAgencyId" :agency-id="referenceAgencyId" :org-prefix="orgPrefix" reader-only />
         </template>
+        <LibraryEnrollmentDocuments v-else-if="activeTab === 'enrollment' && agencyId" ref="enrollmentDocuments" :key="enrollmentContextKey" :agency-id="agencyId" :school-id="positiveId(route.query.schoolId)" :initial-context="{setting:route.query.setting,service:route.query.service,audience:route.query.audience,locale:route.query.locale}" :search="search" @share-document="enrollmentShare = $event" />
         <template v-else>
           <div class="document-section-heading"><div><h2>{{ sectionTitle }}</h2><p>{{ sectionDescription }}</p></div><div class="heading-tools"><router-link v-if="referenceCanManage" :to="`${orgPrefix}/admin/document-library?company=${referenceAgencyId}`">Manage company guides ↗</router-link><button v-if="canViewStatistics" class="lib-btn lib-btn--ghost lib-btn--sm" @click="showStatistics = !showStatistics">{{ showStatistics ? 'Hide statistics' : 'Statistics' }}</button></div></div>
           <router-link v-if="canUseClinicalForms && activeTab==='mine'" class="private-clinical-link lib-btn lib-btn--ghost" :to="{path:`${orgPrefix}/clinical-forms`,query:{mine:'1',form:'cssrs-screener'}}">Private clinical documents · Saved screenings &amp; unlinked drafts →</router-link>
@@ -64,6 +65,7 @@
       </main>
     </div>
 
+    <EnrollmentDocumentShareDialog ref="enrollmentShareDialog" v-if="enrollmentShare" :key="`${enrollmentShare.agencyId}:${enrollmentShare.key}`" :document="enrollmentShare" @close="enrollmentShare = null" @done="refresh" />
     <LibraryAddResourceModal ref="addResourceModal" :agency-id="agencyId"
       v-if="showAdd"
       :categories="categories"
@@ -156,6 +158,8 @@ import LibraryResourceList from '../components/library/LibraryResourceList.vue';
 import LibraryAddResourceModal from '../components/library/LibraryAddResourceModal.vue';
 import LibraryResourceViewer from '../components/library/LibraryResourceViewer.vue';
 import LibraryDistributeModal from '../components/library/LibraryDistributeModal.vue';
+import LibraryEnrollmentDocuments from '../components/library/LibraryEnrollmentDocuments.vue';
+import EnrollmentDocumentShareDialog from '../components/enrollment/EnrollmentDocumentShareDialog.vue';
 import api from '../services/api';
 import {
   fetchLibraryHome,
@@ -220,8 +224,10 @@ const resources = ref([]);
 const clinicalPlans=ref([]),clinicalError=ref(''),clinicalLinkFilter=ref('all');
 const search = ref(String(route.query.q || ''));
 const searchActive = ref(!!search.value.trim());
-const tabFromSection = (section) => section === 'resources' ? 'files' : ['all', 'mine', 'guides', 'files', 'favorites', 'recent', 'clinical'].includes(section) ? section : 'all';
+const tabFromSection = (section) => section === 'resources' ? 'files' : ['all', 'mine', 'guides', 'files', 'favorites', 'recent', 'clinical', 'enrollment'].includes(section) ? section : 'all';
 const activeTab = ref(tabFromSection(route.query.section));
+const enrollmentDocuments = ref(null), enrollmentShare = ref(null), enrollmentShareDialog = ref(null);
+const enrollmentContextKey = computed(() => [agencyId.value, ...['setting','service','audience','locale','schoolId'].map(key => route.query[key] || '')].join(':'));
 const showNavigation = ref(false);
 const detailItem = ref(null), typeFilter = ref(''), sortBy = ref('updated'), showStatistics = ref(false);
 const referenceDocuments = ref([]), referenceCanManage = ref(false), referenceError = ref('');
@@ -252,9 +258,11 @@ const canViewStatistics = computed(() => ['admin', 'super_admin', 'superadmin'].
 const agencyStore = useAgencyStore();
 const selectedAgency = computed(() => {
   const slug = route.params.organizationSlug;
-  return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!slug || [a.slug, a.portal_url].includes(slug)));
+  const requested = route.query.agencyId === undefined ? null : positiveId(route.query.agencyId);
+  if (route.query.agencyId !== undefined && !requested) return undefined;
+  return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(a => a && (!requested || Number(a.id) === requested) && (!slug || [a.slug, a.portal_url].includes(slug)));
 });
-const agencyId = computed(() => selectedAgency.value?.id || (!route.params.organizationSlug ? authStore.user?.agency_id || authStore.user?.agencyId : null));
+const agencyId = computed(() => selectedAgency.value?.id || (!route.params.organizationSlug && route.query.agencyId === undefined ? authStore.user?.agency_id || authStore.user?.agencyId : null));
 const referenceAgencyId = agencyId;
 const agencyName = computed(() => selectedAgency.value?.name || route.params.organizationSlug || 'Your organization');
 const categories = computed(() => home.value?.categories || []);
@@ -272,6 +280,7 @@ const documentTabs = [
   { id: 'recent', label: 'Recent', icon: '◷' },
   { id: 'guides', label: 'Handbooks & guides', icon: '▥' },
   { id: 'clinical', label: 'Clinical forms', icon: '▱' },
+  { id: 'enrollment', label: 'Enrollment documents', icon: '▤' },
   { id: 'files', label: 'Files & resources', icon: '▱' }
 ];
 const visibleDocumentTabs=computed(()=>documentTabs.filter(tab=>tab.id!=='clinical'||canUseClinicalForms.value));
@@ -523,14 +532,17 @@ function syncBrowseLocation() {
 }
 function resetSearch() { clearTimeout(searchTimer); search.value = ''; searchActive.value = false; }
 function setTab(id) {
+  if (enrollmentDocuments.value?.prepareToLeave() === false) return;
   activeTab.value = id; activeCategoryId.value = null; folderId.value = undefined; detailItem.value = null; typeFilter.value = ''; showAll.value = false;
   clinicalLinkFilter.value='all'; resetSearch(); syncBrowseLocation();
 }
 function selectCategory(c) {
+  if (enrollmentDocuments.value?.prepareToLeave() === false) return;
   activeCategoryId.value = c.id; folderId.value = undefined; activeTab.value = 'all'; showAll.value = false;
   resetSearch(); syncBrowseLocation();
 }
 function selectFolder(id, fromSidebar = false) {
+  if (enrollmentDocuments.value?.prepareToLeave() === false) return;
   folderId.value = id; showAll.value = false;
   if (fromSidebar) { activeCategoryId.value = null; activeTab.value = 'all'; }
   resetSearch(); syncBrowseLocation();
@@ -542,7 +554,7 @@ function backToLibrary() { setTab('all'); }
 function runSearch() {
   clearTimeout(searchTimer);
   searchActive.value = !!search.value.trim();
-  if (!['mine','clinical'].includes(activeTab.value)) activeTab.value = 'all';
+  if (!['mine','clinical','enrollment'].includes(activeTab.value)) activeTab.value = 'all';
   syncBrowseLocation();
 }
 
@@ -573,7 +585,9 @@ async function openResource(item) {
 
 const resourceViewer = ref(null);
 const addResourceModal = ref(null);
-async function saveBeforeNavigation() {
+async function saveBeforeNavigation(to) {
+  if (enrollmentShareDialog.value?.prepareToLeave() === false) return false;
+  if (enrollmentDocuments.value && (to?.path !== route.path || to?.query?.section !== 'enrollment' || ['setting','service','audience','locale','schoolId'].some(key => to?.query?.[key] !== route.query[key])) && enrollmentDocuments.value.prepareToLeave() === false) return false;
   if ((await resourceViewer.value?.prepareToLeave()) === false) return false;
   return addResourceModal.value?.prepareToLeave() ?? true;
 }
@@ -674,7 +688,7 @@ watch(() => [route.query.section, route.query.folder, route.query.category, rout
 watch([() => route.params.organizationSlug, () => agencyId.value], () => {
   viewerRequestSequence++; shareRequestSequence++; clearTimeout(searchTimer);
   home.value = null; resources.value = []; clinicalPlans.value=[]; clinicalError.value=''; referenceDocuments.value = []; referenceCanManage.value = false;
-  viewerResource.value = null; detailItem.value = null; menuItem.value = null;
+  viewerResource.value = null; detailItem.value = null; menuItem.value = null; enrollmentShare.value = null;
   shareFolder.value = null; shareList.value = []; shareEmails.value = ''; shareError.value = ''; shareSaving.value = false;
   showAdd.value = false; distributeItem.value = null; showStatistics.value = false;
   activeCategoryId.value = null; folderId.value = undefined; search.value = ''; searchActive.value = false; typeFilter.value = ''; showAll.value = false;

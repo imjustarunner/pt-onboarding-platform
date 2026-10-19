@@ -14,6 +14,8 @@
       Documentation may contain PHI. Access is logged. Only open files when you have a legitimate need.
     </div>
 
+    <details v-if="canOpenClinicalDocuments" class="cc-docs-extra" :open="portalDocumentsOpen" @toggle="syncPortalDocumentsToggle"><summary @click.prevent="togglePortalDocuments">AuricWell · Portal documents &amp; enrollment</summary><EnrollmentPortalDocuments v-if="portalDocumentsOpen" ref="portalDocumentsRef" :client-id="clientId" :agency-id="Number(client?.agency_id||0)||undefined" /></details>
+
     <ClientDocumentsGallery
       ref="galleryRef"
       :client-id="clientId"
@@ -41,10 +43,11 @@
         <div class="cc-docs-main">
           <PhiDocumentsPanel
             v-if="phiSection"
-            :key="`phi-${phiSection}-${clientId}`"
+            :key="`phi-${activeCategory}-${clientId}`"
             :client-id="clientId"
             :highlight-document-id="effectiveHighlightId"
             :section="phiSection"
+            :default-document-type="activeCategory==='paper'?'full_paper_enrollment':''"
             embedded
             @docs-loaded="onDocsLoaded"
           />
@@ -58,6 +61,8 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import PhiDocumentsPanel from '../PhiDocumentsPanel.vue';
+import EnrollmentPortalDocuments from '../../enrollment/EnrollmentPortalDocuments.vue';
+import {useAuthStore} from '../../../store/auth';
 import ClientDocumentsGallery from './ClientDocumentsGallery.vue';
 import '../../../styles/client-documents-tab.css';
 import '../../../styles/client-encounters-tab.css';
@@ -72,6 +77,20 @@ const props = defineProps({
 
 const emit = defineEmits(['opened-view-key']);
 
+const authStore=useAuthStore();
+const canOpenClinicalDocuments=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(authStore.user?.role));
+const portalDocumentsOpen=ref(false);
+const portalDocumentsRef=ref(null);
+function togglePortalDocuments(){
+  if(portalDocumentsOpen.value&&portalDocumentsRef.value?.prepareToLeave?.()===false)return;
+  portalDocumentsOpen.value=!portalDocumentsOpen.value;
+}
+function syncPortalDocumentsToggle(event){
+  const open=event.currentTarget.open;
+  if(open===portalDocumentsOpen.value)return;
+  if(!open&&portalDocumentsRef.value?.prepareToLeave?.()===false){event.currentTarget.open=true;return;}
+  portalDocumentsOpen.value=open;
+}
 const activeCategory = ref('files');
 const refreshing = ref(false);
 const phiStats = ref({ fileCount: 0, intakeCount: 0, ocrCount: 0 });
@@ -82,6 +101,7 @@ const statsLoaded = ref(false);
 const phiSection = computed(() => {
   const map = {
     files: 'files',
+    paper: 'files',
     intake: 'intake',
     audit: 'audit',
     ocr: 'ocr'
@@ -92,6 +112,7 @@ const phiSection = computed(() => {
 const effectiveHighlightId = computed(() => Number(galleryHighlight.value || props.highlightDocumentId || 0) || null);
 
 const categories = computed(() => [
+  { id: 'paper', label: 'Full paper enrollment' },
   { id: 'files', label: 'Extra files', count: phiStats.value.fileCount },
   { id: 'intake', label: 'Raw intake export', count: phiStats.value.intakeCount },
   { id: 'audit', label: 'Audit trail' },

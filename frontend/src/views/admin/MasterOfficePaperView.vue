@@ -4,8 +4,7 @@
       <div>
         <h1>Master Counseling Paper</h1>
         <p class="muted mop-sub">
-          Two independent printable counseling packets. Edits to the adult client packet stay there;
-          edits to the parent/guardian packet stay there. School packets are unchanged.
+          Print the current individual or guardian enrollment packet. Update its individual source documents in the library.
         </p>
       </div>
       <div class="mop-actions">

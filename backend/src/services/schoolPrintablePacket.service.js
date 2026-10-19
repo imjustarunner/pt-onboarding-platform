@@ -436,73 +436,16 @@ function substituteTokens(templateHtml, tokens = {}) {
   return html;
 }
 
-export async function buildSchoolPrintablePacketContext({ organizationId, locale = 'en' } = {}) {
+export async function buildSchoolPrintablePacketContext({ organizationId, locale = 'en', audience = 'guardian', service = 'counseling' } = {}) {
   const orgId = Number(organizationId || 0);
-  if (!orgId) throw new Error('Invalid organizationId');
-  const loc = normalizeLocale(locale);
-
   const organization = await Agency.findById(orgId);
-  if (!organization) {
-    const err = new Error('Organization not found');
-    err.statusCode = 404;
-    throw err;
+  if (!organization || !isSchoolPrintablePacketEnabled(organization)) {
+    throw Object.assign(new Error('Smart printable packet is not enabled for this school'), { status: 404, statusCode: 404 });
   }
-  if (!isSchoolPrintablePacketEnabled(organization)) {
-    const err = new Error('Smart printable packet is not enabled for this school');
-    err.statusCode = 404;
-    throw err;
-  }
-
   const agencyId = await resolveAgencyIdForSchool(orgId);
-  const tenantAgency = agencyId ? await Agency.findById(agencyId) : null;
-  const template = agencyId
-    ? await SchoolPacketTemplate.getOrCreateForAgency(agencyId, { locale: loc })
-    : {
-        version: 1,
-        locale: loc,
-        html_content: defaultHtmlForLocale(loc),
-        is_default_fallback: true
-      };
-
-  const staffRows = await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForOrganization({
-    schoolOrganizationId: orgId
-  });
-
-  let providers = [];
-  if (agencyId) {
-    try {
-      const raw = await listDisclosureProviders({
-        agencyId,
-        schoolOrganizationId: orgId
-      });
-      providers = await expandYourCareTeamProviders(raw, { agencyId });
-    } catch {
-      providers = [];
-    }
-  }
-
-  const brand = await resolvePacketBrandChrome(tenantAgency || organization, { packetKind: 'school' });
-
-  return {
-    version: Number(template?.version || 1),
-    locale: loc,
-    packetVersionLabel: brand.versionLabel || SCHOOL_PRINTABLE_PACKET_VERSION,
-    brand,
-    generatedAt: new Date(),
-    agencyId: agencyId || null,
-    organization: {
-      id: orgId,
-      name: String(organization.name || 'School').trim(),
-      slug: String(organization.portal_url || organization.slug || '').trim(),
-      address: buildSchoolAddress(organization)
-    },
-    templateHtml: injectIntakeLegalIntoPacketHtml(
-      String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
-      resolveIntakeLegalFromTheme(tenantAgency?.theme_settings, loc)
-    ),
-    staffRows,
-    providers
-  };
+  if (!agencyId) throw Object.assign(new Error('No affiliated agency found for this school'), { status: 409, statusCode: 409 });
+  const { buildEnrollmentPacketContext } = await import('./enrollmentPacket.service.js');
+  return buildEnrollmentPacketContext({ agencyId, organizationId: orgId, channel: 'school', audience, service, locale });
 }
 
 function buildPacketStyleBlock(brand = null) {
@@ -1135,6 +1078,10 @@ export function schoolPrintablePacketContentHash(packetContext = {}) {
 }
 
 export async function generateSchoolPrintablePacketPdf(packetContext) {
+  if (packetContext.documents) {
+    const { generateEnrollmentPacketPdfFromContext } = await import('./enrollmentPacket.service.js');
+    return generateEnrollmentPacketPdfFromContext(packetContext);
+  }
   const bodyHtml = buildSchoolPrintablePacketBodyDocument(packetContext);
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
 
@@ -1213,43 +1160,6 @@ export async function getSchoolPacketTemplateForOrganization(organizationId, { l
 
 export { buildPacketStyleBlock, buildPdfChromeTemplates, watermarkDataUrl, headerLogoDataUrl, footerMarkDataUrl, coverPageDataUrl };
 
-export async function saveSchoolPacketTemplateForOrganization({
-  organizationId,
-  htmlContent,
-  actorUserId = null,
-  locale = 'en'
-}) {
-  const orgId = Number(organizationId || 0);
-  const loc = normalizeLocale(locale);
-  const organization = await Agency.findById(orgId);
-  if (!organization) {
-    const err = new Error('Organization not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (!isSchoolPrintablePacketEnabled(organization)) {
-    const err = new Error('Smart printable packet is not enabled for this school');
-    err.statusCode = 404;
-    throw err;
-  }
-  const agencyId = await resolveAgencyIdForSchool(orgId);
-  if (!agencyId) {
-    const err = new Error('No affiliated agency found for this school');
-    err.statusCode = 409;
-    throw err;
-  }
-  const saved = await SchoolPacketTemplate.upsertContent({
-    agencyId,
-    htmlContent,
-    actorUserId,
-    locale: loc
-  });
-  return {
-    agencyId,
-    locale: loc,
-    html_content: String(saved?.html_content || ''),
-    version: Number(saved?.version || 1),
-    updatedAt: saved?.updated_at ? new Date(saved.updated_at).toISOString() : null,
-    updatedByUserId: saved?.updated_by_user_id || null
-  };
+export async function saveSchoolPacketTemplateForOrganization() {
+  throw Object.assign(new Error('Enrollment packets are assembled from individual documents. Edit their source documents in Library → Enrollment documents.'), { status: 409, statusCode: 409 });
 }

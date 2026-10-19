@@ -1,6 +1,9 @@
 <template>
   <div class="cc-enc-tab">
-    <SafetyPlansPanel v-if="clientId" :key="`safety:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
+    <nav v-if="clientId" class="medical-document-tabs" aria-label="Medical documents"><button v-for="tab in documentTabs" :key="tab.key" :aria-pressed="documentTab===tab.key" @click="selectDocumentTab(tab.key)">{{ tab.label }}</button></nav>
+    <EnrollmentPortalDocuments v-if="clientId&&documentTab==='portal'" ref="portalDocumentsRef" :key="`portal:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
+    <SafetyPlansPanel v-if="clientId&&documentTab==='clinical'" ref="clinicalDocumentsRef" :key="`safety:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
+    <section v-if="clientId&&documentTab==='paper'" class="paper-enrollment-upload"><h3>Full paper enrollment</h3><p>Upload the completed packet and any supporting pages to this client’s medical file. Staff review each authorization and optional communication choice before updating the record. Uploading a packet does not enable messaging campaigns or record consent automatically.</p><PhiDocumentsPanel :client-id="clientId" section="files" embedded default-document-type="full_paper_enrollment" /></section>
     <div class="cc-enc-toolbar">
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
@@ -232,6 +235,8 @@
 
 <script setup>
 import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
+import EnrollmentPortalDocuments from '../enrollment/EnrollmentPortalDocuments.vue';
+import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';
@@ -255,6 +260,15 @@ const props = defineProps({
   canViewMissingClaimFlag: { type: Boolean, default: false }
 });
 
+const documentTab=ref('portal');
+const portalDocumentsRef=ref(null),clinicalDocumentsRef=ref(null);
+function selectDocumentTab(tab){
+  if(tab===documentTab.value)return;
+  if(documentTab.value==='portal'&&portalDocumentsRef.value?.prepareToLeave?.()===false)return;
+  if(documentTab.value==='clinical'&&clinicalDocumentsRef.value?.confirmDiscard?.()===false)return;
+  documentTab.value=tab;
+}
+const documentTabs=[{key:'portal',label:'AuricWell · Portal documents'},{key:'clinical',label:'Clinical forms'},{key:'paper',label:'Full paper enrollment'}];
 const emit = defineEmits(['encounter-change']);
 
 const agencyRef = computed(() => props.agencyId);
@@ -434,3 +448,6 @@ watch(
 .muted { color: var(--text-secondary, #64748b); }
 .tiny { font-size: 12px; }
 </style>
+
+<style scoped>
+.medical-document-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.medical-document-tabs button{font:inherit;padding:12px 16px;border:1px solid #bdd0c6;border-radius:8px;background:white;color:#234d40;cursor:pointer}.medical-document-tabs button[aria-pressed=true]{background:#175b48;color:white}.paper-enrollment-upload{padding:20px;background:white;border:1px solid #d9e5df;border-radius:12px;margin-bottom:20px}.paper-enrollment-upload p{font-size:13px;line-height:1.7;max-width:900px}</style>

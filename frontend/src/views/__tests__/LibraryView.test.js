@@ -12,6 +12,8 @@ vi.mock('../../services/api', () => ({ default: { get: vi.fn() } }));
 vi.mock('../../services/library', () => ({ fetchLibraryHome: vi.fn(), fetchLibraryResources: vi.fn(), fetchLibraryResource: vi.fn(), addLibraryFavorite: vi.fn(), removeLibraryFavorite: vi.fn(), updateLibraryResource: vi.fn(), archiveLibraryResource: vi.fn(), fetchFolderShares: vi.fn(), setFolderShares: vi.fn() }));
 const pdf = { id: 44, agencyId: 2, name: 'Team worksheet', resourceType: 'file', fileType: 'pdf', categoryId: 3, categoryName: 'Templates', scope: 'organization' };
 const stubs = {
+  LibraryEnrollmentDocuments: {name:'LibraryEnrollmentDocuments',props:['agencyId','initialContext','schoolId','search'],template:'<div data-enrollment-library />',methods:{prepareToLeave(){return true}}},
+  EnrollmentDocumentShareDialog: {name:'EnrollmentDocumentShareDialog',props:['document'],template:'<div data-enrollment-share />',methods:{prepareToLeave(){return true}}},
   DocumentAnalyticsControl: true,
   LibraryAddResourceModal: { name:'LibraryAddResourceModal', props: ['agencyId', 'initialMode'], template: '<div data-add-modal>{{initialMode}}</div>' },
   LibraryDistributeModal: true,
@@ -37,6 +39,23 @@ async function render(path = '/itsco/library') {
   wrapper = mount(Library,{global:{plugins:[pinia,router],stubs}}); await flushPromises(); return router;
 }
 async function clickText(text) { const btn=wrapper.findAll('button').find(b=>b.text().includes(text)); expect(btn).toBeTruthy(); await btn.trigger('click'); await flushPromises(); }
+it('opens enrollment sources with paper-packet context and shares an individual source in the current agency',async()=>{
+  await render('/itsco/library?section=enrollment&setting=school&service=tutoring&audience=guardian&locale=es&schoolId=40&agencyId=2');
+  const catalog=wrapper.getComponent({name:'LibraryEnrollmentDocuments'});
+  expect(catalog.props()).toMatchObject({agencyId:2,schoolId:40,initialContext:{setting:'school',service:'tutoring',audience:'guardian',locale:'es'}});
+  catalog.vm.$emit('share-document',{agencyId:2,key:'school-roi',title:'School release'});await flushPromises();
+  expect(wrapper.getComponent({name:'EnrollmentDocumentShareDialog'}).props('document')).toMatchObject({agencyId:2,key:'school-roi'});
+});
+it('keeps unsaved enrollment edits open when navigation is declined',async()=>{
+  await render('/itsco/library?section=enrollment');
+  vi.spyOn(wrapper.getComponent({name:'LibraryEnrollmentDocuments'}).vm,'prepareToLeave').mockReturnValue(false);
+  await clickText('All documents');expect(wrapper.find('[data-enrollment-library]').exists()).toBe(true);
+});
+it('does not silently load another agency when a legacy source link requests an unknown agency',async()=>{
+  await render('/itsco/library?section=enrollment&agencyId=999');
+  expect(wrapper.find('[data-enrollment-library]').exists()).toBe(false);
+  expect(service.fetchLibraryResources).not.toHaveBeenCalled();
+});
 it('opens a document workspace with guides and files, no Plotline branding, and staff creation actions', async () => {
   await render();
   expect(wrapper.get('h1').text()).toBe('Document library Beta');

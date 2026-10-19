@@ -4,38 +4,22 @@
       <div>
         <h2 style="margin:0;">{{ title }}</h2>
         <div class="muted" style="margin-top:4px;">
-          Printable office packet for this audience only. Disclosure, informed consent,
-          policy and services, and HIPAA are included. Merge tokens
-          <code>{{ tokenAgencyName }}</code>,
-          <code>{{ tokenAgencyAddress }}</code>, and
-          <code>{{ tokenDisclosure }}</code>
-          fill automatically when the PDF is generated. Saving here does not change the other packet.
+          The printable packet is assembled from the individual enrollment documents in your library. Provider details are supplied from the current care team when the packet is generated.
         </div>
         <div class="locale-tabs" role="tablist" aria-label="Packet language">
-          <button type="button" role="tab" class="locale-tab" :class="{ active: locale === 'en' }" :disabled="loading || saving" @click="switchLocale('en')">English</button>
-          <button type="button" role="tab" class="locale-tab" :class="{ active: locale === 'es' }" :disabled="loading || saving" @click="switchLocale('es')">Español</button>
+          <button type="button" role="tab" class="locale-tab" :class="{ active: locale === 'en' }" :disabled="loading" @click="switchLocale('en')">English</button>
+          <button type="button" role="tab" class="locale-tab" :class="{ active: locale === 'es' }" :disabled="loading" @click="switchLocale('es')">Español</button>
         </div>
       </div>
       <div class="packet-editor-actions">
         <span class="version-pill">{{ localeLabel }} · V{{ version || '—' }}</span>
-        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving || downloading" @click="downloadPdf">
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || downloading" @click="downloadPdf">
           {{ downloading ? 'Preparing…' : 'Download PDF' }}
         </button>
-        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="toggleHistory">
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="toggleHistory">
           {{ showHistory ? 'Hide history' : 'Version history' }}
         </button>
-        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="useOfficeDefault">
-          Use office default
-        </button>
-        <button class="btn btn-primary btn-sm" type="button" :disabled="loading || saving || !dirty" @click="save">
-          {{ saving ? 'Saving…' : 'Save' }}
-        </button>
       </div>
-    </div>
-
-    <div v-if="looksLikeSchoolSeed" class="school-seed-note">
-      This copy still looks like the old school-cloned packet. Use office default to load
-      disclosure, informed consent, policy and services, and HIPAA for this audience only.
     </div>
 
     <div v-if="!loading && packetBrand && !packetBrand.useItscoChrome" class="packet-brand-panel">
@@ -74,7 +58,7 @@
 
     <div v-else-if="showHistory" class="version-history">
       <div v-if="historyLoading" class="muted">Loading versions…</div>
-      <div v-else-if="!versions.length" class="muted">No archived versions yet. Save the template to create V1.</div>
+      <div v-else-if="!versions.length" class="muted">No archived packet versions are available.</div>
       <ul v-else class="version-list">
         <li v-for="v in versions" :key="v.id || v.version" class="version-row">
           <div>
@@ -90,17 +74,14 @@
           <strong>V{{ previewVersion }} (read-only)</strong>
           <button class="btn btn-ghost btn-sm" type="button" @click="previewHtml = ''; previewVersion = null">Close preview</button>
         </div>
-        <iframe class="version-preview-frame" :srcdoc="previewHtml" title="Packet version preview" />
+        <iframe class="version-preview-frame" :srcdoc="previewHtml" title="Packet version preview" sandbox="" />
       </div>
     </div>
 
     <div v-else class="packet-editor-body">
-      <HtmlDocumentBuilder
-        v-model="htmlContent"
-        placeholder="Office packet template HTML…"
-        :merge-tokens="mergeTokens"
-        paper-mode
-      />
+      <h3>Individual enrollment documents</h3>
+      <p class="muted">Update source consents and policies in the library, then download the assembled packet or share a document with a client.</p>
+      <router-link class="btn btn-primary btn-sm" :to="enrollmentTo">Open enrollment documents</router-link>
     </div>
   </div>
 </template>
@@ -108,7 +89,8 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
-import HtmlDocumentBuilder from '../documents/HtmlDocumentBuilder.vue';
+import { useAgencyStore } from '../../store/agency';
+import { enrollmentLibraryLocation } from '../../utils/enrollmentLibraryLocation.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -117,38 +99,20 @@ const props = defineProps({
   variant: { type: String, default: 'self' }
 });
 
-const emit = defineEmits(['saved']);
-
-const tokenAgencyName = '{{' + 'AGENCY_NAME}}';
-const tokenAgencyAddress = '{{' + 'AGENCY_ADDRESS}}';
-const tokenStaffTable = '{{' + 'SCHOOL_STAFF_TABLE}}';
-const tokenDisclosure = '{{' + 'DISCLOSURE_CARE_TEAM}}';
-
-const mergeTokens = [
-  { token: '{{AGENCY_NAME}}', label: 'Agency name' },
-  { token: '{{AGENCY_ADDRESS}}', label: 'Agency address' },
-  { token: '{{SCHOOL_NAME}}', label: 'Agency name (alias)' },
-  { token: '{{SCHOOL_ADDRESS}}', label: 'Agency address (alias)' },
-  { token: '{{SCHOOL_STAFF_TABLE}}', label: 'Blank staff fill-in table' },
-  { token: '{{DISCLOSURE_CARE_TEAM}}', label: 'Care team / disclosure providers' }
-];
+const agencyStore = useAgencyStore();
+const enrollmentTo = computed(() => enrollmentLibraryLocation({ agencyId: props.agencyId, agencies: [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])], setting: 'office', audience: props.variant === 'parent' ? 'guardian' : 'self', locale: locale.value }));
 
 const locale = ref(String(props.initialLocale || 'en').toLowerCase() === 'es' ? 'es' : 'en');
 const loading = ref(false);
-const saving = ref(false);
 const downloading = ref(false);
 const error = ref('');
 const success = ref('');
-const htmlContent = ref('');
-const originalHtml = ref('');
 const version = ref(null);
 const showHistory = ref(false);
 const historyLoading = ref(false);
 const versions = ref([]);
 const previewHtml = ref('');
 const previewVersion = ref(null);
-const defaultHtml = ref('');
-const looksLikeSchoolSeed = ref(false);
 const packetBrand = ref(null);
 const brandVersionLabel = ref('1.0');
 const brandUploading = ref(false);
@@ -166,7 +130,6 @@ const packetFileSlug = computed(() =>
   (props.variant === 'parent' ? 'parent-guardian' : 'client')
 );
 
-const dirty = computed(() => htmlContent.value !== originalHtml.value);
 const localeLabel = computed(() => (locale.value === 'es' ? 'ES' : 'EN'));
 
 function brandPath(slot) {
@@ -274,10 +237,6 @@ const load = async () => {
     const res = await api.get(`/agencies/${props.agencyId}/office-packet-template`, {
       params: packetParams()
     });
-    htmlContent.value = String(res.data?.html_content || res.data?.template?.html_content || '');
-    originalHtml.value = htmlContent.value;
-    defaultHtml.value = String(res.data?.default_html || '');
-    looksLikeSchoolSeed.value = !!res.data?.looks_like_school_seed;
     version.value = Number(res.data?.version || res.data?.template?.version || 1);
     if (res.data?.packetBrand) {
       packetBrand.value = res.data.packetBrand;
@@ -295,33 +254,8 @@ const load = async () => {
 const switchLocale = async (next) => {
   const loc = next === 'es' ? 'es' : 'en';
   if (loc === locale.value) return;
-  if (dirty.value && !window.confirm('You have unsaved changes for this language. Discard them and switch?')) return;
   locale.value = loc;
   await load();
-};
-
-const save = async () => {
-  try {
-    saving.value = true;
-    error.value = '';
-    success.value = '';
-    const res = await api.put(`/agencies/${props.agencyId}/office-packet-template`, {
-      html_content: htmlContent.value,
-      locale: locale.value,
-      variant: props.variant || 'self'
-    });
-    htmlContent.value = String(res.data?.html_content || res.data?.template?.html_content || htmlContent.value);
-    originalHtml.value = htmlContent.value;
-    version.value = Number(res.data?.version || res.data?.template?.version || version.value || 1);
-    looksLikeSchoolSeed.value = false;
-    success.value = `Saved ${localeLabel.value} as V${version.value}.`;
-    emit('saved', { version: version.value, locale: locale.value, variant: props.variant });
-    if (showHistory.value) await loadVersions();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to save packet template';
-  } finally {
-    saving.value = false;
-  }
 };
 
 const downloadPdf = async () => {
@@ -346,14 +280,6 @@ const downloadPdf = async () => {
     downloading.value = false;
   }
 };
-
-function useOfficeDefault() {
-  if (!defaultHtml.value) return;
-  if (dirty.value && !window.confirm('Replace the current draft with the office default for this packet?')) return;
-  htmlContent.value = defaultHtml.value;
-  looksLikeSchoolSeed.value = false;
-  success.value = 'Loaded the office default. Save to keep it.';
-}
 
 watch(() => [props.agencyId, props.variant], () => load());
 onMounted(load);

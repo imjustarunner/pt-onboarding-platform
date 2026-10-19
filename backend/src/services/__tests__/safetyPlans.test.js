@@ -1,4 +1,5 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
+vi.mock('../enrollmentPacket.service.js',()=>({getEnrollmentPacketDocuments:vi.fn().mockResolvedValue([{key:'privacy',title:'Privacy notice',html:'<p>Current privacy notice</p>',version:3,hash:'source-hash',sections:[{title:'Responses',fields:[['answer','Required answer',{required:true}],['campaign_one','Optional campaign one',{type:'multi',options:['Yes']}],['campaign_two','Optional campaign two',{type:'multi',options:['Yes']}]]}]}])}));
 vi.mock('../safetyPlans/notificationQueue.js',()=>({queueClinicalFormNotification:vi.fn().mockResolvedValue(undefined)}));
 vi.mock('../../models/AgencyOfficeIntakeMaster.model.js',()=>({default:{findByAgencyLanguage:vi.fn().mockResolvedValue(null)}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
@@ -166,5 +167,35 @@ describe('named forms and client completion permissions',()=>{
   const saved=await records.savePlan(staff,{...input(),documentKey:'cssrs-screener',data:{personLabel:'Synthetic',planDate:'2026-10-17'}});
   await expect(records.addSigner(staff,saved.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true})).rejects.toMatchObject({status:400});expect(queueClinicalFormNotification).not.toHaveBeenCalled();
   const plan=await records.savePlan(staff,input());await records.addSigner(staff,plan.id,{version:1,kind:'client',name:'Synthetic'});expect(queueClinicalFormNotification).not.toHaveBeenCalled();
+ });
+});
+
+describe('server-owned enrollment documents',()=>{
+ const enrollmentInput=()=>({agencyId:2,clientId:41,documentKey:'enrollment-document',foundationKey:'privacy',enrollmentContext:{channel:'school',audience:'guardian',service:'counseling',locale:'en'},data:{documentName:'Synthetic enrollment consent',personLabel:'Synthetic Client',planDate:'2026-10-18'},template:{sourceHtml:'Caller injection'},sourceHtml:'Caller injection'});
+ it('uses only the server foundation and preserves its edition through later edits',async()=>{
+  const p=await records.savePlan(staff,enrollmentInput());
+  expect(p.template.sourceHtml).toBe('<p>Current privacy notice</p>');expect(p.template.source.hash).toBe('source-hash');
+  expect(JSON.stringify(p.template)).not.toContain('Caller injection');
+  const first=state.versions[0].payload_encrypted;
+  const next=await records.savePlan(staff,{...enrollmentInput(),version:1,foundationKey:'spoofed',data:{...enrollmentInput().data,answer:'Updated'}},p.id);
+  expect(next.template.source.foundationKey).toBe('privacy');expect(state.versions[0].payload_encrypted).toBe(first);
+ });
+ it('rejects new enrollment snapshots outside a linked client and from another tenant',async()=>{
+  await expect(records.savePlan(staff,{...enrollmentInput(),clientId:null,allowUnlinked:true,overrideReason:'Missing'})).rejects.toMatchObject({status:400});
+  await expect(records.savePlan(staff,{...enrollmentInput(),agencyId:99})).rejects.toMatchObject({status:403});
+  expect(state.plans).toHaveLength(0);
+ });
+ it('allows recipient completion, requires schema answers, and keeps optional choices independent',async()=>{
+  let p=await records.savePlan(staff,enrollmentInput());
+  p=await records.addSigner(staff,p.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true});
+  const shareId=p.signers[0].id;
+  const submission={...signature(),version:1,contentHash:p.contentHash,data:{...enrollmentInput().data,answer:'',campaign_one:['Yes'],campaign_two:[],rogueConsent:true}};
+  await expect(records.portalSubmitUpdate(guardian,shareId,submission)).rejects.toMatchObject({status:400});
+  await records.portalSubmitUpdate(guardian,shareId,{...submission,data:{...submission.data,answer:'Synthetic response'}});
+  const completed=await records.readPlan(staff,p.id);
+  expect(completed).toMatchObject({version:2,reviewStatus:'pending',data:{campaign_one:['Yes'],campaign_two:[]}});
+  expect(completed.data).not.toHaveProperty('rogueConsent');expect(completed.signers[0].signedAt).toBeTruthy();
+  expect(queueClinicalFormNotification).toHaveBeenCalledTimes(1);
+  const list=await records.listPlans(staff,{clientId:41});expect(list.plans[0]).toMatchObject({sharedCount:1,signedCount:1,pendingSignatures:0});
  });
 });

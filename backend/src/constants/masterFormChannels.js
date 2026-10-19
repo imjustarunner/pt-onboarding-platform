@@ -13,7 +13,7 @@ export const MASTER_FORM_CHANNELS = {
     status: 'live',
     joinServiceTypes: [],
     adminPath: '/admin/master-school-form',
-    paperAdminPath: '/admin/school-referral-hub'
+    paperAdminPath: '/library?section=enrollment&setting=school&service=counseling'
   },
   office: {
     key: 'office',
@@ -24,18 +24,18 @@ export const MASTER_FORM_CHANNELS = {
     status: 'live',
     joinServiceTypes: ['counseling'],
     adminPath: '/admin/master-office-form',
-    paperAdminPath: '/admin/master-office-paper'
+    paperAdminPath: '/library?section=enrollment&setting=office&service=counseling'
   },
   tutoring: {
     key: 'tutoring',
     label: 'Master Tutoring',
     shortLabel: 'Tutoring',
     scope: 'agency',
-    hasPrintable: false,
+    hasPrintable: true,
     status: 'live',
     joinServiceTypes: ['tutoring', 'assessment', 'evaluation'],
     adminPath: '/admin/master-channel-form/tutoring',
-    paperAdminPath: null
+    paperAdminPath: '/library?section=enrollment&setting=office&service=tutoring'
   },
   consulting: {
     key: 'consulting',

@@ -109,7 +109,7 @@
               autocomplete="off"
             />
             <datalist id="phi-doc-type-list">
-              <option v-for="t in uploadTypeOptions" :key="t" :value="t" />
+              <option v-for="t in uploadTypeOptions" :key="t" :value="t" :label="t==='full_paper_enrollment'?'Full paper enrollment':t" />
             </datalist>
           </label>
         </div>
@@ -392,7 +392,8 @@ const props = defineProps({
   section: { type: String, default: 'all' },
   embedded: { type: Boolean, default: false },
   /** School staff without ROI All Active: own uploads only, no referral packets. */
-  ownOnly: { type: Boolean, default: false }
+  ownOnly: { type: Boolean, default: false },
+  defaultDocumentType: { type: String, default: '' }
 });
 
 const emit = defineEmits(['docs-loaded']);
@@ -414,7 +415,7 @@ function emitDocsLoaded() {
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(roleNorm.value));
+const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff', 'school_staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'facilitator', 'qbha'].includes(roleNorm.value));
 const attachSubtitle = computed(() => {
   if (props.ownOnly) {
     return 'Drop files here to add them for this client. Only you see files you upload unless someone has ROI All Active.';
@@ -422,7 +423,7 @@ const attachSubtitle = computed(() => {
   if (roleNorm.value === 'school_staff') {
     return 'Drop files here to add them to this client’s documents. Other staff with ROI All Active can see files you upload.';
   }
-  return 'Admin only. Drop files here to add them directly to this client’s PHI documents.';
+  return 'Add supporting files to this client’s protected medical record.';
 });
 const canManageLifecycle = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
@@ -449,10 +450,11 @@ const confirmingDoc = ref(null);
 const openModalError = ref('');
 const openModalLink = ref('');
 const fileInput = ref(null);
-const uploadTitle = ref('');
-const uploadType = ref('');
+const uploadTitle = ref(props.defaultDocumentType==='full_paper_enrollment'?'Full paper enrollment':'');
+const uploadType = ref(props.defaultDocumentType);
 const showOcrLinesById = ref({});
 const uploadTypeOptions = [
+  'full_paper_enrollment',
   'Intake packet',
   'Consent',
   'ROI',
@@ -718,8 +720,8 @@ const removeDoc = async (doc) => {
 };
 
 const resetUploadFields = () => {
-  uploadTitle.value = '';
-  uploadType.value = '';
+  uploadTitle.value = props.defaultDocumentType==='full_paper_enrollment'?'Full paper enrollment':'';
+  uploadType.value = props.defaultDocumentType;
   try {
     if (fileInput.value) fileInput.value.value = '';
   } catch {

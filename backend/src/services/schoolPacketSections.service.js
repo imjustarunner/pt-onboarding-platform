@@ -87,7 +87,12 @@ const SECTION_HEADING_MAP = {
     ],
     endExclusive: [
       'Signatures',
-      'Firmas'
+      'Firmas',
+      'AuricWell acknowledgment',
+      'SchoolCareBridge acknowledgment',
+      'Reconocimiento de AuricWell',
+      'Insurance and payment information',
+      'Packet acknowledgment and receipt'
     ]
   }
 };
@@ -282,7 +287,10 @@ export async function buildPacketSectionContext({
       organizationId: orgId,
       locale: loc
     });
-    templateHtml = String(ctx?.templateHtml || '');
+    // Select canonical legal documents without appended screeners or receipts.
+    const sourceKeys = key === PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT ? ['informed-consent','group-consent'] : key === PACKET_SECTION_KEYS.POLICY_SERVICES ? ['policy-services'] : ['hipaa-notice'];
+    const matchingDocuments = (ctx?.documents || []).filter(document => sourceKeys.includes(document.key));
+    templateHtml = matchingDocuments.length ? matchingDocuments.map(document=>document.html).join('\n') : String(ctx?.templateHtml || '');
     packetVersion = Number(ctx?.version || 1);
     resolvedAgencyId = resolvedAgencyId || Number(ctx?.agencyId || 0) || null;
 
@@ -300,6 +308,11 @@ export async function buildPacketSectionContext({
     const template = await SchoolPacketTemplate.getOrCreateForAgency(resolvedAgencyId, { locale: loc });
     templateHtml = String(template?.html_content || '');
     packetVersion = Number(template?.version || 1);
+  }
+
+  if (resolvedAgencyId) {
+    const { applyEnrollmentFoundationOverrides } = await import('./enrollmentFoundations.service.js');
+    templateHtml = await applyEnrollmentFoundationOverrides({ agencyId: resolvedAgencyId, channel: office ? 'office' : 'school', audience: normalizeOfficePacketVariant(variant) === 'parent' ? 'guardian' : 'self', locale: loc, html: templateHtml });
   }
 
   if (!templateHtml) {

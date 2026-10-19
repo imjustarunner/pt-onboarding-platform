@@ -1,4 +1,5 @@
 import Client from '../models/Client.model.js';
+import {clientAccess as clinicalClientAccess} from '../services/safetyPlans/access.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -260,8 +261,9 @@ export const uploadClientPhiDocument = [
           });
       if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
+      if(['provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(String(req.user.role||'')))await clinicalClientAccess(req.user,clientId,{write:true});
       const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
-      const documentTitle = req.body?.documentTitle ? String(req.body.documentTitle).trim().slice(0, 255) : null;
+      const documentTitle = req.body?.documentTitle ? String(req.body.documentTitle).trim().slice(0, 255) : req.body?.documentType==='full_paper_enrollment'?'Full paper enrollment':null;
       const documentType = req.body?.documentType ? String(req.body.documentType).trim().slice(0, 80) : null;
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(7);
