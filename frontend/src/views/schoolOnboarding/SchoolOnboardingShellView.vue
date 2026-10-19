@@ -230,7 +230,7 @@
             </div>
 
             <div class="so-stepper">
-              <template v-for="(step, idx) in steps" :key="step.key">
+              <template v-for="(step, idx) in steps.filter((s) => !s.optional)" :key="step.key">
                 <button
                   type="button"
                   class="so-step"
@@ -243,7 +243,7 @@
                   <span class="so-step-num">{{ idx + 1 }}</span>
                   <span>{{ step.label }}</span>
                 </button>
-                <span v-if="idx < steps.length - 1" class="so-step-chevron" aria-hidden="true">›</span>
+                <span v-if="idx < steps.filter((s) => !s.optional).length - 1" class="so-step-chevron" aria-hidden="true">›</span>
               </template>
             </div>
 
@@ -266,7 +266,7 @@
                   <div class="so-progress-fill" :style="{ width: `${progressPct}%` }" />
                 </div>
                 <ul class="so-progress-list">
-                  <li v-for="step in steps" :key="step.key">
+                  <li v-for="step in steps.filter((s) => !s.optional)" :key="step.key">
                     <span>{{ step.label }}</span>
                     <span class="muted tiny">{{ statusLabel(progress[step.key]) }}</span>
                   </li>
@@ -285,7 +285,7 @@
               </article>
               <article class="so-info">
                 <h3>See a portal in action</h3>
-                <p class="muted">Browse the real Hogwarts school portal (view-only) before you submit.</p>
+                <p class="muted">Optional: explore a fictional school portal whenever you like. Your onboarding does not depend on the demo.</p>
                 <button type="button" class="linkish" @click="openDemo">Preview demo</button>
               </article>
             </div>
@@ -645,8 +645,7 @@
             <h2>Explore the demo</h2>
             <fieldset class="so-fieldset" :disabled="stepsReadOnly">
             <p>
-              Open the <strong>real Hogwarts school portal</strong> (no login, view-only) so you can see exactly what schools get.
-              It’s a browse-only copy — no real accounts or permissions.
+              Explore a <strong>fictional school portal</strong> with sample data. This optional tour is not required to finish onboarding.
             </p>
             <p class="muted">
               Open the demo to browse, then click <strong>Continue to review</strong> when you’re done.
@@ -655,7 +654,7 @@
             <p v-if="actionError" class="error">{{ actionError }}</p>
             <div class="so-actions">
               <button type="button" class="btn primary" :disabled="saving || stepsReadOnly" @click="openDemo">
-                {{ saving ? 'Opening…' : 'Open Hogwarts demo' }}
+                {{ saving ? 'Opening…' : 'Open optional demo' }}
               </button>
               <button
                 v-if="!stepsReadOnly && !isAgencyHelper"
@@ -664,7 +663,7 @@
                 :disabled="saving"
                 @click="markDemoCompleteAndContinue"
               >
-                Skip for now →
+                Continue to review →
               </button>
               <button
                 v-if="!stepsReadOnly && isAgencyHelper"
@@ -676,7 +675,7 @@
                 {{ saving ? stepSavingLabel : 'Save draft (school confirms)' }}
               </button>
               <button
-                v-if="progress.explore_demo === 'complete' || stepsReadOnly"
+                v-if="stepsReadOnly || isAgencyHelper"
                 type="button"
                 class="btn ghost"
                 @click="go('review_submit')"
@@ -694,7 +693,7 @@
               Confirm each step below looks correct, then create your login password to activate your school portal.
             </p>
             <ul class="so-progress-list">
-              <li v-for="step in steps.filter((s) => s.key !== 'review_submit')" :key="step.key">
+              <li v-for="step in steps.filter((s) => s.key !== 'review_submit' && !s.optional)" :key="step.key">
                 <span>{{ step.label }}</span>
                 <span :class="progress[step.key] === 'complete' ? 'ok' : 'warn'">
                   {{ statusLabel(progress[step.key]) }}
@@ -841,7 +840,7 @@ const steps = [
   { key: 'school_staff', label: 'Add School Staff' },
   { key: 'preferred_days', label: 'Preferred Days' },
   { key: 'welcome_materials', label: 'Welcome Materials' },
-  { key: 'explore_demo', label: 'Explore Demo' },
+  { key: 'explore_demo', label: 'Explore Demo (optional)', optional: true },
   { key: 'review_submit', label: 'Review & Submit' }
 ];
 const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -918,7 +917,7 @@ const schoolForm = reactive({
 const progress = computed(() => invite.value?.stepProgress || {});
 const firstIncomplete = computed(() => {
   for (const s of steps) {
-    if (progress.value[s.key] !== 'complete') return s.key;
+    if (!s.optional && progress.value[s.key] !== 'complete') return s.key;
   }
   return 'review_submit';
 });
@@ -967,8 +966,8 @@ const startHereGuide = computed(() => {
   if (key === 'explore_demo') {
     return {
       title: 'Explore the demo',
-      description: 'Browse a view-only copy of the school portal before you submit.',
-      bullets: ['Open the Hogwarts demo portal', 'Click continue when you are done exploring']
+      description: 'An optional tour you can explore whenever you like.',
+      bullets: ['Browse fictional sample data', 'Optional: you can submit without opening the demo']
     };
   }
   return {
@@ -1092,7 +1091,7 @@ const schoolInitials = computed(() => {
     .join('') || 'SC';
 });
 const progressPct = computed(() => {
-  const total = invite.value?.totalSteps || steps.length;
+  const total = invite.value?.totalSteps || steps.filter((s) => !s.optional).length;
   const done = invite.value?.completedSteps || 0;
   return Math.round((done / total) * 100);
 });
@@ -1101,8 +1100,7 @@ const canSubmit = computed(() => {
     'school_information',
     'school_staff',
     'preferred_days',
-    'welcome_materials',
-    'explore_demo'
+    'welcome_materials'
   ].every((k) => progress.value[k] === 'complete');
   if (!stepsComplete) return false;
   if (invite.value?.passwordSet) return true;
@@ -1653,12 +1651,12 @@ function saveWelcomeMaterials() {
       materialsOther: materialsOther.value,
       requestPaperPackets: requestPaperPackets.value
     },
-    'explore_demo'
+    'review_submit'
   );
 }
 
 async function markDemoCompleteAndContinue() {
-  return saveStep('explore_demo', { skipped: true }, 'review_submit');
+  return go('review_submit');
 }
 
 async function saveDemoDraft() {
@@ -1673,7 +1671,7 @@ function openDemo() {
       saveStep('explore_demo', { openedDemo: true, draftAssist: true }, null, false);
     }
   }
-  router.push(`/school-onboarding/${token.value}/demo`);
+  window.open('https://schoolcarebridge.org/demo', '_blank', 'noopener,noreferrer');
 }
 
 watch(

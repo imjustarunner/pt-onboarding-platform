@@ -101,7 +101,7 @@ export async function getSchoolOnboardingPhase(schoolOrganizationId) {
       status: null,
       schoolName: null,
       completedSteps: 0,
-      totalSteps: STEP_KEYS.length
+      totalSteps: REQUIRED_STEP_KEYS.length
     };
   }
   const progress = effectiveStepProgress(invite);
@@ -118,7 +118,7 @@ export async function getSchoolOnboardingPhase(schoolOrganizationId) {
     status,
     schoolName: invite.school_name || invite.school_org_name || null,
     completedSteps: completedCount(progress),
-    totalSteps: STEP_KEYS.length
+    totalSteps: REQUIRED_STEP_KEYS.length
   };
 }
 
@@ -163,9 +163,11 @@ const REQUIRED_BEFORE_SUBMIT = [
   'school_information',
   'school_staff',
   'preferred_days',
-  'welcome_materials',
-  'explore_demo'
+  'welcome_materials'
 ];
+
+// The demo is an optional resource, never a completion requirement.
+const REQUIRED_STEP_KEYS = [...REQUIRED_BEFORE_SUBMIT, 'review_submit'];
 
 const WELCOME_MATERIAL_KEYS = new Set(['trifolds', 'stress_balls', 'pens', 'other']);
 
@@ -1042,7 +1044,7 @@ export async function revokeInvite(inviteId, agencyId) {
 }
 
 function completedCount(progress) {
-  return STEP_KEYS.filter((k) => progress?.[k] === 'complete').length;
+  return REQUIRED_STEP_KEYS.filter((k) => progress?.[k] === 'complete').length;
 }
 
 const INVITE_STEP_LABELS = {
@@ -1227,7 +1229,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
     contactEmail: invite.contact_email,
     stepProgress: progress,
     completedSteps: completedCount(progress),
-    totalSteps: STEP_KEYS.length,
+    totalSteps: REQUIRED_STEP_KEYS.length,
     expiresAt: null,
     submittedAt: invite.submitted_at,
     passwordSet: !!invite.password_set_at,

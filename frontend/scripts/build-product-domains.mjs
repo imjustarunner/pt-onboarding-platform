@@ -39,6 +39,7 @@ server('plotlinepo.com',Object.keys(plotlinePages).map(key=>location(key==='home
  location ~ ^/plott?line/(.*)$ { return 302 https://plotlinepo.com/$1$is_args$args; }`);
 redirect('www.plotlinepo.com','https://plotlinepo.com');
 server('schoolcarebridge.org',`
+ location ^~ /school-onboarding/ { add_header Cache-Control no-store; add_header X-Robots-Tag noindex always; try_files /index.html =404; }
  ${location('/', '/_public-sites/schoolcarebridge/home.html')}
  location = /demo/ { return 302 https://schoolcarebridge.org/demo$is_args$args; }
  location = /demo { add_header Cache-Control no-store; add_header X-Robots-Tag noindex always; try_files /schoolcarebridge-demo.html =404; }

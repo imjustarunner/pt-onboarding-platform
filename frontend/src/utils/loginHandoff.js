@@ -4,7 +4,7 @@ export const isLoginEntryRoute = route => ['Login', 'OrganizationLogin', 'Parent
 
 // These pages validate their own credential; an existing account must not redirect them.
 export const isTokenAuthenticationRoute = route => ['ResetPassword', 'OrganizationResetPassword', 'PasswordlessTokenLogin', 'OrganizationPasswordlessTokenLogin', 'InitialSetup', 'NewAccount'].includes(String(route?.name || ''));
-export const isSessionEntryRoute = route => isLoginEntryRoute(route) || isTokenAuthenticationRoute(route) || route?.name === 'PasswordlessLogin';
+export const isSessionEntryRoute = route => isLoginEntryRoute(route) || isTokenAuthenticationRoute(route) || route?.name === 'PasswordlessLogin' || /^\/school-onboarding(?:\/|$)/.test(String(route?.path || ''));
 
 export function safeLoginDestination(value) {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') ? value : null;
