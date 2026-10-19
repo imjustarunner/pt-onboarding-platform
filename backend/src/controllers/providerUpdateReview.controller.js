@@ -132,7 +132,7 @@ export async function uploadReviewDocument(req, res, next) {
 export async function persistReviewSection(recipient, key, data, completed) {
   if(recipient.previewOnly)throw fail('This preview is read-only.',403);
   requireSection(recipient, key);
-  if(key==='pin'&&!completed)throw fail('Complete Quick View setup in your account before confirming this step.');
+  if(key==='pin'&&!completed)throw fail('Create or reset your Quick View code in this step, save it somewhere safe, then confirm.');
   if (key === 'notification_prefs') {
     if (!completed) throw fail('Review and sign your phone and text choices before saving this section.');
     // Ignore stale personal-reminder controls for staff who retain Google.
@@ -159,10 +159,10 @@ export async function persistReviewSection(recipient, key, data, completed) {
   await saveProviderReviewProfile(recipient,key,data);
   if(key==='pin'){
     const status=await getCredentialStatus(recipient.provider_user_id);
-    if(!status.hasPasscode||status.isLocked)throw fail('Create or reset your six-digit Quick View passcode in your account, then return to confirm this step.');
+    if(!status.hasPasscode||status.isLocked)throw fail('Create or reset your six-digit Quick View passcode using the controls in this step, then save and confirm it.');
     if(data?.quickViewConfirmed!==true||data?.codeStoredSafely!==true)throw fail('Save your new Quick View code somewhere safe before continuing.');
     for(const field of Object.keys(data))delete data[field];
-    Object.assign(data,{quickViewConfirmed:true,codeStoredSafely:true});
+    Object.assign(data,{quickViewConfirmed:true,codeStoredSafely:true,...(status.passcodeVersion != null ? {confirmedPasscodeVersion:status.passcodeVersion} : {})});
   }
   if (key === 'supervision_hours') {
     const supervisors = await User.getSupervisors(recipient.provider_user_id, recipient.agency_id);
@@ -210,15 +210,23 @@ export async function reviewAsset(req,res,next){
  }catch(e){next(e);}
 }
 
-// A valid scoped invitation may initialize a missing code. Existing codes cannot
-// be retrieved or reset here; previews and closed/expired invitations cannot write.
+// Return only setup status for the person named on this scoped invitation.
+export async function quickViewSetupStatus(req,res,next){
+ try{
+  const r=await reviewRecipient(req);requireSection(r,'pin');
+  const status=await getCredentialStatus(r.provider_user_id);
+  res.setHeader('Cache-Control','no-store');
+  res.json({hasPasscode:status.hasPasscode,isLocked:status.isLocked});
+ }catch(e){next(e);}
+}
+
 export async function setupQuickView(req,res,next){
  try{
   const r=await reviewRecipient(req);
   if(r.previewOnly)throw fail('This preview is read-only.',403);
   requireSection(r,'pin');
   const status=await getCredentialStatus(r.provider_user_id);
-  if(status.hasPasscode)throw fail('Your code is already set. Use account settings if you need to reset it.',409);
+  if(status.hasPasscode)throw fail('Your code is already set. If you do not have it saved, choose Reset a forgotten or locked code here.',409);
   const result=await createInitialPasscode({userId:r.provider_user_id,agencyId:r.agency_id});
   res.setHeader('Cache-Control','no-store');res.json({passcode:result.passcode,shownOnce:true});
  }catch(e){next(e);}

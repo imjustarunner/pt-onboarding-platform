@@ -1,12 +1,12 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),getRecipientBundle:vi.fn(),recordViewEvent:vi.fn(),finalizeRecipient:vi.fn()}));
+const m=vi.hoisted(()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),getMyCompletedRecipient:vi.fn(),getRecipientBundle:vi.fn(),recordViewEvent:vi.fn(),finalizeRecipient:vi.fn()}));
 vi.mock('../../services/providerUpdate.service.js',()=>m);
 vi.mock('../../services/providerUpdateTime.service.js',()=>({updateTimeSummary:vi.fn()}));
 vi.mock('../providerUpdateReview.controller.js',()=>({persistReviewSection:vi.fn()}));
 vi.mock('../../services/providerUpdatePreviewLink.service.js',()=>({createProviderUpdatePreviewLink:vi.fn()}));
 vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../../services/adminUpdate.service.js',()=>({}));
-import {getPublicByToken,finalizePublic,finalizeMyUpdate} from '../providerUpdate.controller.js';
+import {getPublicByToken,finalizePublic,finalizeMyUpdate,getMyCompletionReceipt} from '../providerUpdate.controller.js';
 let req,res,next;
 const open={id:7,agency_id:2,provider_user_id:9,first_name:'Staff',status:'in_progress'};
 const complete={...open,status:'finalized',finalized_at:'2026-10-10T13:00:00Z',locked_at:'2026-10-10T13:00:00Z',snapshot_json:{private:'answer'}};
@@ -16,3 +16,18 @@ it('reopening a completed link returns only its receipt, without writing events 
 it('retrying an accepted submission does not finalize or create time claims again',async()=>{m.getRecipientByToken.mockResolvedValue(complete);await finalizePublic(req,res,next);expect(m.finalizeRecipient).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].finalized).toBe(true);});
 it('authenticated completion also returns a receipt instead of reopening a missing open update',async()=>{await finalizeMyUpdate(req,res,next);expect(m.finalizeRecipient).toHaveBeenCalledWith({recipientId:7,actorType:'provider',actorUserId:9});expect(res.json.mock.calls[0][0].recipient.finalizedAt).toBe(complete.finalized_at);});
 it('keeps failed validation a failure without presenting a receipt',async()=>{m.finalizeRecipient.mockRejectedValue(Object.assign(Error('Complete all sections first'),{status:400}));await finalizePublic(req,res,next);expect(res.status).toHaveBeenCalledWith(400);expect(res.json.mock.calls[0][0]).not.toHaveProperty('finalized');});
+
+it('scopes an authenticated receipt to the signed-in user, agency and update without exposing answers',async()=>{
+ req.query={agencyId:'2',providerUserId:'999'};req.params.recipientId='7';res.setHeader=vi.fn();m.getMyCompletedRecipient.mockResolvedValue(complete);
+ await getMyCompletionReceipt(req,res,next);expect(next).not.toHaveBeenCalled();expect(m.getMyCompletedRecipient).toHaveBeenCalledWith(9,2,7);
+ expect(res.json.mock.calls[0][0]).toMatchObject({finalized:true,sections:[],recipient:{id:7}});expect(JSON.stringify(res.json.mock.calls[0][0])).not.toContain('private');expect(res.setHeader).toHaveBeenCalledWith('Cache-Control','no-store');
+});
+
+it('does not expose a receipt for another account or an unfinished update',async()=>{
+ req.query={agencyId:'2'};req.params.recipientId='7';m.getMyCompletedRecipient.mockResolvedValue(null);
+ await getMyCompletionReceipt(req,res,next);expect(res.status).toHaveBeenCalledWith(404);expect(res.json.mock.calls[0][0]).not.toHaveProperty('finalized');
+});
+
+it.each(['0','-1','oops','1.5'])('rejects invalid receipt identifiers %s before reading data',async id=>{
+ req.query={agencyId:'2'};req.params.recipientId=id;await getMyCompletionReceipt(req,res,next);expect(res.status).toHaveBeenCalledWith(400);expect(m.getMyCompletedRecipient).not.toHaveBeenCalled();
+});

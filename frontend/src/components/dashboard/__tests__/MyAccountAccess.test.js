@@ -36,7 +36,7 @@ it.each([true, false])('resets the six-digit code directly from Accounts & acces
   expect(w.findAll('button').find(b => b.text() === 'Confirm').attributes('disabled')).toBeDefined();
   await w.get('.qv-input').setValue(requiresPassword ? 'example-password' : 'CONFIRM');
   await w.findAll('button').find(b => b.text() === 'Confirm').trigger('click'); await flushPromises();
-  expect(api.post).toHaveBeenCalledWith('/quick-view/me/reset-passcode', requiresPassword ? { password: 'example-password' } : { confirmPhrase: 'CONFIRM' }, { skipGlobalLoading: true });
+  expect(api.post).toHaveBeenCalledWith('/quick-view/me/reset-passcode', requiresPassword ? { password: 'example-password' } : { confirmPhrase: 'CONFIRM' }, { skipGlobalLoading: true, timeout: 30000 });
   expect(w.get('.pin').text()).toBe('654321');
   expect(w.find('.qv-confirm').exists()).toBe(false);
   w.unmount();

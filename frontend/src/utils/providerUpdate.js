@@ -47,7 +47,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
     mode: 'set_confirm_update',
     icon: 'pin',
     defaultEnabled: true,
-    previewHint: 'Initial setup uses your invitation without an account password. Existing codes are never shown or reset here.'
+    previewHint: 'Initial setup uses your invitation without an account password. Resetting an existing code requires your own account sign-in.'
   },
   {
     key: 'work_hours',

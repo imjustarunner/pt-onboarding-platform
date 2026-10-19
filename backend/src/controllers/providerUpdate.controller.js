@@ -18,6 +18,7 @@ import {
   exportPushCsv,
   submitPushForPayroll,
   getMyOpenRecipient,
+  getMyCompletedRecipient,
   listSectionCatalog,
   buildProviderUpdatePublicUrl,
   listOpenForBookingForProvider,
@@ -180,6 +181,16 @@ export function completionReceipt(recipient) {
     firstName:recipient.first_name,lastName:recipient.last_name,status:'finalized',
     finalizedAt:recipient.finalized_at,lockedAt:recipient.locked_at},sections:[]};
 }
+
+export const getMyCompletionReceipt = async (req,res,next) => {
+  try {
+    const agencyId=Number(req.query.agencyId),recipientId=Number(req.params.recipientId);
+    if(!Number.isSafeInteger(agencyId)||agencyId<=0||!Number.isSafeInteger(recipientId)||recipientId<=0)return res.status(400).json({error:{message:'Choose a valid update and agency.'}});
+    const recipient=await getMyCompletedRecipient(req.user.id,agencyId,recipientId);
+    if(!recipient)return res.status(404).json({error:{message:'A completed update was not found for your account.'}});
+    res.setHeader('Cache-Control','no-store');res.json(completionReceipt(recipient));
+  }catch(error){next(error);}
+};
 
 export const getPublicByToken = async (req, res, next) => {
   try {

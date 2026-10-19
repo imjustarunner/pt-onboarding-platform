@@ -16,7 +16,7 @@ import {
   buildQuickViewUrl
 } from '../services/quickViewAuth.service.js';
 import User from '../models/User.model.js';
-import { quickViewRequiresPassword } from '../services/quickViewIdentity.service.js';
+import { quickViewRequiresPassword, assertQuickViewAccountMatch } from '../services/quickViewIdentity.service.js';
 import pool from '../config/database.js';
 import { getAgencyEmailSettings } from '../services/emailSettings.service.js';
 import {
@@ -154,7 +154,7 @@ function humanizeOfficeAvailability(status, slotState) {
  * SSO / passwordless: require typing CONFIRM (session is already authenticated).
  */
 async function assertIdentityConfirm(req) {
-  if (req.user.switchedFromUserId) throw Object.assign(new Error('Return to your own account to change Quick View credentials.'), { status: 403 });
+  assertQuickViewAccountMatch(req);
   const body = req.body || {};
   const user = await User.findById(req.user.id);
   if (!user) {
@@ -195,6 +195,7 @@ export const getMyQuickViewStatus = async (req, res, next) => {
     res.json({
       ok: true,
       ...status,
+      userId: req.user.id,
       requiresPassword: await quickViewRequiresPassword(user, req.authClaims),
       agencyId: agency?.id || agencyId,
       agencyName: agency?.name || null,

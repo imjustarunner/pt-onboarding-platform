@@ -2,6 +2,9 @@
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 
+const props = defineProps({ expectedUserId: [Number, String], agencyId: [Number, String], passcodeOnly: Boolean });
+const emit = defineEmits(['passcode-changed', 'busy-change']);
+
 const loading = ref(false);
 const busy = ref(false);
 const error = ref('');
@@ -26,11 +29,19 @@ async function loadStatus() {
   loading.value = true;
   error.value = '';
   try {
-    const { data } = await api.get('/quick-view/me/status', { skipGlobalLoading: true });
+    const { data } = await api.get('/quick-view/me/status', { skipGlobalLoading: true, timeout: 30000,
+      ...(props.expectedUserId ? { skipAuthRedirect: true, cookieAuthOnly: true } : {}),
+      ...(props.agencyId ? { headers: { 'X-Agency-Id': props.agencyId } } : {}) });
+    if (props.expectedUserId && Number(data.userId) !== Number(props.expectedUserId)) {
+      throw new Error('Sign in to the account named on this update, then choose Try again.');
+    }
     status.value = data;
     if (data?.homeUrl) shownHomeUrl.value = data.homeUrl;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not load Quick View status';
+    status.value = null;
+    error.value = props.expectedUserId && e?.response?.status === 401
+      ? 'Sign in to your account using the link above, then return here and choose Try again.'
+      : e?.response?.data?.error?.message || (props.expectedUserId ? e.message : '') || 'Could not load Quick View status';
   } finally {
     loading.value = false;
   }
@@ -47,11 +58,13 @@ function openConfirm(action) {
 }
 
 function bodyForConfirm() {
-  if (requiresPassword.value) return { password: confirmSecret.value };
-  return { confirmPhrase: confirmSecret.value };
+  const scope = { ...(props.expectedUserId ? { expectedUserId: Number(props.expectedUserId) } : {}), ...(props.agencyId ? { agencyId: Number(props.agencyId) } : {}) };
+  if (requiresPassword.value) return { ...scope, password: confirmSecret.value };
+  return { ...scope, confirmPhrase: confirmSecret.value };
 }
 
 async function runAction() {
+  if (busy.value || !status.value) return;
   if (!confirmAction.value || !confirmSecret.value) {
     error.value = requiresPassword.value
       ? 'Enter your account password to continue'
@@ -59,6 +72,7 @@ async function runAction() {
     return;
   }
   busy.value = true;
+  emit('busy-change', true);
   error.value = '';
   try {
     if (confirmAction.value === 'reveal') {
@@ -76,17 +90,24 @@ async function runAction() {
       await loadStatus();
     } else {
       const { data } = await api.post('/quick-view/me/reset-passcode', bodyForConfirm(), {
-        skipGlobalLoading: true
+        skipGlobalLoading: true,
+        timeout: 30000,
+        ...(props.expectedUserId ? { skipAuthRedirect: true, cookieAuthOnly: true } : {})
       });
-      shownPasscode.value = data.passcode || '';
+      if (!/^\d{6}$/.test(String(data.passcode || ''))) throw new Error('The new code was not received. Reset it again before confirming this step.');
+      shownPasscode.value = data.passcode;
+      emit('passcode-changed');
       await loadStatus();
     }
     confirmSecret.value = '';
     confirmAction.value = null;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Action failed';
+    error.value = e?.response?.data?.error?.message || (confirmAction.value === 'passcode'
+      ? 'The reset could not be confirmed. Your old code may no longer work. Reset again and save the new code before continuing.'
+      : 'Action failed');
   } finally {
     busy.value = false;
+    emit('busy-change', false);
   }
 }
 
@@ -104,14 +125,16 @@ async function copyText(value, key) {
 }
 
 onMounted(loadStatus);
+defineExpose({ refreshStatus: loadStatus });
 </script>
 
 <template>
   <div class="qv-privacy" data-search-private>
     <div class="section-header">
-      <h3 style="margin: 0;">Quick View — 6-digit code</h3>
+      <h3 style="margin: 0;">{{ passcodeOnly ? 'Reset your six-digit code here' : 'Quick View — 6-digit code' }}</h3>
     </div>
-    <p class="hint" style="margin-top: 6px;">
+    <p v-if="passcodeOnly" class="hint">Confirm using your signed-in account. Your old code will stop working. Save the new code, then confirm this update step.</p>
+    <p v-else class="hint" style="margin-top: 6px;">
       Tenant Quick View + separate <strong>6-digit passcode</strong> (not your kiosk or session PIN).
       Open your <strong>Home Screen URL</strong> (or Add to Home Screen from it) and unlock with the passcode —
       no setup-link bind step required. Three wrong guesses locks Quick View until you reset the passcode here.
@@ -123,11 +146,11 @@ onMounted(loadStatus);
         <span>Tenant</span>
         <strong>{{ status.agencyName || '—' }}</strong>
       </div>
-      <div class="qv-row" v-if="status.homeUrl || shownHomeUrl">
+      <div class="qv-row" v-if="!passcodeOnly && (status.homeUrl || shownHomeUrl)">
         <span>Home Screen URL</span>
         <strong class="break">{{ status.homeUrl || shownHomeUrl }}</strong>
       </div>
-      <div class="qv-row">
+      <div v-if="!passcodeOnly" class="qv-row">
         <span>Setup link</span>
         <strong>{{ status.hasToken ? `Active (v${status.tokenVersion})` : 'Not created yet' }}</strong>
       </div>
@@ -140,7 +163,7 @@ onMounted(loadStatus);
       </div>
     </div>
 
-    <div v-if="status?.homeUrl || shownHomeUrl" class="qv-once" style="background:#eff6ff;border-color:#bfdbfe;">
+    <div v-if="!passcodeOnly && (status?.homeUrl || shownHomeUrl)" class="qv-once" style="background:#eff6ff;border-color:#bfdbfe;">
       <strong>Add this to Home Screen (no token in the URL)</strong>
       <code>{{ status.homeUrl || shownHomeUrl }}</code>
       <button
@@ -154,7 +177,7 @@ onMounted(loadStatus);
 
     <div class="qv-actions">
       <button
-        v-if="status?.hasToken && status?.canRevealToken"
+        v-if="!passcodeOnly && status?.hasToken && status?.canRevealToken"
         type="button"
         class="btn btn-primary"
         :disabled="busy"
@@ -162,7 +185,7 @@ onMounted(loadStatus);
       >
         Show setup link
       </button>
-      <button type="button" class="btn btn-secondary" :disabled="busy || loading || !status" @click="openConfirm('token')">
+      <button v-if="!passcodeOnly" type="button" class="btn btn-secondary" :disabled="busy || loading || !status" @click="openConfirm('token')">
         {{ status?.hasToken ? 'Regenerate setup link' : 'Create Quick View link' }}
       </button>
       <button type="button" class="btn btn-secondary" :disabled="busy || loading || !status" @click="openConfirm('passcode')">

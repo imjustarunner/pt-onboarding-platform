@@ -42,6 +42,7 @@ router.post('/:token/documents/:kind', licenseUpload.single('file'), review.uplo
 
 router.get('/:token/assets/:kind', review.reviewAsset);
 
+router.get('/:token/quick-view-status', review.quickViewSetupStatus);
 router.post('/:token/quick-view-setup', providerUpdateCredentialLimit, review.setupQuickView);
 router.get('/:token/contact-hours',review.contactHours);
 router.put('/:token/contact-hours',review.contactHours);

@@ -760,7 +760,8 @@ export async function getRecipientBundle(recipient) {
   if(quickViewSection){
     const status=await getCredentialStatus(recipient.provider_user_id);
     quickViewSection.data={...quickViewSection.data,quickView:{hasPasscode:status.hasPasscode,isLocked:status.isLocked}};
-    if(!recipient.locked_at&&(!status.hasPasscode||status.isLocked||quickViewSection.data.quickViewConfirmed!==true)){quickViewSection.completed=false;quickViewSection.status='not_started';}
+    const versionChanged=quickViewSection.data.confirmedPasscodeVersion != null && Number(quickViewSection.data.confirmedPasscodeVersion)!==Number(status.passcodeVersion);
+    if(!recipient.locked_at&&(!status.hasPasscode||status.isLocked||versionChanged||quickViewSection.data.quickViewConfirmed!==true)){quickViewSection.completed=false;quickViewSection.status='not_started';}
   }
   if (communicationSection) {
     const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
@@ -1037,6 +1038,14 @@ export async function getMyOpenRecipient(providerUserId, agencyId) {
     ...row,
     section_config_json: normalizeSectionConfig(parseJson(row.section_config_json, defaultSectionConfig()))
   };
+}
+
+export async function getMyCompletedRecipient(providerUserId, agencyId, recipientId) {
+  const [rows] = await pool.execute(`SELECT r.id,r.agency_id,r.status,r.finalized_at,r.locked_at,u.first_name,u.last_name
+    FROM provider_update_recipients r JOIN users u ON u.id=r.provider_user_id
+    WHERE r.id=? AND r.provider_user_id=? AND r.agency_id=? AND r.status='finalized'
+      AND r.finalized_at IS NOT NULL AND r.locked_at IS NOT NULL LIMIT 1`, [recipientId,providerUserId,agencyId]);
+  return rows[0] || null;
 }
 
 

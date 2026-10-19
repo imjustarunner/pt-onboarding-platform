@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 import User from '../../models/User.model.js';
-import { quickViewRequiresPassword } from '../quickViewIdentity.service.js';
+import { quickViewRequiresPassword, assertQuickViewAccountMatch } from '../quickViewIdentity.service.js';
 const user = { id: 7, role: 'provider', password_hash: 'old-provisioned-hash' };
 beforeEach(() => { vi.resetAllMocks(); User.getAgencies.mockResolvedValue([]); });
 it('lets a verified Google session confirm without an app password, even with an old hash', async () => {
@@ -21,4 +21,11 @@ it('keeps password confirmation for password accounts and fails closed on policy
 });
 it('does not request a nonexistent password from passwordless accounts', async () => {
   expect(await quickViewRequiresPassword({...user,password_hash:null})).toBe(false);
+});
+
+it('allows an invitation reset only for its expected signed-in account',()=>{
+ expect(()=>assertQuickViewAccountMatch({user:{id:7},body:{expectedUserId:7}})).not.toThrow();
+ expect(()=>assertQuickViewAccountMatch({user:{id:99},body:{expectedUserId:7}})).toThrow('account named on this Provider Update');
+ expect(()=>assertQuickViewAccountMatch({user:{id:7,switchedFromUserId:99},body:{expectedUserId:7}})).toThrow('own account');
+ expect(()=>assertQuickViewAccountMatch({user:{id:7},body:{}})).not.toThrow();
 });

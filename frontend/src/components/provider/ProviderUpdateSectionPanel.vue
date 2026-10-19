@@ -38,19 +38,29 @@
     />
 
     <div v-else-if="section.key === 'pin'" class="pu-panel">
+      <p><strong>To complete this step:</strong> create or reset your six-digit Quick View code, save it somewhere safe, then choose the confirmation button below. App-password preparation and optional passkeys do not block this step.</p>
       <template v-if="newPasscode || !quickViewAlreadySet"><button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
       <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><button v-if="section.data?.quickViewVideoUrl" type="button" class="pu-btn training-video-button" @click="openTrainingVideo({url:section.data.quickViewVideoUrl,title:'Quick View instructions',trigger:$event.currentTarget})">▶ Watch Quick View instructions</button><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
       <p>Your agency’s Quick View: <a :href="recipient?.quickViewUrl" target="_blank" rel="noopener noreferrer">{{recipient?.quickViewUrl}}</a></p>
       <p>Everyone needs a six-digit Quick View code, including people who sign in with Google. Before continuing, write your code down and keep it in a safe place, or save it in your password manager. It will be displayed only once. Your invitation identifies your account; no extra sign-in is needed to create this code.</p>
       <p v-if="newPasscode" ref="quickViewFeedback" tabindex="-1" role="status" data-search-private>Your new code: <strong>{{newPasscode}}</strong>. Write it down and keep it in a safe place, or save it in your password manager now. It will not be displayed again. Do not share it.</p>
       <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">{{ saving ? 'Creating your code…' : 'Create my six-digit Quick View code' }}</button>
-      <button v-else type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I saved my code somewhere safe — continue</button>
-      </template><p v-else>Your six-digit Quick View code is already set and will not be displayed again. Keep your written copy in a safe place or save it in your password manager. This is separate from your Google or app password.</p>
+      </template><p v-else-if="quickViewResetShown">Your new six-digit Quick View code is shown below. Save it somewhere safe, then confirm this step.</p><p v-else-if="!quickViewLocked">Your six-digit Quick View code is already set and will not be displayed again. If you have it saved, confirm below. If you do not have it, reset it here first. This is separate from your Google or app password.</p>
+      <p v-if="quickViewLocked" class="err" role="alert">Your Quick View code is locked. Reset it below before confirming this step.</p>
       <p v-if="quickViewError" ref="quickViewFeedback" tabindex="-1" role="alert" class="err">{{ quickViewError }}</p>
-      <p v-if="!newPasscode">Need to reset a forgotten code? <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">Open Accounts &amp; access</a>, sign in with your usual account, and choose Reset 6-digit passcode. Then return here to finish your update.</p>
+      <div v-if="!newPasscode || quickViewLocked" class="pu-actions">
+        <button v-if="quickViewAlreadySet || quickViewError" type="button" class="pu-btn" :disabled="saving || recipient?.previewOnly" @click="showQuickViewReset=true">Reset a forgotten or locked code here</button>
+        <button type="button" class="pu-btn" :disabled="saving || checkingQuickView || quickViewResetBusy || recipient?.previewOnly" @click="refreshQuickViewStatus">{{ checkingQuickView ? 'Checking your code…' : 'Check my code status' }}</button>
+      </div>
+      <div v-if="showQuickViewReset && !recipient?.previewOnly">
+        <p>Resetting an existing code requires your own account sign-in. If needed, <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">sign in to your account</a>, return here, and choose Try again. Google sign-in accounts do not need an app password.</p>
+        <QuickViewPrivacyPanel v-if="recipient?.providerUserId" :expected-user-id="recipient.providerUserId" :agency-id="agencyId" passcode-only @passcode-changed="onQuickViewReset" @busy-change="value => quickViewResetBusy=value" />
+        <p v-else role="alert">Your account details could not be loaded. Refresh this update before resetting your code.</p>
+      </div>
+      <button v-if="newPasscode || quickViewAlreadySet" type="button" class="pu-btn primary" :disabled="saving || checkingQuickView || quickViewResetBusy || quickViewLocked || recipient?.previewOnly" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">{{ saving ? 'Saving your code confirmation…' : newPasscode || quickViewResetShown ? 'I saved my code somewhere safe — continue' : 'I have my code saved safely — save and continue' }}</button>
+      <p v-if="!newPasscode && !showQuickViewReset">You can also reset your code in <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">Accounts &amp; access</a>. When you return, choose Check my code status here.</p>
       <p><strong>Add Quick View to your home screen:</strong> On iPhone/iPad, open the agency link in Safari → Share → Add to Home Screen. On Android, open it in Chrome → ⋮ → Add to home screen or Install app. Save your code in your password manager.</p>
       <ProviderUpdateSecuritySetup :user-id="recipient?.providerUserId" :sign-in="recipient?.signIn" :agency-slug="recipient?.agencySlug || route.params.organizationSlug" :preview="!!recipient?.previewOnly" />
-      <button v-if="quickViewAlreadySet && !newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I have my code saved safely — save and continue</button>
     </div>
 
     <!-- Typical availability -->
@@ -309,6 +319,7 @@ import ProviderUpdateOfficeReview from './ProviderUpdateOfficeReview.vue';
 
 import ProviderPersonalEmailPreferences from './ProviderPersonalEmailPreferences.vue';
 import ProviderUpdateSecuritySetup from './ProviderUpdateSecuritySetup.vue';
+import QuickViewPrivacyPanel from '../account/QuickViewPrivacyPanel.vue';
 import ProviderContactHours from './ProviderContactHours.vue';
 import ProviderUpdateOfficeSchedule from './ProviderUpdateOfficeSchedule.vue';
 import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue';
@@ -343,7 +354,10 @@ const photoUrl=ref('');
 const newPasscode=ref('');
 const quickViewCodeAcknowledged=ref(false);
 const quickViewFeedback=ref(null),quickViewError=ref(''),quickViewConflict=ref(false);
-const quickViewAlreadySet=computed(()=>quickViewConflict.value || !!props.section.data?.quickView?.hasPasscode);
+const quickViewLocalStatus=ref(null),checkingQuickView=ref(false),showQuickViewReset=ref(false),quickViewResetShown=ref(false);
+const quickViewResetBusy=ref(false);
+const quickViewAlreadySet=computed(()=>quickViewConflict.value || !!(quickViewLocalStatus.value || props.section.data?.quickView)?.hasPasscode);
+const quickViewLocked=computed(()=>!!(quickViewLocalStatus.value || props.section.data?.quickView)?.isLocked);
 const quickViewAccountUrl=computed(()=>{
  const slug=props.recipient?.agencySlug || route.params.organizationSlug;
  return `${slug ? `/${encodeURIComponent(slug)}` : ''}/dashboard?tab=my&my=access`;
@@ -366,12 +380,28 @@ async function setupQuickView(){
   const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{agencyId:props.agencyId},{skipGlobalLoading:true,timeout:30000});
   if(!/^\d{6}$/.test(String(data?.passcode||'')))throw new Error('The code could not be displayed. Open Accounts & access to check or reset it.');
   newPasscode.value=String(data.passcode);
+  quickViewLocalStatus.value={hasPasscode:true,isLocked:false};
  }catch(e){
   if(e.response?.status===409)quickViewConflict.value=true;
-  quickViewError.value=e.response?.data?.error?.message || (e.code==='ECONNABORTED' ? 'The request timed out. Your code may have been created. Try again to check, or open Accounts & access to reset it.' : e.message || 'Could not create the code. Please try again.');
+  quickViewError.value=e.response?.data?.error?.message || (e.code==='ECONNABORTED' ? 'The request timed out. Your code may have been created. Choose Check my code status, then reset it here if you did not receive it.' : e.message || 'Could not create the code. Please try again.');
  }finally{
   saving.value=false;await nextTick();quickViewFeedback.value?.scrollIntoView?.({behavior:'smooth',block:'center'});quickViewFeedback.value?.focus?.({preventScroll:true});
  }
+}
+
+async function refreshQuickViewStatus(){
+ if(props.recipient?.previewOnly || checkingQuickView.value)return;
+ checkingQuickView.value=true;quickViewError.value='';
+ try{
+  const {data}=await api.get(`${reviewBase.value}/quick-view-status`,{params:{agencyId:props.agencyId},skipGlobalLoading:true,timeout:30000});
+  quickViewLocalStatus.value={hasPasscode:!!data.hasPasscode,isLocked:!!data.isLocked};
+  quickViewConflict.value=false;
+ }catch(e){quickViewError.value=e.response?.data?.error?.message || 'Could not check your code. Try again before confirming this step.';}
+ finally{checkingQuickView.value=false;}
+}
+function onQuickViewReset(){
+ newPasscode.value='';quickViewResetShown.value=true;quickViewCodeAcknowledged.value=false;
+ quickViewLocalStatus.value={hasPasscode:true,isLocked:false};quickViewConflict.value=false;quickViewError.value='';
 }
 
 const credential = ref('');
@@ -447,6 +477,7 @@ async function saveSectionPayload(payload) {
     return true;
   } catch (e) {
     localError.value = e?.response?.data?.error?.message || 'Save failed';
+    if(props.section.key==='pin')quickViewError.value=localError.value;
     return false;
   } finally {
     saving.value = false;
@@ -461,8 +492,8 @@ function currentDraft(){
 }
 async function saveDraft(){
  if(props.recipient?.previewOnly)return true;
- if(saving.value||reviewLoading.value){localError.value='Please wait for the current save or upload to finish.';return false;}
- if(props.section.key==='pin'&&newPasscode.value&&!quickViewCodeAcknowledged.value){
+ if(saving.value||reviewLoading.value||quickViewResetBusy.value){localError.value='Please wait for the current save, code reset, or upload to finish.';return false;}
+ if(props.section.key==='pin'&&(newPasscode.value||quickViewResetShown.value)&&!quickViewCodeAcknowledged.value){
   quickViewError.value='Save your new code somewhere safe, then choose “I saved my code somewhere safe — continue” before leaving this step.';
   return false;
  }

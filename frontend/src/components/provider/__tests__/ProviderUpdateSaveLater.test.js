@@ -9,9 +9,9 @@ vi.mock('../../../composables/useProviderUpdateSession',()=>({useProviderUpdateS
 import Dashboard from '../ProviderUpdateDashboard.vue';
 import Section from '../ProviderUpdateSectionPanel.vue';
 const bundle={recipient:{id:1,agencyId:2,providerUserId:22},sections:[{key:'profile_blurb',data:{blurb:'Original'},meta:{title:'Profile'},completed:false}],progress:{total:1,completed:0,percent:0},resumeSectionKey:'profile_blurb'};
-const Editor=defineComponent({name:'ProviderUpdatePagePanel',setup(_,ctx){ctx.expose({saveDraft:m.draft,focusSection:m.focus});return ()=>null;}});
+const Editor=defineComponent({name:'ProviderUpdatePagePanel',setup(_,ctx){ctx.expose({saveDraft:m.draft,focusSection:m.focus,focusTop:vi.fn()});return ()=>null;}});
 beforeEach(()=>{vi.clearAllMocks();m.get.mockResolvedValue({data:bundle});m.put.mockResolvedValue({data:bundle});m.post.mockResolvedValue({data:{saved:true}});m.draft.mockResolvedValue(true);m.timeError.value='';Element.prototype.scrollIntoView=vi.fn();});
-function dashboard(){return mount(Dashboard,{props:{token:'invite',agencyId:2},global:{stubs:{ProviderUpdatePagePanel:Editor,ProviderUpdateHelp:true}}});}
+function dashboard(props={}){return mount(Dashboard,{props:{token:'invite',agencyId:2,...props},global:{stubs:{ProviderUpdatePagePanel:Editor,ProviderUpdateHelp:true}}});}
 const saveButton=w=>w.findAll('button').find(b=>b.text()==='Save and come back later');
 it('restores the saved section and saves progress before displaying the return link',async()=>{const w=dashboard();await flushPromises();expect(m.focus).toHaveBeenCalledWith('profile_blurb');await saveButton(w).trigger('click');await flushPromises();expect(m.draft).toHaveBeenCalled();expect(m.flush).toHaveBeenCalled();expect(m.post).toHaveBeenCalledWith('/public/provider-update/invite/save-for-later',expect.objectContaining({agencyId:2}));expect(w.text()).toContain('same link in your invitation email');expect(w.get('.pu-return input').attributes('readonly')).toBeDefined();w.unmount();});
 it('does not report saved progress if the current draft fails',async()=>{m.draft.mockResolvedValue(false);const w=dashboard();await flushPromises();await saveButton(w).trigger('click');await flushPromises();expect(m.post).not.toHaveBeenCalled();expect(w.find('.pu-return').exists()).toBe(false);expect(w.text()).toContain('could not be saved');w.unmount();});
@@ -25,3 +25,22 @@ it('reopening a completed link shows the receipt and does not restart time track
 it('preserves reviewed answers and a retry button when submission validation fails',async()=>{m.get.mockResolvedValue({data:readyBundle()});m.post.mockRejectedValue({response:{status:400,data:{error:{message:'Please review your updated office reservations.'}}}});const w=dashboard();await flushPromises();await w.get('.pu-submit-button').trigger('click');await flushPromises();expect(w.find('.pu-completion-receipt').exists()).toBe(false);expect(w.text()).toContain('Please review your updated office reservations.');expect(w.get('.pu-submit-button').element.disabled).toBe(false);w.unmount();});
 it('recovers a lost submission response by checking the receipt without resubmitting',async()=>{m.get.mockResolvedValueOnce({data:readyBundle()}).mockResolvedValueOnce({data:{finalized:true,recipient:{id:1,status:'finalized'}}});m.post.mockRejectedValue(Error('Network interrupted'));const w=dashboard();await flushPromises();await w.get('.pu-submit-button').trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledTimes(1);expect(w.find('.pu-completion-receipt').exists()).toBe(true);w.unmount();});
 it('uses Client Updates for the Spanish coordination page without a school-only label',async()=>{m.get.mockResolvedValue({data:{...bundle,resumeSectionKey:null,sections:[{key:'spanish_intake',completed:false}]}});const w=dashboard();await flushPromises();expect(w.text()).toContain('Client Updates');expect(w.text()).not.toContain('School Client Update');w.unmount();});
+
+it('recovers an authenticated submission using the account-scoped receipt',async()=>{
+ m.get.mockResolvedValueOnce({data:readyBundle()}).mockResolvedValueOnce({data:{finalized:true,recipient:{id:1,status:'finalized'}}});m.post.mockRejectedValue(Error('Network interrupted'));
+ const w=dashboard({accessMode:'me',token:''});await flushPromises();await w.get('.pu-submit-button').trigger('click');await flushPromises();
+ expect(m.get).toHaveBeenLastCalledWith('/provider-update/me/completion/1',{params:{agencyId:2},skipGlobalLoading:true});expect(m.post).toHaveBeenCalledTimes(1);expect(w.find('.pu-completion-receipt').exists()).toBe(true);w.unmount();
+});
+
+it('opens a step that the server says must be reviewed again before submission',async()=>{
+ m.get.mockResolvedValueOnce({data:readyBundle()}).mockResolvedValueOnce({data:bundle});
+ m.post.mockRejectedValueOnce({response:{status:400,data:{error:{message:'Complete all required sections',details:{missing:['profile_blurb']}}}}});
+ const w=dashboard();await flushPromises();await w.get('.pu-submit-button').trigger('click');await flushPromises();
+ expect(m.focus).toHaveBeenCalledWith('profile_blurb');expect(w.text()).toContain('Please review Profile');expect(w.find('.pu-submit-button').exists()).toBe(false);expect(w.find('.pu-completion-receipt').exists()).toBe(false);w.unmount();
+});
+
+it('does not submit or check a receipt while the current code confirmation cannot be saved',async()=>{
+ m.get.mockResolvedValue({data:{...readyBundle(),resumeSectionKey:'profile_blurb'}});m.draft.mockResolvedValue(false);
+ const w=dashboard();await flushPromises();await w.get('.pu-submit-button').trigger('click');await flushPromises();
+ expect(m.post).not.toHaveBeenCalled();expect(m.get).toHaveBeenCalledTimes(1);expect(w.text()).toContain('Finish saving and confirming');expect(w.find('.pu-completion-receipt').exists()).toBe(false);w.unmount();
+});

@@ -32,7 +32,7 @@ import {postConfirmServicesStarted} from '../../controllers/clientLifecycle.cont
 import {uploadUserProfilePhoto} from '../../controllers/userProfilePhoto.controller.js';
 import {validateFallChecklist,saveFallClientAction,uploadReviewPhoto} from '../../controllers/providerUpdateReview.controller.js';
 import {forfeitAssignment,rescheduleStandingAssignment} from '../../controllers/officeSlotActions.controller.js';
-import {officeReviewAction,persistReviewSection,setupQuickView} from '../../controllers/providerUpdateReview.controller.js';
+import {officeReviewAction,persistReviewSection,setupQuickView,quickViewSetupStatus} from '../../controllers/providerUpdateReview.controller.js';
 const recipient={id:1,provider_user_id:9,agency_id:6,section_config_json:{office_schedule:true,supervision_hours:true}};
 let req,res,next;
 beforeEach(()=>{
@@ -88,6 +88,25 @@ it('initializes only the invited recipient’s missing code without a password o
 it('blocks Quick View creation for previews and prevents overwriting existing codes',async()=>{
  getRecipientByToken.mockResolvedValue({...recipient,previewOnly:true});await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));
  getRecipientByToken.mockResolvedValue({...recipient});getCredentialStatus.mockResolvedValue({hasPasscode:true});await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:409}));expect(createInitialPasscode).not.toHaveBeenCalled();
+});
+
+it('returns only the invited person’s code status without exposing credentials or changing them',async()=>{
+ res.setHeader=vi.fn();getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true,passcodeVersion:4,passcodeHash:'private',token:'private'});
+ await quickViewSetupStatus(req,res,next);expect(next).not.toHaveBeenCalled();expect(getCredentialStatus).toHaveBeenCalledWith(9);
+ expect(res.json).toHaveBeenCalledWith({hasPasscode:true,isLocked:true});expect(res.setHeader).toHaveBeenCalledWith('Cache-Control','no-store');expect(createInitialPasscode).not.toHaveBeenCalled();
+});
+
+it('rejects status checks when the invitation’s agency membership or code step is unavailable',async()=>{
+ User.getAgencies.mockResolvedValue([]);await quickViewSetupStatus(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));
+ User.getAgencies.mockResolvedValue([{id:6}]);getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{pin:false}});await quickViewSetupStatus(req,res,next);
+ expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));expect(getCredentialStatus).not.toHaveBeenCalled();
+});
+
+it('records the current code version when confirming without retaining secret material',async()=>{
+ getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:false,passcodeVersion:4});
+ const data={quickViewConfirmed:true,codeStoredSafely:true,pin:'123456',confirmedPasscodeVersion:999};
+ await persistReviewSection(recipient,'pin',data,true);
+ expect(data).toEqual({quickViewConfirmed:true,codeStoredSafely:true,confirmedPasscodeVersion:4});
 });
 
 vi.mock('../providerUpdateContactHours.service.js',()=>({getContactHours:vi.fn(async()=>({mode:'default'})),saveContactHours:vi.fn(async()=>({mode:'anytime'}))}));

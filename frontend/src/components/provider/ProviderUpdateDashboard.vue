@@ -155,7 +155,7 @@
           <p>Your unfinished sections stay unfinished. Passwords, unsigned agreements and unsent messages are not saved by this button. Use each section’s confirmation to apply changes.</p>
           <button type="button" class="pu-btn primary" @click="continueReview">Continue now</button>
         </section>
-        <p v-if="error" class="pu-error">{{ error }}</p>
+        <p v-if="error" class="pu-error" role="alert">{{ error }}</p>
         <p v-if="success" class="pu-success">{{ success }}</p>
         </template>
       </main>
@@ -368,9 +368,12 @@ async function finalize() {
   if (!readyToSubmit.value || finalizing.value || savingForLater.value) return;
   finalizing.value = true;
   error.value = '';success.value='';
+  let submissionAttempted = false;
   try {
+    if(await pagePanel.value?.saveDraft?.()===false)throw new Error('Finish saving and confirming the current step before submitting your update.');
     await session.stop();
     if (session.timeError.value) throw new Error(session.timeError.value);
+    submissionAttempted = true;
     const {data}=props.accessMode === 'token'
       ? await api.post(`/public/provider-update/${encodeURIComponent(props.token)}/finalize`)
       : await api.post('/provider-update/me/finalize', {agencyId:props.agencyId||recipient.value.agencyId});
@@ -378,13 +381,25 @@ async function finalize() {
   } catch (e) {
     // A dropped response can follow a successful submission. Read only the
     // completion receipt before offering a retry; never reopen editing.
-    if(props.accessMode==='token' && (!e.response || e.response.status===410)){
-      try{const {data}=await api.get(`/public/provider-update/${encodeURIComponent(props.token)}`);
+    if(submissionAttempted && (!e.response || e.response.status===410)){
+      try{const {data}=props.accessMode==='token'
+        ? await api.get(`/public/provider-update/${encodeURIComponent(props.token)}`)
+        : await api.get(`/provider-update/me/completion/${recipient.value.id}`,{params:{agencyId:props.agencyId||recipient.value.agencyId},skipGlobalLoading:true});
         if(data.finalized){await showCompletion(data);return;}
       }catch{/* Preserve the original failure when completion cannot be verified. */}
     }
+    const missing=e.response?.data?.error?.details?.missing;
+    if(Array.isArray(missing)&&missing.length){
+      await load();
+      const key=missing.find(key=>sections.value.some(s=>s.key===key));
+      const page=pages.value.find(p=>p.sections.some(s=>s.key===key));
+      if(page){await openPage(page.key);await nextTick();await pagePanel.value?.focusSection?.(key);}
+      const labels=missing.map(key=>sections.value.find(s=>s.key===key)?.meta?.title||'an unfinished step');
+      error.value=`Please review ${labels.join(', ')} and save the confirmation before submitting again.`;
+    }else{
+      error.value = e?.response?.data?.error?.message || e.message || 'Could not submit. Please try again.';
+    }
     session.start(session.activeSeconds.value);
-    error.value = e?.response?.data?.error?.message || e.message || 'Could not submit. Please try again.';
   } finally {
     finalizing.value = false;
   }

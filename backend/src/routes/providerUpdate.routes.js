@@ -78,6 +78,7 @@ router.get('/providers/:providerUserId/fall-actions', authenticate, ctrl.fallAct
 router.get('/me/fall-actions', authenticate, ctrl.fallActionsMine);
 
 router.get('/me/status', authenticate, ctrl.getMyUpdateStatus);
+router.get('/me/completion/:recipientId', authenticate, ctrl.getMyCompletionReceipt);
 router.get('/me', authenticate, ctrl.getMyUpdate);
 router.post('/me/session-heartbeat', authenticate, ctrl.heartbeatMyUpdate);
 router.put('/me/sections/:sectionKey', authenticate, ctrl.updateMySection);
@@ -126,6 +127,7 @@ router.post('/me/documents/:kind', authenticate, licenseUpload.single('file'), r
 
 router.get('/me/assets/:kind', authenticate, review.reviewAsset);
 
+router.get('/me/quick-view-status', authenticate, review.quickViewSetupStatus);
 router.post('/me/quick-view-setup', authenticate, providerUpdateCredentialLimit, review.setupQuickView);
 router.get('/me/contact-hours',authenticate,review.contactHours);
 router.put('/me/contact-hours',authenticate,review.contactHours);

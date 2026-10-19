@@ -7,9 +7,11 @@ vi.mock('../providerUpdateSignIn.service.js',()=>({getProviderUpdateSignIn:vi.fn
 vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.fn()}));
 vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn()}));
 vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({}))}));
+vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn()}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({id:2,slug:'itsco'}))}}));
 import pool from '../../config/database.js';
-import {getRecipientBundle,finalizeRecipient} from '../providerUpdate.service.js';
+import {getRecipientBundle,finalizeRecipient,getMyCompletedRecipient} from '../providerUpdate.service.js';
+import {getCredentialStatus} from '../quickViewAuth.service.js';
 import {getProviderUpdateRecords} from '../providerUpdateRecords.service.js';
 import {getStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import {PROVIDER_UPDATE_SECTION_KEYS} from '../../constants/providerUpdateSections.js';
@@ -68,4 +70,33 @@ it('prevents final submission bypassing the new contact requirement with an old 
  contactRecords('');progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{contact:{personalEmail:'draft@example.test'}}}];
  pool.execute.mockImplementation(async sql=>sql.includes('provider_update_recipients')?[[{...recipient,token:'real-token'}]]:sql.includes('provider_update_pushes')?[[{id:2,section_config_json:contactConfig}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);
  await expect(finalizeRecipient({recipientId:1})).rejects.toMatchObject({status:400,details:{missing:['contact_info']}});
+});
+
+const pinConfig=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,k==='pin']));
+it.each([
+ [{hasPasscode:true,isLocked:false,passcodeVersion:4},4,true],
+ [{hasPasscode:true,isLocked:false,passcodeVersion:5},4,false],
+ [{hasPasscode:true,isLocked:true,passcodeVersion:4},4,false],
+ [{hasPasscode:false,isLocked:false},4,false],
+ [{hasPasscode:true,isLocked:false,passcodeVersion:4},undefined,true]
+])('rechecks code availability and confirmed version before completion (%j, %s)',async(status,version,completed)=>{
+ getCredentialStatus.mockResolvedValue(status);progress=[{section_key:'pin',status:'completed',completed:1,data_json:{quickViewConfirmed:true,codeStoredSafely:true,confirmedPasscodeVersion:version}}];
+ const bundle=await getRecipientBundle({...recipient,section_config_json:pinConfig});
+ expect(bundle.sections[0].completed).toBe(completed);expect(bundle.progress.completed).toBe(Number(completed));
+});
+
+it('blocks final submission when a previously confirmed code has since changed',async()=>{
+ getCredentialStatus.mockResolvedValue({hasPasscode:true,isLocked:false,passcodeVersion:5});progress=[{section_key:'pin',status:'completed',completed:1,data_json:{quickViewConfirmed:true,codeStoredSafely:true,confirmedPasscodeVersion:4}}];
+ pool.execute.mockImplementation(async sql=>sql.includes('provider_update_recipients')?[[{...recipient,token:'real-token'}]]:sql.includes('provider_update_pushes')?[[{id:2,section_config_json:pinConfig}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);
+ await expect(finalizeRecipient({recipientId:1})).rejects.toMatchObject({status:400,details:{missing:['pin']}});
+});
+
+it('does not reopen a submitted update when its code changes later',async()=>{
+ getCredentialStatus.mockResolvedValue({hasPasscode:true,isLocked:false,passcodeVersion:5});progress=[{section_key:'pin',status:'completed',completed:1,data_json:{quickViewConfirmed:true,confirmedPasscodeVersion:4}}];
+ const bundle=await getRecipientBundle({...recipient,section_config_json:pinConfig,locked_at:'2026-10-19'});expect(bundle.sections[0].completed).toBe(true);
+});
+
+it('reads only finalized receipt fields scoped to recipient, account and agency',async()=>{
+ pool.execute.mockResolvedValueOnce([[{id:7,status:'finalized'}]]);expect(await getMyCompletedRecipient(9,2,7)).toEqual({id:7,status:'finalized'});
+ const [sql,args]=pool.execute.mock.calls[0];expect(args).toEqual([7,9,2]);expect(sql).toContain("r.status='finalized'");expect(sql).toContain('r.provider_user_id=?');expect(sql).toContain('r.agency_id=?');expect(sql).not.toMatch(/snapshot_json|token|data_json/);
 });
