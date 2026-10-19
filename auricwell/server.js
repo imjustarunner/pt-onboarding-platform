@@ -58,7 +58,7 @@ app.use(["/api/auricwell", "/api/auricwell-sms/webhook"], (req, res) => {
 app.get("/robots.txt", (_req, res) =>
   res.type("text").send("User-agent: *\nDisallow: /app\nDisallow: /api/\nDisallow: /join/\nDisallow: /platform/\n"),
 );
-app.use(["/app", "/join", "/platform"], (_req, res, next) => {
+app.use(["/app", "/join", "/platform", "/account"], (_req, res, next) => {
   res.set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" });
   next();
 });

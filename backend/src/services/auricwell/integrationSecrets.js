@@ -15,6 +15,7 @@ export function runtimeIntegrationSecrets(settings, env = process.env) {
     if (changed) {
       result.notifyre.webhookVerifiedAt = null;
       if (field === 'apiToken') {
+        if (result.verificationSms) { result.verificationSms.verifiedAt=null; result.verificationSms.enabled=false; }
         result.notifyre.verifiedAt = null;
         for (const route of result.clientMessaging?.routes || []) {
           route.faxVerifiedAt = null; route.faxEnabled = false;

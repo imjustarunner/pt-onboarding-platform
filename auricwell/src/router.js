@@ -14,6 +14,7 @@ const router = createRouter({
     { path: "/product", component: Marketing },
     { path: "/security", component: Marketing },
     { path: "/about", component: Marketing },
+    { path: "/account/text-verification", component: () => import("./TextVerification.vue") },
     { path: "/app", component: Login },
     { path: "/app/:slug/:section?", component: Workspace },
     { path: "/:pathMatch(.*)*", component: Marketing },

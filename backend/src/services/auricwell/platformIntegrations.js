@@ -139,3 +139,18 @@ export async function verifyNotifyreFax(ctx, practiceId) {
   });
   return integrationStatus(ctx);
 }
+
+export async function verifyNotifyreAccountNumber(ctx) {
+  requirePlatformSuperadmin(ctx);
+  const current=await platformIntegrations(), v=current.settings.verificationSms, n=current.settings.notifyre;
+  if(!v?.from || !v.campaignId || v.approval!=='approved' || !v.approvalReference || !v.carrierKeywordsConfirmed || !n.apiToken || !n.baaReference || !n.webhookSecret)
+    throw fail(409,'Save the approved AuricWell verification campaign, number, carrier keyword confirmations and Notifyre connection first.');
+  const numbers=notifyreNumbers(await notifyreRequest(n.apiToken,'/sms/numbers'));
+  if(!numbers.includes(v.from)) throw fail(409,'The AuricWell verification number is not available in this Notifyre account.');
+  await transaction(async db=>{
+    const latest=await platformIntegrations(db,true);
+    if(latest.revision!==current.revision) throw fail(409,'Settings changed. Reload before verifying.');
+    await write(ctx,{...latest.settings,verificationSms:{...v,verifiedAt:new Date().toISOString()}},latest.revision,db,'platform.verification_sms_number_verified');
+  });
+  return integrationStatus(ctx);
+}

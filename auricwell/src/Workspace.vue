@@ -30,6 +30,7 @@
       <div class="sidebar-bottom">
         <div class="small-mark">A</div>
         <p>More room<br />for care.</p>
+        <RouterLink to="/account/text-verification">Account security</RouterLink>
         <button class="link-button" @click="signOut">Sign out</button>
       </div>
     </aside>

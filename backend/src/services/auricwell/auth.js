@@ -49,6 +49,7 @@ export async function authenticate(req, _res, next) {
     );
     if (!rows[0]) throw fail(401, "Your session expired. Sign in again.");
     const account = rows[0];
+    const [[sms]] = await pool.execute('SELECT enabled FROM auricwell_auth_sms WHERE account_id=?', [account.id]);
     req.aw = {
       accountId: account.id,
       username: account.username,
@@ -56,6 +57,7 @@ export async function authenticate(req, _res, next) {
       verified: !!account.mfa_verified,
       sessionHash: account.token_hash,
       mfaEnabled: !!account.mfa_secret && Number(account.mfa_counter) >= 0,
+      smsEnabled: !!sms?.enabled,
     };
     await pool.execute(
       "UPDATE auricwell_sessions SET last_seen_at=UTC_TIMESTAMP(3) WHERE token_hash=?",
@@ -75,9 +77,10 @@ export async function requireVerified(req, _res, next) {
     const required =
       req.aw.profile.operator ||
       req.aw.mfaEnabled ||
+      req.aw.smsEnabled ||
       memberships.some((m) => m.actor_type === "staff");
     if (required && !req.aw.verified)
-      throw fail(403, "Complete authenticator verification.");
+      throw fail(403, "Complete account verification.");
     next();
   } catch (e) {
     next(e);
@@ -161,6 +164,8 @@ export async function login(username, password) {
 }
 export async function beginMfa(ctx) {
   if (ctx.mfaEnabled) throw fail(409, "Authenticator is already enrolled.");
+  const [[sms]] = await pool.execute('SELECT enabled FROM auricwell_auth_sms WHERE account_id=?', [ctx.accountId]);
+  if(sms?.enabled && !ctx.verified) throw fail(403,'Verify your existing text-message security method before adding an authenticator.');
   const secret = new OTPAuth.Secret({ size: 20 }).base32;
   await pool.execute(
     "UPDATE auricwell_accounts SET mfa_secret=? WHERE id=? AND mfa_counter=-1",
@@ -180,6 +185,9 @@ export async function verifyMfa(ctx, code) {
       [ctx.accountId],
     );
     if (!a?.mfa_secret) throw fail(409, "Enroll your authenticator first.");
+    const [[sms]] = await db.execute('SELECT enabled FROM auricwell_auth_sms WHERE account_id=?', [ctx.accountId]);
+    if(Number(a.mfa_counter)<0 && sms?.enabled && !ctx.verified)
+      throw fail(403,'Verify your existing text-message security method before adding an authenticator.');
     const recoveries = json(a.recovery_hashes, []);
     const recoveryIndex = recoveries.indexOf(
       hash(

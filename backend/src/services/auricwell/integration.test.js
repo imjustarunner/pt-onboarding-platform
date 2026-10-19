@@ -78,6 +78,7 @@ before(async () => {
       "utf8",
     ),
   );
+  await db.query(await fs.readFile(new URL('../../../../database/migrations/1663_auricwell_verification_sms.sql', import.meta.url),'utf8'));
   await db.end();
   const suffix = crypto.randomBytes(5).toString("hex");
   operator = await auth.createAccount({
@@ -4169,4 +4170,70 @@ test('primary fax inbox isolates practices, validates signed events, archives PD
  await assert.rejects(fax.sendFax(c,{...input,requestId:crypto.randomUUID()},send),{status:409});
  await post({...incoming,Payload:{...incoming.Payload,ID:crypto.randomUUID()}}); // Receive even while outgoing fax is paused.
  const [[stored]]=await pool.execute('SELECT payload FROM auricwell_records WHERE id=?',[received[0].id]);assert.ok(!stored.payload.includes(incoming.Payload.From));
+});
+
+test('platform SMS verification enforces consent, existing factors, single-use session-bound codes, recovery and signed STOP',async()=>{
+ const {settings,m}=await messagingFixture();
+ const sms=await import('./verificationSms.js');
+ const {CONSENT_VERSION}=await import('./verificationSmsPolicy.js');
+ settings.verificationSms={enabled:true,from:'+17195550777',campaignId:'auricwell-2fa',approval:'approved',approvalReference:'synthetic',verifiedAt:new Date().toISOString(),carrierKeywordsConfirmed:true};
+ await pool.execute('UPDATE auricwell_platform_integrations SET payload=? WHERE id=1',[seal(settings,'auricwell:platform:integrations')]);
+ const username=`otp-${crypto.randomBytes(5).toString('hex')}`;
+ const a=await auth.createAccount({username,name:'Synthetic OTP',email:'otp@example.invalid',password});
+ const login=await auth.login(username,password);assert.ok(login.token);
+ const c={accountId:a.id,username,sessionHash:hash(login.token),verified:false,mfaEnabled:false};
+ const input={purpose:'enroll',phone:'+17195550778',consent:true,consentVersion:CONSENT_VERSION};
+ let calls=0,code='';const send=async b=>{calls++;code=b.Body.match(/\b\d{6}\b/)[0];assert.equal(b.From,settings.verificationSms.from);return `verification-${crypto.randomUUID()}`;};
+ await assert.rejects(sms.requestVerification(c,{...input,consent:false},{send}),{status:400});assert.equal(calls,0);
+ const challenge=await sms.requestVerification(c,input,{send});assert.equal(calls,1);
+ await assert.rejects(sms.requestVerification(c,input,{send}),{status:429});
+ await assert.rejects(sms.verifyCode({...c,sessionHash:'0'.repeat(64)},{challengeId:challenge.challengeId,code}),{status:400});
+ await assert.rejects(sms.verifyCode(c,{challengeId:challenge.challengeId,code:code==='111111'?'222222':'111111'}),{status:400});
+ const [[attempt]]=await pool.execute('SELECT attempts,payload FROM auricwell_auth_sms_challenges WHERE id=?',[challenge.challengeId]);assert.equal(attempt.attempts,1);assert.ok(!attempt.payload.includes(input.phone));
+ assert.equal((await sms.verifyCode(c,{challengeId:challenge.challengeId,code})).verified,true);
+ await assert.rejects(sms.verifyCode(c,{challengeId:challenge.challengeId,code}),{status:400});
+ assert.equal((await sms.verificationStatus(c)).enrolled,true);
+ await assert.rejects(sms.requestVerification(c,{...input,phone:'+17195550779'},{send}),{status:403});
+ await assert.rejects(auth.beginMfa(c),{status:403});
+ const authRequest={cookies:{[auth.COOKIE]:login.token}};await auth.authenticate(authRequest,{},e=>{if(e)throw e;});assert.equal(authRequest.aw.smsEnabled,true);
+ let unverifiedError;await auth.requireVerified({...authRequest,aw:{...authRequest.aw,verified:false}},{},e=>{unverifiedError=e;});assert.equal(unverifiedError.status,403);
+ const age=()=>pool.execute('UPDATE auricwell_auth_sms_challenges SET created_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE account_id=?',[a.id]);
+ await age();const signin=await sms.requestVerification(c,{...input,purpose:'signin'},{send});
+ await pool.execute('UPDATE auricwell_auth_sms_challenges SET expires_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND) WHERE id=?',[signin.challengeId]);
+ await assert.rejects(sms.verifyCode(c,{challengeId:signin.challengeId,code}),{status:400});
+ await age();const recovery=await sms.requestRecovery({username,consent:true,consentVersion:CONSENT_VERSION},{send});
+ const reset=await sms.verifyCode(null,{challengeId:recovery.challengeId,code},true);assert.match(reset.accountToken,/^[0-9a-f]{64}$/);
+ await assert.rejects(sms.verifyCode(null,{challengeId:recovery.challengeId,code},true),{status:400});
+ await auth.redeemAccountToken(reset.accountToken,'A different secure test password');
+ assert.equal((await sms.verificationStatus(c)).enrolled,true);
+ const unknown=await sms.requestRecovery({username:'unknown-synthetic-user',consent:true,consentVersion:CONSENT_VERSION},{send});assert.equal(unknown.message,recovery.message);
+ const stamp=Math.floor(Date.now()/1000);const event={Event:'sms_received',Timestamp:stamp,Payload:{ReplyID:crypto.randomUUID(),SenderNumber:input.phone,RecipientNumber:settings.verificationSms.from,Message:'STOP',ReceivedDateUtc:stamp}};
+ const raw=Buffer.from(JSON.stringify(event)), signature=`t=${stamp},v=${crypto.createHmac('sha256','test-webhook').update(`${stamp}.${raw}`).digest('hex')}`;
+ await assert.rejects(m.acceptNotifyreWebhook(raw,`t=${stamp},v=${'0'.repeat(64)}`),{status:403});
+ await m.acceptNotifyreWebhook(raw,signature);await m.acceptNotifyreWebhook(raw,signature);
+ assert.equal((await sms.verificationStatus(c)).stopped,true);
+ await age();await assert.rejects(sms.requestVerification(c,{...input,purpose:'signin'},{send}),{status:409});
+ const [[state]]=await pool.execute('SELECT blocked FROM auricwell_sms_phone_state WHERE phone_key=?',[(await import('./clientMessagingPolicy.js')).phoneKey(input.phone)]);assert.equal(state.blocked,1);
+ const [[clinicalEvents]]=await pool.execute('SELECT COUNT(*) AS n FROM auricwell_sms_events WHERE event_key=?',[hash(`notifyre:inbound:${event.Payload.ReplyID}`)]);assert.equal(clinicalEvents.n,0);
+});
+
+test('verification SMS serializes sends, limits guesses and keeps uncertain delivery usable without automatic retries',async()=>{
+ const {settings}=await messagingFixture();const sms=await import('./verificationSms.js');const {CONSENT_VERSION}=await import('./verificationSmsPolicy.js');
+ settings.verificationSms={enabled:true,from:'+17195550800',campaignId:'otp-testing',approval:'approved',approvalReference:'test',verifiedAt:'now',carrierKeywordsConfirmed:true};
+ await pool.execute('UPDATE auricwell_platform_integrations SET payload=? WHERE id=1',[seal(settings,'auricwell:platform:integrations')]);
+ const username=`otp-concurrent-${crypto.randomBytes(5).toString('hex')}`,a=await auth.createAccount({username,name:'Synthetic',email:'otp@example.invalid',password});
+ const login=await auth.login(username,password),c={accountId:a.id,username,sessionHash:hash(login.token),verified:false,mfaEnabled:false};
+ const input={purpose:'enroll',phone:'+17195550801',consent:true,consentVersion:CONSENT_VERSION};let sends=0,code='';
+ const send=async b=>{sends++;code=b.Body.match(/\b\d{6}\b/)[0];throw new Error('Synthetic timeout after acceptance');};
+ const both=await Promise.allSettled([sms.requestVerification(c,input,{send}),sms.requestVerification(c,input,{send})]);
+ assert.equal(sends,1);assert.equal(both.filter(r=>r.status==='fulfilled').length,1);const challenge=both.find(r=>r.status==='fulfilled').value;
+ const wrong=code==='111111'?'222222':'111111';for(let i=0;i<5;i++)await assert.rejects(sms.verifyCode(c,{challengeId:challenge.challengeId,code:wrong}),{status:400});
+ await assert.rejects(sms.verifyCode(c,{challengeId:challenge.challengeId,code}),{status:400});
+ await pool.execute('UPDATE auricwell_auth_sms_challenges SET created_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE) WHERE account_id=?',[a.id]);
+ const retry=await sms.requestVerification(c,input,{send});assert.equal(sends,2);
+ assert.equal((await sms.verifyCode(c,{challengeId:retry.challengeId,code})).verified,true);
+ // A previously issued but unverified authenticator setup cannot bypass the new SMS factor.
+ await pool.execute('UPDATE auricwell_accounts SET mfa_secret=? WHERE id=?',[seal(new OTPAuth.Secret({size:20}).base32,`auricwell:mfa:${a.id}`),a.id]);
+ await assert.rejects(auth.verifyMfa(c,'123456'),{status:403});
+ await sms.disableVerification({...c,verified:true});assert.equal((await sms.verificationStatus(c)).enrolled,false);
 });

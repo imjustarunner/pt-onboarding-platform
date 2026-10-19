@@ -78,6 +78,8 @@ const auricwellLegalLocations = legalRouteEntries(tenantLegalProfiles.auricwell)
 }).join('\n');
 server('auricwell.com',`${auricwellLocations}
  ${auricwellLegalLocations}
+ location = /account/text-verification { add_header Cache-Control "no-store" always; return 302 https://auricwell-65v3jdyqba-wm.a.run.app/account/text-verification$is_args$args; }
+ location = /account/text-verification/ { return 302 /account/text-verification$is_args$args; }
  location ^~ /join/my-room/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex, nofollow" always; try_files ${officeShell} =404; }
  location = /app { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }
  location ^~ /app/ { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }

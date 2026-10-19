@@ -440,6 +440,8 @@ export async function acceptNotifyreWebhook(raw, header) {
     return acceptFaxEvent(settings, parsed);
   }
   const event = normalizeNotifyreEvent(parsed);
+  const { acceptVerificationEvent } = await import('./verificationSms.js');
+  if(await acceptVerificationEvent(settings,event)) return {accepted:true};
   const route = event.type === 'inbound' ? settings.clientMessaging.routes.find(r => [r.mainNumber, r.providerNumber].includes(event.to)) : null;
   if (event.type === 'inbound' && !route) throw fail(409, 'This receiving number has no agency route.');
   await transaction(async db => {

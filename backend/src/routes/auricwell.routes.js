@@ -1,4 +1,5 @@
 import * as faxMessaging from '../services/auricwell/faxMessaging.js';
+import * as verificationSms from '../services/auricwell/verificationSms.js';
 import auricwellOfficeRoutes from './auricwellOffice.routes.js';
 import officePublicRoutes from './officePublic.routes.js';
 import express from "express";
@@ -75,7 +76,7 @@ import * as recordsRequests from "../services/auricwell/recordsRequests.js";
 
 import { listToasts, saveToast, deleteToast, requireToastOperator, practiceToastAgency } from '../services/toastAnnouncements.service.js';
 
-import { integrationStatus, savePlatformIntegrations, verifyNotifyreFax, verifyNotifyre, verifyVonageAgency, requireOfficeEnabled } from '../services/auricwell/platformIntegrations.js';
+import { integrationStatus, savePlatformIntegrations, verifyNotifyreFax, verifyNotifyre, verifyNotifyreAccountNumber, verifyVonageAgency, requireOfficeEnabled } from '../services/auricwell/platformIntegrations.js';
 import { joinAppointmentVideo, joinGuestVideo } from '../services/auricwell/appointmentVideo.js';
 import { sessionPreferences, saveSessionPreferences, sessionDeliveryStatus, retrySessionDelivery } from '../services/auricwell/sessionReminders.js';
 import * as clientMessaging from '../services/auricwell/clientMessaging.js';
@@ -161,11 +162,22 @@ router.use('/office-public', (_req, _res, next) => requireOfficeEnabled().then((
 router.get('/records-requests/practices', authLimit, run(async (_req, res) => res.json(await recordsRequests.publicPractices())));
 router.post('/records-requests/:slug', authLimit, run(async (req, res) => res.status(202).json(await recordsRequests.submitPublic(req.params.slug, req.body))));
 router.post('/sessions/join', authLimit, run(async (req, res) => res.json(await joinGuestVideo(req.body.token))));
+router.get('/auth/text-verification', authLimit, run(async (_req,res)=>res.json(await verificationSms.verificationInfo())));
+router.post('/auth/sms/recovery', authLimit, run(async(req,res)=>res.json(await verificationSms.requestRecovery(req.body))));
+router.post('/auth/sms/recovery/verify', authLimit, run(async(req,res)=>res.json(await verificationSms.verifyCode(null,req.body,true))));
 router.use(authenticate);
+router.get('/auth/sms', run(async(req,res)=>res.json(await verificationSms.verificationStatus(req.aw))));
+router.post('/auth/sms/request', authLimit, run(async(req,res)=>{
+  if(!['enroll','signin'].includes(req.body.purpose)) throw fail(400,'Choose enrollment or sign-in verification.');
+  res.json(await verificationSms.requestVerification(req.aw,req.body));
+}));
+router.post('/auth/sms/verify', authLimit, run(async(req,res)=>res.json(await verificationSms.verifyCode(req.aw,req.body))));
+router.delete('/auth/sms', authLimit, run(async(req,res)=>res.json(await verificationSms.disableVerification(req.aw))));
 router.get("/auth/status", (req, res) =>
   res.json({
     verified: req.aw.verified,
     mfaEnabled: req.aw.mfaEnabled,
+    smsEnabled: req.aw.smsEnabled,
     username: req.aw.username,
   }),
 );
@@ -189,6 +201,7 @@ router.post(
   run(async (req, res) => res.json(await verifyMfa(req.aw, req.body.code))),
 );
 router.use(requireVerified);
+router.post('/platform/integrations/notifyre/verification/verify', run(async(req,res)=>res.json(await verifyNotifyreAccountNumber(req.aw))));
 router.get('/platform/integrations', run(async (req, res) => res.json(await integrationStatus(req.aw))));
 router.put('/platform/integrations', run(async (req, res) => res.json(await savePlatformIntegrations(req.aw, req.body))));
 router.post('/platform/integrations/notifyre/fax/verify', run(async (req,res) => res.json(await verifyNotifyreFax(req.aw, req.body.practiceId))));

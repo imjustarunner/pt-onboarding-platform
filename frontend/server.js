@@ -94,6 +94,11 @@ if (existsSync(distPath)) {
 }
 
 // Exact public hosts only: never apply website redirects to app or Quick View.
+app.get(['/account/text-verification','/account/text-verification/'], (req,res,next)=>{
+  if(String(req.headers.host||'').split(':')[0].toLowerCase()!=='auricwell.com')return next();
+  const recovery=req.query.mode==='recovery'?'?mode=recovery':'';
+  return res.set('Cache-Control','no-store').redirect(302,`https://auricwell-65v3jdyqba-wm.a.run.app/account/text-verification${recovery}`);
+});
 app.use((req,res,next)=>{
   if(isItscoPublicHost(req.headers.host))return next();
   const legal=tenantLegalRequest(req.headers.host,req.originalUrl);

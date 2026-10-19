@@ -42,6 +42,21 @@
         </div>
         <p class="muted">Uses the existing Vonage server credentials, carrier registration, consent and opt-out checks. Patient SMS readiness must be enabled before switching. A different sender or campaign requires the recipient's preferences to be reviewed again.</p>
       </fieldset>
+      <fieldset>
+        <legend>AuricWell account verification · platform campaign</legend>
+        <p>Only user-requested account, sign-in and recovery codes. This uses a dedicated AuricWell number and campaign, separate from every agency’s client texts.</p>
+        <label>Verification number<input v-model="form.verificationSms.from" type="tel" placeholder="+17195550123" /></label>
+        <label>AuricWell 2FA campaign ID<input v-model="form.verificationSms.campaignId" /></label>
+        <label>Campaign status<select v-model="form.verificationSms.approval"><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="rejected">Rejected</option><option value="approved">Approved</option></select></label>
+        <label>Carrier approval reference<input v-model="form.verificationSms.approvalReference" /></label>
+        <label class="check-row"><input v-model="form.verificationSms.carrierKeywordsConfirmed" type="checkbox" /><span>Notifyre’s standard START, STOP and HELP replies are configured for AuricWell verification texts.</span></label>
+        <details><summary>Campaign response wording</summary><p>START: AuricWell: You’re opted in to verification texts. Msg frequency varies. Msg &amp; data rates may apply. Reply STOP to opt out or HELP for help.</p><p>STOP: AuricWell: You’re unsubscribed from verification texts. Reply START to opt back in.</p><p>HELP: AuricWell: For help, contact Support@plottwistco.com or call 833-756-8894. Reply STOP to opt out.</p></details>
+        <p class="muted">Save with sending off, verify the number, and complete a signed webhook test before enabling. Number verification checks availability in Notifyre; campaign approval is recorded separately.</p>
+        <button type="button" class="outline" :disabled="busy" @click="verifyAccountNumber">Verify AuricWell number</button>
+        <p v-if="form.verificationSms.verifiedAt">Number verified: {{ form.verificationSms.verifiedAt }}</p>
+        <label class="check-row"><input v-model="form.verificationSms.enabled" type="checkbox" /><span>Enable requested AuricWell verification texts</span></label>
+        <RouterLink to="/account/text-verification">Open the actual verification-text enrollment page</RouterLink>
+      </fieldset>
       <button :disabled="busy">{{ busy ? 'Saving…' : 'Save platform settings' }}</button>
     </form>
   </section>
@@ -52,10 +67,11 @@ import { api } from './api';
 import ClientMessagingSetup from './ClientMessagingSetup.vue';
 const emit = defineEmits(['changed']);
 const state = ref({}), form = ref(null), busy = ref(false), error = ref(''), notice = ref('');
-function accept(value) { state.value = value; form.value = structuredClone(value.settings); form.value.notifyre.apiToken = ''; form.value.notifyre.webhookSecret = ''; form.value.clientMessaging ||= {routes:[]}; }
+function accept(value) { state.value = value; form.value = structuredClone(value.settings); form.value.notifyre.apiToken = ''; form.value.notifyre.webhookSecret = ''; form.value.clientMessaging ||= {routes:[]}; form.value.verificationSms ||= {enabled:false,from:'',campaignId:'',approval:'draft',approvalReference:'',verifiedAt:null,carrierKeywordsConfirmed:false}; }
 async function run(fn) { busy.value = true; error.value = ''; notice.value = ''; try { await fn(); } catch(e) { error.value = e.message; } finally { busy.value = false; } }
 const save = () => run(async () => { accept(await api('/platform/integrations', { method: 'PUT', body: { revision: state.value.revision, settings: form.value } })); notice.value = 'Platform settings saved for all AuricWell practices.'; emit('changed'); });
 const verify = (practiceId) => run(async () => { accept(await api(`/platform/integrations/${form.value.smsProvider==='vonage'?'vonage':'notifyre'}/verify`, { method: 'POST', body: {practiceId} })); notice.value = 'Agency numbers verified. Signed webhooks and campaign approval must also be ready before texting.'; });
+const verifyAccountNumber=()=>run(async()=>{accept(await api('/platform/integrations/notifyre/verification/verify',{method:'POST',body:{}}));notice.value='AuricWell verification number checked. Complete signed webhook verification before enabling sends.';});
 const verifyFax = (practiceId) => run(async () => { accept(await api('/platform/integrations/notifyre/fax/verify', {method:'POST',body:{practiceId}})); notice.value='Primary fax number verified. Enable fax sending, save, and test incoming and outgoing faxes before clinical use.'; });
 onMounted(() => run(async () => accept(await api('/platform/integrations'))));
 </script>

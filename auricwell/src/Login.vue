@@ -45,6 +45,7 @@
           ><button class="link-button" type="button" @click="recover">
             Forgot your password?
           </button>
+          <RouterLink class="text-security-link" to="/account/text-verification?mode=recovery">Recover using a text code</RouterLink>
           <p class="muted">
             Use your AuricWell username. Account setup and recovery use your
             account email.
@@ -67,11 +68,11 @@
             {{
               mfaEnabled
                 ? "Enter your authenticator code or an unused recovery code."
-                : "Add AuricWell to your authenticator using this setup key, then enter the six-digit code."
+                : secret ? "Add AuricWell to your authenticator using this setup key, then enter the six-digit code." : "Choose a security method to verify your AuricWell account."
             }}
           </p>
           <code v-if="secret" class="setup-secret">{{ secret }}</code>
-          <form @submit.prevent="verify">
+          <form v-if="mfaEnabled || secret" @submit.prevent="verify">
             <label
               >Verification code<input
                 v-model="code"
@@ -80,7 +81,8 @@
             ><button :disabled="busy">Verify account</button>
           </form>
         </div>
-        <div v-else-if="step === 'recovery'">
+        <div v-if="step === 'mfa'" class="security-options"><button v-if="!mfaEnabled && !secret && !smsEnabled" class="outline" @click="optionalMfa">Use an authenticator</button><RouterLink to="/account/text-verification">{{ smsEnabled ? "Send a text code" : "Set up text verification" }}</RouterLink></div>
+        <div v-if="step === 'recovery'">
           <p>
             Save these recovery codes somewhere secure. Each code works once.
           </p>
@@ -99,6 +101,7 @@
           ><button class="outline" v-if="!mfaEnabled" @click="optionalMfa">
             Set up an authenticator
           </button>
+          <RouterLink class="text-security-link" to="/account/text-verification">Text verification settings</RouterLink>
           <p v-if="!practices.length" class="muted">
             No practice is assigned yet.
           </p>
@@ -161,6 +164,7 @@ const username = ref(""),
 const token = ref(linkToken),
   secret = ref(""),
   mfaEnabled = ref(false),
+  smsEnabled = ref(false),
   recoveryCodes = ref([]),
   practices = ref([]),
   operator = ref(false);
@@ -188,6 +192,7 @@ async function choose() {
     const data = await api("/bootstrap");
     practices.value = data.practices;
     operator.value = data.account.operator;
+    if (route.query.security === "text") { await router.replace("/account/text-verification"); return; }
     step.value = "choose";
     if (data.practices.length === 1 && !operator.value)
       router.replace(`/app/${data.practices[0].slug}${route.query.records === '1' ? '/records-requests' + (route.query.request ? '?request=' + encodeURIComponent(String(route.query.request)) : '') : ''}`);
@@ -201,18 +206,18 @@ async function signIn() {
     });
     password.value = "";
     mfaEnabled.value = data.mfaEnabled;
+    smsEnabled.value = (await api("/auth/status")).smsEnabled;
+    if(route.query.security === "text" && !mfaEnabled.value && !smsEnabled.value) { await router.replace("/account/text-verification"); return; }
     try {
       const data = await api("/bootstrap");
       practices.value = data.practices;
       operator.value = data.account.operator;
+      if(route.query.security === "text") { await router.replace("/account/text-verification"); return; }
       step.value = "choose";
     } catch (e) {
       if (e.status !== 403) throw e;
       step.value = "mfa";
-      if (!mfaEnabled.value)
-        secret.value = (
-          await api("/auth/mfa/begin", { method: "POST", body: {} })
-        ).secret;
+
     }
   });
 }
@@ -276,6 +281,8 @@ onMounted(async () => {
   try {
     const session = await api("/auth/status");
     mfaEnabled.value = session.mfaEnabled;
+    smsEnabled.value = session.smsEnabled;
+    if(route.query.security === "text" && session.verified) { await router.replace("/account/text-verification"); return; }
     try {
       const b = await api("/bootstrap");
       practices.value = b.practices;
@@ -283,9 +290,14 @@ onMounted(async () => {
       step.value = "choose";
     } catch {
       if (session.verified) await choose();
+      else step.value="mfa";
     }
   } catch {
     /* Sign-in screen. */
   }
 });
 </script>
+
+<style scoped>
+.security-options{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:20px}.text-security-link{display:block;margin:16px 0;font-size:14px;font-weight:600}
+</style>

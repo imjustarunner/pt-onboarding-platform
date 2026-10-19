@@ -1,4 +1,5 @@
 import { fail } from './policy.js';
+import { verificationDefaults, cleanVerificationSettings } from './verificationSmsPolicy.js';
 
 export const integrationDefaults = () => ({
   videoProvider: 'google_meet',
@@ -9,6 +10,7 @@ export const integrationDefaults = () => ({
   notifyre: { from: '', campaignId: '', baaReference: '', apiToken: '', verifiedAt: null, webhookSecret: '', webhookVerifiedAt: null },
   vonage: { from: '', campaignId: '' },
   clientMessaging: { routes: [] },
+  verificationSms: verificationDefaults(),
 });
 export function requirePlatformSuperadmin(ctx) {
   if (ctx?.profile?.operator !== true || ctx.verified !== true)
@@ -84,6 +86,7 @@ export function cleanPlatformSettings(input, current) {
     throw fail(409, 'Save the Notifyre setup with SMS off, verify the number, then enable Notifyre.');
   if (settings.smsProvider === 'vonage' && !settings.clientMessaging.routes.length && (!settings.vonage.from || !settings.vonage.campaignId))
     throw fail(409, 'Link the Vonage Campaign 1 number before enabling appointment texts.');
+  settings.verificationSms = cleanVerificationSettings(input.verificationSms ?? current.verificationSms, current.verificationSms, settings, current);
   return settings;
 }
 export function publicPlatformSettings(settings) {
