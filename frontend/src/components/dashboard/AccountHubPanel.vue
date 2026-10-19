@@ -40,6 +40,7 @@
       <button class="acct-back" type="button" :aria-expanded="menuExpanded" aria-controls="account-section-menu" @click="menuExpanded = !menuExpanded">
         {{ menuExpanded ? 'Collapse account menu' : 'Expand account menu' }}
       </button>
+      <slot name="navigation-actions" />
     </div>
     <div class="acct-hub__body">
       <nav v-if="menuExpanded" id="account-section-menu" class="acct-hub__nav" data-tour="dash-my-subnav" aria-label="My Account sections">
@@ -105,9 +106,11 @@ function selectSection(section) {
 function backToAccount() {
   showOverview.value = true;
   menuExpanded.value = true;
+  emit('select-section', 'account');
 }
 // A deep link or another dashboard action also opens its section at full width.
-watch(() => props.activeSection, () => {
+watch(() => props.activeSection, (section) => {
+  if (showOverview.value && section === 'account') return;
   showOverview.value = false;
   menuExpanded.value = false;
 });

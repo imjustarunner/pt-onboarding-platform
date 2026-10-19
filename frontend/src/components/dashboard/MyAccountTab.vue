@@ -7,6 +7,9 @@
     :user-role-label="userRoleLabel"
     @select-section="$emit('select-section', $event)"
   >
+    <template #navigation-actions>
+      <router-link class="btn btn-secondary account-dashboard-link" :to="{ path: route.path }">Back to My Dashboard</router-link>
+    </template>
     <ContractSchedulingNotice v-if="canManageOwnAvailability && ['account', 'availability', 'compensation'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <ProviderOpeningNotice v-if="canManageOwnAvailability && ['account', 'availability'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <div data-profile-my-section="account" v-show="activeSection === 'account'" class="acct-hub__pane">
@@ -57,7 +60,7 @@
       <ProviderAvailabilitySettings :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
       <details><summary>Add or edit my virtual openings</summary><VirtualWorkingHoursEditor :provider-id="Number(userId)" :agency-id="Number(agencyId)" /></details>
     </section>
-    <div data-profile-my-section="preferences" v-if="activeSection === 'preferences'" class="acct-hub__pane account-preferences-fullscreen" role="dialog" aria-modal="true" aria-label="Account settings" @keydown.esc="$emit('select-section','account')"><button class="account-preferences-close" type="button" @click="$emit('select-section','account')">Close account settings ✕</button>
+    <div data-profile-my-section="preferences" v-if="activeSection === 'preferences'" class="acct-hub__pane" @keydown.esc="$emit('select-section', 'account')">
       <UserPreferencesHub v-if="userId" :user-id="userId" :is-club-context="isClubContext" />
     </div>
     <div data-profile-my-section="support" v-show="activeSection === 'support'" class="acct-hub__pane">
@@ -68,6 +71,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import ContractSchedulingNotice from '../availability/ContractSchedulingNotice.vue';
 import ProviderOpeningNotice from '../availability/ProviderOpeningNotice.vue';
 import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
@@ -102,6 +106,7 @@ const props = defineProps({
 defineEmits(['select-section', 'documents-count']);
 
 const authStore = useAuthStore();
+const route = useRoute();
 const agencyStore=useAgencyStore();
 const canSetOwnRates=computed(()=>Number(props.userId)===Number(authStore.user?.id)&&Number(props.agencyId)===Number(agencyStore.currentAgency?.id)&&['life_coach','consultant'].includes(agencyStore.currentAgency?.organization_type||agencyStore.currentAgency?.organizationType)&&!['client','client_guardian'].includes(authStore.user?.role));
 
@@ -145,6 +150,11 @@ const userRoleLabel = computed(() => {
 </script>
 
 <style scoped>
+.account-dashboard-link {
+  align-self: flex-start;
+  margin-bottom: 16px;
+}
+
 .acct-hub__pane :deep(.container) {
   padding: 0;
   max-width: none;
@@ -180,5 +190,3 @@ const userRoleLabel = computed(() => {
   font-size: 14px;
 }
 </style>
-
-<style scoped>.account-preferences-fullscreen{position:fixed;inset:0;z-index:10000;background:var(--bg-primary,#fff);overflow:auto;padding:32px;box-sizing:border-box}.account-preferences-close{position:sticky;top:0;float:right;z-index:2;padding:12px 18px;background:#173b51;color:#fff;border:0;border-radius:8px;font:inherit}</style>

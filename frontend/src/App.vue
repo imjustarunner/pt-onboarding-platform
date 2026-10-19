@@ -5867,10 +5867,9 @@ const onMyDashboardClick = (e) => {
   e.preventDefault();
   const q = { ...(route.query || {}) };
   const hadDrillIn = q.tab != null || q.my != null;
-  delete q.tab;
-  delete q.my;
+  for (const key of ['tab', 'my', 'section', 'profileField', 'profileCategory']) delete q[key];
   if (hadDrillIn || route.fullPath !== wantPath) {
-    router.push({ path: wantPath, query: q }).catch(() => {});
+    router.push({ path: wantPath, query: q, hash: '' }).catch(() => {});
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };

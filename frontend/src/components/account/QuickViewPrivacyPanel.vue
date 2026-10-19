@@ -107,9 +107,9 @@ onMounted(loadStatus);
 </script>
 
 <template>
-  <div class="qv-privacy">
+  <div class="qv-privacy" data-search-private>
     <div class="section-header">
-      <h3 style="margin: 0;">Quick View</h3>
+      <h3 style="margin: 0;">Quick View — 6-digit code</h3>
     </div>
     <p class="hint" style="margin-top: 6px;">
       Tenant Quick View + separate <strong>6-digit passcode</strong> (not your kiosk or session PIN).

@@ -8,7 +8,7 @@
       <a href="#prefs-availability" @click.prevent="scrollToSection('prefs-availability')">Schedule</a>
       <a v-if="isOwnAccount && (isWorkforceEmployeeRole || ['tutor','clinical_director'].includes(effectiveRoleNorm))" href="#prefs-vacation" @click.prevent="scrollToSection('prefs-vacation')">Vacation email</a>
       <a href="#prefs-communication" @click.prevent="scrollToSection('prefs-communication')">Support assist</a>
-      <a href="#prefs-privacy" @click.prevent="scrollToSection('prefs-privacy')">Privacy & Quick View</a>
+      <a href="#prefs-privacy" @click.prevent="scrollToSection('prefs-privacy')">6-digit code & Quick View</a>
       <a href="#prefs-security" @click.prevent="scrollToSection('prefs-security')">PINs & lock</a>
       <a href="#my-settings-appearance" @click.prevent="scrollToSection('my-settings-appearance')">Appearance</a>
       <a href="#prefs-account" @click.prevent="scrollToSection('prefs-account')">Account</a>

@@ -3,6 +3,15 @@ import { adminSearchTargets, accountSearchTargets, fieldSearchTargets, searchPro
 const tabs = [{id:'account',label:'Account'}, {id:'provider_info',label:'Clinical Information'}, {id:'benefits',label:'Benefits'}];
 const fields = [{id:45,field_key:'modality',field_label:'Treatment modalities',category_key:'provider_clinical',value:'Narrative therapy',options:['Cognitive Behavioral Therapy (CBT)','EMDR']}];
 describe('profile content search destinations', () => {
+  it.each(['six digit code', '6-digit code', 'reset PIN', 'reset passcode'])('finds %s before Accounts & access has been opened', query => {
+    expect(searchProfileContent(query, accountSearchTargets())[0]).toMatchObject({ tabId: 'my', mySection: 'access', sectionId: 'my-quick-view-access' });
+    expect(searchProfileContent(query, accountSearchTargets({ isClub: true }))).toEqual([]);
+  });
+  it('does not index a newly displayed Quick View passcode', () => {
+    const root = document.createElement('div');
+    root.innerHTML = '<section id="my-quick-view-access" data-search-private><h3>Quick View — 6-digit code</h3><code>654321</code></section>';
+    expect(searchProfileContent('654321', collectRenderedSearchTargets(root))).toEqual([]);
+  });
   it('finds business cards before their page has been opened on both surfaces', () => {
     expect(searchProfileContent('bus',adminSearchTargets(tabs,{canPrintCards:true}))[0]).toMatchObject({tabId:'account',sectionId:'profile-business-cards'});
     expect(searchProfileContent('Avery 35702',accountSearchTargets({canPrintCards:true}))[0]).toMatchObject({tabId:'my',mySection:'account',sectionId:'my-business-cards'});

@@ -4772,7 +4772,7 @@ const setMyTab = (tab) => {
   previousContentTab.value = 'my';
   selectedRailCardId.value = 'my';
   if (props.previewMode) return;
-  return router.replace({ query: { ...route.query, tab: 'my', my: tab, section: undefined, profileField: undefined, profileCategory: undefined } });
+  return router.push({ query: { ...route.query, tab: 'my', my: tab, section: undefined, profileField: undefined, profileCategory: undefined }, hash: '' });
 };
 
 const syncFromQuery = () => {
@@ -4853,19 +4853,15 @@ const syncFromQuery = () => {
         }
       }
     }
-  } else if (!qTab) {
-    // Tab query cleared (e.g. top-nav "Dashboard") → return to Overview when available
+  } else if (!qTab && !dashboardAccountSection(route.query)) {
+    // A bare Dashboard link must leave account settings even when an active
+    // employee's onboarding checklist still has unfinished items.
     const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
-    if (
-      allowed.has('overview') &&
-      isOnboardingComplete.value &&
-      onboardingCompletion.value >= 100 &&
-      !isClubContext.value
-    ) {
-      activeTab.value = 'overview';
-      previousContentTab.value = 'overview';
-      selectedRailCardId.value = 'overview';
-    }
+    const homeTab = allowed.has('overview') ? 'overview' : allowed.has('my') ? 'my' : 'checklist';
+    myTab.value = 'account';
+    activeTab.value = homeTab;
+    previousContentTab.value = homeTab;
+    selectedRailCardId.value = homeTab;
   }
 
   const qMy = dashboardAccountSection(route.query);
