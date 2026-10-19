@@ -11275,12 +11275,6 @@ const completeInsuranceStep = async () => {
       }
     }
   }
-  const hasPrimaryCardImage = Boolean(
-    insuranceEntryState.hasPrimaryCardPhoto
-    || insInfo.primary_front_url
-    || insInfo.primary_back_url
-  );
-  const noPrimaryCardAvailable = Boolean(insuranceEntryState.noPrimaryCardAvailable || insInfo.noPrimaryCardAvailable);
   const insurerName = String(insInfo.primary?.insurerName || '').trim();
   const memberId = String(insInfo.primary?.memberId || '').trim();
   const medicaidPrimary = isMedicaidInsurer(insurerName);
@@ -11300,26 +11294,12 @@ const completeInsuranceStep = async () => {
     insInfo.primaryIsMedicaid = false;
     insInfo.hasSecondary = false;
     insInfo.secondary = null;
-  } else if (!hasPrimaryCardImage && !noPrimaryCardAvailable) {
-    const msg = 'Please upload your primary insurance card, or check "I do not have my primary insurance card right now."';
-    stepError.value = msg;
-    setInsuranceError('card', msg);
-    nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('card'));
-    return;
-  } else if (!insInfo.primary?.insurerName && memberId) {
+  } else if (!insurerName) {
     const msg = 'Please select your primary insurance provider before continuing.';
     stepError.value = msg;
     setInsuranceError('memberId', msg);
     nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('memberId'));
     return;
-  } else if (noPrimaryCardAvailable && !insurerName && !memberId) {
-    insInfo.primary.insurerName = 'Self-Pay / No Insurance';
-    insInfo.primary.memberId = '';
-    insInfo.primary.groupNumber = String(insInfo.primary.groupNumber || '');
-    insInfo.primary.patientSuffix = String(insInfo.primary.patientSuffix || '');
-    insInfo.primary.subscriberName = String(insInfo.primary.subscriberName || '');
-    insInfo.primary.isMedicaid = false;
-    insInfo.primaryIsMedicaid = false;
   } else if (insurerName && !memberId && !medicaidPrimary && !/self.pay|no insurance/i.test(insurerName)) {
     const msg = 'Please enter your primary insurance Member / Policy ID (or choose Medicaid if applicable).';
     stepError.value = msg;

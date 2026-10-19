@@ -1,14 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cardCycle,cardProgress,requiredCardSlots,reminderOrdinal,validCardFile} from '../insuranceCards/policy.js';
+import {cardCycle,cardProgress,requiredCardSlots,encouragedCardSlots,cardCoverageVerified,reminderOrdinal,validCardFile} from '../insuranceCards/policy.js';
 const commercial={insurerName:'Synthetic commercial',memberId:'SYNTHETIC-ONLY'};
 const medicaid={insurerName:'Health First Colorado',memberId:'SYNTHETIC-MEDICAID'};
-test('requires each side of commercial coverage even with a Medicaid secondary',()=>{
- assert.deepEqual(requiredCardSlots({primary:commercial,secondary:medicaid}),['primary_front','primary_back']);
- assert.deepEqual(requiredCardSlots({primary:medicaid,secondary:commercial}),['secondary_front','secondary_back']);
- assert.deepEqual(requiredCardSlots({primary:medicaid}),[]);
- assert.deepEqual(requiredCardSlots({primary:{...commercial,terminationDate:'2020-01-01'}}),[]);
- assert.deepEqual(requiredCardSlots({primary:null}),[]);
+test('cards are optional for all plans and encouraged for active policies',()=>{
+ assert.deepEqual(requiredCardSlots({primary:commercial,secondary:medicaid}),[]);
+ assert.deepEqual(encouragedCardSlots({primary:commercial,secondary:medicaid}),['primary_front','primary_back','secondary_front','secondary_back']);
+ assert.deepEqual(encouragedCardSlots({primary:{...commercial,terminationDate:'2020-01-01'}}),[]);
+ assert.deepEqual(encouragedCardSlots({primary:null}),[]);
+});
+test('verified unchanged coverage stops prompts even without uploaded cards',()=>{
+ const p={primary:commercial};
+ assert.equal(cardProgress(p,{},new Date(),true).state,'not_required');
+ assert.deepEqual(cardProgress(p,{},new Date(),true).missingSlots,[]);
+ assert.equal(cardProgress(p).slots.primary_front.required,false);
+ assert.equal(cardProgress(p).slots.primary_front.encouraged,true);
+ const check={id:1,policy_slot:'primary',status:'returned',insurance_fingerprint:'current',evidence:{summary:{status:'active_reported',identityMatches:true}}};
+ const args={fingerprint:'current',checks:[check]};
+ assert.equal(cardCoverageVerified(args),true);
+ for(const patch of [{fingerprint:'changed'},{hasSecondary:true},{review:{status:'unresolved'}},{checks:[{...check,status:'error'}]},{checks:[{...check,evidence:{summary:{status:'active_reported',identityMatches:false}}}]}])assert.equal(cardCoverageVerified({...args,...patch}),false);
+ assert.equal(cardCoverageVerified({...args,review:{status:'verified',insurance_fingerprint:'current',through_check_id:1}}),true);
+ assert.equal(cardCoverageVerified({...args,checks:[check,{...check,id:2,status:'error'}],review:{status:'verified',insurance_fingerprint:'current',through_check_id:1}}),false);
 });
 test('front-only uploads remain missing; both sides await review, never verify coverage',()=>{
  const p={primary:commercial,primary_card_front_url:'gs://synthetic/front'};

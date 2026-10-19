@@ -7,7 +7,7 @@ import { billingError, positiveId, auditBilling } from './familyBillingPolicy.se
 import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
 import { getClaimMdBillingProfile, resolveClaimMdBillingProfile, listClaimMdBillingProfiles } from './claimMdBillingProfile.service.js';
-import { resolveClaimMdConnection, requireClaimMdTransmission } from './claimMdConnection.service.js';
+import { resolveClaimMdConnection, requireClaimMdEligibility } from './claimMdConnection.service.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { coverageFingerprint } from './coverageVerification.service.js';
 import { accountEligibilityLimit, runMeteredCoverageCheck } from './eligibilityUsage.service.js';
@@ -66,7 +66,7 @@ export async function eligibilityAutomationOverview(agencyId,{after=0}={}) {
   const [usage]=await pool.execute("SELECT source,status,COUNT(*) AS count FROM claimmd_eligibility_usage WHERE agency_id=? AND usage_month=DATE_FORMAT(UTC_DATE(),'%Y-%m') GROUP BY source,status",[agencyId]);
   const [recent]=await pool.execute('SELECT u.id,u.client_id,u.source,u.status,u.created_at,c.policy_slot,c.service_date FROM claimmd_eligibility_usage u LEFT JOIN client_coverage_checks c ON c.id=u.coverage_check_id AND c.agency_id=u.agency_id WHERE u.agency_id=? ORDER BY u.id DESC LIMIT 30',[agencyId]);
   let accountLimit=null,connectionReady=false;
-  try{const connection=await resolveClaimMdConnection(agencyId);accountLimit=accountEligibilityLimit(connection.connectionId);requireClaimMdTransmission(connection);connectionReady=true;}catch{}
+  try{const connection=await resolveClaimMdConnection(agencyId);accountLimit=accountEligibilityLimit(connection.connectionId);requireClaimMdEligibility(connection,agencyId);connectionReady=true;}catch{}
   return {policy:policy||null,clients:clients.slice(0,100),nextAfter:clients.length>100?clients[99].id:null,totals,usage,recent,offices:await listClaimMdBillingProfiles(agencyId),accountLimit,connectionReady,workerEnabled:process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED==='true'};
 }
 
@@ -97,7 +97,7 @@ export async function runEligibilityAutomation(deps={}) {
     const summary={agencyId:policy.agency_id,returned:0,needsReview:0,alreadyRecorded:0};
     try {
       if(!getMedicalBillingFlags(policy).medicalBillingEnabled||!await (deps.actorAllowed||actorAllowed)(policy))throw billingError(409,'Reviewer or agency billing access needs attention');
-      const connection=await (deps.connection||resolveClaimMdConnection)(policy.agency_id);requireClaimMdTransmission(connection);
+      const connection=await (deps.connection||resolveClaimMdConnection)(policy.agency_id);requireClaimMdEligibility(connection,policy.agency_id,deps.env||process.env);
       if(accountEligibilityLimit(connection.connectionId,deps.env||process.env)==null)throw billingError(409,'Set the shared account eligibility limit');
       const clients=await (deps.candidates||candidates)(policy,db);
       for(const client of clients) {

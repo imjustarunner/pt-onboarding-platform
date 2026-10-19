@@ -6,20 +6,33 @@ export const cardCycle = profile => crypto.createHash('sha256').update(JSON.stri
   const p=profile[slot] || {};
   return [p.insurerName||'',p.memberId||'',p.groupNumber||'',p.effectiveDate||'',p.terminationDate||'',policyIsMedicaid(p)];
 }))).digest('hex');
-export function requiredCardSlots(profile, now=new Date()) {
+// Images help reconciliation but never prevent intake or coverage verification.
+export function requiredCardSlots() { return []; }
+export function encouragedCardSlots(profile, now=new Date()) {
   const date=now.toISOString().slice(0,10);
   return ['primary','secondary'].flatMap(slot => {
     const p=profile[slot];
-    return !p || !(p.insurerName || p.memberId) || policyIsMedicaid(p) || (p.terminationDate && p.terminationDate<date) ? [] : [`${slot}_front`,`${slot}_back`];
+    return !p || !(p.insurerName || p.memberId) || (p.terminationDate && p.terminationDate<date) ? [] : [`${slot}_front`,`${slot}_back`];
   });
 }
-export function cardProgress(profile, followup={}, now=new Date()) {
+export function cardProgress(profile, followup={}, now=new Date(), coverageVerified=false) {
   const same=followup.cycle_hash===cardCycle(profile);
   const rejected=same?parse(followup.rejected_slots_json,[]):[];
-  const required=requiredCardSlots(profile,now);
-  const missing=required.filter(slot=>!profile[cardUrlKey(slot)] || rejected.includes(slot));
-  const state=!required.length?'not_required':same&&followup.state==='waived'?'waived':missing.length?(same&&followup.state==='help'?'help':'missing'):same&&followup.state==='complete'?'complete':'review';
-  return {state,requiredSlots:required,missingSlots:missing,slots:Object.fromEntries(CARD_SLOTS.map(slot=>[slot,{received:!!profile[cardUrlKey(slot)],needsReplacement:rejected.includes(slot),required:required.includes(slot)}]))};
+  const encouraged=encouragedCardSlots(profile,now);
+  const missing=encouraged.filter(slot=>!profile[cardUrlKey(slot)] || rejected.includes(slot));
+  const state=coverageVerified||!encouraged.length?'not_required':same&&followup.state==='waived'?'waived':missing.length?(same&&followup.state==='help'?'help':'missing'):same&&followup.state==='complete'?'complete':'review';
+  return {state,coverageVerified,requiredSlots:[],encouragedSlots:encouraged,missingSlots:coverageVerified?[]:missing,slots:Object.fromEntries(CARD_SLOTS.map(slot=>[slot,{received:!!profile[cardUrlKey(slot)],needsReplacement:!coverageVerified&&rejected.includes(slot),required:false,encouraged:encouraged.includes(slot)}]))};
+}
+/** Verification applies only to unchanged coverage, and to every recorded
+ * policy. A newer failed/ambiguous check invalidates a previous positive result. */
+export function cardCoverageVerified({fingerprint,hasSecondary,review,checks=[]}) {
+  const latestId=Math.max(0,...checks.map(c=>Number(c.id)));
+  if(review?.insurance_fingerprint===fingerprint && review.status==='verified' && Number(review.through_check_id)>=latestId) return true;
+  if(review && review.status!=='verified') return false;
+  return (hasSecondary?['primary','secondary']:['primary']).every(slot=>{
+    const check=checks.filter(c=>c.policy_slot===slot).sort((a,b)=>b.id-a.id)[0];
+    return check?.status==='returned' && check.insurance_fingerprint===fingerprint && check.evidence?.summary?.status==='active_reported' && check.evidence.summary.identityMatches===true;
+  });
 }
 export const parse=(value,fallback=null)=>{try{return typeof value==='string'?JSON.parse(value):value??fallback;}catch{return fallback;}};
 export function reminderOrdinal(first,now=new Date()) {

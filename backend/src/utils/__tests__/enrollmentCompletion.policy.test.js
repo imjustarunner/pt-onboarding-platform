@@ -8,7 +8,7 @@ const registration = { provider:'notifyre',brandId:'brand',campaignId:'campaign1
 const delivery = { registration,purpose:'reminders',to:'+17195550123',from:'+17195550124',body:'Agency: Please check your portal.' };
 describe('insurance card requirements',()=>{
  it('exempts no insurance and Medicaid-only',()=>{expect(missingInsuranceCards(null)).toEqual([]);expect(missingInsuranceCards({primary:{insurerName:'Health First Colorado'}})).toEqual([]);});
- it('requires cards for commercial and secondary coverage',()=>{expect(missingInsuranceCards({primary:{insurerName:'Commercial'}})).toEqual(['primary_front','primary_back']);expect(missingInsuranceCards({primary:{isMedicaid:true},secondary:{insurerName:'Commercial'}})).toEqual(['secondary_front','secondary_back']);});
+ it('never blocks enrollment for missing commercial or Medicaid cards',()=>{expect(missingInsuranceCards({primary:{insurerName:'Commercial'}})).toEqual([]);expect(missingInsuranceCards({primary:{isMedicaid:true},secondary:{insurerName:'Commercial'}})).toEqual([]);});
  it('recognizes private references in enrollment and saved policies',()=>{expect(missingInsuranceCards({primary:{insurerName:'Commercial'},primaryCardFrontUrl:'gs://a',primary_card_back_url:'gs://b'})).toEqual([]);});
 });
 describe('Notifyre client campaign routing',()=>{

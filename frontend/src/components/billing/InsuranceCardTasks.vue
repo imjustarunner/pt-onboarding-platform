@@ -1,6 +1,6 @@
 <template>
   <section class="card-tasks" aria-label="Insurance card follow-up">
-    <header><div><h3>{{ staff ? 'Insurance card follow-up' : 'Your insurance cards' }}</h3><p>Upload the front and back of each non-Medicaid card. The office reviews the images and coverage separately.</p></div><button type="button" :disabled="busy || loading" @click="load()">Refresh</button></header>
+    <header><div><h3>{{ staff ? 'Insurance card follow-up' : 'Your insurance cards' }}</h3><p>Card photos are optional but encouraged for every insurance plan, including Medicaid. Uploading both sides can help the office verify coverage.</p></div><button type="button" :disabled="busy || loading" @click="load()">Refresh</button></header>
     <p v-if="staff" class="muted">Insurance card emails are always reviewed by billing staff before sending. Use the pending task to review, send later, or snooze your reminder for 24 hours.</p>
     <p v-if="loading" role="status">Loading insurance tasks…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <label v-if="staff">Show<select v-model="filter"><option value="actionable">Needs attention</option><option value="all">All policies on this page</option></select></label>
@@ -10,14 +10,14 @@
       <div v-if="staff" class="actions"><a v-for="client in task.clients" :key="client.id" :href="`/admin/medical-billing?agencyId=${agencyId}&clientId=${client.id}`">{{client.name || 'Client'}} · pending tasks →</a></div>
       <p v-if="staff && task.ownerName">Account holder: {{ task.ownerName }}</p>
       <p v-if="task.state === 'help'">The billing team has been asked to help. Reminder emails are paused.</p>
-      <p v-if="task.state === 'review'">Both required sides are received. No more upload reminders while the office reviews them.</p>
-      <p v-if="task.state === 'not_required'">No card images are required for the current policy.</p>
+      <p v-if="task.state === 'review'">Both sides are received. No more upload reminders while the office reviews them.</p>
+      <p v-if="task.state === 'not_required'">{{ task.coverageVerified ? 'Insurance verification is complete. Card-upload reminders have stopped.' : 'Card images are optional for this policy.' }}</p>
       <div class="sides">
-        <div v-for="(slot, key) in task.slots" v-show="slot.required || slot.received" :key="key" class="side">
-          <strong>{{ slotLabel(key) }}</strong><span>{{ slot.needsReplacement ? 'Please replace this image' : slot.received ? 'Received' : 'Missing' }}</span>
+        <div v-for="(slot, key) in task.slots" v-show="slot.encouraged || slot.required || slot.received" :key="key" class="side">
+          <strong>{{ slotLabel(key) }}</strong><span>{{ slot.needsReplacement ? 'Please replace this image' : slot.received ? 'Received' : 'Optional' }}</span>
           <button v-if="slot.received" :disabled="busy" type="button" @click="view(task,key)">View {{ slotLabel(key).toLowerCase() }}</button>
-          <label v-if="!staff && slot.required && task.state !== 'waived'">{{ slot.received ? 'Replace image' : 'Upload image' }}<input type="file" accept="image/jpeg,image/png,application/pdf" :disabled="busy" @change="upload(task,key,$event)" /></label>
-          <label v-if="staff && slot.required"><input v-model="replacements[task.profileId]" type="checkbox" :value="key" /> Request a replacement</label>
+          <label v-if="!staff && (slot.encouraged || slot.required)">{{ slot.received ? 'Replace image' : 'Upload image' }}<input type="file" accept="image/jpeg,image/png,application/pdf" :disabled="busy" @change="upload(task,key,$event)" /></label>
+          <label v-if="staff && (slot.encouraged || slot.required)"><input v-model="replacements[task.profileId]" type="checkbox" :value="key" /> Request a replacement</label>
         </div>
       </div>
       <template v-if="!staff && task.state !== 'not_required'">
@@ -49,7 +49,7 @@ const base='/family-billing/insurance-cards';
 const params=()=>({agencyId:props.agencyId,...(props.clientId?{clientId:props.clientId}:{}),...(props.staff?{after:after.value}:{})});
 const shown=computed(()=>rows.value.filter(t=>!props.staff||filter.value==='all'||['missing','help','review'].includes(t.state)));
 const slotLabel=key=>({primary_front:'Primary card · front',primary_back:'Primary card · back',secondary_front:'Secondary card · front',secondary_back:'Secondary card · back'}[key]);
-const stateLabel=state=>({missing:'Upload needed',review:'Office review',complete:'Reviewed',waived:'Waived by office',help:'Help requested',not_required:'No images required'}[state]||state);
+const stateLabel=state=>({missing:'Optional upload encouraged',review:'Office review',complete:'Reviewed',waived:'Waived by office',help:'Help requested',not_required:'No images required'}[state]||state);
 const date=v=>v?new Date(v).toLocaleDateString():'';
 const reasonReady=task=>!!reasons.value[task.profileId]?.trim();
 const message=e=>e.response?.data?.error?.message||e.response?.data?.message||'The insurance request could not be completed. Please try again.';

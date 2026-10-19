@@ -112,7 +112,7 @@ export async function saveCoverageReview(input) {
   const {checks,latestCheckId}=await listCoverageEvidence({...input,serviceDate:date},db);
   if(input.source==='claimmd'&&input.status==='verified')for(const slot of insurance.secondary?['primary','secondary']:['primary']) {
    const check=checks.find(c=>c.policy_slot===slot);
-   if(!check||check.status!=='returned'||check.insurance_fingerprint!==coverageFingerprint(insurance)||check.evidence?.summary?.status!=='active_reported')throw billingError(409,'Check each current policy or document payer-portal/phone verification');
+   if(!check||check.status!=='returned'||check.insurance_fingerprint!==coverageFingerprint(insurance)||check.evidence?.summary?.status!=='active_reported'||check.evidence?.summary?.identityMatches===false)throw billingError(409,'Check each current policy and reconcile the returned identity, or document payer-portal/phone verification');
   }
   const evidence={source:input.source,reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true};
   const [row]=await db.execute('INSERT INTO client_coverage_reviews (agency_id,client_id,service_date,insurance_fingerprint,status,through_check_id,evidence_encrypted,created_by_user_id) VALUES (?,?,?,?,?,?,?,?)',[input.agencyId,input.clientId,date,coverageFingerprint(insurance),input.status,latestCheckId,encryptFamilyBilling(evidence,context(input.agencyId,input.clientId)),input.actorUserId]);

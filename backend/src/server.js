@@ -2794,12 +2794,15 @@ if (process.env.BANK_FEEDS_ENABLED === 'true') {
 }
 
 // Requests are persisted and budgeted before transmission; replicas share quotas.
-if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true') {
+if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true' || process.env.CLAIM_MD_INTAKE_ELIGIBILITY_ENABLED === 'true') {
   let eligibilityTickRunning=false;
   const timer=setInterval(async()=>{
     if(eligibilityTickRunning)return;
     eligibilityTickRunning=true;
-    try {const {runEligibilityAutomation}=await import('./services/eligibilityAutomation.service.js');await runEligibilityAutomation();}
+    try {
+      const {runIntakeEligibilityJobs}=await import('./services/intakeEligibility.service.js');await runIntakeEligibilityJobs();
+      const {runEligibilityAutomation}=await import('./services/eligibilityAutomation.service.js');await runEligibilityAutomation();
+    }
     catch {console.warn('[eligibility] Worker needs configuration or migration review');}
     finally {eligibilityTickRunning=false;}
   },5*60*1000);

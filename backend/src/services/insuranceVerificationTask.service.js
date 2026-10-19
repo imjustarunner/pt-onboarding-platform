@@ -3,6 +3,9 @@ import Task from '../models/Task.model.js';
 
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const reasons = {
+  missing_card: 'No complete insurance card was uploaded. Cards are optional; verify the coverage electronically or through the payer portal and help with missing information.',
+  verification_pending: 'Intake insurance is ready for eligibility verification and billing review.',
+  coverage_coordination: 'Electronic coverage was found. Review payer routing, other insurance/TPL and provider enrollment before billing.',
   missing_member_id: 'The insurance member ID is missing.',
   missing_identity: 'The subscriber or dependent identity is incomplete.',
   missing_payer: 'The eligibility payer has not been identified.',

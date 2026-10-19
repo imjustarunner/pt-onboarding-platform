@@ -1989,16 +1989,22 @@ export const persistChildIntakeData = async ({
           dateOfBirth: normalizeDateOnly(demographics.date_of_birth) || '', sex: ['M','F','U'].includes(demographics.gender) ? demographics.gender : '',
           addressLine1: demographics.address_street, addressLine2: demographics.address_apt, city: demographics.address_city, state: demographics.address_state, postalCode: demographics.address_zip } });
       result.insurerPersisted = true;
-      const { readClientInsurance } = await import('../services/clientInsurance.service.js');
-      const { insuranceIdentityIssue, queueInsuranceVerificationSafely } = await import('../services/insuranceVerificationTask.service.js');
-      const savedInsurance = await readClientInsurance(cid, agencyId);
-      const verificationReason = insuranceIdentityIssue(savedInsurance);
-      if (verificationReason) await queueInsuranceVerificationSafely({agencyId,clientId:cid,reason:verificationReason});
+      const { enqueueIntakeEligibility } = await import('../services/intakeEligibility.service.js');
+      await enqueueIntakeEligibility({agencyId,clientId:cid,submissionId,
+        insuranceCardsMissing:!coverage.primaryCardFrontUrl || !coverage.primaryCardBackUrl || !!coverage.secondary && (!coverage.secondaryCardFrontUrl || !coverage.secondaryCardBackUrl)});
       if (coverage.primary.insurerName) {
         const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
         const typeId = await resolveInsuranceTypeIdForAgency(agencyId, coverage.primary.insurerName);
         if (typeId) await pool.execute('UPDATE clients SET insurance_type_id = COALESCE(insurance_type_id, ?) WHERE id = ?', [typeId, cid]);
       }
+    } else if (agencyId && insuranceInfo?.useInsuranceOnFile) {
+      const { enqueueIntakeEligibility } = await import('../services/intakeEligibility.service.js');
+      await enqueueIntakeEligibility({agencyId,clientId:cid,submissionId});
+    } else if (agencyId && insuranceInfo && !insuranceInfo.isSelfPay) {
+      // An ambiguous multi-child assignment must reach billing instead of
+      // copying one child's Medicaid identifier to a sibling.
+      const { queueInsuranceVerificationSafely } = await import('../services/insuranceVerificationTask.service.js');
+      await queueInsuranceVerificationSafely({agencyId,clientId:cid,reason:'missing_identity'});
     }
 
     // Unified package selection from office enrollment — create pending entitlement

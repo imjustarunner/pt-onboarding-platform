@@ -31,7 +31,7 @@
     <div v-if="!isSelfPay" class="pi-ins-card">
       <h4 class="pi-ins-card-title">{{ tx('Primary Insurance') }}</h4>
       <p class="pi-ins-card-tip">
-        {{ tx('Enter the policy details below and upload both sides of your insurance card. Our office will review your coverage.') }}
+        {{ tx('Enter the policy details below. Insurance card photos are optional but encouraged for all plans, including Medicaid. Our billing team will verify your coverage.') }}
       </p>
 
       <div class="form-group">
@@ -144,7 +144,7 @@
         :class="{ 'pi-ins-photos--err': !!validationErrorFor('card') }"
       >
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">{{ tx('Insurance card – front') }}</label>
+          <label class="pi-ins-lbl">{{ tx('Insurance card – front (optional)') }}</label>
           <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload primary front of insurance card" @keydown.enter.prevent="triggerUpload('primary_front')" @keydown.space.prevent="triggerUpload('primary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_front')" @click="triggerUpload('primary_front')">
             <span v-if="photoFiles.primary_front?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.primary_front.name }}</span>
             <img v-else-if="primaryFrontPreview" :src="primaryFrontPreview" alt="Front of card" class="pi-ins-photo-img" />
@@ -166,7 +166,7 @@
           </button>
         </div>
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">{{ tx('Insurance card – back') }}</label>
+          <label class="pi-ins-lbl">{{ tx('Insurance card – back (optional)') }}</label>
           <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload primary back of insurance card" @keydown.enter.prevent="triggerUpload('primary_back')" @keydown.space.prevent="triggerUpload('primary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_back')" @click="triggerUpload('primary_back')">
             <span v-if="photoFiles.primary_back?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.primary_back.name }}</span>
             <img v-else-if="primaryBackPreview" :src="primaryBackPreview" alt="Back of card" class="pi-ins-photo-img" />
@@ -287,7 +287,7 @@
       </div>
       <div class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">{{ tx('Secondary card – front') }}</label>
+          <label class="pi-ins-lbl">{{ tx('Secondary card – front (optional)') }}</label>
           <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary front of insurance card" @keydown.enter.prevent="triggerUpload('secondary_front')" @keydown.space.prevent="triggerUpload('secondary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_front')" @click="triggerUpload('secondary_front')">
             <span v-if="photoFiles.secondary_front?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.secondary_front.name }}</span>
             <img v-else-if="secondaryFrontPreview" :src="secondaryFrontPreview" alt="Front of secondary card" class="pi-ins-photo-img" />
@@ -298,7 +298,7 @@
           <button v-if="secondaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_front')">{{ tx('Remove') }}</button>
         </div>
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">{{ tx('Secondary card – back') }}</label>
+          <label class="pi-ins-lbl">{{ tx('Secondary card – back (optional)') }}</label>
           <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary back of insurance card" @keydown.enter.prevent="triggerUpload('secondary_back')" @keydown.space.prevent="triggerUpload('secondary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_back')" @click="triggerUpload('secondary_back')">
             <span v-if="photoFiles.secondary_back?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.secondary_back.name }}</span>
             <img v-else-if="secondaryBackPreview" :src="secondaryBackPreview" alt="Back of secondary card" class="pi-ins-photo-img" />

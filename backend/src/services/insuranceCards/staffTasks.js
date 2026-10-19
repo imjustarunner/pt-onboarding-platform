@@ -100,8 +100,8 @@ async function emailPreview(input, deps, db, { locked = false } = {}) {
   catch (e) { if (e.status !== 409) throw e; blocked = e.message; }
   const clientId = context.clients.map(c => Number(c.id)).sort((a,b) => a-b)[0];
   const url = buildPublicAppUrl({ slug: profile.slug, portal_url: profile.portal_url }, `guardian?panel=payment_methods&clientId=${clientId}&insuranceProfile=${profile.id}`);
-  const subject = 'Please complete your insurance information';
-  const text = `Your care team needs an insurance card image. Sign in to see which side is missing and upload a photo or PDF.\n\n${url}\n\nPlease use the secure upload instead of attaching cards to an email reply. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there.`;
+  const subject = 'Optional insurance card upload';
+  const text = `An insurance card photo can help our billing team verify your coverage. Uploading a card is optional, including for Medicaid, and does not prevent you from completing intake. If you have it, sign in to upload the front and back as a photo or PDF.\n\n${url}\n\nPlease use the secure upload instead of attaching cards to an email reply. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there. Card follow-ups stop once your insurance verification is complete.`;
   const snapshot = { to: profile.email || '', from: sender?.from_email || '', subject, text, senderId: sender?.id || null,
     cycle: progress.cycle_hash, ordinal: status.ordinal, missingSlots: progress.missingSlots, guardianUserId: profile.guardian_user_id };
   const reviewHash = crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');

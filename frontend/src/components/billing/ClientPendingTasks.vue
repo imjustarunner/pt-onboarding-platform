@@ -5,7 +5,7 @@
     <ul>
       <li v-for="note in pendingNotes" :key="`note-${note.record_key || note.id}`"><div><strong>{{ note.note_status === 'none' || !note.note_status ? 'Complete session note' : 'Review and sign note' }}</strong><small>Clinical team · {{date(note.service_date)}} · {{note.note_status || 'Not started'}}</small></div><button @click="openNote(note)">Open note →</button></li>
       <template v-for="task in tasks" :key="task.profileId">
-        <li><div><strong>{{task.state==='help'?'Help with insurance card upload':task.state==='review'?'Review uploaded insurance cards':'Upload missing insurance card images'}}</strong><small>{{task.state==='review'?'Billing team':'Client / guardian'}} · {{task.ownerName}} · {{task.state==='missing'?`${task.missingSlots.length} card side(s) missing`:'Office follow-up needed'}}</small></div><button @click="cardsOpen=!cardsOpen">{{cardsOpen?'Hide':'View'}} card task</button></li>
+        <li><div><strong>{{task.state==='help'?'Help with insurance card upload':task.state==='review'?'Review uploaded insurance cards':'Optional insurance card upload'}}</strong><small>{{task.state==='review'?'Billing team':'Client / guardian'}} · {{task.ownerName}} · {{task.state==='missing'?`${task.missingSlots.length} optional card side(s) not uploaded`:'Office follow-up needed'}}</small></div><button @click="cardsOpen=!cardsOpen">{{cardsOpen?'Hide':'View'}} card task</button></li>
         <li v-if="task.state==='missing'"><div><strong>Review and send insurance email</strong><small>{{task.snoozedUntil?`Your reminder returns ${dateTime(task.snoozedUntil)}`:task.emailBlocked||'Billing team · Ready for your review'}}</small></div><button @click="review=task">Review email →</button></li>
       </template>
     </ul>

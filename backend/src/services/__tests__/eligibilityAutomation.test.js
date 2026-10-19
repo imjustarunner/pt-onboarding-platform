@@ -42,7 +42,7 @@ describe('background eligibility controls',()=>{
  it.each([{paused:true},{existing:true},{actor:false}])('does not transmit after pause, prior attempt or revoked access: %j',async opts=>{const deps=worker(opts);await runEligibilityAutomation(deps);expect(deps.check).not.toHaveBeenCalled();});
  it('reserves before calling the payer and conservatively tracks a timeout',async()=>{
   const events=[],db={execute:vi.fn().mockResolvedValue([{}])},reserve=vi.fn(async()=>{events.push('reserve');return 22;}),check=vi.fn(async()=>{events.push('check');throw Object.assign(new Error('Unconfirmed'),{status:502});});
-  await expect(runMeteredCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-09-25',requestKey:'synthetic-check',actorUserId:9,profile,connection},{db,reserve,check,readInsurance:async()=>insurance})).rejects.toThrow('Unconfirmed');
+  await expect(runMeteredCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-09-25',requestKey:'synthetic-check',actorUserId:9,profile,connection},{db,reserve,check,reserveFee:async()=>1,readInsurance:async()=>insurance})).rejects.toThrow('Unconfirmed');
   expect(events).toEqual(['reserve','check']);expect(db.execute.mock.calls[0][1]).toEqual(['unknown',22,1]);
  });
  it('does not reserve or call Claim.MD with disabled transmission or changed insurance',async()=>{

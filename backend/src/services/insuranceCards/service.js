@@ -3,10 +3,11 @@ import pool from '../../config/database.js';
 import {decodeInsuranceProfile} from '../../models/GuardianInsuranceProfile.model.js';
 import {billingError,positiveId,requireBillingLink,auditBilling} from '../familyBillingPolicy.service.js';
 import {readClientInsurance} from '../clientInsurance.service.js';
-import {encryptFamilyBilling} from '../familyBillingEncryption.service.js';
+import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncryption.service.js';
+import {coverageFingerprint} from '../coverageVerification.service.js';
 import StorageService from '../storage.service.js';
 import DocumentEncryptionService from '../documentEncryption.service.js';
-import {CARD_SLOTS,cardUrlKey,cardCycle,cardProgress,parse,validCardFile} from './policy.js';
+import {CARD_SLOTS,cardUrlKey,cardCycle,cardProgress,cardCoverageVerified,parse,validCardFile} from './policy.js';
 
 export async function cardContext({agencyId,profileId,userId,staff=false},db=pool) {
   const [[row]]=await db.execute(`SELECT p.*,a.name AS agency_name,a.slug,a.portal_url,u.email,u.first_name,u.last_name,u.status AS user_status,u.is_active AS user_is_active,u.is_archived AS user_is_archived FROM guardian_insurance_profiles p JOIN agencies a ON a.id=p.agency_id JOIN users u ON u.id=p.guardian_user_id WHERE p.id=? AND p.agency_id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`,[positiveId(profileId),positiveId(agencyId)]);
@@ -21,10 +22,18 @@ export async function cardContext({agencyId,profileId,userId,staff=false},db=poo
     // Another parent's policy remains their private submission while staff
     // coordinates primary/secondary coverage. They can still upload its cards.
     const additionalCoverage=Number(c.assigned_profile_id)===Number(profileId);
-    if(currentCoverage||additionalCoverage)clients.push(c);
+    if(currentCoverage||additionalCoverage) {
+      let verified=false;
+      if(currentCoverage) {
+        const [[review]]=await db.execute('SELECT status,insurance_fingerprint,through_check_id FROM client_coverage_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1',[agencyId,c.id]);
+        const [checks]=await db.execute('SELECT id,status,policy_slot,insurance_fingerprint,evidence_encrypted FROM client_coverage_checks WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 20',[agencyId,c.id]);
+        verified=cardCoverageVerified({fingerprint:coverageFingerprint(coverage),hasSecondary:!!coverage.secondary,review,checks:checks.map(check=>({...check,evidence:decryptFamilyBilling(check.evidence_encrypted,`coverage:${agencyId}:${c.id}`)}))});
+      }
+      clients.push({...c,coverageVerified:verified});
+    }
   }
   if(!clients.length)throw billingError(404,'This policy is no longer assigned to an accessible client');
-  return {profile,clients};
+  return {profile,clients,coverageVerified:clients.every(c=>c.coverageVerified)};
 }
 export async function refreshCardFollowup(context,db=pool,{locked=false}={}) {
   // Serialize review, replacement uploads and policy changes on the same profile.
@@ -41,7 +50,7 @@ export async function refreshCardFollowup(context,db=pool,{locked=false}={}) {
   const {profile}=context,cycle=cardCycle(profile);
   await db.execute('INSERT IGNORE INTO insurance_card_followups (profile_id,agency_id) VALUES (?,?)',[profile.id,profile.agency_id]);
   const [[old]]=await db.execute('SELECT * FROM insurance_card_followups WHERE profile_id=? AND agency_id=?',[profile.id,profile.agency_id]);
-  const changed=old.cycle_hash!==cycle,progress=cardProgress(profile,old);
+  const changed=old.cycle_hash!==cycle,progress=cardProgress(profile,old,new Date(),context.coverageVerified===true);
   await db.execute(`UPDATE insurance_card_followups SET cycle_hash=?,state=?,missing_slots_json=?,first_requested_at=IF(?,UTC_TIMESTAMP(),first_requested_at),rejected_slots_json=IF(?,NULL,rejected_slots_json),review_encrypted=IF(?,NULL,review_encrypted),snoozed_until=IF(?,NULL,snoozed_until) WHERE profile_id=? AND agency_id=?`,[cycle,progress.state,JSON.stringify(progress.missingSlots),changed,changed,changed,changed,profile.id,profile.agency_id]);
   return {...old,...progress,cycle_hash:cycle,first_requested_at:changed?new Date():old.first_requested_at,snoozed_until:changed?null:old.snoozed_until};
 }
@@ -53,7 +62,7 @@ export async function listCardTasks({agencyId,userId,clientId=null}) {
       const context=await cardContext({agencyId,userId,profileId:row.id});
       if(clientId&&!context.clients.some(c=>Number(c.id)===Number(clientId)))continue;
       const progress=await refreshCardFollowup(context);
-      tasks.push({profileId:row.id,cycle:progress.cycle_hash,clients:context.clients.map(c=>({id:c.id,name:c.full_name||c.initials})),state:progress.state,slots:progress.slots,missingSlots:progress.missingSlots,emailEnabled:!!progress.email_enabled});
+      tasks.push({profileId:row.id,cycle:progress.cycle_hash,clients:context.clients.map(c=>({id:c.id,name:c.full_name||c.initials})),state:progress.state,coverageVerified:progress.coverageVerified,slots:progress.slots,missingSlots:progress.missingSlots,emailEnabled:!!progress.email_enabled});
     }catch(e){if(e.status!==404)throw e;}
   }
   return tasks;
@@ -115,8 +124,8 @@ export async function updateCardTask(input) {
     }else if(input.staff&&['complete','waived','replace','snooze','delivery_reviewed'].includes(input.action)) {
       if(!String(input.reason||'').trim())throw billingError(400,'Record the review reason');
       const slots=Array.isArray(input.slots)?input.slots:[];
-      if(input.action==='complete'&&progress.missingSlots.length)throw billingError(409,'Both required sides must be uploaded before approval');
-      if(input.action==='replace'&&(!slots.length||slots.some(s=>!progress.requiredSlots.includes(s))))throw billingError(400,'Choose the card sides that need replacement');
+      if(input.action==='complete'&&progress.missingSlots.length)throw billingError(409,'Upload both sides before approving the images, or waive the optional card request');
+      if(input.action==='replace'&&(!slots.length||slots.some(s=>!progress.encouragedSlots.includes(s))))throw billingError(400,'Choose the card sides that need replacement');
       await db.execute('INSERT INTO insurance_card_reviews (profile_id,agency_id,actor_user_id,cycle_hash,action,evidence_encrypted) VALUES (?,?,?,?,?,?)',[input.profileId,input.agencyId,input.userId,input.cycle,input.action,
         encryptFamilyBilling({reason:String(input.reason).slice(0,2000),slots,documents:Object.fromEntries(CARD_SLOTS.map(slot=>[slot,context.profile[cardUrlKey(slot)]||null]))},`insurance-review:${input.agencyId}:${input.profileId}`)]);
       const keep=['snooze','delivery_reviewed'].includes(input.action);

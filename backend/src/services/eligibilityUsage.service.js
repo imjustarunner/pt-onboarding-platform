@@ -43,7 +43,7 @@ export async function reserveEligibilityUsage(input, deps={}) {
  */
 export async function runMeteredCoverageCheck(input, deps={}) {
   const db=deps.db||pool,connection=input.connection;
-  requireClaimMdEligibility(connection,input.agencyId);
+  requireClaimMdEligibility(connection,input.agencyId,deps.env||process.env);
   const insurance=await (deps.readInsurance||readClientInsurance)(input.clientId,input.agencyId,db);
   const identityIssue=insuranceIdentityIssue(insurance,input.slot);
   if(identityIssue) await (deps.queueFollowUp||queueInsuranceVerificationSafely)({...input,reason:identityIssue},db);
