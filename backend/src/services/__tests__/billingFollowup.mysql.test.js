@@ -11,7 +11,7 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   const [tables]=await db.query('SHOW TABLES');await db.query('SET FOREIGN_KEY_CHECKS=0');for(const t of tables)await db.query(`DROP TABLE \`${Object.values(t)[0]}\``);await db.query('SET FOREIGN_KEY_CHECKS=1');
   // Synthetic fixture only. This guard and local-only database prevent live-data tests.
   let fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');fixture=fixture.slice(fixture.indexOf('CREATE TABLE agencies'));await db.query(fixture);
-  for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
+  for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1486_client_coverage_verification.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
   await db.query(`ALTER TABLE agencies ADD slug VARCHAR(100),ADD portal_url VARCHAR(100),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD organization_type VARCHAR(20) DEFAULT 'agency',ADD feature_flags JSON;
    ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
    ALTER TABLE clients ADD date_of_birth DATE,ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME;
@@ -22,13 +22,14 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   await db.query(await readFile(new URL('../../../../database/migrations/1641_reviewed_insurance_email_tasks.sql',import.meta.url),'utf8'));
   await db.execute("UPDATE users SET email='synthetic@example.invalid' WHERE id=10");
   const {default:Profiles}=await import('../../models/GuardianInsuranceProfile.model.js');
-  const {writeClientInsurance}=await import('../clientInsurance.service.js');
+  const {writeClientInsurance,readClientInsurance}=await import('../clientInsurance.service.js');
   const {listCardTasks,uploadCard,updateCardTask,cardContext,cardFile}=await import('../insuranceCards/service.js');
   const {cardCycle}=await import('../insuranceCards/policy.js');
   const primary={insurerName:'Synthetic commercial',memberId:'NOT-REAL'},secondary={insurerName:'Medicaid',memberId:'NOT-REAL-MEDICAID',isMedicaid:true};
   const profileId=await Profiles.upsert({guardianUserId:10,agencyId:1,clientId:101,primary,secondary});
   await writeClientInsurance({agencyId:1,clientId:101,primary,secondary,profileId});
-  let [task]=await listCardTasks({agencyId:1,userId:10});assert.deepEqual(task.missingSlots,['primary_front','primary_back']);
+  let [task]=await listCardTasks({agencyId:1,userId:10});assert.deepEqual(task.missingSlots,['primary_front','primary_back','secondary_front','secondary_back']);
+  assert.ok(Object.values(task.slots).every(slot=>slot.required===false));
   assert.equal((await listCardTasks({agencyId:1,userId:20})).length,0);
   await assert.rejects(cardContext({agencyId:2,profileId,userId:10}),e=>e.status===404);
   await assert.rejects(cardContext({agencyId:1,profileId,userId:20}),e=>e.status===404);
@@ -58,7 +59,9 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   assert.equal((await staffTasks.listStaffCardTasks(staffUser,{},staffDeps)).rows[0].reminderDue,false);
   // Both sides upload concurrently without losing either encrypted URL.
   await Promise.all(['primary_front','primary_back'].map(slot=>uploadCard({...input,slot},file,deps)));
-  [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.state,'review');assert.equal(task.missingSlots.length,0);assert.equal(saved.length,2);
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.deepEqual(task.missingSlots,['secondary_front','secondary_back']);
+  await Promise.all(['secondary_front','secondary_back'].map(slot=>uploadCard({...input,slot},file,deps)));
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.state,'review');assert.equal(task.missingSlots.length,0);assert.equal(saved.length,4);
   assert.ok(saved.every(x=>x.key.startsWith(`insurance-cards/1/${profileId}/`)));
   const fileDeps={storage:{getGCSBucket:async()=>({name:'private-fixture',file:key=>{assert.ok(key.startsWith(`insurance-cards/1/${profileId}/primary_front-`));return {download:async()=>[Buffer.from('encrypted')],getMetadata:async()=>[{metadata:{isEncrypted:'1',originalMimeType:'application/pdf',encryptionKeyId:'synthetic',encryptionWrappedKey:'key',encryptionIv:'iv',encryptionAuthTag:'tag',encryptionAad:'source-aad'}}]};}})},crypto:{decryptBuffer:async input=>{assert.equal(input.aad,'source-aad');assert.equal(input.encryptionWrappedKeyB64,'key');return file.buffer;}}};
   assert.deepEqual((await cardFile(input,'primary_front',fileDeps)).body,file.buffer);
@@ -76,7 +79,16 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   const changed={...primary,memberId:'REPLACED-NOT-REAL'};
   await Profiles.upsert({profileId,guardianUserId:10,agencyId:1,clientId:101,primary:changed,secondary});await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary,profileId});
   await assert.rejects(uploadCard({...input,slot:'primary_front'},file,deps),e=>e.status===409);
-  [task]=await listCardTasks({agencyId:1,userId:10});assert.notEqual(task.cycle,input.cycle);assert.equal(task.missingSlots.length,2);
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.notEqual(task.cycle,input.cycle);assert.equal(task.missingSlots.length,4);
+  // Current verification suppresses reminders without requiring either policy's images.
+  const {coverageFingerprint}=await import('../coverageVerification.service.js');const {encryptFamilyBilling}=await import('../familyBillingEncryption.service.js');
+  const fingerprint=coverageFingerprint(await readClientInsurance(101,1));
+  await db.execute("INSERT INTO client_coverage_reviews (agency_id,client_id,service_date,insurance_fingerprint,status,evidence_encrypted,created_by_user_id) VALUES (1,101,UTC_DATE(),?,'verified',?,99)",[fingerprint,encryptFamilyBilling({reference:'Synthetic verification'},'coverage:1:101')]);
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.coverageVerified,true);assert.equal(task.state,'not_required');assert.deepEqual(task.missingSlots,[]);
+  assert.equal((await staffTasks.previewCardEmail(staffUser,{...staffInput,cycle:task.cycle},staffDeps)).canSend,false);
+  // A changed identity cannot inherit the previous coverage verification.
+  await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary,profileId,patient:{firstName:'Changed synthetic identity'}});
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.coverageVerified,false);assert.equal(task.missingSlots.length,4);
   await db.execute('UPDATE agencies SET is_archived=1 WHERE id=1');assert.equal((await listCardTasks({agencyId:1,userId:10})).length,0);await db.execute('UPDATE agencies SET is_archived=0 WHERE id=1');
   // Shared statements do not make the other guardian's portion payable by this account.
   await db.query('INSERT INTO client_billing_payers(agency_id,client_id,guardian_user_id) VALUES(1,101,10)');

@@ -6,6 +6,9 @@ on:
       - 'backend/src/services/familyLedger/**'
       - 'backend/src/services/insuranceCards/**'
       - 'backend/src/services/__tests__/billingFollowup*'
+      - 'backend/src/services/clientDocumentationReadiness.service.js'
+      - 'backend/src/services/__tests__/claimMdClientDocumentation.test.js'
+      - 'backend/src/controllers/clientDocumentationReadiness.controller.js'
       - 'backend/src/services/__tests__/insuranceCards*'
       - 'backend/src/services/__tests__/guardianAccess.balanceNotifications*'
       - 'backend/src/routes/insuranceCards.routes.js'
@@ -19,6 +22,7 @@ on:
       - 'frontend/src/views/guardian/GuardianPortalView.vue'
       - 'database/migrations/1640_insurance_followups_and_payer_shares.sql'
       - 'database/migrations/1641_reviewed_insurance_email_tasks.sql'
+      - 'database/migrations/1659_client_documentation_reviews.sql'
       - 'backend/src/services/managedBillingAccess.service.js'
       - 'backend/src/services/claimMdWorkspace.service.js'
       - 'backend/src/services/billingAgencyPolicy.js'
@@ -28,11 +32,15 @@ on:
       - 'backend/src/services/familyLedger/**'
       - 'backend/src/services/insuranceCards/**'
       - 'backend/src/services/__tests__/billingFollowup*'
+      - 'backend/src/services/clientDocumentationReadiness.service.js'
+      - 'backend/src/services/__tests__/claimMdClientDocumentation.test.js'
+      - 'backend/src/controllers/clientDocumentationReadiness.controller.js'
       - 'backend/src/services/__tests__/insuranceCards*'
       - 'backend/src/routes/insuranceCards.routes.js'
       - 'frontend/src/components/billing/**'
       - 'database/migrations/1640_insurance_followups_and_payer_shares.sql'
       - 'database/migrations/1641_reviewed_insurance_email_tasks.sql'
+      - 'database/migrations/1659_client_documentation_reviews.sql'
       - 'backend/src/services/managedBillingAccess.service.js'
       - 'backend/src/services/claimMdWorkspace.service.js'
       - 'backend/src/services/billingAgencyPolicy.js'
@@ -85,5 +93,7 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-followup.config.js
       - name: Native SQL workflow and policy checks
         run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js
+      - name: Claim and documentation verification
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
       - name: Guardian and billing workspace screens
-        run: npm --prefix frontend test -- src/components/billing/__tests__/FamilyLedgerPanel.test.js src/components/billing/__tests__/InsuranceCardTasks.test.js src/components/billing/__tests__/BillingFollowupTasks.test.js src/views/admin/__tests__/BillingWorkspaceView.test.js src/views/__tests__/FundThredCollections.test.js src/components/fundthred/__tests__/FundThred.test.js src/router/__tests__/fundthredRoutes.test.js src/utils/__tests__/fundthred.test.js
+        run: npm --prefix frontend test -- src/components/billing/__tests__/FamilyLedgerPanel.test.js src/components/billing/__tests__/InsuranceCardTasks.test.js src/components/billing/__tests__/BillingFollowupTasks.test.js src/components/billing/__tests__/ClientDocumentationReadiness.test.js src/components/billing/__tests__/EligibilityAutomationPanel.test.js src/components/billing/__tests__/ClientInsuranceEditor.test.js src/views/admin/__tests__/BillingWorkspaceView.test.js src/views/__tests__/FundThredCollections.test.js src/components/fundthred/__tests__/FundThred.test.js src/router/__tests__/fundthredRoutes.test.js src/utils/__tests__/fundthred.test.js
