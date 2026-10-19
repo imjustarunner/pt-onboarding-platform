@@ -30,6 +30,8 @@ COPY frontend/index.html ./
 COPY frontend/ ./
 
 # Build argument for API URL (relative path since frontend and backend are same origin)
+ARG VITE_APP_BUILD_ID=dev
+ENV VITE_APP_BUILD_ID=$VITE_APP_BUILD_ID
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
 

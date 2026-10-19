@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { appVersionPlugin } from './scripts/app-version-plugin.mjs';
 import vue from '@vitejs/plugin-vue';
 import { readFileSync } from 'node:fs';
 import { pages, renderWebsite } from './src/auricwell/website/render.mjs';
@@ -18,7 +19,7 @@ const gamesRoot = path.resolve(rootDir, '..', 'games');
 export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
   root: rootDir,
-  plugins: [vue(), {
+  plugins: [appVersionPlugin(), vue(), {
     name: 'plotline-marketing-entry',
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {

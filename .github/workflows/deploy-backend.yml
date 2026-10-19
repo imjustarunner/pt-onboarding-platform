@@ -13,6 +13,7 @@ on:
       - '.dockerignore'
       - 'scripts/build-backend-image*'
       - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 concurrency:

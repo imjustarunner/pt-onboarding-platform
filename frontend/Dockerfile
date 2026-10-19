@@ -52,7 +52,7 @@ RUN echo "VITE_API_URL=$VITE_API_URL" && \
     ls -la && ls -la node_modules/@vitejs || true
 
 # Build the application (install used --ignore-scripts so postinstall does not double-build)
-RUN npm run build && printf '{"buildId":"%s"}\n' "$VITE_APP_BUILD_ID" > dist/version.json || ( \
+RUN npm run build || ( \
     echo "❌ Build failed!" && \
     echo "VITE_API_URL=$VITE_API_URL" && \
     echo "Current directory: $(pwd)" && \

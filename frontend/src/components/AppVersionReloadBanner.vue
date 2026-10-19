@@ -6,8 +6,8 @@
     tabindex="0"
     title="Click anywhere to reload"
     @click="onBannerClick"
-    @keydown.enter.prevent="reload"
-    @keydown.space.prevent="reload"
+    @keydown.enter.self.prevent="reload"
+    @keydown.space.self.prevent="reload"
   >
     <span class="app-version-banner__text">
       <strong>{{ bannerLabel }}</strong> has a new version — please reload to get the latest fixes.
@@ -31,8 +31,9 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../store/agency';
 import { resolveTenantAppProfileBySlug } from '../config/tenantAppProfiles.js';
+import { createAppReleaseMonitor } from '../utils/appReleaseMonitor.js';
 
-const POLL_MS = 3 * 60 * 1000;
+const POLL_MS = 60 * 1000;
 
 const props = defineProps({
   authenticated: { type: Boolean, default: false }
@@ -40,13 +41,10 @@ const props = defineProps({
 
 const agencyStore = useAgencyStore();
 const updateAvailable = ref(false);
-const dismissed = ref(false);
 let timer = null;
-
-const baseline = {
-  frontend: String(import.meta.env.VITE_APP_BUILD_ID || 'dev').trim(),
-  backend: null
-};
+let monitor = null;
+let reloading = false;
+const loadedBuildId = String(import.meta.env.VITE_APP_BUILD_ID || 'dev').trim();
 
 const isItscoContext = computed(() => {
   if (!props.authenticated) return false;
@@ -64,49 +62,43 @@ const isItscoContext = computed(() => {
 const bannerLabel = computed(() => (isItscoContext.value ? 'ITSCO\'s App' : 'This app'));
 
 async function fetchJson(url) {
-  const res = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
-  if (!res.ok) return null;
-  return res.json();
-}
-
-async function poll() {
-  if (!isItscoContext.value || dismissed.value || updateAvailable.value) return;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
-    const [fe, be] = await Promise.all([
-      fetchJson(`/version.json?t=${Date.now()}`),
-      fetchJson(`/api/app-version?t=${Date.now()}`)
-    ]);
-    const remoteFe = String(fe?.buildId || '').trim();
-    const remoteBe = String(be?.buildId || '').trim();
-    if (remoteFe && remoteFe !== baseline.frontend) {
-      updateAvailable.value = true;
-      return;
-    }
-    if (remoteBe) {
-      if (baseline.backend == null) baseline.backend = remoteBe;
-      else if (remoteBe !== baseline.backend) updateAvailable.value = true;
-    }
-  } catch {
-    // ignore
-  }
+    const res = await fetch(url, { cache: 'no-store', credentials: 'same-origin', signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } finally { window.clearTimeout(timeout); }
 }
 
 function startPolling() {
   stopPolling();
   if (!isItscoContext.value) return;
-  void poll();
-  timer = window.setInterval(poll, POLL_MS);
+  let storage;
+  try { storage = window.sessionStorage; } catch { /* unavailable */ }
+  monitor = createAppReleaseMonitor({
+    loadedBuildId,
+    fetchJson,
+    storage,
+    onChange: target => { updateAvailable.value = !!target; }
+  });
+  void monitor.check();
+  timer = window.setInterval(() => { void monitor?.check(); }, POLL_MS);
 }
 
 function stopPolling() {
-  if (timer) {
-    window.clearInterval(timer);
-    timer = null;
-  }
+  if (timer) window.clearInterval(timer);
+  timer = null;
+  monitor?.dispose();
+  monitor = null;
 }
 
-function reload() {
-  window.location.reload();
+async function reload() {
+  if (reloading || !monitor) return;
+  reloading = true;
+  try {
+    if (await monitor.prepareReload()) window.location.reload();
+  } finally { reloading = false; }
 }
 
 function onBannerClick() {
@@ -114,9 +106,7 @@ function onBannerClick() {
 }
 
 function dismiss() {
-  dismissed.value = true;
-  updateAvailable.value = false;
-  stopPolling();
+  monitor?.dismiss();
 }
 
 watch(isItscoContext, (ok) => {

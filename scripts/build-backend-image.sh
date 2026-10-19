@@ -7,7 +7,7 @@ trap 'rm -f "$log_file"' EXIT
 for attempt in 1 2 3; do
   echo "Docker build attempt ${attempt}/3"
   set +e
-  docker build -f backend/Dockerfile --build-arg VITE_API_URL=/api \
+  docker build -f backend/Dockerfile --build-arg VITE_API_URL=/api --build-arg VITE_APP_BUILD_ID="$GITHUB_SHA" \
     -t "$IMAGE_NAME:$GITHUB_SHA" -t "$IMAGE_NAME:latest" . 2>&1 | tee "$log_file"
   build_status=${PIPESTATUS[0]}
   set -e

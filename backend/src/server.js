@@ -792,7 +792,7 @@ app.get('/healthz', healthHandler);
 app.get('/readyz', healthHandler);
 app.get('/api/app-version', (_req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim() });
+  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim(), ready: true });
 });
 
 // Health check routes (must be before authentication middleware)

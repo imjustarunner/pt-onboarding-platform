@@ -9,6 +9,10 @@ on:
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-onboarding-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: onboarding-frontend
