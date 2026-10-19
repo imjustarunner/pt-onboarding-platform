@@ -1,3 +1,4 @@
+import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
 import { safeEnrollmentPortalUrl } from '../utils/enrollmentPortalAccess.js';
 import { missingInsuranceCards } from '../utils/insuranceCardRequirements.js';
 import { enrollmentPortalAccess } from '../services/enrollmentPortalAccess.service.js';
@@ -1984,10 +1985,15 @@ export const persistChildIntakeData = async ({
       const { patientFromDemographics } = await import('../services/clientInsurance.service.js');
       await applySubmittedClientInsurance({ clientId: cid, agencyId, ...coverage, profileId, confirmedBy: guardianUserId || null,
         patient: preserveClientDemographics ? patientFromDemographics(demographics) : {
-          firstName: person.firstName || person.legalFirstName || '', lastName: person.lastName || person.legalLastName || '',
+          firstName: person.child_legal_first || person.client_first || person.firstName || person.legalFirstName || '', lastName: person.child_legal_last || person.client_last || person.lastName || person.legalLastName || '',
           dateOfBirth: normalizeDateOnly(demographics.date_of_birth) || '', sex: ['M','F','U'].includes(demographics.gender) ? demographics.gender : '',
           addressLine1: demographics.address_street, addressLine2: demographics.address_apt, city: demographics.address_city, state: demographics.address_state, postalCode: demographics.address_zip } });
       result.insurerPersisted = true;
+      const { readClientInsurance } = await import('../services/clientInsurance.service.js');
+      const { insuranceIdentityIssue, queueInsuranceVerificationSafely } = await import('../services/insuranceVerificationTask.service.js');
+      const savedInsurance = await readClientInsurance(cid, agencyId);
+      const verificationReason = insuranceIdentityIssue(savedInsurance);
+      if (verificationReason) await queueInsuranceVerificationSafely({agencyId,clientId:cid,reason:verificationReason});
       if (coverage.primary.insurerName) {
         const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
         const typeId = await resolveInsuranceTypeIdForAgency(agencyId, coverage.primary.insurerName);
@@ -4375,24 +4381,6 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
   return output.join('\n').trim();
 };
 
-const parsePscScore = (value) => {
-  if (!hasValue(value)) return null;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.min(2, Math.round(value)));
-  }
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const numeric = Number(raw);
-  if (Number.isFinite(numeric)) {
-    return Math.max(0, Math.min(2, Math.round(numeric)));
-  }
-  const normalized = raw.toLowerCase();
-  if (normalized.includes('never') || normalized.includes('not at all')) return 0;
-  if (normalized.includes('sometimes') || normalized.includes('somewhat')) return 1;
-  if (normalized.includes('often') || normalized.includes('very')) return 2;
-  return null;
-};
-
 const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school|legal right|custodian|sms|text message|communication preference|apartment|apt/i;
 const summaryExcludeKeyPattern = /legal|custodian|sms|text|communication|apartment|address|phone|email|relationship|client_first|client_last|guardian_first|guardian_last|dob|birth|grade|school/i;
 
@@ -4457,8 +4445,8 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
       const raw = bag[key];
       if (!hasValue(raw)) continue;
       seenPscIndices.add(i);
-      const score = parsePscScore(raw);
       const field = byKey.get(key);
+      const score = parsePscScore(raw, field);
       const label = String(field?.label || key).trim() || key;
       pscItems.push({ index: i, key, label, value: normalizeAnswerValue(raw), score });
     }
@@ -4471,86 +4459,7 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     considerPscFromBag(clinicalResponsesBag);
   }
 
-  const formatElevated = (score, cutoff) => (score >= cutoff ? 'Elevated' : 'Not Elevated');
-  const buildH0002Narrative = ({
-    attentionScore,
-    internalScore,
-    externalScore,
-    totalScore,
-    traumaIndicators,
-    goals,
-    traumaHasWrittenDetails = false
-  }) => {
-    const attentionStatus = formatElevated(attentionScore, 7);
-    const internalStatus = formatElevated(internalScore, 5);
-    const externalStatus = formatElevated(externalScore, 7);
-    const totalStatus = totalScore >= 15 ? 'clinically significant' : 'below clinical cutoff';
-    const traumaText = traumaIndicators.length
-      ? `Trauma indicators were endorsed (${traumaIndicators.join('; ')}).${
-          traumaHasWrittenDetails ? ' Additional narrative details were provided in the intake responses (see Clinical History).' : ''
-        }`
-      : 'No trauma indicators were endorsed.';
-    const goalsText = goals.length
-      ? `Client goals include: ${goals.map((g) => g.value).join('; ')}.`
-      : 'Client goals were not reported.';
-    return (
-      `PSC-17 was completed to assess fit and functioning and establish a baseline for services. ` +
-      `Scores indicate Attention is ${attentionStatus}, Internalizing is ${internalStatus}, and Externalizing is ${externalStatus}; total score is ${totalStatus}. ` +
-      `${traumaText} ${goalsText} ` +
-      `Findings support the need for structured support and ongoing monitoring of emotional and behavioral functioning.`
-    ).trim();
-  };
-
-  let attentionScore = 0;
-  let internalScore = 0;
-  let externalScore = 0;
-  let totalScore = 0;
-  let answered = 0;
-  if (pscItems.length) {
-    const attentionKeys = [1, 3, 7, 13, 17];
-    const internalKeys = [2, 6, 9, 11, 15];
-    const externalKeys = [4, 5, 8, 10, 12, 14, 16];
-    const sumScores = (keys) =>
-      keys.reduce((acc, idx) => {
-        const item = pscItems.find((entry) => entry.index === idx);
-        return acc + (item?.score ?? 0);
-      }, 0);
-    totalScore = pscItems.reduce((acc, entry) => acc + (entry?.score ?? 0), 0);
-    answered = pscItems.filter((entry) => entry.score !== null).length;
-    attentionScore = sumScores(attentionKeys);
-    internalScore = sumScores(internalKeys);
-    externalScore = sumScores(externalKeys);
-    output.push('PSC-17 Summary');
-    output.push('--------------');
-    output.push(`Total score: ${totalScore} (${answered} of 17 answered)`);
-    output.push(`Attention: ${attentionScore}`);
-    output.push(`Internalizing: ${internalScore}`);
-    output.push(`Externalizing: ${externalScore}`);
-    output.push('');
-    output.push('Interpretation');
-    output.push('-------------');
-    output.push(
-      attentionScore >= 7
-        ? 'Attention scores indicate clinically significant concerns with focus and attention.'
-        : 'Functioning within normal limits; attention does not appear to be a primary barrier.'
-    );
-    output.push(
-      internalScore >= 5
-        ? 'Scores indicate the presence of emotional distress, meeting the threshold for clinical risk.'
-        : 'Internalizing scores do not indicate clinically significant distress.'
-    );
-    output.push(
-      externalScore >= 7
-        ? 'Scores indicate behavioral dysregulation and interpersonal conflict, meeting the threshold for clinical risk.'
-        : 'Externalizing scores do not indicate clinically significant behavioral dysregulation.'
-    );
-    output.push(
-      totalScore >= 15
-        ? 'Total PSC-17 score meets the overall clinical cutoff for risk.'
-        : 'Total PSC-17 score is below the overall clinical cutoff.'
-    );
-    output.push('');
-  }
+  if (pscItems.length) output.push('PSC-17 Summary', '--------------', formatPsc17(scorePsc17(pscItems, byKey)), '');
 
   const shouldExcludeSummaryLine = (line) => {
     if (!line?.label || !hasValue(line?.value)) return true;
@@ -4811,28 +4720,6 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     } else {
       output.push('No clinical responses captured.');
     }
-  }
-
-  if (pscItems.length) {
-    const h0002Narrative = buildH0002Narrative({
-      attentionScore,
-      internalScore,
-      externalScore,
-      totalScore,
-      traumaIndicators: traumaLabels,
-      goals: goalLines,
-      traumaHasWrittenDetails: traumaFollowUpLines.length > 0
-    });
-    output.push('H0002 Narrative');
-    output.push('--------------');
-    output.push(h0002Narrative);
-    output.push('');
-    output.push(
-      `Objective Output: Client scored in the ${formatElevated(attentionScore, 7)} range for Attention (${attentionScore}; Cutoff >= 7), ` +
-      `the ${formatElevated(internalScore, 5)} range for Internalizing (${internalScore}; Cutoff >= 5), and the ${formatElevated(externalScore, 7)} range for Externalizing (${externalScore}; Cutoff >= 7). ` +
-      `Total Score was ${totalScore} (Cutoff >= 15).`
-    );
-    output.push('Diagnosis: Deferred (R69 – Illness, unspecified) or Z03.89 – Encounter for observation for other suspected diseases and conditions ruled out.');
   }
 
   return output.join('\n').trim();

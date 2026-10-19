@@ -3,7 +3,8 @@ import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from './medicalS
 import { billingError } from './familyBillingPolicy.service.js';
 import { runCoverageCheck, coverageFingerprint, buildEligibilityRequest } from './coverageVerification.service.js';
 import { readClientInsurance } from './clientInsurance.service.js';
-import { requireClaimMdTransmission } from './claimMdConnection.service.js';
+import { requireClaimMdEligibility } from './claimMdConnection.service.js';
+import { insuranceIdentityIssue, queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 
 export function accountEligibilityLimit(connectionId, env=process.env) {
   let limits;
@@ -42,8 +43,10 @@ export async function reserveEligibilityUsage(input, deps={}) {
  */
 export async function runMeteredCoverageCheck(input, deps={}) {
   const db=deps.db||pool,connection=input.connection;
-  requireClaimMdTransmission(connection);
+  requireClaimMdEligibility(connection,input.agencyId);
   const insurance=await (deps.readInsurance||readClientInsurance)(input.clientId,input.agencyId,db);
+  const identityIssue=insuranceIdentityIssue(insurance,input.slot);
+  if(identityIssue) await (deps.queueFollowUp||queueInsuranceVerificationSafely)({...input,reason:identityIssue},db);
   buildEligibilityRequest({...input,insurance}); // Local failures must not reserve vendor usage.
   const fingerprint=coverageFingerprint(insurance);
   if(input.expectedFingerprint&&input.expectedFingerprint!==fingerprint)throw billingError(409,'Insurance changed; refresh the verification request');

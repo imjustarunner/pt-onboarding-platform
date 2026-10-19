@@ -40,6 +40,11 @@
           <p v-if="reportError" role="alert">{{reportError}}</p>
         </section>
         <TaskClaimButton :task="item" @claimed="onTaskClaimed" />
+        <section v-if="item.source_ref_type === 'insurance_verification'" class="client-action-banner">
+          <p>Claim this task, verify the member identity and coverage, then update the secure insurance record. Keep claims on hold until the verification is documented.</p>
+          <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { clientId: parseTaskMetadata(item).clientId } }">Open client insurance record</router-link>
+          <a href="https://colorado-hcp-portal.coxix.gainwelltechnologies.com/hcp/provider/Home/tabid/135/Default.aspx" target="_blank" rel="noopener noreferrer">Colorado Medicaid provider portal</a>
+        </section>
         <section v-if="exchangeSetup" class="client-action-banner">
           <p>Complete this client's record from the EHR. Paste demographics, the intake, and the latest treatment plan here, or review records the provider already supplied.</p>
           <button type="button" class="btn btn-primary btn-sm" @click="showExchangeImport = true">Import demographics, intake and treatment plan</button>
@@ -173,7 +178,7 @@
         <div v-if="needsPhiConfirm && !phiRevealed" class="phi-confirm">
           <p>
             This task contains protected health information. Confirm you are authorized to view it
-            for H0002 billing work.
+            for this task.
           </p>
           <button type="button" class="btn btn-primary" :disabled="revealingPhi" @click="confirmPhiView">
             {{ revealingPhi ? 'Opening…' : 'I confirm — show client details' }}
@@ -189,6 +194,9 @@
             @change="saveCore"
           />
         </label>
+
+        <button v-if="parseTaskMetadata(item).screeningWorkflow && parseTaskMetadata(item).clinicalSessionId && phiRevealed" type="button" class="btn btn-primary" @click="showScreeningReview = true">Review H0002 screening</button>
+        <H0002ScreeningReview v-if="showScreeningReview" :key="item.id" :session-id="Number(parseTaskMetadata(item).clinicalSessionId)" :agency-id="Number(agencyId)" @close="showScreeningReview = false" @signed="showScreeningReview = false; $emit('changed')" />
 
         <div class="assoc-box">
           <TaskListProjectFields
@@ -356,6 +364,8 @@
 </template>
 
 <script setup>
+import H0002ScreeningReview from '../clinical/H0002ScreeningReview.vue';
+
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
@@ -406,6 +416,8 @@ async function submitTaskReport(){
 const tab = ref('details');
 const loading = ref(false);
 const phiRevealed = ref(false);
+const showScreeningReview = ref(false);
+watch(() => props.item.id, () => { showScreeningReview.value = false; });
 const revealingPhi = ref(false);
 const phiError = ref('');
 const needsPhiConfirm = computed(() =>

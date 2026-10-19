@@ -1491,6 +1491,8 @@
       </button>
     </div>
 
+    <H0002ScreeningReview v-if="activeScreeningReview" :key="activeScreeningReview.clinicalSessionId" :session-id="Number(activeScreeningReview.clinicalSessionId)" :agency-id="Number(activeScreeningReview.agencyId)" @close="activeScreeningReview = null" @signed="onScreeningReviewSigned" />
+
     <NoteAidCreateClientModal
       :open="showCreateClientModal"
       :default-agency-id="createClientDefaults.agencyId"
@@ -1593,6 +1595,7 @@ import NoteAidIntakeImportReview from '../../components/clinical/NoteAidIntakeIm
 import NoteAidIntakeDraftEditor from '../../components/clinical/NoteAidIntakeDraftEditor.vue';
 import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
 import ContactDocumentationQueue from '../../components/clinical/ContactDocumentationQueue.vue';
+import H0002ScreeningReview from '../../components/clinical/H0002ScreeningReview.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
 import AppointmentBillingPanel from '../../components/schedule/AppointmentBillingPanel.vue';
@@ -2112,6 +2115,12 @@ async function onStandalonePlanApplied() {
   await loadRecent();
 }
 const workQueueItems = ref([]);
+const activeScreeningReview = ref(null);
+async function onScreeningReviewSigned() {
+  activeScreeningReview.value = null;
+  workQueueItems.value = (await fetchWorkQueueFromApi(authStore.user?.id)).map(normalizeWorkQueueItemStatus);
+  approvalMessage.value = 'Screening signed and sent to your billing supervisor for cosign. Claim submission remains subject to billing readiness.';
+}
 const workQueueSortBy = ref('date');
 const workQueueSortDir = ref('asc');
 const cosignQueueItems = ref([]);
@@ -7795,6 +7804,7 @@ async function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
+  if (item.noteKind === 'h0002_screening' && item.clinicalSessionId) { activeScreeningReview.value = item; return; }
   collapseSidebarsForNote();
   showAidPicker.value = false;
   beginWorkspaceHydration();

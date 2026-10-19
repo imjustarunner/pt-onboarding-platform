@@ -5,6 +5,7 @@
   <label>Date of service <input v-model="serviceDate" type="date" :disabled="busy" @change="load" /></label>
   <button type="button" :disabled="busy" @click="load">Load verification history</button>
   <label>Billing office <select v-model="officeId" :disabled="busy"><option value="">Select</option><option v-for="office in offices" :key="office.id" :value="office.id">{{ office.name }} · {{ office.practice_npi }}</option></select></label>
+  <label>Lookup method <select v-model="lookupMode" :disabled="busy"><option value="member_id">Saved member ID and identity</option><option value="demographics">Colorado Medicaid: member name and date of birth</option></select></label>
   <button v-for="slot in ['primary','secondary']" :key="slot" type="button" :disabled="busy || !officeId" @click="check(slot)">Check {{ slot }} eligibility</button>
   <p>Save insurance details before checking. Eligibility must be enabled for the payer and billing NPI in Claim.MD. If unavailable, verify through the payer portal or by phone and record the evidence below.</p>
   <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
@@ -12,6 +13,7 @@
   <article v-for="check in evidence.checks" :key="check.id">
    <strong>{{ check.policy_slot }} · {{ check.evidence?.summary?.status || check.status }} · {{ check.created_at }}</strong>
    <p v-if="check.evidence?.summary?.otherCoverageReported">Other coverage reported — investigate and resolve payer order before billing.</p>
+   <p v-for="(payerError,index) in check.evidence?.summary?.payerErrors || []" :key="index" role="alert">{{ payerError.error_mesg }} ({{ payerError.error_code }})</p>
    <details v-if="check.evidence"><summary>View payer response and benefits</summary><pre>{{ JSON.stringify(check.evidence.result,null,2) }}</pre></details>
   </article>
   <form @submit.prevent="review">
@@ -31,6 +33,7 @@ const props=defineProps({clientId:[Number,String],agencyId:[Number,String]});
 const serviceDate=ref(new Date().toLocaleDateString('en-CA')),officeId=ref(''),offices=ref([]),busy=ref(false),error=ref(''),notice=ref(''),evidence=ref({checks:[],blockers:[]});
 const blank=()=>({status:'unresolved',source:'payer_portal',reference:'',primaryChecked:false,secondaryChecked:false,otherCoverageChecked:false,orderConfirmed:false,medicaidTplChecked:false});
 const draft=ref(blank());let generation=0;
+const lookupMode=ref('member_id');
 const attestations=[{key:'primaryChecked',label:'Primary coverage checked for this client and date'},{key:'secondaryChecked',label:'Secondary coverage checked, if recorded'},{key:'otherCoverageChecked',label:'Asked about and investigated other coverage, including reported additional payers'},{key:'orderConfirmed',label:'Confirmed payer order and resolved discrepancies'},{key:'medicaidTplChecked',label:'For Medicaid: reviewed Other Insurance / TPL in the Medicaid portal and resolved discrepancies'}];
 const base=()=>`/medical-billing/clients/${props.clientId}/coverage`;
 async function load(){const g=++generation;busy.value=true;error.value='';notice.value='';evidence.value={checks:[],blockers:[]};draft.value=blank();
@@ -41,7 +44,7 @@ async function load(){const g=++generation;busy.value=true;error.value='';notice
  if(o.status==='rejected')notice.value='Electronic verification is unavailable. Record payer-portal or phone verification below.';
  busy.value=false;
 }
-async function check(slot){const g=generation;busy.value=true;error.value='';try{await api.post(`${base()}/check`,{agencyId:props.agencyId,billingOfficeId:officeId.value,serviceDate:serviceDate.value,slot,requestKey:crypto.randomUUID()});if(g===generation)await load();}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||'Coverage could not be confirmed';}finally{if(g===generation)busy.value=false;}}
+async function check(slot){const g=generation;busy.value=true;error.value='';try{const response=await api.post(`${base()}/check`,{agencyId:props.agencyId,billingOfficeId:officeId.value,serviceDate:serviceDate.value,slot,lookupMode:lookupMode.value,requestKey:crypto.randomUUID()});if(g===generation){await load();if(response.data?.followUpTaskId)notice.value=`Billing follow-up task #${response.data.followUpTaskId} is in the shared insurance verification queue.`;}}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||'Coverage could not be confirmed';}finally{if(g===generation)busy.value=false;}}
 async function review(){const g=generation;busy.value=true;error.value='';try{await api.post(`${base()}/review`,{agencyId:props.agencyId,serviceDate:serviceDate.value,...draft.value});if(g===generation){await load();if(g+1===generation)notice.value='Verification recorded. Eligibility is not a payment guarantee.';}}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||'Verification could not be saved';}finally{if(g===generation)busy.value=false;}}
 watch(()=>[props.clientId,props.agencyId],()=>{generation++;officeId.value='';offices.value=[];notice.value='';load();});onMounted(load);onBeforeUnmount(()=>{generation++;});
 </script>

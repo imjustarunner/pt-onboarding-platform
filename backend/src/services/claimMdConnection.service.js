@@ -31,3 +31,9 @@ export async function claimMdConnectionMeta(agencyId) {
 export function requireClaimMdTransmission(connection) {
   if (!['test', 'live'].includes(connection.mode)) throw Object.assign(new Error('Claim.MD transmission is disabled. Configure the verified account type as test or live.'), { status: 409 });
 }
+
+// Eligibility authorization is separate from permission to transmit claims.
+export function requireClaimMdEligibility(connection,agencyId,env=process.env) {
+  const mode=env[`CLAIM_MD_ELIGIBILITY_MODE_${Number(agencyId)}`] || connection.mode;
+  if(!['test','live'].includes(mode))throw Object.assign(new Error('Claim.MD eligibility is disabled. Configure the verified account type before checking coverage.'),{status:409});
+}

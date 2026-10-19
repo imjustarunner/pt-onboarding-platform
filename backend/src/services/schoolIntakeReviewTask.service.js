@@ -354,6 +354,14 @@ export async function maybeCreateSchoolIntakeReviewTask({
     }
   });
 
+  try {
+    const { prepareH0002ScreeningTask } = await import('./h0002ScreeningWorkflow.service.js');
+    await prepareH0002ScreeningTask(task.id, { actorUserId: actorUserId || assigneeId });
+  } catch (error) {
+    // Preserve the intake task for retry if preparation cannot complete.
+    console.warn('[schoolIntakeReviewTask] screening preparation pending', { taskId: task.id, message: error.message });
+  }
+
   notifyTaskAddedToList({
     task,
     listId: list.id,

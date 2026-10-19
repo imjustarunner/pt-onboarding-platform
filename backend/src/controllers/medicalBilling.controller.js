@@ -1,3 +1,5 @@
+import { validateScreeningSignature, completeH0002Screening, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
+import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 import { listUserOfficeIds } from '../services/officeBillingSites.service.js';
@@ -1737,7 +1739,8 @@ export const attachTreatmentSummaryPrintUpload = async (req, res, next) => {
 async function draftClaimAfterSignature(req, note) {
   // Derive lines from the saved clinical record, not a second browser request.
   // Failed drafts remain visible in the billing desk's missing-claim queue.
-  if (!note.clinical_session_id || !note.service_code) return;
+  const metadata=typeof note.metadata_json==='string'?JSON.parse(note.metadata_json||'{}'):note.metadata_json||{};
+  if (!note.clinical_session_id || !(note.service_code || metadata.serviceCode)) return;
   let code = 200;
   const response = { status(value) { code = value; return this; }, json() { return this; } };
   try {
@@ -1761,6 +1764,9 @@ export const signClinicalNote = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the note author can apply the provider signature' } });
     }
     if (note.provider_signed_at) {
+      await completeH0002Screening(note, new Date(note.provider_signed_at).toISOString());
+      const retryMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
+      if (retryMeta?.source === H0002_SOURCE) await draftClaimAfterSignature(req, note);
       const terminationTodo = await completeNoteAidSigningWorkflow(note);
       return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo });
     }
@@ -1775,6 +1781,13 @@ export const signClinicalNote = async (req, res, next) => {
       });
     }
 
+    if (note.clinical_session_id) {
+      const [[screenSession]] = await clinicalPool.execute('SELECT metadata_json FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [note.clinical_session_id,note.agency_id,note.client_id]);
+      const screenMeta = typeof screenSession?.metadata_json === 'string' ? JSON.parse(screenSession.metadata_json) : screenSession?.metadata_json;
+      const noteMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
+      if (screenMeta?.source === H0002_SOURCE && noteMeta?.source !== H0002_SOURCE) return res.status(409).json({ error: { message: 'Use the digital screening review to sign this encounter.' } });
+    }
+    validateScreeningSignature(note);
     const plain = maybeDecryptNotePayload(note.note_payload);
     const hash = contentHash(plain);
     let meta = {};
@@ -1833,14 +1846,14 @@ export const signClinicalNote = async (req, res, next) => {
     try {
       const pool = (await import('../config/database.js')).default;
       const [userRows] = await pool.execute(
-        `SELECT id, first_name, last_name, credentials, license_type, npi
+        `SELECT id, first_name, last_name, credential
          FROM users WHERE id = ? LIMIT 1`,
         [Number(req.user.id)]
       );
       const u = userRows?.[0];
       if (u) {
         const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
-        const creds = String(u.credentials || u.license_type || '').trim();
+        const creds = String(u.credential || '').trim();
         let licenseLine = '';
         try {
           const [infoRows] = await pool.execute(
@@ -1864,6 +1877,8 @@ export const signClinicalNote = async (req, res, next) => {
           // optional profile field
         }
         const parts = [name];
+        const signingNpi = await providerBillingNpi({ agencyId: note.agency_id, userId: req.user.id });
+        if (signingNpi) parts.push(`NPI ${signingNpi}`);
         if (creds) parts.push(creds);
         if (licenseLine) {
           const looksLabeled = /license/i.test(licenseLine);
@@ -1981,6 +1996,7 @@ export const signClinicalNote = async (req, res, next) => {
           AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceDate')) <= ?`,
       [note.clinical_session_id,note.agency_id,note.client_id,new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())]);
     }
+    await completeH0002Screening({ ...note, metadata_json: meta }, signedAtIso);
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: signedAtIso, terminationTodo });
@@ -2274,7 +2290,7 @@ export const createMedicalClaim = async (req, res, next) => {
 
     if (noteId) {
       const [nRows] = await clinicalPool.execute(
-        `SELECT id, provider_signed_at, supervisor_cosigned_at, is_billable, metadata_json, service_code
+        `SELECT id, provider_signed_at, supervisor_cosigned_at, is_billable, metadata_json, JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceCode')) AS service_code
          FROM clinical_notes WHERE id = ? AND clinical_session_id = ? AND agency_id = ? AND client_id = ? AND is_deleted = 0 LIMIT 1`,
         [noteId, sessionId, agencyId, clientId]
       );
@@ -2396,7 +2412,7 @@ export const createMedicalClaim = async (req, res, next) => {
     if (!lines.length && noteId) {
       try {
         const [metaRows] = await clinicalPool.execute(
-          `SELECT metadata_json, service_code FROM clinical_notes WHERE id = ? LIMIT 1`,
+          `SELECT metadata_json, JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceCode')) AS service_code FROM clinical_notes WHERE id = ? LIMIT 1`,
           [noteId]
         );
         let meta = {};

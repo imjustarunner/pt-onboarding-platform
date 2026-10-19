@@ -1,3 +1,5 @@
+import clinicalPool from '../config/clinicalDatabase.js';
+import { cosignClinicalNote } from './medicalBilling.controller.js';
 /**
  * Notes to sign: supervisor sign-off for supervisee clinical notes.
  * Clinical org agencies only. See docs/CLINICAL_NOTES_SUPERVISOR_SIGNOFF_SPEC.md
@@ -16,44 +18,34 @@ export const listNotesToSign = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    const isSupervisor = await SupervisorAssignment.hasSupervisees(userId);
+    const [[pending]] = await pool.execute("SELECT id FROM clinical_note_signoffs WHERE supervisor_user_id=? AND status='awaiting_supervisor' LIMIT 1", [userId]);
+    const isSupervisor = !!pending || await SupervisorAssignment.hasSupervisees(userId);
     if (!isSupervisor) {
       return res.json({ notes: [], count: 0, isSupervisor: false });
     }
 
     const [rows] = await pool.execute(
-      `SELECT cns.id, cns.clinical_note_id, cns.provider_user_id, cns.supervisor_user_id,
-              cns.status, cns.created_at, cns.provider_signed_at, cns.agency_id,
-              u.first_name AS provider_first_name, u.last_name AS provider_last_name,
-              cn.client_id, cn.service_code, cn.date_of_service, cn.title,
-              c.full_name AS client_name, c.first_name AS client_first_name, c.last_name AS client_last_name
-       FROM clinical_note_signoffs cns
-       JOIN users u ON u.id = cns.provider_user_id
-       LEFT JOIN clinical_notes cn ON cn.id = cns.clinical_note_id
-       LEFT JOIN clients c ON c.id = cn.client_id
-       WHERE cns.supervisor_user_id = ?
-         AND cns.status = 'awaiting_supervisor'
-         ${req.auricwellPreview ? 'AND cns.agency_id = ?' : ''}
-       ORDER BY cns.provider_signed_at DESC, cns.created_at DESC
-       LIMIT 50`,
-      req.auricwellPreview ? [userId, req.auricwellPreview.agencyId] : [userId]
-    ).catch(async () => {
-      // Fallback when clinical_notes / clients are unavailable on this pool.
-      const [basic] = await pool.execute(
-        `SELECT cns.id, cns.clinical_note_id, cns.provider_user_id, cns.supervisor_user_id,
-                cns.status, cns.created_at, cns.provider_signed_at, cns.agency_id,
-                u.first_name AS provider_first_name, u.last_name AS provider_last_name
-         FROM clinical_note_signoffs cns
-         JOIN users u ON u.id = cns.provider_user_id
-         WHERE cns.supervisor_user_id = ?
-           AND cns.status = 'awaiting_supervisor'
-         ${req.auricwellPreview ? 'AND cns.agency_id = ?' : ''}
-         ORDER BY cns.provider_signed_at DESC, cns.created_at DESC
-         LIMIT 50`,
-        req.auricwellPreview ? [userId, req.auricwellPreview.agencyId] : [userId]
-      ).catch(() => [[]]);
-      return [basic || []];
-    });
+      `SELECT cns.id,cns.clinical_note_id,cns.provider_user_id,cns.supervisor_user_id,cns.status,cns.created_at,cns.provider_signed_at,cns.agency_id,
+        u.first_name AS provider_first_name,u.last_name AS provider_last_name
+       FROM clinical_note_signoffs cns JOIN users u ON u.id=cns.provider_user_id
+       JOIN user_agencies ua ON ua.user_id=cns.supervisor_user_id AND ua.agency_id=cns.agency_id AND ua.is_active=1
+       WHERE cns.supervisor_user_id=? AND cns.status='awaiting_supervisor'
+       ${req.auricwellPreview ? 'AND cns.agency_id=?' : ''}
+       ORDER BY cns.provider_signed_at DESC,cns.created_at DESC LIMIT 50`,
+      req.auricwellPreview ? [userId,req.auricwellPreview.agencyId] : [userId]
+    );
+    if (rows.length) {
+      const [notes] = await clinicalPool.execute(`SELECT id,agency_id,client_id,title,JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceCode')) AS service_code FROM clinical_notes WHERE id IN (${rows.map(()=>'?').join(',')}) AND is_deleted=0`,rows.map(r=>r.clinical_note_id));
+      const ids=[...new Set(notes.map(n=>n.client_id))];
+      const [clients]=ids.length ? await pool.execute(`SELECT id,agency_id,initials FROM clients WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
+      for (const row of rows) {
+        const note=notes.find(n=>Number(n.id)===Number(row.clinical_note_id)&&Number(n.agency_id)===Number(row.agency_id));
+        if (note) {
+          const client=clients.find(c=>Number(c.id)===Number(note.client_id)&&Number(c.agency_id)===Number(row.agency_id));
+          Object.assign(row,{title:note.title,service_code:note.service_code,client_code:client?.initials || null});
+        }
+      }
+    }
 
     res.json({
       notes: rows || [],
@@ -73,7 +65,8 @@ export const getNotesToSignCount = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    const isSupervisor = await SupervisorAssignment.hasSupervisees(userId);
+    const [[pending]] = await pool.execute("SELECT id FROM clinical_note_signoffs WHERE supervisor_user_id=? AND status='awaiting_supervisor' LIMIT 1", [userId]);
+    const isSupervisor = !!pending || await SupervisorAssignment.hasSupervisees(userId);
     if (!isSupervisor) {
       return res.json({ count: 0, isSupervisor: false });
     }
@@ -119,14 +112,8 @@ export const signNote = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Note is not awaiting your sign-off' } });
     }
 
-    await pool.execute(
-      `UPDATE clinical_note_signoffs
-       SET supervisor_signed_at = NOW(), status = 'signed', updated_at = NOW()
-       WHERE id = ?`,
-      [signoffId]
-    );
+    return await cosignClinicalNote({ ...req, params: { noteId: signoff.clinical_note_id } }, res, next);
 
-    res.json({ ok: true, message: 'Note signed successfully' });
   } catch (err) {
     next(err);
   }
@@ -145,12 +132,12 @@ export const getClinicalNotesEligible = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     if (!agencyId) return res.json({ eligible: false });
 
+    const agencies = await User.getAgencies(userId);
+    if (!(agencies || []).some(a => Number(a.id) === agencyId) && req.user.role !== 'super_admin') return res.json({ eligible: false });
+    const [[pending]] = await pool.execute("SELECT id FROM clinical_note_signoffs WHERE supervisor_user_id=? AND agency_id=? AND status='awaiting_supervisor' LIMIT 1", [userId,agencyId]);
+    if (pending) return res.json({ eligible: true });
     const hasClinicalOrg = await OrganizationAffiliation.agencyHasClinicalOrg(agencyId);
     if (!hasClinicalOrg) return res.json({ eligible: false });
-
-    const agencies = await User.getAgencies(userId);
-    const inAgency = (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
-    if (!inAgency) return res.json({ eligible: false });
 
     const [rows] = await pool.execute(
       `SELECT 1 FROM clients c

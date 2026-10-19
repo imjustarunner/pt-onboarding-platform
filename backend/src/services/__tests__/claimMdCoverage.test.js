@@ -13,6 +13,25 @@ describe('client-scoped eligibility and other coverage',()=>{
   expect(buildEligibilityRequest({insurance:info,slot:'secondary',serviceDate:'2026-09-24',profile})).toMatchObject({payerid:'SECOND',ins_number:'SECOND-MEMBER',pat_rel:'G8',pat_name_f:'Child',ins_name_f:'Parent',pat_dob:'20100301',ins_dob:'19800201',fdos:'20260924',service_code:'30,MH',prov_npi:'1306688650',prov_taxid:'123456789'});
  });
  it('uses a separately configured eligibility payer ID without changing the claims destination',()=>{const info=insurance();info.primary.eligibilityPayerId='ELIGTEST';expect(buildEligibilityRequest({insurance:info,slot:'primary',serviceDate:'2026-09-24',profile}).payerid).toBe('ELIGTEST');expect(info.primary.payerId).toBe('TEST');});
+ it('searches Colorado Medicaid by the member identity without inventing or changing a member ID',()=>{
+  const info=insurance();info.primary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0'};
+  const payload=buildEligibilityRequest({insurance:info,slot:'primary',serviceDate:'2026-09-24',profile,lookupMode:'demographics'});
+  expect(payload).toMatchObject({payerid:'SKCO0',pat_rel:'18',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301'});
+  expect(payload).not.toHaveProperty('ins_number');expect(payload).not.toHaveProperty('pat_name_f');expect(info.primary.relationshipToSubscriber).toBe('child');expect(info.primary.memberId).toBe('SYNTHETIC');
+  info.primary.memberId='';expect(buildEligibilityRequest({insurance:info,slot:'primary',serviceDate:'2026-09-24',profile})).not.toHaveProperty('ins_number');
+ });
+ it('does not use a demographics-only inquiry for an unconfigured payer or unknown patient',()=>{
+  expect(()=>buildEligibilityRequest({insurance:insurance(),slot:'primary',serviceDate:'2026-09-24',profile,lookupMode:'demographics'})).toThrow('only for Colorado Medicaid');
+  const info=insurance();info.primary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0'};info.patient={};
+  expect(()=>buildEligibilityRequest({insurance:info,slot:'primary',serviceDate:'2026-09-24',profile,lookupMode:'demographics'})).toThrow('legal name');
+ });
+ it('routes an unmatched subscriber response to billing and never treats errors as active coverage',async()=>{
+  const result={elig:{error:[{error_code:'75',error_mesg:'Subscriber/Insured Not Found'}],benefit:{benefit_code:'30',benefit_coverage_code:'1'}}};
+  expect(summarizeEligibility(result).status).toBe('review_required');
+  const db={execute:vi.fn().mockResolvedValue([{insertId:10}])},queueFollowUp=vi.fn().mockResolvedValue(90);
+  const checked=await runCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-09-24',requestKey:'not-found-request',actorUserId:5,profile,accountKey:'test'}, {db,request:async()=>result,readInsurance:async()=>insurance(),queueFollowUp});
+  expect(queueFollowUp).toHaveBeenCalledWith(expect.objectContaining({agencyId:1,clientId:2,reason:'subscriber_not_found',coverageCheckId:10}),db);expect(checked.followUpTaskId).toBe(90);
+ });
  it('rejects missing dependent identity, invalid dates, missing policies and invalid NPI',()=>{
   for(const overrides of [{slot:'tertiary'},{slot:'secondary'},{serviceDate:'2026-02-30'},{profile:{...profile,billingNpi:'1234567890'}},{insurance:{...insurance(),patient:{}}}])expect(()=>buildEligibilityRequest({insurance:insurance(),slot:'primary',serviceDate:'2026-09-24',profile,...overrides})).toThrow();
  });

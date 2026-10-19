@@ -25,6 +25,13 @@ export async function resolveClaimDiagnosisCodes({
   clinicalNoteId = null,
   diagnosisCodes = null
 }) {
+  if (safeInt(clinicalNoteId)) {
+    const [[screening]] = await clinicalPool.execute(`SELECT n.metadata_json FROM clinical_notes n JOIN clinical_sessions s ON s.id=n.clinical_session_id
+      WHERE n.id=? AND n.agency_id=? AND n.client_id=? AND n.is_deleted=0 AND s.service_code='H0002'
+        AND JSON_UNQUOTE(JSON_EXTRACT(s.metadata_json,'$.source'))='h0002_digital_screening'`, [Number(clinicalNoteId),Number(agencyId),Number(clientId)]);
+    const meta = typeof screening?.metadata_json === 'string' ? JSON.parse(screening.metadata_json) : screening?.metadata_json;
+    if (meta?.source === 'h0002_digital_screening') return ['R69'];
+  }
   if (Array.isArray(diagnosisCodes) && diagnosisCodes.length) {
     return diagnosisCodes.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean);
   }
@@ -66,6 +73,18 @@ export async function resolveClaimDateOfService({
   clinicalNoteId = null,
   dateOfService = null
 }) {
+  // A digital screening is rendered when its clinician completes the review.
+  // Neither a caller override nor the draft's creation date can establish DOS.
+  const sessionId = safeInt(clinicalSessionId);
+  let session;
+  if (sessionId) {
+    const [rows] = await clinicalPool.execute(
+      'SELECT scheduled_start_at, source_timezone, created_at, metadata_json FROM clinical_sessions WHERE id = ? LIMIT 1', [sessionId]
+    );
+    session = rows?.[0];
+    const metadata = typeof session?.metadata_json === 'string' ? JSON.parse(session.metadata_json) : session?.metadata_json;
+    if (metadata?.source === 'h0002_digital_screening') return isoDate(metadata.serviceDate);
+  }
   const fromBody = isoDate(dateOfService);
   if (fromBody) return fromBody;
 
@@ -92,18 +111,13 @@ export async function resolveClaimDateOfService({
     }
   }
 
-  const sessionId = safeInt(clinicalSessionId);
   if (sessionId) {
-    const [rows] = await clinicalPool.execute(
-      `SELECT scheduled_start_at, source_timezone, created_at, metadata_json FROM clinical_sessions WHERE id = ? LIMIT 1`,
-      [sessionId]
-    );
-    const metadata = typeof rows?.[0]?.metadata_json === 'string' ? JSON.parse(rows[0].metadata_json) : rows?.[0]?.metadata_json;
+    const metadata = typeof session?.metadata_json === 'string' ? JSON.parse(session.metadata_json) : session?.metadata_json;
     const importedDate = isoDate(metadata?.serviceDate);
     if (importedDate) return importedDate;
-    const raw = rows?.[0]?.scheduled_start_at || rows?.[0]?.created_at;
+    const raw = session?.scheduled_start_at || session?.created_at;
     const instant = raw instanceof Date ? raw : new Date(String(raw || '').replace(' ', 'T').replace(/Z?$/, 'Z'));
-    const fromSession = utcDateToZonedYmd(instant, rows?.[0]?.source_timezone || 'America/Denver');
+    const fromSession = utcDateToZonedYmd(instant, session?.source_timezone || 'America/Denver');
     if (fromSession) return fromSession;
   }
   return null;

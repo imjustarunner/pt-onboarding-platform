@@ -14,15 +14,8 @@
       >
         <span class="note-provider">{{ note.provider_first_name }} {{ note.provider_last_name }}</span>
         <span class="note-meta">Submitted {{ formatDate(note.provider_signed_at) }}</span>
-        <button
-          type="button"
-          class="note-sign-btn"
-          :disabled="signingId === note.id"
-          :title="signingId === note.id ? 'Signing…' : 'Sign off on this note'"
-          @click="signNote(note)"
-        >
-          {{ signingId === note.id ? 'Signing…' : 'Sign' }}
-        </button>
+        <span v-if="note.client_code">{{ note.client_code }} · {{ note.service_code }}</span>
+        <ClinicalNoteCosignReview :note-id="note.clinical_note_id" :agency-id="note.agency_id" :provider-id="note.provider_user_id" @signed="onNoteSigned(note)" />
       </li>
     </ul>
     <p v-else class="notes-empty">No notes pending. Count will refresh shortly.</p>
@@ -31,6 +24,7 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue';
+import ClinicalNoteCosignReview from '../clinical/ClinicalNoteCosignReview.vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -39,7 +33,7 @@ const props = defineProps({
 
 const notes = ref([]);
 const loading = ref(false);
-const signingId = ref(null);
+
 
 const formatDate = (d) => {
   if (!d) return '';
@@ -65,20 +59,10 @@ const fetchNotes = async () => {
   }
 };
 
-const signNote = async (note) => {
-  if (!note?.id) return;
-  signingId.value = note.id;
-  try {
-    await api.post(`/me/notes-to-sign/${note.id}/sign`);
-    notes.value = notes.value.filter((n) => n.id !== note.id);
-    emit('signed');
-  } catch (e) {
-    const msg = e?.response?.data?.error?.message || e?.message || 'Sign failed';
-    alert(msg);
-  } finally {
-    signingId.value = null;
-  }
-};
+function onNoteSigned(note) {
+  notes.value = notes.value.filter(n => n.id !== note.id);
+  emit('signed');
+}
 
 watch(() => props.count, (n) => {
   if (n > 0) fetchNotes();
@@ -138,6 +122,7 @@ onMounted(() => {
 .note-item {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid #bbf7d0;

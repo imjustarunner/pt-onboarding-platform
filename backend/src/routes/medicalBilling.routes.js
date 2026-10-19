@@ -1,3 +1,4 @@
+import { getH0002ScreeningReview, signH0002ScreeningReview } from '../controllers/h0002Screening.controller.js';
 import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../controllers/serviceBillingSupervisor.controller.js';
 import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
@@ -109,6 +110,8 @@ router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinanci
 router.get('/workspace', getBillingWorkspace);
 router.get('/provider-rollout', ...claimMdGate, getProviderBillingRollout);
 router.put('/provider-rollout', ...claimMdGate, putProviderBillingRollout);
+router.get('/screening-sessions/:sessionId/review', requireClinicalChart, getH0002ScreeningReview);
+router.post('/screening-sessions/:sessionId/sign', requireClinicalNoteSigning, signH0002ScreeningReview);
 router.get('/service-supervisors', requireMedicalBillingFinancialAccess, getServiceBillingSupervisors);
 router.put('/service-supervisors', requireMedicalBillingFinancialAccess, putServiceBillingSupervisor);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);

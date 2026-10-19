@@ -1,4 +1,5 @@
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
+import { screeningClaimBlockers } from '../services/h0002ScreeningRules.js';
 import crypto from 'node:crypto';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { providerBillingRolloutReview } from '../services/providerBillingRollout.service.js';
@@ -44,6 +45,7 @@ export async function prepareClaimReview(agencyId, claimId) {
   const coverageEvidence = await listCoverageEvidence({agencyId,clientId:claim.client_id,serviceDate:claim.date_of_service});
   readiness.blockers.push(...coverageReviewBlockers({insurance:sourceInsurance,...coverageEvidence}));
   const documentation = await claimDocumentation(agencyId, claim);
+  readiness.blockers.push(...screeningClaimBlockers(documentation.note,claim,lines));
   documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
   const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
   const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
