@@ -254,6 +254,7 @@ export async function buildPacketSectionContext({
   let packetVersion = 1;
   let resolvedAgencyId = Number(agencyId || 0) || null;
   let orgId = Number(organizationId || 0) || null;
+  let mergeTokens = {};
 
   if (office && resolvedAgencyId) {
     const pack = normalizeOfficePacketVariant(variant);
@@ -270,7 +271,7 @@ export async function buildPacketSectionContext({
       const agencyName = String(agency?.official_name || agency?.name || 'Agency').trim();
       const agencyAddress = buildAgencyAddressLine(agency);
       const agencyPhone = String(agency?.phone_number || agency?.phone || '').trim();
-      templateHtml = substituteTokens(templateHtml, {
+      mergeTokens = {
         AGENCY_NAME: escapeHtml(agencyName),
         AGENCY_ADDRESS: escapeHtml(agencyAddress),
         AGENCY_PHONE: escapeHtml(agencyPhone),
@@ -278,7 +279,7 @@ export async function buildPacketSectionContext({
         SCHOOL_ADDRESS: escapeHtml(agencyAddress),
         SCHOOL_STAFF_TABLE: '',
         DISCLOSURE_CARE_TEAM: ''
-      });
+      };
     } catch {
       /* keep seeded office HTML */
     }
@@ -298,12 +299,12 @@ export async function buildPacketSectionContext({
     // enough for these legal sections; staff/disclosure tokens rarely appear).
     const schoolName = String(ctx?.organization?.name || '').trim();
     const schoolAddress = String(ctx?.organization?.address || '').trim();
-    templateHtml = substituteTokens(templateHtml, {
+    mergeTokens = {
       SCHOOL_NAME: schoolName,
       SCHOOL_ADDRESS: schoolAddress,
       SCHOOL_STAFF_TABLE: '',
       DISCLOSURE_CARE_TEAM: ''
-    });
+    };
   } else if (resolvedAgencyId) {
     const template = await SchoolPacketTemplate.getOrCreateForAgency(resolvedAgencyId, { locale: loc });
     templateHtml = String(template?.html_content || '');
@@ -314,6 +315,9 @@ export async function buildPacketSectionContext({
     const { applyEnrollmentFoundationOverrides } = await import('./enrollmentFoundations.service.js');
     templateHtml = await applyEnrollmentFoundationOverrides({ agencyId: resolvedAgencyId, channel: office ? 'office' : 'school', audience: normalizeOfficePacketVariant(variant) === 'parent' ? 'guardian' : 'self', locale: loc, html: templateHtml });
   }
+  // Foundation validation must see the source roster markers. Rendering them
+  // first makes a valid office packet look like it has a missing disclosure.
+  templateHtml = substituteTokens(templateHtml, mergeTokens);
 
   if (!templateHtml) {
     const err = new Error('Unable to load packet template content for section');

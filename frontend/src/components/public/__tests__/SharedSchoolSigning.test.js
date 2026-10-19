@@ -11,6 +11,19 @@ const props = { publicKey: 'test-school', sessionToken: 'session', link: {}, roi
 const options = { global: { stubs: { SignaturePad: { template: '<div data-signature-pad />' } } } };
 
 describe('shared school signing', () => {
+  it('offers retry after a failed consent load and prevents agreement until the text arrives', async () => {
+    const w = mount(PacketSectionConsentFlow, { ...options, props: { sectionContext: { sectionKey: 'informed_group_consent', html: null, loadError: true, lite: false } } });
+    expect(w.get('input[type=checkbox]').attributes('disabled')).toBeDefined();
+    await w.findAll('button').find(b => b.text() === 'Try again').trigger('click');
+    expect(w.emitted('retry')).toHaveLength(1); expect(w.emitted('captured')).toBeUndefined();
+    await w.setProps({ sectionContext: { sectionKey: 'informed_group_consent', html: null, lite: true } });
+    expect(w.text()).toContain('Loading this agreement');
+    await w.setProps({ sectionContext: { sectionKey: 'informed_group_consent', html: '<p>Actual agency terms</p>' } });
+    expect(w.text()).toContain('Actual agency terms');
+    expect(w.get('input[type=checkbox]').attributes('disabled')).toBeUndefined();
+    expect(w.findAll('button').find(b => b.text() === 'Continue to signature').attributes('disabled')).toBeDefined();
+    w.unmount();
+  });
   it('identifies both children and does not ask parents to reenter the first child’s DOB', () => {
     const w = mount(SmartSchoolRoiFlow, { ...options, props });
     expect(w.text()).toContain('Alex Example'); expect(w.text()).toContain('Blair Example');

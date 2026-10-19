@@ -1461,6 +1461,7 @@
             :session-saved-signature="lastSignatureData"
             :locale="intakeLocale"
             @captured="handleEmbeddedPacketSectionCaptured"
+            @retry="ensurePacketSectionContext(PACKET_SECTION_STEP_TO_KEY[currentFlowStep?.type])"
           />
         </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
@@ -9618,6 +9619,10 @@ const ensurePacketSectionContext = async (sectionKey) => {
   const existing = packetSectionContexts.value?.[key];
   if (existing?.html) return existing;
   if (packetSectionLoads.has(key)) return packetSectionLoads.get(key);
+  packetSectionContexts.value = {
+    ...(packetSectionContexts.value || {}),
+    [key]: { ...(existing || {}), sectionKey: key, lite: true, loadError: false }
+  };
   const pending = api.get(
     `/public-intake/${publicKey}/packet-section/${key}`,
     {

@@ -6,8 +6,11 @@
       <p v-if="!sectionReady && isLoading" class="muted">
         {{ tr('Loading this agreement…', 'Cargando este acuerdo…') }}
       </p>
-      <p v-else-if="!sectionReady" class="error">
+      <p v-else-if="!sectionReady" class="error" role="alert">
         {{ tr('This section could not be loaded.', 'No se pudo cargar esta sección.') }}
+        <button type="button" class="btn btn-secondary btn-sm" @click="emit('retry')">
+          {{ tr('Try again', 'Intentar de nuevo') }}
+        </button>
       </p>
       <p class="lead">
         {{
@@ -19,7 +22,7 @@
       </p>
       <div v-if="sectionReady" class="packet-section-html" v-html="sectionHtml" />
       <label class="ack-checkbox" :class="{ 'required-highlight': !acknowledged }">
-        <input v-model="acknowledged" type="checkbox" />
+        <input v-model="acknowledged" type="checkbox" :disabled="!sectionReady" />
         <span>
           {{
             tr(
@@ -106,7 +109,7 @@ const props = defineProps({
   locale: { type: String, default: 'en' }
 });
 
-const emit = defineEmits(['captured']);
+const emit = defineEmits(['captured', 'retry']);
 
 const stage = ref('review');
 const acknowledged = ref(false);

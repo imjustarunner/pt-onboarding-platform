@@ -40,6 +40,10 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Enrollment consent loading and guardian contact editing
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-contact.config.js
+          npm test --prefix frontend -- --run src/components/admin/__tests__/ClientGuardianContactEditor.test.js src/components/public/__tests__/SharedSchoolSigning.test.js src/views/__tests__/PublicIntakeProviderSelection.test.js src/views/__tests__/PublicIntakeSchoolChildren.test.js
       - name: Meeting and planned-out API regressions
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

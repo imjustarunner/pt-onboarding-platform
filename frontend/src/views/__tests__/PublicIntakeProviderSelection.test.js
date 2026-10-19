@@ -48,6 +48,12 @@ it('never exposes provider choice on brief or interest packets',async()=>{
  get.mockImplementation(async url=>({data:url==='/public-intake/office-test'?{...structuredClone(data),link:{...structuredClone(data.link),form_type:'quick_intake'}}:{}}));await render();
  expect(wrapper.vm.allowsFullProviderChoice).toBe(false);expect(wrapper.vm.flowSteps.some(s=>s.type==='provider_match')).toBe(false);
 });
+it('never exposes provider choice on school enrollment, even with a legacy provider step',async()=>{
+ get.mockImplementation(async url=>({data:url==='/public-intake/office-test'?{...structuredClone(data),link:{...structuredClone(data.link),scope_type:'school',inherits_office_master:0},organization:{id:3,name:'Example School',organization_type:'school'}}:{}}));await render();
+ expect(wrapper.vm.allowsFullProviderChoice).toBe(false);
+ expect(wrapper.vm.flowSteps.some(s=>s.type==='provider_match')).toBe(false);
+ expect(get.mock.calls.some(([url])=>url.endsWith('/available-providers'))).toBe(false);
+});
 
 it('keeps optional scheduling preferences even when the client skips choosing a provider',async()=>{
  await render();await showProviderStep();

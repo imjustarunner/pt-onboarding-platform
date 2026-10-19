@@ -957,7 +957,7 @@
             <!-- Guardian (latest intake) -->
             <section class="ov-card ov-card--guardian">
               <header class="ov-card-header">
-                <h3>Guardian (latest intake)</h3>
+                <h3>Guardian contact</h3>
                 <button
                   v-if="editingOverview && guardianIntakeProfile && !intakeGuardianAlreadyLinked && canManageGuardians"
                   type="button"
@@ -988,6 +988,12 @@
                   <div class="ov-row-label">Date of birth</div>
                   <div class="ov-row-value">{{ guardianIntakeDob ? formatDate(guardianIntakeDob) : '-' }}</div>
                 </div>
+                <ClientGuardianContactEditor
+                  v-if="canEditAccount"
+                  :client-id="Number(client.id)"
+                  :profile="guardianIntakeProfile"
+                  @saved="onGuardianContactSaved"
+                />
               </div>
             </section>
 
@@ -2775,6 +2781,7 @@ import ClientRenewalPushModal from './ClientRenewalPushModal.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import GuardianDemographicReview from './GuardianDemographicReview.vue';
+import ClientGuardianContactEditor from './ClientGuardianContactEditor.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
 import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
 import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
@@ -3105,6 +3112,9 @@ const guardianIntakeProfile = computed(() => {
   if (roleNorm.value === 'school_staff') return null;
   return props.client?.guardian_intake_profile || null;
 });
+const onGuardianContactSaved = (profile) => {
+  emit('updated', { keepOpen: true, client: { ...props.client, guardian_intake_profile: profile } });
+};
 const guardianIntakeName = computed(() => String(
   guardianIntakeProfile.value?.fullName
   || `${guardianIntakeProfile.value?.firstName || ''} ${guardianIntakeProfile.value?.lastName || ''}`

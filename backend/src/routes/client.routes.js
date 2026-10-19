@@ -145,6 +145,7 @@ import {
 } from '../controllers/clientContactAffiliation.controller.js';
 
 import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
+import { updateClientGuardianContact } from '../controllers/clientGuardianContact.controller.js';
 const router = express.Router();
 
 // All client routes require authentication (controllers assume req.user is present)
@@ -190,6 +191,7 @@ router.post('/', createClient);
 
 // Update client
 router.put('/:id', updateClient);
+router.put('/:id/guardian-contact', updateClientGuardianContact);
 
 // Graduate client type (school -> learning -> clinical)
 router.post('/:id/client-type', graduateClientType);
