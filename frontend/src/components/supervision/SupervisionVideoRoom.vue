@@ -5,6 +5,7 @@
       v-if="token && vonageSessionId && projectId"
       ref="videoRoomRef"
       :key="`${vonageSessionId}-${token.slice(0, 12)}`"
+      :training-policy="trainingPolicy"
       :token="token"
       :session-id="vonageSessionId"
       :application-id="projectId"
@@ -73,6 +74,7 @@ import { reportSupervisionConnection } from '../../utils/supervisionConnectionDi
 const videoRoomRef = ref(null);
 
 const props = defineProps({
+  trainingPolicy: { type: Object, default: null },
   token: { type: String, default: '' },
   /** Vonage session id (preferred). Legacy alias: roomSid */
   vonageSessionId: { type: String, default: '' },

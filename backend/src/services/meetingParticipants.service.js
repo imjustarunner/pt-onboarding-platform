@@ -1,3 +1,5 @@
+import { meetingClaimHourlyRate } from './meetingClaimRate.service.js';
+import { isStudentIntern } from '../utils/studentIntern.js';
 import { huddleHostServiceCode } from './huddlePolicy.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import pool from '../config/database.js';
@@ -7,12 +9,12 @@ import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { isCompensationClaimMeeting } from './meetingCompensationClaims.service.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
-export async function meetingParticipantRows(event,{includeCompensation=false}={}) {
+export async function meetingParticipantRows(event,{includeCompensation=false,resolveEmails=true}={}) {
   if(event.meeting_type==='supervision') {
     const [people]=await pool.execute(`SELECT DISTINCT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name FROM users u WHERE u.id=? OR u.id=? OR u.id IN (SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('DECLINED','REMOVED','CANCELLED'))`,[event.provider_id,event.co_facilitator_user_id||null,event.id]);
     return people.map(u=>({...u,name:[u.first_name,u.last_name].filter(Boolean).join(' '),rsvp:'pending'}));
   }
-  const [rows]=await pool.execute(`SELECT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.role,u.has_supervisor_privileges,
+  const [rows]=await pool.execute(`SELECT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.role,u.credential,u.title,u.employment_type,u.has_supervisor_privileges,
     EXISTS(SELECT 1 FROM hiring_interviews h WHERE h.provider_schedule_event_id=pse.id AND h.candidate_user_id=u.id) isInterviewCandidate,
     COALESCE(p.is_required,1) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp
     FROM users u JOIN provider_schedule_events pse ON pse.id=? LEFT JOIN meeting_participant_preferences p ON p.user_id=u.id AND p.event_id=?
@@ -20,14 +22,20 @@ export async function meetingParticipantRows(event,{includeCompensation=false}={
       OR u.id IN (SELECT candidate_user_id FROM hiring_interviews WHERE provider_schedule_event_id=?)`,[event.id,event.id,event.provider_id,event.id,event.id]);
   const date=parseUtcDate(event.start_at);const asOfDate=date?new Intl.DateTimeFormat('en-CA',{timeZone:event.event_timezone||'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(date):null;
   for(const row of rows) {
-    const identity=await resolveMeetingRecipient({agencyId:event.agency_id,user:row,guest:!!Number(row.isInterviewCandidate)});
+    const identity=resolveEmails ? await resolveMeetingRecipient({agencyId:event.agency_id,user:row,guest:!!Number(row.isInterviewCandidate)}) : {email:row.work_email || row.email};
     row.email=identity.email;delete row.work_email;delete row.isInterviewCandidate;
     row.name=[row.first_name,row.last_name].filter(Boolean).join(' ');row.isHost=Number(row.id)===Number(event.provider_id);
     if(includeCompensation) {
       const salary=await PayrollSalaryPosition.findActiveForUser({agencyId:event.agency_id,userId:row.id,asOfDate});
       const supervisorRate = ['admin','leadership_circle','supervisors_meeting'].includes(event.meeting_subtype) && (row.role==='supervisor' || Number(row.has_supervisor_privileges)===1);
       const serviceCode = event.kind==='HUDDLE' && row.isHost ? huddleHostServiceCode(event,row.role) : supervisorRate ? 'Supervisor meeting' : 'MEETING';
-      if (event.kind==='HUDDLE' && row.role==='intern') row.compensation='Unpaid indirect time · recorded attendance';
+      if (event.meeting_subtype==='training' && !Number(row.is_required)) row.compensation='Optional attendance · no automatic training pay';
+      else if (event.meeting_subtype==='training' && isStudentIntern(row)) row.compensation='Unpaid indirect training time · recorded attendance';
+      else if (event.meeting_subtype==='training') {
+        const rate=await meetingClaimHourlyRate({agency_id:event.agency_id,user_id:row.id,claim_date:asOfDate,payload:{serviceCode:'MEETING'}},null);
+        row.compensation=Number(rate)>0 ? `Support Activity · $${Number(rate).toFixed(2)}/hour · recorded attendance` : 'Support Activity rate needed before compensation';
+      }
+      else if (event.kind==='HUDDLE' && row.role==='intern') row.compensation='Unpaid indirect time · recorded attendance';
       else if (['admin','super_admin','superadmin'].includes(row.role)) row.compensation='Not compensated · administrator';
       else if (Number(salary?.salary_per_pay_period)>0) row.compensation='Not compensated · salaried';
       else if (!isCompensationClaimMeeting(event)) row.compensation='Not compensated · meeting setting';
@@ -36,6 +44,7 @@ export async function meetingParticipantRows(event,{includeCompensation=false}={
         row.compensation=Number(rate?.rate_amount)>0 ? `Compensated · $${Number(rate.rate_amount).toFixed(2)}/hour · recorded attendance` : 'Rate needed before compensation';
       }
     }
+    delete row.credential; delete row.title; delete row.employment_type;
     delete row.role;
     delete row.has_supervisor_privileges;
   }

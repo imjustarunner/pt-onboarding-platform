@@ -1,3 +1,4 @@
+import { isTrainingProctor } from '../services/scheduledTraining.service.js';
 /**
  * Meeting agendas API - attach agenda items to supervision sessions and team meetings.
  */
@@ -123,6 +124,10 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
  * - Group/triadic supervision: host, co-host, admin only (not presenters)
  */
 async function canEditMeetingAgenda(userId, meetingType, meetingId) {
+  if (meetingType === 'provider_schedule_event') {
+    const event = await ProviderScheduleEvent.findById(meetingId);
+    if (event?.meeting_subtype === 'training') return isTrainingProctor(event,userId);
+  }
   if (meetingType === 'supervision_session') {
     const mid = parseInt(meetingId, 10);
     const uid = Number(userId || 0);

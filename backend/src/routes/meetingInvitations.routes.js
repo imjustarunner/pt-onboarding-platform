@@ -1,3 +1,4 @@
+import { saveTrainingRsvp } from '../services/scheduledTrainingRsvp.service.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import { resolveTeamMeetingInvitationAccess } from '../services/teamMeetingInvitationAccess.service.js';
@@ -53,6 +54,7 @@ router.post('/:token/rsvp', async (req,res,next) => {
     if(invitation.meeting_type==='supervision') {
       return res.json(await saveSupervisionRsvp({sessionId:event.id,userId,response:req.body.response,reason:req.body.reason,scope:req.body.scope,untilDate:req.body.untilDate}));
     }
+    if(event.meeting_subtype==='training') return res.json(await saveTrainingRsvp(event,userId,req.body.response));
     await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,rsvp,rsvp_at) VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE rsvp=VALUES(rsvp),rsvp_at=VALUES(rsvp_at)`,[event.id,userId,req.body.response]);
     res.json({ok:true,response:req.body.response});
   }catch(error){next(error);}
@@ -79,10 +81,15 @@ router.get('/:token', async (req,res,next) => {
       const [agendaRows]=await pool.execute(`SELECT i.title FROM meeting_agenda_items i JOIN meeting_agendas a ON a.id=i.meeting_agenda_id WHERE a.agency_id=? AND a.meeting_type=? AND a.meeting_id=? ORDER BY i.sort_order,i.id`,[invitation.agency_id,invitation.meeting_type==='supervision'?'supervision_session':'provider_schedule_event',event.id]);
       const tz=event.event_timezone||'America/Denver';
       const recipient=people.find(p=>Number(p.id)===Number(userId));
-      const attendance=recipient && invitation.meeting_type==='supervision' ? supervisionAttendance(event,recipient) : null;
+      const attendance=recipient && invitation.meeting_type==='supervision' ? supervisionAttendance(event,recipient) : event.meeting_subtype==='training' ? {
+        tier:Number(recipient?.is_required) ? 'mandatory' : 'optional',
+        label:Number(recipient?.is_required) ? 'Mandatory training' : 'Optional training',
+        description:`${Number(recipient?.is_required) ? 'Your attendance is required.' : 'You are welcome to attend.'} RSVP applies to all remaining training dates. Confirmed attendees receive one 24-hour reminder and a join link 5 minutes before each date.`
+      } : null;
       const canSeeDeclineReasons = invitation.meeting_type === 'supervision' && [event.supervisor_user_id,event.co_facilitator_user_id].some(id => Number(id) === Number(userId));
       const format = new Intl.DateTimeFormat('en-US', {dateStyle:'full', timeStyle:'short', timeZone:tz});
       return res.json({meeting:{
+        isTraining:event.meeting_subtype==='training',
         recipientName:recipient?.name || '',
         agenda:agendaRows.map(mapMeetingAgendaItem).map(i=>({title:i.title})),
         attendance, rsvp:recipient?.status || recipient?.rsvp || null,

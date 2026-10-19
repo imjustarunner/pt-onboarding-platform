@@ -406,6 +406,7 @@
           class="vsr__ctrl"
           :class="{ 'vsr__ctrl--danger': !publishVideo }"
           :aria-pressed="!publishVideo"
+          :disabled="trainingPolicy && !trainingPolicy.proctor && !trainingPolicy.videoAllowed"
           :title="publishVideo ? 'Turn camera off' : 'Turn camera on'"
           @click.stop.prevent="toggleCamera"
         >
@@ -534,6 +535,7 @@ import {
 } from './vonageAudioProcessor.js';
 
 const props = defineProps({
+  trainingPolicy: { type: Object, default: null },
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
   apiKey: { type: String, default: '' },
   applicationId: { type: String, default: '' },
@@ -635,7 +637,8 @@ const lobbyMicTested = ref(false);
 /** Set when a host/co-host force-mutes this participant. Cleared when participant self-unmutes. */
 const forceMutedByHost = ref(false);
 /** Set when a host/co-host hard-locks all mics. Participants cannot unmute until unlocked. */
-const micLockedByHost = ref(false);
+const legacyMicLockedByHost = ref(false);
+const micLockedByHost = computed({get:()=>props.trainingPolicy ? !props.trainingPolicy.canUnmute : legacyMicLockedByHost.value,set:value=>{legacyMicLockedByHost.value=value;}});
 /** Participants can unmute themselves unless the host has hard-locked all mics. */
 const canSelfUnmute = computed(() => !micLockedByHost.value);
 /** Non-blocking mic toggle feedback (do not use errorMessage — that unmounts the room). */
@@ -965,6 +968,7 @@ const camOffPanelEntries = computed(() => {
   return entries;
 });
 const canMuteOthers = computed(() => {
+  if (props.trainingPolicy) return false;
   const mode = String(props.muteOthersMode || 'host').toLowerCase();
   if (mode === 'everyone') return true;
   if (mode === 'none') return false;
@@ -982,6 +986,7 @@ const canGrantScreenShare = computed(() => (
   isRestrictedScreenShare.value && !!props.canGrantScreenShare
 ));
 const effectiveCanShareScreen = computed(() => {
+  if (props.trainingPolicy) return !!props.trainingPolicy.proctor;
   if (!isRestrictedScreenShare.value) return props.canShareScreen !== false;
   return !!props.canShareScreen || !!localShareGranted.value;
 });
@@ -1866,7 +1871,7 @@ async function enableMeetingAudio() {
     // Must run directly from the click, before any await, for Safari autoplay.
     const playback = OTApi?.unblockAudio?.();
     for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
-      sub.subscribeToAudio?.(true);
+      sub.subscribeToAudio?.(trainingStreamPermission(sub.stream || availableStreams.get(sub.streamId)).audio);
     }
     restoreListeningVolumes();
     const mediaPlayback = [...(stageEl.value?.querySelectorAll('video, audio') || [])]
@@ -1988,6 +1993,30 @@ async function subscribeToStream(stream) {
   }
 }
 
+function trainingStreamPermission(stream) {
+  if (!props.trainingPolicy) return {audio:true,video:true,proctor:true,primary:false};
+  let metadata={};try{metadata=JSON.parse(stream?.connection?.data || '{}');}catch{}
+  const id=Number(String(metadata.identity || '').replace(/^user-/,''));
+  const proctor=(props.trainingPolicy.proctorIds || []).includes(id);
+  return { proctor, primary:id===props.trainingPolicy.primaryId,
+    audio:proctor || !props.trainingPolicy.muteAll || (props.trainingPolicy.approvedIds || []).includes(id),
+    video:proctor || props.trainingPolicy.videoAllowed };
+}
+watch(()=>props.trainingPolicy, policy=>{
+  if (!policy) return;
+  if (!policy.canUnmute) applyForceMuteLocal();
+  if (!policy.proctor && !policy.videoAllowed) {
+    publishVideo.value=false;try{publisher?.publishVideo(false);}catch{};broadcastCameraState(false);
+  }
+  for (const [id,sub] of subscribers) {
+    const permission=trainingStreamPermission(availableStreams.get(id));
+    try{
+      if(sub.__trainingAudioAllowed!==permission.audio){sub.subscribeToAudio(permission.audio);sub.__trainingAudioAllowed=permission.audio;}
+      if(sub.__trainingVideoAllowed!==permission.video){sub.subscribeToVideo(permission.video);sub.__trainingVideoAllowed=permission.video;}
+    }catch{}
+  }
+}, {deep:true});
+
 async function subscribeStreamOnce(stream, owner) {
   if (!session || !stream) return;
   if (isOwnStream(stream)) return;
@@ -1997,6 +2026,14 @@ async function subscribeStreamOnce(stream, owner) {
   if (!streamId) return;
 
   if (screen) {
+    if (props.trainingPolicy) {
+      const permission=trainingStreamPermission(stream);
+      if (!permission.proctor) return;
+      if (!permission.primary && props.trainingPolicy.primaryId===props.trainingPolicy.userId && sharingScreen.value) return;
+      const current=availableStreams.get(String(screenSubscriber?.streamId || ''));
+      if (!permission.primary && current && trainingStreamPermission(current).primary) return;
+      if (permission.primary && sharingScreen.value) stopScreenShare();
+    }
     if (screenSubscriber && String(screenSubscriber.streamId || '') === streamId) return;
     if (screenSubscriber) {
       try { session.unsubscribe(screenSubscriber); } catch { /* ignore */ }
@@ -2017,8 +2054,8 @@ async function subscribeStreamOnce(stream, owner) {
           width: '100%',
           height: '100%',
           fitMode: 'contain',
-          subscribeToAudio: true,
-          subscribeToVideo: true,
+          subscribeToAudio: trainingStreamPermission(stream).audio,
+          subscribeToVideo: trainingStreamPermission(stream).video,
           style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => {
@@ -2112,8 +2149,8 @@ async function subscribeStreamOnce(stream, owner) {
       width: '100%',
       height: '100%',
       fitMode: props.preserveVideoAspect ? 'contain' : 'cover',
-      subscribeToAudio: true,
-      subscribeToVideo: true,
+      subscribeToAudio: trainingStreamPermission(stream).audio,
+      subscribeToVideo: trainingStreamPermission(stream).video,
       audioVolume: remoteListeningVolume(remoteMetaFromStream(stream)),
       style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
     },
@@ -2136,7 +2173,7 @@ async function subscribeStreamOnce(stream, owner) {
       if (remote) remote.videoIssue = '';
       forceMediaFill(targetEl);
       try {
-        if (typeof sub?.subscribeToAudio === 'function') sub.subscribeToAudio(true);
+        if (typeof sub?.subscribeToAudio === 'function') sub.subscribeToAudio(trainingStreamPermission(stream).audio);
         sub.setAudioVolume?.(remoteListeningVolume(remoteMetaFromStream(stream)));
       } catch { /* ignore */ }
     }
@@ -2487,6 +2524,7 @@ async function connect() {
     });
 
     session.on('signal:screen_share_grant', (event) => {
+      if (props.trainingPolicy) return;
       let data = {};
       try { data = JSON.parse(event?.data || '{}'); } catch { data = {}; }
       const target = String(data.connectionId || '').trim();
@@ -2502,6 +2540,7 @@ async function connect() {
       }
     });
     session.on('signal:force_mute', (event) => {
+      if (props.trainingPolicy) return;
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
       const target = String(payload.targetConnectionId || '').trim();
@@ -2520,6 +2559,7 @@ async function connect() {
     });
 
     session.on('signal:mic_lock', () => {
+      if (props.trainingPolicy) return;
       micLockedByHost.value = true;
       forceMutedByHost.value = false;
       if (publishAudio.value) {
@@ -2532,6 +2572,7 @@ async function connect() {
     });
 
     session.on('signal:mic_unlock', () => {
+      if (props.trainingPolicy) return;
       micLockedByHost.value = false;
     });
 
@@ -2557,6 +2598,7 @@ async function connect() {
     });
 
     session.on('signal:cohost_grant', (event) => {
+      if (props.trainingPolicy) return;
       // Received by everyone; only act if it targets this connection.
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
@@ -2587,8 +2629,8 @@ async function connect() {
         height: '100%',
         // Camera previews use the same fill mode as remote camera tiles.
         fitMode: props.preserveVideoAspect ? 'contain' : 'cover',
-        publishAudio: mainRoom && !!withAudio,
-        publishVideo: publishVideo.value,
+        publishAudio: mainRoom && !!withAudio && !micLockedByHost.value,
+        publishVideo: publishVideo.value && (!props.trainingPolicy || props.trainingPolicy.proctor || props.trainingPolicy.videoAllowed),
         name: props.localName,
         mirror: true,
         style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
@@ -2789,6 +2831,10 @@ async function toggleScreenShare() {
   }
   if (!effectiveCanShareScreen.value) {
     showConnectionNotice('Ask the host or co-host to allow you to share your screen.');
+    return;
+  }
+  if (props.trainingPolicy && props.trainingPolicy.userId!==props.trainingPolicy.primaryId && [...availableStreams.values()].some(stream=>isScreenStream(stream) && trainingStreamPermission(stream).primary)) {
+    showConnectionNotice('The lead trainer is sharing. Wait until they finish to share your screen.');
     return;
   }
   try {
@@ -3133,7 +3179,7 @@ async function toggleMic() {
     }
   } catch (e) {
     console.error('[VideoSessionRoom] publishAudio failed', e);
-    publishAudio.value = prev;
+    publishAudio.value = micLockedByHost.value ? false : prev;
     const friendly = sanitizeVideoError(e);
     showMicHint(
       next
@@ -3148,6 +3194,7 @@ async function toggleMic() {
 }
 
 function toggleCamera() {
+  if (props.trainingPolicy && !props.trainingPolicy.proctor && !props.trainingPolicy.videoAllowed) return;
   const next = !publishVideo.value;
   publishVideo.value = next;
   if (!publisher) {
@@ -3209,7 +3256,7 @@ function restoreMeetingPlayback() {
   try { Promise.resolve(OTApi?.unblockAudio?.()).catch(() => { audioResumeNeeded.value = true; }); } catch { audioResumeNeeded.value = true; }
   for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
     // Restart the receiver after the OS releases phone-call audio focus.
-    try { sub.subscribeToAudio?.(false); sub.subscribeToAudio?.(true); } catch { audioResumeNeeded.value = true; }
+    try { sub.subscribeToAudio?.(false); sub.subscribeToAudio?.(trainingStreamPermission(sub.stream || availableStreams.get(sub.streamId)).audio); } catch { audioResumeNeeded.value = true; }
   }
   restoreListeningVolumes();
   for (const media of stageEl.value?.querySelectorAll('video, audio') || []) {

@@ -78,7 +78,7 @@ describe('personal attended meeting library',()=>{
  it('paginates saved activity instead of silently stopping at the first model limit',async()=>{
   mocks.activity.mockResolvedValue(Array.from({length:101},(_,i)=>({id:101+i,payload:{text:'Message'}})));
   const result=await myMeetingActivity('team',7,10,100);
-  expect(mocks.activity).toHaveBeenCalledWith({eventId:7,limit:101,offset:100});expect(result.activity).toHaveLength(100);expect(result.hasMore).toBe(true);
+  expect(mocks.activity).toHaveBeenCalledWith({eventId:7,limit:101,offset:100,viewerUserId:10});expect(result.activity).toHaveLength(100);expect(result.hasMore).toBe(true);
  });
 });
 

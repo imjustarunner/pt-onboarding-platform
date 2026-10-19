@@ -67,7 +67,8 @@
             :class="{ own: m.isOwn }"
             :style="{ '--mlap-user-color': m.color }"
           >
-            <span class="mlap__sender" :style="{ color: m.color }">{{ m.senderLabel }}</span>
+            <span class="mlap__sender" :style="{ color: m.color }">{{ m.senderLabel }}{{m.private ? ` · Private${m.isOwn && m.recipientName ? ' to '+m.recipientName : ''}` : ''}}</span>
+            <button v-if="m.private && !m.isOwn && m.senderId" type="button" class="mw-link-btn" @click="openPrivateChat(m.senderId)">Reply privately</button>
             <img v-if="m.imageUrl" :src="m.imageUrl" alt="" class="mlap__img" />
             <span v-if="m.text" class="mlap__text" :title="lang === 'es' && displayText(m.text) !== m.text ? m.text : undefined">{{ displayText(m.text) }}</span>
           </div>
@@ -81,6 +82,7 @@
             @click="insertEmoji(em)"
           >{{ em }}</button>
         </div>
+        <label v-if="privateChoices.length">Send to <select v-model="privateRecipient" aria-label="Chat recipient"><option value="">Everyone</option><option v-for="p in privateChoices" :key="p.id || p.userId" :value="String(p.id || p.userId)">{{p.name || p.displayName}} (private)</option></select></label>
         <form class="mlap__form mlap__form--rich" @submit.prevent="sendChatMessage">
           <button type="button" class="mlap__icon-btn" title="Emoji" @click="emojiOpen = !emojiOpen">😊</button>
           <label class="mlap__icon-btn" title="Share photo">
@@ -262,6 +264,7 @@ const POLL_CREATE_ROLES = new Set([
 ]);
 
 const props = defineProps({
+  participants: {type:Array,default:()=>[]},
   eventId: { type: [Number, String], default: null },
   sessionId: { type: [Number, String], default: null },
   isHost: { type: Boolean, default: false },
@@ -300,6 +303,9 @@ const loading = ref(false);
 const sending = ref(false);
 const error = ref('');
 const chatInput = ref('');
+const privateRecipient = ref('');
+const privateChoices = computed(()=>props.participants.filter(p=>Number(p.id || p.userId)!==Number(/^user-(\d+)$/.exec(props.joinIdentity)?.[1] || authStore.user?.id)));
+function openPrivateChat(id){privateRecipient.value=String(id);tab.value='chat';panelOpen.value=true;emit('update:open',true);}
 const chatMessages = ref([]);
 const pollQuestion = ref('');
 const pollOptionsText = ref('');
@@ -345,7 +351,7 @@ function insertEmoji(em) {
 
 const ownIdentity = computed(() => {
   const guest = String(props.joinIdentity || '').trim();
-  if (guest.startsWith('guest-')) return guest;
+  if (/^(?:guest-|user-\d+$)/.test(guest)) return guest;
   const id = Number(authStore.user?.id || 0);
   return id ? `user-${id}` : '';
 });
@@ -449,6 +455,9 @@ function applyActivity(a) {
     const msgText = payload.text || '';
     chatMessages.value.push({
       id: key || `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      private:!!a.recipientUserId,
+      senderId:Number(a.userId || /^user-(\d+)$/.exec(a.participantIdentity)?.[1]),
+      recipientName:props.participants.find(p=>Number(p.id || p.userId)===Number(a.recipientUserId))?.name || '',
       text: msgText,
       imageUrl: payload.imageUrl || payload.image_url || '',
       senderLabel: senderLabel(a.participantIdentity, payload),
@@ -552,6 +561,7 @@ async function persistActivity(activityType, payload) {
   if (!base) return null;
   const resp = await api.post(base, {
     activityType,
+    ...(activityType === 'chat' && privateRecipient.value ? {recipientUserId:Number(privateRecipient.value)} : {}),
     payload: {
       ...payload,
       authorName: ownDisplayName.value
@@ -680,6 +690,7 @@ async function sendChatMessage() {
       id: id || `local-chat-${Date.now()}`,
       participantIdentity: ownIdentity.value,
       activityType: 'chat',
+      recipientUserId: privateRecipient.value ? Number(privateRecipient.value) : null,
       payload: { text, imageUrl, authorName: ownDisplayName.value }
     });
     await nextTick();
@@ -916,7 +927,7 @@ onUnmounted(() => {
   if (toastTimer) clearTimeout(toastTimer);
 });
 
-defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
+defineExpose({ openPrivateChat, loadActivity, open: () => { panelOpen.value = true; } });
 </script>
 
 <style scoped>

@@ -42,6 +42,7 @@
         <div class="record-facts"><div><span>FACILITATOR</span><strong>{{ detail.meeting.facilitator || 'Not recorded' }}</strong></div><div><span>SESSION</span><strong>{{ duration(detail.meeting.startAt,detail.meeting.endAt) }}</strong></div><div><span>STATUS</span><strong>{{ statusLabel(detail.meeting) }}</strong></div></div>
         <p v-if="detail.meeting.category==='interview'" class="privacy-note">Interview records are available only to authorized staff. Candidates cannot view this history.</p>
         <nav class="tabs" aria-label="Meeting sections"><button v-for="name in tabs" :key="name" :aria-pressed="tab === name" @click="tab = name">{{ name }}</button></nav>
+        <section v-if="tab === 'Overview' && detail.training" class="record-section"><h3>Training topic &amp; assets</h3><p>{{detail.training.topic}}</p><ul><li v-for="asset in detail.training.assets" :key="asset.id"><button type="button" @click="downloadTrainingAsset(asset)">{{asset.filename}}</button></li></ul></section>
         <section v-if="tab === 'Overview'" class="overview-grid">
           <div class="record-section"><h3>Participants &amp; attendance</h3><p class="muted">Recorded attendance and join history.</p>
             <ul class="attendance-list"><li v-for="person in detail.attendance" :key="person.user_id"><span class="avatar" aria-hidden="true">{{ initials(person.name) }}</span><div><strong>{{ person.name }} · {{ Math.round(person.total_seconds / 60) }} minutes</strong><span v-if="person.first_joined_at">{{ time(person.first_joined_at) }} – {{ person.last_left_at ? time(person.last_left_at) : 'Departure not recorded' }}</span></div></li>
@@ -81,14 +82,21 @@ import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
 const route = useRoute(), router = useRouter(), agencies = useAgencyStore();
 const prefix = computed(() => route.params.organizationSlug ? `/${route.params.organizationSlug}` : '');
 const agencyId = computed(() => agencies.currentAgency?.id || agencies.userAgencies?.[0]?.id || agencies.agencies?.[0]?.id);
-const categories = { administrative:'All administrative',group_supervision:'Group supervision', general:'General',huddle:'Huddle',cpa:'CPA',mentorship:'Mentorship',admin:'Administrative',town_hall:'Town hall',interview:'Interview',evaluation:'Evaluation',leadership_circle:'Leadership circle',supervisors_meeting:'Supervisors meeting',supervision:'Individual supervision' };
+const categories = { training:'Training', administrative:'All administrative',group_supervision:'Group supervision', general:'General',huddle:'Huddle',cpa:'CPA',mentorship:'Mentorship',admin:'Administrative',town_hall:'Town hall',interview:'Interview',evaluation:'Evaluation',leadership_circle:'Leadership circle',supervisors_meeting:'Supervisors meeting',supervision:'Individual supervision' };
 const tabs = ['Overview','Chat & activity','Summary','Tasks by person','Suggested next steps','Transcript','My notes'];
 const counts=ref({}),total=ref(0);
 const category=ref(''),from=ref(''),to=ref(''),search=ref(''),rows=ref([]),hasMore=ref(false),loading=ref(false),error=ref('');
 const selected=ref(null),detail=ref(null),detailLoading=ref(false),tab=ref(tabs.includes(route.query.meetingTab || (!props.embedded && route.query.tab)) ? (route.query.meetingTab || route.query.tab) : 'Overview'),note=ref(''),noteDirty=ref(false),saving=ref(false),noteSaved=ref(false);
 const activity=ref([]),activityLoading=ref(false),activityLoaded=ref(false),activityMore=ref(false),activityError=ref('');
 let timer,loadVersion=0,detailVersion=0,activityVersion=0;
+async function downloadTrainingAsset(asset) {
+ try {
+  const {data}=await api.get(`/team-meetings/${detail.value.meeting.id}/training/assets/${asset.id}`,{responseType:'blob',skipTeamMeetingAccess:true});
+  const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=asset.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+ }catch{error.value='Could not download the training asset.';}
+}
 const categoryCards = [
+  { key:'training', label:'Training', description:'Scheduled staff learning and attendance.', icon:ClipboardList, color:'blue' },
   { key:'supervision', label:'Individual supervision', description:'Sessions with your supervisor.', icon:UserRound, color:'mint' },
   { key:'group_supervision', label:'Group supervision', description:'Shared learning and case consultation.', icon:Users, color:'blue' },
   { key:'administrative', label:'Administrative meetings', description:'CPA, mentorship, admin, and huddles.', icon:Building2, color:'purple' },

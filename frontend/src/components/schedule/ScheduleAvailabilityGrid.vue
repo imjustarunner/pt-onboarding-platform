@@ -27,6 +27,10 @@
     </details>
     <ProviderEnrollmentWaitlist v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id) && !hideOfficeAndCalendarIntegration" :provider-id="Number(userId)" :agency-ids="String(route.query.waitlist || '') === '1' && Number(route.query.agencyId) > 0 ? [Number(route.query.agencyId)] : effectiveAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" />
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
+    <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
+    <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
+    <ScheduledTrainingLog v-if="Number(effectiveAgencyId)>0" :agency-id="Number(effectiveAgencyId)" />
+    <button v-if="canScheduleTraining(authStore.user) && Number(effectiveAgencyId)>0" type="button" class="btn btn-secondary btn-sm" @click="trainingEditorOpen=true">Schedule training</button>
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
         Personal events
@@ -5767,6 +5771,10 @@
 </template>
 
 <script setup>
+import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
+import ScheduledTrainingLog from './ScheduledTrainingLog.vue';
+import ScheduledTrainingPanel from '../meetings/ScheduledTrainingPanel.vue';
+import { canScheduleTraining } from '../../utils/scheduledTraining';
 import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
@@ -5932,6 +5940,9 @@ const openAttendanceVerification = (eventType,eventId) => {
   window.open(resolved.href,'_blank','noopener,noreferrer');
 };
 const authStore = useAuthStore();
+const trainingEditorOpen = ref(false);
+const selectedTrainingEventId = ref(null);
+const selectedTrainingInvited = ref(false);
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 
@@ -9338,7 +9349,7 @@ const evaluationPeriodYear = ref(new Date().getFullYear());
 const evaluationRubricPreview = ref([]);
 function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (['cpa','mentorship'].includes(subtype) || subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return subtype;
+  if (['training','cpa','mentorship'].includes(subtype) || subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return subtype;
   return 'general';
 }
 function meetingSubtypeForCreatePayload() {
@@ -10799,6 +10810,7 @@ const meetingTypeDisplayLabel = (ev) => {
   const multi = isMultiParticipantMeeting(ev);
   if (eventKind === 'HUDDLE') return ({cpa:'CPA Meeting',mentorship:'Mentorship Meeting'})[subtype] || (multi ? 'Group Huddle' : 'Huddle');
   if (eventKind === 'TEAM_MEETING') {
+    if (subtype === 'training') return 'Training';
     if (subtype === 'admin') return 'Admin Meeting';
     if (subtype === 'town_hall') return 'Town Hall';
     if (subtype === 'leadership_circle') return 'Leadership Circle';
@@ -25590,6 +25602,12 @@ const openAppointmentEditInScheduleModal = async ({
     || list.find((it) => isEditableScheduleStackItem(it))
     || list[0];
 
+  if (normalizeMeetingSubtype(target?.meetingSubtype)==='training') {
+    selectedTrainingInvited.value=false;
+    selectedTrainingEventId.value=Number(target.eventId);
+    showRequestModal.value=false;
+    return;
+  }
   const targetKind = String(target?.eventKind || '').trim().toUpperCase();
   const outreachTripId = Number(target?.outreachTripId || 0);
   if (targetKind === 'OUTREACH_TRIP' && outreachTripId > 0) {
@@ -25650,6 +25668,12 @@ const openAppointmentEditInScheduleModal = async ({
 
 const pickScheduleEventForEdit = async (item) => {
   if (!item) return;
+  if (normalizeMeetingSubtype(item.meetingSubtype)==='training') {
+    selectedTrainingInvited.value=false;
+    selectedTrainingEventId.value=Number(item.eventId);
+    showRequestModal.value=false;
+    return;
+  }
   const kind = String(item?.eventKind || '').trim().toUpperCase();
   const outreachTripId = Number(item?.outreachTripId || 0);
   if (kind === 'OUTREACH_TRIP' && outreachTripId > 0) {
@@ -31880,4 +31904,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-wrap--side-by-side .cell-multi-pick-badge { opacity:0; pointer-events:none; }
 .sched-wrap--side-by-side .cell-blocks:hover .cell-multi-pick-badge,
 .sched-wrap--side-by-side .cell-blocks:focus-within .cell-multi-pick-badge { opacity:1; pointer-events:auto; }
+</style>
+
+<style scoped>
+.training-detail-backdrop{position:fixed;inset:0;z-index:12000;background:#0008;display:flex;align-items:center;justify-content:center;padding:20px}
+.training-detail-dialog{background:var(--bg-primary,#fff);color:var(--text-primary,#17212d);border-radius:12px;max-width:860px;width:100%;max-height:90vh;overflow:auto;padding:20px}
 </style>

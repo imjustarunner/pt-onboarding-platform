@@ -1,3 +1,4 @@
+import { trainingRsvp,trainingCalendar,getTrainingRoster,createTraining,getTraining,updateTraining,trainingHand,uploadTrainingAsset,downloadTrainingAsset,deleteTrainingAsset,trainingLogs } from '../controllers/scheduledTraining.controller.js';
 import { getManualMeetingOptions, previewManualMeetingLog, createManualMeetingLog, resolveManualMeetingLog } from '../controllers/manualMeetingLog.controller.js';
 import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary, getMyMeetingActivity } from '../controllers/myMeetings.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
@@ -60,6 +61,18 @@ router.get('/:eventId/interview-question', getInterviewQuestion);
 router.put('/:eventId/interview-question', putInterviewQuestion);
 
 // Static paths before /:eventId
+router.get('/training-calendar',trainingCalendar);
+router.get('/training-roster',getTrainingRoster);
+router.post('/training',createTraining);
+router.get('/training-logs',trainingLogs);
+router.get('/:eventId/training',getTraining);
+router.patch('/:eventId/training',updateTraining);
+router.post('/:eventId/training/hand',trainingHand);
+router.post('/:eventId/training/rsvp',trainingRsvp);
+router.post('/:eventId/training/assets',multer({storage:multer.memoryStorage(),limits:{fileSize:25*1024*1024,files:1}}).single('file'),uploadTrainingAsset);
+router.get('/:eventId/training/assets/:assetId',downloadTrainingAsset);
+router.delete('/:eventId/training/assets/:assetId',deleteTrainingAsset);
+
 router.get('/manual-log/options', getManualMeetingOptions);
 router.post('/manual-log/preview', previewManualMeetingLog);
 router.post('/manual-log', createManualMeetingLog);

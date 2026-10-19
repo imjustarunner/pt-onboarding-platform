@@ -118,18 +118,18 @@
           <div v-if="canManageMeetingLive" class="join-tools">
             <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
             <div v-if="toolsOpen" class="join-tools__menu">
-              <button type="button" class="join-tools__item" @click="openAddAttendeeModal">
+              <button v-if="!isTraining" type="button" class="join-tools__item" @click="openAddAttendeeModal">
                 Add someone to this meeting
               </button>
               <button
-                v-if="canMuteParticipants"
+                v-if="canMuteParticipants && !isTraining"
                 type="button"
                 class="join-tools__item"
                 @click="participantsPanelOpen = !participantsPanelOpen; toolsOpen = false"
               >
                 Participants &amp; co-host
               </button>
-              <template v-if="canMuteParticipants">
+              <template v-if="canMuteParticipants && !isTraining">
                 <div class="join-tools__divider" />
                 <button
                   v-if="!micsLocked"
@@ -246,6 +246,8 @@
             :class="{ 'join-video__stage--pip': isInLobby && !videoFullscreen, 'join-video__stage--collapsed': tileFocus === 'collapsed' && !videoFullscreen }"
           >
             <SupervisionVideoRoom
+              v-if="!isTraining || trainingState"
+              :training-policy="trainingPolicy"
               ref="videoRoomRef"
               :token="token"
               :vonage-session-id="vonageSessionId"
@@ -259,7 +261,7 @@
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
               :start-muted="returnMediaPreferences?.startMuted ?? !isHost"
-              :start-video-off="returnMediaPreferences?.startVideoOff ?? false"
+              :start-video-off="isTraining ? (!trainingState?.event.videoDefaultOn || !trainingState?.event.videoAllowed) : (returnMediaPreferences?.startVideoOff ?? false)"
               :mute-others-mode="muteOthersMode"
               :lobby-mode="isInLobby && !videoFullscreen"
               :show-layout-controls="!isInLobby"
@@ -280,6 +282,7 @@
               @meeting-ended="onMeetingEnded"
               @interview-guest-ended="onInterviewGuestEndedSignal"
               @hands-map-change="onHandsMapChange"
+              @hand-raised-change="isTraining && trainingPanelRef?.hand($event ? 'raise' : 'lower')"
               @audio-map-change="onAudioMapChange"
               @transcript-control="onRemoteTranscriptControl"
               @cohost-granted="onCohostGranted"
@@ -288,6 +291,7 @@
               @leave-request="requestLeave"
             />
           </div>
+          <ScheduledTrainingPanel v-if="isTraining && resolvedEventId" ref="trainingPanelRef" :event-id="resolvedEventId" :live="!isInLobby" @state="trainingState=$event" @private-chat="trainingPrivateChat" />
           <InterviewSharedChat v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && resolvedEventId && !videoFullscreen"
             :endpoint="`/team-meetings/${resolvedEventId}/interview-chat`" />
           <section
@@ -301,6 +305,10 @@
             :aria-hidden="videoFullscreen ? 'true' : undefined"
           >
             <MeetingLiveActivityPanel
+              ref="liveChatRef"
+              :participants="trainingState?.participants || meetingChatParticipants"
+              :join-identity="joinIdentity"
+              :guest-display-name="localDisplayName"
               :event-id="resolvedEventId"
               :is-host="isHost"
               :can-create-polls="canCreatePolls"
@@ -441,7 +449,7 @@
               />
             </section>
             <section v-if="!isGroupHuddle && meetingSettings?.goals !== false" class="join-stack-section">
-              <MeetingGoalsActionsPanel
+              <MeetingGoalsActionsPanel :disabled="isTraining && !trainingState?.proctor"
                 :event-id="resolvedEventId"
                 section="goals"
                 :compact="false"
@@ -451,7 +459,7 @@
               />
             </section>
             <section v-if="!isHuddle && meetingSettings?.actionItems !== false" class="join-stack-section">
-              <MeetingGoalsActionsPanel
+              <MeetingGoalsActionsPanel :disabled="isTraining && !trainingState?.proctor"
                 :event-id="resolvedEventId"
                 section="actions"
                 :compact="false"
@@ -611,6 +619,7 @@
 </template>
 
 <script setup>
+import ScheduledTrainingPanel from '../../components/meetings/ScheduledTrainingPanel.vue';
 import { canUseMeetingMiniMode } from '../../utils/meetingMiniMode.js';
 import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { t } from '../../composables/useMeetingI18n.js';
@@ -810,7 +819,7 @@ const isAttendanceTrackingActive = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
+  if (subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
   return attendanceTrackingEnabled.value;
 });
 
@@ -821,7 +830,7 @@ const isAutoTranscriptKind = computed(() => {
   if (typeof meetingSettings.value?.transcription === 'boolean') return meetingSettings.value.transcription;
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return kind === 'HUDDLE' || subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation';
+  return kind === 'HUDDLE' || subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation';
 });
 
 const transcriptEnabled = computed(() => (
@@ -1002,6 +1011,7 @@ const displayMeetingTitle = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
   if (kind === 'HUDDLE') return isGroupHuddle.value ? 'Group Huddle' : 'Huddle';
+  if (subtype === 'training') return 'Training';
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
   if (subtype === 'leadership_circle') return 'Leadership Circle';
@@ -1053,6 +1063,22 @@ const showEnableTranscriptionButton = computed(() => (
   && !meetingCompletedAt.value
 ));
 
+const trainingState = ref(null);
+const meetingChatParticipants = ref([]);
+const trainingViewerId = computed(()=>Number(trainingState.value?.viewerUserId || /^user-(\d+)$/.exec(joinIdentity.value)?.[1] || authStore.user?.id));
+const trainingPanelRef = ref(null);
+const liveChatRef = ref(null);
+const isTraining = computed(()=>meetingSubtype.value==='training');
+const trainingPolicy = computed(()=>!isTraining.value ? null : {
+  userId:trainingViewerId.value, proctor:!!trainingState.value?.proctor,
+  primaryId:Number(trainingState.value?.participants.find(p=>p.isHost)?.id),
+  proctorIds:(trainingState.value?.participants || []).filter(p=>p.isHost || Number(p.is_cohost)).map(p=>Number(p.id)),
+  approvedIds:trainingState.value?.approvedIds || [],
+  muteAll:trainingState.value?.event.muteAll ?? true,
+  videoAllowed:trainingState.value?.event.videoAllowed ?? false,
+  canUnmute:!!trainingState.value?.proctor || trainingState.value?.event.muteAll===false || (trainingState.value?.approvedIds || []).includes(trainingViewerId.value)
+});
+function trainingPrivateChat(id){chatPanelOpen.value=true;liveChatRef.value?.openPrivateChat(id);}
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 
 /** Roles that may force-mute other participants (in addition to host). */
@@ -1065,7 +1091,7 @@ const MUTE_PARTICIPANT_ROLES = new Set([
   'provider_plus'
 ]);
 
-const canMuteParticipants = computed(() => (
+const canMuteParticipants = computed(() => isTraining.value ? !!trainingState.value?.proctor : (
   isHost.value || isCoHostBySignal.value || MUTE_PARTICIPANT_ROLES.has(actorRole.value)
 ));
 
@@ -1076,6 +1102,7 @@ const canManageMeetingLive = computed(() => (
 
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
 const canSeeFullWorkspace = computed(() => {
+  if (isTraining.value) return true;
   if (isHost.value) return true;
   if (isInterviewMeeting.value) return isInterviewer.value;
   // Evaluation meetings: host, reviewers, and the evaluated employee all need the sidebar.
@@ -1093,19 +1120,22 @@ watch([isInterviewMeeting, canSeeFullWorkspace], ([interview, interviewer]) => {
 
 /** Agenda mutations: host or admin — not every workspace viewer. */
 const canEditAgenda = computed(() => {
+  if (isTraining.value) return !!trainingState.value?.proctor;
   if (isHost.value) return true;
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(actorRole.value);
 });
 
 /** Multi-participant rooms restrict screen share to host (+ grants); 1:1 stays open. */
 const screenShareMode = computed(() => (
-  meetingSettings.value?.screenShare === false ? 'restricted' : 'everyone'
+  isTraining.value || meetingSettings.value?.screenShare === false ? 'restricted' : 'everyone'
 ));
 const canShareScreenByDefault = computed(() => {
+  if (isTraining.value) return !!trainingState.value?.proctor;
   if (screenShareMode.value !== 'restricted') return true;
   return !!isHost.value || isCoHostBySignal.value;
 });
 const canGrantScreenShare = computed(() => {
+  if (isTraining.value) return false;
   if (screenShareMode.value !== 'restricted') return false;
   return !!isHost.value || isCoHostBySignal.value;
 });
@@ -1123,7 +1153,7 @@ const showNotesTab = computed(() => {
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
+  if (subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
   return transcriptionExplicitlyEnabled.value;
 });
 
@@ -1388,7 +1418,7 @@ async function resolveAndRedirect() {
 
     if (data.meetingSubtype || data.meeting_subtype) {
       const subtype = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
-      meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
+      meetingSubtype.value = (subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
         ? subtype
         : 'general';
 
@@ -2067,7 +2097,7 @@ watch(
       });
       meetingSettings.value = data?.meetingSettings || null;
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
-      meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
+      meetingSubtype.value = (subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
 
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
       if (data?.attendanceTrackingEnabled != null) {
@@ -2075,13 +2105,14 @@ watch(
       }
       if (data?.title) waitingMeetingTitle.value = String(data.title).trim();
       const parts = Array.isArray(data?.participants) ? data.participants : [];
+      meetingChatParticipants.value = parts;
       // Workspace participants include the host; group label uses booked invitees only.
       bookedParticipantCount.value = parts.filter((p) => {
         if (p?.isHost) return false;
         return Number(p?.userId || p?.user_id || p?.id || 0) > 0;
       }).length;
     } catch {
-      if (String(meetingSubtype.value || '').toLowerCase() !== 'interview' && String(meetingSubtype.value || '').toLowerCase() !== 'evaluation') {
+      if (!isTraining.value && String(meetingSubtype.value || '').toLowerCase() !== 'interview' && String(meetingSubtype.value || '').toLowerCase() !== 'evaluation') {
         meetingSubtype.value = 'general';
       }
     }
@@ -2094,7 +2125,7 @@ watch(
       if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
       if (att?.meetingSubtype) {
         const subtype = String(att.meetingSubtype).toLowerCase();
-        meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
+        meetingSubtype.value = (subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
           ? subtype
           : meetingSubtype.value;
 

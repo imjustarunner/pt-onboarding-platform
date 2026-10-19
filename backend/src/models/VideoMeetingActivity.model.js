@@ -23,7 +23,7 @@ export default class VideoMeetingActivity {
    * Insert a chat/poll/Q&A activity.
    * @param {{ sessionId?: number, eventId?: number, userId?: number, participantIdentity: string, activityType: string, payload: object }}
    */
-  static async create({ sessionId, eventId, userId, participantIdentity, activityType, payload }) {
+  static async create({ sessionId, eventId, userId, participantIdentity, activityType, payload, recipientUserId = null }) {
     const sid = sessionId ? parseInt(sessionId, 10) : null;
     const eid = eventId ? parseInt(eventId, 10) : null;
     const uid = userId ? parseInt(userId, 10) : null;
@@ -44,9 +44,9 @@ export default class VideoMeetingActivity {
 
     const [result] = await pool.execute(
       `INSERT INTO video_meeting_activity
-        (session_id, event_id, user_id, participant_identity, activity_type, payload_json, payload_ciphertext, payload_iv, payload_auth_tag, encryption_key_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [sid, eid, uid, identity, type, payloadJson, payloadCiphertext, payloadIv, payloadAuthTag, encryptionKeyId]
+        (session_id, event_id, user_id, participant_identity, activity_type, payload_json, payload_ciphertext, payload_iv, payload_auth_tag, encryption_key_id, recipient_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sid, eid, uid, identity, type, payloadJson, payloadCiphertext, payloadIv, payloadAuthTag, encryptionKeyId, recipientUserId || null]
     );
 
     return result?.insertId ?? null;
@@ -56,7 +56,7 @@ export default class VideoMeetingActivity {
    * List activity for a session or event (for meeting owner to view later).
    * @param {{ sessionId?: number, eventId?: number, limit?: number, offset?: number }}
    */
-  static async list({ sessionId, eventId, limit = 500, offset = 0 }) {
+  static async list({ sessionId, eventId, limit = 500, offset = 0, viewerUserId = null }) {
     const sid = sessionId ? parseInt(sessionId, 10) : null;
     const eid = eventId ? parseInt(eventId, 10) : null;
     const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000);
@@ -68,13 +68,13 @@ export default class VideoMeetingActivity {
     // mysql2 prepared statements reject LIMIT ? on some servers ("Incorrect arguments to mysqld_stmt_execute").
     // lim is already clamped to an integer 1..1000 above.
     const [rows] = await pool.execute(
-      `SELECT id, session_id, event_id, user_id, participant_identity, activity_type, payload_json,
+      `SELECT id, session_id, event_id, user_id, participant_identity, activity_type, payload_json, recipient_user_id,
               payload_ciphertext, payload_iv, payload_auth_tag, encryption_key_id, created_at
        FROM video_meeting_activity
-       WHERE ${where}
+       WHERE ${where} AND (recipient_user_id IS NULL OR user_id = ? OR recipient_user_id = ?)
        ORDER BY created_at ASC, id ASC
        LIMIT ${lim} OFFSET ${skip}`,
-      [sid || eid]
+      [sid || eid, viewerUserId || null, viewerUserId || null]
     );
 
     return (rows || []).map((r) => ({
@@ -82,6 +82,7 @@ export default class VideoMeetingActivity {
       sessionId: r.session_id ? Number(r.session_id) : null,
       eventId: r.event_id ? Number(r.event_id) : null,
       userId: r.user_id ? Number(r.user_id) : null,
+      recipientUserId: r.recipient_user_id ? Number(r.recipient_user_id) : null,
       participantIdentity: r.participant_identity,
       activityType: r.activity_type,
       payload: decryptPayload(r, {}),

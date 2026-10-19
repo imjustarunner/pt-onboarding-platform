@@ -13,8 +13,13 @@ export function reminderMinutes(value) {
 export function invitationKey(event) {
   return `${event.meeting_type || 'team_meeting'}:${event.agency_id}:${event.provider_id}:${event.recurrence_series_id ? `series:${event.recurrence_series_id}` : `event:${event.id}`}`;
 }
-export function meetingInvitationContent({ events, joinUrl, hostName, participants = [], guest = false, details = '' }) {
+export function meetingInvitationContent({ events, joinUrl, hostName, participants = [], guest = false, details = '', recipientUserId = null, recipientRsvp = null }) {
   const first = events[0];
+  const training = first.meeting_subtype === 'training';
+  const recipient = participants.find(p=>Number(p.id)===Number(recipientUserId));
+  const confirmed = training && (recipientRsvp || recipient?.rsvp)==='accepted';
+  const requirement = training ? (Number(recipient?.is_required)===1 ? 'Mandatory training' : 'Optional training') : '';
+  if (training) details = `${requirement}: ${confirmed ? 'Your RSVP is confirmed. Use your personal join link below.' : Number(recipient?.is_required)===1 ? 'Your attendance is required. Please RSVP.' : 'You are welcome to attend. Please RSVP if you plan to join.'}\nTopic: ${first.description || first.title}\n${details}`;
   const recurring = !!first.recurrence_series_id;
   const title = first.title || 'Meeting';
   const isInPerson = ['IN_PERSON','IN-PERSON'].includes(String(first.modality || '').toUpperCase()) || (first.platform_video_link != null && Number(first.platform_video_link)===0 && !first.google_meet_link);
@@ -25,14 +30,15 @@ export function meetingInvitationContent({ events, joinUrl, hostName, participan
     : new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: tz }).format(parseUtcDate(e.start_at));
   const frequency = {WEEKLY:'Weekly',BIWEEKLY:'Every 2 weeks',EVERY_3_WEEKS:'Every 3 weeks',EVERY_4_WEEKS:'Every 4 weeks',MONTHLY:'Monthly'}[first.recurrence_frequency] || 'Recurring';
   const heading = `${hostName || 'Your host'} invited you to ${recurring ? 'a recurring meeting' : 'a meeting'}: ${title}`;
-  const when = `${recurring ? `${frequency}. First scheduled date: ` : ''}${dateLabel(first)} (${tz}).`;
+  const when = training ? events.map(e=>`${dateLabel(e)} – ${new Intl.DateTimeFormat('en-US',{timeStyle:'short',timeZone:tz}).format(parseUtcDate(e.end_at))} (${tz})`).join('; ') : `${recurring ? `${frequency}. First scheduled date: ` : ''}${dateLabel(first)} (${tz}).`;
   const instructions = guest ? 'This is your private interview link. It identifies you; do not share or forward it. Wait for the host to admit you.' : 'This is your private, personal join link and identifies you in the meeting. Do not share or forward it. Your attendance is recorded under your account when tracking is enabled. The waiting-room rules still apply. Calendar links join as a guest unless you are signed in.';
   const seriesNote = recurring ? 'Use this same personal link for the current or next scheduled occurrence. All dates are in My Schedule; reminders are sent separately for each date when enabled.' : '';
   const roster = participants.length ? `Attendees: ${participants.map(p => p.name || p.email || 'Guest').join(', ')}` : '';
-  const rsvpEnabled = first.meeting_type !== 'supervision';
+  const rsvpEnabled = first.meeting_type !== 'supervision' && !confirmed;
   const rsvpUrl = guest ? joinUrl.replace('/join/team-meeting/','/interview-rsvp/') : `${joinUrl}?rsvp=1&eventId=${first.id}`;
   return {
-    subject: `${recurring ? 'Recurring meeting invitation' : 'Meeting invitation'}: ${title}`,
+    trainingRequirement: requirement,
+    subject: training ? `${requirement} invitation: ${title}` : `${recurring ? 'Recurring meeting invitation' : 'Meeting invitation'}: ${title}`,
     text: `${heading}\n\n${roster}\n${details}\n${rsvpEnabled ? `RSVP attending or decline: ${rsvpUrl}` : ''}\n\n${when}\n${seriesNote}\n\nJoin: ${joinUrl}\n\n${instructions}`,
     html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `<p><a href="${escapeMeetingHtml(rsvpUrl)}">RSVP: attending or decline</a></p>` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p><p><a href="${escapeMeetingHtml(joinUrl)}">${action}</a></p><p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
   };

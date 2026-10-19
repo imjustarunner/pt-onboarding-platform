@@ -1,3 +1,4 @@
+import { recordTrainingAttendance } from './scheduledTrainingAttendance.service.js';
 import { isStudentIntern, loadMeetingPayIdentity } from './internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate} from './meetingClaimRate.service.js';
 import { huddleTitle, huddleHostServiceCode } from './huddlePolicy.js';
@@ -77,7 +78,7 @@ function buildPlatformLabel(event) {
 
 export function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation') return subtype;
+  if (subtype === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation') return subtype;
   return 'general';
 }
 
@@ -88,13 +89,14 @@ export function isCompensationClaimMeeting(event) {
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
-  return subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation';
+  return subtype === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation';
 }
 
 export function meetingTypeLabelForEvent(event) {
   const kind = String(event?.kind || '').trim().toUpperCase();
   if (kind === 'HUDDLE') return huddleTitle(event,event.host_role);
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
+  if (subtype === 'training') return 'Training';
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
   if (subtype === 'leadership_circle') return 'Leadership Circle';
@@ -318,12 +320,18 @@ async function syncCompensationClaimsUnlocked({
     } catch { /* segments table may not exist yet */ }
 
     const attendanceRows = await AgencyMeetingAttendanceRollup.listForEvent(eid);
+    const training = row.meeting_subtype === 'training';
+    let trainingPreferences = [];
+    if (training) {
+      await recordTrainingAttendance(row, attendanceRows);
+      [trainingPreferences] = await pool.execute('SELECT user_id,is_required FROM meeting_participant_preferences WHERE event_id=?',[eid]);
+    }
     const minutesByUser = new Map();
     for (const r of attendanceRows || []) {
       const uid = Number(r?.user_id || 0);
       if (!uid) continue;
       const mins = Math.round((Number(r?.total_seconds || 0) / 60) * 100) / 100;
-      if (mins >= 0.5) minutesByUser.set(uid, mins);
+      if (training ? mins > 0 : mins >= 0.5) minutesByUser.set(uid, mins);
     }
 
     const attendeeIds = await ProviderScheduleEventAttendee.listUserIdsByEventId(eid);
@@ -350,6 +358,7 @@ async function syncCompensationClaimsUnlocked({
     const meetingSubtype = normalizeMeetingSubtype(row.meeting_subtype ?? row.meetingSubtype);
     const results = [];
     for (const uid of participantIds) {
+      if (training && !trainingPreferences.some(p=>Number(p.user_id)===uid && Number(p.is_required)===1)) { results.push({userId:uid,ok:true,skipped:true,error:'optional_training'}); continue; }
       const manualPerson = manualAttendees.find(p=>Number(p.user_id)===uid);
       if (manualPerson && manualPerson.claim_policy !== 'submit') {
         results.push({userId:uid,ok:true,skipped:true,error:`manual_${manualPerson.claim_policy}`}); continue;
@@ -370,9 +379,9 @@ async function syncCompensationClaimsUnlocked({
         serviceCode = huddleHostServiceCode(row, role);
         payRateSource = serviceCode === 'Admin Time' ? 'admin_time' : 'individual_meeting';
       }
-      if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin')) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
+      if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && ['admin','training'].includes(meetingSubtype))) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
       const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
-      if (Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
+      if (!training && Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
 
       // Supervisor meeting time uses half the effective individual-supervision rate.
       if (kind === 'TEAM_MEETING' && ['leadership_circle','supervisors_meeting'].includes(meetingSubtype)) {
@@ -388,12 +397,12 @@ async function syncCompensationClaimsUnlocked({
       const mins = minutesByUser.has(uid)
         ? Number(minutesByUser.get(uid))
         : (useScheduledFallback && meetingEnded ? scheduledMinutes : 0);
-      if (!(mins >= 0.5)) {
+      if (!(training ? mins > 0 : mins >= 0.5)) {
         results.push({ userId: uid, ok: false, skipped: true, error: 'no_minutes' });
         continue;
       }
 
-      if (!manualPerson && !(kind === 'TEAM_MEETING' && meetingSubtype === 'admin') && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
+      if (!manualPerson && !(kind === 'TEAM_MEETING' && ['admin','training'].includes(meetingSubtype)) && !((await meetingClaimHourlyRate({agency_id:agencyId,user_id:uid,claim_date:claimDate,payload:{serviceCode}},null)) > 0)) {
         results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
         continue;
       }
@@ -407,6 +416,7 @@ async function syncCompensationClaimsUnlocked({
         categoryLabel,
         compensationNote
       });
+      if (training) payload.totalMinutes = mins;
       if (manualPerson) Object.assign(payload, { manualMeetingLogId:manualLog.id, attendanceSource:'manual',
         platform:({in_person:'In person',phone:'Phone call',google_meet:'Google Meet',app_issue:'App meeting — attendance issue',other:'Other'})[manualLog.platform],
         compensationNote:[payload.compensationNote,'Manually recorded attendance; submitted for payroll review.'].filter(Boolean).join(' ') });
@@ -455,7 +465,7 @@ export async function syncCompensationClaimsForAgencyInWindow(agencyId, periodSt
          UPPER(COALESCE(kind, '')) = 'HUDDLE'
          OR (
            UPPER(COALESCE(kind, '')) = 'TEAM_MEETING'
-           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('admin', 'town_hall', 'evaluation', 'leadership_circle', 'supervisors_meeting')
+           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('training', 'admin', 'town_hall', 'evaluation', 'leadership_circle', 'supervisors_meeting')
          )
        )
        AND (

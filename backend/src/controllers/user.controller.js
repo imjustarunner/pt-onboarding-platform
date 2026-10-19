@@ -4880,7 +4880,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         );
         const meetingSubtypeNorm = (() => {
           const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
-          if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') {
+          if (subtype === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') {
             return subtype;
           }
           return 'general';
@@ -6195,6 +6195,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
       .trim()
       .toLowerCase();
+    if (requestedSubtype === 'training') return res.status(400).json({error:{message:'Use Schedule training to create or configure a training event.'}});
     if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
     if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
     let meetingSubtype = kind === 'HUDDLE' ? huddleSubtype({meeting_subtype:requestedSubtype},provider.role) : 'general';
@@ -6687,6 +6688,11 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE', 'OUTREACH_TRIP'].includes(kind)) {
       return res.status(400).json({ error: { message: 'This event type cannot be edited here' } });
     }
+    if (target.meeting_subtype === 'training') {
+      const {canScheduleTraining}=await import('../services/scheduledTrainingPolicy.js');
+      if (!canScheduleTraining(req.user)) return res.status(403).json({error:{message:'Only admin, CPA, and Provider Plus may manage training schedules.'}});
+      if (['meetingSubtype','meeting_subtype','isTrainingPayEligible','meetingSettings','attendeeUserIds','agencyId'].some(key=>Object.hasOwn(req.body || {},key))) return res.status(400).json({error:{message:'Use training details to configure this training. Its meeting type, roster, attendance, and pay policy cannot be changed by the general meeting editor.'}});
+    }
     const hostProviderId = Number(target.provider_id || userId) || userId;
     const agencyForAccess = Number(req.body?.agencyId || target.agency_id || 0) || null;
     const canManageHost = await assertCanManageTargetSchedule({
@@ -6900,7 +6906,8 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
         .trim()
         .toLowerCase();
-      if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
+      if (requestedSubtype === 'training') return res.status(400).json({error:{message:'Use Schedule training to create or configure a training event.'}});
+    if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
       if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype) || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
         return res.status(400).json({
           error: { message: 'Admin Meeting, Town Hall, Interview, and Evaluation subtypes are only valid for team meetings.' }
@@ -7252,6 +7259,10 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Remove this personal event in Family Command Center so everyone’s calendar stays in sync.' } });
     }
 
+    if (target.meeting_subtype === 'training') {
+      const {canScheduleTraining}=await import('../services/scheduledTrainingPolicy.js');
+      if (!canScheduleTraining(req.user)) return res.status(403).json({error:{message:'Only admin, CPA, and Provider Plus may manage training schedules.'}});
+    }
     const hostProviderId = Number(target.provider_id || userId) || userId;
     const provider = await User.findById(hostProviderId);
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });

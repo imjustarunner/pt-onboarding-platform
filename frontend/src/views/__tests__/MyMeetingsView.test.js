@@ -56,7 +56,7 @@ describe('Meetings dashboard navigation and activity',()=>{
   wrapper=mount(MyMeetingsView,{props:{embedded:true},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();
   await wrapper.get('.meeting-row').trigger('click');await flushPromises();await selectTab('Transcript');await flushPromises();
   expect(mocks.replace).toHaveBeenLastCalledWith({query:{tab:'meetings',meetingTab:'Transcript',type:'team',meetingId:7}});
-  await wrapper.get('.back-button').trigger('click');await flushPromises();expect(wrapper.findAll('.category-card')).toHaveLength(6);
+  await wrapper.get('.back-button').trigger('click');await flushPromises();expect(wrapper.findAll('.category-card')).toHaveLength(7);expect(wrapper.text()).toContain('Scheduled staff learning and attendance.');
   expect(mocks.replace).toHaveBeenLastCalledWith({query:{tab:'meetings'}});
  });
  it('opens administrative subcategories and reports actual returned counts',async()=>{

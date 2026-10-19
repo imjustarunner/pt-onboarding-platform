@@ -65,6 +65,10 @@ jobs:
           backend/src/services/__tests__/meetingSupervisionRecord.test.js
           backend/src/services/__tests__/meetingSupervisionSpeakerLabels.test.js
           backend/src/services/__tests__/meetingSummaryContent.test.js
+      - name: Scheduled training, RSVP reminders, and private chat
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduled-training.config.js
+          npm test --prefix frontend -- --run src/utils/__tests__/scheduledTraining.test.js src/utils/__tests__/teamMeetingInvitationAccess.test.js src/components/meetings/__tests__/ScheduledTrainingPanel.test.js src/components/video/__tests__/VideoSessionRoom.test.js
       - name: Personal meeting links without app login
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

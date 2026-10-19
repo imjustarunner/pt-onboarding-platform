@@ -1,3 +1,4 @@
+import { isTrainingProctor } from '../services/scheduledTraining.service.js';
 import { isStudentIntern } from '../services/internMeetingPolicy.service.js';
 import { canManageMeetingCompensation, meetingClaimCompensation, saveMeetingClaimRate } from '../services/meetingClaimRate.service.js';
 import { requireSessionPrivacyConfiguration } from '../services/sessionAiPrivacy.service.js';
@@ -1612,7 +1613,7 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
     const workspace = ProviderScheduleEventArtifact.toWorkspaceDto(artifact);
     const participants = await loadMeetingParticipants(event);
     const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
-    const meetingSubtype = (subtypeRaw === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtypeRaw) || subtypeRaw === 'interview')
+    const meetingSubtype = (subtypeRaw === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtypeRaw) || subtypeRaw === 'interview')
       ? subtypeRaw
       : 'general';
     res.json({
@@ -1645,6 +1646,7 @@ export const upsertTeamMeetingWorkspace = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    if (event.meeting_subtype === 'training' && !await isTrainingProctor(event,req.user.id)) return res.status(403).json({error:{message:'Only proctors can update training goals.'}});
     const prev = ProviderScheduleEventArtifact.toWorkspaceDto(
       await ProviderScheduleEventArtifact.findByEventId(eventId)
     );
@@ -1683,7 +1685,7 @@ export const upsertTeamMeetingWorkspace = async (req, res, next) => {
       eventId,
       meetingSubtype: (() => {
         const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
-        if (subtypeRaw === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtypeRaw) || subtypeRaw === 'interview') return subtypeRaw;
+        if (subtypeRaw === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtypeRaw) || subtypeRaw === 'interview') return subtypeRaw;
         return 'general';
       })(),
       participants,

@@ -1,3 +1,4 @@
+import { canJoinTeamMeeting, canJoinSupervision } from '../services/meetingJoinPolicy.service.js';
 import { requirePersonalSupervisionInvitation, hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
 /**
  * Video meeting activity: chat, polls, Q&A.
@@ -170,7 +171,8 @@ export const postSupervisionActivity = async (req, res, next) => {
     const ok = await canAccessSupervisionActivity(req, session);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const { activityType, payload } = req.body || {};
+    const { activityType, payload, recipientUserId: recipientRaw } = req.body || {};
+    const recipientUserId = recipientRaw == null ? null : Number(recipientRaw);
     const type = String(activityType || 'chat').toLowerCase();
     const identity = String(req.user?.id ? `user-${req.user.id}` : req.body?.participantIdentity || '').trim();
     if (!identity) return res.status(400).json({ error: { message: 'Invalid participant identity' } });
@@ -181,11 +183,13 @@ export const postSupervisionActivity = async (req, res, next) => {
       });
     }
 
+    if (recipientRaw != null && (type !== 'chat' || !Number.isSafeInteger(recipientUserId) || recipientUserId < 1 || (!await canJoinSupervision(session,req.user.id) || !await canJoinSupervision(session,recipientUserId)))) return res.status(400).json({error:{message:'Choose an invited participant for a private chat message.'}});
     const id = await VideoMeetingActivity.create({
       sessionId,
       eventId: null,
       userId: await parseUserIdFromIdentity(identity) || req.user?.id,
       participantIdentity: identity,
+      recipientUserId,
       activityType: type,
       payload: payload || {}
     });
@@ -227,7 +231,7 @@ export const getSupervisionActivity = async (req, res, next) => {
     const limit = parseInt(req.query?.limit, 10) || 500;
     let activity = [];
     try {
-      activity = await VideoMeetingActivity.list({ sessionId, limit: Math.min(limit, 1000) });
+      activity = await VideoMeetingActivity.list({ sessionId, limit: Math.min(limit, 1000), viewerUserId: req.user.id });
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, activity: [] });
       console.warn('[getSupervisionActivity] Failed to list activity:', e?.message);
@@ -254,7 +258,8 @@ export const postTeamMeetingActivity = async (req, res, next) => {
     const ok = await canAccessTeamMeetingActivity(req, event);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const { activityType, payload } = req.body || {};
+    const { activityType, payload, recipientUserId: recipientRaw } = req.body || {};
+    const recipientUserId = recipientRaw == null ? null : Number(recipientRaw);
     const type = String(activityType || 'chat').toLowerCase();
     const identity = String(req.user?.id ? `user-${req.user.id}` : req.body?.participantIdentity || '').trim();
     if (!identity) return res.status(400).json({ error: { message: 'Invalid participant identity' } });
@@ -265,11 +270,13 @@ export const postTeamMeetingActivity = async (req, res, next) => {
       });
     }
 
+    if (recipientRaw != null && (type !== 'chat' || !Number.isSafeInteger(recipientUserId) || recipientUserId < 1 || (!await canJoinTeamMeeting(event,req.user.id) || !await canJoinTeamMeeting(event,recipientUserId)))) return res.status(400).json({error:{message:'Choose an invited participant for a private chat message.'}});
     const id = await VideoMeetingActivity.create({
       sessionId: null,
       eventId,
       userId: await parseUserIdFromIdentity(identity) || req.user?.id,
       participantIdentity: identity,
+      recipientUserId,
       activityType: type,
       payload: payload || {}
     });
@@ -297,7 +304,7 @@ export const getTeamMeetingActivity = async (req, res, next) => {
     const limit = parseInt(req.query?.limit, 10) || 500;
     let activity = [];
     try {
-      activity = await VideoMeetingActivity.list({ eventId, limit: Math.min(limit, 1000) });
+      activity = await VideoMeetingActivity.list({ eventId, limit: Math.min(limit, 1000), viewerUserId: req.user.id });
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, activity: [] });
       console.warn('[getTeamMeetingActivity] Failed to list activity:', e?.message);

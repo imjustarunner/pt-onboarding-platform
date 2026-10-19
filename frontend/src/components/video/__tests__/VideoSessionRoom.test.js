@@ -52,6 +52,21 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.initPublisher.mockReset();
   });
 
+  it('keeps training microphones and cameras locked until the server grants permission, ignoring peer unlock signals', async()=>{
+    const policy={userId:4,proctor:false,primaryId:1,proctorIds:[1],approvedIds:[],muteAll:true,videoAllowed:false,canUnmute:false};
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'training',token:'eyJ.test.token',trainingPolicy:policy,startMuted:true,startVideoOff:true,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session._handlers['signal:mic_unlock']({data:'{}'});
+    videoSdk.session._handlers['signal:screen_share_grant']({data:JSON.stringify({granted:true})});
+    wrapper.vm.toggleCamera();await wrapper.vm.toggleMic();
+    expect(wrapper.vm.publishVideo).toBe(false);expect(wrapper.vm.publishAudio).toBe(false);
+    expect(wrapper.findAll('button').find(b=>b.text()==='Cam off').attributes('disabled')).toBeDefined();
+    await wrapper.setProps({trainingPolicy:{...policy,videoAllowed:true,canUnmute:true,approvedIds:[4]}});
+    expect(wrapper.findAll('button').find(b=>b.text()==='Cam off').attributes('disabled')).toBeUndefined();
+    expect(wrapper.vm.publishAudio).toBe(false); // Approval permits unmute; it never turns a microphone on automatically.
+    wrapper.unmount();
+  });
+
   it('ignores participant end signals in clinical rooms and waits for an actual server disconnection', async () => {
     const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'clinical',token:'eyJ.test.token',serverManagedEnd:true,playJoinTone:false}});
     await flushPromises();await vi.dynamicImportSettled();

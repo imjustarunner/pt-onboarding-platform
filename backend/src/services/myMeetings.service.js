@@ -96,7 +96,7 @@ export async function requireAttendedMeeting(type, id, userId, actor = { id: use
 }
 export async function myMeetingActivity(type, id, userId, offset = 0, actor = { id: userId }) {
   await requireAttendedMeeting(type, id, userId, actor);
-  const rows = await VideoMeetingActivity.list({ [type === 'team' ? 'eventId' : 'sessionId']: Number(id), limit: 101, offset });
+  const rows = await VideoMeetingActivity.list({ [type === 'team' ? 'eventId' : 'sessionId']: Number(id), limit: 101, offset, viewerUserId: userId });
   return { activity: rows.slice(0,100), hasMore: rows.length > 100 };
 }
 export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
@@ -135,7 +135,12 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
     const [notes] = await pool.execute('SELECT * FROM meeting_personal_notes WHERE event_id=? AND user_id=?',[Number(id),Number(userId)]);
     personalNote = resolvePersonalNotePlaintext(notes[0]);
   }
-  return { meeting: { id:Number(id),type,title:meeting.title || (meetingCategory(type,meeting) === 'group_supervision' ? 'Group supervision' : 'Individual supervision'),startAt:meeting.start_at,endAt:meeting.end_at,category:meetingCategory(type,meeting),facilitator:meeting.facilitator,status:meeting.status,completedAt:meeting.meeting_completed_at || meeting.live_ended_at || null },
+  let training = null;
+  if (type==='team' && meeting.meeting_subtype==='training') {
+    const [assets]=await pool.execute(`SELECT a.id,a.filename FROM scheduled_training_assets a JOIN scheduled_trainings t ON t.event_id=a.event_id JOIN scheduled_trainings selected ON selected.series_key=t.series_key AND selected.event_id=? ORDER BY a.created_at`,[Number(id)]);
+    training={topic:meeting.description || '',assets};
+  }
+  return { training, meeting: { id:Number(id),type,title:meeting.title || (meetingCategory(type,meeting) === 'group_supervision' ? 'Group supervision' : 'Individual supervision'),startAt:meeting.start_at,endAt:meeting.end_at,category:meetingCategory(type,meeting),facilitator:meeting.facilitator,status:meeting.status,completedAt:meeting.meeting_completed_at || meeting.live_ended_at || null },
     interviewTeamChat: (Array.isArray(interviewArtifact?.team_chat_json) ? interviewArtifact.team_chat_json : []).map(message => ({
       text: message.text, authorName: message.authorName, at: message.at
     })),

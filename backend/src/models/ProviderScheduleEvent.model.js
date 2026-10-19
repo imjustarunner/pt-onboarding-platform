@@ -293,7 +293,7 @@ class ProviderScheduleEvent {
       scopeParams = [aId];
     }
     // Include events where user is provider (host) OR where user is attendee of a TEAM_MEETING
-    const userClause = `(pse.provider_id = ? OR (
+    const userClause = `(EXISTS (SELECT 1 FROM scheduled_trainings st JOIN user_agencies ua ON ua.agency_id=pse.agency_id AND ua.user_id=${pId} AND ua.is_active=1 JOIN users su ON su.id=ua.user_id AND COALESCE(su.is_active,1)=1 AND su.role NOT IN ('client','client_guardian','guardian','parent','school_staff','school_support','school_admin','school','kiosk','prehire','candidate') WHERE st.event_id=pse.id AND st.agency_visible=1) OR pse.provider_id = ? OR (
       UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
       AND EXISTS (
         SELECT 1 FROM provider_schedule_event_attendees psea

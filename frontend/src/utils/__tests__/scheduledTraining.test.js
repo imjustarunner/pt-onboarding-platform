@@ -1,0 +1,4 @@
+import {it,expect} from 'vitest';
+import {trainingWallInstant,canScheduleTraining} from '../scheduledTraining';
+it('uses Mountain time on both sides of daylight saving time for multi-day training',()=>{expect(trainingWallInstant('2026-10-27','17:00','America/Denver')).toBe('2026-10-27T23:00:00.000Z');expect(trainingWallInstant('2026-11-03','17:00','America/Denver')).toBe('2026-11-04T00:00:00.000Z');expect(()=>trainingWallInstant('2026-03-08','02:30','America/Denver')).toThrow(/does not exist/);});
+it('limits the schedule training option to requested roles',()=>{for(const role of ['admin','super_admin','provider_plus','clinical_practice_assistant'])expect(canScheduleTraining({role})).toBe(true);for(const role of ['provider','intern','support','staff','supervisor'])expect(canScheduleTraining({role})).toBe(false);});

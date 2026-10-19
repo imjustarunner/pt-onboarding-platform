@@ -79,3 +79,20 @@ it.each([{role:'provider',title:'Intern',credential:'BA'},{role:'provider',emplo
  const result=await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'admin'}});
  expect(m.create).not.toHaveBeenCalled();expect(result.results[0].error).toBe('intern_unpaid_indirect');
 });
+
+it('credits mandatory interns as unpaid indirect and pays mandatory bachelor staff only for recorded training attendance',async()=>{
+ const identities={1:{role:'provider',credential:'BA'},2:{role:'provider',credential:'BA',title:'Practicum student'},3:{role:'provider',credential:'LPC'}};
+ m.attendees.mockResolvedValue([2,3]);m.rollups.mockResolvedValue([{user_id:1,total_seconds:4500},{user_id:2,total_seconds:3600},{user_id:3,total_seconds:7200}]);
+ m.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT user_id,is_required')?[[{user_id:1,is_required:1},{user_id:2,is_required:1},{user_id:3,is_required:0}]]:sql.includes('SELECT role')?[[identities[args[0]]]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'training'}});
+ expect(m.create).toHaveBeenCalledTimes(1);expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:75})}));
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,2,2,3600,'indirect',1,0]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,3,2,7200,'attendance',0,0]);
+});
+it('does not pay absent required training invitees',async()=>{m.rollups.mockResolvedValue([]);await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'training'}});expect(m.create).not.toHaveBeenCalled();});
+it('records mandatory nonstudent training at Support Activity even for a salaried administrator',async()=>{
+ m.salary.mockResolvedValue({salary_per_pay_period:1000});
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT user_id,is_required')?[[{user_id:1,is_required:1}]]:sql.includes('SELECT role')?[[{role:'admin',credential:'BA'}]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,meeting_subtype:'training'}});
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:60})}));
+});

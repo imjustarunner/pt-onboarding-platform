@@ -18,3 +18,7 @@ it('scopes question display requests to the invited meeting; controller still ch
  for(const method of ['GET','PUT'])expect(teamMeetingRequest(method,'/9/interview-question')).toEqual({eventId:9,action:'interview-question'});
  expect(teamMeetingRequest('PUT','/9/interview-question/private')).toBeNull();
 });
+it('allows only meeting-scoped training materials, RSVP, and moderation routes',()=>{
+ for(const [method,path] of [['GET','training'],['GET','training/assets/5'],['PATCH','training'],['POST','training/hand'],['POST','training/rsvp'],['POST','training/assets'],['DELETE','training/assets/5']])expect(teamMeetingRequest(method,`/9/${path}`)).toEqual({eventId:9,action:path});
+ for(const [method,path] of [['POST','/training'],['GET','/training-roster'],['GET','/training-calendar'],['GET','/9/training/assets/5/admin'],['PUT','/9/training']])expect(teamMeetingRequest(method,path)).toBeNull();
+});

@@ -1,0 +1,13 @@
+// @vitest-environment jsdom
+import {it,expect,vi,afterEach} from 'vitest';import {mount,flushPromises} from '@vue/test-utils';
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn()}));
+vi.mock('../../../services/api',()=>({default:m}));vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:4}})}));
+import Panel from '../ScheduledTrainingPanel.vue';
+afterEach(()=>{vi.clearAllMocks();});
+const data=proctor=>({event:{id:7,title:'Crisis Training',videoAllowed:false,videoDefaultOn:false,muteAll:true},proctor,assets:[],participants:[{id:1,name:'Trainer',isHost:true},{id:4,name:'Student',is_required:1}],hands:[{user_id:4,status:proctor?'raised':'denied',name:'Student'}],approvedIds:[]});
+it('offers private chat to the trainer after a denied hand without exposing proctor controls',async()=>{m.get.mockResolvedValue({data:data(false)});const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();expect(w.text()).toContain('Please use private chat');expect(w.text()).not.toContain('Mute all attendees');await w.findAll('button').find(b=>b.text()==='Message Trainer').trigger('click');expect(w.emitted('private-chat')).toEqual([[1]]);w.unmount();});
+it('allows proctors to approve a hand and revoke approvals by muting all',async()=>{m.get.mockResolvedValue({data:data(true)});const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Allow unmute').trigger('click');expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/hand',{action:'approve',userId:4});await w.findAll('button').find(b=>b.text()==='Mute all attendees').trigger('click');expect(m.patch).toHaveBeenCalledWith('/team-meetings/7/training',{muteAll:true});w.unmount();});
+it('uses the authenticated invitation identity even if a different account is in the browser store',async()=>{
+ const value=data(false);value.viewerUserId=8;value.hands=[{user_id:8,status:'approved'}];m.get.mockResolvedValue({data:value});
+ const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();expect(w.text()).toContain('Your request was approved');w.unmount();
+});

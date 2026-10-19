@@ -10,8 +10,17 @@ export function teamMeetingAccessFor(eventId){
  if(!access?.token||Number(access.eventId)!==id||Number(access.expiresAt)<=Date.now())return null;return access;
 }
 export function attachTeamMeetingAccess(config){
+ if(config.skipTeamMeetingAccess)return config;
   const pageRef = /\/join\/team-meeting\/([^/]+)\/?$/.exec(window.location.pathname)?.[1];
   if (pageRef && !/^\d+$/.test(pageRef)) return config;
- const id=/^\/team-meetings\/(?:join-info\/)?(\d+)(?:\/|$)/.exec(String(config.url||''))?.[1];const access=id&&teamMeetingAccessFor(id);
+ const url = String(config.url || '');
+ let id=/^\/team-meetings\/(?:join-info\/)?(\d+)(?:\/|$)/.exec(url)?.[1];
+ if (url === '/meeting-agendas') {
+  const input = String(config.method || 'get').toLowerCase() === 'get' ? config.params : config.data;
+  if (input?.meetingType === 'provider_schedule_event') id = input.meetingId;
+ } else if (/^\/meeting-agendas\/\d+\/items(?:\/\d+|\/bulk)?$/.test(url)) {
+  id = pageRef;
+ }
+ const access=id&&teamMeetingAccessFor(id);
  if(access){config.headers||={};config.headers['X-Team-Meeting-Access']=access.token;config.skipAuthRedirect=true;}return config;
 }
