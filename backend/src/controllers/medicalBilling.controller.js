@@ -2570,7 +2570,9 @@ export const createMedicalClaim = async (req, res, next) => {
     const amountCents = lines.reduce((s, l) => s + Number(l.chargeCents || 0), 0);
     let claim;
     const draftDb = await clinicalPool.getConnection();
-    const claimLifecycle = readiness.ready && noteId ? 'ready' : 'draft';
+    // Clinical checks alone do not establish insurance, intake documentation,
+    // payer enrollment or submission readiness. Full review runs before upload.
+    const claimLifecycle = 'draft';
     try {
       await draftDb.beginTransaction();
       await draftDb.execute('SELECT id FROM clinical_sessions WHERE id = ? AND agency_id = ? FOR UPDATE', [sessionId, agencyId]);

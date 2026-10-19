@@ -113,6 +113,7 @@
         <p v-if="review.supervision.npi2027">January 2027 individual service-provider NPI requirement applies.</p>
         <p v-if="review.supervision.rule">Policy basis: {{ review.supervision.rule.reference }} · {{ review.supervision.rule.effectiveFrom }}–{{ review.supervision.rule.effectiveThrough }}</p>
       </section>
+      <ClientDocumentationReadiness v-if="review.clientId && review.readiness.clientDocumentation" :agency-id="agencyId" :client-id="review.clientId" :scope="review.readiness.clientDocumentation.scope" :service-date="review.dateOfService" @saved="run(reloadReview)" />
       <section v-if="review.aiReview" class="review" aria-label="AI content review">
         <h4>AI content &amp; claim consistency</h4>
         <p>{{ { required: 'Review required for the current note and claim', needs_review: 'Findings need resolution', passed: 'Current review completed' }[review.aiReview.status] }}</p>
@@ -157,6 +158,7 @@
 
 <script setup>
 import ClaimServiceChangesPanel from './ClaimServiceChangesPanel.vue';
+import ClientDocumentationReadiness from '../billing/ClientDocumentationReadiness.vue';
 import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';

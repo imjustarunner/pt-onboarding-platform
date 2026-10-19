@@ -60,6 +60,10 @@ export async function enrollEligibilityClients(input) {
   }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
 export async function eligibilityAutomationOverview(agencyId,{after=0}={}) {
+  const [[agency]]=await pool.execute('SELECT feature_flags FROM agencies WHERE id=?',[agencyId]);
+  const flags=typeof agency?.feature_flags==='string'?JSON.parse(agency.feature_flags):agency?.feature_flags||{};
+  const intakeConfig=flags.intakeEligibilityAutomation||{};
+  const [intakeJobs]=await pool.execute('SELECT status,COUNT(*) AS count FROM intake_eligibility_jobs WHERE agency_id=? GROUP BY status',[agencyId]);
   const [[policy]]=await pool.execute('SELECT * FROM agency_eligibility_automation WHERE agency_id=?',[agencyId]);
   const [clients]=await pool.execute(`SELECT c.id,c.initials,c.primary_insurer_name,(${activeClientSql}) AS eligible,e.enabled,e.billing_office_location_id,e.last_checked_at,e.last_status FROM clients c LEFT JOIN client_statuses cs ON cs.id=c.client_status_id LEFT JOIN client_eligibility_automation e ON e.agency_id=c.agency_id AND e.client_id=c.id WHERE c.agency_id=? AND c.id>? AND (c.billing_insurance_payload IS NOT NULL OR e.client_id IS NOT NULL) ORDER BY c.id LIMIT 101`,[agencyId,after]);
   const [[totals]]=await pool.execute(`SELECT COUNT(*) AS enrolled FROM client_eligibility_automation WHERE agency_id=? AND enabled=1`,[agencyId]);
@@ -67,7 +71,8 @@ export async function eligibilityAutomationOverview(agencyId,{after=0}={}) {
   const [recent]=await pool.execute('SELECT u.id,u.client_id,u.source,u.status,u.created_at,c.policy_slot,c.service_date FROM claimmd_eligibility_usage u LEFT JOIN client_coverage_checks c ON c.id=u.coverage_check_id AND c.agency_id=u.agency_id WHERE u.agency_id=? ORDER BY u.id DESC LIMIT 30',[agencyId]);
   let accountLimit=null,connectionReady=false;
   try{const connection=await resolveClaimMdConnection(agencyId);accountLimit=accountEligibilityLimit(connection.connectionId);requireClaimMdEligibility(connection,agencyId);connectionReady=true;}catch{}
-  return {policy:policy||null,clients:clients.slice(0,100),nextAfter:clients.length>100?clients[99].id:null,totals,usage,recent,offices:await listClaimMdBillingProfiles(agencyId),accountLimit,connectionReady,workerEnabled:process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED==='true'};
+  return {policy:policy||null,clients:clients.slice(0,100),nextAfter:clients.length>100?clients[99].id:null,totals,usage,recent,offices:await listClaimMdBillingProfiles(agencyId),accountLimit,connectionReady,workerEnabled:process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED==='true',
+    intake:{enabled:intakeConfig.enabled===true&&!!policy?.enabled,workerEnabled:process.env.CLAIM_MD_INTAKE_ELIGIBILITY_ENABLED==='true',officeId:Number(intakeConfig.officeId)||null,billingQueueConfigured:flags.insuranceVerificationTasks?.enabled===true&&!!flags.insuranceVerificationTasks.taskListId,jobs:intakeJobs}};
 }
 
 async function actorAllowed(policy) {

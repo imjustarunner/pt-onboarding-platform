@@ -1,8 +1,16 @@
 <template>
  <section class="automation" aria-labelledby="eligibility-automation-title">
-  <header><div><h2 id="eligibility-automation-title">Background insurance verification</h2><p>Schedule checks for enrolled clients. Responses remain subject to billing review; new findings never automatically approve coverage or release a patient balance.</p></div><button :disabled="busy" @click="load(0)">Refresh</button></header>
+  <header><div><h2 id="eligibility-automation-title">Background insurance verification</h2><p>Auricwell runs checks using this agency’s billing connection, office and permissions. Insurance verification does not mean a claim is ready to submit. Documentation, signatures, payer rules and provider enrollment are reviewed separately.</p></div><button :disabled="busy" @click="load(0)">Refresh</button></header>
   <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
   <template v-if="data">
+   <section v-if="data.intake" aria-label="Intake insurance verification">
+    <h3>Checks after intake</h3>
+    <div class="state"><strong>{{ data.intake.enabled ? 'Enabled for this agency' : 'Not enabled for this agency' }}</strong><span>Intake worker: {{ data.intake.workerEnabled ? 'Enabled' : 'Deployment activation required' }}</span><span>Billing office: {{ data.offices.find(o => Number(o.id) === data.intake.officeId)?.name || 'Setup required' }}</span><span>Billing follow-up queue: {{ data.intake.billingQueueConfigured ? 'Configured' : 'Setup required' }}</span></div>
+    <p>New intake coverage is checked when setup permits. Missing information, uncertain matches and unresolved coverage go to the agency’s shared billing queue. Insurance cards are optional and encouraged; card reminders stop when current coverage is verified.</p>
+    <ul><li v-for="item in data.intake.jobs" :key="item.status">{{ intakeStatusLabel(item.status) }}: {{ item.count }}</li></ul>
+    <p>Activation and billing-office configuration are managed for each agency. Other agencies are not enabled by this agency’s settings.</p>
+   </section>
+   <h3>Periodic checks for enrolled clients</h3>
    <div class="state"><strong>{{ draft.enabled ? 'Requested on' : 'Paused' }}</strong><span>Worker: {{ data.workerEnabled ? 'Enabled' : 'Deployment activation required' }}</span><span>Claim.MD: {{ data.connectionReady ? 'Configured' : 'Setup required' }}</span><span>Shared account monthly limit: {{ data.accountLimit ?? 'Not configured' }}</span><span>{{ data.totals.enrolled }} clients enrolled</span></div>
    <form @submit.prevent="savePolicy">
     <div class="fields"><label>Frequency<select v-model="draft.cadence" :disabled="busy"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="before_visit">Before scheduled visits (next 24 hours)</option></select></label>
@@ -31,6 +39,7 @@ const data=ref(null),draft=ref({}),busy=ref(false),error=ref(''),notice=ref(''),
 let generation=0;
 const allSelected=computed(()=>data.value?.clients.length&&data.value.clients.every(c=>selected.value.includes(c.id)));
 const statusLabel=value=>({reserved:'Awaiting response / reconcile if stalled',returned:'Response returned — review coverage',unknown:'Unconfirmed — review before retry',not_sent:'Not sent'}[value]||value);
+const intakeStatusLabel=value=>({pending:'Waiting for insurance check',processing:'Insurance check in progress',completed:'Coverage response found — billing review remains',review_required:'Billing follow-up needed',superseded:'Insurance changed — previous request closed'}[value]||value);
 function selectPage(on){selected.value=on?data.value.clients.map(c=>c.id):[];}
 async function load(cursor=0){const g=++generation;busy.value=true;error.value='';selected.value=[];try{const r=await api.get('/medical-billing/eligibility-automation',{params:{agencyId:props.agencyId,after:cursor}});if(g!==generation)return;data.value=r.data;after.value=cursor;const p=r.data.policy;draft.value={enabled:!!p?.enabled,cadence:p?.cadence||'monthly',monthlyLimit:p?.monthly_limit||1000,revision:p?.revision||0,readinessReference:p?.readiness_reference||'',readinessConfirmed:false};}catch(e){if(g===generation){data.value=null;error.value=e.response?.data?.error?.message||'Eligibility scheduling is unavailable. Check migration and access setup.';}}finally{if(g===generation)busy.value=false;}}
 async function mutate(path,payload,message){const g=generation;busy.value=true;error.value='';notice.value='';try{await api.put(path,{...payload,agencyId:props.agencyId});if(g!==generation)return;await load(after.value);if(g+1===generation)notice.value=message;}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||'Changes could not be saved';}finally{if(g===generation)busy.value=false;}}

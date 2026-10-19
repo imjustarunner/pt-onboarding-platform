@@ -66,14 +66,14 @@
                 :disabled="readinessLoadingId === s.id"
                 @click="checkSessionReadiness(s)"
               >
-                {{ readinessLoadingId === s.id ? 'Checking…' : 'Claim readiness' }}
+                {{ readinessLoadingId === s.id ? 'Checking…' : 'Clinical note checks' }}
               </button>
               <span
                 v-if="sessionReadiness[s.id]"
                 class="mb-ready"
                 :class="sessionReadiness[s.id].ready ? 'mb-ready--ok' : 'mb-ready--bad'"
               >
-                {{ sessionReadiness[s.id].ready ? 'Ready' : 'Blocked' }}
+                {{ sessionReadiness[s.id].ready ? 'Clinical checks passed — billing review remains' : 'Clinical documentation needs attention' }}
                 <template v-if="(sessionReadiness[s.id].blockers || []).length">
                   — {{ sessionReadiness[s.id].blockers.join('; ') }}
                 </template>

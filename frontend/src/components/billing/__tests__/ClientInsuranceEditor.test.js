@@ -7,7 +7,7 @@ vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:1,role:'staff'}}
 vi.mock('../../../config/medicalBillingAccess.js',()=>({canAccessMedicalBilling:()=>true}));
 const demographic={firstName:'Test',lastName:'Patient',dateOfBirth:'1996-10-01',addressLine1:'123 Synthetic St',city:'Test City',state:'CO',postalCode:'80000',sex:'F'};
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{insurance:null,demographics:demographic,missingClaimFields:['Member ID is missing']}});api.put.mockResolvedValue({data:{missingClaimFields:['Member ID is missing']}});});
-async function setup(){const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377},global:{stubs:{ClientCoverageVerification:true}}});await w.find('button').trigger('click');await flushPromises();return w;}
+async function setup(){const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});await w.find('button').trigger('click');await flushPromises();return w;}
 it('prefills empty chart identity without replacing saved insurance-specific identity',async()=>{
  api.get.mockResolvedValue({data:{insurance:{patient:{firstName:'Policy name'},primary:{}},demographics:demographic}});const w=await setup();const fields=w.findAll('.identity-fields input');expect(fields[0].element.value).toBe('Policy name');expect(fields[2].element.value).toBe('1996-10-01');expect(fields[4].element.value).toBe('123 Synthetic St');w.unmount();
 });

@@ -53,6 +53,7 @@ export async function queueInsuranceVerificationTask({agencyId,clientId,actorUse
         'Verify the member ID, enrolled legal name, date of birth, and subscriber relationship using the payer portal or information confirmed with the family. Do not guess missing identifiers.',
         'For Colorado Medicaid, confirm the child’s own coverage and RAE assignment; check other insurance/TPL and payer order.',
         'Update the client’s secure insurance record with the confirmed information and supporting reference. Rerun eligibility for the actual service date and document the result.',
+        'Complete the separate Client documentation readiness review for screening or treatment as applicable. H0002 may precede the full treatment intake; receipt of files or provider assignment does not verify the documents.',
         'Keep claim submission on hold until coverage, payer routing, provider enrollment and service requirements are verified. Complete this task only after documenting the resolution.',
         'The latest reason and electronic check reference are stored with this task. Do not put member IDs or full names in task comments.'
       ].join('\n'),encryptDescription:true,assignedToUserId:null,assignedToAgencyId:agencyId,

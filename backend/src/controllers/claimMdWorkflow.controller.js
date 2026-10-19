@@ -11,6 +11,7 @@ import { claimDocumentation, reviewSourceHash, currentClaimContentReview, runCla
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { evaluateClaimReadiness } from '../services/clinicalClaimReadiness.service.js';
+import { documentationScope, getClientDocumentationReadiness } from '../services/clientDocumentationReadiness.service.js';
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { buildClaimMdJsonClaim, fetchPayers, requestEnrollment } from '../services/claimMd.service.js';
 import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim } from '../services/secondaryClaim.service.js';
@@ -44,6 +45,10 @@ export async function prepareClaimReview(agencyId, claimId) {
   const { listCoverageEvidence, coverageReviewBlockers } = await import('../services/coverageVerification.service.js');
   const coverageEvidence = await listCoverageEvidence({agencyId,clientId:claim.client_id,serviceDate:claim.date_of_service});
   readiness.blockers.push(...coverageReviewBlockers({insurance:sourceInsurance,...coverageEvidence}));
+  const clientDocumentation = await getClientDocumentationReadiness({ agencyId, clientId: claim.client_id, scope: documentationScope(lines.map(line => line.procedure_code)), serviceDate: claim.date_of_service });
+  readiness.clientDocumentation = clientDocumentation;
+  readiness.checks.clientDocumentationVerified = clientDocumentation.ready;
+  readiness.blockers.push(...clientDocumentation.blockers);
   const documentation = await claimDocumentation(agencyId, claim);
   readiness.blockers.push(...screeningClaimBlockers(documentation.note,claim,lines));
   documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
@@ -101,7 +106,7 @@ export async function prepareClaimReview(agencyId, claimId) {
   readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
   readiness.ready=readiness.blockers.length===0;
   return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, appliedOverrides:overrides?.applied || [],
-    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
+    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,clientDocumentation:{sourceHash:clientDocumentation.sourceHash,reviewId:clientDocumentation.reviewId,scope:clientDocumentation.scope},aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
 }
 
 export async function createSecondaryClaim(req,res,next) {
@@ -128,7 +133,7 @@ export async function reviewClaim(req, res, next) {
     if (!Number.isSafeInteger(claimId) || claimId < 1) throw fail(400, 'Invalid claim ID');
     const prepared = await prepareClaimReview(agencyId, claimId);
     const history = await claimEventHistory(agencyId, claimId);
-    res.json({ claimId, clinicalSessionId: prepared.claim.clinical_session_id, clinicalNoteId: prepared.claim.clinical_note_id,
+    res.json({ claimId, clientId: prepared.claim.client_id, dateOfService: prepared.claim.date_of_service, clinicalSessionId: prepared.claim.clinical_session_id, clinicalNoteId: prepared.claim.clinical_note_id,
       lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash,
       supervision:prepared.supervision,aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,history });
   } catch (e) { next(e); }
