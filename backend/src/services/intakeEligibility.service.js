@@ -123,7 +123,7 @@ export async function runIntakeEligibilityJobs(deps={}) {
   const db=deps.db||pool;
   // Recover a task creation interrupted after the durable job was written.
   const [missingTasks]=await db.execute(`SELECT j.agency_id,j.client_id FROM intake_eligibility_jobs j JOIN agencies a ON a.id=j.agency_id JOIN clients c ON c.id=j.client_id AND c.agency_id=j.agency_id
-    WHERE a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND c.compliance_archived_at IS NULL AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.assigned_to_agency_id=j.agency_id AND t.source_ref_type='insurance_verification' AND t.source_ref_id=CAST(j.client_id AS CHAR))
+    WHERE a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND c.compliance_archived_at IS NULL AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.assigned_to_agency_id=j.agency_id AND t.source_ref_type='insurance_verification' AND BINARY t.source_ref_id=BINARY CAST(j.client_id AS CHAR))
     GROUP BY j.agency_id,j.client_id LIMIT 25`);
   for(const job of missingTasks) await (deps.queueTask||queueInsuranceVerificationSafely)({agencyId:job.agency_id,clientId:job.client_id,reason:'verification_pending'},db);
   // A crash may occur after transmission. The pre-existing billing task remains;

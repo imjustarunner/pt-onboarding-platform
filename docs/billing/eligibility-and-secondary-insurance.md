@@ -38,6 +38,16 @@ A reviewer must document primary verification, secondary verification when prese
 
 Claim preparation requires a dated verified review matching current insurance and client identity. New eligibility evidence—including a response that finishes after review—invalidates approval. A later unresolved investigation also blocks older dated reviews. A review older than seven days must be repeated before submission; **seven days is an application policy, not a statement of a statutory deadline**.
 
+## October 19, 2026: intake eligibility and optional cards
+
+ITSCO's completed intakes now create durable `intake_eligibility_jobs` and a shared insurance-verification task. Apply migration `1658_intake_eligibility_jobs.sql`. Enable only the intended agency's `intakeEligibilityAutomation` feature flag with its verified `officeId` and `medicaidState: "CO"`; configure the existing agency eligibility budget/reviewer and the shared-account query cap. `CLAIM_MD_INTAKE_ELIGIBILITY_ENABLED=true` activates a five-minute worker independently of periodic roster checking. `CLAIM_MD_ELIGIBILITY_MODE_2=live` permits ITSCO eligibility without enabling claim transmission. The monthly cap includes fallback inquiries.
+
+Colorado Medicaid checks use `SKCO0` and the client's own identity in the subscriber loop. A missing member ID uses name and DOB; an explicit subscriber-not-found response permits one demographic fallback. Unknown delivery outcomes, ambiguous matches and identity differences require billing review. Exact, unique active matches can populate a missing member ID in the encrypted insurance record with an audit reference. This never attests to TPL review, assigns an unconfirmed RAE, or approves claim submission. Unmapped commercial payers and ambiguous multi-child policy assignments also become billing tasks.
+
+Cards are optional but encouraged for Medicaid and commercial plans. Missing images do not prevent intake completion. Card prompts and reviewed reminder emails stop when all policies on the current record are verified; a changed policy or new unresolved evidence requires review. Uploads remain available. A returned active response must also match the client's identity; uploaded card images alone do not establish coverage. Additional guardians' uncoordinated policies remain separate submissions.
+
+The worker sends requests through the existing server-side Claim.MD connection, stores encrypted results and retains billing-role access controls. Queue rows contain IDs and hashes, not patient demographics. Before declaring HIPAA compliance, verify the organization's executed vendor BAAs and broader safeguards; these code changes do not establish that those agreements are signed. Claim.MD exposes signed agreements in its [Account Settings Documents tab](https://docs.claim.md/docs/documents).
+
 ## Electronic secondary claims
 
 1. Start from the transmitted primary claim and its actual ERA/EOB, not merely clearinghouse acceptance.
