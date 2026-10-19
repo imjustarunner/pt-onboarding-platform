@@ -13,6 +13,7 @@
   <article v-for="check in evidence.checks" :key="check.id">
    <strong>{{ check.policy_slot }} · {{ check.evidence?.summary?.status || check.status }} · {{ check.created_at }}</strong>
    <p v-if="check.evidence?.summary?.otherCoverageReported">Other coverage reported — investigate and resolve payer order before billing.</p>
+   <p v-if="check.evidence?.summary?.identityMatches === false" role="alert">Reconcile the returned member identity with the saved insurance record before billing.</p>
    <p v-for="(payerError,index) in check.evidence?.summary?.payerErrors || []" :key="index" role="alert">{{ payerError.error_mesg }} ({{ payerError.error_code }})</p>
    <details v-if="check.evidence"><summary>View payer response and benefits</summary><pre>{{ JSON.stringify(check.evidence.result,null,2) }}</pre></details>
   </article>

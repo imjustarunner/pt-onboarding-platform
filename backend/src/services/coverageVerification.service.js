@@ -44,6 +44,15 @@ export function buildEligibilityRequest({insurance,slot,serviceDate,profile,look
   fdos:compact(serviceDate),service_code:'30,MH',prov_npi:profile.billingNpi,prov_taxid:taxId,prov_taxid_type:profile.practice.tax_id_type==='ssn'?'S':'E',prov_name_l:profile.practice.name};
 }
 const asList=v=>Array.isArray(v)?v:v?[v]:[];
+export function eligibilityIdentityMatches(payload,result) {
+ if(payload.payerid!=='SKCO0')return null;
+ const entries=asList(result?.elig||result?.result?.elig);
+ if(entries.length!==1||asList(entries[0]?.error).length)return false;
+ const member=entries[0],name=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toUpperCase();
+ return !!member.ins_number&&name(member.ins_name_f)===name(payload.ins_name_f)&&name(member.ins_name_l)===name(payload.ins_name_l)
+  &&String(member.ins_dob||'').replaceAll('-','')===payload.ins_dob
+  &&(!payload.ins_number||String(member.ins_number)===String(payload.ins_number));
+}
 export function summarizeEligibility(result) {
  const elig=result?.elig||result?.result?.elig;
  const benefits=asList(elig).flatMap(e=>asList(e.benefit));
@@ -77,11 +86,12 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
  try {
   const result=await (deps.request||requestEligibilityJson)({accountKey,payload});
   const evidence={result,summary:summarizeEligibility(result),billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
+  evidence.summary.identityMatches=eligibilityIdentityMatches(payload,result);
   await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]);
   await auditBilling({agencyId,clientId,userId:actorUserId,action:'insurance_eligibility_checked',objectId:id},db);
   const errors=asList(result?.elig||result?.result?.elig).flatMap(e=>asList(e.error));
   let followUpTaskId=null;
-  if(errors.length||evidence.summary.status!=='active_reported') followUpTaskId=await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:errors.some(e=>String(e.error_code)==='75')?'subscriber_not_found':'eligibility_unresolved'},db);
+  if(errors.length||evidence.summary.status!=='active_reported'||evidence.summary.identityMatches===false) followUpTaskId=await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:errors.some(e=>String(e.error_code)==='75')?'subscriber_not_found':evidence.summary.status==='active_reported'&&evidence.summary.identityMatches===false?'identity_mismatch':'eligibility_unresolved'},db);
   return {id,status:'returned',...evidence,followUpTaskId};
  }catch(e){await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND client_id=?",[id,agencyId,clientId]);await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);throw billingError(502,'Eligibility could not be confirmed. Review payer enrollment or use the payer portal; coverage remains unverified');}
 }

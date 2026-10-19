@@ -2,12 +2,18 @@ import {beforeEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../familyBillingPolicy.service.js',()=>({billingError:(status,message)=>Object.assign(new Error(message),{status}),auditBilling:vi.fn()}));
-import {buildEligibilityRequest,summarizeEligibility,validateCoverageReview,coverageFingerprint,coverageReviewBlockers,runCoverageCheck,assertCoverageCollectionSafe} from '../coverageVerification.service.js';
+import {buildEligibilityRequest,summarizeEligibility,eligibilityIdentityMatches,validateCoverageReview,coverageFingerprint,coverageReviewBlockers,runCoverageCheck,assertCoverageCollectionSafe} from '../coverageVerification.service.js';
 import {decryptFamilyBilling} from '../familyBillingEncryption.service.js';
 const insurance=()=>({primary:{payerId:'TEST',insurerName:'Test Insurance',memberId:'SYNTHETIC',subscriberFirstName:'Parent',subscriberLastName:'Test',subscriberDob:'1980-02-01',subscriberSex:'F',relationshipToSubscriber:'child'},patient:{firstName:'Child',lastName:'Test',dateOfBirth:'2010-03-01',sex:'M'}});
 const profile={officeId:8,billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic Agency'}};
 beforeEach(()=>{vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));});
 describe('client-scoped eligibility and other coverage',()=>{
+ it('flags a different returned surname even when the member ID and birth date match',()=>{
+  const payload={payerid:'SKCO0',ins_number:'SYNTHETIC',ins_name_f:'Test',ins_name_l:'Member',ins_dob:'20100301'},result={elig:{...payload}};
+  expect(eligibilityIdentityMatches(payload,result)).toBe(true);
+  expect(eligibilityIdentityMatches(payload,{elig:{...payload,ins_name_l:'Member Additional'}})).toBe(false);
+  expect(eligibilityIdentityMatches(payload,{elig:{...payload,error:{error_code:'75'}}})).toBe(false);
+ });
  it('uses the selected policy, dependent identity, billing office and visit date',()=>{
   const info=insurance();info.secondary={...info.primary,payerId:'SECOND',memberId:'SECOND-MEMBER'};
   expect(buildEligibilityRequest({insurance:info,slot:'secondary',serviceDate:'2026-09-24',profile})).toMatchObject({payerid:'SECOND',ins_number:'SECOND-MEMBER',pat_rel:'G8',pat_name_f:'Child',ins_name_f:'Parent',pat_dob:'20100301',ins_dob:'19800201',fdos:'20260924',service_code:'30,MH',prov_npi:'1306688650',prov_taxid:'123456789'});
