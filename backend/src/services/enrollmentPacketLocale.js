@@ -1,13 +1,14 @@
 /**
  * Spanish copy for the generated enrollment shell. Agency-authored text and
  * validated instrument wording are intentionally outside this dictionary.
- * Use the agency's Spanish master for those sources; never translate a scored
- * questionnaire by replacing words in its questions or response choices.
+ * Known instruments use their published Spanish edition, never word replacement.
  */
+import { spanishClinicalField } from '../data/validatedClinicalScreens.es.js';
 const ES = new Map(Object.entries({
   'Counseling': 'Consejería',
   'Tutoring': 'Tutoría',
   'School': 'Escuela',
+  'Item': 'Pregunta',
   'Office / virtual': 'Oficina / virtual',
   'Guardian': 'Padre, madre o tutor',
   'Parent / guardian': 'Padre, madre o tutor',
@@ -154,13 +155,15 @@ export function enrollmentPacketText(text, locale = 'en') {
   return translated == null ? original : original.replace(trimmed, translated);
 }
 
-/** Keep response values, condition keys, and instrument questions unchanged. */
+/** Localize display copy while keeping response values and condition keys. */
 export function localizeEnrollmentPacketSections(sections = [], locale = 'en') {
   if (!isEs(locale)) return sections;
   return sections.map(section => ({
     ...section,
     title: enrollmentPacketText(section.title, locale),
     fields: (section.fields || []).map(([key, label, config = {}]) => {
+      const published = spanishClinicalField(key, label, config);
+      if (published) return published;
       if (config.instrument || instrumentKey(key)) return [key, label, config];
       return [key, enrollmentPacketText(label, locale), {
         ...config,

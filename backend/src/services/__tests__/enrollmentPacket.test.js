@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const state=vi.hoisted(()=>({master:{version:3,intake_steps:[{type:'questions',label:'Current enrollment',fields:[{key:'current_question',label:'Current custom question',type:'textarea'}]}]},agency:{id:2,name:'ITSCO',slug:'itsco',portal_url:'itsco'},overrides:{}}));
 vi.mock('../enrollmentAgencyAccess.service.js',()=>({assertEnrollmentAgencyMembership:vi.fn()}));
+vi.mock('../safetyPlans/access.js',()=>({clientAccess:vi.fn(async()=>({id:41,agency_id:2,organization_id:40})),agencyBrand:vi.fn(),recipientOptions:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async id=>id===2?state.agency:{id,name:'Example School'})}}));
 vi.mock('../../models/AgencyOfficeIntakeMaster.model.js',()=>({default:{findByAgencyLanguage:vi.fn(async()=>state.master)}}));
@@ -25,8 +26,10 @@ import {defaultOfficePacketHtml} from '../../content/officePacketTemplateDefault
 import SchoolPacketTemplate from '../../models/SchoolPacketTemplate.model.js';
 import OfficePacketTemplate from '../../models/OfficePacketTemplate.model.js';
 import DocumentTemplate from '../../models/DocumentTemplate.model.js';
+import {buildPhq9Fields,buildGad7Fields} from '../../data/validatedClinicalScreens.en.js';
 import {getEnrollmentPacketDocuments,enrollmentCampaignDocument,enrollmentSections,buildEnrollmentPacketContext,buildEnrollmentPacketHtml} from '../enrollmentPacket.service.js';
 import {listDisclosureProviders} from '../smartDisclosure.service.js';
+import {resolveEnrollmentFoundation} from '../enrollmentPortal.service.js';
 beforeEach(()=>{state.overrides={};});
 it.each(['school','office'].flatMap(channel=>['self','guardian'].map(audience=>({channel,audience}))))('assembles current $channel $audience packet',async options=>{const data=await getEnrollmentPacketDocuments({agencyId:2,...options});const html=data.documents.map(d=>d.html).join('');expect(html).toContain('Current custom question');expect(html).not.toContain('Old intake');expect(html).not.toContain('Old signature');expect(html).toContain('Current Provider');expect(html).toContain('AuricWell');expect(html).toContain('front and back');expect(html).toContain('Medicaid');expect(html).toContain(options.audience==='guardian'?'PSC-17':'PHQ-9');expect(html.includes('Separate ROI signature')).toBe(options.channel==='school');expect(html.includes('SchoolCareBridge')).toBe(options.channel==='school');});
 it('populates school roster only for the same agency and preserves blank generic school packet',async()=>{const generic=await getEnrollmentPacketDocuments({agencyId:2,channel:'school'});expect(generic.documents.find(d=>d.key==='school-roi').html).toContain('Blank school contacts');const named=await getEnrollmentPacketDocuments({agencyId:2,channel:'school',organizationId:40});expect(named.documents.find(d=>d.key==='school-roi').html).toContain('School Contact');await expect(getEnrollmentPacketDocuments({agencyId:2,channel:'school',organizationId:99})).rejects.toMatchObject({status:403});});
@@ -81,9 +84,53 @@ it('preserves a document-only enrollment master alongside fallback questions',as
  vi.mocked(DocumentTemplate.findById).mockResolvedValueOnce({id:81,agency_id:2,is_active:1,name:'Additional agency consent',html_content:'<p>Keep this agency-specific document.</p>'});
  try{const result=await getEnrollmentPacketDocuments({agencyId:2});expect(result.documents.find(d=>d.key==='agency-document-81').html).toContain('agency-specific');expect(result.sections.length).toBeGreaterThan(2);}finally{state.master=original;}
 });
-it('labels English screen fallbacks honestly inside Spanish packets and keeps their wording intact',async()=>{
- const result=await getEnrollmentPacketDocuments({agencyId:2,locale:'es'});const screen=result.documents.find(d=>d.key==='screening-questionnaires');
- expect(screen.html).toContain('conservan el texto original en inglés');expect(screen.html).toContain('Little interest or pleasure in doing things');expect(result.documents[0].html).toContain('Información del cliente y de contacto');
+it.each(['ITSCO','Next Level Up'].flatMap(name=>['school','office'].flatMap(channel=>['self','guardian'].map(audience=>({name,channel,audience})))))('prints Spanish screeners and portal fields for $name $channel $audience',async({name,channel,audience})=>{
+ const original=state.agency;state.agency={...original,name,slug:name==='ITSCO'?'itsco':'next-level-up'};
+ try {
+  const result=await buildEnrollmentPacketContext({agencyId:2,locale:'es',channel,audience});
+  const screen=result.documents.find(d=>d.key==='screening-questionnaires');
+  const fields=screen.sections.flatMap(s=>s.fields);
+  expect(fields).toHaveLength(audience==='guardian'?17:16);
+  expect(screen.html).not.toMatch(/conservan el texto original en inglés|Little interest|Feeling nervous|Parent \/ guardian report/);
+  expect(screen.html).toContain('<th>Pregunta</th>');
+  expect(screen.html).toContain(audience==='guardian'?'Se siente triste, infeliz':'Poco interés o placer en hacer cosas');
+  expect(screen.html).toContain(audience==='guardian'?'capp.ucsf.edu':'ncpal.org');
+  for(const [,label,config] of fields){expect(screen.html).toContain(label);expect(config.instrumentLocale).toBe('es');expect(config.options.map(o=>o.value)).toEqual(audience==='guardian'?['0','1','2']:['0','1','2','3']);}
+  expect(result.documents[0].html).toContain('Información del cliente y de contacto');
+  if(process.env.ENROLLMENT_PACKET_ARTIFACTS&&name==='ITSCO'&&channel==='office')writeFileSync(`/tmp/enrollment-spanish-${audience}.html`,buildEnrollmentPacketHtml(result));
+ } finally {state.agency=original;}
+});
+it('replaces an English-clone Spanish master without losing required fields or conditions',async()=>{
+ const original=state.master;
+ const fields=[...buildPhq9Fields(),...buildGad7Fields()];fields[0].required=true;fields[0].showIf={fieldKey:'screening_consent',equals:'yes'};
+ state.master={version:8,intake_steps:[{type:'questions',fields}]};
+ try{
+  const spanish=await getEnrollmentPacketDocuments({agencyId:2,locale:'es'});
+  const english=await getEnrollmentPacketDocuments({agencyId:2,locale:'en'});
+  const es=spanish.documents.find(d=>d.key==='screening-questionnaires'),en=english.documents.find(d=>d.key==='screening-questionnaires');
+  expect(es.sections[0].fields[0]).toMatchObject(['phq9_1','Poco interés o placer en hacer cosas',{required:true,showIf:{fieldKey:'screening_consent',equals:'yes'}}]);
+  expect(en.html).toContain('Little interest or pleasure in doing things');expect(es.hash).not.toBe(en.hash);
+  expect(state.master.intake_steps[0].fields[0].label).toBe('Little interest or pleasure in doing things');
+ }finally{state.master=original;}
+});
+it.each(['self','guardian'])('retains Spanish questions and source attribution in independently shared $0 portal documents',async audience=>{
+ const document=await resolveEnrollmentFoundation({id:8,role:'provider'},{clientId:41,foundationKey:'screening-questionnaires',locale:'es',audience,channel:'school'});
+ expect(document.source.context.locale).toBe('es');expect(document.portalCompletion).toBe(true);
+ expect(document.description).toContain('Revise y conserve');
+ expect(document.sections.flatMap(s=>s.fields)).toHaveLength(audience==='guardian'?17:16);
+ expect(document.sections[0].fields[0][2].instrumentLocale).toBe('es');
+ expect(document.sourceHtml).toContain('screen-source');expect(document.sourceHtml).not.toContain('screen-table');
+});
+it.each(['self','guardian'])('uses Spanish NLU tutoring defaults for $0 without clinical screening or a false English notice',async audience=>{
+ const originalMaster=state.master,originalAgency=state.agency;
+ state.master=null;state.agency={...originalAgency,name:'Next Level Up',slug:'next-level-up'};
+ try{
+  const result=await getEnrollmentPacketDocuments({agencyId:2,locale:'es',service:'tutoring',audience});
+  const html=result.documents.map(d=>d.html).join('');
+  expect(result.documents.some(d=>d.key==='screening-questionnaires')).toBe(false);
+  expect(html).toContain('Objetivos de aprendizaje y apoyos');expect(html).toContain('Next Level Up');
+  expect(html).not.toMatch(/Learning goals and support|cuestionario de admisión está disponible en inglés/);
+ }finally{state.master=originalMaster;state.agency=originalAgency;}
 });
 
 it('preserves existing agency guardian guidance in school source documents',async()=>{

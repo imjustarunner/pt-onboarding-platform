@@ -21,6 +21,7 @@ import { buildDisclosureCareTeamHtml, buildSchoolStaffTableHtml, expandYourCareT
 import { buildCounselingSelfEnSteps } from '../data/counselingIntakeSelfEn.js';
 import { buildCounselingDependentEnSteps } from '../data/counselingIntakeDependentEn.js';
 import { buildPhq9Fields, buildGad7Fields, buildPsc17Fields } from '../data/validatedClinicalScreens.en.js';
+import { buildPhq9FieldsEs, buildGad7FieldsEs, buildPsc17FieldsEs, SPANISH_SCREEN_SOURCES } from '../data/validatedClinicalScreens.es.js';
 import { SMS_PROGRAMS, buildCampaignPacket, campaignPublicContent } from '../utils/smsCampaignPacket.js';
 import { publishedSmsProgramSeed } from '../utils/smsPublishedProgramSeeds.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
@@ -194,7 +195,7 @@ export async function getEnrollmentPacketDocuments(input = {}) {
     const fallback=service==='tutoring'?tutoringSteps():audience==='guardian'?buildCounselingDependentEnSteps():buildCounselingSelfEnSteps();
     steps=[...fallback,...steps.filter(step=>step.type==='document')];
   }
-  const hasLocalizedIntake = locale !== 'es' || Boolean(master && parse(master.intake_steps,[]).some(s=>eligibleStep(s,audience)&&(s.fields||[]).length));
+  const hasLocalizedIntake = locale !== 'es' || service === 'tutoring' || Boolean(master && parse(master.intake_steps,[]).some(s=>eligibleStep(s,audience)&&(s.fields||[]).length));
   const sections = localizeEnrollmentPacketSections(enrollmentSections(steps,options),locale);
   const {listFoundationDocuments,assertProtectedFoundationSource} = await import('./enrollmentFoundations.service.js');
   const foundations = await listFoundationDocuments({agencyId,channel:service==='tutoring'?'tutoring':channel,locale,audience,html:source.html});
@@ -227,12 +228,27 @@ export async function getEnrollmentPacketDocuments(input = {}) {
     const masterFields=parse(master?.intake_steps,[]).filter(step=>eligibleStep(step,audience)).flatMap(step=>step.fields||[]);
     const selectScreen=(instrument,builder,count)=>{
       const current=masterFields.filter(field=>field.instrument===instrument&&field.type!=='info');
+      if (locale === 'es') {
+        const spanishBuilder = {phq9:buildPhq9FieldsEs,gad7:buildGad7FieldsEs,psc17:buildPsc17FieldsEs}[instrument];
+        // A Spanish master may be an old English clone. Locale alone is not
+        // evidence of translated instrument text. Use the published edition;
+        // retain required/conditional settings by the stable question key.
+        return {fields:spanishBuilder().map(field=>fieldTuple({...field,
+          ...current.find(item=>(item.key||item.id)===field.key),
+          key:field.key,label:field.label,helperText:field.helperText,options:field.options,
+          instrument:field.instrument
+        })),localized:true};
+      }
       return current.length>=count?{fields:current.map(fieldTuple),localized:true}:{fields:builder().map(fieldTuple),localized:locale!=='es'};
     };
     const selected=audience==='guardian'?[selectScreen('psc17',buildPsc17Fields,17)]:[selectScreen('phq9',buildPhq9Fields,9),selectScreen('gad7',buildGad7Fields,7)];
     const hasLocalizedScreens=selected.every(screen=>screen.localized);
-    const screenSections=audience==='guardian' ? [{title:'PSC-17 · Parent / guardian report for children',fields:selected[0].fields}] : [{title:'PHQ-9',fields:selected[0].fields},{title:'GAD-7',fields:selected[1].fields}];
-    documents.push(doc('screening-questionnaires',audience==='guardian'?'PSC-17':'PHQ-9 and GAD-7',`<h2>${audience==='guardian'?'PSC-17':'PHQ-9 and GAD-7'}</h2>${enrollmentPacketLocaleNotice({locale,hasLocalizedScreens})}<p>${audience==='guardian'?'Complete for a child only; an adult dependent requires age-appropriate screening selected by the clinician.':'Complete these questionnaires about yourself.'} These screens support clinician review and do not establish a diagnosis. You may discuss answers with your provider. These forms are not monitored for emergencies; call 911 for an emergency or call/text 988 for immediate crisis support in the U.S.</p>${sectionsToPaperHtml(screenSections)}`,screenSections));
+    const screenSections=localizeEnrollmentPacketSections(audience==='guardian' ? [{title:'PSC-17 · Parent / guardian report for children',fields:selected[0].fields}] : [{title:'PHQ-9',fields:selected[0].fields},{title:'GAD-7',fields:selected[1].fields}],locale);
+    const screenHtml=screenSections.map(section=>{
+      const source=locale==='es'?SPANISH_SCREEN_SOURCES[section.fields[0]?.[2]?.instrument]:null;
+      return sectionsToPaperHtml([section])+(source?`<p class="screen-source">${escape(source.attribution)} <a href="${escape(source.url)}">${escape(source.title)}</a></p>`:'');
+    }).join('');
+    documents.push(doc('screening-questionnaires',audience==='guardian'?'PSC-17':'PHQ-9 and GAD-7',`<h2>${audience==='guardian'?'PSC-17':'PHQ-9 and GAD-7'}</h2>${enrollmentPacketLocaleNotice({locale,hasLocalizedScreens})}<p>${audience==='guardian'?'Complete for a child only; an adult dependent requires age-appropriate screening selected by the clinician.':'Complete these questionnaires about yourself.'} These screens support clinician review and do not establish a diagnosis. You may discuss answers with your provider. These forms are not monitored for emergencies; call 911 for an emergency or call/text 988 for immediate crisis support in the U.S.</p>${screenHtml}`,screenSections));
   }
   for(const step of steps.filter(s=>s.type==='document'&&eligibleStep(s,audience))) {
     const template=await DocumentTemplate.findById(Number(step.templateId||step.template_id));
@@ -266,7 +282,7 @@ export async function buildEnrollmentPacketContext(input={}) {
 }
 
 export function buildEnrollmentPacketHtml(context) {
-  return translateEnrollmentPacketHtml(`<!doctype html><html lang="${context.locale}"><head><meta charset="utf-8"><title>${escape(context.title)}</title><style>${buildPacketStyleBlock(context.brand)} .enrollment-document{break-before:page}.enrollment-document:first-of-type{break-before:auto}.enrollment-document[data-document-key="auricwell-acknowledgment"],.enrollment-document[data-document-key="schoolcarebridge-acknowledgment"]{break-before:auto}.enrollment-document>h2{break-after:avoid}.paper-help{display:inline-block}body{background:#fff}.paper-field{break-inside:avoid;margin:0 2% 12px 0;display:inline-block;vertical-align:top;width:48%}.paper-field.paper-wide{width:100%;margin-right:0}.screen-table th:first-child{width:48%}.screen-table th{font-size:9pt}.screen-table td{font-size:10pt}.screen-table .screen-choice{text-align:center}.screen-table tr{break-inside:avoid}.enrollment-language-notice{border-left:3px solid #b47a42;padding:6px 12px;margin:12px 0}.enrollment-language-notice p{font-size:10pt}.paper-field p{margin:4px 0}.paper-line{border-bottom:1px solid #7f8f89;min-height:22px}.paper-long{min-height:44px}.paper-choices{display:flex;gap:8px 18px;flex-wrap:wrap}.paper-help{font-size:9pt;color:#50615b}.packet-brand{border-bottom:2px solid #174f45;padding-bottom:12px}.packet-brand strong{font-size:20pt}.packet-brand small{display:block}.enrollment-document>h2{font-size:18pt}</style></head><body><main class="packet-body"><header class="packet-brand"><strong>AuricWell</strong>${context.options.channel==='school'?' · SchoolCareBridge':''}<small>${escape(context.agency.name)}</small><h1>${escape(context.title)}</h1><p>Generated ${context.generatedAt.toISOString().slice(0,10)} · Complete packet: keep a copy of every document.</p>${context.options.channel==='school'?`<p>${escape(context.organization.name)}</p>`:''}</header>${context.templateHtml}</main></body></html>`,context.locale);
+  return translateEnrollmentPacketHtml(`<!doctype html><html lang="${context.locale}"><head><meta charset="utf-8"><title>${escape(context.title)}</title><style>${buildPacketStyleBlock(context.brand)} .enrollment-document{break-before:page}.enrollment-document:first-of-type{break-before:auto}.enrollment-document[data-document-key="auricwell-acknowledgment"],.enrollment-document[data-document-key="schoolcarebridge-acknowledgment"]{break-before:auto}.enrollment-document>h2{break-after:avoid}.paper-help{display:inline-block}body{background:#fff}.paper-field{break-inside:avoid;margin:0 2% 12px 0;display:inline-block;vertical-align:top;width:48%}.paper-field.paper-wide{width:100%;margin-right:0}.screen-table th:first-child{width:48%}.screen-table th{font-size:9pt}.screen-table td{font-size:10pt}.screen-table .screen-choice{text-align:center}.screen-table tr{break-inside:avoid}.packet-body .screen-table{margin-bottom:4px}.packet-body .screen-source{font-size:8pt;line-height:1.35;margin:4px 0 8px;break-inside:avoid}.enrollment-language-notice{border-left:3px solid #b47a42;padding:6px 12px;margin:12px 0}.enrollment-language-notice p{font-size:10pt}.paper-field p{margin:4px 0}.paper-line{border-bottom:1px solid #7f8f89;min-height:22px}.paper-long{min-height:44px}.paper-choices{display:flex;gap:8px 18px;flex-wrap:wrap}.paper-help{font-size:9pt;color:#50615b}.packet-brand{border-bottom:2px solid #174f45;padding-bottom:12px}.packet-brand strong{font-size:20pt}.packet-brand small{display:block}.enrollment-document>h2{font-size:18pt}</style></head><body><main class="packet-body"><header class="packet-brand"><strong>AuricWell</strong>${context.options.channel==='school'?' · SchoolCareBridge':''}<small>${escape(context.agency.name)}</small><h1>${escape(context.title)}</h1><p>Generated ${context.generatedAt.toISOString().slice(0,10)} · Complete packet: keep a copy of every document.</p>${context.options.channel==='school'?`<p>${escape(context.organization.name)}</p>`:''}</header>${context.templateHtml}</main></body></html>`,context.locale);
 }
 export async function generateEnrollmentPacketPdf(input={}) {
   return generateEnrollmentPacketPdfFromContext(await buildEnrollmentPacketContext(input));
