@@ -1,3 +1,5 @@
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { resolveServiceSupervisor } from './serviceBillingSupervisor.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
@@ -80,18 +82,44 @@ export function supervisionResponsibilities(assignments, providerUserId, prefs =
     reviewSupervisorIds:[...new Set(eligible.map(a=>Number(a.supervisor_id)))],
     supervisors:eligible.map(a=>({id:Number(a.supervisor_id),type:a.supervisor_type || 'clinical',name:[a.supervisor_first_name,a.supervisor_last_name].filter(Boolean).join(' ')})) };
 }
-export async function resolveDocumentationPolicy(agencyId, providerUserId, db = pool) {
+export async function resolveDocumentationPolicy(agencyId, providerUserId, db = pool, serviceContext = {}) {
   const assignments = await SupervisorAssignment.findBySupervisee(providerUserId, agencyId);
   const prefs = await getProviderClaimBillingMode({ agencyId, providerUserId });
   const responsibilities = supervisionResponsibilities(assignments, providerUserId, prefs);
+  const serviceRule = await resolveServiceSupervisor({ ...serviceContext, agencyId, providerUserId }, db);
+  if (serviceRule) {
+    responsibilities.supervisorUserId = serviceRule.supervisorUserId;
+    responsibilities.reviewSupervisorIds = [...new Set([...responsibilities.reviewSupervisorIds, serviceRule.supervisorUserId])];
+    responsibilities.supervisors = [...responsibilities.supervisors, { id: serviceRule.supervisorUserId, name: serviceRule.supervisorName, type: 'billing' }];
+  }
   let rows;
   try { [rows] = await db.execute('SELECT * FROM clinical_supervision_policies WHERE agency_id = ? AND provider_user_id = ? ORDER BY id DESC LIMIT 1', [agencyId, providerUserId]); }
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; rows = []; }
   const saved = rows[0];
   const matching = saved && Number(saved.supervisor_user_id) === responsibilities.supervisorUserId;
   return { ...DEFAULT_SUPERVISION_POLICY, ...(matching ? parseObject(saved.policy_json) : {}), version: saved?.id || 0,
-    ...responsibilities, billingMode: prefs.mode };
+    ...responsibilities, billingMode: serviceRule ? 'billing_supervisor' : prefs.mode,
+    ...(serviceRule ? { serviceRule, cosignTiming: 'before_submission' } : {}) };
 }
+
+// Resolve from the linked encounter, never task creation or note-signature time.
+export async function resolveNoteDocumentationPolicy(note, db = pool, clinicalDb = clinicalPool) {
+  let context = {};
+  if (note.clinical_session_id) {
+    const [[session]] = await clinicalDb.execute('SELECT service_code,scheduled_start_at,source_timezone,provider_user_id,metadata_json FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [note.clinical_session_id, note.agency_id, note.client_id]);
+    if (!session || (session.provider_user_id && Number(session.provider_user_id) !== Number(note.provider_signed_by_user_id || note.created_by_user_id)))
+      throw policyError(409, 'The note must match its treating provider and clinical encounter.');
+    const metadata = parseObject(session.metadata_json);
+    const noteMetadata = parseObject(note.metadata_json);
+    const raw = session.scheduled_start_at;
+    const instant = raw instanceof Date ? raw : new Date(String(raw || '').replace(' ', 'T').replace(/Z?$/, 'Z'));
+    const serviceDate = noteMetadata.dateOfService || noteMetadata.date_of_service || metadata.serviceDate ||
+      utcDateToZonedYmd(instant, session.source_timezone || 'America/Denver');
+    context = { serviceCode: session.service_code, dateOfService: serviceDate };
+  }
+  return resolveDocumentationPolicy(note.agency_id, note.provider_signed_by_user_id || note.created_by_user_id, db, context);
+}
+
 export async function loadPayerPolicy(agencyId, payerId, planType, db = pool) {
   const [[row]] = await db.execute('SELECT * FROM billing_payer_policy_versions WHERE agency_id = ? AND payer_id = ? AND plan_type = ? ORDER BY id DESC LIMIT 1', [agencyId, payerId || '', planType || '']);
   return row ? { ...parseObject(row.policy_json), version: row.id } : null;
@@ -137,5 +165,6 @@ export function evaluateSupervisedBilling({ policy, payerPolicy, dateOfService, 
   return { blockers, warnings, rule, cosignPending, cosigned, npi2027,
     serviceProvider, supervisingProvider: supervised ? supervisor : null, renderingProvider: rendering,
     emitSupervisor: supervised && rule?.providerMapping === 'service_rendering_with_supervisor',
+    serviceSupervisorRevision: policy.serviceRule?.revision || 0, serviceSupervisorRule: policy.serviceRule || null,
     policyVersion: policy.version, payerPolicyVersion: payerPolicy?.version || 0 };
 }

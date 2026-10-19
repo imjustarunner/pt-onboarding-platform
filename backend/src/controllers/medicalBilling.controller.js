@@ -67,7 +67,7 @@ import {
 } from '../services/medicalBillingReports.service.js';
 import { listBillingEncountersForClient } from '../services/billingReportIngest.service.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
-import { resolveDocumentationPolicy, isNonBillableDocument, normalizeNoteType, requiredDocumentReviewTypes, hasCurrentSupervisorCosign, hasClinicalAmendments, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
+import { resolveDocumentationPolicy, resolveNoteDocumentationPolicy, isNonBillableDocument, normalizeNoteType, requiredDocumentReviewTypes, hasCurrentSupervisorCosign, hasClinicalAmendments, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { loadReviewDocument, formatNoteEntriesForExport } from '../services/clinicalReviewDocument.service.js';
 
 async function completeNoteAidSigningWorkflow(note) {
@@ -1894,7 +1894,7 @@ export const signClinicalNote = async (req, res, next) => {
       ipAddress: getClientIpAddress(req),
       userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
     };
-    const documentationPolicy = await resolveDocumentationPolicy(note.agency_id, req.user.id);
+    const documentationPolicy = await resolveNoteDocumentationPolicy(note);
     const nonBillable = isNonBillableDocument(note);
     const mandatoryTypes = nonBillable ? await requiredDocumentReviewTypes(note.agency_id, note.client_id, note.created_at) : [];
     const wantsReview = hasClinicalAmendments(note) || !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type || meta.noteType)) || documentationPolicy.nonBillableReview === 'all'
@@ -2001,7 +2001,7 @@ export const cosignClinicalNote = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Provider must sign before supervisor cosign' } });
     }
 
-    const documentationPolicy = await resolveDocumentationPolicy(note.agency_id, note.provider_signed_by_user_id || note.created_by_user_id);
+    const documentationPolicy = await resolveNoteDocumentationPolicy(note);
     if (!documentationPolicy.supervisorUserId || Number(documentationPolicy.supervisorUserId) !== Number(req.user.id)) {
       return res.status(403).json({ error: { message: 'Only the assigned responsible supervisor can cosign this note' } });
     }
@@ -2135,12 +2135,12 @@ export const listNotesForSigning = async (req, res, next) => {
     }
     sql += ` ORDER BY created_at DESC LIMIT 200`;
     const [rows] = await clinicalPool.execute(sql, [agencyId]);
-    const notes=[], policies=new Map();
+    const notes=[];
     for (const row of rows || []) {
       if (mode !== 'unsigned') {
-        if (!policies.has(row.created_by_user_id)) policies.set(row.created_by_user_id, await resolveDocumentationPolicy(agencyId,row.created_by_user_id));
+        const policy = await resolveNoteDocumentationPolicy({ ...row, agency_id: agencyId });
         const requiredTypes = isNonBillableDocument(row) ? await requiredDocumentReviewTypes(agencyId,row.client_id,row.created_at) : [];
-        if (!documentReviewRequirement(row,policies.get(row.created_by_user_id),requiredTypes).reviewRequested) continue;
+        if (!documentReviewRequirement(row,policy,requiredTypes).reviewRequested) continue;
       }
       const {metadata_json,...note}=row;
       notes.push(note);
@@ -2345,7 +2345,7 @@ export const createMedicalClaim = async (req, res, next) => {
       try {
         const { resolveClaimProviders } = await import('../services/resolveClaimProviders.service.js');
         const [sessRows] = await clinicalPool.execute(
-          `SELECT rendering_provider_user_id, provider_user_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
+          `SELECT rendering_provider_user_id, provider_user_id, service_code FROM clinical_sessions WHERE id = ? LIMIT 1`,
           [sessionId]
         );
         const sess = sessRows?.[0] || {};
@@ -2355,6 +2355,8 @@ export const createMedicalClaim = async (req, res, next) => {
         claimProviderMeta = await resolveClaimProviders({
           agencyId,
           renderingProviderUserId,
+          serviceCode: sess.service_code,
+          dateOfService,
           overrideMode: req.body.claimBillingMode || null
         });
         if (!resolvedBillingNpi) resolvedBillingNpi = claimProviderMeta.billingNpi || null;
@@ -3570,7 +3572,7 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
     if (!note.provider_signed_at) {
       return res.status(400).json({ error: { message: 'Addenda can be attached after the note is signed.' } });
     }
-    const policy = await resolveDocumentationPolicy(note.agency_id, note.provider_signed_by_user_id || note.created_by_user_id);
+    const policy = await resolveNoteDocumentationPolicy(note);
     if (![Number(note.created_by_user_id), Number(note.provider_signed_by_user_id), policy.supervisorUserId].includes(Number(req.user.id))) {
       return res.status(403).json({ error: { message: 'Only the note author or assigned supervisor can add a clinical amendment.' } });
     }

@@ -2,7 +2,7 @@ import { beforeEach,describe,it,expect,vi } from 'vitest';
 const m=vi.hoisted(()=>({policy:vi.fn(),document:vi.fn(),event:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
-vi.mock('../supervisedBillingPolicy.service.js',async orig=>({...await orig(),resolveDocumentationPolicy:m.policy}));
+vi.mock('../supervisedBillingPolicy.service.js',async orig=>({...await orig(),resolveNoteDocumentationPolicy:m.policy}));
 vi.mock('../clinicalReviewDocument.service.js',()=>({loadReviewDocument:m.document}));
 vi.mock('../familyBillingEncryption.service.js',()=>({encryptFamilyBilling:JSON.stringify,decryptFamilyBilling:JSON.parse}));
 vi.mock('../claimMdWorkflow.service.js',()=>({recordClaimEvent:m.event}));

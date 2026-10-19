@@ -20,6 +20,7 @@
           <button v-if="canManage" :disabled="!policyReason.trim()">Save supervision policy</button>
         </fieldset>
       </form>
+      <ServiceBillingSupervisors :agency-id="agencyId" :provider-id="providerId" />
       <SupervisionCaseOverview :agency-id="agencyId" :provider-id="providerId" :can-review="canReview" @view-notes="viewCaseNotes" @open-document="openFromCase" />
       <details :open="queueOpen">
         <summary>Clinical document review queue</summary>
@@ -39,7 +40,7 @@
             <label>Feedback<textarea v-model="feedback" maxlength="4000" :required="outcome === 'changes_requested'" /></label>
             <label><input v-model="reviewAttested" type="checkbox" required /> I reviewed this version of the document and its addenda.</label>
             <button :disabled="busy || !reviewAttested">Record clinical review</button>
-            <button v-if="canAttest && opened.type === 'note' && !opened.cosignedAt" type="button" :disabled="busy || !reviewAttested || outcome !== 'approved'" @click="cosign">{{ opened.amendmentSignoffRequired ? 'Sign off on note and all amendments' : 'Cosign this note' }}</button>
+            <button v-if="(opened.canCosign ?? canAttest) && opened.type === 'note' && !opened.cosignedAt" type="button" :disabled="busy || !reviewAttested || outcome !== 'approved'" @click="cosign">{{ opened.amendmentSignoffRequired ? 'Sign off on note and all amendments' : 'Cosign this note' }}</button>
           </form><button @click="opened = null">Close document</button>
         </section>
       </details>
@@ -66,6 +67,7 @@ import api from '../../services/api';
 import { employeeTimeStatusLabel } from '../../utils/employeeTimeStatus';
 import CosignReviewTimer from '../clinical/CosignReviewTimer.vue';
 const trackedTimes=ref([]);
+import ServiceBillingSupervisors from './ServiceBillingSupervisors.vue';
 import SupervisionCaseOverview from './SupervisionCaseOverview.vue';
 const props=defineProps({agencyId:{type:Number,required:true},providerId:{type:Number,required:true}});
 const policy=ref(null),canManage=ref(false),canAttest=ref(false),canReview=ref(false),noteTypes=ref([]),visible=ref(true),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),policyReason=ref('');

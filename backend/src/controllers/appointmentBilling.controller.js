@@ -9,7 +9,7 @@ import { claimEventHistory } from '../services/claimMdWorkflow.service.js';
 import { prepareClaimReview } from './claimMdWorkflow.controller.js';
 import { hasPendingClaimChange } from '../services/claimServiceChanges.service.js';
 import { claimDocumentation } from '../services/claimContentReview.service.js';
-import { resolveDocumentationPolicy, hasCurrentSupervisorCosign, hasClinicalAmendments, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
+import { resolveNoteDocumentationPolicy, hasCurrentSupervisorCosign, hasClinicalAmendments, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
 import { appointmentFinancials } from '../services/appointmentFinancials.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 
@@ -35,12 +35,13 @@ export async function getAppointmentBilling(req, res, next) {
     const insurance=await readClientInsurance(session.client_id,agencyId);
     const [claims]=await clinicalPool.execute('SELECT * FROM clinical_claims WHERE agency_id=? AND client_id=? AND clinical_session_id=? AND is_deleted=0 ORDER BY payer_sequence,id',[agencyId,session.client_id,sessionId]);
     const [[latestNote]]=await clinicalPool.execute('SELECT id,provider_signed_at FROM clinical_notes WHERE agency_id=? AND client_id=? AND clinical_session_id=? AND is_deleted=0 ORDER BY id DESC LIMIT 1',[agencyId,session.client_id,sessionId]);
-    const policy=await resolveDocumentationPolicy(agencyId,session.provider_user_id);
+
     const progress=[];
     for (const claim of claims.length ? claims : [null]) {
       const noteId=claim?.clinical_note_id || latestNote?.id;
       const documentation=noteId ? await claimDocumentation(agencyId,{clinical_note_id:noteId,clinical_session_id:sessionId}) : null;
       const note=documentation?.note || null;
+      const policy=note ? await resolveNoteDocumentationPolicy(note) : { supervisorUserId: null };
       const history=claim ? await claimEventHistory(agencyId,claim.id) : [];
       let prepared=null;
       if (claim && ['draft','ready','rejected'].includes(claim.claim_lifecycle)) {

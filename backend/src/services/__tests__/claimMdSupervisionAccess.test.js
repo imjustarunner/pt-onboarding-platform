@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnectio
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:m.clinical}}));
 vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.access}}));
 vi.mock('../schedulingBillingAccess.service.js',async original=>({...await original(),hasSchedulingBillingAccess:m.billing}));
-vi.mock('../supervisedBillingPolicy.service.js',async original=>({...await original(),resolveDocumentationPolicy:m.policy,requiredDocumentReviewTypes:vi.fn().mockResolvedValue([])}));
+vi.mock('../supervisedBillingPolicy.service.js',async original=>({...await original(),resolveDocumentationPolicy:m.policy,resolveNoteDocumentationPolicy:m.policy,requiredDocumentReviewTypes:vi.fn().mockResolvedValue([])}));
 vi.mock('../clinicalReviewDocument.service.js',()=>({loadReviewDocument:m.document}));
 import { documentationScope,listSuperviseeDocumentReviews, getSupervisionDocumentationPolicy,saveSupervisionDocumentationPolicy,saveDocumentationReviewTime,getSuperviseeReviewDocument,saveSupervisedPayerPolicy,listSupervisedPayerPolicies } from '../../controllers/supervisedBilling.controller.js';
 const req=()=>({user:{id:5,role:'provider'},params:{providerId:'7'},body:{agencyId:1},query:{}});
@@ -27,6 +27,7 @@ describe('clinical oversight and financial permission separation',()=>{
   it('audits a clinical supervisor document read and removes financial fields even inside serialized notes',async()=>{
     m.policy.mockResolvedValue({supervisorUserId:9,reviewSupervisorIds:[5,9]});
     m.document.mockResolvedValue({row:{client_id:3},hash:'source-hash',content:JSON.stringify({note:JSON.stringify({assessment:'Clinical progress',billing:{amount:800},claimPayload:{payer:'secret'}}),addenda:[]})});
+    m.clinical.mockResolvedValue([[{ id:4,agency_id:1,created_by_user_id:7,client_id:3 }]]);
     const r=req();r.params={...r.params,type:'note',documentId:'4'};const response=res();
     await getSuperviseeReviewDocument(r,response,e=>{throw e;});
     expect(JSON.parse(response.json.mock.calls[0][0].content)).toEqual({note:{assessment:'Clinical progress'},addenda:[]});

@@ -5,7 +5,7 @@ import { providerBillingRolloutReview } from '../services/providerBillingRollout
 import { hasPendingClaimChange,previouslyTransmitted,claimChangeRequests,resolveServiceChange } from '../services/claimServiceChanges.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
-import { resolveDocumentationPolicy, loadPayerPolicy, evaluateSupervisedBilling, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
+import { resolveDocumentationPolicy, resolveNoteDocumentationPolicy, loadPayerPolicy, evaluateSupervisedBilling, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
 import { claimDocumentation, reviewSourceHash, currentClaimContentReview, runClaimContentReview } from '../services/claimContentReview.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -49,8 +49,13 @@ export async function prepareClaimReview(agencyId, claimId) {
   const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
   const rollout = await providerBillingRolloutReview({ agencyId, providerUserId: providerId, payerId: insurance?.primary?.payerId, serviceDate: claim.date_of_service });
   if (!rollout.ready) readiness.blockers.push(rollout.reason);
-  const policy = await resolveDocumentationPolicy(agencyId, providerId);
-  const [users] = await pool.execute('SELECT id,first_name,last_name,npi,license_type FROM users WHERE id IN (?,?)', [providerId,policy.supervisorUserId || 0]);
+  const policy = await resolveNoteDocumentationPolicy(documentation.note);
+  for (const serviceCode of new Set(lines.map(line => line.procedure_code))) {
+    const linePolicy = await resolveDocumentationPolicy(agencyId, providerId, pool, { serviceCode, dateOfService: claim.date_of_service });
+    if (linePolicy.supervisorUserId !== policy.supervisorUserId || linePolicy.billingMode !== policy.billingMode)
+      readiness.blockers.push('Services with different billing supervisors need separately documented encounters and claims.');
+  }
+  const [users] = await pool.execute('SELECT id,first_name,last_name FROM users WHERE id IN (?,?)', [providerId,policy.supervisorUserId || 0]);
   await Promise.all(users.map(async u => { u.npi = await providerBillingNpi({ agencyId, userId: u.id, coreNpi: u.npi }); }));
   const person = id => { const u=users.find(r=>Number(r.id)===Number(id)); return u?{id:Number(u.id),firstName:u.first_name,lastName:u.last_name,npi:u.npi || null}:null; };
   const configuredPayerPolicy = await loadPayerPolicy(agencyId, insurance?.primary?.payerId, insurance?.primary?.planType);

@@ -1,3 +1,4 @@
+import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../controllers/serviceBillingSupervisor.controller.js';
 import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
 import {getMedicalServiceFees,saveMedicalServiceFees} from '../controllers/medicalServiceFees.controller.js';
@@ -108,6 +109,8 @@ router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinanci
 router.get('/workspace', getBillingWorkspace);
 router.get('/provider-rollout', ...claimMdGate, getProviderBillingRollout);
 router.put('/provider-rollout', ...claimMdGate, putProviderBillingRollout);
+router.get('/service-supervisors', requireMedicalBillingFinancialAccess, getServiceBillingSupervisors);
+router.put('/service-supervisors', requireMedicalBillingFinancialAccess, putServiceBillingSupervisor);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
 router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);
 router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);

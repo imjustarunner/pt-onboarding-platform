@@ -1,3 +1,4 @@
+import { resolveServiceSupervisor } from './serviceBillingSupervisor.service.js';
 /**
  * Resolve who appears as billing vs rendering on claims.
  * Provider default (user_agencies.claim_billing_mode):
@@ -167,6 +168,8 @@ function npiFromUser(user) {
 export async function resolveClaimProviders({
   agencyId,
   renderingProviderUserId = null,
+  serviceCode = null,
+  dateOfService = null,
   overrideMode = null,
   overrideBillingSupervisorUserId = null
 } = {}) {
@@ -195,6 +198,9 @@ export async function resolveClaimProviders({
   } catch {
     billingSupervisorUserId = null;
   }
+
+  const serviceRule = await resolveServiceSupervisor({ agencyId: aid, providerUserId: renderingUserId, serviceCode, dateOfService });
+  if (serviceRule) { mode = 'billing_supervisor'; billingSupervisorUserId = serviceRule.supervisorUserId; }
 
   const billingUserId = mode === 'billing_supervisor' && billingSupervisorUserId
     ? billingSupervisorUserId
