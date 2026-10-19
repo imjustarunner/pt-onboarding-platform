@@ -1591,6 +1591,19 @@ if (!isBootstrap) {
   processAdminUpdates();
   setInterval(processAdminUpdates, 60 * 1000);
   let trainingNoticesBusy = false;
+  let credentialNoticesBusy = false;
+  const processCredentialNotices = async () => {
+    if (credentialNoticesBusy) return;
+    credentialNoticesBusy = true;
+    try {
+      const { processCredentialChangeNotices } = await import('./services/credentialChangeNotification.service.js');
+      await processCredentialChangeNotices();
+    } catch (error) { console.error('[credential notices] Retry failed:', error?.code || error?.message); }
+    finally { credentialNoticesBusy = false; }
+  };
+  processCredentialNotices();
+  setInterval(processCredentialNotices, 60 * 1000).unref();
+
   const processTrainingNotices = async () => {
     if (trainingNoticesBusy) return;
     trainingNoticesBusy = true;

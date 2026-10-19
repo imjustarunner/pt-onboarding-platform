@@ -162,15 +162,16 @@ onMounted(loadStatus);
       >
         Show setup link
       </button>
-      <button type="button" class="btn btn-secondary" :disabled="busy" @click="openConfirm('token')">
+      <button type="button" class="btn btn-secondary" :disabled="busy || loading || !status" @click="openConfirm('token')">
         {{ status?.hasToken ? 'Regenerate setup link' : 'Create Quick View link' }}
       </button>
-      <button type="button" class="btn btn-secondary" :disabled="busy" @click="openConfirm('passcode')">
+      <button type="button" class="btn btn-secondary" :disabled="busy || loading || !status" @click="openConfirm('passcode')">
         {{ status?.hasPasscode ? 'Reset 6-digit passcode' : 'Create 6-digit passcode' }}
       </button>
     </div>
 
     <div v-if="confirmAction" class="qv-confirm">
+      <p v-if="!requiresPassword" class="hint">You are already signed in. Type CONFIRM below to authorize this change; your Google password is not needed.</p>
       <p class="hint">
         <template v-if="confirmAction === 'reveal'">
           Confirm to show your current Quick View setup URL (tenant-scoped).
@@ -214,7 +215,7 @@ onMounted(loadStatus);
       <strong>Save this passcode now — it is only shown here once:</strong>
       <code class="pin">{{ shownPasscode }}</code>
     </div>
-    <p v-if="error" class="err">{{ error }}</p>
+    <p v-if="error" class="err" role="alert">{{ error }} <button v-if="!status" type="button" class="btn btn-secondary btn-sm" @click="loadStatus">Try again</button></p>
   </div>
 </template>
 

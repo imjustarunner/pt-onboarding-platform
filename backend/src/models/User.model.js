@@ -2744,6 +2744,8 @@ class User {
       [passwordHash, passwordHash, expiresAt, userId]
     );
     
+    const { recordCredentialChangeNotice } = await import('../services/credentialChangeNotification.service.js');
+    await recordCredentialChangeNotice({ userId, kind: 'password' });
     return { password, expiresAt };
   }
 
@@ -2909,6 +2911,8 @@ class User {
       );
     }
     
+    const { recordCredentialChangeNotice } = await import('../services/credentialChangeNotification.service.js');
+    await recordCredentialChangeNotice({ userId, kind: 'password' });
     return this.findById(userId);
   }
 

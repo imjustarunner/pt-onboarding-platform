@@ -21,6 +21,7 @@ import { logContactCommunicationIfApplicable } from '../contactCommsLogging.serv
 import { isAgencyTriggerChannelEnabled } from '../notificationTriggerSettings.service.js';
 import {assertProviderUpdateReminderDelivery} from '../providerUpdateReminderGuard.service.js';
 import { emailRequiresAdminApproval, getEmailSendingMode, isEmailNotificationsEnabled } from '../emailSettings.service.js';
+import { isCredentialSecurityNotice } from '../../utils/securityNotification.js';
 import {
   validateOutboundEmailQuality,
   formatQualityFlags,
@@ -309,7 +310,8 @@ export async function finalizeOutboundContent({
     to,
     agencyId: aid,
     userId,
-    misdirectedReportUrl
+    misdirectedReportUrl,
+    skipOptOutLink: isCredentialSecurityNotice(identity, templateType)
   });
 }
 
@@ -1078,7 +1080,9 @@ export async function sendEmailFromIdentity({
     };
   }
 
-  const optGate = await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
+  // Required credential alerts are independent of communication subscriptions.
+  const securityNotice = isCredentialSecurityNotice(identity, templateType);
+  const optGate = securityNotice ? { allowed: true } : await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
   if (!optGate.allowed) {
     await logSkippedOrFailedEmail({
       to,
@@ -1150,7 +1154,7 @@ export async function sendEmailFromIdentity({
     'admin_initiated_password_reset',
     'school_staff_account_recovery'
   ].includes(ttForQuality);
-  if (!quality.ok && !skipQualityForLoginRecovery) {
+  if (!quality.ok && !skipQualityForLoginRecovery && !securityNotice) {
     return blockSendForQualityIssues({
       flags: quality.flags,
       to,
@@ -1279,6 +1283,7 @@ export async function sendEmailFromIdentity({
     !redirected.redirected &&
     !existingCommunicationId &&
     !isLoginRecoveryEmail &&
+    !securityNotice &&
     comm?.id &&
     (await emailRequiresAdminApproval({
       agencyId: identity?.agency_id,

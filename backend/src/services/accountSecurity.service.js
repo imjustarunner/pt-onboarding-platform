@@ -197,5 +197,7 @@ export async function initializeSignInPassword(req){
   await db.execute('UPDATE users SET password_hash=?,password_changed_at=UTC_TIMESTAMP() WHERE id=? AND password_hash IS NULL',[hash,req.user.id]);
   return {mirror:await recordSecurityAction(db,req,'initial_sign_in_password_created')};
  });
+ const {recordCredentialChangeNotice}=await import('./credentialChangeNotification.service.js');
+ await recordCredentialChangeNotice({userId:req.user.id,kind:'password'});
  return {saved:true};
 }

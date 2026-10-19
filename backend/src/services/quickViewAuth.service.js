@@ -192,6 +192,8 @@ export async function resetPasscode({ userId, agencyId = null, actorUserId = nul
     userAgent
   });
   const status = await getCredentialStatus(userId);
+  const { recordCredentialChangeNotice } = await import('./credentialChangeNotification.service.js');
+  await recordCredentialChangeNotice({ userId, agencyId, kind: 'quick_view', version: status.passcodeVersion });
   return { passcode: digits, passcodeVersion: status.passcodeVersion };
 }
 
@@ -815,5 +817,7 @@ export async function createInitialPasscode({userId,agencyId=null}) {
  const [saved]=await pool.execute(`UPDATE user_quick_view_credentials SET passcode_hash=?,passcode_version=passcode_version+1,passcode_set_at=CURRENT_TIMESTAMP,failed_passcode_attempts=0,passcode_locked_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND passcode_set_at IS NULL`,[hash,userId]);
  if(!saved.affectedRows)throw Object.assign(new Error('A Quick View code is already set. Use account settings to reset it.'),{status:409});
  await logAccessEvent({userId,agencyId,eventType:'reset_passcode',meta:{actorUserId:userId,source:'provider_update_initial_setup'}});
+ const { recordCredentialChangeNotice } = await import('./credentialChangeNotification.service.js');
+ await recordCredentialChangeNotice({userId,agencyId,kind:'quick_view'});
  return {passcode:digits};
 }

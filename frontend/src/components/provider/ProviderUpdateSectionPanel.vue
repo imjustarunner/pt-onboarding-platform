@@ -38,17 +38,19 @@
     />
 
     <div v-else-if="section.key === 'pin'" class="pu-panel">
-      <template v-if="!section.data?.quickView?.hasPasscode"><button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
+      <template v-if="newPasscode || !quickViewAlreadySet"><button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
       <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><button v-if="section.data?.quickViewVideoUrl" type="button" class="pu-btn training-video-button" @click="openTrainingVideo({url:section.data.quickViewVideoUrl,title:'Quick View instructions',trigger:$event.currentTarget})">▶ Watch Quick View instructions</button><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
       <p>Your agency’s Quick View: <a :href="recipient?.quickViewUrl" target="_blank" rel="noopener noreferrer">{{recipient?.quickViewUrl}}</a></p>
       <p>Everyone needs a six-digit Quick View code, including people who sign in with Google. Before continuing, write your code down and keep it in a safe place, or save it in your password manager. It will be displayed only once. Your invitation identifies your account; no extra sign-in is needed to create this code.</p>
-      <p v-if="newPasscode" role="status">Your new code: <strong>{{newPasscode}}</strong>. Write it down and keep it in a safe place, or save it in your password manager now. It will not be displayed again. Do not share it.</p>
-      <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">Create my six-digit Quick View code</button>
-      <button v-else type="button" class="pu-btn primary" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I saved my code somewhere safe — continue</button>
+      <p v-if="newPasscode" ref="quickViewFeedback" tabindex="-1" role="status" data-search-private>Your new code: <strong>{{newPasscode}}</strong>. Write it down and keep it in a safe place, or save it in your password manager now. It will not be displayed again. Do not share it.</p>
+      <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">{{ saving ? 'Creating your code…' : 'Create my six-digit Quick View code' }}</button>
+      <button v-else type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I saved my code somewhere safe — continue</button>
       </template><p v-else>Your six-digit Quick View code is already set and will not be displayed again. Keep your written copy in a safe place or save it in your password manager. This is separate from your Google or app password.</p>
+      <p v-if="quickViewError" ref="quickViewFeedback" tabindex="-1" role="alert" class="err">{{ quickViewError }}</p>
+      <p v-if="!newPasscode">Need to reset a forgotten code? <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">Open Accounts &amp; access</a>, sign in with your usual account, and choose Reset 6-digit passcode. Then return here to finish your update.</p>
       <p><strong>Add Quick View to your home screen:</strong> On iPhone/iPad, open the agency link in Safari → Share → Add to Home Screen. On Android, open it in Chrome → ⋮ → Add to home screen or Install app. Save your code in your password manager.</p>
       <ProviderUpdateSecuritySetup :user-id="recipient?.providerUserId" :sign-in="recipient?.signIn" :agency-slug="recipient?.agencySlug || route.params.organizationSlug" :preview="!!recipient?.previewOnly" />
-      <button v-if="section.data?.quickView?.hasPasscode" type="button" class="pu-btn primary" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I have my code saved safely — save and continue</button>
+      <button v-if="quickViewAlreadySet && !newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I have my code saved safely — save and continue</button>
     </div>
 
     <!-- Typical availability -->
@@ -339,6 +341,13 @@ const schoolChanges=ref('');
 const photoUrl=ref('');
 
 const newPasscode=ref('');
+const quickViewCodeAcknowledged=ref(false);
+const quickViewFeedback=ref(null),quickViewError=ref(''),quickViewConflict=ref(false);
+const quickViewAlreadySet=computed(()=>quickViewConflict.value || !!props.section.data?.quickView?.hasPasscode);
+const quickViewAccountUrl=computed(()=>{
+ const slug=props.recipient?.agencySlug || route.params.organizationSlug;
+ return `${slug ? `/${encodeURIComponent(slug)}` : ''}/dashboard?tab=my&my=access`;
+});
 const showQuickViewHelp=ref(false);
 const license = reactive({ number: '', issued: '', expires: '', hasUpload: false });
 const reviewContext = ref({});
@@ -350,7 +359,20 @@ const contactFields=[{key:'personalEmail',label:'Personal email',autocomplete:'e
 const supervisionRows=computed(()=>Object.entries({baseline:'Starting hours — before app tracking',period:'Imported billing-report hours',app:'App-recorded supervision hours',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
 function formatTime(value){if(!value)return 'Not set';const [h,m='00']=String(value).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;}
 async function openAsset(kind){try{const {data}=await api.get(`${reviewBase.value}/assets/${kind}`,{params:{agencyId:props.agencyId}});if(kind==='photo')photoUrl.value=data.url;else window.open(data.url,'_blank','noopener,noreferrer');}catch(e){localError.value=e.response?.data?.error?.message||'Could not open the saved document.';}}
-async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.value=true;localError.value='';try{const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{agencyId:props.agencyId});newPasscode.value=data.passcode;}catch(e){localError.value=e.response?.data?.error?.message||'Could not create the code.';}finally{saving.value=false;}}
+async function setupQuickView(){
+ if(props.recipient?.previewOnly || saving.value)return;
+ saving.value=true;quickViewError.value='';localError.value='';
+ try{
+  const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{agencyId:props.agencyId},{skipGlobalLoading:true,timeout:30000});
+  if(!/^\d{6}$/.test(String(data?.passcode||'')))throw new Error('The code could not be displayed. Open Accounts & access to check or reset it.');
+  newPasscode.value=String(data.passcode);
+ }catch(e){
+  if(e.response?.status===409)quickViewConflict.value=true;
+  quickViewError.value=e.response?.data?.error?.message || (e.code==='ECONNABORTED' ? 'The request timed out. Your code may have been created. Try again to check, or open Accounts & access to reset it.' : e.message || 'Could not create the code. Please try again.');
+ }finally{
+  saving.value=false;await nextTick();quickViewFeedback.value?.scrollIntoView?.({behavior:'smooth',block:'center'});quickViewFeedback.value?.focus?.({preventScroll:true});
+ }
+}
 
 const credential = ref('');
 const displayLabel = ref('');
@@ -420,6 +442,7 @@ async function saveSectionPayload(payload) {
         ...payload
       });
     }
+    if(props.section.key==='pin'&&payload.completed&&payload.data?.codeStoredSafely){quickViewCodeAcknowledged.value=true;quickViewError.value='';}
     emit('saved', res.data);
     return true;
   } catch (e) {
@@ -439,6 +462,10 @@ function currentDraft(){
 async function saveDraft(){
  if(props.recipient?.previewOnly)return true;
  if(saving.value||reviewLoading.value){localError.value='Please wait for the current save or upload to finish.';return false;}
+ if(props.section.key==='pin'&&newPasscode.value&&!quickViewCodeAcknowledged.value){
+  quickViewError.value='Save your new code somewhere safe, then choose “I saved my code somewhere safe — continue” before leaving this step.';
+  return false;
+ }
  const data=currentDraft();if(!data)return true;
  if(JSON.stringify(data)===draftBaseline)return true;
  const saved=await saveSectionPayload({completed:false,status:'in_progress',data:{...(props.section.data||{}),...data}});

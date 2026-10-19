@@ -16,6 +16,7 @@ import {
   buildQuickViewUrl
 } from '../services/quickViewAuth.service.js';
 import User from '../models/User.model.js';
+import { quickViewRequiresPassword } from '../services/quickViewIdentity.service.js';
 import pool from '../config/database.js';
 import { getAgencyEmailSettings } from '../services/emailSettings.service.js';
 import {
@@ -152,14 +153,16 @@ function humanizeOfficeAvailability(status, slotState) {
  * Password accounts: require password.
  * SSO / passwordless: require typing CONFIRM (session is already authenticated).
  */
-async function assertIdentityConfirm(userId, body = {}) {
-  const user = await User.findById(userId);
+async function assertIdentityConfirm(req) {
+  if (req.user.switchedFromUserId) throw Object.assign(new Error('Return to your own account to change Quick View credentials.'), { status: 403 });
+  const body = req.body || {};
+  const user = await User.findById(req.user.id);
   if (!user) {
     const err = new Error('User not found');
     err.status = 404;
     throw err;
   }
-  const hasPassword = !!user.password_hash;
+  const hasPassword = await quickViewRequiresPassword(user, req.authClaims);
   if (hasPassword) {
     const bcrypt = (await import('bcrypt')).default;
     const ok = await bcrypt.compare(String(body.password || ''), user.password_hash);
@@ -192,7 +195,7 @@ export const getMyQuickViewStatus = async (req, res, next) => {
     res.json({
       ok: true,
       ...status,
-      requiresPassword: !!user?.password_hash,
+      requiresPassword: await quickViewRequiresPassword(user, req.authClaims),
       agencyId: agency?.id || agencyId,
       agencyName: agency?.name || null,
       homeUrl,
@@ -207,7 +210,7 @@ export const getMyQuickViewStatus = async (req, res, next) => {
 
 export const postRevealToken = async (req, res, next) => {
   try {
-    await assertIdentityConfirm(req.user.id, req.body || {});
+    await assertIdentityConfirm(req);
     const revealed = await revealToken({ userId: req.user.id });
     if (!revealed.ok) {
       return res.status(404).json({
@@ -240,7 +243,7 @@ export const postRevealToken = async (req, res, next) => {
 
 export const postRegenerateToken = async (req, res, next) => {
   try {
-    await assertIdentityConfirm(req.user.id, req.body || {});
+    await assertIdentityConfirm(req);
     const agencyId = Number(req.headers['x-agency-id'] || req.body?.agencyId || 0) || null;
     const result = await regenerateToken({
       userId: req.user.id,
@@ -272,7 +275,7 @@ export const postRegenerateToken = async (req, res, next) => {
 
 export const postResetPasscode = async (req, res, next) => {
   try {
-    await assertIdentityConfirm(req.user.id, req.body || {});
+    await assertIdentityConfirm(req);
     const agencyId = Number(req.headers['x-agency-id'] || req.body?.agencyId || 0) || null;
     const result = await resetPasscode({
       userId: req.user.id,
