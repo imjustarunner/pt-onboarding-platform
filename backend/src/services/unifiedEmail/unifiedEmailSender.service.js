@@ -181,6 +181,9 @@ async function applyUserEmailSignatureBlock({
 }
 
 import { standardizeEmailButtons } from '../../utils/emailActionButton.js';
+import { renderProviderUpdateReceipt } from '../../utils/providerUpdateReceiptEmail.js';
+import { refreshEmailBrandImageUrls } from '../../utils/emailBrandImageCache.js';
+import { publicAppBaseUrl } from '../contactReminderToken.service.js';
 
 export async function finalizeOutboundContent({
   identity,
@@ -212,12 +215,14 @@ export async function finalizeOutboundContent({
 
   const src = String(source || '').trim().toLowerCase();
   const tt = String(templateType || '').trim().toLowerCase();
+  const providerUpdateReceipt = tt === 'provider_update_completion_receipt';
   // A mailbox is the transport, not the author. Human-authored Hub email gets
   // exactly the staff signature; department automations keep their own branding.
   const portal = isPortalIdentity(identity);
   const useStaffSignature = !portal && generatedByUserId && (
     tt === 'hub_email' || (
       src === 'manual' &&
+      !tt.startsWith('provider_update_') &&
       !['compliance_digest', 'pre_hire_admin_review_access', 'prehire_portal_access'].includes(tt) &&
       !['billing', 'collections'].includes(identity?.identity_key)
     )
@@ -229,7 +234,9 @@ export async function finalizeOutboundContent({
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (portal) {
+  if (providerUpdateReceipt && !portal) {
+    signed = { text, html: renderProviderUpdateReceipt({ text, identity }) };
+  } else if (portal) {
     const { default: Agency } = await import('../../models/Agency.model.js');
     const agency = await Agency.findById(aid);
     if (!agency) throw new Error('A portal message requires its agency branding.');
@@ -292,7 +299,7 @@ export async function finalizeOutboundContent({
   };
   // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
   try {
-    if (!portal && aid && signed.html) {
+    if (!portal && !providerUpdateReceipt && aid && signed.html) {
       const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
       const replyMailto = String(identity?.reply_to || identity?.from_email || '').trim();
       signed = {
@@ -308,6 +315,9 @@ export async function finalizeOutboundContent({
     console.warn('[unifiedEmail] tenant chrome wrap failed:', e?.message || e);
   }
 
+  if (signed.html) signed.html = refreshEmailBrandImageUrls(signed.html, [
+    publicAppBaseUrl(), process.env.BACKEND_PUBLIC_URL, process.env.BACKEND_URL
+  ]);
   return appendComplianceFooter({
     text: signed.text,
     html: signed.html,

@@ -61,6 +61,25 @@ describe('outbound email author signature', () => {
     expect(result.html).toContain('pt-department-html-signature');
     expect(result.html).not.toContain('<!-- pt-staff-html-signature -->');
   });
+  it('keeps manually triggered Provider Updates attributed to People Operations', async () => {
+    const result = await finalizeOutboundContent({ ...message, templateType: 'provider_update_invite',
+      identity: { ...identity, identity_key: 'people_ops', display_name: 'ITSCO People Operations', from_email: 'po@itsco.health' } });
+    expect(result.html).toContain('pt-department-html-signature');
+    expect(result.html).not.toContain('<!-- pt-staff-html-signature -->');
+    expect(result.html).toContain('po@itsco.health');
+  });
+  it('renders completion receipts without personal photos, image chrome, or blank spacer paragraphs', async () => {
+    const result = await finalizeOutboundContent({ ...message, templateType: 'provider_update_completion_receipt',
+      text: 'Hi Michael,\n\nYour recorded time was 16 minutes, 41 seconds.\n\nView your time claims: https://example.org/payroll?tab=claims&agency=2\n\nITSCO People Operations',
+      identity: { ...identity, display_name: 'ITSCO People Operations', from_email: 'po@itsco.health' } });
+    expect(result.html).toContain('data-pt-provider-update-receipt="1"');
+    expect(result.html).toContain('16 minutes, 41 seconds');
+    expect(result.html).not.toContain('<img');
+    expect(result.html).not.toContain('pt-staff-html-signature');
+    expect(result.html).not.toContain('&nbsp;</p>');
+    expect(result.html).not.toContain('Director of Operations');
+    expect(result.html).toContain('href="https://example.org/payroll?tab=claims&amp;agency=2"');
+  });
   it('honors an explicitly disabled staff signature without adding the mailbox signature', async () => {
     staff.email_signature_enabled = 0;
     const result = await finalizeOutboundContent(message);
