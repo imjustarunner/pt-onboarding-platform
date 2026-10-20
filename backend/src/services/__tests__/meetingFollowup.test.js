@@ -27,7 +27,7 @@ beforeEach(()=>{
 describe('automatic meeting follow-ups',()=>{
  it('sends only to authorized attendees and never includes personal notes or the raw transcript',async()=>{
   expect(await deliverMeetingFollowup('team',7)).toBe(true);expect(m.send).toHaveBeenCalledTimes(1);
-  expect(m.send.mock.calls[0][0]).toMatchObject({to:'attendee@test',replyToOverride:'support@test.example',agencyId:2,userId:10,templateType:'meeting_summary_ready',linkUrl:'https://app.test/itsco/my-meetings?type=team&meetingId=7&tab=Summary'});
+  expect(m.send.mock.calls[0][0]).toMatchObject({to:'attendee@test',replyToOverride:'noreply@test.example',agencyId:2,userId:10,templateType:'meeting_summary_ready',linkUrl:'https://app.test/itsco/my-meetings?type=team&meetingId=7&tab=Summary'});
   expect(m.send.mock.calls[0][0].text).not.toContain('private');expect(m.send.mock.calls[0][0].text).not.toContain('not sent');
  });
  it('does not send again on a generation rerun or worker retry',async()=>{
@@ -57,4 +57,16 @@ it('waits for a summary when a transcript exists',async()=>{
 });
 it('requires an initiating user for a requested BCC or historical batch',async()=>{
  await expect(deliverMeetingFollowup('team',7,{bcc:'owner@test'})).rejects.toThrow('named sender');expect(m.send).not.toHaveBeenCalled();
+});
+
+it('sends the approved manual receipt despite silent creation, once and only to its participants',async()=>{
+ meeting.notify_participants=0;
+ const options={deliveryKey:'record-2',actorUserId:3,recordNotice:{heading:'Manual meeting recorded',manual:true,lines:['Reason: Continued by phone'],userIds:[10]}};
+ await deliverMeetingFollowup('team',7,options);await deliverMeetingFollowup('team',7,options);
+ expect(m.send).toHaveBeenCalledOnce();expect(m.send.mock.calls[0][0].text).toContain('Reason: Continued by phone');expect(m.send.mock.calls[0][0].text).toContain('Manually recorded meeting notes');
+});
+it('includes correction details without leaking them to other group attendees',async()=>{
+ m.access.mockResolvedValue(meeting);
+ await deliverMeetingFollowup('team',7,{deliveryKey:'record-3',actorUserId:3,recordNotice:{heading:'Attendance time updated',lines:['Before: 10 minutes.','After: 55 minutes.','Reason: Continued by phone.'],userIds:[10]}});
+ expect(m.send).toHaveBeenCalledOnce();expect(m.send.mock.calls[0][0].text).toContain('After: 55 minutes.');expect(m.send.mock.calls[0][0].subject).toContain('Attendance time updated');
 });

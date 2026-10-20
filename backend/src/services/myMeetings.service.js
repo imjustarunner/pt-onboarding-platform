@@ -1,5 +1,6 @@
 import { teamMeetingSpeakerNames } from './meetingSpeakerNames.service.js';
 import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
+import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import pool from '../config/database.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
@@ -52,18 +53,18 @@ export async function listMyMeetings({ agencyId, userId, actor = { id: userId },
   for (const type of ['team','supervision']) {
     const s = sources[type];
     const [rows] = await pool.execute(`SELECT m.id,m.agency_id,m.start_at,m.end_at,m.status,
-      ${type === 'team' ? "m.title,m.kind,m.meeting_subtype,m.meeting_completed_at," : "m.session_type,m.live_ended_at,"}
+      ${type === 'team' ? "m.title,m.kind,m.meeting_subtype,m.meeting_completed_at," : "m.session_type,m.live_ended_at,m.event_timezone,COALESCE(NULLIF(supervisee.preferred_name,''),supervisee.first_name) AS supervisee_first_name,"}
       ${interviewColumn(type)} CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) AS facilitator,
       j.status AS summary_status FROM ${s.table} m
       LEFT JOIN meeting_summary_jobs j ON j.meeting_type=? AND j.meeting_id=m.id
-      LEFT JOIN users host ON host.id=m.${s.host} ${interviewJoin(type)}
+      LEFT JOIN users host ON host.id=m.${s.host} ${interviewJoin(type)} ${type === 'supervision' ? 'LEFT JOIN users supervisee ON supervisee.id=m.supervisee_user_id' : ''}
       WHERE m.agency_id=? AND (${attendedSql(type)} OR (${invitedRecordSql(type,userId)} AND m.start_at<UTC_TIMESTAMP()))
       AND (?='' OR m.start_at>=?) AND (?='' OR m.start_at<DATE_ADD(?,INTERVAL 1 DAY))`,
       [type,Number(agencyId),...attendanceArgs(userId),from,from || null,to,to || null]);
     for (const row of rows) {
       const category = meetingCategory(type, row);
       if (category === 'interview' && !await allowedInterview(row.id, actor)) continue;
-      meetings.push({ ...row, category, title: row.title || (category === 'group_supervision' ? 'Group supervision' : 'Individual supervision'), type });
+      meetings.push({ ...row, category, title: row.title || supervisionDisplayTitle(row,row.supervisee_first_name), type });
     }
   }
   const searched = meetings.filter(m => !search || `${m.title} ${m.facilitator || ''}`.toLowerCase().includes(search.toLowerCase()));

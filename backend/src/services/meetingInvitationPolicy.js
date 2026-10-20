@@ -1,6 +1,8 @@
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { trainingReminderDescription } from './meetingReminderPolicy.js';
 
+import { emailActionButton } from '../utils/emailActionButton.js';
+
 export const escapeMeetingHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function reminderMinutes(value) {
   if (value === null) return null;
@@ -43,6 +45,6 @@ export function meetingInvitationContent({ events, joinUrl, hostName, participan
     trainingRequirement: requirement,
     subject: training ? `${requirement} invitation: ${title}` : `${recurring ? 'Recurring meeting invitation' : 'Meeting invitation'}: ${title}`,
     text: `${heading}\n\n${roster}\n${details}\n${rsvpEnabled ? `${rsvpLabel}: ${rsvpUrl}` : ''}\n\n${when}\n${seriesNote}\n\nJoin: ${joinUrl}\n\n${instructions}`,
-    html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `<p><a href="${escapeMeetingHtml(rsvpUrl)}">${escapeMeetingHtml(rsvpLabel)}</a></p>` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p><p><a href="${escapeMeetingHtml(joinUrl)}">${action}</a></p><p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
+    html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `${emailActionButton(rsvpLabel,rsvpUrl)}` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p>${emailActionButton(action,joinUrl,true)}<p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
   };
 }

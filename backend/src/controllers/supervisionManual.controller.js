@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import {isMentalHealthAgency} from '../services/supervisionAgreement.service.js';
 import {hasActiveMeetingMembership} from '../services/meetingJoinPolicy.service.js';
+import { queueMeetingRecordNotice } from '../services/meetingRecordNotifications.service.js';
 import {finalizeSupervisionSession} from './supervisionSessions.controller.js';
 const fail=(message,status=403)=>{throw Object.assign(new Error(message),{status});};
 const sqlDate=d=>d.toISOString().slice(0,19).replace('T',' ');
@@ -88,6 +89,7 @@ export async function finishManualSupervision(req,res,next){let db;try{
     const [assigned]=await db.execute("SELECT id FROM supervisor_assignments WHERE supervisor_id=? AND supervisee_id=? AND agency_id=? AND supervisor_type IN ('clinical','billing')",[m.supervisor_user_id,m.supervisee_user_id,m.agency_id]);
     if(!assigned.length)fail('The supervisor assignment changed. Ask the current supervisor to review this entry.',409);
     await db.execute('UPDATE supervision_manual_entries SET approved_at=COALESCE(approved_at,UTC_TIMESTAMP()),approved_by_user_id=? WHERE session_id=?',[req.user.id,m.session_id]);
+    await queueMeetingRecordNotice(db,{type:'supervision',id:m.session_id,kind:'manual',sourceId:m.session_id,actorUserId:req.user.id});
   }
   await db.commit();
   const approved=req.body.approve===true||!!m.approved_at;

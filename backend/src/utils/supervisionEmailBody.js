@@ -1,3 +1,5 @@
+import { supervisionDisplayTitle } from './supervisionDisplayTitle.js';
+import { emailActionButton } from './emailActionButton.js';
 import { escapeMeetingHtml as esc } from '../services/meetingInvitationPolicy.js';
 import { supervisionAttendance, pendingOptionalSupervision } from '../services/supervisionAttendancePolicy.js';
 
@@ -7,7 +9,8 @@ export function supervisionEmailBody({session,recipientName,hostNames,people,cal
  const pendingOptional = pendingOptionalSupervision(session,{...recipient,is_required:isRequired == null ? (isHost ? 1 : 0) : Number(isRequired),isPresenter});
  const finalOptional = pendingOptional && kind==='join:4320';
  const optionalReminderNote = pendingOptional ? finalOptional ? 'This is your final reminder for this optional session. No response is needed if you will not attend. You will receive no further reminders for this date unless you RSVP to attend.' : 'This session is optional. Unanswered invitations receive a reminder one week before and one final reminder three days before. No response is needed if you will not attend, and reminders then stop for this date.' : '';
- const title=meetingTitle||(group?'Group supervision':'Individual supervision');
+ const supervisee=people.find(p=>Number(p.id)===Number(session.supervisee_user_id)) || people.find(p=>p.participant_role==='supervisee');
+ const title=meetingTitle || supervisionDisplayTitle(session,supervisee?.first_name || supervisee?.name?.split(' ')[0]);
  const supervisees=meetingTitle?[]:people.filter(p=>Number(p.id)===Number(session.supervisee_user_id)||p.participant_role==='supervisee').map(p=>p.name).filter(Boolean);
  const frequency = session.recurrence_series_id ? ({WEEKLY:'Weekly',BIWEEKLY:'Every two weeks',EVERY_3_WEEKS:'Every three weeks',MONTHLY:'Monthly',EVERY_4_WEEKS:'Every four weeks'}[session.recurrence_frequency] || 'Recurring — see your schedule for dates') : 'One-time';
  const signup=session.enrollment_mode==='signup_only';
@@ -18,12 +21,12 @@ export function supervisionEmailBody({session,recipientName,hostNames,people,cal
  const replyInstructions=meetingTitle ? 'Use the RSVP button to update your attendance.' : attendance?.tier === 'mandatory' ? 'Use the RSVP button to accept or decline. Include a reason when declining required supervision. Email replies do not update your RSVP.' : 'RSVP only if you plan to attend. No response or reason is needed if you will not attend. Email replies do not update your RSVP.';
  const intro=meetingTitle?`A time to connect with your ${hostLabel.toLowerCase()}, ask questions, and work toward your goals.`:isPresenter?(preparationComplete ? 'Your presentation preparation is marked complete. Thank you — we look forward to your presentation on the date below.' : 'You are presenting on the date below. Open the scheduled event and select the Presentation tab at the top to add your slides or presentation information. When finished, select Mark preparation complete to stop preparation prompts.'):group?'Join us for case discussion, shared perspectives, and supportive professional growth.':'A dedicated time to connect with your supervisor, ask questions, and continue your professional growth.';
  const inPerson=['IN_PERSON','IN-PERSON'].includes(String(session.modality).toUpperCase());
- const button=(label,url,primary=false)=>`<a href="${esc(url)}" style="display:block;margin:10px 0;padding:15px 20px;border:1px solid #34734f;border-radius:10px;text-decoration:none;text-align:center;font-weight:bold;font-size:17px;line-height:1.4;background:${primary?'#34734f':'#ffffff'};color:${primary?'#ffffff':'#24563b'};">${esc(label)}</a>`;
+ const button=emailActionButton;
  const row=(label,value)=>`<tr><td style="padding:10px 20px;"><div style="font-size:13px;color:#53655e;">${esc(label)}</div><div style="font-size:18px;font-weight:bold;color:#183d31;">${esc(value)}</div></td></tr>`;
  const html=`<div style="font:16px/1.6 Arial,Helvetica,sans-serif;color:#33443d;">
  ${!meetingTitle ? '<p style="font-size:13px;letter-spacing:1px;color:#175b48;">Supervision</p>' : ''}
  <p style="margin:0 0 14px;">Hi ${esc(recipientName)},</p><p style="font-size:12px;letter-spacing:2px;font-weight:bold;color:#34734f;">${kind==='invitation'?'YOU’RE INVITED':'YOUR UPCOMING SESSION'}</p>
- <h1 style="font-size:32px;line-height:1.2;color:#103e2f;margin:0 0 15px;">${title}</h1>
+ <h1 style="font-size:32px;line-height:1.2;color:#103e2f;margin:0 0 15px;">${esc(title)}</h1>
  <p style="font-size:20px;font-weight:bold;color:#34734f;">${status}</p><p>${intro}</p>
  ${attendance?`<p><strong>${esc(attendance.label)}</strong><br>${esc(attendance.description)}</p>`:''}
  ${optionalReminderNote?`<p>${esc(optionalReminderNote)}</p>`:''}

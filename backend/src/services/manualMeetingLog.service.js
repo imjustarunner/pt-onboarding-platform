@@ -1,3 +1,4 @@
+import { queueMeetingRecordNotice } from './meetingRecordNotifications.service.js';
 import { isStudentIntern } from './internMeetingPolicy.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
@@ -167,6 +168,7 @@ export async function saveManualMeeting(body,userId) {
           await db.execute(`INSERT INTO agency_meeting_attendance_rollups (event_id,user_id,total_seconds,synced_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE total_seconds=VALUES(total_seconds),synced_at=NOW()`,[eventId,person.userId,person.minutes*60]);
         }
       }
+      await queueMeetingRecordNotice(db,{type:'team',id:eventId,kind:'manual',sourceId:logId,actorUserId:userId});
       await db.commit();
     }
   }catch(e){await db.rollback();throw e;}finally{for(const key of locks.reverse())await db.execute('SELECT RELEASE_LOCK(?)',[key]);db.release();}

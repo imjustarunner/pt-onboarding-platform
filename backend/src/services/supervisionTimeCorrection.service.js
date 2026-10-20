@@ -1,3 +1,4 @@
+import { queueMeetingRecordNotice } from './meetingRecordNotifications.service.js';
 import pool from '../config/database.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import { hasActiveMeetingMembership, canJoinSupervision } from './meetingJoinPolicy.service.js';
@@ -89,6 +90,7 @@ async function applyCorrection(db, session, correction, actorId) {
   await db.execute(`INSERT INTO supervision_session_attendance_rollups (session_id,user_id,first_joined_at,last_left_at,total_seconds,segment_count,is_finalized,manual_correction_id)
     VALUES (?,?,?,?,?,1,1,?) ON DUPLICATE KEY UPDATE first_joined_at=VALUES(first_joined_at),last_left_at=VALUES(last_left_at),total_seconds=VALUES(total_seconds),is_finalized=1,manual_correction_id=VALUES(manual_correction_id)`,
     [session.id,correction.user_id,correction.start_at,correction.end_at,correction.total_seconds,correction.id]);
+  await queueMeetingRecordNotice(db,{type:'supervision',id:session.id,kind:'correction',sourceId:correction.id,actorUserId:actorId});
 }
 
 async function completeRecord(db, session, actorId) {
@@ -97,7 +99,7 @@ async function completeRecord(db, session, actorId) {
     final_total_seconds=(SELECT COALESCE(SUM(total_seconds),0) FROM supervision_session_attendance_rollups WHERE session_id=?) WHERE id=?`, [actorId,session.id,session.id]);
 }
 
-// Separate from finalization: a correction never sends another meeting email or regenerates notes.
+// Reconcile hours/payroll before the durable correction notice is delivered; preserve the existing notes.
 export async function syncSupervisionTimeCorrections(sessionId, actor) {
   const { session, canManage } = await supervisionRecordAccess(sessionId, actor);
   if (!canManage) fail('Only a supervisor or authorized administrator can reconcile corrections.',403);

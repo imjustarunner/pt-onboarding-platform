@@ -179,6 +179,8 @@ async function applyUserEmailSignatureBlock({
   });
 }
 
+import { standardizeEmailButtons } from '../../utils/emailActionButton.js';
+
 export async function finalizeOutboundContent({
   identity,
   text = null,
@@ -219,6 +221,7 @@ export async function finalizeOutboundContent({
       !['billing', 'collections'].includes(identity?.identity_key)
     )
   );
+  if (src === 'auto' && tt !== 'hub_email') html = standardizeEmailButtons(html);
   const history = useStaffSignature && tt === 'hub_email' ? splitEmailHistory({html, text}) : {html, text, historyHtml:'', historyText:''};
   ({html, text} = history);
   let signed;

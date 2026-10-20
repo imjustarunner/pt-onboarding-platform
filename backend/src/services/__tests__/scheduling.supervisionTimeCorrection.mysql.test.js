@@ -33,12 +33,13 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('supervision correction
       'CREATE TABLE cosign_review_activity_intervals (id INT,supervisor_user_id INT,start_at DATETIME,end_at DATETIME)'
     ]) await pool.query(sql);
     for(const sql of splitSqlStatements(await readFile(new URL('../../../../database/migrations/1638_supervision_time_corrections.sql',import.meta.url),'utf8')))await pool.query(sql);
+    for(const sql of splitSqlStatements(await readFile(new URL('../../../../database/migrations/1665_meeting_record_notifications.sql',import.meta.url),'utf8')))await pool.query(sql);
     for(const sql of splitSqlStatements(await readFile(new URL('../../../../database/migrations/1044_supervision_finalize_pipeline.sql',import.meta.url),'utf8')))await pool.query(sql);
     await pool.query("INSERT INTO users (id,first_name,last_name,preferred_name) VALUES (10,'Test','Supervisor',NULL),(20,'Lauryn','Student','Ryn'),(30,'Other','Student',NULL)");
     await pool.query("INSERT INTO agencies VALUES (2,'ITSCO')");
   });
   beforeEach(async() => {
-    for(const table of ['supervision_time_corrections','supervision_session_hour_credits','supervision_accounts','supervision_period_entries','user_agencies','supervision_session_attendees','supervision_session_attendance_rollups','supervision_session_attendance_events','supervision_sessions'])await pool.query(`DELETE FROM ${table}`);
+    for(const table of ['meeting_record_notification_jobs','supervision_time_corrections','supervision_session_hour_credits','supervision_accounts','supervision_period_entries','user_agencies','supervision_session_attendees','supervision_session_attendance_rollups','supervision_session_attendance_events','supervision_sessions'])await pool.query(`DELETE FROM ${table}`);
     await pool.query("INSERT INTO user_agencies VALUES (2,20,'2025-01-01',1,2,1),(2,30,NULL,0,0,0)");
     await pool.query("INSERT INTO supervision_sessions (id,agency_id,supervisor_user_id,supervisee_user_id,session_type,start_at,end_at,status) VALUES (1,2,10,20,'individual','2026-01-01 16:00:00','2026-01-01 17:00:00','FINALIZED')");
     for(const uid of [10,20])await SupervisionSession.upsertAttendanceRollup({sessionId:1,userId:uid,firstJoinedAt:'2026-01-01 16:00:00',lastLeftAt:'2026-01-01 16:10:00',totalSeconds:600,segmentCount:1,isFinalized:true});
@@ -50,6 +51,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('supervision correction
     expect(results.every(r => r.status==='approved')).toBe(true);
     await SupervisionSession.upsertAttendanceRollup({sessionId:1,userId:10,totalSeconds:800,firstJoinedAt:'2026-01-01 16:00:00',lastLeftAt:'2026-01-01 16:13:20'});
     const record=await getSupervisionRecord(1,host);
+    expect((await pool.query('SELECT * FROM meeting_record_notification_jobs'))[0]).toHaveLength(2);
     expect(record.corrections).toHaveLength(2);expect(record.participants.every(p => p.totalSeconds===3300)).toBe(true);
     expect(record.events).toHaveLength(1);expect(record.session.startAt.toISOString()).toBe('2026-01-01T16:00:00.000Z');
     const previous=record.corrections[0].previous_record_json;
@@ -62,7 +64,9 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('supervision correction
     await submitSupervisionTimeCorrection(1,student,{...input(),userIds:[20]});
     let record=await getSupervisionRecord(1,host);const id=record.corrections[0].id;
     expect(record.corrections[0].status).toBe('pending');expect(record.participants.find(p => p.userId===20).totalSeconds).toBe(600);
+    expect((await pool.query('SELECT * FROM meeting_record_notification_jobs'))[0]).toHaveLength(0);
     await reviewSupervisionTimeCorrection(1,id,host,'approve');
+    expect((await pool.query('SELECT * FROM meeting_record_notification_jobs'))[0]).toHaveLength(1);
     record=await getSupervisionRecord(1,host);expect(record.participants.find(p => p.userId===20).totalSeconds).toBe(3300);
     await expect(reviewSupervisionTimeCorrection(1,id,host,'approve')).rejects.toMatchObject({status:409});
   });

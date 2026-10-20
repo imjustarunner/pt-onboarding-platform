@@ -1,4 +1,7 @@
+import { processMeetingRecordNotices } from './meetingRecordNotifications.service.js';
+import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
 import { meetingAttendanceReceipt } from './meetingAttendanceReceipt.service.js';
+import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import Notification from '../models/Notification.model.js';
 import pool from '../config/database.js';
 import { requireAttendedMeeting } from './myMeetings.service.js';
@@ -14,7 +17,7 @@ const sources = {
   team: { table: 'provider_schedule_events', rollup: 'agency_meeting_attendance_rollups', presence: 'provider_schedule_event_join_presence', key: 'event_id' },
   supervision: { table: 'supervision_sessions', rollup: 'supervision_session_attendance_rollups', presence: 'supervision_session_join_presence', key: 'session_id' }
 };
-export async function deliverMeetingFollowup(type, id, { deliveryKey='initial', actorUserId=null, bcc=null, backfill=false, report=null, maxRecipients=Infinity } = {}) {
+export async function deliverMeetingFollowup(type, id, { deliveryKey='initial', actorUserId=null, bcc=null, backfill=false, report=null, maxRecipients=Infinity, recordNotice=null } = {}) {
   if (!/^[a-z0-9-]{1,80}$/.test(deliveryKey)) throw new Error('Invalid delivery key');
   if ((bcc || backfill || deliveryKey !== 'initial') && !actorUserId) throw new Error('A named sender is required for a requested follow-up batch');
   const source = sources[type];
@@ -22,26 +25,37 @@ export async function deliverMeetingFollowup(type, id, { deliveryKey='initial', 
   const [[meeting]] = await pool.execute(`SELECT * FROM ${source.table} WHERE id=?`, [id]);
   if (!meeting) return true;
   if (!(meeting.meeting_completed_at || meeting.live_ended_at || meeting.status === 'FINALIZED')) return false;
-  if (meeting.status === 'CANCELLED' || Number(meeting.notify_participants ?? 1) === 0 || meeting.meeting_subtype === 'interview') return true;
+  if (meeting.status === 'CANCELLED' || (!recordNotice && Number(meeting.notify_participants ?? 1) === 0) || meeting.meeting_subtype === 'interview') return true;
   const artifact = type === 'team' ? await TeamArtifact.findByEventId(id) : await SupervisionArtifact.findBySessionId(id);
-  if (!artifact?.summary_text && artifact?.transcript_text?.trim()) return false;
+  if (!recordNotice && !artifact?.summary_text && artifact?.transcript_text?.trim()) return false;
   const summary = artifact?.summary_text || 'No transcript was captured for this meeting, so an automated summary is unavailable. Your attendance is recorded below; shared notes and documents may be added to the meeting record.';
   const [people] = await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.email,u.work_email FROM users u
     WHERE EXISTS (SELECT 1 FROM ${source.rollup} ar WHERE ar.${source.key}=? AND ar.user_id=u.id AND ar.total_seconds>0)
     OR EXISTS (SELECT 1 FROM ${source.presence} jp WHERE jp.${source.key}=? AND jp.join_identity=CONCAT('user-',u.id))`, [id,id]);
+  if(recordNotice) {
+    const missing=recordNotice.userIds.filter(uid=>!people.some(p=>Number(p.id)===Number(uid)));
+    if(missing.length) {const [extra]=await pool.execute(`SELECT id,first_name,last_name,email,work_email FROM users WHERE id IN (${missing.map(()=>'?').join(',')})`,missing);people.push(...extra);}
+  }
+  const [[supervisee]] = type === 'supervision' && meeting.supervisee_user_id ? await pool.execute("SELECT COALESCE(NULLIF(preferred_name,''),first_name) first_name FROM users WHERE id=?",[meeting.supervisee_user_id]) : [[]];
+  const title=meeting.title || supervisionDisplayTitle(meeting,supervisee?.first_name);
   const base = await tenantMeetingBase(meeting.agency_id);
   const url = `${base}/my-meetings?type=${type}&meetingId=${id}&tab=Summary`;
   const mailboxes = await ensureTenantMessageMailboxes(meeting.agency_id);
 
   let sentCount=0;
   for (const user of people) {
+    if(recordNotice && !recordNotice.userIds.map(Number).includes(Number(user.id)))continue;
     // Match the authenticated library's attendance, admission and current membership rules.
     try { await requireAttendedMeeting(type,id,user.id); }
-    catch (error) { if (error.status === 403) continue; throw error; }
+    catch (error) {
+      const host=recordNotice && [meeting.supervisor_user_id,meeting.co_facilitator_user_id,meeting.provider_id].map(Number).includes(Number(user.id));
+      if(error.status!==403)throw error;
+      if(!host || !await hasActiveMeetingMembership(meeting.agency_id,user.id))continue;
+    }
     const recipient = await resolveMeetingRecipient({ agencyId:meeting.agency_id,user });
     if (!recipient.email) continue;
     const receipt = await meetingAttendanceReceipt(type,id,user.id,meeting);
-    const content = meetingFollowupContent({ title:meeting.title || (meeting.session_type === 'group' ? 'Group supervision' : 'Individual supervision'), summary, generatedAt:artifact?.summary_generated_at, url, receipt, backfill, training:meeting.meeting_subtype === 'training' });
+    const content = meetingFollowupContent({ title, summary, generatedAt:artifact?.summary_generated_at, url, receipt, backfill, recordNotice, training:meeting.meeting_subtype === 'training' });
     const key = [type,id,user.id,deliveryKey];
     if (sentCount>=maxRecipients) return false;
     const [claim] = await pool.execute(`INSERT IGNORE INTO meeting_followup_deliveries (meeting_type,meeting_id,user_id,delivery_key,delivery_status) VALUES (?,?,?,?,'sending')`, key);
@@ -54,7 +68,7 @@ export async function deliverMeetingFollowup(type, id, { deliveryKey='initial', 
         await pool.execute('UPDATE meeting_followup_deliveries SET notification_id=? WHERE meeting_type=? AND meeting_id=? AND user_id=? AND delivery_key=?',[note?.id || null,...key]);
       }
       const result = await sendEmailFromIdentity({ ...content,senderIdentityId:mailboxes.notifications.id,to:recipient.email,
-        agencyId:meeting.agency_id,userId:user.id,source:'auto',templateType:'meeting_summary_ready',linkUrl:url,generatedByUserId:actorUserId,bcc,replyToOverride:`support@${mailboxes.domain}` });
+        agencyId:meeting.agency_id,userId:user.id,source:'auto',templateType:'meeting_summary_ready',linkUrl:url,generatedByUserId:actorUserId,bcc,replyToOverride:mailboxes.noreply?.from_email || `noreply@${mailboxes.domain}` });
       const status = result?.pendingApproval ? 'approval' : result?.id && !result.redirected && !result.skipped && !result.blocked ? 'sent' : 'held';
       sentCount++;
       report?.push({userId:user.id,status,communicationId:result?.communicationId || null});
@@ -74,6 +88,7 @@ export async function processMeetingFollowups() {
   try {
     const { completeEmptyPastMeetings } = await import('./meetingAutoCompletion.service.js');
     await completeEmptyPastMeetings();
+    await processMeetingRecordNotices(deliverMeetingFollowup);
     // Ignore summaries generated while a meeting is still running, so they cannot
     // occupy the first page forever and starve completed meetings.
     const [jobs] = await pool.execute(`SELECT j.meeting_type,j.meeting_id FROM meeting_summary_jobs j

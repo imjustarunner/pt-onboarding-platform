@@ -1,3 +1,4 @@
+import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import { isStudentIntern } from './internMeetingPolicy.service.js';
 import {reconcileSupervisorClaim} from './supervisionPayrollCorrection.service.js';
 /**
@@ -712,7 +713,9 @@ export async function createSupervisorSupervisionTimeClaim({
   const startTime = wallHm(session.start_at);
   const endTime = wallHm(session.end_at);
   const serviceCode = sessionType === 'group' ? '99416' : '99415';
+  const [[supervisee]]=sessionType==='individual' && session.supervisee_user_id ? await pool.execute("SELECT COALESCE(NULLIF(preferred_name,''),first_name) first_name FROM users WHERE id=?",[session.supervisee_user_id]) : [[]];
   const payload = {
+    description: supervisionDisplayTitle(session,supervisee?.first_name),
     entryMethod: 'manual',
     allocationMode: 'duration',
     totalMinutes: minutes,
