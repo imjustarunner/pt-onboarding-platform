@@ -2,6 +2,10 @@ import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 
+// Historical tables use both unicode_ci and 0900_ai_ci; JSON text uses bin.
+// Normalize every text projection before UNION, without altering stored data.
+const historyText = expression => `CONVERT(${expression} USING utf8mb4) COLLATE utf8mb4_unicode_ci`;
+
 export async function listClientNotificationHistory(req, res, next) {
   try {
     const clientId = Number(req.params.clientId || req.params.id);
@@ -20,22 +24,28 @@ export async function listClientNotificationHistory(req, res, next) {
     }
     const offset = Math.max(0, Math.min(Number.parseInt(req.query?.offset, 10) || 0, 1000000));
     const [rows] = await pool.execute(
-      `SELECT CONCAT('email-', uc.id) AS id, uc.channel, uc.template_type AS notification_type,
-        uc.recipient_address, uc.delivery_status, COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, a.name AS organization_name
+      `SELECT ${historyText("CONCAT('email-', uc.id)")} AS id, ${historyText('uc.channel')} AS channel,
+        ${historyText('uc.template_type')} AS notification_type, ${historyText('uc.recipient_address')} AS recipient_address,
+        ${historyText('uc.delivery_status')} AS delivery_status,
+        COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, ${historyText('a.name')} AS organization_name
        FROM user_communications uc LEFT JOIN agencies a ON a.id = uc.agency_id WHERE uc.client_id = ?
        UNION ALL
-       SELECT CONCAT('sms-', ml.id), 'sms', 'session_or_service_notification', ml.to_number,
-       ml.delivery_status, ml.created_at, a.name FROM message_logs ml LEFT JOIN agencies a ON a.id = ml.agency_id
+       SELECT ${historyText("CONCAT('sms-', ml.id)")}, ${historyText("'sms'")},
+        ${historyText("'session_or_service_notification'")}, ${historyText('ml.to_number')},
+        ${historyText('ml.delivery_status')}, ml.created_at, ${historyText('a.name')}
+       FROM message_logs ml LEFT JOIN agencies a ON a.id = ml.agency_id
        WHERE ml.client_id = ? AND ml.direction = 'OUTBOUND'
        UNION ALL
-       SELECT CONCAT('session-', ac.id), ac.channel, ac.kind,
-        JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.recipient')),
-        COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.status')), 'sent'), ac.created_at, a.name
+       SELECT ${historyText("CONCAT('session-', ac.id)")}, ${historyText('ac.channel')}, ${historyText('ac.kind')},
+        ${historyText("JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.recipient'))")},
+        ${historyText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.status')), 'sent')")},
+        ac.created_at, ${historyText('a.name')}
        FROM appointment_communications ac LEFT JOIN agencies a ON a.id = ac.agency_id
        WHERE ac.direction = 'outbound' AND EXISTS (SELECT 1 FROM appointment_participants ap WHERE ap.appointment_id = ac.appointment_id AND ap.client_id = ?)
        UNION ALL
-       SELECT CONCAT('app-', n.id), 'in_app', n.type, CONCAT_WS(' ', u.first_name, u.last_name),
-        'delivered', n.created_at, a.name
+       SELECT ${historyText("CONCAT('app-', n.id)")}, ${historyText("'in_app'")}, ${historyText('n.type')},
+        ${historyText("CONCAT_WS(' ', u.first_name, u.last_name)")}, ${historyText("'delivered'")},
+        n.created_at, ${historyText('a.name')}
        FROM notifications n LEFT JOIN users u ON u.id = n.user_id LEFT JOIN agencies a ON a.id = n.agency_id
        WHERE (n.related_entity_type = 'client' AND n.related_entity_id = ?)
          OR (n.related_entity_type = 'chat_thread' AND EXISTS (SELECT 1 FROM chat_threads t WHERE t.id = n.related_entity_id AND t.client_id = ?))

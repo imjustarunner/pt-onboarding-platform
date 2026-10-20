@@ -8,6 +8,7 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdent
 import { INTAKE_COMMUNICATION_VERSION } from '../intakeCommunicationChoices.service.js';
 import {runInsuranceCardReminders} from '../insuranceCards/reminders.js';
 import {emailTaskStatus,previewCardEmail,sendReviewedCardEmail,snoozeCardEmail,listStaffCardTasks} from '../insuranceCards/staffTasks.js';
+import {validateOutboundEmailQuality} from '../outboundEmailQuality.service.js';
 const user={id:99,role:'support'},input={agencyId:1,profileId:5,cycle:'synthetic-cycle'};
 let deps,connection,progress,deliveries,personal;
 beforeEach(()=>{
@@ -31,6 +32,12 @@ it('previews the exact generic email and sends only after explicit review, once 
  const p=await previewCardEmail(user,input,deps);expect(p.canSend).toBe(true);expect(p.text).toContain('panel=payment_methods');expect(p.text).toContain('clientId=101');expect(p.text).not.toContain('Synthetic Client');expect(deps.send).not.toHaveBeenCalled();
  expect(p.text).toContain('only the non-Medicaid card sides');expect(p.text).toContain('We do not request Medicaid cards, even when Medicaid is secondary.');
  const request={...input,reviewHash:p.reviewHash};expect(await sendReviewedCardEmail(user,request,deps)).toEqual({status:'sent'});await expect(sendReviewedCardEmail({...user,id:98},request,deps)).rejects.toMatchObject({status:409});expect(deps.send).toHaveBeenCalledOnce();expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({source:'manual',generatedByUserId:99,to:p.to,subject:p.subject,text:p.text,usedFallbackSender:false}));expect(connection.commit).toHaveBeenCalledOnce();
+});
+it('passes outbound quality checks without files while directing card images into the secure portal',async()=>{
+ const preview=await previewCardEmail(user,input,deps);
+ expect(preview.text).toContain('Please use the secure portal upload. Do not send card images by email.');
+ expect(validateOutboundEmailQuality({...preview,templateType:'insurance_card_followup',source:'manual',attachments:[]})).toEqual({ok:true,flags:[]});
+ expect(validateOutboundEmailQuality({...preview,text:`${preview.text}\nSee attached insurance card.`,templateType:'insurance_card_followup',source:'manual',attachments:[]}).flags).toContainEqual(expect.objectContaining({code:'missing_attachment'}));
 });
 it.each(['review','complete','help','waived','not_required'])('does not send a stale preview after the request becomes %s',async state=>{const request=await reviewed();progress.state=state;await expect(sendReviewedCardEmail(user,request,deps)).rejects.toMatchObject({status:409});expect(deps.send).not.toHaveBeenCalled();});
 it('rechecks permissions and denies non-agencies, opted-out recipients and stale policy versions',async()=>{
