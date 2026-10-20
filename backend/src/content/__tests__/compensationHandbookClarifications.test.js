@@ -19,7 +19,7 @@ it('keeps the group proposal option while explaining funding and family coverage
 });
 it('keeps benefit drafts separate and does not invent forfeiture authority or remove wages from payroll',()=>{
  expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('All hours');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('0.25');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('20-hour balance cap');
- expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('2 support activity hours');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('Thirty qualifying hours earn 2.4');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('not be sent to ADP as a leave bank');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('normal payroll, tax and wage records');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('20-hour balance cap');
+ expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('2 School Support Hours');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('Thirty qualifying hours earn 2.4');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('not be sent to ADP as a leave bank');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('normal payroll, tax and wage records');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('20-hour balance cap');
 });
 
 it('replaces future funding percentages without changing prior earnings or salary terms',()=>{

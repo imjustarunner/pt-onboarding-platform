@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import sanitizeHtml from 'sanitize-html';
 import { handbookTenant } from './handbookTenant.js';
+import { applySchoolSupportHandbookAmendment } from '../content/schoolSupportHandbookAmendment.js';
 
 // Use the same supplied handbook and stable section keys as the full handbook reader.
 const sources = Object.fromEntries(['itsco', 'nlu', 'isi'].map(key => [key, {
-  book: JSON.parse(readFileSync(new URL(`../content/handbooks/${key}.json`, import.meta.url), 'utf8')),
+  book: applySchoolSupportHandbookAmendment(JSON.parse(readFileSync(new URL(`../content/handbooks/${key}.json`, import.meta.url), 'utf8')), key),
   updates: JSON.parse(readFileSync(new URL(`../content/handbooks/${key}-draft-updates.json`, import.meta.url), 'utf8')).updates
 }]));
 
