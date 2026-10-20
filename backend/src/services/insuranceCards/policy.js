@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
+import { policyIsMedicaid, hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
 export const CARD_SLOTS = ['primary_front','primary_back','secondary_front','secondary_back'];
 export const cardUrlKey = slot => slot.replace('_', '_card_') + '_url';
 export const cardCycle = profile => crypto.createHash('sha256').update(JSON.stringify(['primary','secondary'].map(slot => {
@@ -9,19 +9,20 @@ export const cardCycle = profile => crypto.createHash('sha256').update(JSON.stri
 // Images help reconciliation but never prevent intake or coverage verification.
 export function requiredCardSlots() { return []; }
 export function encouragedCardSlots(profile, now=new Date()) {
+  if (hasMedicaidCoverage(profile)) return [];
   const date=now.toISOString().slice(0,10);
   return ['primary','secondary'].flatMap(slot => {
     const p=profile[slot];
     return !p || !(p.insurerName || p.memberId) || (p.terminationDate && p.terminationDate<date) ? [] : [`${slot}_front`,`${slot}_back`];
   });
 }
-export function cardProgress(profile, followup={}, now=new Date(), coverageVerified=false) {
+export function cardProgress(profile, followup={}, now=new Date(), coverageVerified=false, followupEligible=true) {
   const same=followup.cycle_hash===cardCycle(profile);
   const rejected=same?parse(followup.rejected_slots_json,[]):[];
-  const encouraged=encouragedCardSlots(profile,now);
+  const encouraged=followupEligible ? encouragedCardSlots(profile,now) : [];
   const missing=encouraged.filter(slot=>!profile[cardUrlKey(slot)] || rejected.includes(slot));
   const state=coverageVerified||!encouraged.length?'not_required':same&&followup.state==='waived'?'waived':missing.length?(same&&followup.state==='help'?'help':'missing'):same&&followup.state==='complete'?'complete':'review';
-  return {state,coverageVerified,requiredSlots:[],encouragedSlots:encouraged,missingSlots:coverageVerified?[]:missing,slots:Object.fromEntries(CARD_SLOTS.map(slot=>[slot,{received:!!profile[cardUrlKey(slot)],needsReplacement:!coverageVerified&&rejected.includes(slot),required:false,encouraged:encouraged.includes(slot)}]))};
+  return {state,coverageVerified,requiredSlots:[],encouragedSlots:encouraged,missingSlots:coverageVerified?[]:missing,slots:Object.fromEntries(CARD_SLOTS.map(slot=>[slot,{received:!!profile[cardUrlKey(slot)],needsReplacement:encouraged.includes(slot)&&!coverageVerified&&rejected.includes(slot),required:false,encouraged:encouraged.includes(slot)}]))};
 }
 /** Verification applies only to unchanged coverage, and to every recorded
  * policy. A newer failed/ambiguous check invalidates a previous positive result. */

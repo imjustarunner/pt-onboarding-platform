@@ -1,5 +1,6 @@
 import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '../intakeCommunicationChoices.service.js';
 import crypto from 'node:crypto';
+import { isCardReviewer } from './scope.js';
 import pool from '../../config/database.js';
 import { billingWorkspaceAgencies } from '../claimMdWorkspace.service.js';
 import { requireBillingStaff } from '../familyLedger/policy.js';
@@ -14,7 +15,7 @@ import { buildPublicAppUrl } from '../../utils/publicPortalUrl.js';
 
 const uncertainStatuses = ['sending', 'unknown', 'held'];
 const activeEmail = profile => profile.email && ![0,false,'0'].includes(profile.user_is_active) && ![1,true,'1'].includes(profile.user_is_archived) && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(profile.user_status).toUpperCase());
-const depsFor = overrides => ({ db: pool, agencies: billingWorkspaceAgencies, authorize: requireBillingStaff,
+const depsFor = overrides => ({ reviewer: isCardReviewer, db: pool, agencies: billingWorkspaceAgencies, authorize: requireBillingStaff,
   activeAgency: isActiveBillingAgency, context: cardContext, refresh: refreshCardFollowup,
   choices: latestIntakeCommunicationChoices, preferences: guardianReminderPreferences, sender: requireReadySender, send: sendEmailFromIdentity,
   audit: auditBilling, now: new Date(), ...overrides });
@@ -37,12 +38,15 @@ export function emailTaskStatus(progress, deliveries, now = new Date()) {
 }
 
 async function authorize(user, agencyId, deps, db = deps.db) {
+  if (!await deps.reviewer(user, db)) throw billingError(403, 'Insurance card follow-up is limited to the designated review team.');
   await deps.authorize(user, positiveId(agencyId), db);
   if (!await deps.activeAgency(agencyId, db)) throw billingError(403, 'Billing follow-up is available only for active billing agencies.');
 }
 
 export async function listStaffCardTasks(user, query = {}, overrides = {}) {
-  const deps = depsFor(overrides), organizations = await deps.agencies(user);
+  const deps = depsFor(overrides);
+  if (!await deps.reviewer(user, deps.db)) return { rows: [], nextAfter: null };
+  const organizations = await deps.agencies(user);
   const agencyId = query.agencyId ? positiveId(query.agencyId) : null;
   if (agencyId && !organizations.some(a => Number(a.id) === agencyId)) throw billingError(403, 'Billing access is required for this agency.');
   const agencies = organizations.filter(a => !agencyId || Number(a.id) === agencyId);
@@ -58,6 +62,7 @@ export async function listStaffCardTasks(user, query = {}, overrides = {}) {
   for (const profile of profiles.slice(0, 100)) {
     try {
       const context = await deps.context({ agencyId: profile.agency_id, profileId: profile.id, staff: true }, deps.db);
+      if (context.followupEligible !== true) continue;
       if (clientId && !context.clients.some(c => Number(c.id) === clientId)) continue;
       const p = await deps.refresh(context, deps.db);
       if (!['missing', 'help', 'review'].includes(p.state)) continue;
@@ -88,7 +93,7 @@ async function emailPreview(input, deps, db, { locked = false } = {}) {
   const status = emailTaskStatus(progress, deliveries, deps.now);
   if (input.cycle !== progress.cycle_hash) throw billingError(409, 'Insurance changed. Refresh the task before reviewing this email.');
   const profile = context.profile;
-  let blocked = status.blocked;
+  let blocked = context.followupEligible === true ? status.blocked : 'Insurance card follow-up is disabled for this client.';
   if (!activeEmail(profile)) blocked = 'An active portal account with an email address is required.';
   for (const client of context.clients) {
     const preferences = await deps.preferences({ userId: profile.guardian_user_id, clientId: client.id });
@@ -120,6 +125,7 @@ export async function snoozeCardEmail(user, input, overrides = {}) {
   const hours = Number(input.hours);
   if (![1, 24].includes(hours)) throw billingError(400, 'Choose send later (one hour) or snooze for 24 hours.');
   const context = await deps.context({ ...input, staff: true }, deps.db), p = await deps.refresh(context, deps.db);
+  if (context.followupEligible !== true) throw billingError(409, 'Insurance card follow-up is disabled for this client.');
   if (p.cycle_hash !== input.cycle) throw billingError(409, 'Insurance changed. Refresh this task.');
   const until = new Date(deps.now.getTime() + hours * 3600000);
   await deps.db.execute(`INSERT INTO insurance_card_staff_reminders(profile_id,cycle_hash,user_id,snoozed_until) VALUES(?,?,?,?)

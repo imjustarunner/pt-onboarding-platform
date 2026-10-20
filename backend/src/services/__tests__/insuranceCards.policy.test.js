@@ -5,7 +5,8 @@ const commercial={insurerName:'Synthetic commercial',memberId:'SYNTHETIC-ONLY'};
 const medicaid={insurerName:'Health First Colorado',memberId:'SYNTHETIC-MEDICAID'};
 test('cards are optional for all plans and encouraged for active policies',()=>{
  assert.deepEqual(requiredCardSlots({primary:commercial,secondary:medicaid}),[]);
- assert.deepEqual(encouragedCardSlots({primary:commercial,secondary:medicaid}),['primary_front','primary_back','secondary_front','secondary_back']);
+ assert.deepEqual(encouragedCardSlots({primary:commercial,secondary:medicaid}),[]);
+ assert.deepEqual(encouragedCardSlots({primary:commercial}),['primary_front','primary_back']);
  assert.deepEqual(encouragedCardSlots({primary:{...commercial,terminationDate:'2020-01-01'}}),[]);
  assert.deepEqual(encouragedCardSlots({primary:null}),[]);
 });
@@ -42,4 +43,14 @@ test('checks actual file signatures and maximum size',()=>{
  assert.equal(validCardFile({mimetype:'application/pdf',buffer:Buffer.from('%PDF-1.7 synthetic')}),true);
  assert.equal(validCardFile({mimetype:'image/jpeg',buffer:Buffer.from([255,216,255,1])}),true);
  assert.equal(validCardFile({mimetype:'application/pdf',buffer:Buffer.alloc(10*1024*1024+1)}),false);
+});
+
+test('Medicaid suppresses every card request, including commercial primary and prior replacements',()=>{
+ for(const p of [{primary:medicaid},{primary:commercial,secondary:medicaid},{primary:commercial,primaryIsMedicaid:true}]) {
+  const progress=cardProgress(p,{state:'help',cycle_hash:cardCycle(p),rejected_slots_json:'["primary_back"]'});
+  assert.equal(progress.state,'not_required');assert.deepEqual(progress.missingSlots,[]);
+  assert.ok(Object.values(progress.slots).every(s=>!s.required&&!s.encouraged&&!s.needsReplacement));
+ }
+ const progress=cardProgress({primary:commercial},{},new Date(),false,false);
+ assert.equal(progress.state,'not_required');assert.deepEqual(progress.encouragedSlots,[]);
 });

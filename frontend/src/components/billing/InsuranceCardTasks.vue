@@ -1,6 +1,6 @@
 <template>
   <section class="card-tasks" aria-label="Insurance card follow-up">
-    <header><div><h3>{{ staff ? 'Insurance card follow-up' : 'Your insurance cards' }}</h3><p>Card photos are optional but encouraged for every insurance plan, including Medicaid. Uploading both sides can help the office verify coverage.</p></div><button type="button" :disabled="busy || loading" @click="load()">Refresh</button></header>
+    <header><div><h3>{{ staff ? 'Insurance card follow-up' : 'Your insurance cards' }}</h3><p>Card follow-up is limited to non-Medicaid school and office clients enrolled through the app. Medicaid clients are not asked for card images.</p></div><button type="button" :disabled="busy || loading" @click="load()">Refresh</button></header>
     <p v-if="staff" class="muted">Insurance card emails are always reviewed by billing staff before sending. Use the pending task to review, send later, or snooze your reminder for 24 hours.</p>
     <p v-if="loading" role="status">Loading insurance tasks…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <label v-if="staff">Show<select v-model="filter"><option value="actionable">Needs attention</option><option value="all">All policies on this page</option></select></label>

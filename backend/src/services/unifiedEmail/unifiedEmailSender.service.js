@@ -1,3 +1,4 @@
+import { assertFreshCardEmail } from '../insuranceCards/scope.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -1003,6 +1004,7 @@ export async function sendEmailFromIdentity({
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
+  assertFreshCardEmail({ templateType, existingCommunicationId });
   await assertMessageReminderRecipient({ templateType, userId, to, cc, bcc });
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);

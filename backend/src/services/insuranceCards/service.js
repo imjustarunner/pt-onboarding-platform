@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { cardFollowupEligible, clientHasMedicaid, hasCompletedCardEnrollment } from './scope.js';
 import pool from '../../config/database.js';
 import {decodeInsuranceProfile} from '../../models/GuardianInsuranceProfile.model.js';
 import {billingError,positiveId,requireBillingLink,auditBilling} from '../familyBillingPolicy.service.js';
@@ -13,7 +14,7 @@ export async function cardContext({agencyId,profileId,userId,staff=false},db=poo
   const [[row]]=await db.execute(`SELECT p.*,a.name AS agency_name,a.slug,a.portal_url,u.email,u.first_name,u.last_name,u.status AS user_status,u.is_active AS user_is_active,u.is_archived AS user_is_archived FROM guardian_insurance_profiles p JOIN agencies a ON a.id=p.agency_id JOIN users u ON u.id=p.guardian_user_id WHERE p.id=? AND p.agency_id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`,[positiveId(profileId),positiveId(agencyId)]);
   if(!row || (!staff&&Number(row.guardian_user_id)!==Number(userId)))throw billingError(404,'Insurance record is not available to this account');
   const profile=decodeInsuranceProfile(row);
-  const [links]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,g.profile_id AS assigned_profile_id FROM clients c LEFT JOIN guardian_insurance_clients g ON g.client_id=c.id AND g.agency_id=c.agency_id AND g.profile_id=? WHERE c.agency_id=? AND (c.id=? OR g.profile_id IS NOT NULL) AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND c.compliance_archived_at IS NULL`,[profileId,agencyId,profile.client_id||0]);
+  const [links]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.primary_insurer_name,it.insurance_key,it.label AS insurance_label,g.profile_id AS assigned_profile_id FROM clients c LEFT JOIN insurance_types it ON it.id=c.insurance_type_id LEFT JOIN guardian_insurance_clients g ON g.client_id=c.id AND g.agency_id=c.agency_id AND g.profile_id=? WHERE c.agency_id=? AND (c.id=? OR g.profile_id IS NOT NULL) AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND c.compliance_archived_at IS NULL`,[profileId,agencyId,profile.client_id||0]);
   const clients=[];
   for(const c of links) {
     try{await requireBillingLink(profile.guardian_user_id,c.id,agencyId,db);}catch(e){if(e.status===403)continue;throw e;}
@@ -29,11 +30,16 @@ export async function cardContext({agencyId,profileId,userId,staff=false},db=poo
         const [checks]=await db.execute('SELECT id,status,policy_slot,insurance_fingerprint,evidence_encrypted FROM client_coverage_checks WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 20',[agencyId,c.id]);
         verified=cardCoverageVerified({fingerprint:coverageFingerprint(coverage),hasSecondary:!!coverage.secondary,review,checks:checks.map(check=>({...check,evidence:decryptFamilyBilling(check.evidence_encrypted,`coverage:${agencyId}:${c.id}`)}))});
       }
-      clients.push({...c,coverageVerified:verified});
+      const [assignedRows]=await db.execute(`SELECT p.* FROM guardian_insurance_profiles p
+        WHERE p.agency_id=? AND (p.client_id=? OR EXISTS(SELECT 1 FROM guardian_insurance_clients g WHERE g.profile_id=p.id AND g.agency_id=p.agency_id AND g.client_id=?))`,[agencyId,c.id,c.id]);
+      clients.push({...c,coverageVerified:verified,
+        enrolledInApp:await hasCompletedCardEnrollment(profile,c,db),
+        hasMedicaid:clientHasMedicaid(c,coverage,assignedRows.map(decodeInsuranceProfile)),
+        hasRecordedCoverage:!!coverage?.primary?.insurerName});
     }
   }
   if(!clients.length)throw billingError(404,'This policy is no longer assigned to an accessible client');
-  return {profile,clients,coverageVerified:clients.every(c=>c.coverageVerified)};
+  return {profile,clients,coverageVerified:clients.every(c=>c.coverageVerified),followupEligible:cardFollowupEligible({profile,clients})};
 }
 export async function refreshCardFollowup(context,db=pool,{locked=false}={}) {
   // Serialize review, replacement uploads and policy changes on the same profile.
@@ -50,7 +56,7 @@ export async function refreshCardFollowup(context,db=pool,{locked=false}={}) {
   const {profile}=context,cycle=cardCycle(profile);
   await db.execute('INSERT IGNORE INTO insurance_card_followups (profile_id,agency_id) VALUES (?,?)',[profile.id,profile.agency_id]);
   const [[old]]=await db.execute('SELECT * FROM insurance_card_followups WHERE profile_id=? AND agency_id=?',[profile.id,profile.agency_id]);
-  const changed=old.cycle_hash!==cycle,progress=cardProgress(profile,old,new Date(),context.coverageVerified===true);
+  const changed=old.cycle_hash!==cycle,progress=cardProgress(profile,old,new Date(),context.coverageVerified===true,context.followupEligible===true);
   await db.execute(`UPDATE insurance_card_followups SET cycle_hash=?,state=?,missing_slots_json=?,first_requested_at=IF(?,UTC_TIMESTAMP(),first_requested_at),rejected_slots_json=IF(?,NULL,rejected_slots_json),review_encrypted=IF(?,NULL,review_encrypted),snoozed_until=IF(?,NULL,snoozed_until) WHERE profile_id=? AND agency_id=?`,[cycle,progress.state,JSON.stringify(progress.missingSlots),changed,changed,changed,changed,profile.id,profile.agency_id]);
   return {...old,...progress,cycle_hash:cycle,first_requested_at:changed?new Date():old.first_requested_at,snoozed_until:changed?null:old.snoozed_until};
 }
@@ -89,7 +95,7 @@ export async function uploadCard(input,file,deps={}) {
     await db.execute('UPDATE guardian_insurance_profiles SET private_payload=? WHERE id=? AND agency_id=? AND guardian_user_id=?',[encryptFamilyBilling(current,`insurance:${input.agencyId}:${input.userId}`),profile.id,input.agencyId,input.userId]);
     const [[followup]]=await db.execute('SELECT rejected_slots_json FROM insurance_card_followups WHERE profile_id=? FOR UPDATE',[profile.id]);
     if(followup)await db.execute("UPDATE insurance_card_followups SET state=IF(state='help','help','missing'),rejected_slots_json=?,snoozed_until=NULL WHERE profile_id=?",[JSON.stringify(parse(followup.rejected_slots_json,[]).filter(s=>s!==input.slot)),profile.id]);
-    await refreshCardFollowup({profile:current},db,{locked:true});
+    await refreshCardFollowup(await cardContext(input,db),db,{locked:true});
     await auditBilling({agencyId:input.agencyId,userId:input.userId,action:'insurance_card_uploaded',objectId:profile.id},db);
     await db.commit();
   }catch(e){await db.rollback();throw e;}finally{db.release();}
@@ -115,6 +121,7 @@ export async function updateCardTask(input) {
     await db.beginTransaction();
     await db.execute('SELECT id FROM guardian_insurance_profiles WHERE id=? AND agency_id=? FOR UPDATE',[input.profileId,input.agencyId]);
     const context=await cardContext(input,db),progress=await refreshCardFollowup(context,db,{locked:true});
+    if(!context.followupEligible && input.action!=='email_preference')throw billingError(409,'Insurance card follow-up is disabled for this client.');
     if(input.cycle!==progress.cycle_hash)throw billingError(409,'Insurance changed. Refresh this request');
     if(input.action==='email_preference')await db.execute('UPDATE insurance_card_followups SET email_enabled=? WHERE profile_id=?',[input.enabled===true,input.profileId]);
     else if(['help','resume'].includes(input.action)) {

@@ -22,8 +22,8 @@ beforeEach(()=>{
   if(sql.includes('SELECT p.id'))return [[{id:5,agency_id:1}]];
   return [[]];
  })};
- deps={db:{execute:(...args)=>connection.execute(...args),getConnection:vi.fn().mockResolvedValue(connection)},now:new Date('2026-10-01T12:00:00Z'),authorize:vi.fn(),activeAgency:vi.fn(async()=>true),agencies:vi.fn(async()=>[{id:1,name:'Synthetic agency'}]),audit:vi.fn(),
- context:vi.fn().mockResolvedValue({profile:{id:5,guardian_user_id:10,email:'synthetic@example.invalid',user_status:'ACTIVE',slug:'synthetic'},clients:[{id:101,full_name:'Synthetic Client'}]}),refresh:vi.fn().mockImplementation(async()=>({...progress})),choices:vi.fn().mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:10,emailPreference:'all',signatureAccepted:true,signedAt:'2026-10-01'}),preferences:vi.fn().mockResolvedValue({channels:{email:true},optionalRemindersEnabled:true}),sender:vi.fn().mockResolvedValue({id:1,from_email:'billing@example.invalid'}),send:vi.fn().mockResolvedValue({id:'synthetic',communicationId:7})};
+ deps={reviewer:vi.fn(async()=>true),db:{execute:(...args)=>connection.execute(...args),getConnection:vi.fn().mockResolvedValue(connection)},now:new Date('2026-10-01T12:00:00Z'),authorize:vi.fn(),activeAgency:vi.fn(async()=>true),agencies:vi.fn(async()=>[{id:1,name:'Synthetic agency'}]),audit:vi.fn(),
+ context:vi.fn().mockResolvedValue({followupEligible:true,profile:{id:5,guardian_user_id:10,email:'synthetic@example.invalid',user_status:'ACTIVE',slug:'synthetic'},clients:[{id:101,full_name:'Synthetic Client'}]}),refresh:vi.fn().mockImplementation(async()=>({...progress})),choices:vi.fn().mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:10,emailPreference:'all',signatureAccepted:true,signedAt:'2026-10-01'}),preferences:vi.fn().mockResolvedValue({channels:{email:true},optionalRemindersEnabled:true}),sender:vi.fn().mockResolvedValue({id:1,from_email:'billing@example.invalid'}),send:vi.fn().mockResolvedValue({id:'synthetic',communicationId:7})};
 });
 const reviewed=async()=>({...input,reviewHash:(await previewCardEmail(user,input,deps)).reviewHash});
 it('never sends missing-card emails from the background, even when settings were enabled',async()=>{expect(await runInsuranceCardReminders(deps)).toEqual([]);expect(deps.send).not.toHaveBeenCalled();});
@@ -54,3 +54,18 @@ it('holds inactive or archived recipient accounts even if their legacy status sa
 
 it.each(['scheduling_only','no'])('does not expand %s consent to insurance follow-up',async emailPreference=>{deps.choices.mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:10,emailPreference,signatureAccepted:true,signedAt:'2026-10-01'});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);expect((await listStaffCardTasks(user,{},deps)).rows[0].reminderDue).toBe(false);expect(deps.send).not.toHaveBeenCalled();});
 it('does not borrow the other guardian’s consent',async()=>{deps.choices.mockResolvedValue({version:INTAKE_COMMUNICATION_VERSION,guardianUserId:11,emailPreference:'all',signatureAccepted:true,signedAt:'2026-10-01'});expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);});
+
+it('removes disabled reviewers from prompts and blocks direct preview, send and snooze',async()=>{
+ const request=await reviewed();deps.reviewer.mockResolvedValue(false);
+ expect(await listStaffCardTasks(user,{},deps)).toEqual({rows:[],nextAfter:null});
+ for(const action of [()=>previewCardEmail(user,input,deps),()=>sendReviewedCardEmail(user,request,deps),()=>snoozeCardEmail(user,{...input,hours:24},deps)])await expect(action()).rejects.toMatchObject({status:403});
+ expect(deps.send).not.toHaveBeenCalled();
+});
+it('rechecks client eligibility after preview and suppresses out-of-scope prompts and emails',async()=>{
+ const request=await reviewed();deps.context.mockResolvedValue({...await deps.context(),followupEligible:false});
+ expect((await listStaffCardTasks(user,{},deps)).rows).toEqual([]);
+ expect((await previewCardEmail(user,input,deps)).canSend).toBe(false);
+ await expect(sendReviewedCardEmail(user,request,deps)).rejects.toMatchObject({status:409});
+ await expect(snoozeCardEmail(user,{...input,hours:24},deps)).rejects.toMatchObject({status:409});
+ expect(deps.send).not.toHaveBeenCalled();
+});

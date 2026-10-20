@@ -1,4 +1,5 @@
 import express from 'express';
+import { isCardReviewer } from '../services/insuranceCards/scope.js';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import pool from '../config/database.js';
@@ -19,12 +20,14 @@ router.post('/:id/action',run(async(req,res)=>res.json(await updateCardTask({...
 router.get('/:id/file/:slot',run(async(req,res)=>{const file=await cardFile(context(req),req.params.slot);res.type(file.type).send(file.body);}));
 router.use('/staff',async(req,res,next)=>{try{await requireBillingStaff(req.user,context(req).agencyId);if(!await isActiveBillingAgency(context(req).agencyId))throw billingError(403,'Billing follow-up requires an active agency.');next();}catch(e){next(e);}});
 router.get('/staff/workspace',run(async(req,res)=>{
+  if(!await isCardReviewer(req.user))return res.json({rows:[],enabled:false,nextAfter:null});
   const c=context(req),after=Number(req.query.after||0),rows=[];
   const clientId=req.query.clientId?positiveId(req.query.clientId):null;
   const [[settings]]=await pool.execute('SELECT enabled FROM insurance_card_reminder_settings WHERE agency_id=?',[c.agencyId]);
   const [profiles]=await pool.execute(`SELECT p.id FROM guardian_insurance_profiles p WHERE p.agency_id=? AND p.id>? ${clientId?'AND (p.client_id=? OR EXISTS(SELECT 1 FROM guardian_insurance_clients g WHERE g.profile_id=p.id AND g.agency_id=p.agency_id AND g.client_id=?))':''} ORDER BY p.id LIMIT 101`,[c.agencyId,Number.isSafeInteger(after)&&after>=0?after:0,...(clientId?[clientId,clientId]:[])]);
   for(const profile of profiles.slice(0,100))try{
     const ctx=await cardContext({...c,profileId:profile.id,staff:true});
+    if(!ctx.followupEligible)continue;
     if(clientId&&!ctx.clients.some(c=>Number(c.id)===clientId))continue;
     const p=await refreshCardFollowup(ctx);
     const [delivery]=await pool.execute('SELECT id,status,created_at FROM insurance_card_deliveries WHERE profile_id=? AND cycle_hash=? ORDER BY id DESC LIMIT 1',[profile.id,p.cycle_hash]);
@@ -36,6 +39,9 @@ router.put('/staff/settings',run(async()=>{throw billingError(409,'Insurance car
 router.get('/staff/:id/email-preview',run(async(req,res)=>res.json(await previewCardEmail(req.user,{...context(req),cycle:req.query.cycle}))));
 router.post('/staff/:id/send-email',rateLimit({windowMs:60000,max:10}),run(async(req,res)=>res.json(await sendReviewedCardEmail(req.user,{...context(req),cycle:req.body.cycle,reviewHash:req.body.reviewHash}))));
 router.post('/staff/:id/remind-later',run(async(req,res)=>res.json(await snoozeCardEmail(req.user,{...context(req),cycle:req.body.cycle,hours:req.body.hours}))));
-router.post('/staff/:id/action',run(async(req,res)=>res.json(await updateCardTask({...req.body,...context(req),staff:true}))));
+router.post('/staff/:id/action',run(async(req,res)=>{
+  if(!await isCardReviewer(req.user))throw billingError(403,'Insurance card follow-up is limited to the designated review team.');
+  res.json(await updateCardTask({...req.body,...context(req),staff:true}));
+}));
 router.get('/staff/:id/file/:slot',run(async(req,res)=>{const file=await cardFile({...context(req),staff:true},req.params.slot);res.type(file.type).send(file.body);}));
 export default router;

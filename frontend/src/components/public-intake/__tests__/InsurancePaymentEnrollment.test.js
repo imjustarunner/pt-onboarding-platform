@@ -72,7 +72,7 @@ describe('insurance enrollment', () => {
     expect(w.props('modelValue').secondary.isMedicaid).toBe(true); w.unmount();
   });
   it('supports keyboard uploads, rejects invalid files, and previews PDF names without broken images', async () => {
-    const w = mount(Insurance, { props: { modelValue: props().insuranceInfo, clientNames: ['Sample Client'] } });
+    const w = mount(Insurance, { props: { modelValue: {primary:{insurerName:'Commercial'}}, clientNames: ['Sample Client'] } });
     const area = w.find('[aria-label="Upload primary front of insurance card"]');
     const input = w.find('input[type="file"]'); const click = vi.spyOn(input.element, 'click');
     await area.trigger('keydown', { key: 'Enter' }); expect(click).toHaveBeenCalled();
@@ -82,4 +82,12 @@ describe('insurance enrollment', () => {
     await area.trigger('drop', { dataTransfer: { files: [file] } }); await flushPromises();
     expect(w.vm.getPhotoFiles().primary_front).toBe(file); expect(area.text()).toContain('insurance.pdf'); expect(area.find('img').exists()).toBe(false); w.unmount();
   });
+});
+
+it.each([{primary:{insurerName:'Commercial'},clientCoverages:[{clientIndex:0,confirmed:true,primary:{insurerName:'Medicaid',isMedicaid:true}}]},{primary:{insurerName:'Health First Colorado'}},{primary:{insurerName:'Commercial'},secondary:{insurerName:'Medicaid',isMedicaid:true}}])('does not ask Medicaid clients for any insurance card images',modelValue=>{
+ const w=mount(Insurance,{props:{modelValue,clientNames:['Sample Client']}});
+ expect(w.find('[aria-label="Upload primary front of insurance card"]').exists()).toBe(false);
+ expect(w.find('[aria-label="Upload secondary front of insurance card"]').exists()).toBe(false);
+ expect(w.text()).not.toContain('I do not have my primary insurance card');
+ expect(w.text()).not.toContain('encouraged for all plans');w.unmount();
 });
