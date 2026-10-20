@@ -495,6 +495,17 @@ export function sessionDedupeKey(row = {}) {
   return sessionDedupeKeys(row)[0] || null;
 }
 
+/** Match a ToDo to its session even after it acquires a draft/note ID. */
+export function workQueueSessionKey(item = {}) {
+  return sessionDedupeKey({
+    officeEventId: item.officeEventId,
+    clinicalSessionId: item.clinicalSessionId,
+    clientId: item.clientId,
+    date_of_service: item.date,
+    service_code: item.serviceCode
+  });
+}
+
 /** True only when a draft is the same person/session as this ToDo row. */
 export function draftMatchesWorkQueueItem(draft, item) {
   if (!draft || !item) return false;

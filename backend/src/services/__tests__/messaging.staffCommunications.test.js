@@ -14,7 +14,7 @@ import {getAgencyCampaignPacket} from '../smsCampaignPacket.service.js';
 import {enrollSmsRecipient} from '../smsEnrollment.service.js';
 import {recordSmsPermission,isSmsSuppressed} from '../smsCompliance.service.js';
 import {appendSecurityEvidence} from '../securityEvidence.service.js';
-import {getStaffCommunicationChoices,saveStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
+import {getStaffCommunicationAgencies,getStaffCommunicationChoices,saveStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import {validateStaffCommunicationInput,staffDeliveryKinds,staffNotificationBody} from '../../utils/staffCommunicationChoices.js';
 let stored,programs,conn,reviewed;
 const profile={brandName:'ITSCO',legalName:'ITSCO, LLC',supportContact:'support@itsco.health'};
@@ -107,4 +107,11 @@ it('queues the original signed choices for activation without a second signature
  await saveStaffCommunicationChoices({userId:7,agencyId:2,input:await input({notifications:true,messageAlerts:false,polling:false})});
  expect(queueStaffSmsEnrollment).toHaveBeenCalledWith(expect.objectContaining({userId:7,agencyId:2,state:expect.objectContaining({envelope:expect.any(Object),reference:expect.stringMatching(/^staff_communications:/)}),database:conn}));
  expect(enrollSmsRecipient).not.toHaveBeenCalled();
+});
+
+it('limits staff choices to agencies, excluding school and club affiliations',async()=>{
+ User.getAgencies.mockResolvedValue([{id:2,organization_type:'agency'},{id:3,organization_type:'school'},{id:4,organization_type:'club'}]);
+ expect((await getStaffCommunicationAgencies(7)).map(a=>a.id)).toEqual([2]);
+ await expect(getStaffCommunicationChoices({userId:7,agencyId:3})).rejects.toMatchObject({status:403});
+ await expect(saveStaffCommunicationChoices({userId:7,agencyId:4,input:{}})).rejects.toMatchObject({status:403});
 });

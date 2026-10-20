@@ -40,8 +40,8 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
        LEFT JOIN users u ON u.id = COALESCE(cs.rendering_provider_user_id, cs.provider_user_id)
        WHERE cs.client_id IN (${clientIn})
          AND cs.agency_id IN (${inList})
-         AND cs.scheduled_start_at IS NOT NULL
-       ORDER BY cs.scheduled_start_at DESC
+         AND (cs.scheduled_start_at IS NOT NULL OR JSON_UNQUOTE(JSON_EXTRACT(cs.metadata_json,'$.source'))='h0002_digital_screening')
+       ORDER BY COALESCE(cs.scheduled_start_at,cs.created_at) DESC
        LIMIT ${lim}`,
       [...clientIds, ...agencyIds]
     );
@@ -53,8 +53,8 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
          FROM clinical_sessions cs
          WHERE cs.client_id IN (${clientIn})
            AND cs.agency_id IN (${inList})
-           AND cs.scheduled_start_at IS NOT NULL
-         ORDER BY cs.scheduled_start_at DESC
+           AND (cs.scheduled_start_at IS NOT NULL OR JSON_UNQUOTE(JSON_EXTRACT(cs.metadata_json,'$.source'))='h0002_digital_screening')
+         ORDER BY COALESCE(cs.scheduled_start_at,cs.created_at) DESC
          LIMIT ${lim}`,
         [...clientIds, ...agencyIds]
       );
@@ -62,6 +62,22 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     } catch (e2) {
       console.warn('[medicalRecordTimeline] sessions query failed', e2?.message || e?.message);
       sessions = [];
+    }
+  }
+
+  const screeningSessions = sessions.filter(session => {
+    const meta = typeof session.metadata_json === 'string' ? JSON.parse(session.metadata_json) : session.metadata_json;
+    return meta?.source === 'h0002_digital_screening';
+  });
+  if (screeningSessions.length) {
+    const [screeningNotes] = await clinicalPool.execute(`SELECT id,clinical_session_id,provider_signed_at,
+      JSON_EXTRACT(metadata_json,'$.screeningDraftEnc') IS NOT NULL AS has_screening_draft
+      FROM clinical_notes WHERE agency_id IN (${inList}) AND client_id IN (${clientIn}) AND is_deleted=0
+      AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.source'))='h0002_digital_screening'`, [...agencyIds,...clientIds]);
+    for (const session of screeningSessions) {
+      const note = screeningNotes.find(note => Number(note.clinical_session_id) === Number(session.id));
+      session.screening_note_id = note?.id;
+      session.screening_note_status = note?.provider_signed_at ? 'signed' : note?.has_screening_draft ? 'draft' : 'not_started';
     }
   }
 

@@ -10,6 +10,8 @@
       </button>
     </div>
 
+    <ClientScreeningWork :agency-id="agencyId" :client-id="clientId" />
+
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading billing lines…</p>
     <p v-else-if="!sortedEncounters.length" class="cc-enc-empty">
@@ -159,6 +161,7 @@
 </template>
 
 <script setup>
+import ClientScreeningWork from './ClientScreeningWork.vue';
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';

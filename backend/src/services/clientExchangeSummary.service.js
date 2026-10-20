@@ -6,6 +6,7 @@ import { intakeNotePresentingProblems, intakePresentingProblems, latestPresentin
 import { listBillingDiagnosesForClient } from './billingReportIngest.service.js';
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { screeningPresentingProblem } from './h0002ReviewDetails.js';
 import { clientAge } from '../utils/clientExchangeMatching.js';
 
 async function optionalClinicalQuery(sql, params) {
@@ -47,20 +48,30 @@ async function importedIntakeConcerns(clientId, agencyId) {
 /** A single current summary for the chart overview, exchange, and match email. */
 export async function loadClientExchangeSummary({ client, agencyId = client.agency_id }) {
   const params = [Number(agencyId), Number(client.id)];
-  const [diagnoses, plans, intakes, intakeNotes] = await Promise.all([
+  const [diagnoses, plans, intakes, intakeNotes, screenings] = await Promise.all([
     optionalClinicalQuery(`SELECT icd10_code, description FROM clinical_diagnoses
       WHERE agency_id = ? AND client_id = ? AND (is_active IS NULL OR is_active = 1)
       ORDER BY is_primary DESC, created_at DESC`, params),
     optionalClinicalQuery(`SELECT * FROM clinical_treatment_plans WHERE agency_id = ? AND client_id = ?
       AND (status = 'active' OR (status = 'draft' AND source_tool_id = 'client_creation_record_import')) ORDER BY updated_at DESC, created_at DESC`, params),
     intakeConcerns(Number(client.id)),
-    importedIntakeConcerns(Number(client.id), Number(agencyId))
+    importedIntakeConcerns(Number(client.id), Number(agencyId)),
+    optionalClinicalQuery(`SELECT metadata_json,provider_signed_at,updated_at FROM clinical_notes
+      WHERE agency_id=? AND client_id=? AND is_deleted=0
+        AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.source'))='h0002_digital_screening'
+      ORDER BY updated_at DESC`, params)
   ]);
   const billing = diagnoses.length ? [] : await listBillingDiagnosesForClient({ agencyId, clientId: client.id });
   const intake = parseSummaryJson(client.intake_preferences_json);
   const age = clientAge(client);
   const referral = intake.exchangeReferral || {};
-  const problem = latestPresentingProblem({ plans, intakes: [...intakes, ...intakeNotes], preferences: intake });
+  const screeningProblems = screenings.map(row => {
+    const meta = parseSummaryJson(row.metadata_json);
+    const draft = meta.screeningDraftEnc ? parseSummaryJson(maybeDecryptNotePayload(meta.screeningDraftEnc)) : {};
+    const text = row.provider_signed_at && meta.screeningPresentingProblemEnc ? maybeDecryptNotePayload(meta.screeningPresentingProblemEnc) : screeningPresentingProblem(draft);
+    return { values: text ? [text] : [], source: row.provider_signed_at ? 'Screening' : 'Screening (draft)', recordedAt: row.updated_at };
+  });
+  const problem = latestPresentingProblem({ plans, intakes: [...intakes, ...intakeNotes, ...screeningProblems], preferences: intake });
   if (!problem.presentingProblems.length && referral.presentingProblem) { problem.presentingProblems = [referral.presentingProblem]; problem.presentingProblemSource = 'Referral'; }
   return {
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },

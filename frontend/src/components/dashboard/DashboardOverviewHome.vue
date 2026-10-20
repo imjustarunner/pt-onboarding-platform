@@ -81,9 +81,19 @@
 
     <div v-if="error" class="ov-error">{{ error }}</div>
 
+    <button type="button" class="ov-customize" :aria-expanded="cardLayout.editMode.value" @click="cardLayout.editMode.value = !cardLayout.editMode.value">Customize dashboard</button>
+    <div v-if="cardLayout.editMode.value" class="ov-card-editor" aria-label="Dashboard cards">
+      <div v-for="key in cardLayout.order.value" :key="key">
+        <label><input type="checkbox" :checked="!hiddenCards.includes(key)" @change="toggleCard(key)" /> {{ cardLabels[key] }}</label>
+        <button type="button" :disabled="cardLayout.isFirst(key)" :aria-label="`Move ${cardLabels[key]} up`" @click="cardLayout.moveUp(key)">↑</button>
+        <button type="button" :disabled="cardLayout.isLast(key)" :aria-label="`Move ${cardLabels[key]} down`" @click="cardLayout.moveDown(key)">↓</button>
+      </div>
+    </div>
     <div class="ov-mid">
+      <OverviewWorkCard v-if="showNotes && !hiddenCards.includes('work')" :style="cardLayout.orderStyle('work')" />
       <OverviewTodaySchedule
-        v-if="showSchedule"
+        v-if="showSchedule && !hiddenCards.includes('schedule')"
+        :style="cardLayout.orderStyle('schedule')"
         class="ov-mid-schedule"
         :items="todayScheduleItems"
         :loading="loading"
@@ -95,7 +105,8 @@
         @open-focus="openFocusFromSchedule"
       />
       <OverviewPayPeriodCard
-        v-if="showPayroll"
+        v-if="showPayroll && !hiddenCards.includes('pay')"
+        :style="cardLayout.orderStyle('pay')"
         class="ov-mid-pay"
         :loading="loading"
         :period-start="payPeriod.periodStart || ''"
@@ -114,6 +125,8 @@
         @open-paycheck="openPaycheck"
       />
       <OverviewEventsCard
+        v-if="!hiddenCards.includes('events')"
+        :style="cardLayout.orderStyle('events')"
         :agency-id="agencyId"
         class="ov-mid-events"
         :featured="featuredEvent"
@@ -167,6 +180,8 @@ import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
+import OverviewWorkCard from './OverviewWorkCard.vue';
+import { useDashboardLayout } from '../../composables/useDashboardLayout.js';
 import OverviewMetricCards from './OverviewMetricCards.vue';
 import OverviewTodaySchedule from './OverviewTodaySchedule.vue';
 import OverviewPayPeriodCard from './OverviewPayPeriodCard.vue';
@@ -230,6 +245,16 @@ const noteAidInProgressCount = ref(0);
 
 const userId = computed(() => authStore.user?.id || null);
 const agencyIdRef = toRef(props, 'agencyId');
+const cardLabels = { work: 'My Work', schedule: 'Today’s schedule', pay: 'Last pay overview', events: 'Events for you' };
+const cardLayout = useDashboardLayout({ kind: 'staff-overview', userId, agencyId: agencyIdRef, defaultOrder: ['work', 'schedule', 'pay', 'events'] });
+const hiddenCards = ref([]);
+const hiddenCardsKey = computed(() => `staff-overview-hidden:${userId.value}:${props.agencyId || ''}`);
+watch(hiddenCardsKey, key => { try { const saved = JSON.parse(localStorage.getItem(key) || '[]'); hiddenCards.value = Array.isArray(saved) ? saved.filter(id => id in cardLabels) : []; } catch { hiddenCards.value = []; } }, { immediate: true });
+function toggleCard(key) {
+  hiddenCards.value = hiddenCards.value.includes(key) ? hiddenCards.value.filter(id => id !== key) : [...hiddenCards.value, key];
+  try { localStorage.setItem(hiddenCardsKey.value, JSON.stringify(hiddenCards.value)); } catch { /* Browser preferences unavailable. */ }
+}
+
 const enabledRef = toRef(props, 'enabled');
 const companyEventsRef = toRef(props, 'companyEvents');
 const supervisionPromptsRef = toRef(props, 'supervisionPrompts');
@@ -560,6 +585,10 @@ const onQuickAction = (action) => {
 </script>
 
 <style scoped>
+.ov-card-settings { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px; }
+.ov-card-settings > div { display: flex; align-items: center; gap: 8px; }
+.ov-customize { align-self: flex-end; padding: 8px 12px; cursor: pointer; }
+
 .ov-hello {
   margin: 0;
   font-size: 18px;
@@ -666,13 +695,13 @@ const onQuickAction = (action) => {
 }
 .ov-mid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 12px;
   align-items: stretch;
 }
 .ov-bottom {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
 .ov-tip {

@@ -36,6 +36,11 @@ export function useClientEncounterNote() {
       || 0
     );
 
+    if (row?.note_kind === 'h0002_screening' && row.note_status !== 'signed') {
+      await navigateToNoteAid(router, { agencyId: aid, clinicalSessionId: row.clinical_session_id, launchIntent: 'h0002_review' }, { organizationSlug });
+      return;
+    }
+
     if (Number(row?.clinical_note_id || 0) > 0) {
       const sessionId = Number(row?.clinical_session_id || 0);
       await navigateToNoteAid(

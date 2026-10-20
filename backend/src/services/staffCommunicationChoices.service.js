@@ -15,6 +15,11 @@ const parse=v=>typeof v==='string'?JSON.parse(v):(v||{});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const digest=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 
+export async function getStaffCommunicationAgencies(userId) {
+  const organizations = await User.getAgencies(userId);
+  return organizations.filter(a => String(a.organization_type || 'agency').trim().toLowerCase() === 'agency');
+}
+
 async function reviewedStaffPermission(program, phone, purpose, agencyId, reference) {
   const sender = await getSmsSender(program.phone_number);
   if (await isSmsSuppressed(sender, phone)) return false;
@@ -32,11 +37,11 @@ async function reviewedStaffPermission(program, phone, purpose, agencyId, refere
 }
 
 async function context(userId,agencyId) {
-  if(!Number.isSafeInteger(Number(agencyId))||Number(agencyId)<1)throw fail('Choose an organization');
+  if(!Number.isSafeInteger(Number(agencyId))||Number(agencyId)<1)throw fail('Choose an agency');
   const user=await User.findById(userId);
   if(!user || !isStaffCommunicationRole(user.role))throw fail('Staff access required',403);
-  const agencies=await User.getAgencies(userId);
-  if(!agencies.some(a=>Number(a.id)===Number(agencyId)))throw fail('Organization access denied',403);
+  const agencies=await getStaffCommunicationAgencies(userId);
+  if(!agencies.some(a=>Number(a.id)===Number(agencyId)))throw fail('Agency access denied',403);
   const packet=await getAgencyCampaignPacket(Number(agencyId),'polling');
   const [rows]=await pool.execute(`SELECT n.id,n.phone_number,r.campaign_id,r.registration_json FROM twilio_numbers n JOIN sms_sender_registrations r ON r.number_id=n.id WHERE n.agency_id=? AND n.is_active=TRUE AND n.status <> 'released' ORDER BY n.id`,[agencyId]);
   const programs=[...new Map(rows.map(r=>({...r,registration:parse(r.registration_json)})).filter(r=>r.registration.purposes?.some(p=>['workforce','polling'].includes(p))).map(r=>[r.campaign_id,r])).values()];

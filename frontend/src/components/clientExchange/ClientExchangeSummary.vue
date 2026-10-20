@@ -7,7 +7,7 @@
     <section>
       <strong>Presenting problems</strong>
       <p v-if="listing.presentingProblemSource" class="muted">{{ listing.presentingProblemSource }}<span v-if="listing.presentingProblemUpdatedAt"> · {{ new Date(listing.presentingProblemUpdatedAt).toLocaleDateString() }}</span></p>
-      <ul v-if="problems.length"><li v-for="problem in problems" :key="problem">{{ problem }}</li></ul>
+      <ul v-if="problems.length"><li v-for="problem in problems" :key="problem"><template v-for="(part,index) in problem.split(/(\*\*[^]*?\*\*)/g)" :key="index"><strong v-if="part.startsWith('**') && part.endsWith('**')">{{ part.slice(2,-2) }}</strong><span v-else>{{ part }}</span></template></li></ul>
       <p v-else class="muted">Not recorded</p>
     </section>
     <section>

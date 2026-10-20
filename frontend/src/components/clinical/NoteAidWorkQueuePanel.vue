@@ -1,5 +1,5 @@
 <template>
-  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="Documentation Hub work queue">
+  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="My Work">
     <template v-if="collapsed">
       <button
         type="button"
@@ -34,7 +34,7 @@
     <template v-else>
     <header class="na-wq-head">
       <div>
-        <strong>Work queue</strong>
+        <strong>My Work</strong>
         <p v-if="queueMode === 'notes'">{{ pendingCount }} not started · {{ startedCount }} in progress</p>
         <p v-else>{{ cosignCount }} awaiting your co-sign</p>
       </div>
@@ -45,9 +45,10 @@
           class="na-wq-add"
           @click="$emit('add-todo')"
         >
-          Add ToDo List
+          Add work
         </button>
         <button
+          v-if="collapsible"
           type="button"
           class="na-wq-collapse"
           title="Collapse work queue"
@@ -68,7 +69,7 @@
         :aria-selected="queueMode === 'notes' ? 'true' : 'false'"
         @click="setQueueMode('notes')"
       >
-        Session notes
+        Notes and screenings
       </button>
       <button
         v-if="showCosignMode"
@@ -90,9 +91,9 @@
       </div>
 
       <div class="na-wq-sort">
-        <label class="na-wq-sort-label" for="na-wq-sort">
+        <label class="na-wq-sort-label">
           Sort
-          <select id="na-wq-sort" v-model="sortField" class="na-wq-sort-select">
+          <select v-model="sortField" class="na-wq-sort-select">
             <option value="date">Date</option>
             <option value="client">Client name</option>
             <option value="status">Status</option>
@@ -116,8 +117,10 @@
         <button type="button" class="na-wq-undo-btn" @click="$emit('undo-import')">Undo</button>
       </div>
 
-      <div v-if="!visibleItems.length" class="na-wq-empty">
-        Session notes that need documentation appear here. Use Add ToDo List or open pending Notes tasks.
+      <div v-if="loading" class="na-wq-empty" role="status">Loading My Work…</div>
+      <div v-else-if="error" class="na-wq-empty" role="alert">{{ error }}</div>
+      <div v-else-if="!visibleItems.length" class="na-wq-empty">
+        Session notes that need documentation appear here. Use Add work or open pending Notes tasks.
       </div>
       <ul v-else class="na-wq-list">
         <li
@@ -159,7 +162,7 @@
             </div>
           </button>
           <button
-            v-if="canRemoveQueueItem(item)"
+            v-if="allowRemove && canRemoveQueueItem(item)"
             type="button"
             class="na-wq-delete"
             :title="removeQueueTitle(item)"
@@ -173,9 +176,9 @@
 
     <template v-else>
       <div class="na-wq-sort">
-        <label class="na-wq-sort-label" for="na-wq-cosign-sort">
+        <label class="na-wq-sort-label">
           Sort
-          <select id="na-wq-cosign-sort" v-model="cosignSortField" class="na-wq-sort-select">
+          <select v-model="cosignSortField" class="na-wq-sort-select">
             <option value="date">Date signed</option>
             <option value="provider">Provider</option>
             <option value="client">Client</option>
@@ -233,7 +236,12 @@ const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
 const MODE_KEY = 'noteAidWorkQueueMode';
 
 const props = defineProps({
+  allowRemove: { type: Boolean, default: true },
   items: { type: Array, default: () => [] },
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  mode: { type: String, default: '' },
+  collapsible: { type: Boolean, default: true },
   activeId: { type: [String, null], default: null },
   collapsed: { type: Boolean, default: false },
   sortBy: { type: String, default: '' },
@@ -294,7 +302,10 @@ const localSortField = ref(
 const localSortDir = ref(
   normalizeWorkQueueSort(props.sortBy || stored.field, props.sortDir || stored.direction).direction
 );
-const queueMode = ref(loadStoredMode());
+const queueMode = ref(props.mode || loadStoredMode());
+watch(() => props.mode, (mode) => {
+  if (mode) queueMode.value = mode === 'cosign' && props.showCosignMode ? 'cosign' : 'notes';
+});
 const cosignSortField = ref('date');
 
 function persistSort() {
@@ -533,7 +544,7 @@ function removeQueueTitle(item) {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 .na-wq--collapsed {
   width: 52px;
@@ -757,7 +768,7 @@ function removeQueueTitle(item) {
   text-align: left;
   border: none;
   background: transparent;
-  padding: 10px 12px;
+  padding: 10px 28px 10px 12px;
   cursor: pointer;
 }
 .na-wq-item-top {

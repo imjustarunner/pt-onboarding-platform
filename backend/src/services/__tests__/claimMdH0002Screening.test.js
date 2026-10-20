@@ -11,11 +11,12 @@ vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.clie
 vi.mock('../../models/NoteAidWorkQueueItem.model.js', () => ({ default: { findByClientKeyForUser: mocks.queueFind, appendForUser: mocks.queueAppend } }));
 vi.mock('../clinicalEligibility.service.js', () => ({ default: { ensureAgencyAccess: mocks.agencyAccess } }));
 vi.mock('../serviceBillingSupervisor.service.js', () => ({ resolveServiceSupervisor: mocks.supervisor }));
+vi.mock('../providerBillingNpi.service.js', () => ({ providerBillingNpi: vi.fn(async () => '1234567893') }));
 vi.mock('../resolveClaimProviders.service.js', () => ({ getProviderClaimBillingMode: vi.fn() }));
 vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeEncryptNotePayload: value => `encrypted:${value}`, maybeDecryptNotePayload: value => String(value).replace(/^encrypted:/, '') }));
 vi.mock('../../controllers/publicIntake.controller.js', () => ({ buildClinicalSummaryText: () => 'Reported concerns and questionnaire answers.' }));
 vi.mock('../clinicalDiagnosisAttach.service.js', () => ({ getPrimaryClinicalDiagnosis: vi.fn(async () => ({ icd10_code: 'F32.9' })) }));
-import { prepareH0002ScreeningTask, screeningReviewContext, validateScreeningSignature, screeningDate } from '../h0002ScreeningWorkflow.service.js';
+import { prepareH0002ScreeningTask, screeningReviewContext, validateScreeningSignature, screeningDate, writeScreeningDetermination } from '../h0002ScreeningWorkflow.service.js';
 import { resolveClaimDiagnosisCodes, resolveClaimDateOfService } from '../clinicalClaimReadiness.service.js';
 
 const labels = ['Fidgety, unable to sit still', 'Acts as if driven by a motor', 'Daydreams too much', 'Distracted Easily', 'Feels sad, unhappy', 'Feels hopeless', 'Has trouble concentrating', 'Fights with others', 'Is down on him or herself', 'Worries a lot', 'Seems to be having less fun', 'Does not listen to rules', 'Does not understand other people’s feelings', 'Teases others', 'Blames others for his or her troubles', 'Takes things that do not belong to him or her', 'Refuses to share'];
@@ -124,6 +125,17 @@ describe('H0002 preparation, signature and billing controls', () => {
     mocks.clinical.execute.mockResolvedValue([[{id:400,agency_id:2,provider_user_id:8,metadata_json:{source:'h0002_digital_screening'}}]]);
     await expect(screeningReviewContext({sessionId:400,user:{id:9}})).rejects.toMatchObject({status:403});
     expect(mocks.submission).not.toHaveBeenCalled();
+  });
+  it('writes confirmed client location using existing session metadata fields',async()=>{
+    const session={id:400,agency_id:2,client_id:300,provider_user_id:8,metadata_json:{source:'h0002_digital_screening',screeningTaskId:100}};
+    const note={id:500,agency_id:2,created_by_user_id:8,metadata_json:{source:'h0002_digital_screening'}};
+    mocks.clinical.execute.mockImplementation(async sql=>sql.includes('SELECT * FROM clinical_sessions')?[[session]]:sql.includes('SELECT * FROM clinical_notes')?[[note]]:[{affectedRows:1}]);
+    const main=mocks.main.execute.getMockImplementation();
+    mocks.main.execute.mockImplementation((sql,args)=>sql.includes('SELECT first_name,last_name,credential')?[[{first_name:'Test',last_name:'Reviewer',credential:'LPC'}]]:main(sql,args));
+    const {source}=await screeningReviewContext({sessionId:400,user:{id:8}});
+    const result=await writeScreeningDetermination({sessionId:400,user:{id:8},input:{...validReview,sourceHash:source.sourceHash,presentingProblem:'Reported concerns',placeOfService:'03',locationConfirmed:true}});
+    const update=mocks.clinical.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_sessions'));
+    expect(update[0]).toContain("'$.locationLabel'");expect(update[0]).not.toContain('location_label');expect(update[1]).toEqual(['03',0,'School',400,2]);expect(result.note_payload).toContain('POS 03');
   });
   it('requires today’s professional determination and an unchanged note to sign',()=>{
     const payload='Screening evaluation';const meta={source:'h0002_digital_screening',dateOfService:'2026-10-19',screeningReview:{reviewConfirmed:true,reviewedByUserId:8,outcome:'further_evaluation',diagnosisCode:'R69',contentHash:crypto.createHash('sha256').update(payload).digest('hex')}};

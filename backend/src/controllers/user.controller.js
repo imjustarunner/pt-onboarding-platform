@@ -1,10 +1,11 @@
+import { getUserOnboardingChecklist } from '../services/userOnboardingChecklist.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { getSupervisionSignupWindow } from '../services/supervisionSignupWindow.js';
 import { isPrivateFamilyProfile, workplacePersonSql } from '../utils/workplacePeople.js';
 import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
-import { getStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
+import { getStaffCommunicationAgencies, getStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { providerScheduleCalendarTiming } from '../utils/providerScheduleCalendar.js';
@@ -10258,21 +10259,7 @@ export const getOnboardingChecklist = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     
-    const checklist = await OnboardingChecklist.getUserChecklist(id);
-    const owner = await User.findById(id);
-    if (owner && isStaffCommunicationRole(owner.role)) {
-      const agencies = await User.getAgencies(id);
-      for (const agency of agencies) {
-        const choices = await getStaffCommunicationChoices({userId:Number(id),agencyId:Number(agency.id)});
-        checklist.push({id:`communications-${agency.id}`,item_type:'communications',title:`${agency.name}: review phone and text choices`,description:'Choose Yes or No for optional staff reminders, message alerts and voting. Every choice may be No.',is_completed:!!choices.reviewedAt && !choices.needsReview,completed_at:choices.reviewedAt});
-      }
-    }
-    const completionPercentage = checklist.length ? Math.round(100 * checklist.filter(item => item.is_completed).length / checklist.length) : 0;
-    
-    res.json({
-      items: checklist,
-      completionPercentage
-    });
+    res.json(await getUserOnboardingChecklist(id));
   } catch (error) {
     next(error);
   }
@@ -10320,7 +10307,7 @@ export const markUserComplete = async (req, res, next) => {
     }
 
     if (['ONBOARDING','PENDING_SETUP'].includes(user.status) && isStaffCommunicationRole(user.role)) {
-      for (const agency of await User.getAgencies(Number(id))) {
+      for (const agency of await getStaffCommunicationAgencies(Number(id))) {
         const choices=await getStaffCommunicationChoices({userId:Number(id),agencyId:Number(agency.id)});
         if (!choices.reviewedAt || choices.needsReview) return res.status(400).json({error:{message:'The staff member must review and sign their phone and text choices. All choices may be No.',requiresCommunicationChoices:true}});
       }

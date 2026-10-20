@@ -1,4 +1,4 @@
-import { getH0002ScreeningReview, signH0002ScreeningReview } from '../controllers/h0002Screening.controller.js';
+import { getH0002ScreeningReview, signH0002ScreeningReview, saveH0002ScreeningDraft, forwardH0002Screening, translateH0002Screening } from '../controllers/h0002Screening.controller.js';
 import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../controllers/serviceBillingSupervisor.controller.js';
 import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
@@ -113,6 +113,9 @@ router.get('/provider-rollout', ...claimMdGate, getProviderBillingRollout);
 router.put('/provider-rollout', ...claimMdGate, putProviderBillingRollout);
 router.get('/screening-sessions/:sessionId/review', requireClinicalChart, getH0002ScreeningReview);
 router.post('/screening-sessions/:sessionId/sign', requireClinicalNoteSigning, signH0002ScreeningReview);
+router.put('/screening-sessions/:sessionId/draft', requireClinicalNoteSigning, saveH0002ScreeningDraft);
+router.post('/screening-sessions/:sessionId/forward', requireClinicalNoteSigning, forwardH0002Screening);
+router.post('/screening-sessions/:sessionId/translate', requireClinicalChart, translateH0002Screening);
 router.get('/service-supervisors', requireMedicalBillingFinancialAccess, getServiceBillingSupervisors);
 router.put('/service-supervisors', requireMedicalBillingFinancialAccess, putServiceBillingSupervisor);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);

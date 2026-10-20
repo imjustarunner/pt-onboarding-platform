@@ -11,12 +11,14 @@
           </svg>
         </span>
         <div>
-          <div class="na-brand-title">{{ noteWorkspaceLabel }}</div>
+          <div class="na-brand-title">Notes Workspace</div>
           <div class="na-brand-sub">Note Assistant</div>
         </div>
       </div>
       <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
       <div class="na-topbar-actions">
+      <router-link class="na-archive-btn na-nav-link" :to="orgTo('/dashboard')">My Dashboard</router-link>
+      <router-link class="na-archive-btn na-nav-link" :to="orgTo('/tasks')">Tasks</router-link>
       <div class="na-topbar-counts" aria-live="polite">
         <span><strong>{{ workQueueTodoCount + contactDocumentationCount }}</strong> to do</span>
         <span class="na-topbar-counts__sep" aria-hidden="true">·</span>
@@ -38,6 +40,9 @@
       >
         {{ workQueueCollapsed ? 'Show queue' : 'Hide queue' }}
       </button>
+      <button type="button" class="na-archive-btn" @click="showContactWork = !showContactWork">Contact documentation</button>
+      <button type="button" class="na-archive-btn" @click="showTerminationOutcomes = !showTerminationOutcomes">Termination outcomes</button>
+      <button type="button" class="na-archive-btn" @click="refreshWorkspace">Refresh</button>
       <button type="button" class="na-archive-btn" @click="focusArchivedShelf">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7h18v13H3zM3 7l2-3h14l2 3" />
@@ -47,9 +52,9 @@
       </div>
     </header>
 
-    <ContactDocumentationQueue v-if="canUseTool" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" @pending-count="contactDocumentationCount = $event" />
+    <ContactDocumentationQueue v-if="showContactWork && canUseTool" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" @pending-count="contactDocumentationCount = $event" />
 
-    <NoteAidTerminationOutcomes v-if="canUseTool && !isEmbedded" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" />
+    <NoteAidTerminationOutcomes v-if="showTerminationOutcomes && canUseTool && !isEmbedded" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" />
 
     <div v-if="fromIndirectSession" class="na-indirect-banner" role="status">
       <span>
@@ -1491,7 +1496,7 @@
       </button>
     </div>
 
-    <H0002ScreeningReview v-if="activeScreeningReview" :key="activeScreeningReview.clinicalSessionId" :session-id="Number(activeScreeningReview.clinicalSessionId)" :agency-id="Number(activeScreeningReview.agencyId)" @close="activeScreeningReview = null" @signed="onScreeningReviewSigned" />
+    <H0002ScreeningReview v-if="activeScreeningReview" :key="activeScreeningReview.clinicalSessionId" :has-next-in-queue="!!nextAfterScreening" :session-id="Number(activeScreeningReview.clinicalSessionId)" :agency-id="Number(activeScreeningReview.agencyId)" @close="activeScreeningReview = null" @saved="refreshWorkspace" @forwarded="refreshWorkspace" @signed="onScreeningReviewSigned" />
 
     <NoteAidCreateClientModal
       :open="showCreateClientModal"
@@ -1597,6 +1602,8 @@ import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDe
 import ContactDocumentationQueue from '../../components/clinical/ContactDocumentationQueue.vue';
 import H0002ScreeningReview from '../../components/clinical/H0002ScreeningReview.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
+import { useNoteAidWorkQueue } from '../../composables/useNoteAidWorkQueue.js';
+import { normalizeCosignQueueItems } from '../../utils/noteAidCosignQueue.js';
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
 import AppointmentBillingPanel from '../../components/schedule/AppointmentBillingPanel.vue';
 import NoteAidDiagnosisWriterModal from '../../components/clinical/NoteAidDiagnosisWriterModal.vue';
@@ -1625,6 +1632,7 @@ import {
   filterWorkQueueForRightPanel,
   normalizeDocStatus,
   sessionDedupeKey,
+  workQueueSessionKey as queueItemSessionKey,
   sortWorkQueueItems
 } from '../../utils/noteAidDocumentationStatus.js';
 import {
@@ -2114,15 +2122,42 @@ async function onStandalonePlanApplied() {
   if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
   await loadRecent();
 }
-const workQueueItems = ref([]);
-const activeScreeningReview = ref(null);
-async function onScreeningReviewSigned() {
-  activeScreeningReview.value = null;
-  workQueueItems.value = (await fetchWorkQueueFromApi(authStore.user?.id)).map(normalizeWorkQueueItemStatus);
-  approvalMessage.value = 'Screening signed and sent to your billing supervisor for cosign. Claim submission remains subject to billing readiness.';
+const workQueueItems = useNoteAidWorkQueue(() => authStore.user?.id);
+const workspaceReady = ref(false);
+const showTerminationOutcomes = ref(false);
+const showContactWork = ref(false);
+async function refreshWorkspace() {
+  // Library reconciliation writes queue status, so load the server queue first.
+  await fetchWorkQueueFromApi(authStore.user?.id);
+  await loadRecent();
 }
-const workQueueSortBy = ref('date');
-const workQueueSortDir = ref('asc');
+const workQueueSortBy = ref('');
+const workQueueSortDir = ref('');
+const activeScreeningReview = ref(null);
+const nextAfterScreening = computed(() => sortedWorkQueueItems.value.find(item =>
+  Number(item.clinicalSessionId || 0) !== Number(activeScreeningReview.value?.clinicalSessionId || 0)
+  || !item.clinicalSessionId
+));
+async function onScreeningReviewSigned(_result, { openNext = false } = {}) {
+  const signedSessionId = Number(activeScreeningReview.value?.clinicalSessionId || 0);
+  activeScreeningReview.value = null;
+  approvalMessage.value = 'Screening signed and sent to your billing supervisor for cosign. Claim submission remains subject to billing readiness.';
+  approvalError.value = '';
+  // Consume the signed note's deep link so refresh cannot reopen it as pending work.
+  const query = { ...route.query };
+  for (const key of ['workQueueId', 'clinicalSessionId', 'launchIntent']) delete query[key];
+  await router.replace({ query }).catch(() => {});
+  try {
+    await refreshWorkspace();
+    if (!openNext) return;
+    const next = sortedWorkQueueItems.value.find(item => !item.clinicalSessionId || Number(item.clinicalSessionId) !== signedSessionId);
+    if (next) await activateWorkQueueItem(next);
+    else approvalMessage.value += ' No unfinished items remain in your queue.';
+  } catch {
+    approvalError.value = 'The screening was signed, but the next item could not be opened. Refresh the work queue to continue.';
+  }
+}
+
 const cosignQueueItems = ref([]);
 const cosignQueueLoading = ref(false);
 const activeCosignQueueId = ref(null);
@@ -3121,11 +3156,21 @@ const chartNoteReadOnly = computed(() => !!viewingChartNote.value || !!signedNot
 function clearSignedNoteViewer() {
   signedNoteViewerId.value = null;
   signedNoteViewerAgencyId.value = null;
+  // A consumed co-sign link must not reopen the old note when the user changes clients.
+  if (route.query?.noteId || route.query?.clinicalNoteId || route.query?.clinical_note_id) {
+    const query = { ...route.query };
+    delete query.noteId;
+    delete query.clinicalNoteId;
+    delete query.clinical_note_id;
+    if (query.launchIntent === 'cosign') delete query.launchIntent;
+    router.replace({ query }).catch(() => {});
+  }
 }
 
 async function openSignedClinicalNote(noteId, { agencyId = null, preserveWorkQueueId = null } = {}) {
   const nid = Number(noteId || 0);
   if (!nid) return false;
+  collapseSidebarsForNote();
   signedNoteViewerId.value = nid;
   signedNoteViewerAgencyId.value = Number(agencyId || 0) || null;
   noteWizardStep.value = 2;
@@ -7359,18 +7404,6 @@ function persistWorkQueue() {
   });
 }
 
-function queueItemSessionKey(item) {
-  return sessionDedupeKey({
-    officeEventId: item?.officeEventId,
-    clinicalSessionId: item?.clinicalSessionId,
-    clientId: item?.clientId,
-    date: item?.date,
-    date_of_service: item?.date,
-    serviceCode: item?.serviceCode,
-    service_code: item?.serviceCode
-  });
-}
-
 /** Resolve chart clinical_notes.id for a signed library row or work-queue item. */
 function resolveSignedClinicalNoteId(itemOrRow = {}) {
   const direct = Number(
@@ -7504,7 +7537,7 @@ async function onWorkQueueDeleteDraft(item) {
   }
 
   if (item.draftId) {
-    if (!window.confirm('Delete this draft? The ToDo stays in the queue as not started.')) return;
+    if (!window.confirm('Archive this draft? Its content is retained and the ToDo stays in the queue as not started.')) return;
     try {
       await api.post(
         '/clinical-notes/drafts/delete',
@@ -7605,23 +7638,7 @@ async function loadCosignQueue() {
     const notes = Array.isArray(data?.notes) ? data.notes : [];
     if (data?.isSupervisor != null) canSuperviseCosign.value = !!data.isSupervisor;
     else if (notes.length) canSuperviseCosign.value = true;
-    cosignQueueItems.value = notes.map((n) => ({
-      id: `cosign_${n.id || n.clinical_note_id}`,
-      signoffId: n.id,
-      clinicalNoteId: n.clinical_note_id || n.clinicalNoteId,
-      agencyId: n.agency_id || n.agencyId || null,
-      clientId: n.client_id || n.clientId || null,
-      clientName: n.client_name || n.clientName
-        || [n.client_first_name, n.client_last_name].filter(Boolean).join(' ').trim()
-        || null,
-      providerName: [n.provider_first_name, n.provider_last_name].filter(Boolean).join(' ').trim()
-        || n.provider_name
-        || 'Provider',
-      serviceCode: n.service_code || n.serviceCode || null,
-      date: String(n.date_of_service || n.dateOfService || n.provider_signed_at || n.created_at || '')
-        .slice(0, 10),
-      signedAt: n.provider_signed_at || n.created_at || null
-    }));
+    cosignQueueItems.value = normalizeCosignQueueItems(notes);
   } catch {
     cosignQueueItems.value = [];
   } finally {
@@ -7675,10 +7692,7 @@ async function onTodoListBuilt({ items }) {
     action: 'note_aid_todo_added',
     items: incoming.map((i) => ({
       clientId: i.clientId,
-      agencyId: i.agencyId,
-      date: i.date,
-      serviceCode: i.serviceCode,
-      clientName: i.clientName
+      agencyId: i.agencyId
     }))
   }, { skipGlobalLoading: true }).catch(() => {});
   if (!activeWorkQueueItemId.value) {
@@ -7804,7 +7818,7 @@ async function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
-  if (item.noteKind === 'h0002_screening' && item.clinicalSessionId) { activeScreeningReview.value = item; return; }
+  if (item.noteKind === 'h0002_screening' && item.clinicalSessionId) { activeWorkQueueItemId.value = item.id || null; activeScreeningReview.value = item; return; }
   collapseSidebarsForNote();
   showAidPicker.value = false;
   beginWorkspaceHydration();
@@ -8221,6 +8235,8 @@ function findReusableLocalDraft(item) {
 function syncWorkQueueRouteQuery(item) {
   const nextQuery = { ...route.query, launchIntent: 'work_queue' };
   delete nextQuery.practiceCategory;
+  delete nextQuery.workQueueId;
+  delete nextQuery.noteId;
   delete nextQuery.draftId;
   delete nextQuery.draft_id;
   delete nextQuery.clinicalNoteId;
@@ -8519,6 +8535,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   if (expectedClientId && draftStampClientId && expectedClientId !== draftStampClientId) {
     return;
   }
+  collapseSidebarsForNote();
   const loadSeq = ++draftLoadSeq;
   const activationSeq = workQueueActivateSeq;
   const isCurrentLoad = () => loadSeq === draftLoadSeq && activationSeq === workQueueActivateSeq;
@@ -8958,7 +8975,7 @@ const draftSections = (draftRow) => {
 
 onMounted(async () => {
   speechSupported.value = !!(privateSpeechRecognition());
-  // Scrub any pre-fix PHI left in browser storage from older Documentation Hub builds.
+  // Scrub any pre-fix PHI left in browser storage from older Note Aid builds.
   scrubLegacyWorkQueueSessionStash();
   // Always open library + work queue when Documentation Hub loads (user can still hide).
   libraryCollapsed.value = false;
@@ -8968,6 +8985,7 @@ onMounted(async () => {
   await loadNoteAidWriterPrefs();
   await loadClinicalCosignSupervisor();
   await refreshCosignCapability();
+  if (canSuperviseCosign.value) await loadCosignQueue();
 
   if (String(route.query?.noteAidReset || '') === '1') {
     await clearWorkQueueOnApi(authStore.user?.id).catch(() => clearAllWorkQueues(authStore.user?.id));
@@ -9006,7 +9024,7 @@ onMounted(async () => {
       skipPrompt: isPlanOrIntakeIntent
     });
     if (linked && !isPlanOrIntakeIntent) {
-      const nextQuery = { ...route.query, fromIndirectSession: '1', launchIntent: 'note' };
+      const nextQuery = { ...route.query, fromIndirectSession: '1', launchIntent: route.query.launchIntent || 'note' };
       router.replace({ query: nextQuery }).catch(() => {});
     } else if (linked && isPlanOrIntakeIntent) {
       const nextQuery = { ...route.query, fromIndirectSession: '1' };
@@ -9014,8 +9032,6 @@ onMounted(async () => {
       router.replace({ query: nextQuery }).catch(() => {});
     }
   }
-
-  // Both panels open on entry; opening a note collapses them.
 
   if (canUseTool.value) {
     await bootstrapWorkspace();
@@ -9100,16 +9116,8 @@ onMounted(async () => {
       } else {
         workQueueItems.value = (loaded || []).map(normalizeWorkQueueItemStatus);
       }
-      const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
-      if (qAgency) selectedQueueAgencyId.value = qAgency;
-      const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
-      const qNote = String(route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
-      if (qNote) {
-        await loadClinicalNoteIntoWorkspace(qNote);
-      } else if (qDraft && recentDrafts.value.length) {
-        const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
-        if (hit) loadDraftIntoWorkspace(hit);
-      }
+      workspaceReady.value = true;
+      await openWorkspaceRouteSelection();
     }
   }
 
@@ -9262,7 +9270,47 @@ watch([serviceCodeOptions, forceAutoSelect, canUseTool], () => {
   applyTherapyContextPrefill();
 });
 
-watch(() => route.query, () => {
+async function openWorkspaceRouteSelection() {
+  if (!workspaceReady.value || !canUseTool.value) return;
+  const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
+  if (qAgency) selectedQueueAgencyId.value = qAgency;
+  if (route.query?.launchIntent === 'h0002_review' && Number(route.query.clinicalSessionId)) {
+    activeScreeningReview.value = { clinicalSessionId: Number(route.query.clinicalSessionId), agencyId: qAgency || currentAgencyId.value };
+    return;
+  }
+  const queueId = String(route.query?.workQueueId || '').trim();
+  if (queueId) {
+    const findItem = () => workQueueItems.value.find((item) =>
+      String(item.clientKey || item.id) === queueId || String(item.id) === queueId
+    );
+    let item = findItem();
+    if (!item) {
+      try { await fetchWorkQueueFromApi(authStore.user?.id); } catch { /* show missing item below */ }
+      item = findItem();
+    }
+    if (!item) {
+      approvalError.value = 'This ToDo is no longer available in your queue. Select another note.';
+      return;
+    }
+    if (String(activeWorkQueueItemId.value || '') !== String(item.id)) await activateWorkQueueItem(item);
+    return;
+  }
+  const qNote = String(route.query?.noteId || route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
+  const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
+  if (qNote) {
+    if (String(signedNoteViewerId.value || '') !== qNote) await openSignedClinicalNote(qNote, { agencyId: qAgency });
+  } else if (qDraft) {
+    const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+    if (hit && String(draftId.value || '') !== qDraft) await loadDraftIntoWorkspace(hit);
+  }
+}
+
+watch(() => route.query, async () => {
+  if (!workspaceReady.value) return;
+  if (route.query?.workQueueId) {
+    await openWorkspaceRouteSelection();
+    return;
+  }
   if (String(route.query?.launchIntent || '') === 'work_queue') {
     bookingPrefillApplied.value = false;
     applyBookingContextPrefill();
@@ -9274,19 +9322,7 @@ watch(() => route.query, () => {
   if (!canUseTool.value) return;
   applyBookingContextPrefill();
   applyTherapyContextPrefill();
-  const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
-  if (qAgency) selectedQueueAgencyId.value = qAgency;
-  const qNote = String(route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
-  const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
-  if (qNote) {
-    loadClinicalNoteIntoWorkspace(qNote);
-  } else {
-    if (viewingChartNote.value) viewingChartNote.value = null;
-    if (qDraft) {
-      const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
-      if (hit) loadDraftIntoWorkspace(hit);
-    }
-  }
+  await openWorkspaceRouteSelection();
 }, { deep: true });
 
 watch([canUseTool, isRecordSessionIntent], ([enabled, recordIntent]) => {
@@ -9386,6 +9422,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.na-nav-link { text-decoration: none; }
 .na-app {
   --na-teal: #0f766e;
   --na-teal-dark: #0d5f59;
@@ -9434,6 +9471,7 @@ onBeforeUnmount(() => {
 
 .na-topbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -9548,6 +9586,8 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   padding: 8px 12px;
   font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 

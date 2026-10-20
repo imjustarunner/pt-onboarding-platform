@@ -112,7 +112,9 @@ export function mergeMedicalRecordSources({
   for (const cs of sessions || []) {
     const sid = Number(cs.id || 0);
     if (!sid) continue;
-    const date = scheduledDate(cs.scheduled_start_at, cs.source_timezone || timeZone);
+    const metadata = typeof cs.metadata_json === 'string' ? JSON.parse(cs.metadata_json) : cs.metadata_json || {};
+    const screening = metadata.source === 'h0002_digital_screening';
+    const date = scheduledDate(cs.scheduled_start_at, cs.source_timezone || timeZone) || (screening ? metadata.serviceDate || '' : '');
     const code = codeKey(cs.service_code || cs.effective_service_code) || 'SESSION';
     const beId = Number(cs.billing_encounter_id || 0);
     const oeId = Number(cs.office_event_id || 0);
@@ -120,6 +122,7 @@ export function mergeMedicalRecordSources({
       || (beId ? byKey.get(`be:${beId}`) : null)
       || (date && code ? byKey.get(dateCodeKey(cs.client_id, date, code)) : null);
     if (existing) {
+      if (screening) Object.assign(existing, { note_kind: 'h0002_screening', note_status: cs.screening_note_status || 'not_started', clinical_note_id: cs.screening_note_id || null });
       existing.clinical_session_id = existing.clinical_session_id || sid;
       existing.office_event_id = existing.office_event_id || oeId || null;
       if (beId) existing.billing_encounter_id = existing.billing_encounter_id || beId;
@@ -129,7 +132,7 @@ export function mergeMedicalRecordSources({
       if (oeId) byKey.set(`oe:${oeId}`, existing);
       continue;
     }
-    if (!date) continue;
+    if (!date && !screening) continue;
     const recordKey = `cs:${sid}`;
     const row = applyDisplayState({
       id: sid,
@@ -147,12 +150,13 @@ export function mergeMedicalRecordSources({
       place_of_service: cs.place_of_service || null,
       diagnosis_text: null,
       billing_attached: !!beId,
-      source: 'session'
+      source: 'session',
+      ...(screening ? { note_kind: 'h0002_screening', note_status: cs.screening_note_status || 'not_started', clinical_note_id: cs.screening_note_id || null, screening_task_id: metadata.screeningTaskId, recorded_at: cs.created_at } : {})
     });
     rememberAliases(row, [
       recordKey,
       oeId ? `oe:${oeId}` : null,
-      dateCodeKey(cs.client_id, date, code)
+      date ? dateCodeKey(cs.client_id, date, code) : null
     ]);
   }
 

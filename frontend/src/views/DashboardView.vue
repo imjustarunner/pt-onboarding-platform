@@ -207,7 +207,7 @@
     </div>
     
     <!-- Onboarding Checklist Card -->
-    <div v-if="onboardingCompletion < 100" class="onboarding-card" data-tour="dash-onboarding-card">
+    <div v-if="!isOnboardingComplete && onboardingCompletion < 100" class="onboarding-card" data-tour="dash-onboarding-card">
       <div class="onboarding-header">
         <h2>Onboarding Checklist</h2>
         <span class="completion-badge">{{ onboardingCompletion }}% Complete</span>
@@ -5288,7 +5288,7 @@ const fetchOnboardingStatus = async () => {
         api.get(`/users/${userId}/onboarding-checklist`),
         api.get(`/users/${userId}`)
       ]);
-      onboardingCompletion.value = checklistResponse.data.completionPercentage || 100;
+      onboardingCompletion.value = checklistResponse.data.completionPercentage ?? 100;
       userStatus.value = userResponse.data.status || 'ACTIVE_EMPLOYEE';
       isPending.value = userStatus.value === 'PREHIRE_OPEN' || userStatus.value === 'PENDING_SETUP' || userStatus.value === 'pending';
 

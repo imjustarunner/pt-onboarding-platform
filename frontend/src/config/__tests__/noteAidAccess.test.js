@@ -5,15 +5,15 @@ import {
 } from '../noteAidAccess.js';
 
 describe('note workspace labels', () => {
-  it('uses Practice Notes for provider roles in mental-health practices', () => {
+  it('uses Notes Workspace for provider roles in mental-health practices', () => {
     expect(noteAidWorkspaceLabel({
       role: 'provider',
       tenant: { business_type: 'mental_health' }
-    })).toBe('Practice Notes');
+    })).toBe('Notes Workspace');
     expect(noteAidWorkspaceLabel({
       role: 'supervisor',
       tenant: { organization_type: 'clinical' }
-    })).toBe('Practice Notes');
+    })).toBe('Notes Workspace');
   });
 
   it('uses Notes Workspace for shared non-clinical work', () => {
@@ -38,8 +38,8 @@ describe('note workspace labels', () => {
     })).toBe('Notes Workspace');
   });
 
-  it('always names the dedicated AuricWell surface Practice Notes', () => {
-    expect(noteAidWorkspaceLabel({ role: 'super_admin', auricwell: true })).toBe('Practice Notes');
+  it('always names the dedicated AuricWell surface Notes Workspace', () => {
+    expect(noteAidWorkspaceLabel({ role: 'super_admin', auricwell: true })).toBe('Notes Workspace');
   });
 
   it('recognizes clinical feature flags when business types are not present', () => {

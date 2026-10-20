@@ -1,44 +1,36 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import H0002ScreeningReview from '../H0002ScreeningReview.vue';
+import Review from '../H0002ScreeningReview.vue';
 import api from '../../../services/api';
-vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-const data = () => ({ clientCode:'SAMPLE', sourceText:'Reported questionnaire and history', sourceHash:'source-version', psc:{complete:true,answered:17,total:11,subscales:{attention:{score:7,cutoff:7},internalizing:{score:1,cutoff:5},externalizing:{score:3,cutoff:7}}}, suggestedOutcome:'further_evaluation', reportedConcerns:true, safetyFlag:false, reviewServiceDate:'2026-10-19' });
-async function open(overrides={}) {
-  api.get.mockResolvedValue({data:{...data(),...overrides}});
-  const wrapper=mount(H0002ScreeningReview,{props:{sessionId:12,agencyId:2},global:{stubs:{Teleport:true}}});
-  await flushPromises();return wrapper;
-}
-describe('digital screening review',()=>{
-  beforeEach(()=>vi.clearAllMocks());
-  it('starts with further evaluation and cannot sign without clinician review',async()=>{
-    const w=await open();
-    expect(w.find('select').element.value).toBe('further_evaluation');
-    expect(w.find('option[value="does_not_meet"]').element.disabled).toBe(true);
-    expect(w.find('.btn-primary').element.disabled).toBe(true);
-    expect(api.post).not.toHaveBeenCalled();w.unmount();
-  });
-  it('prefills a reviewable assessment without attesting or signing for the clinician',async()=>{
-    const w=await open({proposedReview:{assessment:'Screening suggests further evaluation.',followUp:'Discuss treatment options.'}});
-    expect(w.findAll('textarea').map(t=>t.element.value)).toEqual(['Screening suggests further evaluation.','Discuss treatment options.']);
-    expect(w.findAll('input[type="checkbox"]').every(c=>!c.element.checked)).toBe(true);
-    expect(w.find('.btn-primary').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();
-  });
-  it('sends only an explicit clinician determination and attestations',async()=>{
-    const w=await open();
-    const textareas=w.findAll('textarea');await textareas[0].setValue('Reported difficulties warrant further assessment.');await textareas[1].setValue('Discuss care options and arrange assessment.');
-    await w.find('input:not([type="checkbox"])').setValue('ITSCO office');
-    for(const checkbox of w.findAll('input[type="checkbox"]'))await checkbox.setValue(true);
-    api.post.mockResolvedValue({data:{ok:true,noteId:99}});
-    await w.find('.btn-primary').trigger('click');await flushPromises();
-    expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/sign',expect.objectContaining({agencyId:2,sourceHash:'source-version',outcome:'further_evaluation',reviewConfirmed:true,accurateAndComplete:true,medicalNecessityAttested:true}),expect.anything());
-    expect(w.emitted('signed')).toHaveLength(1);w.unmount();
-  });
-  it('locks an incomplete screen instead of treating blanks as negative answers',async()=>{
-    const w=await open({psc:{complete:false,invalid:true,answered:13,total:null,subscales:{}}});
-    expect(w.text()).toContain('Invalid screening: too many missing items');expect(w.find('.btn-primary').element.disabled).toBe(true);w.unmount();
-  });
-  it('requires an extra confirmation for reported safety concerns',async()=>{
-    const w=await open({safetyFlag:true});expect(w.text()).toContain('documented the indicated safety assessment');expect(w.findAll('input[type="checkbox"]')).toHaveLength(4);w.unmount();
-  });
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn()}}));
+const fixture=()=>({clientCode:'SAMPLE',clientId:5,clientType:'school',schoolName:'Example School',sourceText:'Reported worry',sourceHash:'v1',sourceLanguage:'en',psc:{complete:true,answered:17,total:11,subscales:{attention:{score:7}}},suggestedOutcome:'further_evaluation',reportedConcerns:true,safetyFlag:false,location:{code:'10'},proposedReview:{presentingProblem:'Reported worry',assessment:'Further assessment needed.',followUp:'Discuss care options.'}});
+async function open(overrides={}){api.get.mockResolvedValue({data:{...fixture(),...overrides}});const w=mount(Review,{props:{sessionId:12,agencyId:2},global:{stubs:{Teleport:true}}});await flushPromises();return w;}
+const label=(w,text)=>w.findAll('label').find(node=>node.text().startsWith(text));
+beforeEach(()=>{vi.clearAllMocks();api.put.mockImplementation(async(url,body)=>({data:{review:{...body,revision:body.revision+1},noteId:99}}));api.post.mockResolvedValue({data:{ok:true}});});
+describe('screening review and saved work',()=>{
+ it('opens as a saved draft without signing or requesting the reviewer address',async()=>{const w=await open();expect(w.text()).toContain('Example School');expect(w.text()).not.toContain('Setting of your professional review');expect(api.put).toHaveBeenCalled();expect(w.find('.btn-primary').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();});
+ it('restores saved edits and resets signature attestations',async()=>{const w=await open({savedReview:{revision:3,assessment:'Saved assessment',followUp:'Saved follow-up',presentingProblem:'Saved concern',safetyConcern:'',placeOfService:'03',paperResponses:{}}});expect(label(w,'Clinical assessment').get('textarea').element.value).toBe('Saved assessment');expect(label(w,'Client service location').get('select').element.value).toBe('03');expect(label(w,'The note is accurate').get('input').element.checked).toBe(false);expect(api.put).not.toHaveBeenCalled();w.unmount();});
+ it('saves edited text before closing and emits the saved queue update',async()=>{const w=await open();await label(w,'Presenting problem').get('textarea').setValue('Updated concern');await w.findAll('button').find(b=>b.text()==='Save and close').trigger('click');await flushPromises();expect(api.put).toHaveBeenLastCalledWith('/medical-billing/screening-sessions/12/draft',expect.objectContaining({presentingProblem:'Updated concern',revision:1}),expect.anything());expect(w.emitted('saved')).toHaveLength(2);expect(w.emitted('close')).toHaveLength(1);w.unmount();});
+ it('keeps the form open and retains edits when saving fails',async()=>{const w=await open();await label(w,'Presenting problem').get('textarea').setValue('Keep this text');api.put.mockRejectedValue(new Error('offline'));await w.findAll('button').find(b=>b.text()==='Save and close').trigger('click');await flushPromises();expect(w.emitted('close')).toBeUndefined();expect(label(w,'Presenting problem').get('textarea').element.value).toBe('Keep this text');expect(w.text()).toContain('Not saved');w.unmount();});
+ it('signs only after explicit review and location confirmation',async()=>{const w=await open();for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);await w.find('.btn-primary').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/sign',expect.objectContaining({sourceHash:'v1',locationConfirmed:true,reviewConfirmed:true,placeOfService:'10'}),expect.anything());expect(w.emitted('signed')).toHaveLength(1);w.unmount();});
+ it('shows the specific safety concern in bold without checking follow-up automatically',async()=>{const w=await open({safetyFlag:true,safetyConcerns:['History of neglect reported']});expect(w.findAll('strong').some(n=>n.text().includes('History of neglect'))).toBe(true);expect(label(w,'I documented the indicated').get('input').element.checked).toBe(false);expect(w.find('.btn-primary').element.disabled).toBe(true);w.unmount();});
+ it('does not send any Spanish source text automatically and requires redacted preview approval',async()=>{const w=await open({sourceLanguage:'es',sourceText:'Original privado',translationPreview:'[removed] reporta preocupación',transferProviders:[]});expect(w.text()).toContain('submitted in Spanish');expect(api.post).not.toHaveBeenCalled();const button=w.findAll('button').find(b=>b.text()==='Translate reviewed text to English');expect(button.element.disabled).toBe(true);w.findAll('details')[0].element.open=true;await label(w,'I checked this text').get('input').setValue(true);await flushPromises();expect(w.findAll('button').find(b=>b.text()==='Translate reviewed text to English').element.disabled).toBe(false);api.post.mockResolvedValue({data:{status:'translated',text:'[removed] reports worry'}});await w.findAll('button').find(b=>b.text()==='Translate reviewed text to English').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/translate',{agencyId:2,reviewedText:'[removed] reporta preocupación',noIdentifiersConfirmed:true},expect.anything());expect(JSON.stringify(api.post.mock.calls)).not.toContain('Original privado');expect(w.text()).toContain('[removed] reports worry');w.unmount();});
+ it('keeps a missing paper PSC answer unanswered',async()=>{const w=await open({pscItems:Array.from({length:17},(_,i)=>({key:`psc_${i+1}`,label:`Question ${i+1}`})),clinicalFields:[]});await label(w,'Transcribe a paper').get('input').setValue(true);await flushPromises();expect(w.text()).toContain('0/17 valid answers');expect(w.find('.btn-primary').element.disabled).toBe(true);expect(label(w,'Question 1').get('select').element.selectedOptions[0].textContent).toBe('Unanswered');w.unmount();});
+});
+
+describe('sign and open next',()=>{
+ const confirm=async w=>{for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);};
+ it('requests the next item only after a successful save and signature',async()=>{
+  const w=await open();await w.setProps({hasNextInQueue:true});await confirm(w);
+  await w.get('.sign-next').trigger('click');await flushPromises();
+  expect(api.put.mock.invocationCallOrder.at(-1)).toBeLessThan(api.post.mock.invocationCallOrder.at(-1));
+  expect(w.emitted('signed')[0][1]).toEqual({openNext:true});w.unmount();
+ });
+ it('keeps the current screening open when signing fails',async()=>{
+  const w=await open();await w.setProps({hasNextInQueue:true});await confirm(w);api.post.mockRejectedValue(new Error('signature failed'));
+  await w.get('.sign-next').trigger('click');await flushPromises();expect(w.emitted('signed')).toBeUndefined();expect(w.emitted('close')).toBeUndefined();expect(w.text()).toContain('Signing failed');w.unmount();
+ });
+ it('disables sign-and-next when there is no next item while allowing ordinary signing',async()=>{
+  const w=await open();await confirm(w);expect(w.get('.sign-next').element.disabled).toBe(true);expect(w.get('.btn-primary').element.disabled).toBe(false);w.unmount();
+ });
 });

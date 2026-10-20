@@ -2,19 +2,19 @@
  * Utility to extract client IP address from request
  * Handles proxy headers (X-Forwarded-For) and IPv6/IPv4 addresses
  */
-export function getClientIpAddress(req) {
+export function getClientIpAddress(req = {}) {
   // Check X-Forwarded-For header first (for proxies/load balancers)
-  const forwardedFor = req.headers['x-forwarded-for'];
+  const forwardedFor = req.headers?.['x-forwarded-for'];
   if (forwardedFor) {
     // X-Forwarded-For can contain multiple IPs, take the first one (original client)
-    const ips = forwardedFor.split(',').map(ip => ip.trim());
+    const ips = String(forwardedFor).split(',').map(ip => ip.trim());
     if (ips.length > 0 && ips[0]) {
       return ips[0];
     }
   }
 
   // Check X-Real-IP header (some proxies use this)
-  const realIp = req.headers['x-real-ip'];
+  const realIp = req.headers?.['x-real-ip'];
   if (realIp) {
     return realIp.trim();
   }
@@ -37,4 +37,3 @@ export function getClientIpAddress(req) {
 
   return 'unknown';
 }
-

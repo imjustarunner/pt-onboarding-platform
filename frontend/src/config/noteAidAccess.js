@@ -108,7 +108,7 @@ export function isMentalHealthPractice(tenant = null) {
 export function noteAidWorkspaceLabel({ role = '', tenant = null, auricwell = false } = {}) {
   const normalizedRole = String(role || '').trim().toLowerCase();
   if (auricwell || (PRACTICE_NOTE_ROLES.has(normalizedRole) && isMentalHealthPractice(tenant))) {
-    return 'Practice Notes';
+    return 'Notes Workspace';
   }
   return 'Notes Workspace';
 }

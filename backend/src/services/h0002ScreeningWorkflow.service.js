@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { applyScreeningTranscription, screeningPresentingProblem, screeningLocation, validateScreeningDraft } from './h0002ReviewDetails.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
@@ -62,7 +63,16 @@ export async function loadScreeningSource(taskId) {
   const submittedAt = new Date(submission.submitted_at).toISOString();
   const sourceHash = hash(JSON.stringify({ submissionId: submission.id, clientIndex, intakeData, fields }));
   const suggestedOutcome = suggestScreeningOutcome(psc, { noConcernsReported });
-  return { task, taskMeta: meta, client, psc, summary, submittedAt, sourceHash, suggestedOutcome, reportedConcerns, safetyFlag };
+  const clientType = String(link.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
+  const packetMethod = /paper|upload|scan/i.test(String(responses.submission?.submissionMethod || intakeData.submissionMethod || submission.source || '')) ? 'paper' : 'digital';
+  return { task, taskMeta: meta, client, psc, summary, submittedAt, sourceHash, suggestedOutcome, reportedConcerns, safetyFlag,
+    identifiers: [client.initials, client.identifier_code, client.organization_name, client.full_name, client.first_name, client.last_name, client.email, client.phone_number, client.date_of_birth, client.address, meta.h0002Code, meta.schoolName, ...bags.flatMap(bag => Object.entries(bag).filter(([key]) => /name|address|phone|email|birth|medicaid|insurance.*id/i.test(key)).map(([,value]) => typeof value === 'string' ? value : ''))].filter(Boolean),
+    submissionId: submission.id, clientType, schoolName: clientType === 'school' ? meta.schoolName || client.organization_name || 'School not recorded' : null,
+    sourceLanguage: /^es/i.test(link.language_code || intakeData.locale || '') ? 'es' : 'en', packetMethod,
+    pscItems: items.map(item => ({ ...item, label: byKey.get(item.key)?.label || item.key })),
+    clinicalFields: fields.filter(field => supplementalKeys.test(field.key) && !/^psc_/.test(field.key)).map(field => ({ key: field.key, label: field.label || field.key, value: bags.find(bag => bag[field.key] != null)?.[field.key] ?? '', options: field.options || [] })),
+    safetyConcerns: supplemental.filter(([key, value]) => /harm|suicid|abuse|neglect|trauma/i.test(key) && !isNegative(value) && value !== false).map(([key,value]) => `${byKey.get(key)?.label || key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+  };
 }
 
 export function proposedScreeningReview(source) {
@@ -76,7 +86,8 @@ export function proposedScreeningReview(source) {
     ? 'Provide information about returning for screening if concerns arise or circumstances change.'
     : 'Discuss available treatment options and arrange further clinical assessment to clarify needs and appropriate services.')
     + (source.safetyFlag ? ' Review the reported safety concern and document the safety assessment and actions taken before signing.' : '');
-  return { assessment, followUp };
+  const concerns = (source.clinicalFields || []).filter(field => /reason|concern|goal|helpful/i.test(field.key) && field.value).map(field => `${field.label}: ${typeof field.value === 'object' ? JSON.stringify(field.value) : field.value}`);
+  return { assessment, followUp, presentingProblem: [...concerns, result].join('\n') };
 }
 
 function draftText(source) {
@@ -167,7 +178,14 @@ export async function writeScreeningDetermination({ sessionId, user, input }) {
   const { session, note, source } = context;
   if (note.provider_signed_at) return note;
   if (input.sourceHash !== source.sourceHash) throw fail(409, 'The intake responses changed. Reopen and review the current screening.');
-  const review = validateScreeningReview(input, source);
+  validateScreeningDraft(input, source);
+  const reviewedSource = applyScreeningTranscription(source, input);
+  const location = screeningLocation(source, input);
+  const review = validateScreeningReview({ ...input, setting: location.label }, reviewedSource);
+  if (!input.locationConfirmed) throw fail(400, 'Confirm the client service location before signing.');
+  if (!String(input.presentingProblem || '').trim()) throw fail(400, 'Review the presenting problem before signing.');
+  if (reviewedSource.safetyFlag && !String(input.safetyConcern || '').trim()) throw fail(400, 'Describe the reported safety concern in the presenting problem.');
+  const presentingProblem = screeningPresentingProblem(input);
   const now = new Date(), dateOfService = screeningDate(now);
   const [[provider]] = await pool.execute('SELECT first_name,last_name,credential FROM users WHERE id=?', [user.id]);
   const npi = await providerBillingNpi({ agencyId: session.agency_id, userId: user.id });
@@ -176,16 +194,18 @@ export async function writeScreeningDetermination({ sessionId, user, input }) {
   const payload = ['H0002 — Behavioral health screening to determine eligibility for admission to a treatment program',
     `Date of service / professional determination: ${dateOfService} (America/Denver)`,
     `Digital questionnaire submitted: ${source.submittedAt} (source timestamp)`,
-    'Modality: asynchronous digital screening and supplemental intake review.', `Review setting: ${review.setting}`, '',
-    source.summary, '', 'Clinical assessment and evaluation', review.assessment, '', 'Admission determination', SCREENING_OUTCOMES[review.outcome],
+    `Packet: ${input.paperTranscription ? 'paper transcription' : source.packetMethod}; client type: ${source.clientType}${source.schoolName ? `; school: ${source.schoolName}` : ''}.`, `Client service location: ${review.setting} (POS ${location.code}).`, '',
+    reviewedSource.summary, '', 'Presenting problem', presentingProblem, '', 'Clinical assessment and evaluation', review.assessment, '', 'Admission determination', SCREENING_OUTCOMES[review.outcome],
     '', 'Treatment needs, available options and follow-up', review.followUp,
     '', 'Billing diagnosis: Deferred — R69 (illness, unspecified). No disorder diagnosis is established by this screening.',
     `Reviewing clinician: ${name}; NPI ${npi}. Signature and billing supervisor cosign are recorded separately.`].join('\n');
   const meta = { ...json(note.metadata_json), dateOfService, serviceCode: 'H0002', billingPrimaryUnits: 1,
+    screeningPresentingProblemEnc: maybeEncryptNotePayload(presentingProblem),
     screeningReview: { outcome: review.outcome, reviewedByUserId: Number(user.id), reviewedAt: now.toISOString(), sourceHash: source.sourceHash, diagnosisCode: 'R69', reviewConfirmed: true, safetyReviewed: review.safetyReviewed, noConcernsConfirmed: review.noConcernsConfirmed, contentHash: hash(payload) } };
   const [updated] = await clinicalPool.execute(`UPDATE clinical_notes SET note_payload=?, metadata_json=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=? AND provider_signed_at IS NULL AND is_deleted=0`, [maybeEncryptNotePayload(payload),JSON.stringify(meta),note.id]);
   if (!updated.affectedRows) throw fail(409, 'This note changed while it was being reviewed');
+  await clinicalPool.execute("UPDATE clinical_sessions SET place_of_service=?, is_telehealth=?, metadata_json=JSON_SET(COALESCE(metadata_json,JSON_OBJECT()),'$.locationLabel',?) WHERE id=? AND agency_id=?", [location.code, ['10','02'].includes(location.code) ? 1 : 0, location.label, session.id, session.agency_id]);
   return { ...note, metadata_json: meta, note_payload: maybeEncryptNotePayload(payload) };
 }
 

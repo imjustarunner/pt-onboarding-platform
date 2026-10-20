@@ -30,6 +30,8 @@
         </ul>
       </div>
       <div class="tasks-hub__actions">
+        <router-link v-if="!embedded" class="hub-chip-btn" :to="myDashboardPath">My Dashboard</router-link>
+        <router-link v-if="!embedded && canUseNotesWorkspace" class="hub-chip-btn" :to="notesWorkspacePath">Notes Workspace</router-link>
         <router-link v-if="!embedded" class="hub-chip-btn" :to="mySchedulePath">My Schedule</router-link>
         <div class="view-toggle">
           <button type="button" class="view-btn" :class="{ active: layout === 'list' }" @click="layout = 'list'">List</button>
@@ -37,11 +39,12 @@
           <button
             type="button"
             class="view-btn"
+            v-if="canUseNotesWorkspace"
             :class="{ active: notesTodoOpen }"
-            title="Show pending Documentation Hub todos"
+            title="Show your Notes Workspace work queue"
             @click="notesTodoOpen = !notesTodoOpen"
           >
-            Todo<span v-if="pendingSessionNoteCount"> ({{ pendingSessionNoteCount }})</span>
+            Work<span v-if="pendingSessionNoteCount"> ({{ pendingSessionNoteCount }})</span>
           </button>
         </div>
         <button type="button" class="hub-chip-btn hub-chip-btn--accent" @click="showNewPicker = true">New</button>
@@ -264,62 +267,8 @@
           </template>
 
           <template v-else>
-            <div class="notes-scope-pills" data-tour="notes-scope">
-              <button
-                type="button"
-                class="type-pill"
-                :class="{ active: notesScope === 'all' }"
-                @click="notesScope = 'all'"
-              >
-                All
-              </button>
-              <button
-                type="button"
-                class="type-pill"
-                :class="{ active: notesScope === 'notes' }"
-                @click="notesScope = 'notes'"
-              >
-                Notes
-              </button>
-              <button
-                type="button"
-                class="type-pill"
-                :class="{ active: notesScope === 'cosign' }"
-                @click="notesScope = 'cosign'"
-              >
-                Co-sign{{ cosignNotesCount ? ` (${cosignNotesCount})` : '' }}
-              </button>
-              <button
-                v-if="notesScope === 'notes' || pendingSessionNoteCount > 0"
-                type="button"
-                class="btn btn-primary btn-sm notes-scope-open-all"
-                @click="openAllPendingNotes"
-              >
-                Open all pending Notes
-              </button>
-            </div>
-
-            <div v-if="notesScope === 'cosign'" class="cosign-panel">
-              <div v-if="cosignLoading" class="hub-state">Loading notes awaiting co-sign…</div>
-              <div v-else-if="!cosignNotes.length" class="hub-state">No notes awaiting your co-sign.</div>
-              <ul v-else class="cosign-list">
-                <li v-for="n in cosignNotes" :key="n.id" class="cosign-item">
-                  <div>
-                    <strong>Note #{{ n.clinical_note_id }}</strong>
-                    <span class="muted">
-                      {{ n.provider_first_name }} {{ n.provider_last_name }}
-                      · {{ formatCosignDate(n.provider_signed_at || n.created_at) }}
-                    </span>
-                  </div>
-                  <button type="button" class="btn btn-secondary btn-sm" @click="openCosignNote(n)">
-                    Open
-                  </button>
-                </li>
-              </ul>
-            </div>
-
-            <TasksStatusSummary v-if="notesScope !== 'cosign'" v-model="statusChip" :counts="viewStatusCounts" />
-            <div v-if="notesScope !== 'cosign' && typeDefs.length" class="type-pills">
+            <TasksStatusSummary v-if="notesScope === 'all'" v-model="statusChip" :counts="viewStatusCounts" />
+            <div v-if="notesScope === 'all' && typeDefs.length" class="type-pills">
               <button
                 type="button"
                 class="type-pill"
@@ -341,7 +290,7 @@
                 {{ t.label }}
               </button>
             </div>
-            <div v-if="notesScope !== 'cosign' && activeTab === 'all' && teamMode === 'tasks'" class="shared-list-pills">
+            <div v-if="notesScope === 'all' && activeTab === 'all' && teamMode === 'tasks'" class="shared-list-pills">
               <span class="shared-list-pills__label">Shared lists</span>
               <button
                 type="button"
@@ -384,9 +333,9 @@
                 </option>
               </select>
             </div>
-            <TasksFiltersBar v-if="notesScope !== 'cosign'" v-model="filters" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
+            <TasksFiltersBar v-if="notesScope === 'all'" v-model="filters" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
 
-            <template v-if="notesScope !== 'cosign'">
+            <template v-if="notesScope === 'all'">
             <div v-if="tasksStore.loading" class="hub-state" data-tour="tasks-loading">Loading tasks…</div>
             <div v-else-if="tasksStore.error" class="hub-state error">{{ tasksStore.error }}</div>
             <div v-else-if="displayTasks.length === 0" class="hub-state" data-tour="tasks-empty">
@@ -439,22 +388,27 @@
         </template>
       </div>
 
-      <aside v-if="notesTodoOpen" class="notes-todo-rail" aria-label="Documentation Hub todos">
-        <header class="notes-todo-rail__head">
-          <h2>Documentation Hub to-do</h2>
-          <button type="button" class="btn-close" @click="notesTodoOpen = false">Close</button>
-        </header>
-        <p class="notes-todo-rail__hint">Click a note to open it in Documentation Hub.</p>
-        <ul v-if="pendingSessionNoteTasks.length" class="notes-todo-list">
-          <li v-for="t in pendingSessionNoteTasks" :key="t.id">
-            <button type="button" class="notes-todo-item" @click="openNotesTasksInNoteAid([t])">
-              <strong>{{ t.title || 'Session note' }}</strong>
-              <span>{{ typeLabel(t) }}</span>
-            </button>
-          </li>
-        </ul>
-        <p v-else class="hub-state">No pending notes.</p>
-      </aside>
+      <NoteAidWorkQueuePanel
+        v-if="notesTodoOpen && canUseNotesWorkspace"
+        class="notes-todo-rail"
+        v-bind="noteQueuePanelProps"
+        @select="openQueueNote"
+        @select-cosign="openCosignNote"
+        @add-todo="showTodoImportModal = true"
+        @delete="removeQueueNote"
+        @undo-import="undoTodoImport"
+        @refresh-cosign="loadCosignNotes"
+        @update:collapsed="notesTodoOpen = !$event"
+        @update:queue-mode="setNoteQueueMode"
+        @update:sort-by="noteQueueSortBy = $event"
+        @update:sort-dir="noteQueueSortDir = $event"
+      />
+      <NoteAidTodoListImportModal
+        :open="showTodoImportModal"
+        :default-agency-id="agencyId"
+        @close="showTodoImportModal = false"
+        @built="addTodoItems"
+      />
 
       <TaskDetailSidePanel
         v-if="detailTask"
@@ -907,11 +861,16 @@ import AssignDayModal from '../school/AssignDayModal.vue';
 import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
 import { navigateToNoteAid } from '../../utils/noteAidLaunch.js';
 import {
-  stashNoteAidWorkQueue,
   taskToWorkQueueItem,
   isSessionNoteTask
 } from '../../utils/noteAidSessionQueue.js';
-import { appendWorkQueueToApi, saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
+import { appendWorkQueueToApi, fetchWorkQueueFromApi } from '../../utils/noteAidWorkQueue.js';
+import { useNoteAidWorkQueue } from '../../composables/useNoteAidWorkQueue.js';
+import { DOC_STATUS, deriveWorkQueueDocStatus, filterWorkQueueForRightPanel, workQueueSessionKey } from '../../utils/noteAidDocumentationStatus.js';
+import { normalizeCosignQueueItems } from '../../utils/noteAidCosignQueue.js';
+import { isNoteAidEmployeeRole, isNoteAidEnabledForAgencyFlags } from '../../config/noteAidAccess.js';
+import NoteAidWorkQueuePanel from '../clinical/NoteAidWorkQueuePanel.vue';
+import NoteAidTodoListImportModal from '../clinical/NoteAidTodoListImportModal.vue';
 
 const props = defineProps({
   /** Render inside a profile/dashboard panel instead of the full Tasks page. */
@@ -957,6 +916,37 @@ const searchQ = ref('');
 const notesScope = ref('all'); // all | notes | cosign
 const cosignNotes = ref([]);
 const cosignLoading = ref(false);
+const canSuperviseCosign = ref(false);
+const workQueueItems = useNoteAidWorkQueue(() => authStore.user?.id);
+const noteQueueLoading = ref(false);
+const noteQueueError = ref('');
+const noteQueueMode = ref('notes');
+const noteQueueSortBy = ref('');
+const noteQueueSortDir = ref('');
+const showTodoImportModal = ref(false);
+const lastTodoImportKeys = ref([]);
+const canUseNotesWorkspace = computed(() => {
+  if (focusUserIdLocked.value && focusUserIdLocked.value !== Number(authStore.user?.id)) return false;
+  const raw = agencyStore.currentAgency?.feature_flags;
+  let flags = raw;
+  if (typeof raw === 'string') {
+    try { flags = JSON.parse(raw); } catch { flags = {}; }
+  }
+  return isNoteAidEmployeeRole(authStore.user?.role) && isNoteAidEnabledForAgencyFlags(flags);
+});
+const noteQueuePanelProps = computed(() => ({
+  items: workQueueItems.value,
+  loading: noteQueueLoading.value,
+  error: noteQueueError.value,
+  mode: noteQueueMode.value,
+  sortBy: noteQueueSortBy.value,
+  sortDir: noteQueueSortDir.value,
+  showCosignMode: canSuperviseCosign.value,
+  cosignItems: cosignNotes.value,
+  cosignLoading: cosignLoading.value,
+  canUndoImport: lastTodoImportKeys.value.length > 0,
+  undoImportCount: lastTodoImportKeys.value.length
+}));
 const filters = ref({
   status: '',
   urgency: '',
@@ -1234,6 +1224,8 @@ const orgPrefix = computed(() => {
   return typeof slug === 'string' && slug ? `/${slug}` : '';
 });
 
+const myDashboardPath = computed(() => `${orgPrefix.value}/dashboard`);
+const notesWorkspacePath = computed(() => `${orgPrefix.value}/note-aid`);
 const mySchedulePath = computed(() => `${orgPrefix.value}/my-schedule`);
 const escalationsPath = computed(() => `${orgPrefix.value}/admin/escalations`);
 
@@ -1479,24 +1471,35 @@ const displayTasks = computed(() => {
   return list;
 });
 
-const pendingSessionNoteCount = computed(() => pendingSessionNoteTasks.value.length);
+// The Notes tab and right rail both read the user's saved Notes Workspace queue.
+const pendingSessionNoteCount = computed(() => filterWorkQueueForRightPanel(workQueueItems.value).length);
+const cosignNotesCount = computed(() => cosignNotes.value.length);
 
-const pendingSessionNoteTasks = computed(() =>
-  (tasksStore.tasks || []).filter(
-    (t) =>
-      String(t.task_type || '').toLowerCase() === 'session_note'
-      && t.status !== 'completed'
-      && t.status !== 'overridden'
-  )
-);
+function setNoteQueueMode(mode) {
+  noteQueueMode.value = mode;
+  if (notesScope.value !== 'all') notesScope.value = mode;
+}
 
-const cosignNotesCount = computed(() => (cosignNotes.value || []).length);
+async function loadNoteQueue() {
+  if (!canUseNotesWorkspace.value || noteQueueLoading.value) return;
+  noteQueueLoading.value = true;
+  noteQueueError.value = '';
+  try {
+    await fetchWorkQueueFromApi(authStore.user?.id);
+  } catch (e) {
+    noteQueueError.value = e?.response?.data?.error?.message || 'Could not load your ToDo Queue. Reopen it to retry.';
+  } finally {
+    noteQueueLoading.value = false;
+  }
+}
 
 async function loadCosignNotes() {
+  if (!canUseNotesWorkspace.value || cosignLoading.value) return;
   cosignLoading.value = true;
   try {
     const { data } = await api.get('/me/notes-to-sign', { skipGlobalLoading: true });
-    cosignNotes.value = data?.notes || [];
+    cosignNotes.value = normalizeCosignQueueItems(data?.notes);
+    canSuperviseCosign.value = !!data?.isSupervisor || cosignNotes.value.length > 0;
   } catch {
     cosignNotes.value = [];
   } finally {
@@ -1504,48 +1507,114 @@ async function loadCosignNotes() {
   }
 }
 
-function formatCosignDate(v) {
-  if (!v) return '';
-  try {
-    return new Date(v).toLocaleString();
-  } catch {
-    return String(v);
-  }
+function openCosignNote(note) {
+  if (!note?.clinicalNoteId) return;
+  return navigateToNoteAid(router, {
+    noteId: note.clinicalNoteId, agencyId: note.agencyId, launchIntent: 'cosign'
+  }, { organizationSlug: route.params.organizationSlug });
 }
 
-function openCosignNote(n) {
-  const noteId = Number(n?.clinical_note_id || 0);
-  if (!noteId) return;
-  navigateToNoteAid(router, { noteId, launchIntent: 'cosign' });
+function openQueueNote(item) {
+  return navigateToNoteAid(router, {
+    workQueueId: item.clientKey || item.id,
+    agencyId: item.agencyId,
+    launchIntent: 'work_queue'
+  }, { organizationSlug: route.params.organizationSlug });
 }
 
 async function openNotesTasksInNoteAid(tasks) {
-  const items = (tasks || [])
-    .filter((t) => isSessionNoteTask(t))
-    .map((t) => taskToWorkQueueItem(t));
-  if (!items.length) return;
-  stashNoteAidWorkQueue(items);
-  saveWorkQueue(authStore.user?.id, items);
+  const incoming = (tasks || []).filter(isSessionNoteTask).map(taskToWorkQueueItem);
+  if (!incoming.length) return;
+  noteQueueError.value = '';
   try {
-    await appendWorkQueueToApi(authStore.user?.id, items);
+    // Reuse existing items so opening a task cannot reset its draft or signed status.
+    await fetchWorkQueueFromApi(authStore.user?.id);
+    const matches = incoming.map((item) => workQueueItems.value.find((row) =>
+      String(row.taskId || '') === String(item.taskId)
+      || (workQueueSessionKey(item) && workQueueSessionKey(row) === workQueueSessionKey(item))
+    ));
+    const missing = incoming.filter((_, index) => !matches[index]);
+    if (missing.length) await appendWorkQueueToApi(authStore.user?.id, missing);
+    await openQueueNote(matches[0] || incoming[0]);
   } catch (e) {
-    console.warn('Documentation Hub work queue handoff save failed:', e?.response?.data?.error?.message || e.message);
+    noteQueueError.value = e?.response?.data?.error?.message || 'Could not open the note. Please retry.';
+    notesTodoOpen.value = true;
   }
-  navigateToNoteAid(router, { launchIntent: 'work_queue' });
 }
 
 function onBulkOpenNotes(tasks) {
-  openNotesTasksInNoteAid(tasks);
+  return openNotesTasksInNoteAid(tasks);
 }
 
-function openAllPendingNotes() {
-  const pending = (tasksStore.tasks || []).filter(
-    (t) =>
-      String(t.task_type || '').toLowerCase() === 'session_note'
-      && t.status !== 'completed'
-      && t.status !== 'overridden'
-  );
-  openNotesTasksInNoteAid(pending);
+async function addTodoItems({ items }) {
+  noteQueueError.value = '';
+  try {
+    await fetchWorkQueueFromApi(authStore.user?.id);
+    const keys = new Set(workQueueItems.value.map(workQueueSessionKey).filter(Boolean));
+    const incoming = (items || []).filter((item) => {
+      const key = workQueueSessionKey(item);
+      if (key && keys.has(key)) return false;
+      if (key) keys.add(key);
+      return true;
+    });
+    const { saved } = await appendWorkQueueToApi(authStore.user?.id, incoming);
+    lastTodoImportKeys.value = saved.map((item) => String(item.clientKey || item.id));
+    showTodoImportModal.value = false;
+  } catch (e) {
+    noteQueueError.value = e?.response?.data?.error?.message || 'Could not save the ToDo list. Please retry.';
+    showTodoImportModal.value = false;
+    notesTodoOpen.value = true;
+  }
+}
+
+async function removeQueueNote(item) {
+  const notStarted = deriveWorkQueueDocStatus(item) === DOC_STATUS.NOT_STARTED && !item.draftId;
+  const prompt = notStarted ? 'Remove this ToDo from the work queue?'
+    : item.draftId ? 'Archive this draft? Its content is retained and the ToDo stays in the queue as not started.'
+      : 'Reset this ToDo to not started?';
+  if (!window.confirm(prompt)) return;
+  noteQueueError.value = '';
+  try {
+    if (notStarted && item.serverId) {
+      await api.delete(`/clinical-notes/work-queue/${item.serverId}`, { skipGlobalLoading: true });
+      await fetchWorkQueueFromApi(authStore.user?.id);
+    } else {
+      if (item.draftId) {
+        await api.post('/clinical-notes/drafts/delete', {
+          agencyId: item.agencyId || agencyId.value, draftIds: [Number(item.draftId)]
+        }, { skipGlobalLoading: true });
+      }
+      await api.patch(`/clinical-notes/work-queue/${item.serverId}`, {
+        draftId: null, status: DOC_STATUS.NOT_STARTED, docStatus: DOC_STATUS.NOT_STARTED,
+        startedAt: null
+      }, { skipGlobalLoading: true });
+      await fetchWorkQueueFromApi(authStore.user?.id);
+    }
+  } catch (e) {
+    noteQueueError.value = e?.response?.data?.error?.message || 'Could not update the ToDo. Please retry.';
+  }
+}
+
+async function undoTodoImport() {
+  noteQueueError.value = '';
+  try {
+    const imported = workQueueItems.value.filter((item) =>
+      lastTodoImportKeys.value.includes(String(item.clientKey || item.id))
+      && deriveWorkQueueDocStatus(item) === DOC_STATUS.NOT_STARTED && !item.draftId
+    );
+    for (const item of imported) {
+      await api.delete(`/clinical-notes/work-queue/${item.serverId}`, { skipGlobalLoading: true });
+    }
+    lastTodoImportKeys.value = [];
+    await fetchWorkQueueFromApi(authStore.user?.id);
+  } catch (e) {
+    noteQueueError.value = e?.response?.data?.error?.message || 'Could not undo the import. Please retry.';
+  }
+}
+
+function refreshNoteQueues() {
+  void loadNoteQueue();
+  void loadCosignNotes();
 }
 
 const boardColumns = computed(() => {
@@ -2260,6 +2329,10 @@ async function loadDepartments() {
 }
 
 function openTask(task) {
+  if (canUseNotesWorkspace.value && isSessionNoteTask(task)) {
+    void openNotesTasksInNoteAid([task]);
+    return;
+  }
   detailTask.value = task;
   loadAgencyUsers(task?.assigned_to_agency_id || task?.agency_id);
 }
@@ -2585,7 +2658,15 @@ async function openFocusSession(block) {
 
 watch([activeTab, filters], () => refresh(), { deep: true });
 watch(notesScope, (scope) => {
-  if (scope === 'cosign') loadCosignNotes();
+  if (scope !== 'all') {
+    noteQueueMode.value = scope;
+    refreshNoteQueues();
+  }
+});
+watch(notesTodoOpen, (open) => { if (open) refreshNoteQueues(); });
+watch(canUseNotesWorkspace, (allowed) => {
+  if (allowed) refreshNoteQueues();
+  else { notesScope.value = 'all'; notesTodoOpen.value = false; }
 });
 watch([activeTab, () => teamMode.value], ([tab, mode]) => {
   if (tab === 'all' && mode === 'tasks') loadTeamLists();
@@ -2597,6 +2678,8 @@ watch(agencyId, () => {
 });
 
 onMounted(async () => {
+  refreshNoteQueues();
+  window.addEventListener('focus', refreshNoteQueues);
   const qTab = String(route.query.tab || route.query.view || '').toLowerCase();
   const qUserId = String(route.query.userId || '').trim();
   const lockedUserId = focusUserIdLocked.value;
@@ -2672,6 +2755,7 @@ onMounted(async () => {
   }
 });
 onUnmounted(() => {
+  window.removeEventListener('focus', refreshNoteQueues);
   if (!embedded.value) {
     window.removeEventListener('keydown', onKeydown);
   }
@@ -2889,57 +2973,19 @@ watch(
   align-items: flex-start;
 }
 .notes-todo-rail {
-  width: 260px;
-  flex: 0 0 260px;
-  border: 1px solid var(--app-line, #bbf7d0);
+  width: 340px;
+  flex: 0 0 340px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
   border-radius: 12px;
-  background: var(--app-surface-muted, #f0fdf4);
-  padding: 12px;
-  min-height: 240px;
 }
-.notes-todo-rail__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.notes-todo-rail__head h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--app-ink, #14532d);
-}
-.notes-todo-rail__hint {
-  margin: 0 0 10px;
-  font-size: 12px;
-  color: var(--app-muted, #64748b);
-}
-.notes-todo-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.notes-todo-item {
+.notes-queue-main {
   width: 100%;
-  text-align: left;
-  border: 1px solid var(--app-line, #bbf7d0);
-  background: var(--app-surface, #fff);
-  border-radius: 10px;
-  padding: 8px 10px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
 }
-.notes-todo-item:hover { border-color: #16a34a; }
-.notes-todo-item strong { font-size: 13px; color: var(--app-ink, #14532d); }
-.notes-todo-item span { font-size: 11px; color: var(--app-muted, #64748b); }
 .tasks-hub__body--no-timeline {
-  display: block;
+  display: flex;
 }
 .tasks-hub--embedded {
   padding: 0;
@@ -3393,8 +3439,11 @@ watch(
 }
 @media (max-width: 900px) {
   .tasks-hub__header { flex-wrap: wrap; }
+  .tasks-hub__actions { flex-wrap: wrap; flex-basis: 100%; min-width: 0; }
   .tasks-hub__search { max-width: none; order: 3; flex-basis: 100%; }
   .tasks-hub__body { flex-direction: column; }
+  .tasks-hub__main, .notes-todo-rail { width: 100%; }
+  .notes-todo-rail { flex-basis: auto; }
   .board-view { grid-template-columns: 1fr; }
 }
 </style>

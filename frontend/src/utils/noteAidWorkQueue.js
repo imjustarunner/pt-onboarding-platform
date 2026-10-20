@@ -7,14 +7,29 @@
  */
 
 import api from '../services/api';
+import { shallowReactive } from 'vue';
 
 /** @type {Map<string|number, Array>} */
-const memoryWorkQueues = new Map();
+const memoryWorkQueues = shallowReactive(new Map());
 
 const LEGACY_PREFIX = 'noteAidWorkQueue:';
 
 /** @type {Map<string|number, ReturnType<typeof setTimeout>>} */
 const syncTimers = new Map();
+const pendingWrites = new Map();
+
+// Keep status/draft writes in order when opening a note triggers several saves.
+async function writeWorkQueue(userId, write) {
+  const uid = Number(userId || 0) || 'anon';
+  const previous = pendingWrites.get(uid) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(write);
+  pendingWrites.set(uid, pending);
+  try {
+    return await pending;
+  } finally {
+    if (pendingWrites.get(uid) === pending) pendingWrites.delete(uid);
+  }
+}
 
 export function workQueueStorageKey(userId) {
   const uid = Number(userId || 0) || 'anon';
@@ -140,8 +155,12 @@ function normalizeApiItems(items) {
 /** Load queue from server into memory cache. */
 export async function fetchWorkQueueFromApi(userId) {
   scrubLegacyWorkQueueStorage(userId);
+  const uid = Number(userId || 0) || 'anon';
+  await pendingWrites.get(uid);
+  const snapshot = memoryWorkQueues.get(uid);
   const res = await api.get('/clinical-notes/work-queue', { skipGlobalLoading: true });
   const items = normalizeApiItems(res?.data?.items);
+  if (memoryWorkQueues.get(uid) !== snapshot) return loadWorkQueue(userId);
   saveWorkQueue(userId, items);
   return items;
 }
@@ -155,12 +174,15 @@ export async function syncWorkQueueToApi(userId, items) {
     return fetchWorkQueueFromApi(userId);
   }
   saveWorkQueue(userId, list);
-  const res = await api.put(
+  const uid = Number(userId || 0) || 'anon';
+  const snapshot = memoryWorkQueues.get(uid);
+  const res = await writeWorkQueue(userId, () => api.put(
     '/clinical-notes/work-queue',
     { items: list },
     { skipGlobalLoading: true }
-  );
+  ));
   const saved = normalizeApiItems(res?.data?.items);
+  if (memoryWorkQueues.get(uid) !== snapshot) return loadWorkQueue(userId);
   saveWorkQueue(userId, saved);
   return saved;
 }
@@ -197,11 +219,11 @@ export async function flushWorkQueueSync(userId) {
 
 /** Append / upsert without wiping other rows (import + Tasks handoff). */
 export async function appendWorkQueueToApi(userId, items) {
-  const res = await api.post(
+  const res = await writeWorkQueue(userId, () => api.post(
     '/clinical-notes/work-queue',
     { items: Array.isArray(items) ? items : [] },
     { skipGlobalLoading: true }
-  );
+  ));
   const saved = normalizeApiItems(res?.data?.items);
   // Merge into memory cache by client key
   const existing = loadWorkQueue(userId);
@@ -216,7 +238,7 @@ export async function appendWorkQueueToApi(userId, items) {
 
 export async function clearWorkQueueOnApi(userId) {
   clearAllWorkQueues(userId);
-  await api.delete('/clinical-notes/work-queue', { skipGlobalLoading: true });
+  await writeWorkQueue(userId, () => api.delete('/clinical-notes/work-queue', { skipGlobalLoading: true }));
   return [];
 }
 
