@@ -49,3 +49,16 @@ it('SMS summaries omit initials, addresses, room names, contents and join links 
  expect(JSON.stringify(events)).not.toMatch(/A\.B\.|C\.D\.|SECRET|Windchime|204|https:/);expect(m.personal).not.toHaveBeenCalled();
  expect(m.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
 });
+
+it('includes internal primary-office identity only for Google sync, never feeds or summaries',async()=>{
+ const synced={...office,slot_state:'ASSIGNED_BOOKED',google_provider_event_id:'native',google_provider_calendar_id:'owner@example.com',google_room_resource_email:'room@example.com'};
+ m.execute.mockImplementation(async sql=>sql.includes('FROM office_events')?[[synced]]:[[]]);
+ const args=[5,2,'2026-09-26','2026-09-27'];
+ expect((await workCalendarEvents(...args))[0]).not.toHaveProperty('officeReservation');
+ expect((await workCalendarEvents(...args,{summaryOnly:true,includeOfficeSyncMetadata:true}))[0]).not.toHaveProperty('officeReservation');
+ expect((await workCalendarEvents(...args,{includeOfficeSyncMetadata:true}))[0].officeReservation).toMatchObject({id:1,roomId:3,buildingId:2,googleEventId:'native',calendarEmail:'owner@example.com'});
+});
+it.each([{client_id:3},{clinical_session_id:42},{slot_state:'ASSIGNED_AVAILABLE'}])('never treats a clinical session or unbooked assignment as a redundant room booking: %o',async extra=>{
+ m.execute.mockImplementation(async sql=>sql.includes('FROM office_events')?[[{...office,slot_state:'ASSIGNED_BOOKED',...extra}]]:[[]]);
+ expect((await workCalendarEvents(5,2,'2026-09-26','2026-09-27',{includeOfficeSyncMetadata:true}))[0]).not.toHaveProperty('officeReservation');
+});

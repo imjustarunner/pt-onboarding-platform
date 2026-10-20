@@ -10,6 +10,7 @@ import { requireHousehold, assertFamilyBenefit } from './familyAuth.service.js';
 import { familyError } from './familyPolicy.js';
 import { digest, renderCalendar, googleEventBody, publicationOwner } from './calendarPublicationPolicy.js';
 import { workCalendarEvents, familyCalendarEvents } from './calendarEvents.service.js';
+import { filterPrimaryOfficeCopies } from './calendarOfficeMirror.service.js';
 
 export async function assertWorkCalendar(userId,agencyId) {
   const [rows]=await pool.execute(`SELECT u.id,u.email,u.first_name,u.last_name,a.name AS agency_name FROM users u
@@ -57,11 +58,11 @@ export async function issueSubscription(session,id){
   return {url:`${origin}/api/calendar-sharing/feed/${token}.ics`};
 }
 export async function revokeSubscription(session,id){const p=await publication(session,id);if(p)await pool.execute('UPDATE calendar_publications SET token_hash=NULL WHERE id=?',[p.id]);}
-export async function publicationEvents(p){
+export async function publicationEvents(p,{forGoogleSync=false}={}){
   await authorizePublication({userId:p.user_id,agencyId:p.agency_id},p.household_id);
   const now=Date.now(),from=new Date(now-30*86400000),to=new Date(now+180*86400000);
   if(p.calendar_kind==='family'){const events=await familyCalendarEvents(p.household_id,from,to,{details:p.detail_mode==='details'});return events.map(e=>({...e,title:p.detail_mode==='details' && e.memberName?`${e.memberName} · ${e.title}`:e.title}));}
-  return workCalendarEvents(p.user_id,p.agency_id,from,to);
+  return workCalendarEvents(p.user_id,p.agency_id,from,to,{includeOfficeSyncMetadata:forGoogleSync});
 }
 export async function subscriptionFeed(token){
   if(!/^[\w-]{43}$/.test(token))throw familyError('Calendar subscription not found.',404);
@@ -115,16 +116,31 @@ export async function retryCalendarWrite(operation, { wait = ms => new Promise(r
 }
 
 async function syncUnlocked(p){
-  const events=await publicationEvents(p),calendar=await googleClient(p.google_subject);
+  let events=await publicationEvents(p,{forGoogleSync:true});
+  const calendar=await googleClient(p.google_subject);
   await reconcileReaders(p,calendar);
+  if(p.calendar_kind==='work'){
+    const owner=await assertWorkCalendar(p.user_id,p.agency_id);
+    const [readers]=await pool.execute('SELECT email FROM calendar_publication_readers WHERE publication_id=?',[p.id]);
+    let primaryCalendar;
+    events=await filterPrimaryOfficeCopies({events,publication:p,ownerEmail:owner.email,readers,
+      getPrimaryEvent:async(subject,eventId)=>{
+        primaryCalendar ||= await googleClient(subject);
+        const {data}=await retryCalendarWrite(()=>primaryCalendar.events.get({calendarId:'primary',eventId}));
+        return data;
+      }});
+  }
   const [saved]=await pool.execute('SELECT * FROM calendar_publication_events WHERE publication_id=?',[p.id]);const previous=new Map(saved.map(e=>[e.event_key,e]));
   for(const event of events){
     const body=googleEventBody(event),fingerprint=digest(JSON.stringify(body)),old=previous.get(event.key);previous.delete(event.key);
+    // Explicitly restore a previously suppressed mirror if its primary copy
+    // disappears or another reader now needs the shared calendar.
+    const writeBody={...body,status:'confirmed'};
     if(old?.fingerprint===fingerprint)continue;
     if(process.env.NODE_ENV!=='test')await new Promise(resolve=>setTimeout(resolve,600));
     const eventId=old?.google_event_id || digest(`${p.id}:${event.key}`);
-    try{if(old)await retryCalendarWrite(()=>calendar.events.update({calendarId:p.google_calendar_id,eventId,sendUpdates:'none',requestBody:body}));else await retryCalendarWrite(()=>calendar.events.insert({calendarId:p.google_calendar_id,sendUpdates:'none',requestBody:{...body,id:eventId}}));}
-    catch(e){if(Number(e.code)===409){await retryCalendarWrite(()=>calendar.events.update({calendarId:p.google_calendar_id,eventId,sendUpdates:'none',requestBody:body}));}else{if(![404,410].includes(Number(e.code)))throw e;try{await retryCalendarWrite(()=>calendar.events.insert({calendarId:p.google_calendar_id,sendUpdates:'none',requestBody:{...body,id:eventId}}));}catch(insertError){if(Number(insertError.code)!==409)throw insertError;await retryCalendarWrite(()=>calendar.events.update({calendarId:p.google_calendar_id,eventId,sendUpdates:'none',requestBody:body}));}}}
+    try{if(old)await retryCalendarWrite(()=>calendar.events.update({calendarId:p.google_calendar_id,eventId,sendUpdates:'none',requestBody:writeBody}));else await retryCalendarWrite(()=>calendar.events.insert({calendarId:p.google_calendar_id,sendUpdates:'none',requestBody:{...writeBody,id:eventId}}));}
+    catch(e){if(Number(e.code)===409){await retryCalendarWrite(()=>calendar.events.update({calendarId:p.google_calendar_id,eventId,sendUpdates:'none',requestBody:writeBody}));}else{if(![404,410].includes(Number(e.code)))throw e;try{await retryCalendarWrite(()=>calendar.events.insert({calendarId:p.google_calendar_id,sendUpdates:'none',requestBody:{...writeBody,id:eventId}}));}catch(insertError){if(Number(insertError.code)!==409)throw insertError;await retryCalendarWrite(()=>calendar.events.update({calendarId:p.google_calendar_id,eventId,sendUpdates:'none',requestBody:writeBody}));}}}
     await pool.execute(`INSERT INTO calendar_publication_events (publication_id,event_key,google_event_id,fingerprint) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE fingerprint=VALUES(fingerprint),google_event_id=VALUES(google_event_id)`,[p.id,event.key,eventId,fingerprint]);
   }
   for(const old of previous.values()){

@@ -8,6 +8,7 @@
     </template>
     <p>Make schedule changes in this app. Your calendar app controls how often subscriptions refresh, so updates may take time to appear.</p>
     <p v-if="googleEnabled">Google copies refresh about every five minutes.</p>
+    <p v-if="googleEnabled && !family">When only your work account reads this Google calendar, confirmed office reservations already on your primary calendar appear there once. Adding another reader includes office copies in the shared calendar so that person can see them. Subscription links always include office bookings.</p>
     <p v-if="family">Events created directly in the shared Google calendar also appear in Family. To include your primary Google calendar, select it under “Bring in a Google calendar.”</p>
     <label v-if="family" class="details"><input type="checkbox" :checked="status.details" @change="details($event.target.checked)" :disabled="busy" /> Share event titles, family members and locations (otherwise “Personal event”)</label>
     <div class="actions">

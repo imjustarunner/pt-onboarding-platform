@@ -83,6 +83,8 @@ jobs:
         env:
           NODE_ENV: test
         run: node --test backend/src/services/__tests__/plannedOutPresence.service.test.js
+      - name: Office calendar mirrors and private subscriptions
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.calendar-subscriptions.config.js
       - name: Recurring reservations, guardian cancellation, and payroll privacy
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
