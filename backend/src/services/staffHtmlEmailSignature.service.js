@@ -609,7 +609,7 @@ export function buildStaffSignatureHtml(ctx) {
       <td bgcolor="${c.green}" width="14" valign="middle" align="center" style="background-color:${c.green};width:14px;height:14px;padding:1px;vertical-align:middle;text-align:center;line-height:0;border-radius:3px;">
         <img src="${icon}" width="12" height="12" alt="" style="display:block;border:0;width:12px;height:12px;margin:0 auto;" />
       </td>
-      <td style="padding:0 0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.25;color:${c.navy};">
+      <td style="padding:0 0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.25;color:${c.navy};overflow-wrap:anywhere;word-break:break-word;">
         <span style="color:${c.green};font-weight:700;">${label}:</span>&nbsp;${valueHtml}
       </td>
     </tr>`;
@@ -751,7 +751,7 @@ export function buildStaffSignatureHtml(ctx) {
       <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"
         style="${photoImgStyle}" />
     </td>
-    <td style="padding:0 2px 0 6px;vertical-align:top;">
+    <td style="padding:0 2px 0 6px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;">
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.2;font-weight:700;color:${c.navy};">
         ${name}
       </div>

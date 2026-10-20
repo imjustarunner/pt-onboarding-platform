@@ -219,6 +219,9 @@ export async function finalizeOutboundContent({
   // A mailbox is the transport, not the author. Human-authored Hub email gets
   // exactly the staff signature; department automations keep their own branding.
   const portal = isPortalIdentity(identity);
+  if (providerUpdateReceipt && !portal && !String(html || '').includes('data-pt-provider-update-receipt="1"')) {
+    html = renderProviderUpdateReceipt({ text });
+  }
   const useStaffSignature = !portal && generatedByUserId && (
     tt === 'hub_email' || (
       src === 'manual' &&
@@ -234,9 +237,7 @@ export async function finalizeOutboundContent({
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (providerUpdateReceipt && !portal) {
-    signed = { text, html: renderProviderUpdateReceipt({ text, identity }) };
-  } else if (portal) {
+  if (portal) {
     const { default: Agency } = await import('../../models/Agency.model.js');
     const agency = await Agency.findById(aid);
     if (!agency) throw new Error('A portal message requires its agency branding.');
@@ -299,7 +300,7 @@ export async function finalizeOutboundContent({
   };
   // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
   try {
-    if (!portal && !providerUpdateReceipt && aid && signed.html) {
+    if (!portal && aid && signed.html) {
       const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
       const replyMailto = String(identity?.reply_to || identity?.from_email || '').trim();
       signed = {
