@@ -24,7 +24,7 @@ export async function queueTrainingBatch({pushId,agencyId}){
  if(!push||push.status==='draft'||String(push.title).startsWith('[PREVIEW]'))throw Object.assign(Error('Send the Provider Update invitations before pushing guides.'),{status:409});
  const config=parse(push.section_config_json),audience=parse(push.section_audience_json);
  const [recipients]=await db.execute(`SELECT r.*, (SELECT JSON_ARRAYAGG(sp.section_key) FROM provider_update_section_progress sp WHERE sp.recipient_id=r.id) assigned_keys FROM provider_update_recipients r JOIN users u ON u.id=r.provider_user_id
- WHERE r.push_id=? AND r.agency_id=? AND LEFT(r.token,8)<>'preview_' AND COALESCE(r.is_demo_snapshot,0)=0
+ WHERE r.push_id=? AND r.agency_id=? AND r.status<>'withdrawn' AND LEFT(r.token,8)<>'preview_' AND COALESCE(r.is_demo_snapshot,0)=0
  AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
  AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)
  AND (r.last_viewed_at IS NOT NULL OR r.status='finalized' OR EXISTS(SELECT 1 FROM provider_update_sends s WHERE s.recipient_id=r.id AND s.delivery_status IN ('sent','pending','delivered')))`,[pushId,agencyId]);
@@ -42,7 +42,7 @@ export async function dispatchTrainingBatch({pushId,agencyId}){
  const [rows]=await pool.execute(`SELECT n.*,r.provider_user_id,u.first_name,u.email,u.work_email,p.section_config_json,p.section_audience_json,
  (SELECT JSON_ARRAYAGG(sp.section_key) FROM provider_update_section_progress sp WHERE sp.recipient_id=r.id) assigned_keys
  FROM provider_update_training_notices n JOIN provider_update_recipients r ON r.id=n.recipient_id JOIN users u ON u.id=r.provider_user_id JOIN provider_update_pushes p ON p.id=n.push_id
- WHERE n.push_id=? AND n.agency_id=? AND n.section_key=? AND n.status='queued' AND p.status<>'draft'
+ WHERE n.push_id=? AND n.agency_id=? AND n.section_key=? AND n.status='queued' AND p.status<>'draft' AND r.status<>'withdrawn'
  AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
  AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=n.agency_id AND COALESCE(ua.is_active,1)=1)`,[pushId,agencyId,TRAINING_BATCH_KEY]);
  if(!rows.length)return;

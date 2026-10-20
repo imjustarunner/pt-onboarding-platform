@@ -18,8 +18,8 @@ describe('paid update time',()=>{
   const result=await recordUpdateTime(1,{sessionId:'12345678-1234-1234-1234-123456789abc',sequence:1,activeSeconds:30});
   expect(result.activeSeconds).toBe(0);expect(db.commit).toHaveBeenCalledOnce();
  });
- it('never tracks a preview or finalized recipient',async()=>{
-  for(const r of [{token:'preview_test'},{token:'normal',locked_at:new Date()}]){
+ it('never tracks a preview, finalized, or withdrawn recipient',async()=>{
+  for(const r of [{token:'preview_test'},{token:'normal',locked_at:new Date()},{token:'normal',status:'withdrawn'}]){
    db.execute.mockResolvedValueOnce([[{id:1,active_seconds:0,...r}]]);
    expect((await recordUpdateTime(1,{sessionId:'12345678-1234-1234-1234-123456789abc',sequence:1})).recording).toBe(false);
   }

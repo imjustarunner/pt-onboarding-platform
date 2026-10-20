@@ -28,6 +28,7 @@ export async function completeProviderUpdateAdministratively({recipientId, agenc
     AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)`,
   [recipientId, agencyId, pushId]);
   if (!recipient || isProviderUpdatePreviewToken(recipient.token)) throw Object.assign(Error('Active recipient not found.'), {status: 404});
+  if (recipient.status === 'withdrawn') throw Object.assign(Error('This Provider Update is no longer assigned.'), {status: 410});
   if (recipient.finalized_at || recipient.locked_at) return {recipientId, changed: false, reason: 'already_locked'};
   // Read the same effective requirements as the editor, without creating progress rows.
   const bundle = await getRecipientBundle({...recipient, section_config_json: push.section_config_json, previewOnly: true});
@@ -38,6 +39,7 @@ export async function completeProviderUpdateAdministratively({recipientId, agenc
   try {
     await db.beginTransaction();
     const [[current]] = await db.execute('SELECT * FROM provider_update_recipients WHERE id=? AND agency_id=? AND push_id=? FOR UPDATE', [recipientId, agencyId, pushId]);
+    if (current?.status === 'withdrawn') throw Object.assign(Error('This Provider Update is no longer assigned.'), {status: 410});
     if (!current || current.locked_at || current.finalized_at) {
       await db.rollback();
       return {recipientId, changed: false, reason: 'already_locked'};
@@ -63,6 +65,7 @@ export async function completeProviderUpdateAdministratively({recipientId, agenc
     await db.execute(`INSERT INTO provider_update_view_events (recipient_id,event_type,section_key,metadata_json) VALUES (?,'admin_completion',?,?)`,
     [recipientId, administrativeCompletion.handbookRequirementWaived ? 'handbook' : null, JSON.stringify({...administrativeCompletion, priorHandbookProgress: handbook || null})]);
     await createUpdateTimeClaim(db, {...current, finalized_at: finalizedAt}, actorUserId);
+    await (await import('./providerUpdateTasks.service.js')).closeProviderUpdateTasks(db, recipientId);
     await db.commit();
     return {recipientId, changed: true, handbookRequirementWaived: administrativeCompletion.handbookRequirementWaived};
   } catch (error) {

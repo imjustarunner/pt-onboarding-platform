@@ -31,6 +31,7 @@ export async function processPersonalUpdateNotices() {
  // A queued/failed work invitation must never trigger "you have been sent".
  const [rows]=await pool.execute(`SELECT n.*,s.to_email AS work_email FROM provider_update_personal_notices n
  JOIN provider_update_sends s ON s.id=n.work_send_id AND s.provider_user_id=n.user_id
+ JOIN provider_update_recipients r ON r.id=s.recipient_id AND r.status IN ('not_started','in_progress')
  JOIN provider_update_pushes p ON p.id=s.push_id AND p.agency_id=n.agency_id AND p.status='sent'
  LEFT JOIN user_communications c ON c.id=s.communication_id AND c.user_id=n.user_id AND c.agency_id=n.agency_id
  WHERE n.status='queued' AND

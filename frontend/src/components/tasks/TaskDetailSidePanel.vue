@@ -40,6 +40,10 @@
           <p v-if="reportError" role="alert">{{reportError}}</p>
         </section>
         <TaskClaimButton :task="item" @claimed="onTaskClaimed" />
+        <section v-if="item.source_ref_type === 'provider_update'" class="client-action-banner">
+          <p>Complete and submit your Provider Update from its overview. This task updates automatically after submission.</p>
+          <a v-if="providerUpdateLink" :href="providerUpdateLink" class="btn btn-primary">Open my Provider Update →</a>
+        </section>
         <section v-if="item.source_ref_type === 'insurance_verification'" class="client-action-banner">
           <p>Claim this task, verify the member identity and coverage, then update the secure insurance record. Keep claims on hold until the verification is documented.</p>
           <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { clientId: parseTaskMetadata(item).clientId } }">Open client insurance record</router-link>
@@ -66,7 +70,7 @@
           <div class="detail-fields__pair">
             <label class="field field--inline">
               <span>Status</span>
-              <select v-model="draft.status" class="form-control" @change="saveStatus">
+              <select v-model="draft.status" class="form-control" :disabled="item.source_ref_type === 'provider_update'" @change="saveStatus">
                 <option value="pending">Open</option>
                 <option value="in_progress">In Progress</option>
                 <option value="waiting">Waiting</option>
@@ -263,7 +267,7 @@
           <ul class="simple-list">
             <li v-for="l in links" :key="l.id">
               <a :href="l.url" target="_blank" rel="noopener">{{ l.label || l.url }}</a>
-              <button type="button" class="btn-x" @click="removeLink(l)">×</button>
+              <button v-if="item.source_ref_type !== 'provider_update' || l.label !== 'Open my Provider Update'" type="button" class="btn-x" @click="removeLink(l)">×</button>
             </li>
             <li v-if="!links.length" class="muted">No links</li>
           </ul>
@@ -428,6 +432,7 @@ const needsPhiConfirm = computed(() =>
 const attachments = ref([]);
 const comments = ref([]);
 const links = ref([]);
+const providerUpdateLink = computed(() => links.value.find(link => link.label === 'Open my Provider Update')?.url || '');
 const assigneeUserId = ref('');
 const collaboratorIds = ref([]);
 const memberPool = ref([]);

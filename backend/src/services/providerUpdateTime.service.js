@@ -18,7 +18,7 @@ export async function recordUpdateTime(recipientId, input = {}) {
     await db.beginTransaction();
     const [[r]] = await db.execute(`SELECT r.*,UTC_TIMESTAMP(3) AS clock_now,p.section_config_json FROM provider_update_recipients r
       JOIN provider_update_pushes p ON p.id=r.push_id WHERE r.id=? FOR UPDATE`, [recipientId]);
-    if (!r || r.locked_at || String(r.token).startsWith('preview_')) {
+    if (!r || r.locked_at || r.status === 'withdrawn' || String(r.token).startsWith('preview_')) {
       await db.rollback(); return { activeSeconds: Number(r?.active_seconds || 0), recording: false };
     }
     const keys = ['overview', ...enabledSectionKeys(parse(r.section_config_json))];

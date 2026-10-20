@@ -47,7 +47,7 @@ export async function saveTrainingAndNotify({pushId,agencyId,sectionKey,guides})
 export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryFailed=true}) {
  const [rows]=await pool.execute(`SELECT n.*,r.provider_user_id,u.first_name,u.email,u.work_email,p.section_config_json,p.section_audience_json FROM provider_update_training_notices n
  JOIN provider_update_recipients r ON r.id=n.recipient_id JOIN users u ON u.id=r.provider_user_id JOIN provider_update_pushes p ON p.id=n.push_id
- WHERE n.push_id=? AND n.agency_id=? AND n.section_key=? AND n.status IN (${retryFailed ? "'queued','failed'" : "'queued'"}) AND p.status<>'draft'
+ WHERE n.push_id=? AND n.agency_id=? AND n.section_key=? AND n.status IN (${retryFailed ? "'queued','failed'" : "'queued'"}) AND p.status<>'draft' AND r.status<>'withdrawn'
  AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
  AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=n.agency_id AND COALESCE(ua.is_active,1)=1)`,[pushId,agencyId,sectionKey]);
  const result={sent:0,pending:0,failed:0};

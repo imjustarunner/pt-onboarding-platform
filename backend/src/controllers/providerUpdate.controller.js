@@ -29,6 +29,7 @@ import {
   listFallActionClientsForProvider
 } from '../services/providerUpdate.service.js';
 import Agency from '../models/Agency.model.js';
+import { providerUpdateTasks } from '../services/providerUpdateTasks.service.js';
 import * as AdminUpdateService from '../services/adminUpdate.service.js';
 
 export const getCatalog = async (_req, res) => {
@@ -266,6 +267,22 @@ export const getMyUpdateStatus = async (req,res,next) => {
   res.set('Cache-Control','no-store');
   res.json(recipient?{available:true,title:recipient.push_title}:{available:false});
  }catch(e){next(e);}
+};
+
+export const getMyUpdateReminders = async (req, res, next) => {
+  try {
+    const reminders = await providerUpdateTasks.syncUser(req.user.id);
+    for (const reminder of reminders) {
+      const recipient = await getMyOpenRecipient(req.user.id, reminder.agencyId);
+      // Current campaign is normally the only open update. Only show its exact
+      // progress when it matches; every task still has its own personal link.
+      if (recipient && Number(recipient.id) === Number(reminder.recipientId)) {
+        reminder.progress = (await getRecipientBundle({ ...recipient, previewOnly: true }, { progressOnly: true })).progress;
+      }
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json({ reminders });
+  } catch (error) { next(error); }
 };
 
 export const getMyUpdate = async (req, res, next) => {

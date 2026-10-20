@@ -2013,6 +2013,10 @@
         v-if="isAuthenticated && !route.path.startsWith('/schoolcarebridge')"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
+      <ProviderUpdateReminderSplash
+        v-if="isAuthenticated && !sessionLockStore.isLocked && !isImmersiveJoinRoute && !route.meta?.familyCommandCenter"
+        :login-trigger="privilegedLoginBriefingTrigger"
+      />
       <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !route.meta?.fundthred" />
       <Teleport to="body">
         <div
@@ -2370,6 +2374,7 @@ import OpsCycleNavCoachmark from './components/OpsCycleNavCoachmark.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
 import PrivilegedLoginBriefingModal from './components/admin/PrivilegedLoginBriefingModal.vue';
 import ProviderLoginBriefingModal from './components/provider/ProviderLoginBriefingModal.vue';
+import ProviderUpdateReminderSplash from './components/provider/ProviderUpdateReminderSplash.vue';
 import { isProviderLoginBriefingUser } from './utils/providerLoginBriefing';
 import { usePresenceSessionStore } from './store/presenceSession';
 import { availabilityBandForPerson } from './utils/presenceStatus';

@@ -7,6 +7,7 @@ import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
 import StorageService from '../services/storage.service.js';
 import DocumentVariableService from '../services/documentVariable.service.js';
+import { providerUpdateTasks } from '../services/providerUpdateTasks.service.js';
 
 export const getTask = async (req, res, next) => {
   try {
@@ -308,6 +309,7 @@ export const renderTaskDocumentHtml = async (req, res, next) => {
 export const getUserTasks = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    await providerUpdateTasks.syncUser(userId);
     const {
       taskType,
       status,
@@ -451,6 +453,7 @@ export const searchTasksHub = async (req, res, next) => {
 export const getTaskCounts = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    await providerUpdateTasks.syncUser(userId);
     const role = String(req.user.role || '').toLowerCase();
     const canViewAll =
       role === 'admin' ||
@@ -990,4 +993,3 @@ export const getAllTasks = async (req, res, next) => {
     next(error);
   }
 };
-

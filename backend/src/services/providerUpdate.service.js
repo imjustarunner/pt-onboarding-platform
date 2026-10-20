@@ -329,7 +329,7 @@ export async function getPush(pushId) {
 export async function listPushes(agencyId) {
   const [rows] = await pool.execute(
     `SELECT p.*,
-            (SELECT COUNT(*) FROM provider_update_recipients r WHERE r.push_id = p.id) AS recipient_count,
+            (SELECT COUNT(*) FROM provider_update_recipients r WHERE r.push_id = p.id AND r.status <> 'withdrawn') AS recipient_count,
             (SELECT COUNT(*) FROM provider_update_recipients r WHERE r.push_id = p.id AND r.status = 'finalized') AS finalized_count,
             (SELECT COALESCE(SUM(r.active_seconds), 0) FROM provider_update_recipients r WHERE r.push_id = p.id) AS total_active_seconds
      FROM provider_update_pushes p
@@ -440,6 +440,10 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
       roleSnapshot: p.role || null,
       isDemoSnapshot: Number(p.is_demo) ? 1 : 0
     });
+    if (recipient.status === 'withdrawn') {
+      results.push({ providerUserId: Number(p.provider_user_id), deliveryStatus: 'skipped', reason: 'withdrawn' });
+      continue;
+    }
     let keysForRecipient = enabledKeys.filter((key) =>
       recipientSeesSection(key, audience, p.provider_user_id, { hasFallActions: null })
     );
@@ -642,7 +646,7 @@ export async function listRecipients(pushId, agencyId) {
      )
      LEFT JOIN user_communications delivery_log ON delivery_log.id=delivery.communication_id
        AND delivery_log.agency_id=r.agency_id AND delivery_log.user_id=r.provider_user_id
-     WHERE r.push_id = ? AND r.agency_id = ?
+     WHERE r.push_id = ? AND r.agency_id = ? AND r.status <> 'withdrawn'
      ORDER BY u.last_name, u.first_name`,
     [Number(pushId), Number(agencyId)]
   );
@@ -677,6 +681,7 @@ export async function getRecipientByToken(token, { allowCompletedReceipt = false
   );
   const row = rows?.[0];
   if (!row || (row.push_status === 'draft' && !isProviderUpdatePreviewToken(row.token))) return null;
+  if (row.status === 'withdrawn') throw Object.assign(new Error('This Provider Update is no longer assigned to you.'), { status: 410 });
   if (row.push_status === 'closed') return null;
   if (row.locked_at && !(allowCompletedReceipt && row.finalized_at && row.status === 'finalized')) {
     throw Object.assign(new Error('This update link is locked'), { status: 410 });
@@ -922,6 +927,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
   ]);
   const recipient = rows?.[0];
   if (!recipient) throw Object.assign(new Error('Recipient not found'), { status: 404 });
+  if (recipient.status === 'withdrawn') throw Object.assign(new Error('This Provider Update is no longer assigned.'), { status: 410 });
   if(isProviderUpdatePreviewToken(recipient.token))throw Object.assign(new Error('This preview is read-only.'),{status:403});
   if (recipient.locked_at) {
     await submitCompletedUpdateTime(recipient.id,actorUserId);
@@ -949,12 +955,14 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
   try {
     await db.beginTransaction();
     const [[current]] = await db.execute('SELECT * FROM provider_update_recipients WHERE id=? FOR UPDATE',[recipientId]);
+    if (current.status === 'withdrawn') throw Object.assign(new Error('This Provider Update is no longer assigned.'), { status: 410 });
     const summary = await updateTimeSummary(recipientId,db);
     const finalizedAt = current.finalized_at || new Date();
     if (!current.locked_at) await db.execute(`UPDATE provider_update_recipients SET status='finalized',finalized_at=?,
       finalized_by_actor_type=?,finalized_by_user_id=?,locked_at=?,snapshot_json=? WHERE id=?`,
       [finalizedAt,actorType,actorUserId,finalizedAt,JSON.stringify({enabledKeys,sections,activeSeconds:Number(current.active_seconds),sectionSeconds:summary.sections,finalizedAt}),recipientId]);
     await createUpdateTimeClaim(db,{...current,finalized_at:finalizedAt},actorUserId);
+    await (await import('./providerUpdateTasks.service.js')).closeProviderUpdateTasks(db, recipientId);
     await db.commit();
   } catch(error) { await db.rollback(); throw error; } finally { db.release(); }
   const [after] = await pool.execute('SELECT * FROM provider_update_recipients WHERE id=?',[recipientId]);
@@ -1046,6 +1054,7 @@ export async function getMyOpenRecipient(providerUserId, agencyId) {
        AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
        AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)
        AND r.locked_at IS NULL
+       AND r.status IN ('not_started','in_progress') AND r.finalized_at IS NULL
        AND p.status = 'sent'
        AND LEFT(r.token,8) <> 'preview_'
        AND (r.expires_at IS NULL OR r.expires_at > UTC_TIMESTAMP())

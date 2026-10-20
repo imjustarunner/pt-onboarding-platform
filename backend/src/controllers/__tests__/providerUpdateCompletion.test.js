@@ -1,12 +1,14 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),getMyCompletedRecipient:vi.fn(),getRecipientBundle:vi.fn(),recordViewEvent:vi.fn(),finalizeRecipient:vi.fn()}));
 vi.mock('../../services/providerUpdate.service.js',()=>m);
+vi.mock('../../services/providerUpdateTasks.service.js',()=>({providerUpdateTasks:{syncUser:vi.fn()}}));
 vi.mock('../../services/providerUpdateTime.service.js',()=>({updateTimeSummary:vi.fn()}));
 vi.mock('../providerUpdateReview.controller.js',()=>({persistReviewSection:vi.fn()}));
 vi.mock('../../services/providerUpdatePreviewLink.service.js',()=>({createProviderUpdatePreviewLink:vi.fn()}));
 vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../../services/adminUpdate.service.js',()=>({}));
-import {getPublicByToken,finalizePublic,finalizeMyUpdate,getMyCompletionReceipt} from '../providerUpdate.controller.js';
+import {getPublicByToken,finalizePublic,finalizeMyUpdate,getMyCompletionReceipt,getMyUpdateReminders} from '../providerUpdate.controller.js';
+import {providerUpdateTasks} from '../../services/providerUpdateTasks.service.js';
 let req,res,next;
 const open={id:7,agency_id:2,provider_user_id:9,first_name:'Staff',status:'in_progress'};
 const complete={...open,status:'finalized',finalized_at:'2026-10-10T13:00:00Z',locked_at:'2026-10-10T13:00:00Z',snapshot_json:{private:'answer'}};
@@ -30,4 +32,23 @@ it('does not expose a receipt for another account or an unfinished update',async
 
 it.each(['0','-1','oops','1.5'])('rejects invalid receipt identifiers %s before reading data',async id=>{
  req.query={agencyId:'2'};req.params.recipientId=id;await getMyCompletionReceipt(req,res,next);expect(res.status).toHaveBeenCalledWith(400);expect(m.getMyCompletedRecipient).not.toHaveBeenCalled();
+});
+
+it('returns only the logged-in user’s unfinished reminders without counting the splash as review time or opening the update',async()=>{
+ req.query={providerUserId:'999'};res.set=vi.fn();
+ providerUpdateTasks.syncUser.mockResolvedValue([{recipientId:7,agencyId:2,link:'https://example.test/provider-update/own-link'}]);
+ m.getRecipientBundle.mockResolvedValue({progress:{completed:0,total:19,percent:0}});
+ await getMyUpdateReminders(req,res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(providerUpdateTasks.syncUser).toHaveBeenCalledWith(9);
+ expect(m.getRecipientBundle).toHaveBeenCalledWith(expect.objectContaining({previewOnly:true}),{progressOnly:true});
+ expect(m.recordViewEvent).not.toHaveBeenCalled();
+ expect(res.json.mock.calls[0][0].reminders[0].progress.completed).toBe(0);
+ expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');
+});
+it('returns no reminder after completion or withdrawal',async()=>{
+ res.set=vi.fn();providerUpdateTasks.syncUser.mockResolvedValue([]);
+ await getMyUpdateReminders(req,res,next);
+ expect(res.json).toHaveBeenCalledWith({reminders:[]});
+ expect(m.getRecipientBundle).not.toHaveBeenCalled();
 });

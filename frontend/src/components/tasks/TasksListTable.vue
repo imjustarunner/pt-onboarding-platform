@@ -82,7 +82,8 @@
             type="button"
             class="task-row__done-btn"
             :class="{ done: task.status === 'completed' }"
-            title="Mark complete"
+            :title="task.source_ref_type === 'provider_update' ? 'Complete and submit your Provider Update; this task closes automatically.' : 'Mark complete'"
+            :disabled="task.source_ref_type === 'provider_update'"
             @click.stop="$emit('toggle-complete', task)"
           >
             <svg v-if="task.status === 'completed'" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { assertProviderUpdateTaskStatus } from '../services/providerUpdateTasks.service.js';
 import { normalizeTaskCategories, resolveTaskCategories, isClientRelatedTask } from '../constants/taskCategories.js';
 import {
   ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER,
@@ -840,6 +841,7 @@ class Task {
   }
 
   static async markComplete(taskId, userId) {
+    await assertProviderUpdateTaskStatus(taskId, 'completed');
     await pool.execute(
       'UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?',
       ['completed', taskId]
@@ -848,6 +850,7 @@ class Task {
   }
 
   static async markIncomplete(taskId) {
+    await assertProviderUpdateTaskStatus(taskId, 'pending');
     await pool.execute(
       'UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?',
       ['pending', taskId]
@@ -856,6 +859,7 @@ class Task {
   }
 
   static async override(taskId, userId) {
+    await assertProviderUpdateTaskStatus(taskId, 'overridden');
     await pool.execute(
       'UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?',
       ['overridden', taskId]
@@ -1030,6 +1034,7 @@ class Task {
   }
 
   static async updateStatus(taskId, status) {
+    await assertProviderUpdateTaskStatus(taskId, status);
     await pool.execute(
       'UPDATE tasks SET status = ? WHERE id = ?',
       [status, taskId]
@@ -1316,4 +1321,3 @@ class Task {
 }
 
 export default Task;
-

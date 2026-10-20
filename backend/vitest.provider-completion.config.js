@@ -3,6 +3,12 @@ export default {
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: { environment: 'node', include: [
     'src/services/__tests__/providerUpdateCompletionEmail.test.js',
+    'src/services/__tests__/providerUpdateTasks.test.js',
+    'src/services/__tests__/providerUpdateAdministrativeCompletion.test.js',
+    'src/services/__tests__/providerUpdateReminders.test.js',
+    'src/services/__tests__/providerUpdateTrainingBatch.test.js',
+    'src/services/__tests__/providerUpdateTime.test.js',
+    'src/services/__tests__/providerUpdatePersonalNotice.test.js',
     'src/services/__tests__/providerUpdateEmailSender.test.js',
     'src/services/__tests__/providerUpdateProgress.test.js',
     'src/services/__tests__/providerUpdateRecords.test.js',

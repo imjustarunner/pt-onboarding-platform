@@ -78,6 +78,7 @@ router.get('/providers/:providerUserId/fall-actions', authenticate, ctrl.fallAct
 router.get('/me/fall-actions', authenticate, ctrl.fallActionsMine);
 
 router.get('/me/status', authenticate, ctrl.getMyUpdateStatus);
+router.get('/me/reminders', authenticate, ctrl.getMyUpdateReminders);
 router.get('/me/completion/:recipientId', authenticate, ctrl.getMyCompletionReceipt);
 router.get('/me', authenticate, ctrl.getMyUpdate);
 router.post('/me/session-heartbeat', authenticate, ctrl.heartbeatMyUpdate);
