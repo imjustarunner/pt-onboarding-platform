@@ -4,6 +4,8 @@ export default {
   test: { environment: 'node', include: [
     'src/services/__tests__/supervisionEmail*.test.js',
     'src/services/__tests__/supervisionAttendancePolicy.test.js',
+    'src/services/__tests__/supervisionRecurrenceEdit.test.js',
+    'src/services/__tests__/supervisionReschedule.test.js',
     'src/services/__tests__/supervisionRsvp*.test.js',
     'src/services/__tests__/family.service.test.js',
     'src/utils/__tests__/meetingAudienceGroups.test.js',
@@ -12,6 +14,7 @@ export default {
     'src/controllers/__tests__/supervisionBooking.test.js',
     'src/services/__tests__/meetingInvitations.test.js',
     'src/utils/__tests__/supervisionParticipantDetails.test.js',
-    'src/models/__tests__/workplacePeople.test.js'
+    'src/models/__tests__/workplacePeople.test.js',
+    'src/models/__tests__/supervisionSeriesScope.test.js'
   ], restoreMocks: true }
 };

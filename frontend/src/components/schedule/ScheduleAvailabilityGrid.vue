@@ -1776,6 +1776,10 @@
             </button>
           </div>
 
+          <p v-if="isSupervisionEditMode && selectedSupvSession?.recurrenceSeriesId" class="hint" data-testid="supervision-recurrence-summary">
+            Repeats {{ RECURRENCE_OPTIONS.find(option => option.value === selectedSupvSession.recurrenceFrequency)?.label || 'on its saved schedule' }}.
+            When saving, choose just this session or this and all future sessions. A single-date change keeps the series intact.
+          </p>
           <SupervisionRecordPanel
             v-if="editorIsSupervision && isAppointmentEditMode && Number(selectedSupvSessionId) > 0"
             v-show="['info','attendance'].includes(editorWorkspaceTab)"
@@ -5424,7 +5428,7 @@
         <div class="modal-body">
           <p class="cancel-meeting-lead"><strong>{{ seriesEditScopeTitle }}</strong></p>
           <p class="cancel-meeting-copy">
-            {{ appointmentMoveDraft?.kind === 'ob' ? 'Move just this session, or move the recurring office slot and all its upcoming sessions?' : 'This is part of a series. Apply the new time to just this session, or this and all following?' }}
+            {{ appointmentMoveDraft?.kind === 'ob' ? 'Move just this session, or move the recurring office slot and all its upcoming sessions?' : 'This is part of a series. Apply your changes to just this session, keeping the series, or this and all future sessions?' }}
           </p>
           <div v-if="seriesEditScopeError" class="error" style="margin-bottom: 12px;">{{ seriesEditScopeError }}</div>
           <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -5432,7 +5436,7 @@
               {{ seriesEditScopeBusy && seriesEditScopeChoice === 'single' ? 'Saving…' : 'Just this session' }}
             </button>
             <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="seriesEditScopeBusy" @click="confirmSeriesEditScope('future')">
-              {{ seriesEditScopeBusy && seriesEditScopeChoice === 'future' ? 'Saving…' : (appointmentMoveDraft?.kind === 'ob' ? 'All upcoming office sessions' : 'This and all following') }}
+              {{ seriesEditScopeBusy && seriesEditScopeChoice === 'future' ? 'Saving…' : (appointmentMoveDraft?.kind === 'ob' ? 'All upcoming office sessions' : 'This and all future sessions') }}
             </button>
             <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="seriesEditScopeBusy" style="margin-top: 4px;" @click="closeSeriesEditScopeModal">
               Never mind
@@ -5539,8 +5543,8 @@
             <input v-model="cancelSupvNotify" type="checkbox" style="margin-top: 3px;" />
             <span>Send everyone a cancellation email (calendar invite update). Uncheck to cancel silently.</span>
           </label>
-          <label class="field">Reason shown on the schedule and in the cancellation email
-            <textarea v-model="cancelSupvReason" maxlength="500" rows="2" placeholder="For example, Thanksgiving week" />
+          <label class="field">Reason (required) — shown on the schedule and in the cancellation email
+            <textarea v-model="cancelSupvReason" required maxlength="500" rows="2" placeholder="For example, Thanksgiving week" />
           </label>
           <div v-if="cancelSupvError" class="error" style="margin-bottom: 12px;">{{ cancelSupvError }}</div>
           <div style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
@@ -13860,7 +13864,7 @@ const editorMeetLink = computed(() => {
 });
 const editorPlatformLink = computed(() => editorVirtualLink.value);
 const editorShowRecurrence = computed(() => (
-  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value || requestType.value === 'office_request_only'
+  editorIsMeeting.value || (editorIsSupervision.value && !(isSupervisionEditMode.value && selectedSupvSession.value?.recurrenceSeriesId)) || editorIsClinical.value || editorIsOpenSlot.value || requestType.value === 'office_request_only'
 ));
 const editorRecurrenceFrequency = computed({
   get: () => {
@@ -22773,7 +22777,7 @@ watch(requestType, (t) => {
     scheduleEventRecurrenceEndMode.value = 'indefinite';
     scheduleEventOccurrenceCount.value = 7;
   }
-  if (String(t || '') !== 'supervision') {
+  if (!['supervision', 'edit_supervision'].includes(String(t || ''))) {
     supervisionRecurrence.value = 'ONCE';
     supervisionRecurrenceEndMode.value = 'indefinite';
     supervisionOccurrenceCount.value = 6;
@@ -24158,8 +24162,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
     return;
   }
   const seriesId = String(editTimingBaseline.value.recurrenceSeriesId || selectedSupvSession.value?.recurrenceSeriesId || '').trim();
-  const timeChanged = timingChangedFromBaseline(supvStartIsoLocal.value, supvEndIsoLocal.value);
-  if (!scope && timeChanged && seriesId) {
+  if (!scope && seriesId) {
     await askSeriesEditScope({
       title: selectedSupvSession.value?.counterpartyName || 'Supervision',
       run: async (chosen) => {
@@ -24179,6 +24182,11 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       )
     ).slice(0, 2);
     const changeResponse = await api.patch(`/supervision/sessions/${id}`, {
+      ...(!seriesId && supervisionRecurrence.value !== 'ONCE' ? {
+        recurrenceFrequency: supervisionRecurrence.value,
+        recurrencePolicy: supervisionRecurrenceEndMode.value === 'indefinite' ? 'INDEFINITE' : 'FINITE',
+        recurrenceOccurrenceCount: supervisionOccurrenceCount.value
+      } : {}),
       startAt,
       endAt,
       timeZone: scheduleMeetingTimeZone(),
@@ -24268,6 +24276,10 @@ const confirmCancelSupvSession = async (scope = 'single') => {
   if (!id) return;
   if (!canCancelSelectedSupvSession.value) {
     cancelSupvError.value = 'Only the host or an admin can cancel this session.';
+    return;
+  }
+  if (!cancelSupvReason.value.trim()) {
+    cancelSupvError.value = 'Enter a cancellation reason before continuing.';
     return;
   }
   try {
@@ -25850,6 +25862,8 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
     }
   });
   editorSupervisionIsVirtual.value = !!(first?.joinUrl || first?.googleMeetLink || first?.modality === 'virtual');
+  supervisionRecurrence.value = normalizeRecurrenceFrequency(first.recurrenceFrequency || 'ONCE');
+  supervisionRecurrenceEndMode.value = first.recurrencePolicy === 'FINITE' ? 'count' : 'indefinite';
 };
 
 const openStackDetailsModal = ({

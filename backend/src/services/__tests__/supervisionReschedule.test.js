@@ -35,3 +35,15 @@ it('keeps dates moved beyond the rolling year inactive until renewal can safely 
 });
 
 afterEach(()=>vi.useRealTimers());
+
+it('moves only the selected individual occurrence while retaining its original series position',async()=>{
+ anchor.session_type='individual';
+ const result=await rescheduleSupervisionOccurrences({id:1,startAt:'2026-10-29 21:00:00',endAt:'2026-10-29 22:00:00',timeZone:'America/Denver',scope:'single'});
+ expect(result.updated).toHaveLength(1);
+ expect(result.updated[0]).toMatchObject({id:1,recurrence_series_id:'weekly',start_at:'2026-10-29 21:00:00'});
+ const writes=m.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE supervision_sessions SET start_at'));
+ expect(writes).toHaveLength(1);expect(writes[0][1].at(-1)).toBe(1);
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('recurrenceOriginalStartAt'))).toBe(true);
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('recurrenceContinuationFrom'))).toBe(false);
+ expect(m.available.mock.calls.map(c=>c[1].providerUserId)).toEqual([7,8]);
+});

@@ -31,6 +31,7 @@ export async function rescheduleSupervisionOccurrences({id,startAt,endAt,timeZon
    if(!anchor || anchor.status==='CANCELLED') throw Object.assign(new Error('This session is no longer scheduled.'),{status:409});
    if(scope==='future' && !anchor.recurrence_series_id) throw Object.assign(new Error('This session is not recurring.'),{status:400});
    const [rows]=scope==='future' ? await db.execute(`SELECT * FROM supervision_sessions WHERE agency_id=? AND supervisor_user_id=? AND recurrence_series_id=? AND start_at>=? AND finalized_at IS NULL AND live_ended_at IS NULL ORDER BY start_at,id FOR UPDATE`,[anchor.agency_id,anchor.supervisor_user_id,anchor.recurrence_series_id,anchor.start_at]) : [[anchor]];
+   if (!rows.length) throw Object.assign(new Error('There are no upcoming sessions to update.'),{status:400});
    const ids=rows.map(r=>Number(r.id));
    const [attendees]=await db.execute(`SELECT session_id,user_id FROM supervision_session_attendees WHERE session_id IN (${ids.map(()=>'?')}) AND is_required=1 AND status NOT IN ('REMOVED','CANCELLED','WITHDRAWN') UNION SELECT session_id,user_id FROM supervision_session_presenters WHERE session_id IN (${ids.map(()=>'?')})`,[...ids,...ids]);
    const planned=rows.map(row=>({...row,window:shiftedSupervisionWindow(row,anchor,startAt,endAt,timeZone),people:[...new Set([row.supervisor_user_id,row.co_facilitator_user_id,...(row.session_type==='individual'?[row.supervisee_user_id]:[]),...attendees.filter(a=>Number(a.session_id)===Number(row.id)).map(a=>a.user_id)].map(Number).filter(Boolean))]}));

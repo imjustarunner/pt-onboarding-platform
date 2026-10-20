@@ -1,3 +1,4 @@
+import { makeSupervisionRecurring } from '../services/supervisionRecurrenceEdit.service.js';
 import { userBelongsToAgency } from '../services/supervisionSignup.service.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { saveSupervisionRsvp } from '../services/supervisionRsvp.service.js';
@@ -4158,16 +4159,25 @@ export const patchSupervisionSession = async (req, res, next) => {
       if (!seriesId) {
         return res.status(400).json({ error: { message: 'This session is not part of a recurring series.' } });
       }
-      try {
-        rowsToUpdate = await SupervisionSession.listActiveSeriesFromPoint({
-          recurrenceSeriesId: seriesId,
-          fromStartAt: row.start_at || null
-        });
-      } catch (e) {
-        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-        rowsToUpdate = [row];
-      }
-      if (!rowsToUpdate.length) rowsToUpdate = [row];
+      rowsToUpdate = await SupervisionSession.listActiveSeriesFromPoint({
+        recurrenceSeriesId: seriesId,
+        agencyId: row.agency_id,
+        supervisorUserId: row.supervisor_user_id,
+        fromStartAt: row.start_at || null
+      });
+      if (!rowsToUpdate.length) return res.status(400).json({error:{message:'There are no upcoming sessions to update.'}});
+    }
+
+    let recurrenceResult = null;
+    const requestedFrequency = req.body?.recurrenceFrequency === undefined ? undefined : String(req.body.recurrenceFrequency).trim().toUpperCase();
+    if (requestedFrequency && requestedFrequency !== (row.recurrence_frequency || 'ONCE')) {
+      if (requestedFrequency === 'ONCE' && seriesId) return res.status(400).json({error:{message:'Use Cancel session → This and all future sessions to stop this series.'}});
+      recurrenceResult = await makeSupervisionRecurring({id,frequency:requestedFrequency,policy:req.body.recurrencePolicy,occurrenceCount:req.body.recurrenceOccurrenceCount,startAt:nextStart,endAt:nextEnd,timeZone:supervisionTimeZone,actorUserId:actorId,
+        details:{session_type:sessionType,notes,modality,location_text:locationText,waiting_room_enabled:waitingRoomEnabled === undefined ? undefined : Number(waitingRoomEnabled),notify_participants:Number(notifyParticipants),reminder_minutes:nextReminderMinutes,
+          meeting_settings_json:JSON.stringify({...parseMeetingSettings(row.meeting_settings_json),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})})}});
+      // Conversion already stores the anchor time under the same transaction as its future dates.
+      row.start_at = nextStart;
+      row.end_at = nextEnd;
     }
 
     const timingChanged = (startAt !== undefined && +parseUtcDate(startAt)!==+parseUtcDate(row.start_at)) || (endAt !== undefined && +parseUtcDate(endAt)!==+parseUtcDate(row.end_at));
@@ -4182,7 +4192,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       // eslint-disable-next-line no-await-in-loop
       const rowUpdated = await SupervisionSession.updateById(occId, {
 
-        ...(occId === id ? {
+        ...(occId === id || scope === 'future' ? {
           sessionType,
           inviteScope,
           inviteAudienceAllSupervised,
@@ -4200,18 +4210,8 @@ export const patchSupervisionSession = async (req, res, next) => {
       if (req.body?.signupInvitationEnabled !== undefined) await pool.execute("UPDATE supervision_sessions SET meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json,JSON_OBJECT()),'$.signupInvitationEnabled',CAST(? AS JSON)) WHERE id=?", [JSON.stringify(req.body.signupInvitationEnabled === true),occId]);
       if (req.body?.notifyParticipants !== undefined) await pool.execute('UPDATE supervision_sessions SET notify_participants=? WHERE id=?',[notifyParticipants?1:0,occId]);
     }
-    if (!updated) updated = await SupervisionSession.updateById(id, {
-      startAt: startAt !== undefined ? startAt : undefined,
-      endAt: endAt !== undefined ? endAt : undefined,
-      sessionType,
-      inviteScope,
-      inviteAudienceAllSupervised,
-      inviteAudienceGroupSupport,
-      notes,
-      modality,
-      locationText,
-      waitingRoomEnabled
-    });
+    // A forward edit may start from a completed anchor. Never rewrite that historical record.
+    if (!updated) updated = await SupervisionSession.findById(id);
 
     if (presenterUserIds !== undefined) {
       const attendees = await SupervisionSession.listAttendees(id);
@@ -4297,7 +4297,12 @@ export const patchSupervisionSession = async (req, res, next) => {
       const fresh = await Promise.all(rowsToUpdate.map(e=>SupervisionSession.findById(e.id)));
       notificationDelivery = await sendMeetingScheduleChange(fresh.filter(row=>row && row.status!=='CANCELLED' && !Number(row.recurrence_horizon_held)),'updated',{scope,previousEvents:rowsToUpdate});
     }
-    res.json({ ok: true, session: out, notificationDelivery });
+    if (recurrenceResult?.createdIds?.length && notifyParticipants) {
+      const attendees = await SupervisionSession.listAttendees(id);
+      const delivery = await queueMeetingInvitations(out,[out.supervisor_user_id,out.co_facilitator_user_id,out.supervisee_user_id,...attendees.map(a=>a.user_id)].map(Number).filter(Boolean));
+      if (delivery.failed) notificationDelivery = {...notificationDelivery,failed:delivery.failed};
+    }
+    res.json({ ok: true, session: out, notificationDelivery, recurrence:recurrenceResult });
   } catch (e) {
     next(e);
   }
@@ -4329,6 +4334,7 @@ export const cancelSupervisionSession = async (req, res, next) => {
     }
 
     const scope = String(req.body?.scope || 'single').toLowerCase();
+    if (!String(req.body?.cancelReason || '').trim()) return res.status(400).json({error:{message:'Enter a cancellation reason.'}});
     const result = await cancelMeetingOccurrences({ kind: 'supervision', eventId: id, scope, actorUserId: actorId, cancelReason:req.body?.cancelReason });
     const cancelled = await SupervisionSession.findById(id);
 
@@ -4340,7 +4346,8 @@ export const cancelSupervisionSession = async (req, res, next) => {
 
     // Calendar deletion is durably queued by cancellation. The normal worker
     // retries external failures without reactivating the canceled series.
-    const notificationDelivery = notifyParticipants && result.rows.length ? await sendMeetingScheduleChange(result.rows, 'cancelled', {scope}) : null;
+    const futureRows = result.rows.filter(session => +parseUtcDate(session.start_at) > Date.now());
+    const notificationDelivery = notifyParticipants && futureRows.length ? await sendMeetingScheduleChange(futureRows, 'cancelled', {scope}) : null;
     res.json({ ok: true, session: cancelled, scope, cancelledCount: result.cancelledCount, notificationDelivery });
   } catch (e) {
     next(e);

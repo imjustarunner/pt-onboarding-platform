@@ -4787,6 +4787,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           agencyTimezone: agencyTzMap.get(Number(r.agency_id || 0)) || 'America/Denver',
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
+          recurrencePolicy: r.recurrence_policy || 'FINITE',
           recurrenceIndex: r.recurrence_index == null ? null : Number(r.recurrence_index),
           enrollmentMode,
           isOpenJoinOffering,

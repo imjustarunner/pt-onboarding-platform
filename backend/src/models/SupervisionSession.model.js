@@ -1,3 +1,4 @@
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { withMeetingWindow } from '../services/meetingWindowConflict.service.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import pool from '../config/database.js';
@@ -164,21 +165,18 @@ class SupervisionSession {
     }
   }
 
-  static async listActiveSeriesFromPoint({
-    recurrenceSeriesId,
-    fromStartAt = null
-  }) {
+  static async listActiveSeriesFromPoint({ recurrenceSeriesId, fromStartAt = null, agencyId, supervisorUserId }) {
     const sid = String(recurrenceSeriesId || '').trim();
     if (!sid) return [];
-    const from = String(fromStartAt || '').trim() || null;
+    const from = fromStartAt ? utcToZonedMysqlWall(fromStartAt, 'UTC') : null;
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM supervision_sessions
-       WHERE recurrence_series_id = ?
-         AND (UPPER(COALESCE(status, 'SCHEDULED')) <> 'CANCELLED' OR recurrence_horizon_held=1)
+      `SELECT * FROM supervision_sessions
+       WHERE recurrence_series_id = ? AND agency_id = ? AND supervisor_user_id = ?
+         AND (status = 'SCHEDULED' OR recurrence_horizon_held=1)
+         AND finalized_at IS NULL AND live_ended_at IS NULL
          AND (? IS NULL OR start_at >= ?)
        ORDER BY start_at ASC, id ASC`,
-      [sid, from, from]
+      [sid, agencyId, supervisorUserId, from, from]
     );
     return rows || [];
   }

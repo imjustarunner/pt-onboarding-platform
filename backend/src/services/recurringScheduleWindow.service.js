@@ -85,7 +85,7 @@ async function withOccurrenceWindow(db, kind, row, window, restoring, work) {
     excludeSupervisionId: restoring && kind === 'supervision' ? row.id : null }, work);
 }
 
-async function appendOccurrence(db, kind, template, window, index) {
+export async function appendOccurrence(db, kind, template, window, index) {
   const def = definitions[kind];
   const columns = def.fields.split(' ');
   const values = columns.map(field => {
