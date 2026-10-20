@@ -4,7 +4,7 @@ import {validateCredentials} from '../utils/credentialDisplay.js';
 import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
-import {FOCUS_GROUPS} from '../../../frontend/src/navigation/providerFocus.js';
+import {FOCUS_GROUPS,withSavedFocusChoices} from '../../../frontend/src/navigation/providerFocus.js';
 import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
 import pool from '../config/database.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
@@ -37,8 +37,8 @@ export async function getProviderUpdateRecords(userId,agencyId){
   const selected=field?facets[field.group]||[]:facets.interventions||strings(values[k]);
   return {key:k,label:defs[k].field_label,options:[...new Set([...strings(defs[k].options),...selected])],selected};
  });
- const focusGroups=FOCUS_GROUPS.map(g=>({...g,previous:groups.find(v=>v.key===g.field)?.selected||[],options:g.key==='ageGroups'?g.options:[...new Set([...g.options,...(groups.find(v=>v.key===g.field)?.options||[])])]}));
  const clinicalFocus=normalizeFocusAgeValues(profile?.details?.clinicalFocus)||{top:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]])),excluded:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]]))};
+ const focusGroups=withSavedFocusChoices(FOCUS_GROUPS.map(g=>({...g,previous:groups.find(v=>v.key===g.field)?.selected||[],options:g.key==='ageGroups'?g.options:[...new Set([...g.options,...(groups.find(v=>v.key===g.field)?.options||[])])]})),clinicalFocus);
  const [docs]=await pool.execute("SELECT id,file_path FROM user_compliance_documents WHERE user_id=? AND (agency_id=? OR agency_id IS NULL) AND document_type='license' AND file_path IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1",[userId,agencyId]);
  const languageNames=[...new Set([...(profile?.details?.languages||[]),...strings(values.languages_spoken||values.provider_languages_spoken).flatMap(value=>value.split(/\s*(?:,|;|\/|&|\band\b)\s*/i)).map(value=>value.replace(/\s*\((Primary|Secondary)\)/i,'').trim()).map(value=>/^english$/i.test(value)?'English':/^spanish$|^español$/i.test(value)?'Spanish':value).filter(Boolean)])];
  const sessionLanguages=profile?.details?.languageProficiencies||languageNames.map(language=>({language,proficiency:'',canConductSessions:false}));

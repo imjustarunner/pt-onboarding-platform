@@ -5,6 +5,13 @@ export const FOCUS_GROUPS = [
  {key:'populations',field:'groups',label:POPULATIONS_LABEL,description:POPULATIONS_DESCRIPTION,options:POPULATIONS},
  {key:'modalities',field:'modality',label:'Therapy approaches',options:THERAPY_APPROACHES}
 ];
+// Existing exclusions remain valid when catalogs or legacy field options change.
+// Only extend the catalog from saved records, never from the incoming draft.
+export function withSavedFocusChoices(groups, saved) {
+ return groups.map(group=>({...group,options:[...new Set([
+  ...group.options,...(saved?.top?.[group.key]||[]),...(saved?.excluded?.[group.key]||[])
+ ])]}));
+}
 export function missingFocusGroups(value,groups=FOCUS_GROUPS){
  return groups.filter(g=>value?.waived?.[g.key]!==true&&new Set((Array.isArray(value?.top?.[g.key])?value.top[g.key]:[]).filter(v=>g.options.includes(v)&&!(value?.excluded?.[g.key]||[]).includes(v))).size!==3);
 }

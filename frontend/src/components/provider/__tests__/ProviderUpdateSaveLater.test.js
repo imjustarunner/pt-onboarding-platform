@@ -17,6 +17,16 @@ it('restores the saved section and saves progress before displaying the return l
 it('does not report saved progress if the current draft fails',async()=>{m.draft.mockResolvedValue(false);const w=dashboard();await flushPromises();await saveButton(w).trigger('click');await flushPromises();expect(m.post).not.toHaveBeenCalled();expect(w.find('.pu-return').exists()).toBe(false);expect(w.text()).toContain('could not be saved');w.unmount();});
 it('saves incomplete text without completing a section or changing untouched answers',async()=>{const w=shallowMount(Section,{props:{section:bundle.sections[0],token:'invite',agencyId:2,recipient:bundle.recipient}});await flushPromises();expect(await w.vm.saveDraft()).toBe(true);expect(m.put).not.toHaveBeenCalled();await w.get('textarea').setValue('My unfinished introduction');expect(await w.vm.saveDraft()).toBe(true);expect(m.put).toHaveBeenCalledWith('/public/provider-update/invite/sections/profile_blurb',{completed:false,status:'in_progress',data:{blurb:'My unfinished introduction'}});w.unmount();});
 it('shows failed draft writes instead of claiming success',async()=>{m.put.mockRejectedValue({response:{data:{error:{message:'Please reconnect'}}}});const w=shallowMount(Section,{props:{section:bundle.sections[0],token:'invite',agencyId:2,recipient:bundle.recipient}});await flushPromises();await w.get('textarea').setValue('Draft');expect(await w.vm.saveDraft()).toBe(false);expect(w.text()).toContain('Please reconnect');w.unmount();});
+it('does not reopen a confirmed section when leaving it or submitting the update',async()=>{
+ const w=shallowMount(Section,{props:{section:bundle.sections[0],token:'invite',agencyId:2,recipient:bundle.recipient}});
+ await flushPromises();await w.get('textarea').setValue('Confirmed introduction');
+ await w.findAll('button').find(b=>b.text()==='Save & confirm').trigger('click');await flushPromises();
+ expect(m.put).toHaveBeenCalledTimes(1);expect(m.put.mock.calls[0][1].completed).toBe(true);
+ expect(await w.vm.saveDraft()).toBe(true);expect(m.put).toHaveBeenCalledTimes(1);
+ await w.get('textarea').setValue('A later unfinished change');await w.vm.saveDraft();
+ expect(m.put).toHaveBeenCalledTimes(2);expect(m.put.mock.calls[1][1]).toMatchObject({completed:false,data:{blurb:'A later unfinished change'}});
+ w.unmount();
+});
 
 const readyBundle=()=>({...bundle,resumeSectionKey:null,sections:bundle.sections.map(s=>({...s,completed:true})),progress:{total:1,completed:1,percent:100}});
 it('shows a prominent final submission action only when all sections are reviewed',async()=>{m.get.mockResolvedValue({data:readyBundle()});const w=dashboard();await flushPromises();expect(w.get('.pu-submit-button').text()).toContain('Submit my completed Provider Update');expect(w.text()).toContain('Ready to submit');w.unmount();m.get.mockResolvedValue({data:bundle});const unfinished=dashboard();await flushPromises();expect(unfinished.find('.pu-submit-button').exists()).toBe(false);unfinished.unmount();});

@@ -4,7 +4,7 @@ import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { normalizeFocusAgeValues } from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
-import { FOCUS_GROUPS, validateFocus } from '../../../frontend/src/navigation/providerFocus.js';
+import { FOCUS_GROUPS, validateFocus, withSavedFocusChoices } from '../../../frontend/src/navigation/providerFocus.js';
 
 export async function getProviderClinicalFocus(userId, agencyId) {
   const [profile, facets] = await Promise.all([
@@ -12,9 +12,9 @@ export async function getProviderClinicalFocus(userId, agencyId) {
     listClinicalFacetsForUser(userId, { agencyId })
   ]);
   const saved = normalizeFocusAgeValues(profile?.details?.clinicalFocus);
-  const groups = FOCUS_GROUPS.map(group => ({ ...group, options: [...new Set([
-    ...group.options, ...(facets[group.key] || []), ...(saved?.top?.[group.key] || []), ...(saved?.excluded?.[group.key] || [])
-  ])] }));
+  const groups = withSavedFocusChoices(FOCUS_GROUPS.map(group => ({ ...group, options: [...new Set([
+    ...group.options, ...(facets[group.key] || [])
+  ])] })), saved);
   // Older profiles have explicit selections; never silently enable every other area.
   const clinicalFocus = saved || {
     top: Object.fromEntries(groups.map(g => [g.key, (facets[g.key] || []).slice(0, 3)])),

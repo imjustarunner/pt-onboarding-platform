@@ -10,7 +10,7 @@ vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>(
 vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn()}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({id:2,slug:'itsco'}))}}));
 import pool from '../../config/database.js';
-import {getRecipientBundle,finalizeRecipient,getMyCompletedRecipient} from '../providerUpdate.service.js';
+import {getRecipientBundle,finalizeRecipient,getMyCompletedRecipient,listRecipients} from '../providerUpdate.service.js';
 import {getCredentialStatus} from '../quickViewAuth.service.js';
 import {getProviderUpdateRecords} from '../providerUpdateRecords.service.js';
 import {getStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
@@ -99,4 +99,35 @@ it('does not reopen a submitted update when its code changes later',async()=>{
 it('reads only finalized receipt fields scoped to recipient, account and agency',async()=>{
  pool.execute.mockResolvedValueOnce([[{id:7,status:'finalized'}]]);expect(await getMyCompletedRecipient(9,2,7)).toEqual({id:7,status:'finalized'});
  const [sql,args]=pool.execute.mock.calls[0];expect(args).toEqual([7,9,2]);expect(sql).toContain("r.status='finalized'");expect(sql).toContain('r.provider_user_id=?');expect(sql).toContain('r.agency_id=?');expect(sql).not.toMatch(/snapshot_json|token|data_json/);
+});
+
+it('uses submission requirements for completed roster counts and live validation for unfinished recipients without writes',async()=>{
+ const completed={...recipient,id:2,status:'finalized',finalized_at:'2026-10-15',snapshot_json:{
+  enabledKeys:['specialties'],sections:[{section_key:'specialties',completed:1},{section_key:'school_availability',completed:0}]
+ }};
+ progress=keys.map(section_key=>({section_key,status:'completed',completed:1,data_json:{}}));
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.includes('SELECT r.*'))return [[completed,{...recipient,previewOnly:false,status:'in_progress'}]];
+  if(sql.includes('provider_update_pushes'))return [[{id:2,section_config_json:config}]];
+  if(sql.includes('provider_update_section_progress'))return [progress];
+  return [[]];
+ });
+ const rows=await listRecipients(2,2);
+ expect(rows[0]).toMatchObject({sections_completed:1,sections_total:1});
+ expect(rows[1]).toMatchObject({sections_completed:0,sections_total:2});
+ expect(pool.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+});
+
+it('excludes a school section that is not applicable from an unfinished roster count',async()=>{
+ const schoolConfig={...contactConfig,school_availability:true};
+ contactRecords('person@example.test');
+ progress=[{section_key:'contact_info',completed:1,status:'completed'},{section_key:'school_availability',completed:0}];
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.includes('SELECT r.*'))return [[{...recipient,section_config_json:undefined,previewOnly:false,status:'in_progress'}]];
+  if(sql.includes('provider_update_pushes'))return [[{id:2,section_config_json:schoolConfig}]];
+  if(sql.includes('provider_update_section_progress'))return [progress];
+  return [[]];
+ });
+ expect((await listRecipients(2,2))[0]).toMatchObject({sections_completed:1,sections_total:1});
+ expect(pool.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
 });

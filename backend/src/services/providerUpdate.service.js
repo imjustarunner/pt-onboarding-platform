@@ -1,4 +1,5 @@
 import {isValidPersonalEmail} from '../../../frontend/src/navigation/providerUpdateContact.js';
+import {finalizedUpdateProgress} from '../utils/providerUpdateProgress.js';
 import {getProviderUpdateSignIn} from './providerUpdateSignIn.service.js';
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import {providerUpdateAuditBcc} from './providerUpdateAuditCopy.js';
@@ -645,6 +646,17 @@ export async function listRecipients(pushId, agencyId) {
      ORDER BY u.last_name, u.first_name`,
     [Number(pushId), Number(agencyId)]
   );
+  const push = await getPush(pushId);
+  // Use the same applicable requirements as the editor. Completed updates retain
+  // their submission snapshot even if assignments or the push change later.
+  for (let offset = 0; offset < (rows || []).length; offset += 4) {
+    await Promise.all(rows.slice(offset, offset + 4).map(async recipient => {
+      const progress = finalizedUpdateProgress(recipient) ||
+        (await getRecipientBundle({...recipient, previewOnly: true}, {push, progressOnly: true})).progress;
+      recipient.sections_completed = progress.completed;
+      recipient.sections_total = progress.total;
+    }));
+  }
   return rows || [];
 }
 
@@ -695,8 +707,8 @@ export async function recordViewEvent(recipientId, eventType, sectionKey = null,
   );
 }
 
-export async function getRecipientBundle(recipient) {
-  const push = await getPush(recipient.push_id);
+export async function getRecipientBundle(recipient, {push: providedPush = null, progressOnly = false} = {}) {
+  const push = providedPush || await getPush(recipient.push_id);
   const audience = normalizeSectionAudience(push?.section_audience_json || {});
   let enabledKeys = enabledSectionKeys(recipient.section_config_json || push?.section_config_json);
   if (enabledKeys.includes('client_fall_update') && audience.client_fall_update?.mode === 'auto') {
@@ -711,7 +723,7 @@ export async function getRecipientBundle(recipient) {
   );
   if(enabledKeys.includes('amendments')&&isCompensationUpdatePlan(push?.amendment_plan_json)&&await isCompensationAmendmentExempt(recipient.agency_id,recipient.provider_user_id))enabledKeys=enabledKeys.filter(k=>k!=='amendments');
   if (!recipient.previewOnly) await ensureSectionRows(recipient.id, enabledKeys);
-  const [[resume]]=await pool.execute("SELECT section_key FROM provider_update_view_events WHERE recipient_id=? AND event_type='save_for_later' ORDER BY id DESC LIMIT 1",[recipient.id]);
+  const [[resume]]=progressOnly ? [[null]] : await pool.execute("SELECT section_key FROM provider_update_view_events WHERE recipient_id=? AND event_type='save_for_later' ORDER BY id DESC LIMIT 1",[recipient.id]);
   const [sections] = await pool.execute(
     `SELECT * FROM provider_update_section_progress WHERE recipient_id = ?`,
     [recipient.id]
@@ -765,8 +777,11 @@ export async function getRecipientBundle(recipient) {
   }
   if (communicationSection) {
     const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
-    const {getCommunicationPrefs}=await import('./inboxDigest.service.js');
-    communicationSection.data={...communicationSection.data,communicationChoices,hasSchoolAssignments:!!records.schools?.length,appEmail:await getCommunicationPrefs(recipient.provider_user_id)};
+    communicationSection.data={...communicationSection.data,communicationChoices,hasSchoolAssignments:!!records.schools?.length};
+    if(!progressOnly){
+      const {getCommunicationPrefs}=await import('./inboxDigest.service.js');
+      communicationSection.data.appEmail=await getCommunicationPrefs(recipient.provider_user_id);
+    }
     if (!recipient.locked_at && communicationChoices.needsReview) {
       // Required answers do not imply the recipient has started this section.
       if (communicationSection.completed) communicationSection.status='in_progress';
@@ -774,7 +789,7 @@ export async function getRecipientBundle(recipient) {
     }
   }
   let agency = null;
-  try {
+  if (!progressOnly) try {
     const Agency = (await import('../models/Agency.model.js')).default;
     const row = await Agency.findById(recipient.agency_id);
     if (row) {
@@ -806,7 +821,7 @@ export async function getRecipientBundle(recipient) {
         userId: recipient.provider_user_id,
         pushId: recipient.push_id
       });
-      if (isJobDescriptionAcknowledgmentPlan(push?.amendment_plan_json)) {
+      if (!progressOnly && isJobDescriptionAcknowledgmentPlan(push?.amendment_plan_json)) {
         resolvedJobDescription = await resolveJobDescriptionForUser({
           agencyId: recipient.agency_id,
           userId: recipient.provider_user_id
@@ -822,6 +837,7 @@ export async function getRecipientBundle(recipient) {
   const amendmentSection=sectionList.find(s=>s.key==='amendments');
   if(amendmentSection&&!recipient.locked_at&&(!amendmentTasks.length||amendmentTasks.some(t=>t.status!=='completed')))amendmentSection.completed=false;
   const completedCount=sectionList.filter(s=>s.completed).length;
+  if(progressOnly)return {progress:{completed:completedCount,total:sectionList.length}};
   return {
     recipient: {
       id: recipient.id,

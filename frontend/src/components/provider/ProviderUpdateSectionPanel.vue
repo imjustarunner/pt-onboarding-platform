@@ -457,6 +457,7 @@ function orgPath(path) {
 
 async function saveSectionPayload(payload) {
   if (props.recipient?.previewOnly) return;
+  const savedDraft = JSON.stringify(currentDraft());
   saving.value = true;
   localError.value = '';
   try {
@@ -473,6 +474,9 @@ async function saveSectionPayload(payload) {
       });
     }
     if(props.section.key==='pin'&&payload.completed&&payload.data?.codeStoredSafely){quickViewCodeAcknowledged.value=true;quickViewError.value='';}
+    // Navigating or submitting must not rewrite this successful confirmation as
+    // an incomplete draft. Edits made during the request still remain dirty.
+    draftBaseline = savedDraft;
     emit('saved', res.data);
     return true;
   } catch (e) {
@@ -500,7 +504,6 @@ async function saveDraft(){
  const data=currentDraft();if(!data)return true;
  if(JSON.stringify(data)===draftBaseline)return true;
  const saved=await saveSectionPayload({completed:false,status:'in_progress',data:{...(props.section.data||{}),...data}});
- if(saved)draftBaseline=JSON.stringify(data);
  return saved;
 }
 defineExpose({saveDraft});
