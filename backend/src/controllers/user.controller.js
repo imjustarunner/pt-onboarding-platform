@@ -4785,6 +4785,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           supervisorName: `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim() || null,
           agencyId: Number(r.agency_id || agencyId || 0) || null,
           agencyTimezone: agencyTzMap.get(Number(r.agency_id || 0)) || 'America/Denver',
+          recurrenceCalendarPending: Number(r.recurrence_calendar_pending || 0),
+          finalizedAt: r.finalized_at || null,
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
           recurrencePolicy: r.recurrence_policy || 'FINITE',

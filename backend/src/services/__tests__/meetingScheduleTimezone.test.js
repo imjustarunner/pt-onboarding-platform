@@ -10,8 +10,9 @@ vi.mock('../../models/User.model.js', () => ({ default: {
 vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({
   default: { listByGoogleEventIds: vi.fn().mockResolvedValue([]), updateForProvider: vi.fn() }
 }));
-vi.mock('../../models/SupervisionSession.model.js', () => ({ default: {} }));
+vi.mock('../../models/SupervisionSession.model.js', () => ({ default: {updateById:vi.fn(),cancel:vi.fn()} }));
 
+import SupervisionSession from '../../models/SupervisionSession.model.js';
 import GoogleCalendarService from '../googleCalendar.service.js';
 import ProviderScheduleEvent from '../../models/ProviderScheduleEvent.model.js';
 import { reconcileGoogleLinkedSchedule } from '../googleScheduleInboundSync.service.js';
@@ -100,4 +101,9 @@ describe('saved meeting times through Google sync and notifications', () => {
     expect(google.start).toEqual({ date: '2026-10-09' });
     expect(google.end).toEqual({ date: '2026-10-10' });
   });
+});
+
+it.each([{status:'FINALIZED'},{status:'SCHEDULED',liveEndedAt:'2026-10-20T19:00Z'},{status:'SCHEDULED',recurrenceCalendarPending:1}])('does not overwrite completed or pending outbound supervision: %j',async flags=>{
+ const result=await reconcileGoogleLinkedSchedule({viewedProviderId:7,viewedProviderEmail:'host@example.test',supervisionSessions:[{id:3,googleEventId:'g',startAt:'2026-10-20T18:00:00Z',endAt:'2026-10-20T19:00:00Z',...flags}],googleEvents:[{id:'g',startAt:'2026-10-20T06:00:00-06:00',endAt:'2026-10-20T07:00:00-06:00'}]});
+ expect(result.updatedCount).toBe(0);expect(SupervisionSession.updateById).not.toHaveBeenCalled();expect(SupervisionSession.cancel).not.toHaveBeenCalled();
 });

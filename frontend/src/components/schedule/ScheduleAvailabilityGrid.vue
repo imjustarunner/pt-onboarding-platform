@@ -1216,6 +1216,7 @@
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`" :title="`Staff only: ${staffAlertForBlock(b)}`">⚑</span>
                 <div class="sched-day-card__body">
                   <div class="sched-day-card__title">
+                    <span v-if="b.recurrenceSeriesId" role="img" aria-label="Recurring appointment">↻ </span>
                     <template v-if="b.kind === 'supv-signup'">
                       <span class="cell-block-signup-headline">OPEN GROUP SUPERVISION</span>
                       <span v-if="!b.viewerSignedUp && !b.isCancelled" class="cell-block-signup-status">SIGNUP REQUIRED</span>
@@ -1463,6 +1464,7 @@
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
+                <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" aria-label="Recurring appointment">↻</span>
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`">⚑</span>
                 <!-- Top resize handle — any draggable block -->
                 <div
@@ -26730,6 +26732,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 </script>
 
 <style scoped>
+.cell-recurrence-marker { position: absolute; right: 4px; bottom: 3px; font-size: 16px; line-height: 1; font-weight: bold; pointer-events: none; background: rgba(255,255,255,.85); border-radius: 50%; padding: 2px; z-index: 2; }
 .sched-subscription { margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--border, #d6d5ce); border-radius: 10px; }
 .sched-subscription summary { cursor: pointer; font-weight: 600; }
 

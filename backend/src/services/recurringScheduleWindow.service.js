@@ -258,7 +258,8 @@ export async function syncRecurringCalendars() {
               summary:isBlock && Number(row.is_private) ? 'Busy' : row.title || 'Supervision',
               description:isBlock && Number(row.is_private) ? null : [row.description || row.notes,join ? `Join: ${join}` : row.location_text].filter(Boolean).join('\n\n'),
               allDay:Number(row.all_day) === 1,startDate:recurringCalendarDate(row.start_date),endDate:recurringCalendarDate(row.end_date),
-              startAt:utcToZonedMysqlWall(row.start_at,row.event_timezone || 'America/Denver'),endAt:utcToZonedMysqlWall(row.end_at,row.event_timezone || 'America/Denver'),
+              // The Google adapter accepts UTC instants and converts to the event zone exactly once.
+              startAt:row.start_at,endAt:row.end_at,
               timeZone:row.event_timezone || 'America/Denver',sendUpdates:'none',disableReminders:true});
           }
           if (result?.ok || result?.skipped) await db.execute(`UPDATE ${def.table} SET google_event_id=?,recurrence_calendar_pending=0 WHERE id=? AND status=?`,[row.status === 'CANCELLED' ? null : result.googleEventId || row.google_event_id || null,row.id,row.status]);

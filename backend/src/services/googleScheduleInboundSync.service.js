@@ -349,7 +349,8 @@ export async function reconcileGoogleLinkedSchedule({
     .filter(({ s }) => {
       const gid = String(s?.googleEventId || s?.google_event_id || '').trim();
       const status = String(s?.status || '').toUpperCase();
-      return gid && status !== 'CANCELLED';
+      return gid && status === 'SCHEDULED' && !s.liveEndedAt && !s.finalizedAt
+        && !Number(s.recurrenceCalendarPending || s.recurrence_calendar_pending || 0);
     });
 
   await mapLimit(supvTargets, 5, async ({ s, idx }) => {

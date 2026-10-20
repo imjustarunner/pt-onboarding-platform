@@ -84,7 +84,7 @@ it('calendar retries use stable IDs and no invitation emails',async()=>{
  m.execute.mockImplementation(async sql=>sql.startsWith('SELECT e.*')&&sql.includes('supervision_sessions') ? [[session({recurrence_calendar_pending:1,host_email:'host@example.test'})]] : [[]]);
  m.google.mockResolvedValue({ok:true,googleEventId:'stable'});
  await syncRecurringCalendars();
- expect(m.google).toHaveBeenCalledWith(expect.objectContaining({stableInsertId:'reca1d0',sendUpdates:'none',disableReminders:true,startAt:'2027-10-01 10:00:00'}));
+ expect(m.google).toHaveBeenCalledWith(expect.objectContaining({stableInsertId:'reca1d0',sendUpdates:'none',disableReminders:true,startAt:'2027-10-01 16:00:00'}));
 });
 it('deletes a silent Google copy even if cancellation followed a crash before its ID was saved',async()=>{
  const row=session({status:'CANCELLED',recurrence_series_id:'series',recurrence_calendar_pending:1,recurrence_calendar_generation:1,google_event_id:null,host_email:'host@example.test'});
@@ -124,4 +124,19 @@ it('gives each renewed signup-only date its own deadline and does not register l
  expect(sql).toContain('signup_closes_at');expect(values).toContain('2027-10-08 15:00:00');expect(values).not.toContain('2027-10-01 15:00:00');
  const [copy]=m.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO supervision_session_attendees'));
  expect(copy).toContain("COALESCE(s.enrollment_mode,'invited')<>'signup_only' OR a.participant_role IN ('supervisor','co_facilitator')");
+});
+
+// Exercise the real adapter conversion, not just a mocked Google call's shape.
+it.each([
+ ['2026-10-20 18:00:00','2026-10-20T12:00:00'],
+ ['2026-11-03 19:00:00','2026-11-03T12:00:00']
+])('keeps Denver noon after the Google round trip: %s',async(start,wall)=>{
+ const {utcToRfc3339Wall}=await import('../../utils/officeEventDateTime.util.js');
+ const row=session({start_at:start,end_at:start.replace(/:00:00$/,':45:00'),recurrence_calendar_pending:1,host_email:'host@example.test'});
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT e.*')&&sql.includes('supervision_sessions')?[[row]]:[[]]);
+ m.google.mockImplementation(async args=>{
+  expect(utcToRfc3339Wall(args.startAt,args.timeZone)).toBe(wall);
+  return {ok:true,googleEventId:'stable'};
+ });
+ await syncRecurringCalendars();expect(m.google).toHaveBeenCalledOnce();
 });

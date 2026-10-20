@@ -61,3 +61,10 @@ it('shows the mandatory LPCC recipient unpaid while retaining the saved cadence'
  expect(content.html).toContain('Mandatory · Not compensated');expect(content.text).toContain('Frequency: Every two weeks');
  expect(content.html).not.toContain('Mandatory · Compensated');
 });
+
+it('names both people in individual supervision reminders for the supervisor',()=>{
+ const content=supervisionEmailBody({...args,isHost:true,isRequired:true,kind:'join:1440',session:{id:1,session_type:'individual',supervisee_user_id:8},hostNames:['Rachel Finch'],people:[{id:7,name:'Rachel Finch',participant_role:'host'},{id:8,name:'Grace Terrones',participant_role:'supervisee'}]});
+ expect(content.subject).toContain('Grace Terrones');expect(content.subject).toContain('Rachel Finch');
+ expect(content.html).toContain('Supervisee');expect(content.html).toContain('Grace Terrones');
+ expect(content.text).toContain('Supervisee: Grace Terrones');
+});
