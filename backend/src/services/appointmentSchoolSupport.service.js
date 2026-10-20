@@ -15,9 +15,9 @@ export async function appointmentSchoolSupportContext({appointmentId,actorUserId
   if(!appointment)fail('Appointment not found',404);
   if(Number(appointment.providerUserId)!==Number(actorUserId))return unsupported;
   if(!['canceled','no_show'].includes(eventType))return unsupported;
-  const participants=await Appointment.listParticipants(appointmentId);
+  const participants=await Appointment.listParticipants(appointmentId,{executor:db});
   const selected=clientId?participants.find(p=>Number(p.clientId)===Number(clientId))
-    :participants.find(p=>p.isBillingResponsible)||participants.find(p=>p.clientId);
+    :participants.find(p=>p.clientId&&p.isBillingResponsible)||participants.find(p=>p.clientId);
   if(!selected?.clientId)return unsupported;
   const [[client]]=await db.execute(`SELECT c.client_type,c.default_place_of_service,c.primary_insurer_name,it.label insurance_type,
       l.id location_id,l.school_organization_id,l.place_of_service,l.location_kind
@@ -29,7 +29,7 @@ export async function appointmentSchoolSupportContext({appointmentId,actorUserId
     ? !!client.school_organization_id||client.place_of_service==='03'||client.location_kind==='school'
     : !appointment.serviceLocationId&&(client.client_type==='school'||client.default_place_of_service==='03');
   if(!isSchool)return unsupported;
-  const insurance=await readClientInsurance(selected.clientId,appointment.agencyId);
+  const insurance=await readClientInsurance(selected.clientId,appointment.agencyId,db);
   if(!hasMedicaidCoverage(insurance)&&!/medicaid|medi-?cal|hmo.?medicaid|chip|cms/i.test(String(client.insurance_type||client.primary_insurer_name||'')))return unsupported;
   const {policy}=await getAgencyPtoPolicy({agencyId:appointment.agencyId});
   if(!policy.ptoEnabled||!policy.schoolSupportEnabled)return unsupported;

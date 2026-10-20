@@ -36,6 +36,11 @@ describe('school session cancellation benefit',()=>{
   expect(Appointment.listParticipants).not.toHaveBeenCalled();expect(pool.execute).not.toHaveBeenCalled();
   await expect(reserveCancellationSchoolSupport({appointmentId:1,actorUserId:30,facts:{useSchoolSupportHour:true,eventType:'canceled'},db:pool})).rejects.toMatchObject({status:403});
  });
+ it('uses the child’s coverage when a guardian is the billing contact',async()=>{
+  Appointment.listParticipants.mockResolvedValue([{role:'guardian',isBillingResponsible:true},{role:'client',clientId:20,isBillingResponsible:false}]);
+  expect((await appointmentSchoolSupportContext({...args,clientId:null})).eligible).toBe(true);
+  expect(readClientInsurance).toHaveBeenCalledWith(20,2,pool);
+ });
  it('does not trust a client outside the appointment',async()=>{
   expect(await appointmentSchoolSupportContext({...args,clientId:999})).toEqual({eligible:false});expect(pool.execute).not.toHaveBeenCalled();
  });
