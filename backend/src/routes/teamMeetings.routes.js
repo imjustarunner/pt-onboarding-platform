@@ -24,6 +24,7 @@ import {
   getTeamMeetingLobbyParticipants,
   admitTeamMeetingParticipant,
   addTeamMeetingAttendee,
+  trainingInviteCandidates,
   setTeamMeetingWaitingRoomLive,
   getTeamMeetingAdmissionStatus,
   getTeamMeetingWorkspace,
@@ -91,6 +92,7 @@ router.post('/:eventId/calendar-guests/:guestId/admit',calendarHostAdmit('team-m
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/attendees', addTeamMeetingAttendee);
+router.get('/:eventId/training/invite-candidates', trainingInviteCandidates);
 router.post('/:eventId/waiting-room', setTeamMeetingWaitingRoomLive);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.get('/:eventId/transcription', getTeamMeetingTranscriptionState);

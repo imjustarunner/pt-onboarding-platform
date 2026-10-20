@@ -1,6 +1,7 @@
-import { mount, flushPromises } from '@vue/test-utils';
+import { mount as rawMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import DashboardInvitationToasts from '../DashboardInvitationToasts.vue';
+const mount=(component,options)=>rawMount(component,{...options,global:{stubs:{Teleport:true}}});
 const mocks = vi.hoisted(() => ({ get:vi.fn(), post:vi.fn(), push:vi.fn() }));
 vi.mock('../../../services/api', () => ({default:mocks}));
 vi.mock('vue-router', () => ({useRoute:() => ({params:{organizationSlug:'itsco'}}),useRouter:() => ({push:mocks.push})}));
@@ -21,6 +22,7 @@ describe('dashboard invitation responses', () => {
   });
   it('requires and submits an absence reason for mandatory supervision', async () => {
     const w=mount(DashboardInvitationToasts,{props:{userId:7}});await flushPromises();
+    await w.findAll('button').find(b=>b.text().startsWith('Show all')).trigger('click');
     await w.findAll('button').find(b=>b.text()==='I can’t attend').trigger('click');
     expect(w.get('button[type="submit"]').attributes('disabled')).toBeDefined();
     await w.get('textarea').setValue('Previously scheduled appointment');await w.get('form').trigger('submit');await flushPromises();
@@ -40,6 +42,7 @@ describe('dashboard invitation responses', () => {
     const w=mount(DashboardInvitationToasts,{props:{userId:7}});await flushPromises();
     await w.findAll('button').find(b=>b.text()==='More info').trigger('click');expect(w.get('[role="dialog"]').text()).toContain('Training details 1');
     await w.get('[aria-label="Close training details"]').trigger('click');expect(w.find('[role="dialog"]').exists()).toBe(false);
+    await w.findAll('button').find(b=>b.text().startsWith('Show all')).trigger('click');
     await w.findAll('button').filter(b=>b.text()==='More info')[1].trigger('click');
     expect(mocks.push).toHaveBeenCalledWith({path:'/itsco/my-schedule',query:{eventId:2,eventKind:'SUPERVISION',weekStart:'2026-10-20'}});w.unmount();
   });

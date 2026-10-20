@@ -65,6 +65,7 @@
             :key="m.id"
             class="mlap__msg"
             :class="{ own: m.isOwn }"
+            @click="m.private && !m.isOwn && m.senderId && openPrivateChat(m.senderId)"
             :style="{ '--mlap-user-color': m.color }"
           >
             <span class="mlap__sender" :style="{ color: m.color }">{{ m.senderLabel }}{{m.private ? ` · Private${m.isOwn && m.recipientName ? ' to '+m.recipientName : ''}` : ''}}</span>

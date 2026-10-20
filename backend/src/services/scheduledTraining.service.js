@@ -10,13 +10,16 @@ import { validateTrainingCompensationOverrides } from './scheduledTrainingCompen
 export const trainingError = (status, message) => Object.assign(new Error(message), { status });
 export async function trainingRoster(agencyId, actor) {
   if (!canScheduleTraining(actor) || !await hasActiveMeetingMembership(agencyId, actor.id)) throw trainingError(403, 'Only an agency admin, CPA, or Provider Plus can schedule training.');
-  const [rows] = await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.role,u.credential,u.title,u.employment_type
+  return activeTrainingStaff(agencyId);
+}
+export async function activeTrainingStaff(agencyId) {
+  const [rows] = await pool.execute(`SELECT DISTINCT u.id,u.preferred_name,u.first_name,u.last_name,u.role,u.credential,u.title,u.employment_type
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id
     WHERE ua.agency_id=? AND ua.is_active=1 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
-      AND u.role NOT IN ('client','client_guardian','guardian','parent','school_staff','school_support','school_admin','school','kiosk','prehire','candidate')
+      AND u.role NOT IN ('client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate')
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE','ONBOARDING')
     ORDER BY u.last_name,u.first_name`, [agencyId]);
-  return rows.map(u => ({ ...u, name: [u.first_name,u.last_name].filter(Boolean).join(' '), requirement: trainingRequirement(u) }));
+  return rows.map(u => ({ ...u, name: [u.preferred_name || u.first_name,u.last_name].filter(Boolean).join(' '), requirement: trainingRequirement(u) }));
 }
 export async function isTrainingProctor(event, userId, db = pool) {
   if (!isScheduledTraining(event) || !await hasActiveMeetingMembership(event.agency_id,userId)) return false;
@@ -33,7 +36,7 @@ export async function trainingAccess(eventId, actor, { edit = false, visible = f
   const event = rows[0];
   if (!event || !await hasActiveMeetingMembership(event.agency_id,actor.id)) throw trainingError(404, 'Training not found.');
   const proctor = Number(event.provider_id)===Number(actor.id) || !!event.actor_coproctor;
-  const visibleStaff = !['client','client_guardian','guardian','parent','school_staff','school_support','school_admin','school','kiosk','prehire','candidate'].includes(String(actor.role || '').toLowerCase());
+  const visibleStaff = !['client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate'].includes(String(actor.role || '').toLowerCase());
   if (edit ? !proctor : !proctor && !event.actor_invited && !(visible && event.agency_visible && visibleStaff)) throw trainingError(403, edit ? 'Only the proctor or coproctors may change this training.' : 'You are not invited to this training.');
   return { event, proctor };
 }
@@ -74,7 +77,7 @@ export async function createScheduledTraining(input, actor) {
         [agencyId,proctorId,value.title,value.topic || null,s.startAt,s.endAt,value.timeZone,token,token,generateJoinToken(),JSON.stringify(settings),value.sessions.length>1?seriesKey:null,i,actor.id,actor.id]);
       const eventId=result.insertId;
       await db.execute(`INSERT INTO scheduled_trainings (event_id,series_key,seed_key,topic,agency_visible,video_default_on,video_allowed,mute_all) VALUES (?,?,?,?,?,?,?,?)`,
-        [eventId,seriesKey,input.seedKey ? `${input.seedKey}:${i}` : null,value.topic || null,Number(input.agencyVisible===true),Number(input.videoDefaultOn===true),Number(input.videoAllowed!==false),Number(input.muteAll!==false)]);
+        [eventId,seriesKey,input.seedKey ? `${input.seedKey}:${i}` : null,value.topic || null,Number(input.agencyVisible===true),Number(input.videoDefaultOn===true),Number(input.videoAllowed===true),Number(input.muteAll!==false)]);
       for (const [uid,required] of participants) {
         if (uid!==proctorId) await db.execute('INSERT INTO provider_schedule_event_attendees (event_id,user_id) VALUES (?,?)',[eventId,uid]);
         await db.execute('INSERT INTO meeting_participant_preferences (event_id,user_id,is_required,is_cohost) VALUES (?,?,?,?)',[eventId,uid,Number(required),Number(coproctors.includes(uid))]);

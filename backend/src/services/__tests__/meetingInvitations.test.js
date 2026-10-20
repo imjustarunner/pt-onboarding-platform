@@ -86,3 +86,8 @@ describe('durable invitation delivery',()=>{
 });
 
 afterEach(() => vi.useRealTimers());
+
+it('requeues an explicitly requested live link without replaying approvals, failures or recent sends',async()=>{
+ await personalMeetingInvitation(event,5,{queue:true,resend:true});
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("sent_at<UTC_TIMESTAMP()-INTERVAL 1 MINUTE"),[invitationKey(event),5]);
+});

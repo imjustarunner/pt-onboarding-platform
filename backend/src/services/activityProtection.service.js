@@ -60,7 +60,7 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
       if(grant) { ticket=grant.id;needsReview=false;await db.execute('UPDATE activity_protection_tickets SET used_units=used_units+? WHERE id=?',[units,ticket]); }
     }
     if(needsReview) {
-      if(userId) await db.execute('UPDATE activity_protection_state SET held_at=COALESCE(held_at,UTC_TIMESTAMP(3)) WHERE user_id=? AND kind=?',[userId,kind]);
+      if(userId && (kind !== 'email' || hardLimit || forceReview)) await db.execute('UPDATE activity_protection_state SET held_at=COALESCE(held_at,UTC_TIMESTAMP(3)) WHERE user_id=? AND kind=?',[userId,kind]);
       recorded=await recordProtectionAlert(db,req,{kind,reason:hardLimit?'recipient_hard_limit':forceReview?'bulk_operation':state.held_at?'review_hold':'volume_limit',units});
       denied=true;
     } else {
@@ -70,7 +70,7 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
     }
     await db.commit();committed=true;mirrorSecurityEvidence(recorded,recorded.eventId);
   } catch(e) {if(!committed)await db.rollback();throw e;} finally {db.release();}
-  if(denied) throw protectionError(kind==='email'?'Email delivery paused for security review. No more than 50 recipients are allowed per message.':hasUnlimitedFileViews(req)?'Additional downloads, exports, and printing are paused for security review. You can still view client documents. Request additional access in Security & sign-in activity.':'To protect client privacy, additional file access is paused. Submit a request in Security & sign-in activity explaining why you need multiple files.');
+  if(denied) throw protectionError(kind==='email' ? (hardLimit ? 'This message exceeds the 50-recipient limit. A security reviewer must review the attempted bulk send.' : recorded?.details?.reason === 'volume_limit' ? 'Email sending is temporarily rate limited (50 recipients in 15 minutes or 200 in 24 hours). Your account is not locked. Retry after the sending window resets.' : 'Email sending is on a security review hold. Open Security & sign-in activity for the recorded reason.') :hasUnlimitedFileViews(req)?'Additional downloads, exports, and printing are paused for security review. You can still view client documents. Request additional access in Security & sign-in activity.':'To protect client privacy, additional file access is paused. Submit a request in Security & sign-in activity explaining why you need multiple files.');
 }
 export async function protectFileResource(resource, {req=evidenceRequestContext.getStore(),forceReview=false}={}) {
   if(!protectionActor(req)||['client_guardian','guardian','client','participant'].includes(req?.user?.role))return;

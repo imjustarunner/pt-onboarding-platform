@@ -1,10 +1,10 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({access:vi.fn(),execute:vi.fn(),signal:vi.fn()}));
+const m=vi.hoisted(()=>({access:vi.fn(),execute:vi.fn(),signal:vi.fn(),member:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../services/scheduledTraining.service.js',()=>({trainingAccess:m.access,trainingError:(status,message)=>Object.assign(new Error(message),{status}),createScheduledTraining:vi.fn(),trainingRoster:vi.fn()}));
 vi.mock('../../services/storage.service.js',()=>({default:{}}));
 vi.mock('../../services/vonageVideo.service.js',()=>({default:{sendSignal:m.signal}}));
-vi.mock('../../services/meetingJoinPolicy.service.js',()=>({hasActiveMeetingMembership:vi.fn()}));
+vi.mock('../../services/meetingJoinPolicy.service.js',()=>({hasActiveMeetingMembership:m.member}));
 import {trainingHand,updateTraining,getTraining} from '../scheduledTraining.controller.js';
 const response=()=>({json:vi.fn()});
 beforeEach(()=>{vi.clearAllMocks();m.access.mockResolvedValue({event:{id:7,status:'ACTIVE'},proctor:false});m.execute.mockResolvedValue([{affectedRows:1}]);});
@@ -28,4 +28,11 @@ it.each([['provider',false],['support',true],['admin',true]])('filters declined 
  expect(result.canRegister).toBe(true);expect(result.canSeeDeclined).toBe(canSeeDeclined);
  expect(result.participants.map(p=>p.id)).toEqual(canSeeDeclined?[4,5]:[4]);
  if(!canSeeDeclined)expect(JSON.stringify(result)).not.toContain('Private reason');
+});
+
+it('lets a proctor permit an invited attendee to speak without requiring a raised hand',async()=>{
+ m.access.mockResolvedValue({event:{id:7,agency_id:2,status:'ACTIVE'},proctor:true});m.member.mockResolvedValue(true);m.execute.mockImplementation(async sql=>sql.startsWith('SELECT user_id')?[[{user_id:4}]]:[{affectedRows:1}]);
+ const next=vi.fn();await trainingHand({params:{eventId:7},user:{id:1},body:{action:'allow',userId:4}},response(),next);
+ expect(next).not.toHaveBeenCalled();expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('ON DUPLICATE KEY UPDATE'),[7,4,'approved',1]);
+ m.member.mockResolvedValue(false);await trainingHand({params:{eventId:7},user:{id:1},body:{action:'allow',userId:4}},response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:400}));
 });

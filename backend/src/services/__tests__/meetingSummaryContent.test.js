@@ -31,7 +31,7 @@ describe('complete meeting summaries',()=>{
     expect(prompt).toContain('never numeric account IDs');
   });
   it('does not publish an empty or truncated summary as complete',async()=>{
-    mocks.call.mockResolvedValueOnce({text:'partial',finishReason:'MAX_TOKENS'});
+    mocks.call.mockResolvedValueOnce({text:'partial',finishReason:'MAX_TOKENS'}).mockResolvedValueOnce({text:'still partial',finishReason:'MAX_TOKENS'});
     await expect(generateMeetingSummaryContent('evidence','CPA')).rejects.toThrow('did not finish');
     mocks.call.mockResolvedValueOnce({text:''});
     await expect(generateMeetingSummaryContent('evidence','CPA')).rejects.toThrow('no content');
@@ -49,4 +49,9 @@ it('restores bracketless model output before publishing a meeting summary',async
 it('rejects an unresolvable token instead of saving code-like participant names',async()=>{
  mocks.call.mockResolvedValue({text:'PRIVATE_unknown_1 agreed.',finishReason:'STOP'});
  await expect(generateMeetingSummaryContent('[Ryn] I agree.','CPA')).rejects.toThrow('unresolved participant references');
+});
+
+it('retries an exhausted output budget once and publishes only the completed summary',async()=>{
+ mocks.call.mockResolvedValueOnce({text:'partial',finishReason:'MAX_TOKENS'}).mockResolvedValueOnce({text:'Complete recap',finishReason:'STOP'});
+ expect((await generateMeetingSummaryContent('Evidence','training')).text).toBe('Complete recap');expect(mocks.call.mock.calls.at(-1)[0].maxOutputTokens).toBe(16384);
 });

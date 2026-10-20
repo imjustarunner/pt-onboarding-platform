@@ -38,7 +38,7 @@ import { trainingWallInstant } from '../../utils/scheduledTraining';
 const props=defineProps({agencyId:{type:Number,required:true}});
 const emit=defineEmits(['close','saved']);
 const people=ref([]),loading=ref(true),saving=ref(false),error=ref(''),createdId=ref(null),uploadStatus=ref(''),search=ref(''),files=ref([]);
-const form=reactive({title:'',topic:'',proctorId:0,coproctorIds:[],timeZone:'America/Denver',agencyVisible:false,videoAllowed:true,videoDefaultOn:false,muteAll:true});
+const form=reactive({title:'',topic:'',proctorId:0,coproctorIds:[],timeZone:'America/Denver',agencyVisible:false,videoAllowed:false,videoDefaultOn:false,muteAll:true});
 const participants=ref({}),sessions=ref([{date:'',start:'17:00',end:'19:00'}]),agenda=ref(''),goals=ref(''),reminders=ref([10080,1440,60]),transcription=ref(true);
 const filteredPeople=computed(()=>people.value.filter(p=>`${p.name} ${p.credential || ''}`.toLowerCase().includes(search.value.toLowerCase())));
 function inviteAll(){participants.value=Object.fromEntries(people.value.map(p=>[p.id,p.requirement]));}

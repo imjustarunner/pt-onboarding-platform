@@ -856,7 +856,7 @@
                 <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
                 <td>{{ fmtShortDate(c.claim_date) }}</td>
-                <td>{{ timeClaimTypeLabel(c) }}<details><summary>View details</summary><p>{{ c.payload?.description || c.payload?.summary || c.payload?.eventSummary }}</p><p>{{ c.payload?.purpose }}</p><p v-for="(a,index) in c.payload?.allocations || []" :key="index">{{ a.serviceTypeLabel }}: {{ a.minutes }} minutes. {{ a.note }}</p><p v-if="c.rejection_reason"><strong>Payroll note:</strong> {{ c.rejection_reason }}</p></details></td>
+                <td>{{ timeClaimTypeLabel(c) }}<div v-if="c.payload?.totalMinutes != null"><strong>{{ c.payload.totalMinutes }} minutes</strong></div><details><summary>View details</summary><p>{{ c.payload?.description || c.payload?.summary || c.payload?.eventSummary }}</p><p>{{ c.payload?.purpose }}</p><p v-for="(a,index) in c.payload?.allocations || []" :key="index">{{ a.serviceTypeLabel }}: {{ a.minutes }} minutes. {{ a.note }}</p><p v-if="c.rejection_reason"><strong>Payroll note:</strong> {{ c.rejection_reason }}</p></details></td>
                 <td>
                   <div>{{ employeeTimeStatusLabel(c) }}</div>
                   <div
@@ -897,7 +897,7 @@
                     Withdrawn — edit and resubmit when ready. Not in payroll review until resubmitted.
                   </div>
                 </td>
-              <td class="right">{{ isTimeAppliedToPayroll(c) ? fmtMoney(c.applied_amount) : '—' }}</td>
+              <td class="right"><template v-if="isTimeAppliedToPayroll(c)">{{ fmtMoney(c.applied_amount) }}</template><template v-else-if="c.compensation"><strong>{{ c.compensation.estimatedAmount == null ? 'Rate needs review' : fmtMoney(c.compensation.estimatedAmount) }}</strong><div class="muted">Estimate · {{ c.compensation.rateLabel }}<br />Pending payroll review</div></template><template v-else>—</template></td>
                 <td class="right">
                   <button type="button" class="btn btn-secondary btn-sm" @click="archiveTimeClaim(c)">{{ c.employee_archived_at?'Restore':'Archive' }}</button>
                   <button
@@ -4439,7 +4439,7 @@ const timeClaimTypeLabel = (c) => {
     const code = String(c?.payload?.serviceCode || '').trim();
     const cat = String(c?.payload?.categoryLabel || '').trim();
     if (cat) return cat;
-    if (code === 'Admin Time') return 'Admin Meeting (Supervisor)';
+    if (code === 'Admin Time') return c.payload?.meetingType === 'Training' ? 'Training · Administrative time' : 'Administrative meeting';
     if (String(c?.payload?.source || '') === 'meeting_compensation_auto') return 'Auto meeting';
     return 'Meeting (auto)';
   }

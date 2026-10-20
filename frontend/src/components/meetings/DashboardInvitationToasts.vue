@@ -1,4 +1,5 @@
 <template>
+ <Teleport to="body">
   <section v-if="prompts.length || error" class="dashboard-invitations" aria-label="Training and supervision invitations">
     <p v-if="error" class="invitation-error" role="alert">{{ error }}</p>
     <div class="invitation-list" aria-live="polite">
@@ -23,7 +24,7 @@
         </form>
       </article>
     </div>
-    <button v-if="prompts.length > 3" type="button" class="show-invitations" :aria-expanded="showAll" @click="showAll = !showAll">{{ showAll ? 'Show fewer invitations' : `Show all ${prompts.length} invitations` }}</button>
+    <button v-if="prompts.length > 1" type="button" class="show-invitations" :aria-expanded="showAll" @click="showAll = !showAll">{{ showAll ? 'Show fewer invitations' : `Show all ${prompts.length} invitations` }}</button>
     <div v-if="selectedTraining" class="training-details-backdrop" @click.self="closeDetails" @keydown.esc="closeDetails" @keydown.tab="trapDialogFocus">
       <section ref="dialog" class="training-details-modal" role="dialog" aria-modal="true" aria-label="Training details" tabindex="-1">
         <button type="button" class="close-details" aria-label="Close training details" @click="closeDetails">×</button>
@@ -31,6 +32,7 @@
       </section>
     </div>
   </section>
+ </Teleport>
 </template>
 
 <script setup>
@@ -43,7 +45,7 @@ const route = useRoute(), router = useRouter();
 const prompts = ref([]), error = ref(''), busy = ref(''), now = ref(Date.now());
 const declining = ref(''), reason = ref(''), selectedTraining = ref(null), showAll = ref(false);
 const dialog = ref(null); let previousFocus;
-const visible = computed(() => showAll.value ? prompts.value : prompts.value.slice(0, 3));
+const visible = computed(() => showAll.value ? prompts.value : prompts.value.slice(0, 1));
 let timer, inFlight = false, mounted = true;
 function when(event) {
   return new Intl.DateTimeFormat('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:event.timeZone || 'America/Denver', timeZoneName:'short' }).format(new Date(event.startAt));
@@ -95,5 +97,7 @@ onUnmounted(() => { mounted=false; clearInterval(timer); window.removeEventListe
 </script>
 
 <style scoped>
-.dashboard-invitations{margin:12px 0}.invitation-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px}.invitation-toast{border:1px solid var(--border,#a9cfc1);border-left:4px solid #248065;border-radius:12px;background:var(--bg-card,#f2faf6);padding:14px;color:var(--text-primary,#183e35)}.invitation-toast--required{border-left-color:#98630b}.invitation-kind{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em}.invitation-copy h3{font-size:1rem;margin:5px 0}.invitation-copy p{font-size:.85rem;line-height:1.45;margin:5px 0}.signup-countdown{font-weight:700}.invitation-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.dashboard-invitations button{font:inherit;min-height:40px;padding:7px 10px;border:1px solid var(--border,#b4c8bf);border-radius:7px;background:var(--bg-card,#fff);color:inherit;cursor:pointer}.dashboard-invitations button.attend{background:#17633f;color:#fff;border-color:#17633f;font-weight:600}.dashboard-invitations button:disabled{opacity:.55;cursor:default}.decline-form{display:grid;gap:7px;margin-top:10px}.decline-form textarea{width:100%;font:inherit;border:1px solid var(--border,#a9cfc1);border-radius:6px}.show-invitations{margin-top:8px}.invitation-error{color:var(--danger,#a32727)}.training-details-backdrop{position:fixed;inset:0;background:#11182788;z-index:2100;display:grid;place-items:center;padding:20px}.training-details-modal{position:relative;background:var(--bg-card,#fff);border-radius:14px;width:min(800px,100%);max-height:85dvh;overflow:auto;padding:38px 12px 12px}.close-details{position:absolute;right:12px;top:8px;font-size:1.5rem!important}.dashboard-invitations button:focus-visible{outline:3px solid #5b7fc5;outline-offset:2px}
+.dashboard-invitations { position: fixed; bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; width: min(420px, calc(100vw - 32px)); z-index: 1000; max-height: 65vh; overflow: auto; box-shadow: 0 8px 32px #172a3340; border-radius: 14px; background: var(--bg, #fff); }
+
+.dashboard-invitations{margin:0}.invitation-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px}.invitation-toast{border:1px solid var(--border,#a9cfc1);border-left:4px solid #248065;border-radius:12px;background:var(--bg-card,#f2faf6);padding:14px;color:var(--text-primary,#183e35)}.invitation-toast--required{border-left-color:#98630b}.invitation-kind{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em}.invitation-copy h3{font-size:1rem;margin:5px 0}.invitation-copy p{font-size:.85rem;line-height:1.45;margin:5px 0}.signup-countdown{font-weight:700}.invitation-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.dashboard-invitations button{font:inherit;min-height:40px;padding:7px 10px;border:1px solid var(--border,#b4c8bf);border-radius:7px;background:var(--bg-card,#fff);color:inherit;cursor:pointer}.dashboard-invitations button.attend{background:#17633f;color:#fff;border-color:#17633f;font-weight:600}.dashboard-invitations button:disabled{opacity:.55;cursor:default}.decline-form{display:grid;gap:7px;margin-top:10px}.decline-form textarea{width:100%;font:inherit;border:1px solid var(--border,#a9cfc1);border-radius:6px}.show-invitations{margin-top:8px}.invitation-error{color:var(--danger,#a32727)}.training-details-backdrop{position:fixed;inset:0;background:#11182788;z-index:2100;display:grid;place-items:center;padding:20px}.training-details-modal{position:relative;background:var(--bg-card,#fff);border-radius:14px;width:min(800px,100%);max-height:85dvh;overflow:auto;padding:38px 12px 12px}.close-details{position:absolute;right:12px;top:8px;font-size:1.5rem!important}.dashboard-invitations button:focus-visible{outline:3px solid #5b7fc5;outline-offset:2px}
 </style>

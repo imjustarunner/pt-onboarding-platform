@@ -1,7 +1,7 @@
 <template>
   <main class="my-meetings" :class="{ embedded }">
     <header class="page-heading">
-      <div><p class="eyebrow">YOUR WORKSPACE</p><h1>Meetings</h1><p>Your attended meetings, shared records, and personal notes in one place.</p></div>
+      <div><p class="eyebrow">YOUR WORKSPACE</p><h1>Meetings</h1><p>Your meetings, shared records, and personal notes in one place.</p></div>
       <RouterLink class="schedule-link" :to="`${prefix}/my-schedule`"><CalendarDays :size="18" /> My schedule</RouterLink>
     </header>
     <ManualMeetingLog :agency-id="agencyId" @saved="load(false)" />
@@ -47,9 +47,11 @@
         <div class="record-facts"><div><span>FACILITATOR</span><strong>{{ detail.meeting.facilitator || 'Not recorded' }}</strong></div><div><span>SESSION</span><strong>{{ duration(detail.meeting.startAt,detail.meeting.endAt) }}</strong></div><div><span>STATUS</span><strong>{{ statusLabel(detail.meeting) }}</strong></div></div>
         <p v-if="detail.meeting.category==='interview'" class="privacy-note">Interview records are available only to authorized staff. Candidates cannot view this history.</p>
         <nav class="tabs" aria-label="Meeting sections"><button v-for="name in tabs" :key="name" :aria-pressed="tab === name" @click="tab = name">{{ name }}</button></nav>
-        <section v-if="tab === 'Overview' && detail.training" class="record-section"><h3>Training topic &amp; assets</h3><p>{{detail.training.topic}}</p><ul><li v-for="asset in detail.training.assets" :key="asset.id"><button type="button" @click="downloadTrainingAsset(asset)">{{asset.filename}}</button></li></ul></section>
+        <section v-if="['Overview','Documents'].includes(tab) && detail.training" class="record-section"><h3>Training topic &amp; assets</h3><p>{{detail.training.topic}}</p><ul><li v-for="asset in detail.training.assets" :key="asset.id"><button type="button" @click="downloadTrainingAsset(asset)">{{asset.filename}}</button></li></ul></section>
+        <section v-if="tab === 'Overview' && detail.summary" class="record-section"><h3>Summary</h3><div class="summary-markdown" v-html="summaryHtml" /></section>
+        <p v-if="detail.attended===false" class="privacy-note">Shared notes for your invitation. No attendance was recorded for you; private notes and transcript access are not included.</p>
         <section v-if="tab === 'Overview'" class="overview-grid">
-          <div class="record-section"><h3>Participants &amp; attendance</h3><p class="muted">Recorded attendance and join history.</p>
+          <div v-if="detail.attended!==false" class="record-section"><h3>Participants &amp; attendance</h3><p class="muted">Recorded attendance and join history.</p>
             <ul class="attendance-list"><li v-for="person in detail.attendance" :key="person.user_id"><span class="avatar" aria-hidden="true">{{ initials(person.name) }}</span><div><strong>{{ person.name }} · {{ Math.round(person.total_seconds / 60) }} minutes</strong><span v-if="person.first_joined_at">{{ time(person.first_joined_at) }} – {{ person.last_left_at ? time(person.last_left_at) : 'Departure not recorded' }}</span></div></li>
               <li v-for="person in presenceOnly" :key="person.join_identity"><span class="avatar" aria-hidden="true">{{ initials(person.name) }}</span><div><strong>{{ person.name || 'Participant' }}</strong><span>Joined {{ when(person.joined_at) }}<template v-if="person.left_at"> · Left {{ when(person.left_at) }}</template></span></div></li></ul>
             <p v-if="!detail.attendance.length && !detail.presence.length">No detailed attendance record is available.</p>
@@ -57,8 +59,9 @@
             <details v-else-if="detail.presence.length" class="join-log"><summary>View join and leave log</summary><p v-for="(person,index) in detail.presence" :key="index"><strong>{{ person.name || 'Participant' }}</strong><br />Joined {{ when(person.joined_at) }}<br />{{ person.left_at ? `Left ${when(person.left_at)}` : 'Departure not recorded' }}</p></details>
           </div>
           <div><section class="record-section"><h3>Agenda</h3><ul class="agenda-list"><li v-for="item in detail.agenda" :key="item.id"><strong>{{ item.title }}</strong><span class="muted"> · {{ friendly(item.status) }}</span><p v-if="item.notes">{{ item.notes }}</p></li></ul><p v-if="!detail.agenda.length" class="muted">No agenda items saved.</p></section>
-          <section class="record-section"><h3>Goals &amp; assigned tasks</h3><p v-if="detail.workspace.focusTitle">{{ detail.workspace.focusTitle }}</p><ul><li v-for="goal in detail.workspace.goals" :key="goal.id">{{ goal.done ? '✓ ' : '' }}{{ goal.text }}</li><li v-for="task in detail.workspace.actionItems" :key="task.id">{{ task.done ? '✓ ' : '' }}{{ task.text }} <span v-if="task.assigneeUserId">— {{ assigneeName(task.assigneeUserId) }}</span></li></ul><p v-if="!detail.workspace.goals?.length && !detail.workspace.actionItems?.length" class="muted">No goals or assigned tasks saved.</p></section></div>
+          <section class="record-section"><h3>{{detail.training?'Training goals':'Goals & assigned tasks'}}</h3><p v-if="detail.workspace.focusTitle">{{ detail.workspace.focusTitle }}</p><ul><li v-for="goal in detail.workspace.goals" :key="goal.id">{{ goal.done ? '✓ ' : '' }}{{ goal.text }}</li><li v-for="task in detail.workspace.actionItems" :key="task.id">{{ task.done ? '✓ ' : '' }}{{ task.text }} <span v-if="task.assigneeUserId">— {{ assigneeName(task.assigneeUserId) }}</span></li></ul><p v-if="!detail.workspace.goals?.length && !detail.workspace.actionItems?.length" class="muted">No goals or assigned tasks saved.</p></section></div>
         </section>
+        <section v-else-if="tab === 'Documents' && detail.training"><p>Download the documents above. Access stays with your meeting invitation.</p></section>
         <section v-else-if="tab === 'Chat & activity'" class="activity-panel"><h3>Saved chat &amp; activity</h3><p class="muted">Messages, discussion points, polls, and answers captured during this meeting.</p>
           <p v-if="activityLoading" role="status">Loading saved activity…</p><p v-if="activityError" class="error" role="alert">{{ activityError }} <button @click="loadActivity(activity.length>0)">Try again</button></p>
           <p v-if="activityLoaded && !activity.length" class="empty-state">No chat or activity was saved for this meeting.</p>
@@ -93,10 +96,15 @@ const auth = useAuthStore(), trainingEditorOpen = ref(false), trainingLogVersion
 const prefix = computed(() => route.params.organizationSlug ? `/${route.params.organizationSlug}` : '');
 const agencyId = computed(() => agencies.currentAgency?.id || agencies.userAgencies?.[0]?.id || agencies.agencies?.[0]?.id);
 const categories = { training:'Training', administrative:'All administrative',group_supervision:'Group supervision', general:'General',huddle:'Huddle',cpa:'CPA',mentorship:'Mentorship',admin:'Administrative',town_hall:'Town hall',interview:'Interview',evaluation:'Evaluation',leadership_circle:'Leadership circle',supervisors_meeting:'Supervisors meeting',supervision:'Individual supervision' };
-const tabs = ['Overview','Chat & activity','Summary','Tasks by person','Suggested next steps','Transcript','My notes'];
+const allTabs = ['Overview','Chat & activity','Summary','Tasks by person','Suggested next steps','Transcript','My notes','Documents'];
+const tabs = computed(() => allTabs.filter(name => {
+  if (name==='Documents') return !!detail.value?.training;
+  if (detail.value?.attended===false) return ['Overview','Summary'].includes(name);
+  return !detail.value?.training || !['Tasks by person','Suggested next steps'].includes(name);
+}));
 const counts=ref({}),total=ref(0);
 const category=ref(Object.hasOwn(categories,route.query.category) ? route.query.category : ''),from=ref(''),to=ref(''),search=ref(''),rows=ref([]),hasMore=ref(false),loading=ref(false),error=ref('');
-const selected=ref(null),detail=ref(null),detailLoading=ref(false),tab=ref(tabs.includes(route.query.meetingTab || (!props.embedded && route.query.tab)) ? (route.query.meetingTab || route.query.tab) : 'Overview'),note=ref(''),noteDirty=ref(false),saving=ref(false),noteSaved=ref(false);
+const selected=ref(null),detail=ref(null),detailLoading=ref(false),tab=ref(allTabs.includes(route.query.meetingTab || (!props.embedded && route.query.tab)) ? (route.query.meetingTab || route.query.tab) : 'Overview'),note=ref(''),noteDirty=ref(false),saving=ref(false),noteSaved=ref(false);
 const activity=ref([]),activityLoading=ref(false),activityLoaded=ref(false),activityMore=ref(false),activityError=ref('');
 let timer,loadVersion=0,detailVersion=0,activityVersion=0;
 async function downloadTrainingAsset(asset) {
@@ -171,7 +179,7 @@ async function load(append=false) {
 async function openMeeting(row,refresh=false){
   if (!refresh && noteDirty.value) { error.value='Save your personal notes before opening another meeting.';return; }
   const version=++detailVersion;selected.value=row; if(!refresh){++activityVersion;activity.value=[];activityLoaded.value=false;activityLoading.value=false;activityMore.value=false;activityError.value='';error.value='';detail.value=null;detailLoading.value=true;noteSaved.value=false;}
-  try{const {data}=await api.get(path(row),{skipGlobalLoading:true});if(version!==detailVersion)return;detail.value=data;if(!noteDirty.value)note.value=data.personalNote||'';
+  try{const {data}=await api.get(path(row),{skipGlobalLoading:true});if(version!==detailVersion)return;detail.value=data;if(!tabs.value.includes(tab.value))tab.value='Overview';if(!noteDirty.value)note.value=data.personalNote||'';
     if(!refresh){await router.replace({query:detailQuery()});if(tab.value==='Chat & activity')void loadActivity();}
   }catch(e){if(version===detailVersion)error.value=e?.response?.data?.error?.message||'Could not load meeting';}finally{if(version===detailVersion)detailLoading.value=false;}
 }

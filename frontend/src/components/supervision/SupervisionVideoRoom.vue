@@ -154,7 +154,7 @@ const localName = computed(() => {
   const role = String(props.localRoleLabel || (props.isHost ? 'Supervisor' : '')).trim();
   const fromProp = String(props.localDisplayName || '').trim();
   const u = authStore.user || {};
-  const authPerson = `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
+  const authPerson = `${u.preferredName || u.preferred_name || u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim();
   const authName = authPerson || u.email || '';
   const authenticated = !!(authStore.isAuthenticated || u.id || authName);
   const preferName = (...cands) => {
@@ -170,7 +170,7 @@ const localName = computed(() => {
   };
   // Prefer real person name over email / stale "Guest" labels.
   const name = role.toLowerCase() === 'applicant' || supervisionAccessFor(props.sessionId)
-    ? preferName(fromProp) : preferName(authPerson, fromProp, authName);
+    ? preferName(fromProp) : preferName(fromProp, authPerson, authName);
   let roleSafe = role;
   // Prefer an explicit role label (e.g. Host / Participant for team meetings).
   if (props.isHost && !roleSafe) roleSafe = 'Supervisor';

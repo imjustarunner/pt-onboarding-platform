@@ -30,3 +30,11 @@ describe('live transcript display',()=>{
   });
 
 });
+
+it('keeps chronological text, focus and scroll position while a live transcript refreshes',async()=>{
+ vi.useFakeTimers();mock.get.mockResolvedValue({data:{transcript:'[Alex] First\n[Sam] Second'}});
+ const w=mount(MeetingNotesPanel,{attachTo:document.body,props:{eventId:4,autoRefresh:true,readOnly:true},global:{stubs:{RouterLink:true}}});await flushPromises();
+ const text=w.get('textarea').element;text.focus();text.scrollTop=120;text.setSelectionRange(2,8);
+ mock.get.mockResolvedValue({data:{transcript:'[Alex] First\n[Sam] Second\n[Alex] Third'}});await vi.advanceTimersByTimeAsync(5000);await flushPromises();
+ expect(w.get('textarea').element).toBe(text);expect(document.activeElement).toBe(text);expect(text.scrollTop).toBe(120);expect(text.value.indexOf('First')).toBeLessThan(text.value.indexOf('Third'));w.unmount();vi.useRealTimers();
+});

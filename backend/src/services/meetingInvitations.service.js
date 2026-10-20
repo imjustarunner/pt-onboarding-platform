@@ -12,7 +12,7 @@ export function normalizeInvitationEvent(event) {
   if (event.supervisor_user_id) return {...event,meeting_type:'supervision',provider_id:event.supervisor_user_id,title:'Supervision',event_timezone:event.event_timezone || 'America/Denver'};
   return event;
 }
-export async function personalMeetingInvitation(rawEvent, userId, { queue = false } = {}) {
+export async function personalMeetingInvitation(rawEvent, userId, { queue = false, resend = false } = {}) {
   const event = normalizeInvitationEvent(rawEvent);
   const key = invitationKey(event);
   await pool.execute(`INSERT INTO meeting_email_invitations
@@ -22,6 +22,10 @@ export async function personalMeetingInvitation(rawEvent, userId, { queue = fals
       ready_at=IF(delivery_status IN ('none','pending') AND VALUES(delivery_status)='pending',VALUES(ready_at),ready_at),
       delivery_status=IF(delivery_status='none' AND VALUES(delivery_status)='pending','pending',delivery_status)`,
   [event.agency_id,event.provider_id,event.id,userId,key,generateJoinToken(),queue?'pending':'none',event.meeting_type || 'team_meeting']);
+  // An explicit live invitation may resend a delivered link, with a cooldown.
+  // Approval/failed/cancelled deliveries are never silently retried here.
+  if (queue && resend) await pool.execute(`UPDATE meeting_email_invitations SET ready_at=UTC_TIMESTAMP(),delivery_status='pending'
+    WHERE invitation_key=? AND user_id=? AND (delivery_status IN ('none','pending') OR (delivery_status='sent' AND sent_at<UTC_TIMESTAMP()-INTERVAL 1 MINUTE))`,[key,userId]);
   const [rows] = await pool.execute('SELECT * FROM meeting_email_invitations WHERE invitation_key=? AND user_id=?',[key,userId]);
   return { ...rows[0], url: `${await tenantMeetingBase(event.agency_id)}/join/invitation/${encodeURIComponent(rows[0].join_token)}` };
 }

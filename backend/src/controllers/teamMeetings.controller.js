@@ -1,3 +1,4 @@
+import { teamMeetingSpeakerNames } from '../services/meetingSpeakerNames.service.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { isTrainingProctor } from '../services/scheduledTraining.service.js';
 import { isStudentIntern } from '../services/internMeetingPolicy.service.js';
@@ -18,6 +19,8 @@ import { canAccessHiringInterview } from '../services/hiringInterviewAccess.serv
  */
 
 import pool from '../config/database.js';
+import { activeTrainingStaff, trainingAccess } from '../services/scheduledTraining.service.js';
+import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { meetingEndPermission } from '../services/meetingEndPermission.service.js';
 import { createHash } from 'crypto';
 import User from '../models/User.model.js';
@@ -145,7 +148,7 @@ function isWaitingRoomEnabled(eventRow) {
 
 function displayNameFromUser(user) {
   if (!user) return '';
-  return `${user.firstName || user.first_name || ''} ${user.lastName || user.last_name || ''}`.trim()
+  return `${user.preferredName || user.preferred_name || user.firstName || user.first_name || ''} ${user.lastName || user.last_name || ''}`.trim()
     || String(user.email || '').trim()
     || '';
 }
@@ -491,7 +494,7 @@ async function buildTeamMeetingWaitingPrep(eventId, { sessionTitle = null, kind 
        LIMIT 20`,
       [eid]
     );
-    out.agenda = (agendaRows || [])
+    out.agenda = (agendaRows || []).map(mapMeetingAgendaItem)
       .map((r) => ({ id: String(r.id), text: String(r.title || '').trim(), status: String(r.status || '').toLowerCase() }))
       .filter((r) => r.text);
   } catch { /* ignore */ }
@@ -960,7 +963,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
     await upsertJoinPresence({
       eventId: row.id,
       joinIdentity: identity,
-      displayName: guestJoin ? await interviewGuestDisplayName(row) : (String(req.body?.displayName || '').trim() || null),
+      displayName: guestJoin ? await interviewGuestDisplayName(row) : displayNameFromUser(await User.findById(actorUserId)),
       isGuest: !!guestJoin
     });
 
@@ -1120,7 +1123,7 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
     const actorId = Number(req.user?.id || 0);
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const role = String(req.user?.role || '').toLowerCase();
-    const isHost = actorId === Number(row.provider_id || 0) || actorId === Number(row.created_by_user_id || 0);
+    const isHost = await isMeetingHost(row, actorId);
     const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
     if (!isHost && !isPrivileged) {
       return res.status(403).json({ error: { message: 'Only the host, admin, support, or super admin can add attendees.' } });
@@ -1148,9 +1151,14 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
       await pool.execute(`UPDATE hiring_interviews SET interviewer_user_ids_json = JSON_ARRAY_APPEND(COALESCE(interviewer_user_ids_json, JSON_ARRAY()), '$', ?)
         WHERE id = ? AND NOT JSON_CONTAINS(COALESCE(interviewer_user_ids_json, JSON_ARRAY()), JSON_ARRAY(?))`, [userId, interview.id, userId]);
     }
+    if (String(row.meeting_subtype || '').toLowerCase() === 'training') {
+      const roster = await activeTrainingStaff(row.agency_id);
+      if (!roster.some(person => Number(person.id) === userId)) return res.status(400).json({error:{message:'Choose active agency staff.'}});
+      await pool.execute("INSERT IGNORE INTO meeting_participant_preferences (event_id,user_id,is_required) VALUES (?,?,0)",[row.id,userId]);
+    }
     await ProviderScheduleEventAttendee.upsertForEvent(row.id, [userId]);
     const { personalMeetingInvitation } = await import('../services/meetingInvitations.service.js');
-    const personalInvite = await personalMeetingInvitation(row,userId,{queue:Number(row.notify_participants ?? 1)!==0});
+    const personalInvite = await personalMeetingInvitation(row,userId,{queue:Number(row.notify_participants ?? 1)!==0,resend:req.body?.resend===true});
 
     try {
       const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
@@ -1183,6 +1191,14 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const trainingInviteCandidates = async (req,res,next) => {
+  try {
+    const {event,proctor}=await trainingAccess(Number(req.params.eventId),req.user,{visible:true});
+    if (!proctor && !['admin','super_admin','superadmin','support'].includes(String(req.user.role || '').toLowerCase())) return res.status(403).json({error:{message:'Only trainers or agency administrators may invite staff.'}});
+    res.json({users:await activeTrainingStaff(event.agency_id)});
+  } catch(error) { next(error); }
 };
 
 /** Host live control: turn waiting room off (admit current waiters) or back on. */
@@ -1516,7 +1532,7 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     if (!transcript) return res.status(400).json({ error: { message: 'transcript is required' } });
 
     const replace = req.body?.replace === true;
-    const label = String(req.body?.speakerLabel || req.body?.displayName || '').trim();
+    const label = replace ? '' : displayNameFromUser(await User.findById(Number(req.user?.id || 0)));
     const stamped = label ? `[${label}] ${transcript}` : transcript;
 
     await ProviderScheduleEventArtifact.ensureTagged({ eventId });
@@ -1565,7 +1581,7 @@ async function loadMeetingParticipants(event) {
   if (!eid) return [];
   const hostId = Number(event.provider_id || 0);
   const [rows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.email, u.role
+    `SELECT u.id, u.preferred_name, u.first_name, u.last_name, u.email, u.role
      FROM (
        SELECT ? AS user_id
        UNION
@@ -1580,7 +1596,7 @@ async function loadMeetingParticipants(event) {
     id: Number(r.id),
     firstName: r.first_name,
     lastName: r.last_name,
-    name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email || `User ${r.id}`,
+    name: displayNameFromUser(r),
     email: r.email || null,
     role: r.role || null,
     isHost: Number(r.id) === hostId
@@ -2547,7 +2563,7 @@ export const getTeamMeetingNotes = async (req, res, next) => {
     const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
     res.json({
       eventId,
-      transcript: artifact?.transcript_text || '',
+      transcript: await teamMeetingSpeakerNames(eventId, artifact?.transcript_text),
       summary: hasUnresolvedMeetingReferences(artifact?.summary_text) ? '' : artifact?.summary_text || '',
       summaryStatus: await meetingSummaryStatus('team', eventId, artifact),
       meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase(),
@@ -2663,7 +2679,7 @@ export const appendTeamMeetingAudio = async(req,res,next) => {
     }
     const text=String(await transcribeLongAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,languageCode:'en-US'})).trim();
     ensure((await secureTeamTranscriptionContext(req)).state);
-    const speaker = applicant ? await User.findById(applicant.interview.candidate_user_id) : req.user;
+    const speaker = await User.findById(applicant ? applicant.interview.candidate_user_id : req.user.id);
     const name = `${displayNameFromUser(speaker) || 'Participant'}${applicant ? ' · Applicant' : ''}`;
     if(text)await ProviderScheduleEventArtifact.appendTranscriptChunk({eventId:event.id,
       text:`[${name}] ${text}`,updatedByUserId:applicant ? null : req.user.id,expectedRevision:revision});

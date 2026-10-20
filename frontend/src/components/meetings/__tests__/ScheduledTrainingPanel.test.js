@@ -27,5 +27,11 @@ it('lets optional staff register from agency-visible training and dismiss withou
 it('shows confirmed attendees to everyone and uses separate own response after a decline',async()=>{
  const value={...data(false),invited:true,viewerInvitation:{id:4,is_required:0,rsvp:'declined'},participants:[{id:1,name:'Trainer',isHost:true,rsvp:'pending'},{id:9,name:'Confirmed person',rsvp:'accepted'},{id:10,name:'Pending person',rsvp:'pending'}]};m.get.mockResolvedValue({data:value});
  const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
- expect(w.text()).toContain('RSVP: declined');expect(w.text()).toContain('Confirmed person');expect(w.text()).not.toContain('Pending person');w.unmount();
+ expect(w.text()).toContain('RSVP: declined');await w.findAll('button').find(b=>b.text()==='RSVP').trigger('click');expect(w.text()).toContain('Confirmed person');expect(w.text()).not.toContain('Pending person');w.unmount();
+});
+
+it('shows colored RSVP totals and authorized decline reasons in the event record',async()=>{
+ const value={...data(true),invited:true,canSeeDeclined:true,participants:[{id:1,name:'Trainer',isHost:true,rsvp:'accepted'},{id:4,name:'Student',rsvp:'declined',rsvp_decline_reason:'Attended in spring'},{id:5,name:'Pending',rsvp:'pending'}]};m.get.mockResolvedValue({data:value});
+ const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true,MeetingAttendancePanel:true,MeetingNotesPanel:true}}});await flushPromises();
+ expect(w.get('.rsvp-status--declined').text()).toContain('1');await w.findAll('button').find(b=>b.text()==='RSVP').trigger('click');expect(w.text()).toContain('Attended in spring');expect(w.find('.rsvp-status--pending').exists()).toBe(true);w.unmount();
 });

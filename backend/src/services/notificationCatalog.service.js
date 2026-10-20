@@ -41,6 +41,7 @@ const TYPES_BY_CATEGORY = {
     'medical_records_release_submitted', 'psychotherapy_threshold_exceeded'
   ],
   scheduling_office: [
+    'meeting_attendance_recorded',
     'kiosk_checkin', 'client_appointment_reply', 'office_schedule_biweekly_review',
     'office_schedule_booking_confirm_6_weeks', 'office_schedule_unbooked_forfeit',
     'office_schedule_booked_no_external_calendar_2_weeks',

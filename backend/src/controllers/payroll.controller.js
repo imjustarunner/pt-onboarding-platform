@@ -18742,6 +18742,10 @@ export const listMyTimeClaims = async (req, res, next) => {
     const filtered = (hydrated || []).filter(
       (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
     );
+    const { meetingClaimCompensation } = await import('../services/meetingClaimRate.service.js');
+    for (const claim of filtered) {
+      if (claim.payload?.source === 'meeting_compensation_auto') claim.compensation = await meetingClaimCompensation(claim);
+    }
     res.json(filtered);
   } catch (e) {
     next(e);

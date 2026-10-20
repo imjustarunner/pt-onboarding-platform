@@ -67,7 +67,12 @@ export function validateOutboundEmailQuality({
   // An opted-in inbox copy quotes the original sender and deliberately keeps
   // files in the app. Its required app link is the destination for those files.
   const linkedInboxCopy = templateType === 'personal_thread_forward' && /^https?:\/\//i.test(String(linkUrl || ''));
-  if (ATTACHMENT_RX.test(combined) && !hasAttachments && !linkedInboxCopy) {
+  // Meeting recaps quote discussion (including attachment styles or files shared
+  // during the meeting); their documents stay in the authenticated meeting record.
+  const linkedMeetingRecap = templateType === 'meeting_summary_ready'
+    && /^https?:\/\/[^/]+(?:\/[^?]*)?\/my-meetings\?/i.test(String(linkUrl || ''))
+    && combined.includes('Documents stay in the app; no files are attached to this email.');
+  if (ATTACHMENT_RX.test(combined) && !hasAttachments && !linkedInboxCopy && !linkedMeetingRecap) {
     flags.push({
       code: 'missing_attachment',
       message: 'Message says something is attached, but no attachment was included.'

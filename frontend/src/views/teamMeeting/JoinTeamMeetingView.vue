@@ -118,8 +118,8 @@
           <div v-if="canManageMeetingLive" class="join-tools">
             <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
             <div v-if="toolsOpen" class="join-tools__menu">
-              <button v-if="!isTraining" type="button" class="join-tools__item" @click="openAddAttendeeModal">
-                Add someone to this meeting
+              <button type="button" class="join-tools__item" @click="openAddAttendeeModal">
+                Invite someone · send personal link
               </button>
               <button
                 v-if="canMuteParticipants && !isTraining"
@@ -223,10 +223,10 @@
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
           <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
           <SupervisionVideoLobbyPanel
-            v-if="(isHost || isCoHostBySignal) && resolvedEventId && !meetingCompletedAt"
+            v-if="(isHost || isCoHostBySignal || trainingState?.proctor) && resolvedEventId && !meetingCompletedAt"
             class="join-host-lobby"
             :session-id="resolvedEventId"
-            :is-supervisor="isHost || isCoHostBySignal"
+            :is-supervisor="isHost || isCoHostBySignal || !!trainingState?.proctor"
             meeting-kind="team-meeting"
             theme="dark"
             @update:waiting-count="waitingLobbyCount = $event"
@@ -261,7 +261,7 @@
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
               :start-muted="returnMediaPreferences?.startMuted ?? !isHost"
-              :start-video-off="isTraining ? (!trainingState?.event.videoDefaultOn || !trainingState?.event.videoAllowed) : (returnMediaPreferences?.startVideoOff ?? false)"
+              :start-video-off="isTraining ? (!trainingState?.proctor && (!trainingState?.event.videoDefaultOn || !trainingState?.event.videoAllowed)) : (returnMediaPreferences?.startVideoOff ?? false)"
               :mute-others-mode="muteOthersMode"
               :lobby-mode="isInLobby && !videoFullscreen"
               :show-layout-controls="!isInLobby"
@@ -578,7 +578,7 @@
 
     <div v-if="showAddAttendeeModal" class="join-modal-backdrop" role="dialog" aria-modal="true" @click.self="closeAddAttendeeModal">
       <div class="join-modal">
-        <h3>Add someone to this meeting</h3>
+        <h3>Invite someone · send personal link</h3>
         <p class="muted" style="margin: 0 0 4px;">
           They’ll be able to join right away (waiting room still applies) and their attendance —
           and pay, if this meeting type is compensated — is tracked automatically once they’re in.
@@ -597,12 +597,12 @@
             <button
               type="button"
               class="join-add-attendee-item"
-              :disabled="addingAttendeeId === c.id"
+              :disabled="addingAttendeeId === c.id || addedAttendeeIds.has(c.id)"
               @click="addAttendee(c)"
             >
               <span>{{ c.label }}</span>
-              <span class="join-add-attendee-added" v-if="addedAttendeeIds.has(c.id)">Added ✓</span>
-              <span v-else class="join-add-attendee-add">{{ addingAttendeeId === c.id ? 'Adding…' : 'Add' }}</span>
+              <span class="join-add-attendee-added" v-if="addedAttendeeIds.has(c.id)">Invitation queued ✓</span>
+              <span v-else class="join-add-attendee-add">{{ addingAttendeeId === c.id ? 'Sending…' : 'Send invitation' }}</span>
             </button>
           </li>
           <li v-if="!filteredAddAttendeeCandidates.length" class="muted" style="padding: 8px 0;">
@@ -621,7 +621,7 @@
 <script setup>
 import ScheduledTrainingPanel from '../../components/meetings/ScheduledTrainingPanel.vue';
 import { canUseMeetingMiniMode } from '../../utils/meetingMiniMode.js';
-import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, provide, nextTick } from 'vue';
 import { t } from '../../composables/useMeetingI18n.js';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -1078,7 +1078,10 @@ const trainingPolicy = computed(()=>!isTraining.value ? null : {
   videoAllowed:trainingState.value?.event.videoAllowed ?? false,
   canUnmute:!!trainingState.value?.proctor || trainingState.value?.event.muteAll===false || (trainingState.value?.approvedIds || []).includes(trainingViewerId.value)
 });
-function trainingPrivateChat(id){chatPanelOpen.value=true;liveChatRef.value?.openPrivateChat(id);}
+watch(() => trainingState.value?.event?.videoAllowed, (allowed, previous) => {
+  if (isTraining.value && allowed !== undefined && allowed !== previous) tileFocus.value = allowed ? 'equal' : 'speaker';
+});
+async function trainingPrivateChat(id){chatPanelOpen.value=true;await nextTick();liveChatRef.value?.openPrivateChat(id);}
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 
 /** Roles that may force-mute other participants (in addition to host). */
@@ -1097,7 +1100,7 @@ const canMuteParticipants = computed(() => isTraining.value ? !!trainingState.va
 
 /** Who may invite/add people mid-meeting — host, admin, support, or super admin. */
 const canManageMeetingLive = computed(() => (
-  isHost.value || ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole.value)
+  isHost.value || isCoHostBySignal.value || !!trainingState.value?.proctor || ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole.value)
 ));
 
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
@@ -1655,14 +1658,14 @@ async function loadAddAttendeeCandidates() {
   addAttendeeError.value = '';
   try {
     const params = agencyId ? { agencyId } : { allAgencies: 'true' };
-    const resp = await api.get(`/users/${selfId}/meeting-candidates`, {
+    const resp = await api.get(isTraining.value ? `/team-meetings/${resolvedEventId.value || eventId.value}/training/invite-candidates` : `/users/${selfId}/meeting-candidates`, {
       params,
       skipGlobalLoading: true
     });
     const rows = Array.isArray(resp?.data?.users) ? resp.data.users : [];
     addAttendeeCandidates.value = rows.map((u) => {
       const id = Number(u.id || 0);
-      const first = String(u.firstName || u.first_name || '').trim();
+      const first = String(u.preferredName || u.preferred_name || u.firstName || u.first_name || '').trim();
       const last = String(u.lastName || u.last_name || '').trim();
       const email = String(u.email || '').trim();
       return { id, email, label: `${first} ${last}`.trim() || email || `User ${id}` };
@@ -1693,7 +1696,7 @@ async function addAttendee(candidate) {
   addingAttendeeId.value = candidate.id;
   addAttendeeError.value = '';
   try {
-    await api.post(`/team-meetings/${eid}/attendees`, { userId: candidate.id });
+    await api.post(`/team-meetings/${eid}/attendees`, { userId: candidate.id, resend: true });
     addedAttendeeIds.value = new Set([...addedAttendeeIds.value, candidate.id]);
   } catch (e) {
     addAttendeeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to add attendee';

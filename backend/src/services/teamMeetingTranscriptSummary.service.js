@@ -3,6 +3,7 @@
  * Interview meetings use interviewTranscriptIntelligence.service.js instead.
  */
 
+import { teamMeetingSpeakerNames } from './meetingSpeakerNames.service.js';
 import { generateMeetingSummaryContent } from './meetingSummaryContent.service.js';
 import { enqueueMeetingSummary } from './meetingSummaryJobs.service.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
@@ -48,7 +49,9 @@ export async function generateTeamMeetingSummaryFromTranscript(eventId) {
     return { ok: false };
   }
 
-  const summaryResp = await generateMeetingSummaryContent(transcriptText, 'staff / CPA');
+  const event = await ProviderScheduleEvent.findById(eid);
+  const normalized = await teamMeetingSpeakerNames(eid, transcriptText);
+  const summaryResp = await generateMeetingSummaryContent(normalized, event.meeting_subtype === 'training' ? 'training' : 'staff / CPA');
   const summaryText = String(summaryResp?.text || '').trim();
   const summaryModel = String(summaryResp?.modelName || '').trim() || null;
 

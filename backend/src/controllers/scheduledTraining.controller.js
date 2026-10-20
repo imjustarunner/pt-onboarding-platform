@@ -13,9 +13,9 @@ export const getTraining = async(req,res,next) => {
   try {
     const {event,proctor}=await trainingAccess(Number(req.params.eventId),req.user,{visible:true});
     const [assets]=await pool.execute(`SELECT a.id,a.filename,a.size_bytes,a.created_at FROM scheduled_training_assets a JOIN scheduled_trainings t ON t.event_id=a.event_id WHERE t.series_key=? ORDER BY a.created_at`,[event.series_key]);
-    const [hands]=await pool.execute(`SELECT h.user_id,h.status,h.raised_at,CONCAT_WS(' ',u.first_name,u.last_name) name FROM scheduled_training_hands h JOIN users u ON u.id=h.user_id WHERE h.event_id=? AND (?=1 OR h.user_id=?) ORDER BY h.raised_at`,[event.id,Number(proctor),req.user.id]);
+    const [hands]=await pool.execute(`SELECT h.user_id,h.status,h.raised_at,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) name FROM scheduled_training_hands h JOIN users u ON u.id=h.user_id WHERE h.event_id=? AND (?=1 OR h.user_id=?) ORDER BY h.raised_at`,[event.id,Number(proctor),req.user.id]);
     const [log]=await pool.execute('SELECT * FROM scheduled_training_logs WHERE event_id=? AND user_id=?',[event.id,req.user.id]);
-    const [participants]=await pool.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name,(u.id=?) isHost,COALESCE(p.is_required,0) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp,p.rsvp_decline_reason FROM users u LEFT JOIN meeting_participant_preferences p ON p.event_id=? AND p.user_id=u.id WHERE u.id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=? AND a.user_id=u.id)`,[event.provider_id,event.id,event.provider_id,event.id]);
+    const [participants]=await pool.execute(`SELECT u.id,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) name,(u.id=?) isHost,COALESCE(p.is_required,0) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp,p.rsvp_decline_reason FROM users u LEFT JOIN meeting_participant_preferences p ON p.event_id=? AND p.user_id=u.id WHERE u.id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=? AND a.user_id=u.id)`,[event.provider_id,event.id,event.provider_id,event.id]);
     let self=participants.find(p=>Number(p.id)===Number(req.user.id));
     if(!self){const [preferences]=await pool.execute('SELECT user_id AS id,rsvp,is_required,is_cohost,rsvp_decline_reason FROM meeting_participant_preferences WHERE event_id=? AND user_id=?',[event.id,req.user.id]);self=preferences[0] || null;}
     const canSeeDeclined = canViewDeclinedMeetingParticipants(event,req.user,participants);
@@ -48,6 +48,11 @@ export const trainingHand = async(req,res,next) => {
     if(['raise','lower'].includes(action)) {
       if(target!==Number(req.user.id))throw trainingError(403,'You may only raise or lower your own hand.');
       await pool.execute(`INSERT INTO scheduled_training_hands (event_id,user_id,status) VALUES (?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),raised_at=UTC_TIMESTAMP(),resolved_at=NULL,resolved_by_user_id=NULL`,[event.id,target,action==='raise'?'raised':'lowered']);
+    } else if(['allow','mute'].includes(action)) {
+      if(!proctor)throw trainingError(403,'Only a proctor may change speaker permissions.');
+      const [[person]]=await pool.execute('SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=? AND user_id=?',[event.id,target]);
+      if(!person || !await hasActiveMeetingMembership(event.agency_id,target))throw trainingError(400,'Choose an invited attendee.');
+      await pool.execute(`INSERT INTO scheduled_training_hands (event_id,user_id,status,resolved_by_user_id,resolved_at) VALUES (?,?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE status=VALUES(status),resolved_by_user_id=VALUES(resolved_by_user_id),resolved_at=UTC_TIMESTAMP()`,[event.id,target,action==='allow'?'approved':'lowered',req.user.id]);
     } else if(['approve','deny'].includes(action)) {
       if(!proctor)throw trainingError(403,'Only the proctor or coproctors can respond to raised hands.');
       const [result]=await pool.execute("UPDATE scheduled_training_hands SET status=?,resolved_by_user_id=?,resolved_at=UTC_TIMESTAMP() WHERE event_id=? AND user_id=? AND status='raised'",[action==='approve'?'approved':'denied',req.user.id,event.id,target]);
@@ -99,7 +104,7 @@ export const trainingLogs = async(req,res,next) => {
 export const trainingCalendar = async(req,res,next) => {
  try{
   const agencyId=Number(req.query.agencyId);
-  if(['client','client_guardian','guardian','parent','school_staff','school_support','school_admin','school','kiosk','prehire','candidate'].includes(String(req.user.role || '').toLowerCase()))throw trainingError(403,'Staff access required.');
+  if(['client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate'].includes(String(req.user.role || '').toLowerCase()))throw trainingError(403,'Staff access required.');
   if(!await hasActiveMeetingMembership(agencyId,req.user.id))throw trainingError(403,'Access denied.');
   const [events]=await pool.execute(`SELECT e.id,e.title,e.start_at,e.end_at,e.event_timezone,
     (e.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=e.id AND a.user_id=?)) invited

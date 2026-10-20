@@ -140,12 +140,12 @@ const prepItems = computed(() => {
   const out = [];
   for (const g of props.goals || []) {
     const text = String(g?.text || '').trim();
-    if (!text) continue;
+    if (!text || /["']_enc["']\s*:\s*true/.test(text)) continue;
     out.push({ id: `goal-${g.id || text}`, kind: 'Goal', text });
   }
   for (const a of props.agenda || []) {
     const text = String(a?.text || a?.title || '').trim();
-    if (!text) continue;
+    if (!text || /["']_enc["']\s*:\s*true/.test(text)) continue;
     out.push({ id: `agenda-${a.id || text}`, kind: 'Agenda', text });
   }
   return out.slice(0, 10);
@@ -425,7 +425,7 @@ onBeforeUnmount(() => {
 }
 .swr__prep-list li {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   font-size: 0.86rem;
@@ -435,6 +435,7 @@ onBeforeUnmount(() => {
 .swr__prep-list li > span:last-child {
   color: #0f3d2e;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .swr__prep-tag {
   font-size: 0.68rem;

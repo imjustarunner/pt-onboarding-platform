@@ -92,3 +92,9 @@ it('includes admitted guests in participant records without treating waiting vis
  const result=await listMyMeetings({agencyId:2,userId:10});
  expect(result.meetings[0].participants[0]).toMatchObject({identity:'guest-one',name:'Guest attendee'});
 });
+
+it('lets an invited non-attendee read shared notes while withholding transcript, attendance and personal notes',async()=>{
+ mocks.execute.mockImplementation(async sql=>sql.includes('SELECT m.*')&&!sql.includes('ar.user_id=?')?[[{id:7,agency_id:2,title:'Training',meeting_subtype:'training'}]]:[[]]);
+ const detail=await myMeetingDetail('team',7,10);expect(detail).toMatchObject({attended:false,summary:'Summary',transcript:'',personalNote:'',attendance:[],attendanceLog:[]});
+ expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('FROM meeting_personal_notes'))).toBe(false);
+});

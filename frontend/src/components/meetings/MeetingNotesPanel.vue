@@ -46,8 +46,9 @@
         <span class="mnp__live-label">Caption</span>
         {{ livePreview }}
       </p>
-      <label class="mnp__label">Transcript (newest first)</label>
+      <label class="mnp__label">Transcript · oldest to newest</label>
       <textarea
+        ref="transcriptElement"
         v-model="transcriptDisplay"
         class="mnp__textarea"
         rows="8"
@@ -76,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import api from '../../services/api';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -90,6 +91,7 @@ const props = defineProps({
   liveHint: { type: String, default: '' },
   livePreview: { type: String, default: '' },
   autoRefresh: { type: Boolean, default: false },
+  initialExpanded: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
   canControlTranscript: { type: Boolean, default: false },
   canStopTranscript: { type: Boolean, default: false },
@@ -106,10 +108,12 @@ const importing = ref(false);
 const controlling = ref(false);
 const error = ref('');
 const transcript = ref('');
+const transcriptElement = ref(null);
+let refreshing = false;
 const summary = ref('');
 const summaryStatus = ref(null);
 const dirty = ref(false);
-const expanded = ref(props.autoRefresh);
+const expanded = ref(props.autoRefresh || props.initialExpanded);
 const roomPaused = ref(false);
 const localStopMeta = ref(null);
 let refreshTimer = null;
@@ -128,17 +132,12 @@ const summaryHtml = computed(() => {
   return DOMPurify.sanitize(marked.parse(s));
 });
 
-function reverseLines(text) {
-  const lines = String(text || '').split('\n');
-  return lines.reverse().join('\n');
-}
-
 const transcriptDisplay = computed({
   get() {
-    return reverseLines(transcript.value);
+    return transcript.value;
   },
   set(v) {
-    transcript.value = reverseLines(v);
+    transcript.value = v;
     dirty.value = true;
   }
 });
@@ -166,14 +165,22 @@ function controlPath() {
 async function load({ force = false } = {}) {
   const path = notesPath();
   if (!path) return;
-  if (!force && dirty.value) return;
-  loading.value = true;
+  if (refreshing || (!force && dirty.value)) return;
+  refreshing = true;
+  loading.value = force;
   error.value = '';
   try {
     const { data } = await api.get(path, { skipGlobalLoading: true });
     const next = String(data?.transcript || data?.artifact?.transcript_text || data?.transcript_text || '');
     if (!dirty.value || force) {
-      transcript.value = next;
+      const el = transcriptElement.value;
+      const scrollTop = el?.scrollTop || 0;
+      const selection = el && document.activeElement === el ? [el.selectionStart, el.selectionEnd] : null;
+      if (transcript.value !== next) {
+        transcript.value = next;
+        await nextTick();
+        if (el) { el.scrollTop = scrollTop; if (selection) el.setSelectionRange(...selection); }
+      }
       dirty.value = false;
     }
     summaryStatus.value = data?.summaryStatus || null;
@@ -191,6 +198,7 @@ async function load({ force = false } = {}) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load notes';
   } finally {
     loading.value = false;
+    refreshing = false;
   }
 }
 
@@ -315,6 +323,8 @@ onUnmounted(() => {
 .mnp__chevron { color: #64748b; font-size: 0.85rem; }
 .mnp__hint, .mnp__live { margin: 0; font-size: 0.8rem; }
 .mnp__live {
+  height: 3.2em;
+  overflow: hidden;
   background: #f0f9ff;
   border-radius: 8px;
   padding: 8px;

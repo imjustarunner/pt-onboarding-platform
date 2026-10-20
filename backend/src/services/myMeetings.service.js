@@ -1,3 +1,4 @@
+import { teamMeetingSpeakerNames } from './meetingSpeakerNames.service.js';
 import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
 import pool from '../config/database.js';
 import HiringInterview from '../models/HiringInterview.model.js';
@@ -24,6 +25,12 @@ function attendedSql(type) {
     OR EXISTS (SELECT 1 FROM ${s.presence} jp WHERE jp.${s.key}=m.id AND jp.join_identity=?
       AND (m.${s.host}=? OR EXISTS (SELECT 1 FROM ${s.admission} va WHERE va.${s.key}=m.id AND va.user_id=?))))`;
 }
+function invitedRecordSql(type,userId) {
+  const uid=Number(userId); if(!Number.isSafeInteger(uid) || uid<1)deny();
+  return type === 'team'
+    ? `(COALESCE(m.meeting_subtype,'')<>'interview' AND NOT EXISTS(SELECT 1 FROM hiring_interviews hi WHERE hi.provider_schedule_event_id=m.id) AND (m.provider_id=${uid} OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees invited WHERE invited.event_id=m.id AND invited.user_id=${uid})))`
+    : `(m.supervisor_user_id=${uid} OR m.supervisee_user_id=${uid} OR EXISTS(SELECT 1 FROM supervision_session_attendees invited WHERE invited.session_id=m.id AND invited.user_id=${uid} AND invited.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')))`;
+}
 const attendanceArgs = userId => [Number(userId), `user-${userId}`, Number(userId), Number(userId)];
 const ADMIN_CATEGORIES = ['admin', 'cpa', 'mentorship', 'huddle'];
 export function meetingCategory(type, meeting) {
@@ -46,11 +53,11 @@ export async function listMyMeetings({ agencyId, userId, actor = { id: userId },
     const s = sources[type];
     const [rows] = await pool.execute(`SELECT m.id,m.agency_id,m.start_at,m.end_at,m.status,
       ${type === 'team' ? "m.title,m.kind,m.meeting_subtype,m.meeting_completed_at," : "m.session_type,m.live_ended_at,"}
-      ${interviewColumn(type)} CONCAT_WS(' ',host.first_name,host.last_name) AS facilitator,
+      ${interviewColumn(type)} CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) AS facilitator,
       j.status AS summary_status FROM ${s.table} m
       LEFT JOIN meeting_summary_jobs j ON j.meeting_type=? AND j.meeting_id=m.id
       LEFT JOIN users host ON host.id=m.${s.host} ${interviewJoin(type)}
-      WHERE m.agency_id=? AND ${attendedSql(type)}
+      WHERE m.agency_id=? AND (${attendedSql(type)} OR (${invitedRecordSql(type,userId)} AND m.start_at<UTC_TIMESTAMP()))
       AND (?='' OR m.start_at>=?) AND (?='' OR m.start_at<DATE_ADD(?,INTERVAL 1 DAY))`,
       [type,Number(agencyId),...attendanceArgs(userId),from,from || null,to,to || null]);
     for (const row of rows) {
@@ -74,10 +81,10 @@ export async function listMyMeetings({ agencyId, userId, actor = { id: userId },
 }
 async function participantRecords(type, ids) {
   const s = sources[type], placeholders = ids.map(() => '?').join(',');
-  const [rows] = await pool.execute(`SELECT ar.${s.key} AS meeting_id, ar.user_id, CONVERT(CONCAT('user-',ar.user_id) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS identity, CONVERT(CONCAT_WS(' ',u.first_name,u.last_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name
+  const [rows] = await pool.execute(`SELECT ar.${s.key} AS meeting_id, ar.user_id, CONVERT(CONCAT('user-',ar.user_id) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS identity, CONVERT(CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name
     FROM ${s.rollup} ar JOIN users u ON u.id=ar.user_id WHERE ar.${s.key} IN (${placeholders}) AND ar.total_seconds>0
     UNION
-    SELECT jp.${s.key} AS meeting_id, u.id AS user_id, CONVERT(jp.join_identity USING utf8mb4) COLLATE utf8mb4_unicode_ci AS identity, CONVERT(COALESCE(NULLIF(CONCAT_WS(' ',u.first_name,u.last_name),''),jp.display_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name
+    SELECT jp.${s.key} AS meeting_id, u.id AS user_id, CONVERT(jp.join_identity USING utf8mb4) COLLATE utf8mb4_unicode_ci AS identity, CONVERT(COALESCE(NULLIF(CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name),''),jp.display_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name
     FROM ${s.presence} jp JOIN ${s.table} m ON m.id=jp.${s.key}
     LEFT JOIN users u ON jp.join_identity=CONCAT('user-',u.id)
     WHERE jp.${s.key} IN (${placeholders}) AND (jp.join_identity=CONCAT('user-',m.${s.host}) OR EXISTS
@@ -87,7 +94,7 @@ async function participantRecords(type, ids) {
 export async function requireAttendedMeeting(type, id, userId, actor = { id: userId }) {
   const s = sources[type];
   if (!s || !Number.isInteger(Number(id)) || Number(id)<1) deny();
-  const [rows] = await pool.execute(`SELECT m.*, ${interviewColumn(type)} CONCAT_WS(' ',host.first_name,host.last_name) AS facilitator
+  const [rows] = await pool.execute(`SELECT m.*, ${interviewColumn(type)} CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) AS facilitator
     FROM ${s.table} m LEFT JOIN users host ON host.id=m.${s.host} ${interviewJoin(type)}
     WHERE m.id=? AND ${attendedSql(type)} LIMIT 1`, [Number(id),...attendanceArgs(userId)]);
   if (!rows[0] || !await hasActiveMeetingMembership(rows[0].agency_id,userId)) deny();
@@ -100,28 +107,46 @@ export async function myMeetingActivity(type, id, userId, offset = 0, actor = { 
   return { activity: rows.slice(0,100), hasMore: rows.length > 100 };
 }
 export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
-  const meeting = await requireAttendedMeeting(type,id,userId,actor);
+  let meeting, attended=true;
+  try { meeting=await requireAttendedMeeting(type,id,userId,actor); }
+  catch(error) {
+    if(error.status!==403)throw error;
+    const source=sources[type]; if(!source)deny();
+    const [[invited]]=await pool.execute(`SELECT m.*, CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) facilitator FROM ${source.table} m LEFT JOIN users host ON host.id=m.${source.host} WHERE m.id=? AND ${invitedRecordSql(type,userId)}`,[Number(id)]);
+    if(!invited || invited.meeting_subtype==='interview' || invited.interview_id || !await hasActiveMeetingMembership(invited.agency_id,userId))deny();
+    meeting=invited;attended=false;
+  }
   const s = sources[type];
   const artifact = type === 'team' ? await TeamArtifact.findByEventId(id) : await SupervisionArtifact.findBySessionId(id);
   if (type === 'supervision' && artifact) {
     artifact.transcript_text = normalizeSupervisionSpeakerLabels(artifact.transcript_text);
     artifact.summary_text = normalizeSupervisionSpeakerLabels(artifact.summary_text);
   }
+  if (type === 'team' && artifact && attended) artifact.transcript_text = await teamMeetingSpeakerNames(id, artifact.transcript_text);
   const interviewArtifact = meetingCategory(type, meeting) === 'interview' && meeting.interview_id
     ? await HiringInterviewArtifact.findByInterviewId(meeting.interview_id) : null;
   const [agenda] = await pool.execute(`SELECT i.id,i.title,i.notes,i.status FROM meeting_agenda_items i
     JOIN meeting_agendas a ON a.id=i.meeting_agenda_id WHERE a.meeting_type=? AND a.meeting_id=? ORDER BY i.sort_order,i.id`,
     [type === 'team' ? 'provider_schedule_event' : 'supervision_session',Number(id)]);
-  const [attendance] = await pool.execute(`SELECT ar.user_id,${type === 'supervision' ? 'ar.first_joined_at,ar.last_left_at,' : ''}CONCAT_WS(' ',u.first_name,u.last_name) AS name, ar.total_seconds
+  if (!attended) {
+    let training=null;
+    if (type==='team' && meeting.meeting_subtype==='training') {
+      const [assets]=await pool.execute(`SELECT a.id,a.filename FROM scheduled_training_assets a JOIN scheduled_trainings t ON t.event_id=a.event_id JOIN scheduled_trainings selected ON selected.series_key=t.series_key AND selected.event_id=? ORDER BY a.created_at`,[Number(id)]);
+      training={topic:meeting.description || '',assets};
+    }
+    return {attended:false,training,meeting:{id:Number(id),type,title:meeting.title || 'Supervision',startAt:meeting.start_at,endAt:meeting.end_at,category:meetingCategory(type,meeting),facilitator:meeting.facilitator,status:meeting.status,completedAt:meeting.meeting_completed_at || meeting.live_ended_at || null},
+      agenda:agenda.map(mapMeetingAgendaItem),summary:artifact?.summary_text || '',summarySource:'generated',summaryStatus:await meetingSummaryStatus(type,id,artifact),transcript:'',attendance:[],presence:[],attendanceLog:[],personalNote:'',workspace:{goals:[],actionItems:[]}};
+  }
+  const [attendance] = await pool.execute(`SELECT ar.user_id,${type === 'supervision' ? 'ar.first_joined_at,ar.last_left_at,' : ''}CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) AS name, ar.total_seconds
     FROM ${s.rollup} ar JOIN users u ON u.id=ar.user_id WHERE ar.${s.key}=? AND ar.total_seconds>0 ORDER BY name`, [Number(id)]);
   const [presence] = await pool.execute(`SELECT jp.join_identity,jp.display_name AS name,jp.joined_at,jp.left_at FROM ${s.presence} jp
     WHERE jp.${s.key}=? AND (jp.join_identity=? OR EXISTS (SELECT 1 FROM ${s.admission} va WHERE va.${s.key}=jp.${s.key} AND (CONCAT('user-',va.user_id)=jp.join_identity OR va.join_identity COLLATE utf8mb4_unicode_ci=jp.join_identity COLLATE utf8mb4_unicode_ci)))`, [Number(id),`user-${meeting[s.host]}`]);
   const [attendanceLog] = type === 'team'
-    ? await pool.execute(`SELECT a.id,CONCAT_WS(' ',u.first_name,u.last_name) AS name,
+    ? await pool.execute(`SELECT a.id,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) AS name,
         a.started_at AS at,a.ended_at AS endedAt,a.source,'attendance' AS eventType
         FROM provider_schedule_event_attendance_segments a JOIN users u ON u.id=a.user_id
         WHERE a.event_id=? ORDER BY a.started_at,a.id`,[Number(id)])
-    : await pool.execute(`SELECT a.id,CONCAT_WS(' ',u.first_name,u.last_name) AS name,
+    : await pool.execute(`SELECT a.id,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) AS name,
         a.event_at AS at,a.event_type AS eventType
         FROM supervision_session_attendance_events a LEFT JOIN users u ON u.id=a.user_id
         WHERE a.session_id=? ORDER BY a.event_at,a.id`,[Number(id)]);
@@ -140,7 +165,7 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
     const [assets]=await pool.execute(`SELECT a.id,a.filename FROM scheduled_training_assets a JOIN scheduled_trainings t ON t.event_id=a.event_id JOIN scheduled_trainings selected ON selected.series_key=t.series_key AND selected.event_id=? ORDER BY a.created_at`,[Number(id)]);
     training={topic:meeting.description || '',assets};
   }
-  return { training, meeting: { id:Number(id),type,title:meeting.title || (meetingCategory(type,meeting) === 'group_supervision' ? 'Group supervision' : 'Individual supervision'),startAt:meeting.start_at,endAt:meeting.end_at,category:meetingCategory(type,meeting),facilitator:meeting.facilitator,status:meeting.status,completedAt:meeting.meeting_completed_at || meeting.live_ended_at || null },
+  return { attended:true, training, meeting: { id:Number(id),type,title:meeting.title || (meetingCategory(type,meeting) === 'group_supervision' ? 'Group supervision' : 'Individual supervision'),startAt:meeting.start_at,endAt:meeting.end_at,category:meetingCategory(type,meeting),facilitator:meeting.facilitator,status:meeting.status,completedAt:meeting.meeting_completed_at || meeting.live_ended_at || null },
     interviewTeamChat: (Array.isArray(interviewArtifact?.team_chat_json) ? interviewArtifact.team_chat_json : []).map(message => ({
       text: message.text, authorName: message.authorName, at: message.at
     })),

@@ -67,6 +67,21 @@ describe('VideoSessionRoom connection lifecycle', () => {
     wrapper.unmount();
   });
 
+  it('shows only trainers on stage until cameras are allowed, then includes attendees without reconnecting', async()=>{
+    const policy={userId:4,proctor:false,primaryId:1,proctorIds:[1,2],approvedIds:[],muteAll:true,videoAllowed:false,canUnmute:false};
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'training-layout',token:'eyJ.test.token',trainingPolicy:policy,tileFocus:'speaker',playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session.subscribe=vi.fn((_stream,target)=>{const element=document.createElement('div');element.appendChild(document.createElement('video'));target.appendChild(element);return {element,on:vi.fn()};});
+    for(const [id,userId] of [['Trainer',1],['Cohost',2],['Attendee',3]]){
+      videoSdk.session._handlers.streamCreated({stream:{streamId:id,name:id,hasVideo:true,hasAudio:true,connection:{connectionId:id,data:JSON.stringify({identity:`user-${userId}`,displayName:id})}}});await flushPromises();
+    }
+    expect(wrapper.find('.vsr__tile--featured').text()).toContain('Trainer');
+    expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost']);
+    wrapper.vm.lastSpeakerStreamId='Cohost';await flushPromises();expect(wrapper.find('.vsr__tile--featured').text()).toContain('Cohost');
+    await wrapper.setProps({trainingPolicy:{...policy,videoAllowed:true},tileFocus:'equal'});
+    expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost','Attendee']);expect(wrapper.find('.vsr__stage--grid').exists()).toBe(true);expect(videoSdk.session.disconnect).not.toHaveBeenCalled();wrapper.unmount();
+  });
+
   it('ignores participant end signals in clinical rooms and waits for an actual server disconnection', async () => {
     const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'clinical',token:'eyJ.test.token',serverManagedEnd:true,playJoinTone:false}});
     await flushPromises();await vi.dynamicImportSettled();

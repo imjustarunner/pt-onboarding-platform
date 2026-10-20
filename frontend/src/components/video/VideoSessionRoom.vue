@@ -783,7 +783,7 @@ const thumbnailKeys = computed(() => {
   const featured = screenFocused.value ? null : props.tileFocus === 'remote'
     ? (focusedRemoteStreamId.value || 'local') : props.tileFocus === 'speaker'
       ? (featuredSpeakerStreamId.value || 'local') : 'local';
-  return [...remotes.value.filter(r => !useSplitCamOffLayout.value || r.hasVideo).map(r => r.streamId),
+  return [...stageRemotes.value.map(r => r.streamId),
     ...(showLocalOnStage.value ? ['local'] : [])].filter(key => key !== featured);
 });
 const thumbnailGrid = computed(() => {
@@ -893,10 +893,10 @@ function resetStagePagination() {
 function setTileSize(preset) {
   if (['s', 'm', 'l'].includes(preset)) tileSizePreset.value = preset;
 }
-const layoutMenuOptions = [
+const layoutMenuOptions = computed(() => [
   { id: 'screen', label: 'Shared screen priority (automatic on share)', kind: 'screen' },
   { id: 'equal', label: 'Equal tiles', kind: 'focus' },
-  { id: 'speaker', label: 'Speaker only', kind: 'focus' },
+  { id: 'speaker', label: props.trainingPolicy ? 'Speaking trainer priority' : 'Speaker priority', kind: 'focus' },
   { id: 'remote', label: 'Focus peer', kind: 'focus' },
   { id: 'peer-left', label: 'Large peer · small videos left', kind: 'side', side:'left' },
   { id: 'peer-right', label: 'Large peer · small videos right', kind: 'side', side:'right' },
@@ -904,7 +904,7 @@ const layoutMenuOptions = [
   { id: 'local', label: 'Focus you', kind: 'focus' },
   { id: 'collapsed', label: 'Collapse videos', kind: 'focus' },
   { id: 'fullscreen', label: 'Full screen videos', kind: 'fullscreen' }
-];
+]);
 const useSplitCamOffLayout = computed(() =>
   props.layout !== 'strip'
   && !screenFocused.value
@@ -917,17 +917,25 @@ const featuredSpeakerStreamId = computed(() => {
   if (lastSpeakerStreamId.value && stageRemotes.value.some((r) => r.streamId === lastSpeakerStreamId.value)) {
     return lastSpeakerStreamId.value;
   }
+  if (props.trainingPolicy) {
+    const primary = stageRemotes.value.find(r => trainingStreamPermission(availableStreams.get(r.streamId)).primary);
+    if (primary) return primary.streamId;
+    if (props.trainingPolicy.userId === props.trainingPolicy.primaryId && showLocalOnStage.value) return '';
+  }
   return stageRemotes.value[0]?.streamId || '';
 });
 const remotesOnVideo = computed(() => remotes.value.filter((r) => r.hasVideo));
 const remotesCamOff = computed(() => remotes.value.filter((r) => !r.hasVideo));
-const stageRemotes = computed(() => (
-  useSplitCamOffLayout.value ? remotesOnVideo.value : remotes.value
-));
+const stageRemotes = computed(() => {
+  const people = useSplitCamOffLayout.value ? remotesOnVideo.value : remotes.value;
+  return props.trainingPolicy && !props.trainingPolicy.videoAllowed && !props.lobbyMode
+    ? people.filter(r => trainingStreamPermission(availableStreams.get(r.streamId)).proctor) : people;
+});
 const showLocalOnStage = computed(() => (
   props.lobbyMode
   || (
     !hideSelfView.value
+    && (!props.trainingPolicy || props.trainingPolicy.proctor || props.trainingPolicy.videoAllowed)
     && (!useSplitCamOffLayout.value || publishVideo.value)
   )
 ));
@@ -1672,7 +1680,7 @@ function setSpeaking(key, speaking) {
 function updateSpeakingSnapshot() {
   const { speaking, active } = speakerTracker.snapshot(Date.now());
   if (JSON.stringify(speaking) !== JSON.stringify(speakingByKey.value)) speakingByKey.value = speaking;
-  if (active) lastSpeakerStreamId.value = active;
+  if (active && (!props.trainingPolicy || (active === 'local' ? props.trainingPolicy.proctor : trainingStreamPermission(availableStreams.get(active)).proctor))) lastSpeakerStreamId.value = active;
 }
 
 function attachSubscriberAudioLevel(sub, streamId) {

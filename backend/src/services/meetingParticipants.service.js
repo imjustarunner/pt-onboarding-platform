@@ -17,7 +17,7 @@ export async function meetingParticipantRows(event,{includeCompensation=false,re
   }
   const [rows]=await pool.execute(`SELECT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.role,u.credential,u.title,u.employment_type,u.has_supervisor_privileges,
     EXISTS(SELECT 1 FROM hiring_interviews h WHERE h.provider_schedule_event_id=pse.id AND h.candidate_user_id=u.id) isInterviewCandidate,
-    COALESCE(p.is_required,1) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp
+    COALESCE(p.is_required,1) is_required,COALESCE(p.is_cohost,0) is_cohost,COALESCE(p.rsvp,'pending') rsvp,p.rsvp_decline_reason
     FROM users u JOIN provider_schedule_events pse ON pse.id=? LEFT JOIN meeting_participant_preferences p ON p.user_id=u.id AND p.event_id=?
     WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?)
       OR u.id IN (SELECT candidate_user_id FROM hiring_interviews WHERE provider_schedule_event_id=?)`,[event.id,event.id,event.provider_id,event.id,event.id]);

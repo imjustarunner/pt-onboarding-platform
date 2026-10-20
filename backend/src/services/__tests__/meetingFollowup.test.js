@@ -1,12 +1,14 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),artifact:vi.fn(),send:vi.fn(),recipient:vi.fn()}));
+vi.mock('../meetingAttendanceReceipt.service.js',()=>({meetingAttendanceReceipt:async()=>({minutes:30,host:'Trainer',compensation:'Estimate pending payroll review.'})}));
+vi.mock('../../models/Notification.model.js',()=>({default:{create:async()=>({id:3})}}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../myMeetings.service.js',()=>({requireAttendedMeeting:m.access}));
 vi.mock('../../models/ProviderScheduleEventArtifact.model.js',()=>({default:{findByEventId:m.artifact}}));
 vi.mock('../../models/SupervisionSessionArtifact.model.js',()=>({default:{findBySessionId:m.artifact}}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://app.test/itsco'}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:m.recipient}));
-vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantMessageMailboxes:async()=>({notifications:{id:9}})}));
+vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantMessageMailboxes:async()=>({domain:'test.example',notifications:{id:9}})}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 import {deliverMeetingFollowup} from '../meetingFollowup.service.js';
 let meeting,claimed;
@@ -25,7 +27,7 @@ beforeEach(()=>{
 describe('automatic meeting follow-ups',()=>{
  it('sends only to authorized attendees and never includes personal notes or the raw transcript',async()=>{
   expect(await deliverMeetingFollowup('team',7)).toBe(true);expect(m.send).toHaveBeenCalledTimes(1);
-  expect(m.send.mock.calls[0][0]).toMatchObject({to:'attendee@test',agencyId:2,userId:10,templateType:'meeting_summary_ready',linkUrl:'https://app.test/itsco/my-meetings?type=team&meetingId=7&tab=Summary'});
+  expect(m.send.mock.calls[0][0]).toMatchObject({to:'attendee@test',replyToOverride:'support@test.example',agencyId:2,userId:10,templateType:'meeting_summary_ready',linkUrl:'https://app.test/itsco/my-meetings?type=team&meetingId=7&tab=Summary'});
   expect(m.send.mock.calls[0][0].text).not.toContain('private');expect(m.send.mock.calls[0][0].text).not.toContain('not sent');
  });
  it('does not send again on a generation rerun or worker retry',async()=>{
@@ -45,4 +47,14 @@ describe('automatic meeting follow-ups',()=>{
  it('does not claim delivery when an access check fails unexpectedly',async()=>{
   m.access.mockRejectedValue(new Error('database unavailable'));await expect(deliverMeetingFollowup('team',7)).rejects.toThrow('database unavailable');expect(m.send).not.toHaveBeenCalled();expect(claimed).toBe(false);
  });
+});
+
+it('sends an honest attendance receipt when a completed meeting captured no transcript',async()=>{
+ m.artifact.mockResolvedValue(null);await deliverMeetingFollowup('team',7);expect(m.send.mock.calls[0][0].text).toContain('No transcript was captured');expect(m.send.mock.calls[0][0].text).toContain('30 minutes');
+});
+it('waits for a summary when a transcript exists',async()=>{
+ m.artifact.mockResolvedValue({transcript_text:'Captured discussion'});expect(await deliverMeetingFollowup('team',7)).toBe(false);expect(m.send).not.toHaveBeenCalled();
+});
+it('requires an initiating user for a requested BCC or historical batch',async()=>{
+ await expect(deliverMeetingFollowup('team',7,{bcc:'owner@test'})).rejects.toThrow('named sender');expect(m.send).not.toHaveBeenCalled();
 });

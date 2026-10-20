@@ -24,7 +24,7 @@ export async function resolveTeamMeetingInvitationAccess(token,now=new Date()){
 export function teamMeetingRequest(method,path){
  const info=/^\/join-info\/(\d+)$/.exec(String(path||''));if(method==='GET'&&info)return {eventId:Number(info[1]),action:'join-info'};
  const m=/^\/(\d+)\/(.+?)\/?$/.exec(String(path||'').split('?')[0]);if(!m)return null;
- const allowed={GET:/^(calendar-guests|video-token|admission-status|lobby-participants|workspace|participants|activity|interview-chat|interview-question|attendance|transcription|training|training\/assets\/\d+)$/,POST:/^(calendar-guests\/\d+\/admit|join-presence|admit\/\d+|waiting-room|activity|interview-chat|workspace|complete|client-transcript|transcript-control|transcription\/audio|training\/hand|training\/rsvp|training\/assets)$/,PUT:/^interview-question$/,PATCH:/^training$/,DELETE:/^training\/assets\/\d+$/};
+ const allowed={GET:/^(training\/invite-candidates|notes|calendar-guests|video-token|admission-status|lobby-participants|workspace|participants|activity|interview-chat|interview-question|attendance|transcription|training|training\/assets\/\d+)$/,POST:/^(attendees|calendar-guests\/\d+\/admit|join-presence|admit\/\d+|waiting-room|activity|interview-chat|workspace|complete|client-transcript|transcript-control|transcription\/audio|training\/hand|training\/rsvp|training\/assets)$/,PUT:/^interview-question$/,PATCH:/^training$/,DELETE:/^training\/assets\/\d+$/};
  return allowed[String(method).toUpperCase()]?.test(m[2])?{eventId:Number(m[1]),action:m[2]}:null;
 }
 export async function validateTeamMeetingAccess(token,request,body={}){
@@ -38,6 +38,6 @@ export async function validateTeamMeetingAccess(token,request,body={}){
  const ended=parseUtcDate(event.meeting_completed_at);
  const closing=request.action==='join-presence'&&body.action==='leave'&&ended&&Date.now()-ended.getTime()<300000;
  if(blocked&&!closing)throw fail(blocked.status,blocked.error.message);
- const [users]=await pool.execute('SELECT id,first_name,last_name,email,role FROM users WHERE id=?',[Number(grant.sub)]);
+ const [users]=await pool.execute('SELECT id,preferred_name,first_name,last_name,email,role FROM users WHERE id=?',[Number(grant.sub)]);
  if(!users[0])throw fail(410,'Account unavailable.');return {user:users[0],eventId:request.eventId};
 }
