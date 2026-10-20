@@ -1,6 +1,7 @@
 import {isValidPersonalEmail} from '../../../frontend/src/navigation/providerUpdateContact.js';
 import {saveProviderClinicalFocus} from './providerClinicalFocus.service.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
+import {isProviderUpdateLicenseExempt} from '../utils/providerUpdateLicense.js';
 import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
@@ -22,7 +23,7 @@ export function supervisionBreakdown(baseline,period,credits,account){
  return {baseline:pair(baseline),period:pair(period),reported,app,calculated,current:account?pair(account):calculated,difference:account?round(pair(account).total-calculated.total):0};
 }
 export async function getProviderUpdateRecords(userId,agencyId){
- const [[u]]=await pool.execute(`SELECT id,first_name,last_name,phone_number,personal_phone,personal_email,home_street_address,home_address_line2,home_city,home_state,home_postal_code,credential,title,profile_photo_path,provider_school_info_blurb FROM users WHERE id=?`,[userId]);
+ const [[u]]=await pool.execute(`SELECT id,first_name,last_name,role,employment_type,phone_number,personal_phone,personal_email,home_street_address,home_address_line2,home_city,home_state,home_postal_code,credential,title,profile_photo_path,provider_school_info_blurb FROM users WHERE id=?`,[userId]);
  const [fields]=await pool.execute(`SELECT d.id,d.field_key,d.field_label,d.options,v.value FROM user_info_field_definitions d LEFT JOIN user_info_values v ON v.field_definition_id=d.id AND v.user_id=? WHERE (d.agency_id IS NULL OR d.agency_id=?) AND d.parent_field_id IS NULL ORDER BY (d.agency_id IS NOT NULL),d.id`,[userId,agencyId]);
  const values={},defs={};for(const raw of fields){const f=withClinicalFieldOptions(raw);if(f.value!=null)values[f.field_key]=decodeField(f.value);if(f.options||!defs[f.field_key])defs[f.field_key]=f;}
  const profile=await ProviderPublicProfile.getForProvider({providerUserId:userId,agencyId});
@@ -43,6 +44,7 @@ export async function getProviderUpdateRecords(userId,agencyId){
  const languageNames=[...new Set([...(profile?.details?.languages||[]),...strings(values.languages_spoken||values.provider_languages_spoken).flatMap(value=>value.split(/\s*(?:,|;|\/|&|\band\b)\s*/i)).map(value=>value.replace(/\s*\((Primary|Secondary)\)/i,'').trim()).map(value=>/^english$/i.test(value)?'English':/^spanish$|^español$/i.test(value)?'Spanish':value).filter(Boolean)])];
  const sessionLanguages=profile?.details?.languageProficiencies||languageNames.map(language=>({language,proficiency:'',canConductSessions:false}));
  return {displayRole:await getProviderDisplayRole(userId,agencyId),contact:{personalEmail:u.personal_email||'',phone:u.personal_phone||u.phone_number||'',street:u.home_street_address||String(values.mailing_address||values.provider_address||''),line2:u.home_address_line2||'',city:u.home_city||'',state:u.home_state||'',postalCode:u.home_postal_code||'',emergency:String(values.emergency_contact||values.emergency_contact_name||'')},sessionLanguages,publicGender:profile?.details?.gender||'',blurb:profile?.publicBlurb||u.provider_school_info_blurb||'',credential:u.credential||String(values.provider_credential_license_type_number||'').match(/^[A-Za-z]+/)?.[0]||u.title||'',photoPath:u.profile_photo_path||null,typicalAvailability:profile?.details?.typicalAvailability||[],specialtyGroups:groups,focusGroups,clinicalFocus,schools,
+ licenseApplicable:!isProviderUpdateLicenseExempt(u),
  license:{number:String(values.provider_credential_license_type_number||''),issued:String(values.provider_credential_license_issued_date||'').slice(0,10),expires:String(values.provider_credential_license_expiration_date||'').slice(0,10),hasUpload:!!(docs[0]?.file_path||values.license_upload)},licensePath:docs[0]?.file_path||values.license_upload||null,
  supervision:supervisionBreakdown({individual:ua?.supervision_is_prelicensed?ua.supervision_start_individual_hours:0,group:ua?.supervision_is_prelicensed?ua.supervision_start_group_hours:0},period,credits,account)};
 }

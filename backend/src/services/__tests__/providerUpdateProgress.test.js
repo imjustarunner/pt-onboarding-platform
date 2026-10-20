@@ -8,6 +8,8 @@ vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.
 vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn()}));
 vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({}))}));
 vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn()}));
+vi.mock('../providerUpdateCompletionEmail.service.js',()=>({ensureProviderUpdateCompletionEmail:vi.fn(async()=>({id:'sent'}))}));
+vi.mock('../providerUpdateTime.service.js',()=>({recordUpdateTime:vi.fn(),submitCompletedUpdateTime:vi.fn(),createUpdateTimeClaim:vi.fn(),updateTimeSummary:vi.fn(async()=>({sections:{}}))}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({id:2,slug:'itsco'}))}}));
 import pool from '../../config/database.js';
 import {getRecipientBundle,finalizeRecipient,getMyCompletedRecipient,listRecipients} from '../providerUpdate.service.js';
@@ -15,6 +17,7 @@ import {getCredentialStatus} from '../quickViewAuth.service.js';
 import {getProviderUpdateRecords} from '../providerUpdateRecords.service.js';
 import {getStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import {PROVIDER_UPDATE_SECTION_KEYS} from '../../constants/providerUpdateSections.js';
+import {ensureProviderUpdateCompletionEmail} from '../providerUpdateCompletionEmail.service.js';
 const keys=['specialties','notification_prefs'];
 const config=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,keys.includes(k)]));
 const recipient={id:1,push_id:2,provider_user_id:7,agency_id:2,previewOnly:true,section_config_json:config};
@@ -41,6 +44,21 @@ it('does not reopen finalized sections',async()=>{
  progress=keys.map(section_key=>({section_key,status:'completed',completed:1,data_json:{}}));
  const bundle=await getRecipientBundle({...recipient,locked_at:'2026-10-08'});
  expect(bundle.sections.every(s=>s.status==='completed'&&s.completed)).toBe(true);
+});
+
+it('excludes an inapplicable license even when the push audience defaults to everyone',async()=>{
+ getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[],licenseApplicable:false});
+ const licenseConfig=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,k==='license']));
+ const bundle=await getRecipientBundle({...recipient,section_config_json:licenseConfig});
+ expect(bundle.sections).toEqual([]);
+ expect(bundle.progress).toMatchObject({completed:0,total:0});
+});
+
+it('keeps the license section for a clinician with an applicable license',async()=>{
+ getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[],licenseApplicable:true});
+ const licenseConfig=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,k==='license']));
+ const bundle=await getRecipientBundle({...recipient,section_config_json:licenseConfig});
+ expect(bundle.sections.map(s=>s.key)).toEqual(['license']);
 });
 
 it('keeps an explicitly waived specialty section complete',async()=>{
@@ -70,6 +88,21 @@ it('prevents final submission bypassing the new contact requirement with an old 
  contactRecords('');progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{contact:{personalEmail:'draft@example.test'}}}];
  pool.execute.mockImplementation(async sql=>sql.includes('provider_update_recipients')?[[{...recipient,token:'real-token'}]]:sql.includes('provider_update_pushes')?[[{id:2,section_config_json:contactConfig}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);
  await expect(finalizeRecipient({recipientId:1})).rejects.toMatchObject({status:400,details:{missing:['contact_info']}});
+ expect(ensureProviderUpdateCompletionEmail).not.toHaveBeenCalled();
+});
+
+it('automatically requests the completion email only after the completed update and claim commit',async()=>{
+ contactRecords('person@example.test');
+ progress=[{section_key:'contact_info',completed:1,status:'completed',data_json:{}}];
+ const row={...recipient,token:'real-token',section_config_json:contactConfig};
+ pool.execute.mockImplementation(async sql=>sql.includes('provider_update_recipients')?[[row]]:sql.includes('provider_update_pushes')?[[{id:2,section_config_json:contactConfig}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);
+ const commit=vi.fn(async()=>{});
+ const db={beginTransaction:vi.fn(),commit,rollback:vi.fn(),release:vi.fn(),
+  execute:vi.fn(async sql=>sql.startsWith('SELECT')?[[row]]:[{affectedRows:1}])};
+ pool.getConnection=vi.fn(async()=>db);
+ await finalizeRecipient({recipientId:1,actorUserId:7});
+ expect(ensureProviderUpdateCompletionEmail).toHaveBeenCalledWith(1,7);
+ expect(commit.mock.invocationCallOrder[0]).toBeLessThan(ensureProviderUpdateCompletionEmail.mock.invocationCallOrder[0]);
 });
 
 const pinConfig=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,k==='pin']));

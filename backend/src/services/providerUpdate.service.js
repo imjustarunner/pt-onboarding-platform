@@ -763,7 +763,7 @@ export async function getRecipientBundle(recipient, {push: providedPush = null, 
     }
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
-  if(audience.license?.mode==='auto' && !records.license?.number && !records.license?.hasUpload && !/\b(?:LPC|LPCC|LCSW|LSW|SWC|LMFT|MFTC|LMHC|LCPC|LP|PsyD)\b/i.test(records.credential||'')){const index=sectionList.findIndex(s=>s.key==='license');if(index>=0)sectionList.splice(index,1);}
+  if(records.licenseApplicable===false || (audience.license?.mode==='auto' && !records.license?.number && !records.license?.hasUpload && !/\b(?:LPC|LPCC|LCSW|LSW|SWC|LMFT|MFTC|LMHC|LCPC|LP|PsyD)\b/i.test(records.credential||''))){const index=sectionList.findIndex(s=>s.key==='license');if(index>=0)sectionList.splice(index,1);}
   if(!records.schools?.length){const index=sectionList.findIndex(s=>s.key==='school_availability');if(index>=0)sectionList.splice(index,1);}
   const officeReview=sectionList.find(s=>s.key==='office_review');
   if(officeReview?.completed){const current=await listOpenForBookingForProvider(recipient.provider_user_id,recipient.agency_id);const confirmed=(officeReview.data.confirmedAssignmentIds||[]).map(Number);if(current.some(i=>!confirmed.includes(i.id))){officeReview.completed=false;officeReview.status='in_progress';}}
@@ -923,7 +923,11 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
   const recipient = rows?.[0];
   if (!recipient) throw Object.assign(new Error('Recipient not found'), { status: 404 });
   if(isProviderUpdatePreviewToken(recipient.token))throw Object.assign(new Error('This preview is read-only.'),{status:403});
-  if (recipient.locked_at) { await submitCompletedUpdateTime(recipient.id,actorUserId); return recipient; }
+  if (recipient.locked_at) {
+    await submitCompletedUpdateTime(recipient.id,actorUserId);
+    await (await import('./providerUpdateCompletionEmail.service.js')).ensureProviderUpdateCompletionEmail(recipient.id,actorUserId);
+    return recipient;
+  }
 
   const push = await getPush(recipient.push_id);
   const bundle = await getRecipientBundle({ ...recipient, section_config_json: push.section_config_json });
@@ -954,6 +958,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     await db.commit();
   } catch(error) { await db.rollback(); throw error; } finally { db.release(); }
   const [after] = await pool.execute('SELECT * FROM provider_update_recipients WHERE id=?',[recipientId]);
+  await (await import('./providerUpdateCompletionEmail.service.js')).ensureProviderUpdateCompletionEmail(recipientId,actorUserId);
   return after[0];
 }
 
