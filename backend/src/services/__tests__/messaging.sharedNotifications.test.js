@@ -21,11 +21,21 @@ it('returns identical shared history for both guardians without bodies or recipi
   const calls = pool.execute.mock.calls.filter(([sql]) => sql.includes('UNION ALL'));
   expect(calls[0][1]).toEqual([4, 4, 4, 4, 4, 4]); expect(calls[0][0]).not.toContain('guardian_user_id =');
   expect(first.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
+  expect(pool.execute.mock.calls.some(([sql]) => /FROM clients WHERE id = \? AND user_id/.test(sql))).toBe(false);
 });
 it('denies an unrelated child before querying notification history', async () => {
   ClientGuardian.getLink.mockResolvedValue(null); const res = response();
   await listClientNotificationHistory({ user: { id: 9, role: 'client_guardian' }, params: { clientId: 999 }, query: {} }, res, vi.fn());
   expect(res.status).toHaveBeenCalledWith(403); expect(pool.execute.mock.calls.some(([s])=>s.includes('UNION ALL'))).toBe(false);
+});
+it('denies a disabled guardian or self link before querying notification history', async () => {
+  for (const role of ['client_guardian', 'client']) {
+    ClientGuardian.getLink.mockResolvedValue({ access_enabled: 0, relationship_type: 'self' });
+    const res = response();
+    await listClientNotificationHistory({ user: { id: 9, role }, params: { clientId: 4 }, query: {} }, res, vi.fn());
+    expect(res.status).toHaveBeenCalledWith(403);
+  }
+  expect(pool.execute).not.toHaveBeenCalled();
 });
 it('requires an enabled, unrestricted guardian to authorize an additional reminder contact', async () => {
   await expect(requireReminderGuardian(4, 9)).resolves.toBeUndefined();

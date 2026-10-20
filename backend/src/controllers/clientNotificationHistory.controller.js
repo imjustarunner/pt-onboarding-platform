@@ -8,9 +8,10 @@ export async function listClientNotificationHistory(req, res, next) {
     if (!Number.isSafeInteger(clientId) || clientId < 1) return res.status(400).json({ error: { message: 'Invalid client' } });
     if (req.guardianPreviewMode) return res.json({ notifications: [] });
     if (['client', 'client_guardian'].includes(req.user.role)) {
-      const [self] = await pool.execute('SELECT id FROM clients WHERE id = ? AND user_id = ?', [clientId, req.user.id]);
+      // Both guardian and self relationships live in client_guardians.
+      // There is no clients.user_id column in the current client schema.
       const link = await ClientGuardian.getLink({ clientId, guardianUserId: req.user.id });
-      if (!self.length && (!link || !Number(link.access_enabled))) return res.status(403).json({ error: { message: 'Account access is required' } });
+      if (!link || !Number(link.access_enabled)) return res.status(403).json({ error: { message: 'Account access is required' } });
       const permissions = typeof link?.permissions_json === 'string' ? JSON.parse(link.permissions_json) : link?.permissions_json || {};
       if (permissions.noView || permissions.noViewOtherGuardian) return res.status(403).json({ error: { message: 'Account access is restricted' } });
     } else {

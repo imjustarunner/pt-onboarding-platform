@@ -125,6 +125,7 @@ export async function main() {
       }
     }
     const { listBalances } = await import('../services/familyLedger/views.js');
+    const { getPaymentTask } = await import('../services/familyLedger/tasks.js');
     const { default: Cards } = await import('../models/GuardianPaymentCard.model.js');
     for (const [agencyId, agency] of agencies) {
       const client = clients.find(c => Number(c.agency_id) === agencyId);
@@ -143,7 +144,13 @@ export async function main() {
       const cards = await Cards.findActiveByGuardian(guardian.id, agencyId);
       const now = new Date();
       if (cards.some(c => Number(c.card_exp_year) < now.getUTCFullYear() || (Number(c.card_exp_year) === now.getUTCFullYear() && Number(c.card_exp_month) < now.getUTCMonth() + 1))) {
-        const url = buildPublicAppUrl(agency, `guardian?panel=payment_methods&clientId=${client.id}`);
+        const financial = fixture.clients.find(c => Number(c.id) === Number(client.id))?.financial;
+        if (!financial?.billingTaskToken || !financial.billingTaskId) throw new Error('An expired demo card needs its seeded payment task invitation.');
+        const task = await getPaymentTask({ userId: guardian.id, token: financial.billingTaskToken });
+        if (Number(task.id) !== Number(financial.billingTaskId) || Number(task.agencyId) !== agencyId
+            || task.status !== 'pending' || !task.clientIds?.length
+            || task.clientIds.some(id => !ids.includes(Number(id)))) throw new Error('Demo payment task does not match the fixture.');
+        const url = buildPublicAppUrl(agency, `billing/complete/${financial.billingTaskToken}`);
         const text = `${agency.name}\n\nPlease verify your payment method and complete your billing authorization.\n\nSign in securely: ${url}\n\nThis link opens your portal after login.`;
         add(`payment-setup-${agencyId}`, client, sender, { templateType: 'family_payment_setup', subject: 'Complete your payment setup', text, html: htmlText(text) });
       }
@@ -179,7 +186,10 @@ export async function main() {
           html: `<p>Hello ${escapeHtml(guardian.first_name)},</p><p>Please review and digitally sign the treatment plan for <strong>${escapeHtml(client.full_name)}</strong>.</p><p><a href="${escapeHtml(url)}">Open treatment plan to sign</a></p>` });
     }
     for (const message of messages) {
-      journal.messages[message.kind] = { ...message, ...journal.messages[message.kind], key: demoEmailKey(fixture.run, guardian.id, message.kind) };
+      const previous = journal.messages[message.kind];
+      // Refresh unsent previews; preserve the actual snapshot of attempted mail.
+      journal.messages[message.kind] = { ...(previous?.status ? previous : message),
+        key: demoEmailKey(fixture.run, guardian.id, message.kind) };
     }
     writePrivate(journalFile, journal);
     if (!apply) {
@@ -201,7 +211,7 @@ export async function main() {
         throw new Error(`Demo ${message.kind} has a prior uncertain attempt. Reconcile its communication record before retrying.`);
       }
       await redirectCheck();
-      const marker = await Communication.create({ userId: guardian.id, clientId: message.clientId, agencyId: message.agencyId,
+      const marker = await Communication.create({ userId: guardian.id, agencyId: message.agencyId,
         templateType: 'guardian_test_email_attempt', channel: 'email', recipientAddress: guardian.email,
         subject: `Demo preview attempt: ${message.kind}`, body: 'Explicitly requested fictional-family email preview.',
         deliveryStatus: 'pending', generatedByUserId: fixture.actorId,
