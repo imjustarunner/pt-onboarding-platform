@@ -110,10 +110,12 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       const sql = await readFile(new URL(path, import.meta.url), 'utf8');
       for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await db.query(statement);
     }
+    const outcomesSql = await readFile(new URL('../../../../database/migrations/1666_supervision_schedule_actions.sql',import.meta.url),'utf8');
+    for (const sql of splitSqlStatements(stripSqlLineComments(outcomesSql)).filter(sql=>/^ALTER TABLE supervision_sessions|^CREATE TABLE IF NOT EXISTS supervision_schedule_actions/.test(sql.trim()))) await pool.query(sql);
   }, 20000);
   beforeEach(async () => {
     for (const table of ['self_pay_service_rates', 'agency_self_pay_settings', 'appointment_change_waivers', 'appointment_billing', 'clinical_record_refs', 'clients', 'users', 'practitioner_session_credit_ledger', 'practitioner_client_package_entitlements', 'practitioner_session_packages', 'appointment_change_workflows', 'office_events', 'appointments', 'provider_schedule_events', 'office_booking_plans', 'office_standing_assignments', 'booking_packages', 'booking_package_entitlements', 'booking_package_ledger']) await pool.query(`DELETE FROM ${table}`);
-    for (const table of ['client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_session_attendees','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
+    for (const table of ['supervision_schedule_actions','client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_session_attendees','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
     await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.query('DELETE FROM office_rooms');
     await pool.query('INSERT INTO office_rooms VALUES (4), (5)');
@@ -431,12 +433,12 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       (2,1,9,'2099-01-08 16:00:00','2099-01-08 17:00:00','SCHEDULED','s'),
       (3,1,9,'2099-01-15 16:00:00','2099-01-15 17:00:00','CANCELLED','s')`);
     await pool.query('UPDATE supervision_sessions SET recurrence_horizon_held=1 WHERE id=3');
-    expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2,cancelReason:'Holiday break'})).cancelledCount).toBe(1);
+    expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2,actorUserId:9,cancelReason:'Holiday break'})).cancelledCount).toBe(1);
     const [[cancelled]] = await pool.query('SELECT cancel_reason FROM supervision_sessions WHERE id=2');
     expect(cancelled.cancel_reason).toBe('Holiday break');
     let [rows]=await pool.query('SELECT status,recurrence_stopped FROM supervision_sessions ORDER BY id');
     expect(rows[0].status).toBe('SCHEDULED'); expect(rows[1].recurrence_stopped).toBe(0);
-    expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2,scope:'future'})).cancelledCount).toBe(1);
+    expect((await cancelMeetingOccurrences({kind:'supervision',eventId:2,scope:'future',actorUserId:9})).cancelledCount).toBe(1);
     [rows]=await pool.query('SELECT status,recurrence_stopped,recurrence_horizon_held FROM supervision_sessions ORDER BY id');
     expect(rows.map(r=>r.status)).toEqual(['SCHEDULED','CANCELLED','CANCELLED']);expect(rows.every(r=>r.recurrence_stopped===1 && r.recurrence_horizon_held===0)).toBe(true);
   });

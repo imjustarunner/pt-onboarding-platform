@@ -1087,7 +1087,8 @@ class SupervisionSession {
          )
          AND ss.start_at < ?
          AND ss.end_at > ?
-         AND (ss.status IS NULL OR ss.status <> 'CANCELLED' OR (ss.cancel_reason IS NOT NULL AND COALESCE(ss.recurrence_horizon_held,0)=0))
+         AND ss.calendar_deleted_at IS NULL
+         AND COALESCE(ss.recurrence_horizon_held,0)=0
        ORDER BY ss.start_at ASC`,
       [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, windowEnd, windowStart]
     );

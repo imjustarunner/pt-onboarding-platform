@@ -16,7 +16,7 @@ export async function withRecurringScheduleEdit(work) {
   }
 }
 
-export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single', actorUserId = null, cancelReason = null }) {
+export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single', actorUserId = null, cancelReason = null, cancelAttribution = null }) {
   if (!['meeting', 'supervision'].includes(kind) || !['single', 'future', 'others'].includes(scope)
       || (kind === 'supervision' && scope === 'others')) {
     throw Object.assign(new Error('Choose this occurrence or this and all future occurrences.'), { status: 400 });
@@ -41,16 +41,17 @@ export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single'
         await db.execute(`UPDATE ${table} SET recurrence_stopped=1 WHERE agency_id <=> ? AND ${host}=? AND recurrence_series_id=?`,
           [anchor.agency_id, anchor[host], anchor.recurrence_series_id]);
       }
-      rows = rows.filter(row => !row.finalized_at && !row.meeting_completed_at
+      rows = rows.filter(row => !row.finalized_at && !row.meeting_completed_at && !row.calendar_deleted_at && !['MISSED','FINALIZED','RESCHEDULED'].includes(String(row.status).toUpperCase())
         && (String(row.status).toUpperCase() !== 'CANCELLED' || Number(row.recurrence_horizon_held)));
       const ids = rows.map(row => Number(row.id));
       const reason = kind === 'supervision' ? String(cancelReason || 'Canceled by the host').trim().slice(0,500) : null;
       if (ids.length) await db.execute(`UPDATE ${table} SET status='CANCELLED', recurrence_horizon_held=0,
         recurrence_calendar_pending=1, updated_at=CURRENT_TIMESTAMP${kind === 'meeting' ? ', updated_by_user_id=?' : ''}
-        ${kind === 'supervision' ? ', cancel_reason=?' : ''}
-        WHERE id IN (${ids.map(() => '?').join(',')})`, kind === 'meeting' ? [actorUserId, ...ids] : [reason,...ids]);
+        ${kind === 'supervision' ? ', cancel_reason=?, cancel_attribution=?' : ''}
+        WHERE id IN (${ids.map(() => '?').join(',')})`, kind === 'meeting' ? [actorUserId, ...ids] : [reason,cancelAttribution,...ids]);
+      if (kind === 'supervision') for (const row of rows) await db.execute(`INSERT INTO supervision_schedule_actions (session_id,actor_user_id,action_kind,reason,attribution,details_json) VALUES (?,?,'cancelled',?,?,?)`,[row.id,actorUserId,reason,cancelAttribution,JSON.stringify({scope,previousStatus:row.status})]);
       await db.commit();
-      return { rows: rows.map(row => ({...row,...(reason ? {cancel_reason:reason} : {})})), ids, cancelledCount: ids.length, seriesId: anchor.recurrence_series_id || null, scope };
+      return { rows: rows.map(row => ({...row,...(reason ? {cancel_reason:reason,cancel_attribution:cancelAttribution} : {})})), ids, cancelledCount: ids.length, seriesId: anchor.recurrence_series_id || null, scope };
     } catch (error) { await db.rollback(); throw error; }
   });
 }

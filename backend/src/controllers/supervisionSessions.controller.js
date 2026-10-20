@@ -8,6 +8,7 @@ import { supervisionParticipantDetails } from '../utils/supervisionParticipantDe
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { rescheduleSupervisionOccurrences } from '../services/supervisionReschedule.service.js';
 import { hasUnresolvedMeetingReferences } from '../utils/meetingSummaryReferences.js';
+import { applySupervisionOutcome, CANCELLATION_ATTRIBUTIONS, recordSupervisionScheduleAction } from '../services/supervisionScheduleActions.service.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { setMeetingTranscription } from './meetingTranscription.controller.js';
@@ -4039,8 +4040,8 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const row = await SupervisionSession.findById(id);
     if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
-    if (String(row.status || '').toUpperCase() === 'CANCELLED') {
-      return res.status(400).json({ error: { message: 'Cannot edit a cancelled session' } });
+    if (row.calendar_deleted_at || ['CANCELLED','MISSED'].includes(String(row.status || '').toUpperCase())) {
+      return res.status(400).json({ error: { message: 'Use Attendance & time to review this session’s recorded outcome.' } });
     }
 
     const ok = await canScheduleSession(req, {
@@ -4170,6 +4171,14 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     let recurrenceResult = null;
     const requestedFrequency = req.body?.recurrenceFrequency === undefined ? undefined : String(req.body.recurrenceFrequency).trim().toUpperCase();
+    const changeReason = String(req.body?.changeReason || '').trim().slice(0,500);
+    const scheduleChanged = +parseUtcDate(nextStart)!==+parseUtcDate(row.start_at) || +parseUtcDate(nextEnd)!==+parseUtcDate(row.end_at)
+      || (modality !== undefined && String(modality || '')!==String(row.modality || ''))
+      || (locationText !== undefined && String(locationText || '')!==String(row.location_text || ''))
+      || (sessionType !== undefined && sessionType!==row.session_type)
+      || (requestedFrequency && requestedFrequency!==(row.recurrence_frequency || 'ONCE'));
+    if (scheduleChanged && !changeReason) return res.status(400).json({error:{message:'Enter a reason for the schedule change.'}});
+    const previousSchedule={startAt:row.start_at,endAt:row.end_at,modality:row.modality,frequency:row.recurrence_frequency};
     if (requestedFrequency && requestedFrequency !== (row.recurrence_frequency || 'ONCE')) {
       if (requestedFrequency === 'ONCE' && seriesId) return res.status(400).json({error:{message:'Use Cancel session → This and all future sessions to stop this series.'}});
       recurrenceResult = await makeSupervisionRecurring({id,frequency:requestedFrequency,policy:req.body.recurrencePolicy,occurrenceCount:req.body.recurrenceOccurrenceCount,startAt:nextStart,endAt:nextEnd,timeZone:supervisionTimeZone,actorUserId:actorId,
@@ -4295,7 +4304,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     let notificationDelivery = null;
     const publicDetailsChanged = (modality !== undefined && String(modality || '') !== String(row.modality || ''))
       || (locationText !== undefined && String(locationText || '') !== String(row.location_text || ''));
-    const changeReason = String(req.body?.changeReason || '').trim().slice(0,500);
+    if (scheduleChanged) await recordSupervisionScheduleAction(pool,{sessionId:id,actorUserId:actorId,kind:'updated',reason:changeReason,details:{scope,before:previousSchedule,after:{startAt:nextStart,endAt:nextEnd,modality:out.modality,frequency:out.recurrence_frequency}}});
     if (notifyParticipants && Number(out?.notify_participants ?? 1)!==0 && (timingChanged || publicDetailsChanged) && !recurrenceResult?.createdIds?.length) {
       const fresh = await Promise.all(rowsToUpdate.map(e=>SupervisionSession.findById(e.id)));
       notificationDelivery = await sendMeetingScheduleChange(fresh.filter(row=>row && row.status!=='CANCELLED' && !Number(row.recurrence_horizon_held) && +parseUtcDate(row.start_at)>Date.now()),'updated',{scope,previousEvents:rowsToUpdate,changeReason});
@@ -4309,6 +4318,32 @@ export const patchSupervisionSession = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getSupervisionScheduleActions = async (req,res,next) => {
+  try {
+    const id=Number(req.params.id),row=await SupervisionSession.findById(id);
+    if(!row)return res.status(404).json({error:{message:'Session not found'}});
+    const allowed=await canScheduleSession(req,{agencyId:row.agency_id,supervisorUserId:row.supervisor_user_id,superviseeUserId:row.supervisee_user_id,sessionId:id});
+    const host=[row.supervisor_user_id,row.co_facilitator_user_id].map(Number).includes(Number(req.user?.id));
+    const admin=['super_admin','admin','support','clinical_practice_assistant'].includes(String(req.user?.role || '').toLowerCase());
+    if(!allowed || (!host && !admin))return res.status(403).json({error:{message:'Only the supervisor or authorized staff can view delivery history.'}});
+    const [actions]=await pool.execute(`SELECT a.*,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) actor_name
+      FROM supervision_schedule_actions a JOIN users u ON u.id=a.actor_user_id WHERE a.session_id=? ORDER BY a.id DESC LIMIT 100`,[id]);
+    const [deliveries]=await pool.execute(`SELECT d.action_kind,d.delivery_status,d.communication_id,d.created_at,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) recipient_name
+      FROM meeting_schedule_change_deliveries d JOIN users u ON u.id=d.user_id
+      WHERE d.meeting_type='supervision' AND JSON_CONTAINS(d.meeting_ids_json,CAST(? AS JSON)) ORDER BY d.created_at DESC LIMIT 100`,[JSON.stringify(id)]);
+    res.json({actions,deliveries});
+  } catch(error){next(error);}
+};
+
+export const recordSupervisionOutcome = async (req,res,next) => {
+  try {
+    const sessionId=Number(req.params.id),actorUserId=Number(req.user?.id);
+    if (!Number.isSafeInteger(sessionId) || sessionId<=0) return res.status(400).json({error:{message:'Invalid session id'}});
+    if (!actorUserId) return res.status(401).json({error:{message:'Sign in to continue.'}});
+    res.json(await applySupervisionOutcome({sessionId,actorUserId,action:req.body?.action,reason:req.body?.reason}));
+  } catch(error) {next(error);}
 };
 
 export const cancelSupervisionSession = async (req, res, next) => {
@@ -4338,7 +4373,9 @@ export const cancelSupervisionSession = async (req, res, next) => {
 
     const scope = String(req.body?.scope || 'single').toLowerCase();
     if (!String(req.body?.cancelReason || '').trim()) return res.status(400).json({error:{message:'Enter a cancellation reason.'}});
-    const result = await cancelMeetingOccurrences({ kind: 'supervision', eventId: id, scope, actorUserId: actorId, cancelReason:req.body?.cancelReason });
+    const cancelAttribution=String(req.body?.cancelAttribution || '').trim();
+    if (!CANCELLATION_ATTRIBUTIONS.includes(cancelAttribution)) return res.status(400).json({error:{message:'Select who the cancellation is due to.'}});
+    const result = await cancelMeetingOccurrences({ kind: 'supervision', eventId: id, scope, actorUserId: actorId, cancelReason:req.body?.cancelReason, cancelAttribution });
     const cancelled = await SupervisionSession.findById(id);
 
     // Only suppress the cancellation email when explicitly opted out — default stays 'send'.

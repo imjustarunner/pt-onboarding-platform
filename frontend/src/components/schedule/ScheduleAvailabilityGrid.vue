@@ -1086,6 +1086,7 @@
               `cell-block-${item.kind}`,
               item.isOfficeBlock ? `cell-block-office cell-block-office--${item.officeStatus || 'reserved'}` : '',
               item.isCancelled ? 'cell-block-sevt--cancelled' : '',
+              item.isMissed ? 'cell-block--missed' : '',
               fallCheckinEventClass(item)
             ]"
             :style="agendaItemStyle(item)"
@@ -1190,6 +1191,7 @@
                   b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
                   b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  b.isMissed ? 'cell-block--missed' : '',
                   fallCheckinEventClass(b)
                 ]"
                 :style="cellBlockStyle(b)"
@@ -1436,6 +1438,7 @@
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
                   b.segmentClass ? `cell-block-segment-${b.segmentClass}` : '',
                   b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  b.isMissed ? 'cell-block--missed' : '',
                   fallCheckinEventClass(b),
                   {
                     'cell-block--side-by-side': !!b.sideBySideLane,
@@ -1778,14 +1781,15 @@
             </button>
           </div>
 
-          <p v-if="isSupervisionEditMode && selectedSupvSession?.recurrenceSeriesId" class="hint" data-testid="supervision-recurrence-summary">
-            Repeats {{ RECURRENCE_OPTIONS.find(option => option.value === selectedSupvSession.recurrenceFrequency)?.label || 'on its saved schedule' }}.
-            When saving, choose just this session or this and all future sessions. A single-date change keeps the series intact.
-          </p>
-          <label v-if="isSupervisionEditMode && editorWorkspaceTab === 'edit' && canSaveSelectedSupvSession" class="field">
-            Reason for the change (optional, included in the update email)
-            <textarea v-model="supvChangeReason" rows="2" maxlength="500" placeholder="For example, a scheduling conflict" />
-          </label>
+          <div v-if="isSupervisionEditMode && selectedSupvSession?.recurrenceSeriesId" class="supervision-recurrence-badge" data-testid="supervision-recurrence-summary">
+            <span aria-hidden="true">↻</span> {{ RECURRENCE_OPTIONS.find(option => option.value === selectedSupvSession.recurrenceFrequency)?.label || 'Recurring' }}
+          </div>
+          <section v-if="isSupervisionEditMode && editorWorkspaceTab === 'info'" class="supervision-outcome-actions" aria-label="Supervision status actions">
+            <strong :class="{ 'supervision-terminal-status': isScheduleEventTerminal(selectedSupvSession) }">{{ supervisionStatusLabel }}</strong>
+            <span v-if="selectedSupvSession?.cancelReason">{{ selectedSupvSession.cancelAttribution ? `Due to ${selectedSupvSession.cancelAttribution}: ` : '' }}{{ selectedSupvSession.cancelReason }}</span>
+            <button v-if="canMarkSelectedSupvMissed" class="btn btn-secondary" type="button" @click="openSupervisionAction('missed')">Mark missed…</button>
+            <button v-if="canDeleteSelectedSupv" class="btn btn-danger" type="button" @click="openSupervisionAction('deleted')">Delete from calendar…</button>
+          </section>
           <SupervisionRecordPanel
             v-if="editorIsSupervision && isAppointmentEditMode && Number(selectedSupvSessionId) > 0"
             v-show="['info','attendance'].includes(editorWorkspaceTab)"
@@ -1816,7 +1820,7 @@
               :when-date-label="editorInfoWhenDateLabel"
               :when-time-label="editorInfoWhenTimeLabel"
               :type-label="editorInfoTypeLabel"
-              :status-label="editorIsMeeting ? '' : editorStatus"
+              :status-label="editorIsMeeting ? '' : editorIsSupervision ? supervisionStatusLabel : editorStatus"
               :modality-label="editorInfoModalityLabel"
               :tenant-label="editorIsSupervision ? supervisionRecordAgencyName || modalTenantLabel : modalTenantLabel"
               :tenant-icon-url="editorTenantIconUrl"
@@ -1843,7 +1847,7 @@
               :show-join-quick="false"
               :join-busy="supvMeetOpening || supvAppVideoLoading"
               :show-note-quick="editorIsSupervision"
-              :show-edit-action="!isSelectedSupvReadOnlyView"
+              :show-edit-action="!isSelectedSupvReadOnlyView && (!editorIsSupervision || canSaveSelectedSupvSession)"
               :note-quick-label="isSelectedSupvPresenterView ? 'Presenter prep notes' : 'Supervision note'"
               :note-quick-hint="isSelectedSupvPresenterView ? 'Private prep for your case presentation' : 'Short note, transcript & summary'"
               :show-billing="editorCanViewBillingFinancials"
@@ -1887,7 +1891,7 @@
           :subtitle="modalScheduleSubtitle"
           :hide-chrome="true"
           :disabled="submitting || scheduleEventSaving || (isSupervisionEditMode && !canSaveSelectedSupvSession)"
-          :show-virtual="editorShowVirtual || editorIsMeeting"
+          :show-virtual="!isSupervisionEditMode && (editorShowVirtual || editorIsMeeting)"
           :show-virtual-options="editorIsMeeting"
           v-model:virtual-is-virtual="editorMeetingIsVirtual"
           v-model:virtual-use-platform-video="linkMeetingPlatformVideo"
@@ -1932,7 +1936,7 @@
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
           :show-type="!editorIsOpenSlot && editorIsClinical && editorTypeOptions.length > 1"
-          :show-status="!editorIsOpenSlot && !editorIsMeeting && (isAppointmentEditMode || isScheduleEventEditMode)"
+          :show-status="!editorIsOpenSlot && !editorIsMeeting && !editorIsSupervision && (isAppointmentEditMode || isScheduleEventEditMode)"
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
           :location-options="editorServiceLocationOptions"
@@ -2602,6 +2606,7 @@
             <AppointmentCommunicationsPanel :appointment-id="Number(editorAppointmentId)" />
           </div>
           <div v-show="editorWorkspaceTab === 'notifications'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <SupervisionScheduleHistory v-if="isSupervisionEditMode && editorWorkspaceTab === 'notifications'" :key="selectedSupvSessionId" :session-id="Number(selectedSupvSessionId)" :timezone="scheduleMeetingTimeZone()" />
             <AppointmentRemindersPanel
               :appointment-id="editorAppointmentId"
               :schedule-event-id="editorNotificationsScheduleEventId"
@@ -4713,7 +4718,7 @@
           </button>
           <div class="nr-footer__actions">
             <button
-              v-if="canJoinSelectedSupvSession"
+              v-if="canJoinSelectedSupvSession && editorWorkspaceTab === 'info'"
               class="btn nr-btn-join"
               type="button"
               :disabled="supvSaving || supvMeetOpening || supvAppVideoLoading || !selectedSupvSessionId"
@@ -4722,7 +4727,7 @@
               {{ supvJoinSessionLabel }}
             </button>
             <button
-              v-if="canSaveSelectedSupvSession"
+              v-if="canSaveSelectedSupvSession && ['edit','notifications'].includes(editorWorkspaceTab)"
               class="btn nr-btn-submit"
               type="button"
               :disabled="supvSaving || !selectedSupvSessionId"
@@ -5401,6 +5406,9 @@
           <p class="cancel-meeting-copy">
             Move to <strong>{{ appointmentMoveDraft?.targetLabel || '—' }}</strong>?
           </p>
+          <label v-if="appointmentMoveDraft?.kind === 'supv'" class="supervision-move-reason">Reason for the change (required; shared in the update email)
+            <textarea v-model="appointmentMoveDraft.changeReason" rows="3" maxlength="500" required />
+          </label>
           <div v-if="appointmentMoveError" class="error" style="margin-bottom: 12px;">{{ appointmentMoveError }}</div>
           <label v-if="['TEAM_MEETING','HUDDLE'].includes(appointmentMoveDraft?.eventKind)" class="form-group"><input v-model="appointmentMoveDraft.notifyChanges" type="checkbox" /> Notify participants of changes (after 5 minutes)</label>
           <label v-if="appointmentMoveDraft?.kind === 'ob'" class="form-group">
@@ -5533,40 +5541,12 @@
       </div>
     </div>
 
-    <div v-if="showCancelSupvModal" class="modal-backdrop" style="z-index: 10001;" @click.self="closeCancelSupvConfirm">
-      <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="cancel-supv-title">
-        <div class="modal-head">
-          <div id="cancel-supv-title" class="modal-title">Cancel session</div>
-          <button class="btn btn-secondary btn-sm cancel-meeting-btn-secondary" type="button" :disabled="cancelSupvBusy" @click="closeCancelSupvConfirm">
-            Close
-          </button>
-        </div>
-        <div class="modal-body">
-          <p class="cancel-meeting-copy">
-            Are you sure you want to cancel this supervision session? It will stay on everyone’s schedule as cancelled.
-          </p>
-          <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;">
-            <input v-model="cancelSupvNotify" type="checkbox" style="margin-top: 3px;" />
-            <span>Email the supervisor and supervisee(s) the cancellation and reason. Uncheck only if they have already been notified.</span>
-          </label>
-          <label class="field">Reason (required) — shown on the schedule and in the cancellation email
-            <textarea v-model="cancelSupvReason" required maxlength="500" rows="2" placeholder="For example, Thanksgiving week" />
-          </label>
-          <div v-if="cancelSupvError" class="error" style="margin-bottom: 12px;">{{ cancelSupvError }}</div>
-          <div style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="cancelSupvBusy" @click="closeCancelSupvConfirm">
-              Never mind
-            </button>
-            <button type="button" class="btn btn-danger" :disabled="cancelSupvBusy" @click="confirmCancelSupvSession('single')">
-              {{ cancelSupvBusy ? 'Cancelling…' : 'Just this session' }}
-            </button>
-            <button v-if="selectedSupvSession?.recurrence_series_id || selectedSupvSession?.recurrenceSeriesId" type="button" class="btn btn-danger" :disabled="cancelSupvBusy" @click="confirmCancelSupvSession('future')">
-              This and all future sessions
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <SupervisionScheduleActionDialog v-if="supervisionActionDraft" :key="supervisionActionDraft.mode"
+      :mode="supervisionActionDraft.mode" :name="selectedSupvSession?.counterpartyName || 'Supervision'"
+      :when="supervisionActionDraft.when" :target-when="supervisionActionDraft.targetWhen"
+      :recurring="!!selectedSupvSession?.recurrenceSeriesId" :future="supervisionActionDraft.future"
+      :busy="supervisionActionBusy" :error="supervisionActionError"
+      @close="!supervisionActionBusy && (supervisionActionDraft = null)" @confirm="confirmSupervisionAction" />
 
     <div v-if="showGoogleEventModal" class="modal-backdrop" @click.self="closeGoogleEventModal">
       <div class="modal google-event-modal" style="max-width: 480px;">
@@ -5811,6 +5791,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
+import SupervisionScheduleHistory from './SupervisionScheduleHistory.vue';
+import SupervisionScheduleActionDialog from './SupervisionScheduleActionDialog.vue';
 import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
 import SupervisionRsvpSummary from './SupervisionRsvpSummary.vue';
 import { supervisionProgress } from '../../utils/supervisionProgress.js';
@@ -10398,7 +10380,7 @@ const supervisionDayName = (ev) => {
   return dayNamesSunFirst[d.getDay()] || null;
 };
 
-const hasSupervision = (dayName, hour) => supervisionSessionsInCell(dayName, hour).some(ev => !isScheduleEventCancelled(ev));
+const hasSupervision = (dayName, hour) => supervisionSessionsInCell(dayName, hour).some(ev => !isScheduleEventTerminal(ev));
 
 const hideGridBlockTime = (block) => scheduleSideBySide.value && isExactHourAppointment(block);
 const gridBlockLabel = (block) => {
@@ -10731,7 +10713,11 @@ const shouldHideQuarterAgencyDot = (segmentClass, minute = 0) => {
 const isScheduleEventCancelled = (ev) => (
   !!ev?.isCancelled
   || String(ev?.status || '').trim().toUpperCase() === 'CANCELLED'
+  || /^(canceled|cancelled|late_canceled|late_cancelled)/i.test(String(ev?.appointmentStatus || ''))
 );
+
+const isScheduleEventMissed = (ev) => !!ev?.isMissed || ['MISSED','NO_SHOW','NO-SHOW'].includes(String(ev?.appointmentStatus || ev?.status || '').toUpperCase());
+const isScheduleEventTerminal = (ev) => isScheduleEventCancelled(ev) || isScheduleEventMissed(ev);
 
 const isScheduleMeetingCompleted = (ev) => (
   !!ev?.meetingCompleted
@@ -10739,7 +10725,7 @@ const isScheduleMeetingCompleted = (ev) => (
 );
 
 const isScheduleMeetingJoinable = (ev) => (
-  !isScheduleEventCancelled(ev) && !isScheduleMeetingCompleted(ev)
+  !isScheduleEventTerminal(ev) && !isScheduleMeetingCompleted(ev)
 );
 
 const fallCheckinEventKind = (blockOrEvent) => String(
@@ -10930,7 +10916,7 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
   else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
   else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
-  const canceledPrefix = isScheduleEventCancelled(ev) ? 'Cancelled · ' : '';
+  const canceledPrefix = isScheduleEventMissed(ev) ? 'Missed · ' : isScheduleEventCancelled(ev) ? 'Cancelled · ' : '';
   const typeLabel = `${canceledPrefix}${typePrefix}`.trim();
   const whoLabel = (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING')
     ? meetingWhoLabelForGrid(ev, typePrefix)
@@ -11239,7 +11225,7 @@ const schoolAssignmentsInCell = (dayName, hour) => {
 };
 
 const supervisionReplacesSchoolAssignment = (session, assignment) => {
-  if (isScheduleEventCancelled(session)) return false;
+  if (isScheduleEventTerminal(session)) return false;
   // Supervision always takes the calendar cell — do not stack over school assignment blocks
   // (including virtual sessions while the provider is assigned to a school).
   const modality = String(session?.modality || '').trim().toLowerCase();
@@ -11638,7 +11624,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
   const supvByAgency = new Map();
   for (const ev of supvHits) {
     const aid = Number(ev?.agencyId || ev?._agencyId || 0) || null;
-    const key = unlimited || isScheduleEventCancelled(ev) ? `${aid || 'none'}:${ev.id}` : aid || 'none';
+    const key = unlimited || isScheduleEventTerminal(ev) ? `${aid || 'none'}:${ev.id}` : aid || 'none';
     if (!supvByAgency.has(key)) supvByAgency.set(key, []);
     supvByAgency.get(key).push(ev);
   }
@@ -11688,8 +11674,9 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
       kind: isSignupBlock ? 'supv-signup' : 'supv',
       isCancelled: isScheduleEventCancelled(first),
-      shortLabel: isScheduleEventCancelled(first) ? `Canceled · ${first?.cancelReason || 'Supervision'}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join('\n') : supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
-      title: isScheduleEventCancelled(first) ? `Canceled supervision · ${clockRangeLabel(first?.startAt, first?.endAt)} · ${first?.cancelReason || ''}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join(' · ') : supervisionTitle(dayName, hour, minute),
+      isMissed: isScheduleEventMissed(first),
+      shortLabel: isScheduleEventMissed(first) ? `Missed · Supervision · ${first?.counterpartyName || ''}` : isScheduleEventCancelled(first) ? `Canceled · ${first?.cancelReason || 'Supervision'}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join('\n') : supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
+      title: isScheduleEventMissed(first) ? `Missed supervision · ${clockRangeLabel(first?.startAt, first?.endAt)} · ${first?.counterpartyName || ''}` : isScheduleEventCancelled(first) ? `Canceled supervision · ${clockRangeLabel(first?.startAt, first?.endAt)} · ${first?.cancelReason || ''}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join(' · ') : supervisionTitle(dayName, hour, minute),
       agencyId,
       segmentClass: 'single',
       hideAgencyDot: false,
@@ -11712,10 +11699,10 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       timedSlice,
       spanBlock: true,
       shareRow: hasSchoolBlocks,
-      canEdit: !isScheduleEventCancelled(first) && (first?.canEdit === true || (first?.canEdit == null && String(first?.role || '') === 'supervisor')),
-      canReschedule: !isScheduleEventCancelled(first) && (first?.canReschedule === true
+      canEdit: !isScheduleEventTerminal(first) && (first?.canEdit === true || (first?.canEdit == null && String(first?.role || '') === 'supervisor')),
+      canReschedule: !isScheduleEventTerminal(first) && (first?.canReschedule === true
         || (first?.canReschedule == null && (first?.canEdit === true || String(first?.role || '') === 'supervisor'))),
-      draggable: !isScheduleEventCancelled(first) && Number(first?.id || 0) > 0
+      draggable: !isScheduleEventTerminal(first) && Number(first?.id || 0) > 0
     });
   }
 
@@ -11727,8 +11714,8 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
     const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
     const attendeeCount = meetingBookedParticipantCount(ev);
     const isGroupMeeting = isMultiParticipantMeeting(ev);
-    const canEditEv = ev?.canEdit !== false && !isScheduleEventCancelled(ev);
-    const canRescheduleEv = !isScheduleEventCancelled(ev) && (
+    const canEditEv = ev?.canEdit !== false && !isScheduleEventTerminal(ev);
+    const canRescheduleEv = !isScheduleEventTerminal(ev) && (
       ev?.canReschedule === true
       || (ev?.canReschedule !== false && canEditEv)
     );
@@ -11750,6 +11737,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       locationAddress: String(ev?.locationAddress || '').trim() || null,
       mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
+      isMissed: isScheduleEventMissed(ev),
       appointmentId: Number(ev?.appointmentId || 0) || null,
       isClientSession: isClientSessionScheduleEvent(ev),
       appointmentStatus: String(ev?.appointmentStatus || '').trim().toLowerCase() || null,
@@ -11776,7 +11764,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       timedSlice,
       spanBlock: true,
       // Allow drag gesture for snap-back UX; permission checked on drop.
-      draggable: !isScheduleEventCancelled(ev) && Number(ev?.id || 0) > 0
+      draggable: !isScheduleEventTerminal(ev) && Number(ev?.id || 0) > 0
     });
   }
 
@@ -18200,7 +18188,7 @@ const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
   ];
   for (const rows of collections) {
     for (const row of rows) {
-      if (isScheduleEventCancelled(row)) continue;
+      if (isScheduleEventTerminal(row)) continue;
       const startAt = row?.startAt || row?.start;
       const endAt = row?.endAt || row?.end;
       if (!overlaps(startAt, endAt)) continue;
@@ -23410,6 +23398,7 @@ const closeSupvAppVideoModal = () => {
 };
 
 const startTrackedSupvMeetForSession = async (session) => {
+  if (isScheduleEventTerminal(session)) return;
   const appUrl = String(session?.joinUrl || '').trim();
   const meetLink = String(session?.googleMeetLink || '').trim();
   const sid = Number(session?.id || 0);
@@ -23481,7 +23470,7 @@ const supervisionSessionInitiated = computed(() => {
   const s = selectedSupvSession.value;
   if (!s || !Number(selectedSupvSessionId.value || 0)) return false;
   const status = String(s?.status || '').trim().toUpperCase();
-  if (status === 'CANCELLED') return false;
+  if (['CANCELLED','MISSED','FINALIZED'].includes(status)) return false;
   const start = parseMaybeDate(s?.startAt);
   const end = parseMaybeDate(s?.endAt);
   if (!start || !end) return false;
@@ -23501,7 +23490,7 @@ const joinPromptSession = computed(() => {
     const appJoin = String(s?.joinUrl || '').trim();
     if (!meet && !appJoin) continue;
     const status = String(s?.status || '').trim().toUpperCase();
-    if (status === 'CANCELLED') continue;
+    if (['CANCELLED','MISSED','FINALIZED'].includes(status)) continue;
     const start = parseMaybeDate(s?.startAt);
     const end = parseMaybeDate(s?.endAt);
     if (!start || !end) continue;
@@ -23611,6 +23600,7 @@ async function withdrawFromSelectedSupvSession() {
 
 const canJoinSelectedSupvSession = computed(() => {
   const s = selectedSupvSession.value;
+  if (isScheduleEventTerminal(s) || s?.finalizedAt || s?.liveEndedAt) return false;
   if (!Number(s?.id || 0)) return false;
   return !!(String(s?.joinUrl || '').trim() || String(s?.googleMeetLink || '').trim());
 });
@@ -23700,8 +23690,12 @@ const selectedSupvNoteViewerRole = computed(() => {
   if (isSelectedSupvPresenterView.value) return 'presenter';
   return 'attendee';
 });
-const canCancelSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
-const canSaveSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value);
+const canCancelSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value && !isScheduleEventTerminal(selectedSupvSession.value) && !selectedSupvSession.value?.finalizedAt);
+const canSaveSelectedSupvSession = computed(() => canHostOrAdminManageSelectedSupv.value && !isScheduleEventTerminal(selectedSupvSession.value));
+const isAssignedSupv = computed(() => Number(authStore.user?.id)>0 && Number(authStore.user.id)===Number(selectedSupvSession.value?.supervisorUserId));
+const canMarkSelectedSupvMissed = computed(() => isAssignedSupv.value && ['SCHEDULED','MISSED'].includes(String(selectedSupvSession.value?.status || 'SCHEDULED').toUpperCase()) && Number(parseMaybeDate(selectedSupvSession.value?.endAt))<=Date.now());
+const canDeleteSelectedSupv = computed(() => isAssignedSupv.value && isScheduleEventTerminal(selectedSupvSession.value));
+const supervisionStatusLabel = computed(() => ({SCHEDULED:'Scheduled',MISSED:'Missed',CANCELLED:'Cancelled',FINALIZED:'Completed',IN_PROGRESS:'In progress'})[String(selectedSupvSession.value?.status || 'SCHEDULED').toUpperCase()] || selectedSupvSession.value?.status);
 
 watch(isSelectedSupvReadOnlyView, (readOnly) => {
   if (!readOnly) return;
@@ -23852,6 +23846,37 @@ const toggleSupvParticipantRequired = async (userId, nextRequired) => {
   }
 };
 
+const supervisionActionDraft = ref(null);
+const supervisionActionBusy = ref(false);
+const supervisionActionError = ref('');
+const openSupervisionAction = (mode, options={}) => {
+  supervisionActionError.value='';
+  supervisionActionDraft.value={mode,when:formatRangeFromRaw(selectedSupvSession.value?.startAt,selectedSupvSession.value?.endAt,true),future:Number(parseMaybeDate(selectedSupvSession.value?.startAt))>Date.now(),...options};
+};
+const confirmSupervisionAction = async ({scope,reason,attribution,notify}) => {
+  const draft=supervisionActionDraft.value;
+  if(!draft) return;
+  supervisionActionBusy.value=true;supervisionActionError.value='';
+  try {
+    if(draft.mode==='change') {
+      supvChangeReason.value=reason;
+      await saveSupvSession({closeScheduleShell:draft.closeScheduleShell,scope,pastConfirmed:true});
+    } else if(draft.mode==='cancel') {
+      cancelSupvReason.value=reason;cancelSupvAttribution.value=attribution;cancelSupvNotify.value=notify;
+      await confirmCancelSupvSession(scope);
+      if(cancelSupvError.value)throw new Error(cancelSupvError.value);
+    } else {
+      const {data}=await api.post(`/supervision/sessions/${selectedSupvSessionId.value}/outcome`,{action:draft.mode,reason});
+      flashScheduleToast(data.alreadyRecorded ? 'This action was already recorded; no duplicate email was queued.' : draft.mode==='missed' ? 'Marked missed. Email queued; delivery status is in Notifications.' : 'Removed from the calendar. The session record is retained.');
+      invalidateScheduleSummaryCacheForUser(props.userId);
+      invalidateScheduleSummaryCacheForUser(authStore.user?.id);
+      await load({forceRefresh:true});
+      closeSupvModal();requestCloseModal();
+    }
+    supervisionActionDraft.value=null;
+  } catch(error) {supervisionActionError.value=error.response?.data?.error?.message || error.message || 'Could not save the action.';}
+  finally {supervisionActionBusy.value=false;}
+};
 const supvChangeReason = ref('');
 watch(selectedSupvSessionId, () => { supvChangeReason.value = ''; });
 const supervisionRecordAgencyName = ref('');
@@ -24170,6 +24195,14 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
     return;
   }
   const seriesId = String(editTimingBaseline.value.recurrenceSeriesId || selectedSupvSession.value?.recurrenceSeriesId || '').trim();
+  const current=selectedSupvSession.value;
+  const scheduleChanged=supvStartIsoLocal.value!==editTimingBaseline.value.startAt || supvEndIsoLocal.value!==editTimingBaseline.value.endAt
+    || supervisionRecurrence.value!==(current?.recurrenceFrequency || 'ONCE')
+    || (editorSupervisionIsVirtual.value ? 'virtual' : 'in_person')!==String(current?.modality || '').toLowerCase();
+  if(scheduleChanged && !supvChangeReason.value.trim()) {
+    openSupervisionAction('change',{closeScheduleShell,targetWhen:`${editorInfoWhenDateLabel.value} · ${editorInfoWhenTimeLabel.value}`});
+    return;
+  }
   if (!scope && seriesId) {
     await askSeriesEditScope({
       title: selectedSupvSession.value?.counterpartyName || 'Supervision',
@@ -24261,6 +24294,7 @@ const reportScheduleChangeDelivery = (data) => {
 };
 const cancelSupvNotify = ref(true);
 const cancelSupvReason = ref('');
+const cancelSupvAttribution = ref('');
 const cancelSupvError = ref('');
 const cancelSupvBusy = ref(false);
 
@@ -24272,7 +24306,7 @@ const openCancelSupvConfirm = () => {
   cancelSupvError.value = '';
   cancelSupvNotify.value = true;
   cancelSupvReason.value = '';
-  showCancelSupvModal.value = true;
+  openSupervisionAction('cancel');
 };
 
 const closeCancelSupvConfirm = () => {
@@ -24287,6 +24321,7 @@ const confirmCancelSupvSession = async (scope = 'single') => {
     cancelSupvError.value = 'Only the host or an admin can cancel this session.';
     return;
   }
+  if (!cancelSupvAttribution.value) {cancelSupvError.value='Select who the cancellation is due to.';return;}
   if (!cancelSupvReason.value.trim()) {
     cancelSupvError.value = 'Enter a cancellation reason before continuing.';
     return;
@@ -24295,7 +24330,7 @@ const confirmCancelSupvSession = async (scope = 'single') => {
     cancelSupvBusy.value = true;
     supvSaving.value = true;
     cancelSupvError.value = '';
-    const changeResponse = await api.post(`/supervision/sessions/${id}/cancel`, { scope, notifyParticipants: cancelSupvNotify.value, cancelReason:cancelSupvReason.value.trim() });
+    const changeResponse = await api.post(`/supervision/sessions/${id}/cancel`, { scope, notifyParticipants: cancelSupvNotify.value, cancelReason:cancelSupvReason.value.trim(), cancelAttribution:cancelSupvAttribution.value });
     reportScheduleChangeDelivery(changeResponse.data);
     invalidateScheduleSummaryCacheForUser(props.userId);
     showCancelSupvModal.value = false;
@@ -24755,6 +24790,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
   })) {
     return;
   }
+  if (draft.kind==='supv' && !String(draft.changeReason || '').trim()) {appointmentMoveError.value='Enter a reason for the schedule change.';return;}
   const seriesId = String(draft.seriesId || '').trim();
   if (!scope && (seriesId || isPortal && draft.frequency !== 'ONCE')) {
     showAppointmentMoveModal.value = false;
@@ -24791,6 +24827,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
       await loadSelectedOfficeGrid();
     } else if (draft.kind === 'supv') {
       await api.patch(`/supervision/sessions/${draft.eventId}`, {
+        changeReason:String(draft.changeReason || '').trim(),
         startAt: draft.newStartAt,
         endAt: draft.newEndAt,
         timeZone: scheduleMeetingTimeZone(),
@@ -24951,7 +24988,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
       }
       const linkedSupv = findAppSupervisionForGoogleId(ev.id);
       if (linkedSupv) {
-        openSupervisionEditInScheduleModal(dayName, hour);
+        openSupervisionEditInScheduleModal(dayName, hour, Number(linkedSupv.id || 0));
         return;
       }
       openGoogleEventModal(ev);
@@ -24962,7 +24999,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
     return;
   }
   if (kind === 'supv' || kind === 'supv-signup') {
-    openSupervisionEditInScheduleModal(dayName, hour);
+    openSupervisionEditInScheduleModal(dayName, hour, Number(block?.eventId || 0));
     return;
   }
   if (['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(kind)) {
@@ -26732,6 +26769,13 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 </script>
 
 <style scoped>
+.supervision-move-reason {display:flex;flex-direction:column;gap:10px;margin:16px 0;font-weight:600;}
+.supervision-move-reason textarea {padding:12px;font:inherit;border:1px solid #becbdf;border-radius:10px;width:100%;box-sizing:border-box;}
+.supervision-recurrence-badge {display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border:1px solid #c4b5fd;border-radius:999px;background:#ede9fe;color:#5b21b6;font-weight:700;margin:12px 0 18px;}
+.supervision-recurrence-badge span {font-size:1.25rem;}
+.supervision-outcome-actions {display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 16px;}
+.supervision-terminal-status {border-radius:8px;padding:8px 12px;background:#fff1e5;color:#92400e;}
+.cell-block--missed {border:2px dashed #b45309 !important;background:#fff3d6 !important;color:#78350f !important;}
 .cell-recurrence-marker { position: absolute; right: 4px; bottom: 3px; font-size: 16px; line-height: 1; font-weight: bold; pointer-events: none; background: rgba(255,255,255,.85); border-radius: 50%; padding: 2px; z-index: 2; }
 .sched-subscription { margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--border, #d6d5ce); border-radius: 10px; }
 .sched-subscription summary { cursor: pointer; font-weight: 600; }

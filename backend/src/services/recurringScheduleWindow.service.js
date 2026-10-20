@@ -234,7 +234,7 @@ export async function syncRecurringCalendars() {
             JOIN users u ON u.id=e.${def.host} WHERE e.id=? AND e.recurrence_calendar_pending=1`, [candidate.id]);
           if (!row) return;
           let result;
-          if (row.status === 'CANCELLED') {
+          if (['CANCELLED','MISSED'].includes(row.status)) {
             // If a process stopped after inserting into Google but before saving its
             // ID, the deterministic ID still lets cancellation remove that copy.
             const generations = [...new Set([Number(row.recurrence_calendar_generation || 0),Math.max(0,Number(row.recurrence_calendar_generation || 0)-1)])];
@@ -262,7 +262,7 @@ export async function syncRecurringCalendars() {
               startAt:row.start_at,endAt:row.end_at,
               timeZone:row.event_timezone || 'America/Denver',sendUpdates:'none',disableReminders:true});
           }
-          if (result?.ok || result?.skipped) await db.execute(`UPDATE ${def.table} SET google_event_id=?,recurrence_calendar_pending=0 WHERE id=? AND status=?`,[row.status === 'CANCELLED' ? null : result.googleEventId || row.google_event_id || null,row.id,row.status]);
+          if (result?.ok || result?.skipped) await db.execute(`UPDATE ${def.table} SET google_event_id=?,recurrence_calendar_pending=0 WHERE id=? AND status=?`,[['CANCELLED','MISSED'].includes(row.status) ? null : result.googleEventId || row.google_event_id || null,row.id,row.status]);
         });
       } catch(error) { console.warn('[Recurring calendar] Retry pending',kind,candidate.id,error.code || 'error'); }
     }

@@ -99,10 +99,20 @@ describe('supervision change notices',()=>{
   beforeEach(()=>{
     m.execute.mockImplementation(async(sql,args)=>{
       if(sql.includes('FROM supervision_session_attendees')) return [[{user_id:5}]];
+      if(sql.includes('FROM users WHERE id IN')) return [[{id:3,first_name:'Rachel',last_name:'Finch'},{id:5,first_name:'Grace',last_name:'Terrones'}]];
       if(sql.includes('FROM users WHERE id=')) return [[{id:args[0],email:`person${args[0]}@example.com`}]];
       if(sql.includes('SELECT * FROM meeting_email_invitations')) return [[invite]];
       return [{affectedRows:1}];
     });
+  });
+  it('sends a professional missed notice to named parties, without a join link or changes to the next session',async()=>{
+    await sendMeetingScheduleChange([{...original,status:'MISSED'}],'missed',{changeReason:'Did not attend',recipientUserIds:[3,5],actorUserId:3});
+    expect(m.send).toHaveBeenCalledTimes(2);
+    for(const [mail] of m.send.mock.calls) {
+      expect(mail.subject).toContain('Grace');expect(mail.text).toContain('Supervisor: Rachel Finch');expect(mail.text).toContain('Supervisee: Grace Terrones');
+      expect(mail.text).toContain('recorded this supervision session as missed');expect(mail.text).toContain('Future sessions are unchanged');
+      expect(mail.text).toContain('Did not attend');expect(mail.triggerKey).toBe('supervision_missed');expect(mail.html).not.toContain('/join/');
+    }
   });
   it('sends the cancellation reason and local weekday/date/time to both supervisor and supervisee, once each',async()=>{
     const result=await sendMeetingScheduleChange([{...original,cancel_reason:'Scheduling conflict <private>'}],'cancelled');

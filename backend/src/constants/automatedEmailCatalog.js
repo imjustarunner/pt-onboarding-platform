@@ -60,6 +60,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   meeting_invited: ['notifications', 'support'],
   meeting_summary_ready: ['notifications', 'support'],
   meeting_cancelled: ['notifications', 'support'],
+  supervision_missed: ['notifications', 'support'],
   program_reminder: ['notifications', 'people_operations'],
   company_event_checkin: ['notifications', 'people_operations'],
   shift_calloff_need_coverage: ['notifications', 'people_operations'],

@@ -35,6 +35,8 @@ import {
   patchSupervisionSession,
   patchSupervisionSessionValidators,
   cancelSupervisionSession,
+  recordSupervisionOutcome,
+  getSupervisionScheduleActions,
   getSuperviseeHoursSummary,
   getMySupervisionPrompts,
   getMySupervisionSessions,
@@ -175,5 +177,7 @@ router.post('/sessions/:id/signup', signupForSupervisionSession);
 router.delete('/sessions/:id/signup', withdrawFromSupervisionSession);
 router.patch('/sessions/:id', patchSupervisionSessionValidators, patchSupervisionSession);
 router.post('/sessions/:id/cancel', cancelSupervisionSession);
+router.post('/sessions/:id/outcome', recordSupervisionOutcome);
+router.get('/sessions/:id/schedule-actions', getSupervisionScheduleActions);
 
 export default router;

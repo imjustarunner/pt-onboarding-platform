@@ -4,7 +4,7 @@ import Agency from '../models/Agency.model.js';
 import { messageReminderRecipient } from './messageReminderRecipient.service.js';
 import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
 
-export const PRIORITY_EVENT_EMAILS = new Set(['meeting_invited', 'meeting_join_reminder', 'meeting_rescheduled', 'meeting_cancelled', 'hiring_interview_invite']);
+export const PRIORITY_EVENT_EMAILS = new Set(['meeting_invited', 'meeting_join_reminder', 'meeting_rescheduled', 'meeting_cancelled', 'supervision_missed', 'hiring_interview_invite']);
 const norm = value => String(value || '').trim().toLowerCase();
 
 // Event invitations are immediate transactional mail, independent of the delay

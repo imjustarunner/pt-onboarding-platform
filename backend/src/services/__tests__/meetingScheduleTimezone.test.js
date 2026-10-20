@@ -107,3 +107,12 @@ it.each([{status:'FINALIZED'},{status:'SCHEDULED',liveEndedAt:'2026-10-20T19:00Z
  const result=await reconcileGoogleLinkedSchedule({viewedProviderId:7,viewedProviderEmail:'host@example.test',supervisionSessions:[{id:3,googleEventId:'g',startAt:'2026-10-20T18:00:00Z',endAt:'2026-10-20T19:00:00Z',...flags}],googleEvents:[{id:'g',startAt:'2026-10-20T06:00:00-06:00',endAt:'2026-10-20T07:00:00-06:00'}]});
  expect(result.updatedCount).toBe(0);expect(SupervisionSession.updateById).not.toHaveBeenCalled();expect(SupervisionSession.cancel).not.toHaveBeenCalled();
 });
+
+it('keeps cancelled and missed calendar records visible when linked Google copies are removed',async()=>{
+ const base={id:55,supervisorUserId:7,googleEventId:'deleted-google',startAt:'2026-10-20T18:00:00Z',endAt:'2026-10-20T19:00:00Z'};
+ const supervisionSessions=[{...base,status:'CANCELLED'},{...base,id:56,status:'MISSED'}];
+ const scheduleEvents=[{...base,id:57,providerId:7,status:'CANCELLED',kind:'CLIENT_SESSION'}];
+ const result=await reconcileGoogleLinkedSchedule({viewedProviderId:7,viewedProviderEmail:'host@example.test',scheduleEvents,supervisionSessions,googleEvents:[{id:'deleted-google',status:'cancelled'}]});
+ expect(result.supervisionSessions).toEqual(supervisionSessions);expect(result.scheduleEvents).toEqual(scheduleEvents);
+ expect(SupervisionSession.updateById).not.toHaveBeenCalled();expect(SupervisionSession.cancel).not.toHaveBeenCalled();
+});

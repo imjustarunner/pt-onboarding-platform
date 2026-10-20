@@ -104,7 +104,7 @@ it('persists the repeat selection from an edit and creates the future series',as
  const row={...session,supervisor_user_id:1,session_type:'individual',start_at:'2026-11-19 20:00:00',end_at:'2026-11-19 21:00:00',event_timezone:'America/Denver'};
  m.find.mockResolvedValue(row);m.update.mockResolvedValue(row);m.recur.mockResolvedValue({createdIds:[101,102]});
  const res=response(),next=vi.fn();
- await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{recurrenceFrequency:'WEEKLY',recurrencePolicy:'INDEFINITE',notifyParticipants:false}},res,next);
+ await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{changeReason:'Establish recurring supervision',recurrenceFrequency:'WEEKLY',recurrencePolicy:'INDEFINITE',notifyParticipants:false}},res,next);
  expect(next).not.toHaveBeenCalled();expect(m.recur).toHaveBeenCalledWith(expect.objectContaining({id:100,frequency:'WEEKLY',policy:'INDEFINITE',actorUserId:1}));
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ok:true,recurrence:{createdIds:[101,102]}}));
 });
@@ -112,7 +112,7 @@ for(const scope of ['single','future']) it(`applies supervision details only to 
  const row={...session,session_type:'individual',start_at:'2026-11-19 20:00:00',end_at:'2026-11-19 21:00:00',recurrence_series_id:'weekly'};
  m.find.mockResolvedValue(row);m.update.mockResolvedValue(row);m.series.mockResolvedValue([row,{...row,id:101}]);
  const res=response(),next=vi.fn();
- await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{scope,modality:'virtual',notes:'Updated location',notifyParticipants:false}},res,next);
+ await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{scope,changeReason:'Change meeting format',modality:'virtual',notes:'Updated location',notifyParticipants:false}},res,next);
  expect(next).not.toHaveBeenCalled();expect(m.update.mock.calls.map(([id])=>id)).toEqual(scope==='single'?[100]:[100,101]);
  expect(m.update.mock.calls.every(([,body])=>body.modality==='virtual'&&body.notes==='Updated location')).toBe(true);
 });
@@ -124,8 +124,8 @@ it('requires a reason before cancelling supervision',async()=>{
 for(const scope of ['single','future']) it(`cancels ${scope} supervision with the supplied reason and notification choice`,async()=>{
  m.cancel.mockResolvedValue({rows:[{...session,start_at:'2099-01-01 20:00:00'}],cancelledCount:1});
  const res=response(),next=vi.fn();
- await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{scope,cancelReason:'Unavailable',notifyParticipants:false}},res,next);
- expect(next).not.toHaveBeenCalled();expect(m.cancel).toHaveBeenCalledWith({kind:'supervision',eventId:100,scope,actorUserId:1,cancelReason:'Unavailable'});expect(m.notices).not.toHaveBeenCalled();
+ await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{scope,cancelAttribution:'supervisor',cancelReason:'Unavailable',notifyParticipants:false}},res,next);
+ expect(next).not.toHaveBeenCalled();expect(m.cancel).toHaveBeenCalledWith({kind:'supervision',eventId:100,scope,actorUserId:1,cancelAttribution:'supervisor',cancelReason:'Unavailable'});expect(m.notices).not.toHaveBeenCalled();
 });
 
 
@@ -133,14 +133,14 @@ it('notifies by default when future supervision is cancelled and preserves the r
  const cancelled={...session,start_at:'2099-01-01 20:00:00',cancel_reason:'Unavailable'};
  m.cancel.mockResolvedValue({rows:[cancelled],cancelledCount:1});
  const res=response(),next=vi.fn();
- await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelReason:'Unavailable'}},res,next);
+ await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelAttribution:'supervisor',cancelReason:'Unavailable'}},res,next);
  expect(next).not.toHaveBeenCalled();
  expect(m.notices).toHaveBeenCalledWith([cancelled],'cancelled',{scope:'single'});
 });
 it('does not send cancellation emails for historical supervision',async()=>{
  m.cancel.mockResolvedValue({rows:[{...session,start_at:'2020-01-01 20:00:00'}],cancelledCount:1});
  const res=response(),next=vi.fn();
- await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelReason:'Record correction'}},res,next);
+ await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelAttribution:'supervisor',cancelReason:'Record correction'}},res,next);
  expect(next).not.toHaveBeenCalled();expect(m.notices).not.toHaveBeenCalled();
 });
 it('sends a change notice with the prior schedule and reason when a future session moves',async()=>{
@@ -151,4 +151,15 @@ it('sends a change notice with the prior schedule and reason when a future sessi
  await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{startAt:'2099-01-02T13:00',endAt:'2099-01-02T14:00',timeZone:'America/Denver',changeReason:'Scheduling conflict'}},res,next);
  expect(next).not.toHaveBeenCalled();
  expect(m.notices).toHaveBeenCalledWith([changed],'updated',{scope:'single',previousEvents:[old],changeReason:'Scheduling conflict'});
+});
+
+it('rejects schedule changes without a reason before any calendar or series mutation',async()=>{
+ const old={...session,start_at:'2099-01-01 20:00:00',end_at:'2099-01-01 21:00:00'};m.find.mockResolvedValue(old);
+ const res=response(),next=vi.fn();
+ await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{startAt:'2099-01-02T13:00',endAt:'2099-01-02T14:00',timeZone:'America/Denver'}},res,next);
+ expect(res.status).toHaveBeenCalledWith(400);expect(m.move).not.toHaveBeenCalled();expect(m.update).not.toHaveBeenCalled();expect(m.calendar).not.toHaveBeenCalled();
+});
+it('requires cancellation attribution in addition to a reason',async()=>{
+ const res=response(),next=vi.fn();await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelReason:'Unavailable'}},res,next);
+ expect(res.status).toHaveBeenCalledWith(400);expect(m.cancel).not.toHaveBeenCalled();
 });

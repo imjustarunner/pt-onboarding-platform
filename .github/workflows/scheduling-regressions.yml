@@ -147,6 +147,7 @@ jobs:
           src/components/schedule/__tests__/SupervisionSignup.test.js
           src/views/__tests__/MyMeetingsView.test.js
           src/components/schedule/__tests__/supervisionScheduler.test.js
+          src/components/schedule/__tests__/supervisionActionDialog.test.js
           src/components/schedule/__tests__/SupervisionRecordPanel.test.js
           src/components/schedule/__tests__/SupervisionProgress.test.js
           src/components/supervision/__tests__/SupervisionHoursRefresh.test.js
@@ -219,3 +220,4 @@ jobs:
           backend/src/services/__tests__/scheduling.mysql.test.js
           backend/src/services/__tests__/scheduling.officeReconciliation.mysql.test.js
           backend/src/services/__tests__/scheduling.supervisionTimeCorrection.mysql.test.js
+          backend/src/services/__tests__/scheduling.supervisionScheduleActions.mysql.test.js

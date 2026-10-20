@@ -331,11 +331,10 @@ export async function reconcileGoogleLinkedSchedule({
     }
   });
 
-  // Drop cancelled / moved-out-of-window from the visible week payload.
+  // Retain cancelled/missed records for the calendar; only a moved date leaves this window.
   const filteredSchedule = nextSchedule.filter((ev) => {
     if (!ev) return false;
     if (ev._inboundMovedOutOfWindow) return false;
-    if (String(ev.status || '').toUpperCase() === 'CANCELLED') return false;
     return true;
   }).map((ev) => {
     if (!ev || ev._inboundMovedOutOfWindow === undefined) return ev;
@@ -408,7 +407,6 @@ export async function reconcileGoogleLinkedSchedule({
   const filteredSupervision = nextSupervision.filter((s) => {
     if (!s) return false;
     if (s._inboundMovedOutOfWindow) return false;
-    if (String(s.status || '').toUpperCase() === 'CANCELLED') return false;
     return true;
   }).map((s) => {
     if (!s || s._inboundMovedOutOfWindow === undefined) return s;

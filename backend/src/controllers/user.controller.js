@@ -4741,7 +4741,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           : !(r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0');
         const liveEndedAt = r.live_ended_at || null;
         const liveEnded = !!liveEndedAt;
-        const joinableSession = !liveEnded && String(r.status).toUpperCase() !== 'CANCELLED';
+        const joinableSession = !liveEnded && ['SCHEDULED','IN_PROGRESS'].includes(String(r.status).toUpperCase()) && !r.calendar_deleted_at;
         return {
           id: r.id,
           role: isSupervisor
@@ -4800,6 +4800,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           signupCount,
           viewerSignedUp,
           cancelReason: String(r.cancel_reason || '').trim() || null,
+          cancelAttribution: r.cancel_attribution || null,
           // Only the supervisor (host) reschedules; supervisees may view/join.
           canReschedule: isSupervisor
             || canCreateProviderScheduleEvent(String(req.user?.role || '').toLowerCase()),

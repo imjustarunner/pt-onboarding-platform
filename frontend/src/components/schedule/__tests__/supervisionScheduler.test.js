@@ -51,7 +51,7 @@ describe('My Schedule supervision controls',()=>{
   for(const scope of ['single','future']) {
    s.summary=fixture;
    s.supvDayLabel='Monday';s.supvStartHour=10;s.selectedSupvSessionId=10;
-   await flushPromises();expect(s.canCancelSelectedSupvSession).toBe(true);s.cancelSupvReason='Unavailable';await s.confirmCancelSupvSession(scope);
+   await flushPromises();expect(s.canCancelSelectedSupvSession).toBe(true);s.cancelSupvAttribution='supervisor';s.cancelSupvReason='Unavailable';await s.confirmCancelSupvSession(scope);
    expect(m.post).toHaveBeenCalledWith('/supervision/sessions/10/cancel',expect.objectContaining({scope}));
   }
  });
@@ -93,4 +93,23 @@ for(const series of [false,'single','future']) it(series?`reloads the repeat lab
  expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining({changeReason:'Scheduling conflict'}));
  expect(m.post.mock.calls.filter(([url])=>url==='/supervision/sessions')).toHaveLength(0);
  confirm.mockRestore();
+});
+
+it('shows recurrence and outcome controls on Info, hides Join/status in Edit, and asks for a reason only after changing the time',async()=>{
+ const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,status:'SCHEDULED',role:'supervisor',modality:'virtual',sessionType:'individual',recurrenceSeriesId:'series',recurrenceFrequency:'WEEKLY',joinUrl:'/join/test',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+ const defaultGet=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
+ vi.spyOn(window,'confirm').mockReturnValue(true);
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+ const s=wrapper.vm.$.setupState;s.summary=fixture;s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
+ s.editorWorkspaceTab='info';await flushPromises();
+ expect(wrapper.find('[data-testid="supervision-recurrence-summary"]').text()).toContain('Weekly');
+ expect(wrapper.find('[data-testid="supervision-recurrence-summary"]').text()).not.toContain('When saving');
+ expect(wrapper.find('.nr-btn-join').exists()).toBe(true);
+ s.editorWorkspaceTab='edit';await flushPromises();
+ expect(wrapper.find('.nr-btn-join').exists()).toBe(false);
+ const editor=wrapper.findComponent({name:'AppointmentEditorShell'});expect(editor.props('showStatus')).toBe(false);expect(editor.props('showVirtual')).toBe(false);
+ s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';await s.saveSupvSession();
+ expect(s.supervisionActionDraft.mode).toBe('change');expect(m.patch).not.toHaveBeenCalled();
+ await s.confirmSupervisionAction({scope:'single',reason:'Scheduling conflict'});
+ expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining({scope:'single',changeReason:'Scheduling conflict'}));
 });

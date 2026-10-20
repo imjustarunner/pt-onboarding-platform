@@ -1,3 +1,5 @@
+import { emailActionButton } from '../utils/emailActionButton.js';
+import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import { createHash } from 'node:crypto';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { meetingReplyTo, meetingParticipantRows, meetingEmailDetails } from './meetingParticipants.service.js';
@@ -40,7 +42,7 @@ export async function queueMeetingInvitations(event, userIds) {
 }
 
 // One change notice per person even when an entire series is moved/cancelled.
-export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'single', previousEvents = [], changeReason = '' } = {}) {
+export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'single', previousEvents = [], changeReason = '', recipientUserIds = null, actorUserId = null } = {}) {
   const previous = new Map(previousEvents.map(e => [Number(e.id),e]));
   const delivery = { sent:0, skipped:0, failed:0 };
   try {
@@ -52,6 +54,7 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
       ? "SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('REMOVED','WITHDRAWN','CANCELLED')"
       : 'SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?',[event.id]);
     for (const uid of new Set([event.provider_id,event.co_facilitator_user_id,event.supervisee_user_id,...attendees.map(a=>a.user_id)].map(Number).filter(Boolean))) {
+      if (recipientUserIds && !recipientUserIds.map(Number).includes(uid)) continue;
       if (!recipients.has(uid)) recipients.set(uid,[]);
       recipients.get(uid).push(event);
     }
@@ -61,26 +64,37 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
       const [users] = await pool.execute('SELECT id,email,work_email,COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name,last_name FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND COALESCE(is_demo,0)=0',[uid]);
       if (!users[0]) continue;
       const first = events[0];
-      const changeKey = createHash('sha256').update(JSON.stringify({action,scope,changeReason:String(changeReason || '').trim().slice(0,500),events:events.map(e=>[e.meeting_type,e.id,e.start_at,e.end_at,e.cancel_reason || '',previous.get(Number(e.id))?.start_at || null,previous.get(Number(e.id))?.end_at || null,e.modality || '',e.location_text || '']).sort((a,b)=>a[1]-b[1])})).digest('hex');
+      const changeKey = createHash('sha256').update(JSON.stringify({action,scope,changeReason:String(changeReason || '').trim().slice(0,500),events:events.map(e=>[e.meeting_type,e.id,e.start_at,e.end_at,e.cancel_reason || '',...(e.cancel_attribution ? [e.cancel_attribution] : []),previous.get(Number(e.id))?.start_at || null,previous.get(Number(e.id))?.end_at || null,e.modality || '',e.location_text || '']).sort((a,b)=>a[1]-b[1])})).digest('hex');
       const recipientIdentity = await resolveMeetingRecipient({agencyId:first.agency_id,user:users[0]});
-      const change = action === 'cancelled' ? 'cancelled' : 'updated';
-      const joinUrl = change === 'cancelled' ? null : (await personalMeetingInvitation(first,uid)).url;
+      const change = action === 'missed' ? 'missed' : action === 'cancelled' ? 'cancelled' : 'updated';
+      const joinUrl = change === 'updated' ? (await personalMeetingInvitation(first,uid)).url : null;
+      let title=first.title || 'Meeting';
+      let participantDetails='';
+      if(first.meeting_type==='supervision') {
+        const [people]=await pool.execute("SELECT id,COALESCE(NULLIF(TRIM(preferred_name),''),first_name) first_name,last_name FROM users WHERE id IN (?,?)",[first.supervisor_user_id,first.supervisee_user_id || null]);
+        const supervisor=people.find(p=>Number(p.id)===Number(first.supervisor_user_id));
+        const supervisee=people.find(p=>Number(p.id)===Number(first.supervisee_user_id));
+        const name=person=>[person?.first_name,person?.last_name].filter(Boolean).join(' ');
+        title=supervisionDisplayTitle(first,supervisee?.first_name);
+        participantDetails=[supervisor?`Supervisor: ${name(supervisor)}`:'',supervisee?`Supervisee: ${name(supervisee)}`:''].filter(Boolean).join('\n');
+      }
       const { parseUtcDate } = await import('../utils/officeEventDateTime.util.js');
       const format = e => Number(e.all_day) === 1 ? (e.start_date instanceof Date ? e.start_date.toISOString().slice(0,10) : String(e.start_date).slice(0,10)) : `${new Intl.DateTimeFormat('en-US',{weekday:'long',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at))}–${new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.end_at))}`;
-      const dates = events.map(e => `${format(e)}${e.cancel_reason && change==='cancelled' ? ` — Reason: ${e.cancel_reason}` : ''}`);
+      const dates = events.map(e => `${format(e)}${e.cancel_reason && change==='cancelled' ? ` — Due to ${({supervisor:'supervisor',supervisee:'supervisee / clinician',organization:'organization / office',other:'other'})[e.cancel_attribution] || 'unspecified'}. Reason: ${e.cancel_reason}` : ''}`);
       const old = previous.get(Number(first.id));
-      const heading = scope === 'future' ? `This and all future sessions in the series have been ${change}.` : `This session has been ${change}. Other dates in the series are unchanged.`;
+      const heading = change==='missed' ? 'Your supervisor recorded this supervision session as missed.' : scope === 'future' ? `This and all future sessions in the series have been ${change}.` : `This session has been ${change}. Other dates in the series are unchanged.`;
       const reason = String(changeReason || '').trim().slice(0,500);
       const formatLabel = first.modality ? `\nFormat: ${String(first.modality).replace(/_/g,' ')}${first.location_text ? ` — ${first.location_text}` : ''}` : '';
-      const text = `${first.title || 'Meeting'}\n${heading}\n${old && change==='updated' ? `Previously: ${format(old)}\nUpdated schedule:\n` : ''}${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.${change==='updated' ? `${formatLabel}${reason ? `\nReason for the change: ${reason}` : ''}` : ''}\n${joinUrl ? `Your personal join link: ${joinUrl}` : 'The canceled dates will remain on your schedule for reference.'}`;
+      const text = `${title}\n${participantDetails ? `${participantDetails}\n` : ''}${heading}\n${old && change==='updated' ? `Previously: ${format(old)}\nUpdated schedule:\n` : ''}${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.${change==='updated' ? `${formatLabel}${reason ? `\nReason for the change: ${reason}` : ''}` : change==='missed' ? `\nSupervisor note: ${reason}\nNo attendance hours have been added by this action. If you attended or believe this record is incorrect, contact your supervisor to review it. Please discuss any needed follow-up with your supervisor. Future sessions are unchanged; check My Schedule for your next appointment.` : ''}\n${joinUrl ? `Your personal join link: ${joinUrl}` : change==='missed' ? 'This session remains on your schedule as Missed.' : 'The canceled dates will remain on your schedule for reference.'}`;
       // An atomic claim also covers concurrent/retried requests. A transport
       // failure is held for review instead of risking a second delivered email.
       const [claim] = await pool.execute("INSERT IGNORE INTO meeting_schedule_change_deliveries (change_key,user_id) VALUES (?,?)",[changeKey,uid]);
       if (!claim.affectedRows) { delivery.skipped++; continue; }
+      await pool.execute('UPDATE meeting_schedule_change_deliveries SET meeting_type=?,meeting_ids_json=?,action_kind=? WHERE change_key=? AND user_id=?',[first.meeting_type || 'team_meeting',JSON.stringify(events.map(e=>Number(e.id))),change,changeKey,uid]);
       try {
-        const result = await sendScheduleNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,subject:`${scope==='future'?'Series':'Session'} ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Open your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
+        const result = await sendScheduleNotificationEmail({agencyId:first.agency_id,triggerKey:change==='missed'?'supervision_missed':change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,subject:`${scope==='future'?'Series':'Session'} ${change}: ${title}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?emailActionButton('Open your meeting',joinUrl,true):''}`,source:'auto',userId:uid,generatedByUserId:actorUserId,templateType:change==='missed'?'supervision_missed':change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',relatedEntityType:first.meeting_type==='supervision'?'supervision_sessions':'provider_schedule_events',relatedEntityId:first.id});
         const status = result?.pendingApproval ? 'approval' : result?.redirected || result?.queued || result?.blocked || result?.skipped ? 'held' : result?.id || result?.messageId ? 'sent' : 'held';
-        await pool.execute('UPDATE meeting_schedule_change_deliveries SET delivery_status=? WHERE change_key=? AND user_id=?',[status,changeKey,uid]);
+        await pool.execute('UPDATE meeting_schedule_change_deliveries SET delivery_status=?,communication_id=? WHERE change_key=? AND user_id=?',[status,result?.communicationId || null,changeKey,uid]);
         if (status==='sent') delivery.sent++; else if (status==='approval') delivery.skipped++; else delivery.failed++;
       } catch(error) {
         await pool.execute("UPDATE meeting_schedule_change_deliveries SET delivery_status='review' WHERE change_key=? AND user_id=?",[changeKey,uid]);

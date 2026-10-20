@@ -1,3 +1,4 @@
+import { processSupervisionMissedNotices } from './supervisionScheduleActions.service.js';
 import { processMeetingRecordNotices } from './meetingRecordNotifications.service.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
 import { meetingAttendanceReceipt } from './meetingAttendanceReceipt.service.js';
@@ -89,6 +90,7 @@ export async function processMeetingFollowups() {
     const { completeEmptyPastMeetings } = await import('./meetingAutoCompletion.service.js');
     await completeEmptyPastMeetings();
     await processMeetingRecordNotices(deliverMeetingFollowup);
+    await processSupervisionMissedNotices();
     // Ignore summaries generated while a meeting is still running, so they cannot
     // occupy the first page forever and starve completed meetings.
     const [jobs] = await pool.execute(`SELECT j.meeting_type,j.meeting_id FROM meeting_summary_jobs j
