@@ -127,3 +127,28 @@ for(const scope of ['single','future']) it(`cancels ${scope} supervision with th
  await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{scope,cancelReason:'Unavailable',notifyParticipants:false}},res,next);
  expect(next).not.toHaveBeenCalled();expect(m.cancel).toHaveBeenCalledWith({kind:'supervision',eventId:100,scope,actorUserId:1,cancelReason:'Unavailable'});expect(m.notices).not.toHaveBeenCalled();
 });
+
+
+it('notifies by default when future supervision is cancelled and preserves the reason',async()=>{
+ const cancelled={...session,start_at:'2099-01-01 20:00:00',cancel_reason:'Unavailable'};
+ m.cancel.mockResolvedValue({rows:[cancelled],cancelledCount:1});
+ const res=response(),next=vi.fn();
+ await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelReason:'Unavailable'}},res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(m.notices).toHaveBeenCalledWith([cancelled],'cancelled',{scope:'single'});
+});
+it('does not send cancellation emails for historical supervision',async()=>{
+ m.cancel.mockResolvedValue({rows:[{...session,start_at:'2020-01-01 20:00:00'}],cancelledCount:1});
+ const res=response(),next=vi.fn();
+ await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelReason:'Record correction'}},res,next);
+ expect(next).not.toHaveBeenCalled();expect(m.notices).not.toHaveBeenCalled();
+});
+it('sends a change notice with the prior schedule and reason when a future session moves',async()=>{
+ const old={...session,session_type:'individual',start_at:'2099-01-01 20:00:00',end_at:'2099-01-01 21:00:00',event_timezone:'America/Denver'};
+ const changed={...old,start_at:'2099-01-02 20:00:00',end_at:'2099-01-02 21:00:00'};
+ m.find.mockResolvedValueOnce(old).mockResolvedValue(changed);m.update.mockResolvedValue(changed);m.move.mockResolvedValue({previous:[old]});
+ const res=response(),next=vi.fn();
+ await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{startAt:'2099-01-02T13:00',endAt:'2099-01-02T14:00',timeZone:'America/Denver',changeReason:'Scheduling conflict'}},res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(m.notices).toHaveBeenCalledWith([changed],'updated',{scope:'single',previousEvents:[old],changeReason:'Scheduling conflict'});
+});

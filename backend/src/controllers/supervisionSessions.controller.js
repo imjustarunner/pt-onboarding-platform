@@ -4293,9 +4293,12 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const out = await SupervisionSession.findById(id);
     let notificationDelivery = null;
-    if (notifyParticipants && Number(out?.notify_participants ?? 1)!==0 && timingChanged) {
+    const publicDetailsChanged = (modality !== undefined && String(modality || '') !== String(row.modality || ''))
+      || (locationText !== undefined && String(locationText || '') !== String(row.location_text || ''));
+    const changeReason = String(req.body?.changeReason || '').trim().slice(0,500);
+    if (notifyParticipants && Number(out?.notify_participants ?? 1)!==0 && (timingChanged || publicDetailsChanged) && !recurrenceResult?.createdIds?.length) {
       const fresh = await Promise.all(rowsToUpdate.map(e=>SupervisionSession.findById(e.id)));
-      notificationDelivery = await sendMeetingScheduleChange(fresh.filter(row=>row && row.status!=='CANCELLED' && !Number(row.recurrence_horizon_held)),'updated',{scope,previousEvents:rowsToUpdate});
+      notificationDelivery = await sendMeetingScheduleChange(fresh.filter(row=>row && row.status!=='CANCELLED' && !Number(row.recurrence_horizon_held) && +parseUtcDate(row.start_at)>Date.now()),'updated',{scope,previousEvents:rowsToUpdate,changeReason});
     }
     if (recurrenceResult?.createdIds?.length && notifyParticipants) {
       const attendees = await SupervisionSession.listAttendees(id);

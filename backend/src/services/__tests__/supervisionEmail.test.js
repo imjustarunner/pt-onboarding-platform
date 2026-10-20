@@ -3,7 +3,7 @@ import {supervisionEmailBody} from '../../utils/supervisionEmailBody.js';
 import {supervisionReplyIntent} from '../../utils/supervisionReplyIntent.js';
 import {interviewCalendar} from '../../utils/interviewCalendar.js';
 const calendar=interviewCalendar({startsAt:'2026-09-22T18:30:00Z',endsAt:'2026-09-22T19:30:00Z',title:'Supervision',publicJoinUrl:'https://tenant.test/join/invitation/token'});
-const args={session:{id:1,session_type:'group'},recipientName:'Ada',hostNames:['Haley'],people:[{name:'Alex',status:'SIGNED_UP',participant_role:'supervisee'},{name:'Pat',status:'INVITED',participant_role:'supervisee',isPresenter:true}],calendar,joinUrl:'https://tenant.test/join/invitation/personal',rsvpUrl:'https://tenant.test/rsvp',detailsUrl:'https://tenant.test/details',presentationUrl:'https://tenant.test/presentation'};
+const args={recipient:{is_compensable_snapshot:1},session:{id:1,session_type:'group'},recipientName:'Ada',hostNames:['Haley'],people:[{name:'Alex',status:'SIGNED_UP',participant_role:'supervisee'},{name:'Pat',status:'INVITED',participant_role:'supervisee',isPresenter:true}],calendar,joinUrl:'https://tenant.test/join/invitation/personal',rsvpUrl:'https://tenant.test/rsvp',detailsUrl:'https://tenant.test/details',presentationUrl:'https://tenant.test/presentation'};
 describe('supervision email variants',()=>{
  it.each([true,false])('shows attendance classification in subject, HTML and plain text for a presenter (required=%s)',isRequired=>{
   const content=supervisionEmailBody({...args,isPresenter:true,isRequired});
@@ -44,4 +44,20 @@ it('shows optional attendees an attending-only action with no explanation requir
  const content=supervisionEmailBody({...args,isRequired:false,recipient:{role:'intern'}});
  expect(content.html).toContain('RSVP · I’m attending');expect(content.html).not.toContain('Attending or not attending');
  expect(content.text).toContain('No response or reason is needed');
+});
+
+
+it.each([['WEEKLY','Weekly'],['BIWEEKLY','Every two weeks']])('states the saved %s frequency in HTML and plain text',(frequency,label)=>{
+ const content=supervisionEmailBody({...args,session:{...args.session,recurrence_series_id:'series',recurrence_frequency:frequency}});
+ expect(content.html).toContain('Frequency');expect(content.html).toContain(label);
+ expect(content.text).toContain(`Frequency: ${label}`);
+ expect(content.html).not.toContain('AuricWell');
+});
+it('keeps a one-time invitation explicitly one-time',()=>{
+ expect(supervisionEmailBody(args).text).toContain('Frequency: One-time');
+});
+it('shows the mandatory LPCC recipient unpaid while retaining the saved cadence',()=>{
+ const content=supervisionEmailBody({...args,isRequired:true,session:{...args.session,session_type:'individual',recurrence_series_id:'series',recurrence_frequency:'BIWEEKLY'},recipient:{credential:'MEd, LPCC, NCC',supervision_individual_hours:31.12,supervision_group_hours:7.84,is_compensable_snapshot:0}});
+ expect(content.html).toContain('Mandatory · Not compensated');expect(content.text).toContain('Frequency: Every two weeks');
+ expect(content.html).not.toContain('Mandatory · Compensated');
 });

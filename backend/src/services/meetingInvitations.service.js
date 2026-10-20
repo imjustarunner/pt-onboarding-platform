@@ -40,7 +40,7 @@ export async function queueMeetingInvitations(event, userIds) {
 }
 
 // One change notice per person even when an entire series is moved/cancelled.
-export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'single', previousEvents = [] } = {}) {
+export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'single', previousEvents = [], changeReason = '' } = {}) {
   const previous = new Map(previousEvents.map(e => [Number(e.id),e]));
   const delivery = { sent:0, skipped:0, failed:0 };
   try {
@@ -61,16 +61,18 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
       const [users] = await pool.execute('SELECT id,email,work_email,COALESCE(NULLIF(TRIM(preferred_name), SPACE(0)), first_name) AS first_name,last_name FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND COALESCE(is_demo,0)=0',[uid]);
       if (!users[0]) continue;
       const first = events[0];
-      const changeKey = createHash('sha256').update(JSON.stringify({action,scope,events:events.map(e=>[e.meeting_type,e.id,e.start_at,e.end_at,e.cancel_reason || '',previous.get(Number(e.id))?.start_at || null,previous.get(Number(e.id))?.end_at || null]).sort((a,b)=>a[1]-b[1])})).digest('hex');
+      const changeKey = createHash('sha256').update(JSON.stringify({action,scope,changeReason:String(changeReason || '').trim().slice(0,500),events:events.map(e=>[e.meeting_type,e.id,e.start_at,e.end_at,e.cancel_reason || '',previous.get(Number(e.id))?.start_at || null,previous.get(Number(e.id))?.end_at || null,e.modality || '',e.location_text || '']).sort((a,b)=>a[1]-b[1])})).digest('hex');
       const recipientIdentity = await resolveMeetingRecipient({agencyId:first.agency_id,user:users[0]});
       const change = action === 'cancelled' ? 'cancelled' : 'updated';
       const joinUrl = change === 'cancelled' ? null : (await personalMeetingInvitation(first,uid)).url;
       const { parseUtcDate } = await import('../utils/officeEventDateTime.util.js');
       const format = e => Number(e.all_day) === 1 ? (e.start_date instanceof Date ? e.start_date.toISOString().slice(0,10) : String(e.start_date).slice(0,10)) : `${new Intl.DateTimeFormat('en-US',{weekday:'long',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at))}–${new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.end_at))}`;
-      const dates = events.map(e => `${format(e)}${e.cancel_reason && change==='cancelled' ? ` — ${e.cancel_reason}` : ''}`);
+      const dates = events.map(e => `${format(e)}${e.cancel_reason && change==='cancelled' ? ` — Reason: ${e.cancel_reason}` : ''}`);
       const old = previous.get(Number(first.id));
       const heading = scope === 'future' ? `This and all future sessions in the series have been ${change}.` : `This session has been ${change}. Other dates in the series are unchanged.`;
-      const text = `${first.meeting_type==='supervision' ? 'AuricWell · ' : ''}${first.title || 'Meeting'}\n${heading}\n${old && change==='updated' ? `Previously: ${format(old)}\nNew schedule:\n` : ''}${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.\n${joinUrl ? `Your personal join link: ${joinUrl}` : 'The canceled dates will remain on your schedule for reference.'}`;
+      const reason = String(changeReason || '').trim().slice(0,500);
+      const formatLabel = first.modality ? `\nFormat: ${String(first.modality).replace(/_/g,' ')}${first.location_text ? ` — ${first.location_text}` : ''}` : '';
+      const text = `${first.title || 'Meeting'}\n${heading}\n${old && change==='updated' ? `Previously: ${format(old)}\nUpdated schedule:\n` : ''}${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.${change==='updated' ? `${formatLabel}${reason ? `\nReason for the change: ${reason}` : ''}` : ''}\n${joinUrl ? `Your personal join link: ${joinUrl}` : 'The canceled dates will remain on your schedule for reference.'}`;
       // An atomic claim also covers concurrent/retried requests. A transport
       // failure is held for review instead of risking a second delivered email.
       const [claim] = await pool.execute("INSERT IGNORE INTO meeting_schedule_change_deliveries (change_key,user_id) VALUES (?,?)",[changeKey,uid]);

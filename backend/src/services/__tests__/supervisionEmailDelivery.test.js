@@ -142,3 +142,11 @@ it('keeps legacy copied signup invitees out of generic invitations and week/thre
  expect(await prepareSupervisionEmail({session:event,user,kind:'join:5'})).toMatchObject({to:'participant@tenant.test'});
  expect(await prepareSupervisionEmail({session:event,user:{id:3,first_name:'Host'},kind:'invitation'})).toMatchObject({to:'participant@tenant.test'});
 });
+
+
+it('loads recipient-specific eligibility and balances for the invitation instead of assuming mandatory means paid',async()=>{
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT u.id')?[[{id:3,first_name:'Host'},{id:8,first_name:'Ada',credential:'LPCC',status:'INVITED',is_required:1,supervision_is_prelicensed:1,is_compensable_snapshot:0,supervision_individual_hours:31.12,supervision_group_hours:7.84}]]:[[]]);
+ const email=await prepareSupervisionEmail({session:{...session,session_type:'individual',supervisee_user_id:8,recurrence_series_id:'series',recurrence_frequency:'BIWEEKLY'},user});
+ expect(email.html).toContain('Mandatory · Not compensated');expect(email.text).toContain('Frequency: Every two weeks');
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN supervision_accounts'),expect.arrayContaining([2]));
+});

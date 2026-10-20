@@ -85,11 +85,12 @@ for(const series of [false,'single','future']) it(series?`reloads the repeat lab
  s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
  expect(s.supervisionRecurrence).toBe(series?'WEEKLY':'ONCE');
  if(!series){s.supervisionRecurrence='BIWEEKLY';s.supervisionRecurrenceEndMode='indefinite';}
- s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';
+ s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';s.supvChangeReason='Scheduling conflict';
  const saving=s.saveSupvSession();await flushPromises();
  if(series){expect(s.showSeriesEditScopeModal).toBe(true);expect(m.patch).not.toHaveBeenCalled();await s.confirmSeriesEditScope(series);}
  await saving;
  expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining(series?{scope:series,startAt:'2026-10-05T11:00:00'}:{recurrenceFrequency:'BIWEEKLY',recurrencePolicy:'INDEFINITE'}));
+ expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining({changeReason:'Scheduling conflict'}));
  expect(m.post.mock.calls.filter(([url])=>url==='/supervision/sessions')).toHaveLength(0);
  confirm.mockRestore();
 });

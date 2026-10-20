@@ -4,9 +4,10 @@ import { invitationKey, meetingInvitationContent, reminderMinutes } from '../mee
 const m = vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),lock:vi.fn(),release:vi.fn(),participants:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.lock,release:m.release})}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:m.send}));
+vi.mock('../scheduleNotificationEmail.service.js',()=>({sendScheduleNotificationEmail:m.send}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async id=>`https://tenant${id}.example.com`}));
 vi.mock('../meetingParticipants.service.js',()=>({meetingReplyTo:async()=> 'host@example.com',meetingParticipantRows:m.participants,meetingEmailDetails:async()=>''}));
-import { personalMeetingInvitation, resolvePersonalMeetingInvitation, sendDueMeetingInvitations, invitationEvents } from '../meetingInvitations.service.js';
+import { personalMeetingInvitation, resolvePersonalMeetingInvitation, sendDueMeetingInvitations, invitationEvents, sendMeetingScheduleChange } from '../meetingInvitations.service.js';
 const token = 'a'.repeat(32);
 const event = {id:10,agency_id:2,provider_id:3,title:'Leadership <meeting>',start_at:'2026-09-28 22:00:00',end_at:'2026-09-28 23:00:00',event_timezone:'America/Denver',participant_join_token:'participant',host_join_token:'SECRET',recurrence_series_id:'series',recurrence_frequency:'WEEKLY'};
 const invite = {id:1,agency_id:2,provider_id:3,event_id:10,user_id:5,join_token:token,meeting_type:'team_meeting'};
@@ -90,4 +91,56 @@ afterEach(() => vi.useRealTimers());
 it('requeues an explicitly requested live link without replaying approvals, failures or recent sends',async()=>{
  await personalMeetingInvitation(event,5,{queue:true,resend:true});
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("sent_at<UTC_TIMESTAMP()-INTERVAL 1 MINUTE"),[invitationKey(event),5]);
+});
+
+
+describe('supervision change notices',()=>{
+  const original={...event,title:undefined,provider_id:undefined,supervisor_user_id:3,supervisee_user_id:5,modality:'virtual',start_at:'2026-10-20 18:00:00',end_at:'2026-10-20 19:00:00'};
+  beforeEach(()=>{
+    m.execute.mockImplementation(async(sql,args)=>{
+      if(sql.includes('FROM supervision_session_attendees')) return [[{user_id:5}]];
+      if(sql.includes('FROM users WHERE id=')) return [[{id:args[0],email:`person${args[0]}@example.com`}]];
+      if(sql.includes('SELECT * FROM meeting_email_invitations')) return [[invite]];
+      return [{affectedRows:1}];
+    });
+  });
+  it('sends the cancellation reason and local weekday/date/time to both supervisor and supervisee, once each',async()=>{
+    const result=await sendMeetingScheduleChange([{...original,cancel_reason:'Scheduling conflict <private>'}],'cancelled');
+    expect(result).toEqual({sent:2,skipped:0,failed:0});
+    expect(m.send.mock.calls.map(([mail])=>mail.to).sort()).toEqual(['person3@example.com','person5@example.com']);
+    for(const [mail] of m.send.mock.calls){
+      expect(mail.text).toContain('Tuesday, Oct 20, 2026, 12:00 PM–1:00 PM');
+      expect(mail.text).toContain('Reason: Scheduling conflict <private>');
+      expect(mail.text).toContain('Other dates in the series are unchanged');
+      expect(mail.html).toContain('&lt;private&gt;');expect(mail.html).not.toContain('<private>');
+      expect(mail.triggerKey).toBe('meeting_cancelled');
+    }
+  });
+  it('includes old and new weekday/date/time and the change reason for both participants',async()=>{
+    const moved={...original,start_at:'2026-10-21 19:00:00',end_at:'2026-10-21 20:00:00'};
+    await sendMeetingScheduleChange([moved],'updated',{previousEvents:[original],changeReason:'Requested a later time'});
+    expect(m.send).toHaveBeenCalledTimes(2);
+    for(const [mail] of m.send.mock.calls){
+      expect(mail.text).toContain('Previously: Tuesday, Oct 20, 2026, 12:00 PM–1:00 PM');
+      expect(mail.text).toContain('Wednesday, Oct 21, 2026, 1:00 PM–2:00 PM');
+      expect(mail.text).toContain('Reason for the change: Requested a later time');
+      expect(mail.text).toContain('Format: virtual');
+      expect(mail.text).toContain('America/Denver');
+      expect(mail.triggerKey).toBe('meeting_rescheduled');
+    }
+  });
+  it('consolidates future-series dates into one email per participant',async()=>{
+    await sendMeetingScheduleChange([original,{...original,id:11,start_at:'2026-10-27 18:00:00',end_at:'2026-10-27 19:00:00'}],'cancelled',{scope:'future'});
+    expect(m.send).toHaveBeenCalledTimes(2);
+    for(const [mail] of m.send.mock.calls){
+      expect(mail.text).toContain('This and all future sessions in the series');
+      expect(mail.text).toContain('Oct 20');expect(mail.text).toContain('Oct 27');
+    }
+  });
+  it('does not resend a previously claimed change',async()=>{
+    const normal=m.execute.getMockImplementation();
+    m.execute.mockImplementation((sql,args)=>sql.includes('INSERT IGNORE INTO meeting_schedule_change_deliveries')?Promise.resolve([{affectedRows:0}]):normal(sql,args));
+    expect(await sendMeetingScheduleChange([original],'cancelled')).toEqual({sent:0,skipped:2,failed:0});
+    expect(m.send).not.toHaveBeenCalled();
+  });
 });

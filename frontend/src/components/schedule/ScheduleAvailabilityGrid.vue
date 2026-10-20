@@ -1780,6 +1780,10 @@
             Repeats {{ RECURRENCE_OPTIONS.find(option => option.value === selectedSupvSession.recurrenceFrequency)?.label || 'on its saved schedule' }}.
             When saving, choose just this session or this and all future sessions. A single-date change keeps the series intact.
           </p>
+          <label v-if="isSupervisionEditMode && editorWorkspaceTab === 'edit' && canSaveSelectedSupvSession" class="field">
+            Reason for the change (optional, included in the update email)
+            <textarea v-model="supvChangeReason" rows="2" maxlength="500" placeholder="For example, a scheduling conflict" />
+          </label>
           <SupervisionRecordPanel
             v-if="editorIsSupervision && isAppointmentEditMode && Number(selectedSupvSessionId) > 0"
             v-show="['info','attendance'].includes(editorWorkspaceTab)"
@@ -5472,7 +5476,7 @@
             style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;"
           >
             <input v-model="cancelMeetingNotify" type="checkbox" style="margin-top: 3px;" />
-            <span>Send everyone a cancellation email (calendar invite update). Uncheck to cancel silently.</span>
+            <span>Email all participants the cancellation and reason. Uncheck only if they have already been notified.</span>
           </label>
           <div v-if="cancelMeetingError" class="error" style="margin-bottom: 12px;">{{ cancelMeetingError }}</div>
           <div v-if="!cancelMeetingIsSeries" style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
@@ -5541,7 +5545,7 @@
           </p>
           <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;">
             <input v-model="cancelSupvNotify" type="checkbox" style="margin-top: 3px;" />
-            <span>Send everyone a cancellation email (calendar invite update). Uncheck to cancel silently.</span>
+            <span>Email the supervisor and supervisee(s) the cancellation and reason. Uncheck only if they have already been notified.</span>
           </label>
           <label class="field">Reason (required) — shown on the schedule and in the cancellation email
             <textarea v-model="cancelSupvReason" required maxlength="500" rows="2" placeholder="For example, Thanksgiving week" />
@@ -23846,6 +23850,8 @@ const toggleSupvParticipantRequired = async (userId, nextRequired) => {
   }
 };
 
+const supvChangeReason = ref('');
+watch(selectedSupvSessionId, () => { supvChangeReason.value = ''; });
 const supervisionRecordAgencyName = ref('');
 watch(selectedSupvSessionId, () => { supervisionRecordAgencyName.value = ''; });
 const applySupervisionRecord = (record) => {
@@ -24182,6 +24188,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       )
     ).slice(0, 2);
     const changeResponse = await api.patch(`/supervision/sessions/${id}`, {
+      changeReason: supvChangeReason.value.trim(),
       ...(!seriesId && supervisionRecurrence.value !== 'ONCE' ? {
         recurrenceFrequency: supervisionRecurrence.value,
         recurrencePolicy: supervisionRecurrenceEndMode.value === 'indefinite' ? 'INDEFINITE' : 'FINITE',
