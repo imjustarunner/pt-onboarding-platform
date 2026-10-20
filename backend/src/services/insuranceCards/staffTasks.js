@@ -15,6 +15,7 @@ import { buildPublicAppUrl } from '../../utils/publicPortalUrl.js';
 
 const uncertainStatuses = ['sending', 'unknown', 'held'];
 const activeEmail = profile => profile.email && ![0,false,'0'].includes(profile.user_is_active) && ![1,true,'1'].includes(profile.user_is_archived) && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(profile.user_status).toUpperCase());
+const isDemo = profile => [1,true,'1'].includes(profile.user_is_demo);
 const depsFor = overrides => ({ reviewer: isCardReviewer, db: pool, agencies: billingWorkspaceAgencies, authorize: requireBillingStaff,
   activeAgency: isActiveBillingAgency, context: cardContext, refresh: refreshCardFollowup,
   choices: latestIntakeCommunicationChoices, preferences: guardianReminderPreferences, sender: requireReadySender, send: sendEmailFromIdentity,
@@ -62,7 +63,7 @@ export async function listStaffCardTasks(user, query = {}, overrides = {}) {
   for (const profile of profiles.slice(0, 100)) {
     try {
       const context = await deps.context({ agencyId: profile.agency_id, profileId: profile.id, staff: true }, deps.db);
-      if (context.followupEligible !== true) continue;
+      if (context.followupEligible !== true || isDemo(context.profile)) continue;
       if (clientId && !context.clients.some(c => Number(c.id) === clientId)) continue;
       const p = await deps.refresh(context, deps.db);
       if (!['missing', 'help', 'review'].includes(p.state)) continue;
@@ -103,10 +104,11 @@ async function emailPreview(input, deps, db, { locked = false } = {}) {
   let sender;
   try { sender = await deps.sender(input.agencyId, 'billing'); }
   catch (e) { if (e.status !== 409) throw e; blocked = e.message; }
+  if (isDemo(profile)) blocked = 'Insurance card emails are disabled for demo accounts.';
   const clientId = context.clients.map(c => Number(c.id)).sort((a,b) => a-b)[0];
   const url = buildPublicAppUrl({ slug: profile.slug, portal_url: profile.portal_url }, `guardian?panel=payment_methods&clientId=${clientId}&insuranceProfile=${profile.id}`);
   const subject = 'Optional insurance card upload';
-  const text = `An insurance card photo can help our billing team verify your coverage. Uploading a card is optional, including for Medicaid, and does not prevent you from completing intake. If you have it, sign in to upload the front and back as a photo or PDF.\n\n${url}\n\nPlease use the secure upload instead of attaching cards to an email reply. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there. Card follow-ups stop once your insurance verification is complete.`;
+  const text = `A photo of your non-Medicaid insurance card can help our billing team verify that coverage. Please upload only the non-Medicaid card sides shown in your portal. We do not request Medicaid cards, even when Medicaid is secondary. Uploading a card is optional and does not prevent you from completing intake. If you have it, sign in to upload the requested front or back as a photo or PDF.\n\n${url}\n\nPlease use the secure upload instead of attaching cards to an email reply. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there. Card follow-ups stop once your insurance verification is complete.`;
   const snapshot = { to: profile.email || '', from: sender?.from_email || '', subject, text, senderId: sender?.id || null,
     cycle: progress.cycle_hash, ordinal: status.ordinal, missingSlots: progress.missingSlots, guardianUserId: profile.guardian_user_id };
   const reviewHash = crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
@@ -125,6 +127,7 @@ export async function snoozeCardEmail(user, input, overrides = {}) {
   const hours = Number(input.hours);
   if (![1, 24].includes(hours)) throw billingError(400, 'Choose send later (one hour) or snooze for 24 hours.');
   const context = await deps.context({ ...input, staff: true }, deps.db), p = await deps.refresh(context, deps.db);
+  if (isDemo(context.profile)) throw billingError(409, 'Insurance card emails are disabled for demo accounts.');
   if (context.followupEligible !== true) throw billingError(409, 'Insurance card follow-up is disabled for this client.');
   if (p.cycle_hash !== input.cycle) throw billingError(409, 'Insurance changed. Refresh this task.');
   const until = new Date(deps.now.getTime() + hours * 3600000);

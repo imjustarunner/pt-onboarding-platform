@@ -1,6 +1,6 @@
 import {it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
-import {isCardReviewer,cardFollowupEligible,clientHasMedicaid,assertFreshCardEmail} from '../insuranceCards/scope.js';
+import {isCardReviewer,cardFollowupEligible,assertFreshCardEmail} from '../insuranceCards/scope.js';
 const primary={insurerName:'Commercial'};
 const client={client_type:'school',enrolledInApp:true,hasMedicaid:false,hasRecordedCoverage:true};
 it('keeps only Michael, Kaitlyn and Hannah, with exact active account identities',async()=>{
@@ -13,18 +13,20 @@ it('keeps only Michael, Kaitlyn and Hannah, with exact active account identities
  const db={execute:vi.fn()};for(const id of [538,555,999])expect(await isCardReviewer({id,role:'super_admin'},db)).toBe(false);
  expect(db.execute).not.toHaveBeenCalled();
 });
-it('requires every linked client to be enrolled school/office with recorded non-Medicaid coverage',()=>{
+it('requires every linked client to be enrolled school/office with recorded coverage and a non-Medicaid policy to follow up',()=>{
  const context={profile:{primary},clients:[client]};expect(cardFollowupEligible(context)).toBe(true);
  expect(cardFollowupEligible({...context,clients:[{...client,client_type:'clinical'}]})).toBe(true);
- for(const patch of [{enrolledInApp:false},{hasMedicaid:true},{hasRecordedCoverage:false},{client_type:'learning'},{client_type:'basic_nonclinical'}])expect(cardFollowupEligible({...context,clients:[client,{...client,...patch}]})).toBe(false);
+ for(const patch of [{enrolledInApp:false},{hasRecordedCoverage:false},{client_type:'learning'},{client_type:'basic_nonclinical'}])expect(cardFollowupEligible({...context,clients:[client,{...client,...patch}]})).toBe(false);
  expect(cardFollowupEligible({...context,clients:[]})).toBe(false);
- expect(cardFollowupEligible({...context,profile:{primary,secondary:{isMedicaid:true}}})).toBe(false);
+ expect(cardFollowupEligible({...context,profile:{primary:{isMedicaid:true,insurerName:'Medicaid'}}})).toBe(false);
+ expect(cardFollowupEligible({...context,profile:{primary:{...primary,terminationDate:'2020-01-01'}}})).toBe(false);
 });
-it('Medicaid on the chart, secondary coverage or another assigned policy vetoes commercial card follow-up',()=>{
- expect(clientHasMedicaid({}, {primary})).toBe(false);
- for(const c of [{insurance_key:'medicaid'},{insurance_label:'Health First Colorado'},{primary_insurer_name:'Medicaid'}])expect(clientHasMedicaid(c,{primary})).toBe(true);
- expect(clientHasMedicaid({},{primary,secondary:{isMedicaid:true}})).toBe(true);
- expect(clientHasMedicaid({},{primary},[{primary:{isMedicaid:true}}])).toBe(true);
+it('allows commercial card follow-up when the client also has Medicaid',()=>{
+ const clients=[{...client,hasMedicaid:true,insurance_key:'medicaid'}];
+ expect(cardFollowupEligible({profile:{primary,secondary:{isMedicaid:true}},clients})).toBe(true);
+ expect(cardFollowupEligible({profile:{primary:{isMedicaid:true},secondary:primary},clients})).toBe(true);
+ expect(cardFollowupEligible({profile:{primary},clients})).toBe(true);
+ expect(cardFollowupEligible({profile:{primary:{isMedicaid:true}},clients})).toBe(false);
 });
 it('prevents previously queued insurance emails from bypassing a fresh review',()=>{
  expect(()=>assertFreshCardEmail({templateType:'insurance_card_followup',existingCommunicationId:123})).toThrow(/fresh eligibility/);

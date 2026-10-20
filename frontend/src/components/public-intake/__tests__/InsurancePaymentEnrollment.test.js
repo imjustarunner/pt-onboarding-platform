@@ -84,10 +84,27 @@ describe('insurance enrollment', () => {
   });
 });
 
-it.each([{primary:{insurerName:'Commercial'},clientCoverages:[{clientIndex:0,confirmed:true,primary:{insurerName:'Medicaid',isMedicaid:true}}]},{primary:{insurerName:'Health First Colorado'}},{primary:{insurerName:'Commercial'},secondary:{insurerName:'Medicaid',isMedicaid:true}}])('does not ask Medicaid clients for any insurance card images',modelValue=>{
+it.each([{primary:{insurerName:'Health First Colorado'}},{primary:{insurerName:'Medicaid'},secondary:{insurerName:'Health First Colorado'}}])('does not ask for images of Medicaid policies',modelValue=>{
  const w=mount(Insurance,{props:{modelValue,clientNames:['Sample Client']}});
  expect(w.find('[aria-label="Upload primary front of insurance card"]').exists()).toBe(false);
  expect(w.find('[aria-label="Upload secondary front of insurance card"]').exists()).toBe(false);
  expect(w.text()).not.toContain('I do not have my primary insurance card');
  expect(w.text()).not.toContain('encouraged for all plans');w.unmount();
+});
+it('requests only commercial card images when Medicaid is secondary',()=>{
+ const w=mount(Insurance,{props:{modelValue:props().insuranceInfo,clientNames:['Sample Client']}});
+ expect(w.find('[aria-label="Upload primary front of insurance card"]').exists()).toBe(true);
+ expect(w.find('[aria-label="Upload primary back of insurance card"]').exists()).toBe(true);
+ expect(w.find('[aria-label="Upload secondary front of insurance card"]').exists()).toBe(false);
+ expect(w.find('[aria-label="Upload secondary back of insurance card"]').exists()).toBe(false);
+ expect(w.text()).toContain('I do not have my primary insurance card');w.unmount();
+});
+it('keeps card selection specific to each policy across siblings and payer order',()=>{
+ const modelValue={primary:{insurerName:'Medicaid'},secondary:{insurerName:'Commercial'},clientCoverages:[{clientIndex:0,confirmed:true,primary:{insurerName:'Medicaid'}},{clientIndex:1,confirmed:true,primary:{insurerName:'Commercial'}}]};
+ const w=mount(Insurance,{props:{modelValue,clientNames:['Sample Child One','Sample Child Two']}});
+ expect(w.find('[aria-label="Upload primary front of insurance card"]').exists()).toBe(false);
+ expect(w.find('[aria-label="Upload secondary front of insurance card"]').exists()).toBe(true);
+ const policies=w.findAll('.pi-ins-claim-details .pi-ins-claim-details');
+ expect(policies[0].findAll('input[type="file"]')).toHaveLength(0);
+ expect(policies[1].findAll('input[type="file"]')).toHaveLength(2);w.unmount();
 });

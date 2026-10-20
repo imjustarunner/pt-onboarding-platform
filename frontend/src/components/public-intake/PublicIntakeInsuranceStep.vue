@@ -139,7 +139,7 @@
       </div>
       <!-- Insurance card photos -->
       <div
-        v-if="!hasAnyMedicaid"
+        v-if="!primaryIsMedicaid"
         class="pi-ins-photos"
         data-pi-ins-anchor="card"
         :class="{ 'pi-ins-photos--err': !!validationErrorFor('card') }"
@@ -189,7 +189,7 @@
           </button>
         </div>
       </div>
-      <div v-if="!hasAnyMedicaid" class="pi-ins-no-card">
+      <div v-if="!primaryIsMedicaid" class="pi-ins-no-card">
         <label class="checkbox-row">
           <input v-model="noPrimaryCardAvailable" type="checkbox" @change="onNoPrimaryCardToggle" />
           <span>{{ tx('I do not have my primary insurance card right now') }}</span>
@@ -286,7 +286,7 @@
         <label>Subscriber sex on policy<select v-model="local.secondary.subscriberSex" @change="push"><option value="">Select</option><option>M</option><option>F</option><option>U</option></select></label>
         <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ field.label }}<input v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
       </div>
-      <div v-if="!hasAnyMedicaid" class="pi-ins-photos">
+      <div v-if="!secondaryIsMedicaid" class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Secondary card – front (optional)') }}</label>
           <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary front of insurance card" @keydown.enter.prevent="triggerUpload('secondary_front')" @keydown.space.prevent="triggerUpload('secondary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_front')" @click="triggerUpload('secondary_front')">
@@ -361,7 +361,7 @@
         <div v-if="separatePolicies[index]" class="pi-ins-claim-details">
           <h4>Policy for {{ clientDisplayNames[index] }}</h4>
           <InsurancePolicyFields v-model="separatePolicies[index].primary" @update:model-value="push" />
-          <label v-for="slot in (hasAnyMedicaid ? [] : ['primary_front','primary_back'])" :key="slot">{{ slot === 'primary_front' ? 'Card front' : 'Card back' }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">Uploaded securely</span></label>
+          <label v-for="slot in (policyIsMedicaid(separatePolicies[index].primary) ? [] : ['primary_front','primary_back'])" :key="slot">{{ slot === 'primary_front' ? 'Card front' : 'Card back' }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">Uploaded securely</span></label>
         </div>
       </div>
       <p v-if="coverageUploadError" role="alert">{{ coverageUploadError }}</p>

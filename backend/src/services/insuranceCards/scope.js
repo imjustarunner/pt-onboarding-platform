@@ -1,5 +1,5 @@
 import pool from '../../config/database.js';
-import { hasMedicaidCoverage, policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
+import { encouragedCardSlots } from './policy.js';
 
 // Temporary owner-directed review team (2026-10-19), independent of billing access.
 // Keep exact identities: a billing role alone must not opt anyone into this workflow.
@@ -17,14 +17,9 @@ export async function isCardReviewer(user, db = pool) {
 }
 
 export function cardFollowupEligible({ profile, clients = [] }) {
-  return !hasMedicaidCoverage(profile) && clients.length > 0 && clients.every(client =>
-    client.enrolledInApp === true && client.hasMedicaid !== true && client.hasRecordedCoverage === true
+  return encouragedCardSlots(profile).length > 0 && clients.length > 0 && clients.every(client =>
+    client.enrolledInApp === true && client.hasRecordedCoverage === true
     && ['school', 'clinical'].includes(client.client_type));
-}
-
-export function clientHasMedicaid(client, coverage, assignedProfiles = []) {
-  return hasMedicaidCoverage(coverage) || assignedProfiles.some(hasMedicaidCoverage)
-    || policyIsMedicaid({ insurerName: [client.insurance_key, client.insurance_label, client.primary_insurer_name].filter(Boolean).join(' ') });
 }
 
 export async function hasCompletedCardEnrollment(profile, client, db = pool) {

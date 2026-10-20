@@ -5,6 +5,7 @@ import { requireBillingStaff, transaction, key, dateOnly, assertCollectible } fr
 import { findReceivable, allocationsFor, sourcePayload } from './receivables.js';
 import { createBalance, projectBalance, createCollectionCase } from './collectionDomain.js';
 import { isBillingAgency } from '../billingAgencyPolicy.js';
+import { requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
 
 export const collectionsEnabled = () => process.env.FAMILY_COLLECTIONS_ENABLED === 'true';
 const context = row => `collection-case:${row.agency_id}:${row.managing_agency_id}:${row.balance_id}`;
@@ -114,6 +115,7 @@ export async function transferToCollections({ user, agencyId, agreementId, alloc
       await assertCollectible(receivable, db);
       const responsibility = sourcePayload(receivable);
       for (const allocation of allocations.filter(row => allocationIds.includes(Number(row.id)))) {
+        await requireLiveGuardianBilling(allocation.payer_user_id, db);
         await requireResponsiblePayer(allocation.payer_user_id, receivable.client_id, agencyId, db);
         if (await externallyManaged(allocation.id, db)) throw billingError(409, 'A selected item already belongs to a collection case');
         rows.push({ agencyId, clientId: Number(receivable.client_id), payerUserId: Number(allocation.payer_user_id),

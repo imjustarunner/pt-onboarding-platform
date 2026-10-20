@@ -3,8 +3,10 @@ import StripePaymentsService from './stripePayments.service.js';
 import GuardianPaymentCard, { paymentCardSummary } from '../models/GuardianPaymentCard.model.js';
 import { assertFamilyBillingEncryption, encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { billingError, recordBillingConsent, auditBilling } from './familyBillingPolicy.service.js';
+import { requireLiveGuardianBilling } from './guardianTestAccess.service.js';
 
 export async function createFamilyCardSetup({ agencyId, userId, submissionId = null, email, name, connectedAccountId }) {
+  await requireLiveGuardianBilling(userId);
   assertFamilyBillingEncryption();
   if (!connectedAccountId) throw billingError(503, 'Secure card collection is not configured for this organization');
   // Public intake never obtains the existing account's customer or saved cards.
@@ -19,6 +21,7 @@ export function validateSetupOwnership({ setup, userId, agencyId, submissionId, 
   if (intent.status !== 'succeeded' || id(intent.customer) !== setup.customer_id || id(intent.payment_method) !== method.id || id(method.customer) !== setup.customer_id || method.type !== 'card') throw billingError(409, 'Stripe has not confirmed this card setup');
 }
 export async function completeFamilyCardSetup({ agencyId, userId, submissionId = null, setupIntentId, consent, ip, userAgent }) {
+  await requireLiveGuardianBilling(userId);
   if (!/^seti_[A-Za-z0-9]+$/.test(String(setupIntentId || ''))) throw billingError(400, 'A confirmed Stripe SetupIntent is required');
   const db = await pool.getConnection();
   try {

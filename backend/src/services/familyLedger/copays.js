@@ -5,6 +5,7 @@ import { getReadiness } from './readiness.js';
 import { sourcePayload } from './receivables.js';
 import { dateOnly, today } from './policy.js';
 import { payAllocation } from './payments.js';
+import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 
 // Called again inside the locked payment transaction, not just by the scheduler.
 export async function assertAutomaticCopay(receivable, allocation, db=pool) {
@@ -21,6 +22,7 @@ export async function runDueCopays({agencyId}) {
   const [rows]=await pool.execute(`SELECT a.id,a.payer_user_id,a.amount_cents-a.paid_cents AS due FROM family_receivable_allocations a JOIN family_receivables r ON r.id=a.receivable_id JOIN client_billing_readiness b ON b.agency_id=r.agency_id AND b.client_id=r.client_id WHERE r.agency_id=? AND r.source_type='claim_responsibility' AND r.status='open' AND r.hold_reason IS NULL AND r.disputed_at IS NULL AND r.due_date<=CURRENT_DATE AND a.amount_cents>a.paid_cents AND a.payer_user_id IS NOT NULL AND b.setup_status='ready' AND b.collection_policy<>'manual' AND r.created_at>=b.automatic_from ORDER BY r.due_date,a.id LIMIT 100`,[agencyId]);
   const results=[];
   for(const row of rows)try {
+    if(await isGuardianTestAccountId(row.payer_user_id))continue;
     results.push({allocationId:row.id,...await payAllocation({agencyId,userId:row.payer_user_id,allocationId:row.id,amountCents:Number(row.due),idempotencyKey:`automatic-copay:${agencyId}:${row.id}`,automatic:true})});
   } catch(e) { results.push({allocationId:row.id,paid:false,message:e.status?e.message:'Payment needs reconciliation'}); }
   return results;

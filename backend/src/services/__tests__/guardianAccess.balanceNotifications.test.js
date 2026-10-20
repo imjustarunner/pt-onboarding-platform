@@ -3,14 +3,17 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:
 vi.mock('../familyLedger/views.js',()=>({listBalances:vi.fn()}));
 vi.mock('../familyLedger/senders.js',()=>({requireReadySender:vi.fn()}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
+vi.mock('../guardianTestAccess.service.js',()=>({isGuardianTestAccountId:vi.fn()}));
 import pool from '../../config/database.js';
 import {listBalances} from '../familyLedger/views.js';
 import {requireReadySender} from '../familyLedger/senders.js';
 import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
 import {sendPendingBalanceNotifications} from '../familyLedger/balanceNotifications.js';
+import {isGuardianTestAccountId} from '../guardianTestAccess.service.js';
 let db;
 beforeEach(()=>{
  vi.resetAllMocks();pool.execute.mockResolvedValue([[{agency_id:2,guardian_user_id:3}]]);
+ isGuardianTestAccountId.mockResolvedValue(false);
  db={release:vi.fn(),execute:vi.fn(async sql=>{
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
   if(sql.includes('SELECT id,receivable_id'))return [[{id:11,receivable_id:22}]];
@@ -31,3 +34,4 @@ it('does not send concurrently when another worker owns the recipient lock',asyn
 
 it('does not bill a guardian just because statements are shared',async()=>{listBalances.mockResolvedValue([{receivableId:22,isOwnShare:false,billingState:'due',dueCents:1000}]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
 it('does not prompt another payment while the guardian payment is pending',async()=>{listBalances.mockResolvedValue([{receivableId:22,isOwnShare:true,paymentStatus:'unknown',billingState:'due',dueCents:1000}]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
+it('does not automatically email fictional guardian balances',async()=>{isGuardianTestAccountId.mockResolvedValue(true);expect(await sendPendingBalanceNotifications()).toEqual([]);expect(pool.getConnection).not.toHaveBeenCalled();expect(listBalances).not.toHaveBeenCalled();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});

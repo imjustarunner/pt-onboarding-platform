@@ -26,3 +26,11 @@ it('keeps optional uploads available after verification without reminder control
  const w=mount(InsuranceCardTasks,{props:{agencyId:1}});await flushPromises();
  expect(w.text()).toContain('Card-upload reminders have stopped');expect(w.findAll('input[type=file]')).toHaveLength(2);expect(w.findAll('input[type=checkbox]')).toHaveLength(0);w.unmount();
 });
+it('requests only the commercial card sides when secondary Medicaid is present',async()=>{
+ const t=task();t.slots={primary_front:{encouraged:true,received:true},primary_back:{encouraged:true,received:false},secondary_front:{encouraged:false,received:false},secondary_back:{encouraged:false,received:false}};
+ api.get.mockResolvedValue({data:{tasks:[t]}});
+ const w=mount(InsuranceCardTasks,{props:{agencyId:1}});await flushPromises();
+ expect(w.findAll('input[type=file]')).toHaveLength(2);
+ expect(w.findAll('.side').filter(side=>side.isVisible()).map(side=>side.find('strong').text())).toEqual(['Primary card · front','Primary card · back']);
+ expect(w.text()).toContain('Medicaid cards are never requested.');w.unmount();
+});

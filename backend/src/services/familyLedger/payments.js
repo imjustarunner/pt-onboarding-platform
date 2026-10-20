@@ -8,6 +8,7 @@ import { verifyPaymentResult } from '../familyBillingPayment.service.js';
 import { cents, key, transaction, assertCollectible, allocationDue, dateOnly, today } from './policy.js';
 import { findReceivable, allocationsFor, sourcePayload } from './receivables.js';
 import { responsibilityLabels } from './presentation.js';
+import { requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
 
 const context = (agencyId, allocationId) => `ledger-payment:${agencyId}:${allocationId}`;
 export async function lockAllocation(agencyId, allocationId, db) {
@@ -31,6 +32,7 @@ async function assertRecurring({agencyId,userId,clientId,payer,card,amount},db) 
   if(!consents.length||amount>Number(payer.recurring_limit_cents||0))throw billingError(409,'This amount is not covered by a current recurring authorization');
 }
 export async function payAllocation({agencyId,userId,allocationId,amountCents,idempotencyKey,automatic=false,planId=null}) {
+  await requireLiveGuardianBilling(userId);
   const amount=cents(amountCents), requestKey=key(idempotencyKey);
   const attempt=await transaction(async db=>{
     const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);

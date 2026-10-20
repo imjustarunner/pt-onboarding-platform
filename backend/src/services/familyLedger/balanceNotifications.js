@@ -2,6 +2,7 @@ import pool from '../../config/database.js';
 import { listBalances } from './views.js';
 import { requireReadySender } from './senders.js';
 import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
+import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 
 /** Enqueue only newly posted balances. This never scans or re-mails historical bills. */
 export async function queueBalanceNotifications({agencyId,receivableId,clientId},db=pool) {
@@ -17,6 +18,9 @@ export async function sendPendingBalanceNotifications() {
   const results=[];
   for(const recipient of recipients) {
     const agencyId=Number(recipient.agency_id),userId=Number(recipient.guardian_user_id);
+    // Explicit demo previews use a separate, recipient-locked script. Scheduled
+    // balance notifications must not escape from fictional portal fixtures.
+    if(await isGuardianTestAccountId(userId))continue;
     // A database lock prevents overlapping workers from sending the same digest.
     const db=await pool.getConnection();let locked=false,claimed=[];
     try {

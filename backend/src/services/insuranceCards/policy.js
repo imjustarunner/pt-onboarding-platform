@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { policyIsMedicaid, hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
+import { policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
 export const CARD_SLOTS = ['primary_front','primary_back','secondary_front','secondary_back'];
 export const cardUrlKey = slot => slot.replace('_', '_card_') + '_url';
 export const cardCycle = profile => crypto.createHash('sha256').update(JSON.stringify(['primary','secondary'].map(slot => {
@@ -9,11 +9,13 @@ export const cardCycle = profile => crypto.createHash('sha256').update(JSON.stri
 // Images help reconciliation but never prevent intake or coverage verification.
 export function requiredCardSlots() { return []; }
 export function encouragedCardSlots(profile, now=new Date()) {
-  if (hasMedicaidCoverage(profile)) return [];
   const date=now.toISOString().slice(0,10);
   return ['primary','secondary'].flatMap(slot => {
-    const p=profile[slot];
-    return !p || !(p.insurerName || p.memberId) || (p.terminationDate && p.terminationDate<date) ? [] : [`${slot}_front`,`${slot}_back`];
+    const p=profile?.[slot];
+    const medicaid=policyIsMedicaid(p) || (slot==='primary' && [true,1].includes(profile?.primaryIsMedicaid));
+    // A commercial policy still needs its own card when Medicaid is secondary.
+    // Never request the Medicaid policy's card, regardless of payer order.
+    return !p || medicaid || !(p.insurerName || p.memberId) || (p.terminationDate && p.terminationDate<date) ? [] : [`${slot}_front`,`${slot}_back`];
   });
 }
 export function cardProgress(profile, followup={}, now=new Date(), coverageVerified=false, followupEligible=true) {

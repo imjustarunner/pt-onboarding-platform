@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {cardCycle,cardProgress,requiredCardSlots,encouragedCardSlots,cardCoverageVerified,reminderOrdinal,validCardFile} from '../insuranceCards/policy.js';
 const commercial={insurerName:'Synthetic commercial',memberId:'SYNTHETIC-ONLY'};
 const medicaid={insurerName:'Health First Colorado',memberId:'SYNTHETIC-MEDICAID'};
-test('cards are optional for all plans and encouraged for active policies',()=>{
+test('cards are optional for all plans and encouraged only for active non-Medicaid policies',()=>{
  assert.deepEqual(requiredCardSlots({primary:commercial,secondary:medicaid}),[]);
- assert.deepEqual(encouragedCardSlots({primary:commercial,secondary:medicaid}),[]);
+ assert.deepEqual(encouragedCardSlots({primary:commercial,secondary:medicaid}),['primary_front','primary_back']);
+ assert.deepEqual(encouragedCardSlots({primary:medicaid,secondary:commercial}),['secondary_front','secondary_back']);
  assert.deepEqual(encouragedCardSlots({primary:commercial}),['primary_front','primary_back']);
  assert.deepEqual(encouragedCardSlots({primary:{...commercial,terminationDate:'2020-01-01'}}),[]);
  assert.deepEqual(encouragedCardSlots({primary:null}),[]);
@@ -45,12 +46,19 @@ test('checks actual file signatures and maximum size',()=>{
  assert.equal(validCardFile({mimetype:'application/pdf',buffer:Buffer.alloc(10*1024*1024+1)}),false);
 });
 
-test('Medicaid suppresses every card request, including commercial primary and prior replacements',()=>{
- for(const p of [{primary:medicaid},{primary:commercial,secondary:medicaid},{primary:commercial,primaryIsMedicaid:true}]) {
+test('Medicaid-only policies and disabled clients suppress card requests and prior replacements',()=>{
+ for(const p of [{primary:medicaid},{primary:medicaid,secondary:{isMedicaid:true,insurerName:'Medicaid'}},{primary:commercial,primaryIsMedicaid:true}]) {
   const progress=cardProgress(p,{state:'help',cycle_hash:cardCycle(p),rejected_slots_json:'["primary_back"]'});
   assert.equal(progress.state,'not_required');assert.deepEqual(progress.missingSlots,[]);
   assert.ok(Object.values(progress.slots).every(s=>!s.required&&!s.encouraged&&!s.needsReplacement));
  }
  const progress=cardProgress({primary:commercial},{},new Date(),false,false);
  assert.equal(progress.state,'not_required');assert.deepEqual(progress.encouragedSlots,[]);
+});
+test('secondary Medicaid never requests its cards or replacements while commercial uploads remain pending',()=>{
+ const p={primary:commercial,secondary:medicaid,primary_card_front_url:'gs://synthetic/front'};
+ const progress=cardProgress(p,{state:'help',cycle_hash:cardCycle(p),rejected_slots_json:'["secondary_back"]'});
+ assert.equal(progress.state,'help');assert.deepEqual(progress.missingSlots,['primary_back']);
+ for(const slot of ['secondary_front','secondary_back'])assert.deepEqual(progress.slots[slot],{received:false,needsReplacement:false,required:false,encouraged:false});
+ assert.equal(cardProgress({...p,primary_card_back_url:'gs://synthetic/back'}).state,'review');
 });

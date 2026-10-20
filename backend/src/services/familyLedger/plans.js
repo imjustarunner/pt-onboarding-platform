@@ -3,6 +3,7 @@ import { billingError, auditBilling, requireResponsiblePayer } from '../familyBi
 import { encryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { cents, dateOnly, today, transaction, allocationDue, assertCollectible } from './policy.js';
 import { lockAllocation, payAllocation, activeCard } from './payments.js';
+import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 
 export const PLAN_TERMS_VERSION='family-payment-plan-2026-09-v1';
 export function validateInstallments(installments,total) {
@@ -57,6 +58,7 @@ export async function runDuePlans({agencyId,limit=50}) {
   const [plans]=await pool.query("SELECT p.*,a.paid_cents FROM family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE p.agency_id=? AND p.status='active' AND p.auto_pay=1 ORDER BY p.id LIMIT ?",[agencyId,Math.min(100,Number(limit)||50)]);
   const results=[];
   for(const plan of plans){
+    if(await isGuardianTestAccountId(plan.payer_user_id))continue;
     const [installments]=await pool.execute('SELECT * FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[plan.id]);
     const balances=installmentBalances(installments,Number(plan.paid_cents)-Number(plan.paid_before_cents));
     if(balances.every(i=>i.balance_cents===0)){await pool.execute("UPDATE family_payment_plans SET status='completed',auto_pay=0 WHERE id=?",[plan.id]);continue;}

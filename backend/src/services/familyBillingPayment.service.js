@@ -5,11 +5,13 @@ import StripePaymentsService, { getStripePublishableKey } from './stripePayments
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { billingError, requireResponsiblePayer, auditBilling } from './familyBillingPolicy.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
+import { requireLiveGuardianBilling } from './guardianTestAccess.service.js';
 
 export function verifyPaymentResult(intent, { amountCents, currency, customerId }) {
   if (intent.status !== 'succeeded' || Number(intent.amount_received) !== Number(amountCents) || String(intent.currency).toLowerCase() !== String(currency).toLowerCase() || (typeof intent.customer === 'string' ? intent.customer : intent.customer?.id) !== customerId) throw billingError(409, 'Payment has not been confirmed by Stripe');
 }
 export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmountCents, automatic = false }) {
+  await requireLiveGuardianBilling(userId);
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
