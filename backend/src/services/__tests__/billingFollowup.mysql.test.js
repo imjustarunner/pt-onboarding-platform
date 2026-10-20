@@ -13,7 +13,7 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   let fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');fixture=fixture.slice(fixture.indexOf('CREATE TABLE agencies'));await db.query(fixture);
   for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1486_client_coverage_verification.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
   await db.query(`ALTER TABLE agencies ADD slug VARCHAR(100),ADD portal_url VARCHAR(100),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD organization_type VARCHAR(20) DEFAULT 'agency',ADD feature_flags JSON;
-   ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
+   ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD is_demo BOOLEAN DEFAULT 0;
    ALTER TABLE clients ADD date_of_birth DATE,ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME,ADD client_type VARCHAR(32) DEFAULT 'clinical',ADD insurance_type_id INT;
    CREATE TABLE insurance_types(id INT PRIMARY KEY,insurance_key VARCHAR(64),label VARCHAR(255));
    CREATE TABLE intake_links(id INT PRIMARY KEY,scope_type VARCHAR(32),organization_id INT,form_type VARCHAR(32),master_channel VARCHAR(32));
@@ -97,19 +97,36 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   // A changed identity cannot inherit the previous coverage verification.
   await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary,profileId,patient:{firstName:'Changed synthetic identity'}});
   [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.coverageVerified,false);assert.equal(task.missingSlots.length,4);
-  // A late Medicaid update invalidates a previously reviewed email and all card requests.
+  // A late Medicaid update invalidates the previous review, but only the
+  // Medicaid policy's cards are suppressed while commercial coverage remains.
+  const priorReview=await staffTasks.previewCardEmail(staffUser,{...staffInput,cycle:task.cycle},staffDeps);
+  const medicaid={insurerName:'Medicaid',isMedicaid:true};
   await db.execute('INSERT INTO guardian_insurance_clients(profile_id,agency_id,client_id,confirmed_by_user_id) VALUES(?,1,101,99)',[profileId]);
-  await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary:{insurerName:'Medicaid',isMedicaid:true},profileId});
+  await Profiles.upsert({profileId,guardianUserId:10,agencyId:1,clientId:101,primary:changed,secondary:medicaid});
+  await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary:medicaid,profileId});
+  await assert.rejects(staffTasks.sendReviewedCardEmail(staffUser,{...staffInput,cycle:task.cycle,reviewHash:priorReview.reviewHash},staffDeps),e=>e.status===409);
+  assert.equal(sends,1);
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.deepEqual(task.missingSlots,['primary_front','primary_back']);
+  assert.equal(task.slots.secondary_front.encouraged,false);assert.equal(task.slots.secondary_back.encouraged,false);
+  assert.equal((await staffTasks.listStaffCardTasks(staffUser,{},staffDeps)).rows.length,1);
+  await Profiles.upsert({profileId,guardianUserId:10,agencyId:1,clientId:101,primary:medicaid,secondary});
+  await writeClientInsurance({agencyId:1,clientId:101,primary:medicaid,secondary,profileId});
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.deepEqual(task.missingSlots,['secondary_front','secondary_back']);
+  assert.equal(task.slots.primary_front.encouraged,false);assert.equal(task.slots.primary_back.encouraged,false);
+  await Profiles.upsert({profileId,guardianUserId:10,agencyId:1,clientId:101,primary:medicaid,secondary:null});
+  await writeClientInsurance({agencyId:1,clientId:101,primary:medicaid,secondary:null,profileId});
   [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.state,'not_required');assert.deepEqual(task.missingSlots,[]);
   assert.equal((await staffTasks.listStaffCardTasks(staffUser,{},staffDeps)).rows.length,0);
-  await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary,profileId});
+  await Profiles.upsert({profileId,guardianUserId:10,agencyId:1,clientId:101,primary:changed,secondary:medicaid});
+  await writeClientInsurance({agencyId:1,clientId:101,primary:changed,secondary:medicaid,profileId});
   // Completed app enrollment is required; an imported or unfinished record stays quiet.
   await db.execute("UPDATE intake_submissions SET status='started' WHERE id=1");
   [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.state,'not_required');
   await db.execute("UPDATE intake_submissions SET status='submitted' WHERE id=1");
   await db.execute("INSERT INTO insurance_types VALUES(1,'medicaid','Medicaid')");
   await db.execute('UPDATE clients SET insurance_type_id=1 WHERE id=101');
-  [task]=await listCardTasks({agencyId:1,userId:10});assert.equal(task.state,'not_required');
+  // A legacy client label cannot hide a current, explicitly commercial policy.
+  [task]=await listCardTasks({agencyId:1,userId:10});assert.deepEqual(task.missingSlots,['primary_front','primary_back']);
   await db.execute('UPDATE clients SET insurance_type_id=NULL WHERE id=101');
   await db.execute('UPDATE agencies SET is_archived=1 WHERE id=1');assert.equal((await listCardTasks({agencyId:1,userId:10})).length,0);await db.execute('UPDATE agencies SET is_archived=0 WHERE id=1');
   // Shared statements do not make the other guardian's portion payable by this account.

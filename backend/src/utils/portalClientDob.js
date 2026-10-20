@@ -41,21 +41,19 @@ function sqlDateToYmd(value) {
   return normalizeDobInput(String(value).slice(0, 10));
 }
 
-export async function loadLinkedClientDobs(userId) {
+export async function loadLinkedClientDobs(userId, db = null) {
   const uid = Number(userId || 0);
   if (!uid) return [];
-  const { default: pool } = await import('../config/database.js');
+  const pool = db || (await import('../config/database.js')).default;
+  // Guardians and self-managed clients both use client_guardians links.
+  // clients has no user_id column; that legacy fallback broke every setup link.
   const [rows] = await pool.execute(
-    `SELECT c.id, c.full_name, c.date_of_birth
+    `SELECT DISTINCT c.id, c.full_name, c.date_of_birth
      FROM clients c
      INNER JOIN client_guardians cg
        ON cg.client_id = c.id AND cg.guardian_user_id = ?
-     WHERE c.date_of_birth IS NOT NULL
-     UNION
-     SELECT c.id, c.full_name, c.date_of_birth
-     FROM clients c
-     WHERE c.user_id = ? AND c.date_of_birth IS NOT NULL`,
-    [uid, uid]
+     WHERE cg.access_enabled = 1 AND c.date_of_birth IS NOT NULL`,
+    [uid]
   );
   return (rows || [])
     .map((r) => ({
