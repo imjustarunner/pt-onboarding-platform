@@ -33,7 +33,7 @@ export async function meetingAttendanceReceipt(type, id, userId, meeting) {
     const eligibility=person ? supervisionAttendance(meeting,person) : null;
     if(intern)receipt.compensation='Unpaid supervision attendance; record this as indirect internship time.';
     else if(eligibility?.label.endsWith(' · Compensated')) {
-      const host=Number(userId)===Number(meeting.supervisor_user_id);
+      const host=[meeting.supervisor_user_id,meeting.co_facilitator_user_id].some(id=>Number(id)>0 && Number(userId)===Number(id));
       const code=host?'99415':'MEETING';
       const day=date ? new Intl.DateTimeFormat('en-CA',{timeZone:meeting.event_timezone || 'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(date) : null;
       const rate=host ? null : await meetingClaimHourlyRate({agency_id:meeting.agency_id,user_id:userId,claim_date:day,payload:{serviceCode:code}},null);

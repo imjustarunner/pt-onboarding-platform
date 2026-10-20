@@ -27,3 +27,9 @@ it('estimates eligible bachelor attendance without claiming a payment',async()=>
  const receipt=await meetingAttendanceReceipt('supervision',368,500,{agency_id:2,session_type:'group',start_at:'2026-10-16 00:00:00'});
  expect(receipt.compensation).toContain('$10.60');expect(receipt.compensation).toContain('not a payment confirmation');expect(receipt.balance).toBeNull();
 });
+
+it('does not apply the supervisee hourly rate to a co-facilitator',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('attendance_rollups')?[[{total_seconds:3600}]]:sql.includes('FROM users')?[[{id:500,is_required:1,is_compensable_snapshot:1}]]:[[]]);
+ const receipt=await meetingAttendanceReceipt('supervision',368,500,{agency_id:2,session_type:'group',supervisor_user_id:3,co_facilitator_user_id:500,start_at:'2026-10-16 00:00:00'});
+ expect(m.rate).not.toHaveBeenCalled();expect(receipt.compensation).toContain('pending payroll review');
+});
