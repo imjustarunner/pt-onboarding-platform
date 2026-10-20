@@ -1,6 +1,6 @@
 import {computeServiceCreditLeave,paidTimeBasisFromSummaryRow} from './payrollPtoAccrual.util.js';
 export const LEAVE_BALANCE_COLUMNS={sick:'sick_balance_hours',training:'training_balance_hours',school_support:'school_support_balance_hours'};
-export const leaveLabel=type=>({sick:'Sick Leave',training:'Training PTO',school_support:'Support activity hours'}[type]||'Leave');
+export const leaveLabel=type=>({sick:'Sick Leave',training:'Training PTO',school_support:'School Support Hours'}[type]||'Leave');
 export function sharedLeaveBasis({summaryRow,policy,employmentType}) {
  const modern=computeServiceCreditLeave({summaryRow,policy,employmentType,trainingPtoEligible:false});
  if(!modern)return paidTimeBasisFromSummaryRow(summaryRow);

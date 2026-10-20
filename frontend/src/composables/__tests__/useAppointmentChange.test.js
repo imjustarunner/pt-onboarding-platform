@@ -78,3 +78,39 @@ describe('appointment change workflow', () => {
     expect(change.step.value).toBe(4); expect(change.localNarrative.value).toBe('Signed cancellation note.');
   });
 });
+
+describe('school support hour selection', () => {
+  async function setup() {
+    const change = useAppointmentChange(); await change.openWizard({appointmentId:4});
+    change.facts.eventType = 'canceled';
+    api.get.mockResolvedValue({data:{eligible:true,balanceHours:2,pendingHours:1,availableHours:1,canRequest:true}});
+    await change.refreshSchoolSupport(); return change;
+  }
+  it('keeps provider balances outside the clinical preview and stores only the selected benefit flag', async () => {
+    const change = await setup(); change.facts.useSchoolSupportHour = true;
+    api.put.mockResolvedValue({data:{ok:true}}); await change.saveDraft();
+    expect(change.schoolSupport.value.availableHours).toBe(1); expect(change.preview.value).toBeNull();
+    const payload = api.put.mock.calls[0][1]; expect(payload.useSchoolSupportHour).toBe(true); expect(payload).not.toHaveProperty('balanceHours');
+  });
+  it('requires review again if another request used the last available hour', async () => {
+    const change = await setup(); change.facts.useSchoolSupportHour = true; change.step.value = 3;
+    api.post.mockResolvedValue({data:{preview:{}}});
+    api.get.mockResolvedValue({data:{eligible:true,availableHours:0,canRequest:false}});
+    await change.goNext(); expect(change.step.value).toBe(3); expect(change.facts.useSchoolSupportHour).toBe(true);
+    expect(change.canContinueFromStep(3)).toBe(false);
+    change.facts.useSchoolSupportHour = false; expect(change.canContinueFromStep(3)).toBe(true);
+  });
+  it('allows cancellation without the benefit when the balance service is unavailable', async () => {
+    const change = await setup(); api.get.mockRejectedValue(new Error('offline')); await change.refreshSchoolSupport();
+    expect(change.schoolSupportError.value).toBeTruthy(); expect(change.canContinueFromStep(3)).toBe(true);
+    change.facts.useSchoolSupportHour = true; expect(change.canContinueFromStep(3)).toBe(false);
+  });
+  it('clears the selection when changing to a reschedule and ignores a stale balance response after closing', async () => {
+    const change = await setup(); change.facts.useSchoolSupportHour = true; change.facts.eventType = 'rescheduled';
+    await change.refreshSchoolSupport(); expect(change.facts.useSchoolSupportHour).toBe(false);
+    change.facts.eventType = 'canceled'; let resolve;
+    api.get.mockImplementationOnce(() => new Promise(r => {resolve=r;}));
+    const pending=change.refreshSchoolSupport(); change.closeWizard(); resolve({data:{eligible:true,availableHours:9}}); await pending;
+    expect(change.schoolSupport.value).toBeNull();
+  });
+});

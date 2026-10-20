@@ -16429,7 +16429,7 @@ export const createMyMedcancelClaim = async (req, res, next) => {
 
     const {policy:schoolLeavePolicy}=await getAgencyPtoPolicy({agencyId});
     if(schoolLeavePolicy.schoolSupportEnabled && schoolLeavePolicy.schoolSupportAccrualAfter && claimDate>schoolLeavePolicy.schoolSupportAccrualAfter){
-      return res.status(409).json({error:{message:'Use Request support activity hours in My Payroll for school benefits from this period onward. Prior-period no-show claims remain available.'}});
+      return res.status(409).json({error:{message:'Use Request School Support Hours in My Payroll for school benefits from this period onward. Prior-period no-show claims remain available.'}});
     }
 
     // Enforce submission deadlines.
@@ -21058,7 +21058,7 @@ export const createMyPtoRequest = [
       // Validate balance before creating request
       const currentBalance=Number(acct[LEAVE_BALANCE_COLUMNS[requestType]]||0);
       if (totalHours > currentBalance) {
-        const typeLabel = requestType === 'school_support' ? 'Support activity hours' : requestType === 'training' ? 'Training PTO' : 'Sick Leave';
+        const typeLabel = requestType === 'school_support' ? 'School Support Hours' : requestType === 'training' ? 'Training PTO' : 'Sick Leave';
         return res.status(409).json({
           error: {
             message: `Insufficient ${typeLabel} balance. You have ${Number(currentBalance).toFixed(2)} hours available. You requested ${Number(totalHours).toFixed(2)} hours.`
@@ -21104,6 +21104,11 @@ export const createMyPtoRequest = [
       // Auditing: who actually submitted this request (provider vs admin-on-behalf).
       const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
 
+      if(requestType==='school_support'){
+        const {createSchoolSupportRequest}=await import('../services/schoolSupportRequest.service.js');
+        const {requestId}=await createSchoolSupportRequest({agencyId,userId,actorId:submittedByUserId,items,notes});
+        return res.status(201).json({...await PayrollPtoRequest.findById(requestId),items:await PayrollPtoRequest.listItemsForRequest(requestId)});
+      }
       const created = await PayrollPtoRequest.create({
         agencyId,
         userId,
@@ -21259,7 +21264,7 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
         byUser.set(uid, { userId: uid, name: String(r.user_name || '').trim() || `User ${uid}`, types: [], count: 0 });
       }
       const entry = byUser.get(uid);
-      const type = r.request_type==='school_support'?'Support activity hours':String(r.request_type || 'sick').toLowerCase() === 'training' ? 'Training PTO' : 'Sick PTO';
+      const type = r.request_type==='school_support'?'School Support Hours':String(r.request_type || 'sick').toLowerCase() === 'training' ? 'Training PTO' : 'Sick PTO';
       if (!entry.types.includes(type)) entry.types.push(type);
       entry.count += 1;
     }

@@ -7,17 +7,27 @@ export async function approveLeaveAtomically({agencyId,requestId,actorId,targetP
  const db=await pool.getConnection();
  try{
   await db.beginTransaction();
+  // Match submission's account-first lock order to avoid races and lock inversions.
+  const [[acct]]=await db.execute('SELECT * FROM payroll_pto_accounts WHERE agency_id=? AND user_id=(SELECT user_id FROM payroll_pto_requests WHERE id=? AND agency_id=?) FOR UPDATE',[agencyId,requestId,agencyId]);
   const [[req]]=await db.execute('SELECT * FROM payroll_pto_requests WHERE id=? AND agency_id=? FOR UPDATE',[requestId,agencyId]);
   if(!req||!['submitted','deferred'].includes(req.status))throw Error('Leave request is not pending');
+  if(req.source_appointment_id){
+   const [[source]]=await db.execute(`SELECT w.status workflow_status,a.status appointment_status,a.provider_user_id
+     FROM appointments a JOIN appointment_change_workflows w ON w.appointment_id=a.id AND w.agency_id=a.agency_id
+     WHERE a.id=? AND a.agency_id=? FOR UPDATE`,[req.source_appointment_id,agencyId]);
+   if(!source||source.workflow_status!=='completed'||Number(source.provider_user_id)!==Number(req.user_id)
+      ||!['canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','no_show'].includes(source.appointment_status))throw Error('Complete the signed appointment cancellation before approving its support activity hour');
+   if(req.request_type!=='school_support'||Number(req.total_hours)!==1)throw Error('A cancellation benefit must use exactly one support activity hour');
+  }
   const bucket=req.request_type,column=LEAVE_BALANCE_COLUMNS[bucket];if(!column)throw Error('Unknown leave bucket');
-  const [[acct]]=await db.execute('SELECT * FROM payroll_pto_accounts WHERE agency_id=? AND user_id=? FOR UPDATE',[agencyId,req.user_id]);
   if(!acct)throw Error('Leave account missing');
   if(bucket==='training'&&(!policy.trainingPtoEnabled||(!policy.sharedLeaveAccrualEnabled&&!acct.training_pto_eligible)))throw Error('Training PTO is not enabled');
   if(bucket==='training'&&(!req.training_description?.trim()||!req.proof_file_path))throw Error('Training description and documentation are required');
   if(bucket==='school_support'&&!policy.schoolSupportEnabled)throw Error('School support leave is not enabled');
   const [rawItems]=await db.execute('SELECT * FROM payroll_pto_request_items WHERE request_id=? ORDER BY request_date,id FOR UPDATE',[requestId]);
   const items=validateLeaveItems(rawItems),total=items.reduce((n,i)=>n+i.hours,0);
-  if(!overrideBalance&&total>Number(acct[column])+1e-8)throw Error('Insufficient leave balance');
+  if(req.source_appointment_id&&total!==1)throw Error('A cancellation benefit must use exactly one support activity hour');
+  if((!overrideBalance||req.source_appointment_id)&&total>Number(acct[column])+1e-8)throw Error('Insufficient leave balance');
   const payments=new Map(),rates=[];
   for(const item of items){
    const params=targetPayrollPeriodId?[agencyId,Number(targetPayrollPeriodId)]:[agencyId,item.date];

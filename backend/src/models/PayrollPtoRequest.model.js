@@ -139,10 +139,15 @@ class PayrollPtoRequest {
   static async withdrawPending({requestId,agencyId,userId}) {
     const db=await pool.getConnection();
     try{await db.beginTransaction();
-      const [[row]]=await db.execute('SELECT status FROM payroll_pto_requests WHERE id=? AND agency_id=? AND user_id=? FOR UPDATE',[requestId,agencyId,userId]);
+      const [[row]]=await db.execute('SELECT status,source_appointment_id FROM payroll_pto_requests WHERE id=? AND agency_id=? AND user_id=? FOR UPDATE',[requestId,agencyId,userId]);
       if(!row||!['submitted','deferred','rejected'].includes(row.status))throw Object.assign(new Error('Only pending or returned requests can be withdrawn'),{status:409});
-      await db.execute('DELETE FROM payroll_pto_request_items WHERE request_id=?',[requestId]);
-      await db.execute('DELETE FROM payroll_pto_requests WHERE id=? AND agency_id=? AND user_id=?',[requestId,agencyId,userId]);
+      if(row.source_appointment_id){
+        // Keep the signed cancellation's benefit history, while releasing its pending availability.
+        await db.execute("UPDATE payroll_pto_requests SET status='withdrawn' WHERE id=? AND agency_id=? AND user_id=?",[requestId,agencyId,userId]);
+      }else{
+        await db.execute('DELETE FROM payroll_pto_request_items WHERE request_id=?',[requestId]);
+        await db.execute('DELETE FROM payroll_pto_requests WHERE id=? AND agency_id=? AND user_id=?',[requestId,agencyId,userId]);
+      }
       await db.commit();
     }catch(e){await db.rollback();throw e;}finally{db.release();}
   }

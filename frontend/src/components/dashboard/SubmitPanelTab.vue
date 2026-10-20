@@ -9,7 +9,7 @@
     <div v-if="view === 'root'" class="submit-hub__root">
       <p v-if="compensationError" role="alert">{{ compensationError }} <button type="button" @click="loadSubmissionOptions">Try again</button></p>
       <SupplementalTime :agency-id="agencyId" :context="compensation?.submission" :codes="compensation?.codeGuide" @submitted="refreshHistory" />
-      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned support activity hours. Request them from the leave balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
+      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned School Support Hours. Request them from the leave balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
       <RecurringPayments :agency-id="agencyId" />
       <AccountabilityWorkspace :agency-id="agencyId" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />

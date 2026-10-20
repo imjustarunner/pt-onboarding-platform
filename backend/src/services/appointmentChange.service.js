@@ -21,6 +21,7 @@ import {
 import { applyMissedSessionPolicy } from './practitionerPackage.service.js';
 import { cancellationClientDetails, notifyAppointmentCancellation } from './appointmentCancellationNotification.service.js';
 import { cancellationFollowUp } from './cancellationFollowUp.service.js';
+import { reserveCancellationSchoolSupport } from './appointmentSchoolSupport.service.js';
 
 /**
  * Hard rule: not-occurring appointments never create a primary session insurance claim.
@@ -985,6 +986,7 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
       }
       return preview;
     }, applyChange: applyAppointmentChange,
+    prepareChange: facts.useSchoolSupportHour === true ? reserveCancellationSchoolSupport : null,
     notifyChange: (id, signedFacts, signerId) => notifyAppointmentCancellation(id, signedFacts, signerId)
   });
 }

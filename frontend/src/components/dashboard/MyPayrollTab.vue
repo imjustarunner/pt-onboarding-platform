@@ -374,10 +374,10 @@
     <div class="pay-hub__sections">
       <PayrollHubSection section-id="pto" :open="true" :item-count="(ptoRequests || []).length" count-label="requests">
         <template #actions>
-          <button type="button" class="pay-hub__btn pay-hub__btn--primary pay-hub__btn--sm" @click.stop="openPtoChooserModal">Request PTO</button>
+          <button type="button" class="pay-hub__btn pay-hub__btn--primary pay-hub__btn--sm" @click.stop="openPtoChooserModal">Request earned hours</button>
         </template>
 
-        <div v-if="ptoLoading" class="muted" style="margin-top: 10px;">Loading PTO…</div>
+        <div v-if="ptoLoading" class="muted" style="margin-top: 10px;">Loading earned hours…</div>
         <div v-else>
           <div v-if="ptoError" class="warn-box" style="margin-top: 10px;">{{ ptoError }}</div>
           <div class="table-wrap" style="margin-top: 10px;">
@@ -406,7 +406,7 @@
                     {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Math.max(0, (ptoBalances.trainingHours || 0) - ptoPendingTrainingHours)) : '—' }}
                   </td>
                 </tr>
-            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>Support activity hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
+            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>School Support Hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
                 <tr>
                   <td>PTO Pay Rate</td>
                   <td class="right" colspan="2">{{ fmtMoney(ptoEffectivePayRate) }}/hr</td>
@@ -417,7 +417,7 @@
 
           <div class="hint" style="margin-top: 10px;">
             <template v-if="ptoPolicy?.sharedLeaveAccrualEnabled">
-              Eligible paid time uses the same accrual basis for sick leave, training, and (when school-assigned) missed-session hours. Training earns {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hours per 30 eligible hours, up to 20 hours. School missed-session time earns 2 support activity hours per 25 eligible hours, up to 20 hours. Clinical credits use the handbook’s equivalent-hours calculation; balances update after payroll is posted.
+              Eligible paid time uses the same accrual basis for sick leave, training, and (when school-assigned) missed-session hours. Training earns {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hours per 30 eligible hours, up to 20 hours. School missed-session time earns 2 School Support Hours per 25 eligible hours, up to 20 hours. Clinical credits use the handbook’s equivalent-hours calculation; balances update after payroll is posted.
             </template>
             <template v-else-if="ptoAccount?.employment_type === 'fee_for_service'">
               Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickFfsMultiplier ?? 0.04) }} hours per 1 credit/hour of paid time after payroll is posted.
@@ -435,7 +435,7 @@
           </div>
 
           <div class="section-divider" style="margin-top: 12px;"></div>
-          <div class="muted" style="margin-top: 10px;">PTO Requests</div>
+          <div class="muted" style="margin-top: 10px;">Requests for earned hours</div>
           <div v-if="ptoRequestsError" class="warn-box" style="margin-top: 10px;">{{ ptoRequestsError }}</div>
           <div v-if="ptoRequestsLoading" class="muted" style="margin-top: 10px;">Loading requests…</div>
           <div v-else-if="(ptoRequests || []).length" class="table-wrap" style="margin-top: 10px;">
@@ -455,7 +455,7 @@
                 <tr v-for="r in ptoRequests" :key="r.id">
                   <td>{{ fmtShortDate(r.created_at) }}</td>
                   <td>{{ submitterLabel(r) }}</td>
-                  <td>{{ r.request_type==='school_support' ? 'Support activity hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
+                  <td>{{ r.request_type==='school_support' ? 'School Support Hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
                   <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
                   <td>
                     <div>{{ String(r.status || '').toUpperCase() }}</div>
@@ -494,7 +494,7 @@
               </tbody>
             </table>
           </div>
-          <div v-else class="muted" style="margin-top: 10px;">No PTO requests yet.</div>
+          <div v-else class="muted" style="margin-top: 10px;">No requests for earned hours yet.</div>
         </div>
       </PayrollHubSection>
 
@@ -1517,8 +1517,8 @@
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Request PTO</div>
-          <div class="hint">Choose Sick Leave, Training PTO or school support activity hours (if eligible).</div>
+          <div class="modal-title">Request earned hours</div>
+          <div class="hint">Choose Sick Leave, Training PTO or School Support Hours (if eligible).</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closePtoChooserModal">Close</button>
       </div>
@@ -1554,7 +1554,7 @@
                 <template v-else>—</template>
               </td>
             </tr>
-            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>Support activity hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
+            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>School Support Hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1571,7 +1571,7 @@
         <button class="btn btn-secondary" type="button" @click="openPtoTraining" :disabled="ptoPolicy?.trainingPtoEnabled !== true || !ptoAccount?.training_pto_eligible">
           Training PTO Request
         </button>
-        <button v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)" class="btn btn-secondary" type="button" @click="openPtoSick('school_support')">Request support activity hours</button>
+        <button v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)" class="btn btn-secondary" type="button" @click="openPtoSick('school_support')">Request School Support Hours</button>
       </div>
     </div>
   </div>
@@ -1581,7 +1581,7 @@
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'Request support activity hours' : 'PTO Request — Sick Leave' }}</div>
+          <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'Request School Support Hours' : 'PTO Request — Sick Leave' }}</div>
           <div class="hint">Select the date and number of hours you want to use. Your balance is deducted only after payroll approves and applies the payment.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closePtoSick">Close</button>
@@ -1589,13 +1589,13 @@
 
       <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
 
-      <div class="hint" style="margin-top: 10px;">
+      <div v-if="ptoDateRequestType !== 'school_support'" class="hint" style="margin-top: 10px;">
         Policy reminders: PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires
         {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
       </div>
 
       <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #e8f5e9; border-left: 3px solid #43a047; border-radius: 4px; color: #1b5e20;">
-        PTO can be submitted at any time — you are not restricted by the pay period. Pending requests are shown separately; your balance is deducted only when payroll approves and applies the payment. Payroll will process your request and may take 24–48 hours to approve. Note that PTO cannot be applied to a pay period that has already been finalized, so if your request covers past dates, it will be applied to the next available period.
+        Requests can be submitted at any time, including for past dates. Pending requests are shown separately; your balance is deducted only when payroll approves and applies the payment. Payroll will process your request and may take 24–48 hours to approve. These hours cannot be applied to a pay period that has already been finalized, so if your request covers past dates, it will be applied to the next available period.
       </div>
 
       <div class="card" style="margin-top: 12px;">
@@ -1629,7 +1629,7 @@
 
       <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
         <input v-model="ptoSickForm.attestation" type="checkbox" />
-        <span>I certify this request is accurate and complies with the PTO policy.</span>
+        <span>I certify this request is accurate and complies with the {{ ptoDateRequestType === 'school_support' ? 'School Support Hours' : 'PTO' }} policy.</span>
       </label>
 
       <div class="hint" style="margin-top: 10px;">
@@ -5275,7 +5275,7 @@ const submitPto = async ({ requestType, form }) => {
     const effectivePending = Math.max(0, pendingHours - replacingHours);
     const availableBalance = currentBalance - effectivePending;
     if (totalRequested > currentBalance) {
-      const typeLabel = requestType === 'school_support' ? 'Support activity hours' : requestType === 'training' ? 'Training PTO' : 'Sick Leave';
+      const typeLabel = requestType === 'school_support' ? 'School Support Hours' : requestType === 'training' ? 'Training PTO' : 'Sick Leave';
       submitPtoError.value = `Insufficient ${typeLabel} balance. You have ${fmtNum(currentBalance)} hours available${effectivePending > 0 ? ` (${fmtNum(availableBalance)} after other pending requests)` : ''}. You requested ${fmtNum(totalRequested)} hours.`;
       return;
     }

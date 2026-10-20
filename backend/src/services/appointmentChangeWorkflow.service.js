@@ -43,7 +43,7 @@ export async function saveAppointmentChangeDraft(appointmentId, facts, actorUser
   });
 }
 
-export async function runSignedAppointmentChange(appointmentId, facts, actor, { previewChange, applyChange, notifyChange }) {
+export async function runSignedAppointmentChange(appointmentId, facts, actor, { previewChange, applyChange, notifyChange, prepareChange }) {
   const { requireAppointmentRequestProvider, recordGuardianAppointmentApproval } = await import('./guardianAppointments.service.js');
   await requireAppointmentRequestProvider(appointmentId, actor.actorUserId, { onlyPending: true });
   if (facts.signatureConfirmed !== true) fail('Review the generated note and confirm your signature.', 400);
@@ -66,13 +66,20 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
       const preview = await previewChange(appointmentId, facts, actor);
       await assertAppointmentChangeDocumentation(await Appointment.findById(appointmentId));
       const signedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      await conn.execute(
+      // Reserve an optional payroll benefit and persist the signature together.
+      // Insufficient funds must leave the cancellation editable, before side effects.
+      if (prepareChange) await conn.beginTransaction();
+      try {
+        if (prepareChange) await prepareChange({appointmentId,facts,actorUserId:actor.actorUserId,db:conn});
+        await conn.execute(
         `INSERT INTO appointment_change_workflows (appointment_id, agency_id, status, facts_json, preview_json,
          signed_at, signed_by_user_id, updated_by_user_id) VALUES (?, ?, 'completing', ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE status = 'completing', facts_json = VALUES(facts_json), preview_json = VALUES(preview_json),
          signed_at = VALUES(signed_at), signed_by_user_id = VALUES(signed_by_user_id), updated_by_user_id = VALUES(updated_by_user_id)`,
         [appointmentId, appointment.agencyId, JSON.stringify(facts), JSON.stringify(preview), signedAt, actor.actorUserId, actor.actorUserId]
       );
+        if (prepareChange) await conn.commit();
+      } catch (error) { if (prepareChange) await conn.rollback(); throw error; }
       workflow = await getAppointmentChangeWorkflow(appointmentId, conn);
     }
     // Persist the decision before side effects. Retries finish the same decision and signature.

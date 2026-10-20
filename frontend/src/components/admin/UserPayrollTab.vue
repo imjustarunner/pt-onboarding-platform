@@ -674,7 +674,7 @@
               <span v-else>{{ ptoAccount?.training_adp_through_date ? String(ptoAccount.training_adp_through_date).slice(0,10) : 'Needs confirmation' }}</span>
               <p class="muted">Enter or confirm the current training balance above, then choose the last completed payroll period included by ADP. App accrual begins with the following period. Existing balances are preserved.</p>
             </div>
-            <div v-if="agencyPtoPolicy?.schoolSupportEnabled" class="field"><label>Support activity hours</label><span>{{ fmtNum(Number(ptoAccount?.school_support_balance_hours || 0)) }} / 20 hours</span></div>
+            <div v-if="agencyPtoPolicy?.schoolSupportEnabled" class="field"><label>School Support Hours</label><span>{{ fmtNum(Number(ptoAccount?.school_support_balance_hours || 0)) }} / 20 hours</span></div>
             <!-- PTO pay rate -->
             <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
               <div class="field">

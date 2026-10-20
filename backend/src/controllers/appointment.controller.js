@@ -358,7 +358,7 @@ export const saveAppointmentChangeDraftHandler = async (req, res, next) => {
     // Only workflow facts are stored; discard client-supplied results, amounts and signatures.
     const keys = ['eventType', 'initiator', 'reasons', 'reasonOther', 'outreach', 'reasonKnown', 'clientId',
       'replacementAppointmentId', 'waiver', 'additionalComments', 'clientFacingReason', 'followUpAction', 'followUpMessage',
-      'notificationMode', 'suppressionReason', 'offeredSlots', 'offerDays', 'pendingOfficeRequests'];
+      'notificationMode', 'suppressionReason', 'offeredSlots', 'offerDays', 'pendingOfficeRequests', 'useSchoolSupportHour'];
     const facts = Object.fromEntries(keys.filter((k) => req.body?.[k] !== undefined).map((k) => [k, req.body[k]]));
     res.json(await schedulingResponseForUser(req.user, appointment.agencyId,
       { ok: true, workflow: await saveAppointmentChangeDraft(appointment.id, facts, req.user.id) }));
@@ -430,4 +430,15 @@ export const decideAppointmentWaiverHandler = async (req, res, next) => {
       decision: req.body?.decision, reason: req.body?.reason });
     res.json({ ok: true, waiver });
   } catch (error) { next(error); }
+};
+
+export const getAppointmentSchoolSupportHandler = async (req,res,next) => {
+  try {
+    const appointment=await Appointment.findById(Number(req.params.id));
+    if(!appointment)return res.status(404).json({error:{message:'Appointment not found'}});
+    await assertAppointmentChangeAccess(req,appointment);
+    const {appointmentSchoolSupportContext}=await import('../services/appointmentSchoolSupport.service.js');
+    res.json(await appointmentSchoolSupportContext({appointmentId:appointment.id,actorUserId:req.user.id,
+      eventType:String(req.query.eventType||''),clientId:Number(req.query.clientId)||null}));
+  }catch(error){next(error);}
 };

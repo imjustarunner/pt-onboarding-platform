@@ -26,7 +26,7 @@ const cards=computed(()=>{
  const rate=Number(d.effectivePtoPayRate)>0?Number(d.effectivePtoPayRate):null;
  const rows=[{type:'sick',label:'Sick leave',hours:b.sickHours,rate,note:'Current balance; approved requests are deducted by payroll.'}];
  if(p.trainingPtoEnabled&&a.training_pto_eligible) rows.push({type:'training',label:'Training PTO',hours:b.trainingHours,rate,note:'Approved training only. Include your description and proof.'});
- if(p.schoolSupportEnabled&&a.school_support_eligible) rows.push({type:'school_support',label:'School missed-session hours',hours:b.schoolSupportHours,rate:d.schoolSupportPayRate??null,note:'Support activity hours for eligible missed school sessions. Maximum 20 hours.'});
+ if(p.schoolSupportEnabled&&a.school_support_eligible) rows.push({type:'school_support',label:'School Support Hours',hours:b.schoolSupportHours,rate:d.schoolSupportPayRate??null,note:'School Support Hours for eligible missed school sessions. Maximum 20 hours.'});
  return rows;
 });
 watch(()=>props.agencyId,async id=>{data.value=null;if(!id)return;loading.value=true;error.value='';try{data.value=(await api.get('/payroll/me/pto-balances',{params:{agencyId:id}})).data;}catch(e){error.value=e.response?.data?.error?.message||'Unable to load balances';}finally{loading.value=false;}},{immediate:true});

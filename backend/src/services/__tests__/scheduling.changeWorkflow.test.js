@@ -22,7 +22,7 @@ beforeEach(() => {
   previewChange = vi.fn().mockResolvedValue({ eventType: 'canceled' });
   applyChange = vi.fn().mockResolvedValue({ ok: true, narrative: 'Canceled.' });
   attachAppointmentChangeNotes.mockResolvedValue([{ id: 3, clinicalSessionId: 4, clientId: 5 }]);
-  conn = { release: vi.fn(), execute: vi.fn(async (sql, values) => {
+  conn = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn(async (sql, values) => {
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.startsWith('SELECT *')) return [[row].filter(Boolean)];
     if (sql.includes("VALUES (?, ?, 'completing'")) row = { status: 'completing', facts_json: values[2], preview_json: values[3], signed_at: values[4], signed_by_user_id: values[5] };
@@ -93,4 +93,20 @@ describe('durable appointment change', () => {
     Appointment.findById.mockResolvedValue({ id: 1, agencyId: 2, status: 'cancellation_requested' });
     expect(await run()).toMatchObject({ ok: true }); expect(applyChange).toHaveBeenCalledOnce();
   });
+});
+
+it('does not sign or cancel when reserving the support hour fails', async () => {
+  const prepareChange = vi.fn().mockRejectedValue(new Error('Insufficient support hours'));
+  await expect(runSignedAppointmentChange(1, facts, actor, {previewChange, applyChange, prepareChange})).rejects.toThrow('Insufficient');
+  expect(conn.rollback).toHaveBeenCalledOnce(); expect(conn.commit).not.toHaveBeenCalled();
+  expect(row).toBeNull(); expect(applyChange).not.toHaveBeenCalled();
+});
+it('reserves the support request once alongside signing, including note-storage retries', async () => {
+  const prepareChange = vi.fn();
+  attachAppointmentChangeNotes.mockRejectedValueOnce(new Error('notes unavailable'));
+  const options = {previewChange, applyChange, prepareChange};
+  await expect(runSignedAppointmentChange(1, facts, actor, options)).rejects.toThrow('notes unavailable');
+  await runSignedAppointmentChange(1, facts, actor, options);
+  expect(prepareChange).toHaveBeenCalledOnce(); expect(conn.commit).toHaveBeenCalledOnce();
+  expect(applyChange).toHaveBeenCalledOnce();
 });

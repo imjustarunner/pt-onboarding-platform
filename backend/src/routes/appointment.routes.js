@@ -13,6 +13,7 @@ import {
   updateAppointmentHandler,
   cancelAppointmentHandler,
   settleAppointmentHandler,
+  getAppointmentSchoolSupportHandler,
   previewAppointmentChangeHandler,
   completeAppointmentChangeHandler,
   retryCancellationNotificationHandler,
@@ -48,6 +49,10 @@ router.get('/waiver-reviews', listAppointmentWaiversHandler);
 router.get('/staff-alerts', listAppointmentStaffAlerts);
 router.post('/replacement-slots/:slotId/release', releaseReplacementSlot);
 router.get('/replacement-slots/:slotId', replacementSlotDetails);
+
+// This endpoint exposes only the authenticated provider's own benefit balance,
+// with agency and assignment checks in the handler; client billing redaction does not apply.
+router.get('/:id/change/school-support', getAppointmentSchoolSupportHandler);
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
 router.use('/:id', async (req, res, next) => {

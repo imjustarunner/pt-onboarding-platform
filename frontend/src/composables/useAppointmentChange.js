@@ -35,8 +35,13 @@ export function useAppointmentChange() {
     reasonKnown: null,
     replacementAppointmentId: null,
     waiver: { action: 'no', reason: '', comment: '' },
-    additionalComments: ''
+    additionalComments: '',
+    useSchoolSupportHour: false
   });
+  const schoolSupport = ref(null);
+  const schoolSupportLoading = ref(false);
+  const schoolSupportError = ref('');
+  let supportLoadVersion = 0;
   const preview = ref(null);
   const workflow = ref(null);
   const signatureConfirmed = ref(false);
@@ -80,6 +85,11 @@ export function useAppointmentChange() {
     facts.replacementAppointmentId = null;
     facts.waiver = { action: 'no', reason: '', comment: '' };
     facts.additionalComments = '';
+    facts.useSchoolSupportHour = false;
+    supportLoadVersion += 1;
+    schoolSupport.value = null;
+    schoolSupportLoading.value = false;
+    schoolSupportError.value = '';
     preview.value = null;
     workflow.value = null;
     signatureConfirmed.value = false;
@@ -113,6 +123,7 @@ export function useAppointmentChange() {
         if (workflow.value.facts?.clientId) context.clientId = workflow.value.facts.clientId;
         preview.value = workflow.value.preview;
         step.value = workflow.value.status === 'draft' ? 1 : 4;
+        await refreshSchoolSupport();
       }
     } catch (e) {
       error.value = e.response?.data?.error?.message || 'Could not load the saved appointment change. Reopen to try again.';
@@ -168,8 +179,39 @@ export function useAppointmentChange() {
       clientId: context.clientId || null,
       replacementAppointmentId: facts.replacementAppointmentId || null,
       waiver,
-      additionalComments: facts.additionalComments || null
+      additionalComments: facts.additionalComments || null,
+      useSchoolSupportHour: facts.useSchoolSupportHour === true
     };
+  }
+
+  async function refreshSchoolSupport() {
+    const version = ++supportLoadVersion;
+    const id = appointmentId.value;
+    schoolSupportError.value = '';
+    if (!id || !['canceled', 'no_show'].includes(facts.eventType)) {
+      schoolSupport.value = null;
+      schoolSupportLoading.value = false;
+      facts.useSchoolSupportHour = false;
+      return;
+    }
+    schoolSupportLoading.value = true;
+    try {
+      const {data} = await api.get(`/appointments/${id}/change/school-support`, {
+        params: {eventType: facts.eventType, clientId: context.clientId || undefined}, skipGlobalLoading: true
+      });
+      if (version !== supportLoadVersion) return;
+      schoolSupport.value = data;
+    } catch {
+      if (version !== supportLoadVersion) return;
+      schoolSupport.value = null;
+      schoolSupportError.value = 'Could not check your school support balance. Retry to use an hour, or continue without using one.';
+    } finally {
+      if (version === supportLoadVersion) schoolSupportLoading.value = false;
+    }
+  }
+
+  function supportSelectionValid() {
+    return !facts.useSchoolSupportHour || (!schoolSupportLoading.value && !schoolSupportError.value && schoolSupport.value?.canRequest);
   }
 
   async function refreshPreview() {
@@ -197,6 +239,7 @@ export function useAppointmentChange() {
           context.payerLabel = preview.value.payer.insuranceType;
         }
       }
+      await refreshSchoolSupport();
       return preview.value;
     } catch (e) {
       error.value = e.response?.data?.error?.message || e.message || 'Failed to preview';
@@ -232,6 +275,7 @@ export function useAppointmentChange() {
       return true;
     }
     if (n === 3) {
+      if (!supportSelectionValid()) return false;
       const w = facts.waiver?.action;
       if (w === 'recommend' || w === 'waive' || w === 'recommend_waive_termination') {
         return !!facts.waiver.reason;
@@ -248,6 +292,10 @@ export function useAppointmentChange() {
     }
     error.value = '';
     if (!(await refreshPreview())) return;
+    if (step.value === 3 && !supportSelectionValid()) {
+      error.value = 'Your available support hours changed. Review the selection before signing.';
+      return;
+    }
     if (step.value < 4) step.value += 1;
     if (step.value === 2) { await loadReplacements(); await loadReplacementOptions(false); }
   }
@@ -267,8 +315,10 @@ export function useAppointmentChange() {
         { ...buildPayload(), signatureConfirmed: signatureConfirmed.value },
         { skipGlobalLoading: true }
       );
+      await refreshSchoolSupport();
       return r.data;
     } catch (e) {
+      await refreshSchoolSupport();
       error.value = e.response?.data?.error?.message || e.message || 'Failed to complete';
       // A failed response may follow a persisted signature. Resume those exact facts.
       try {
@@ -376,6 +426,7 @@ export function useAppointmentChange() {
 
   return {
     open,
+    schoolSupport, schoolSupportLoading, schoolSupportError, refreshSchoolSupport,
     workflow,
     replacements,
     replacementOptions, retrospective, customOffer, toggleOfferSlot, addCustomOffer, requestOfferOffice,

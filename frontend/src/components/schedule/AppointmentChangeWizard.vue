@@ -282,6 +282,12 @@
 
               </div>
 
+              <SchoolSupportCancellationBenefit
+                v-model="change.facts.useSchoolSupportHour"
+                :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
+                :event-type="change.facts.eventType" @refresh="change.refreshSchoolSupport()"
+              />
+
               <table
                 v-if="change.preview.value?.consequence?.model === 'package' && change.preview.value.consequence.before"
                 class="acw-balance"
@@ -379,6 +385,11 @@
           <!-- Step 4 -->
           <section v-else class="acw-panel acw-panel--split">
             <div>
+              <SchoolSupportCancellationBenefit
+                v-model="change.facts.useSchoolSupportHour"
+                :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
+                :readonly="!!change.workflow.value && change.workflow.value.status !== 'draft'" :event-type="change.facts.eventType" @refresh="change.refreshSchoolSupport()"
+              />
               <div class="acw-note-head">
                 <h3 class="acw-h">System-generated note</h3>
                 <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? 'Signed · Nonbillable' : 'Ready for review' }}</span>
@@ -464,6 +475,7 @@
 
 <script setup>
 import { computed, watch } from 'vue';
+import SchoolSupportCancellationBenefit from './SchoolSupportCancellationBenefit.vue';
 import {
   CANCEL_INITIATORS,
   CANCEL_REASONS,

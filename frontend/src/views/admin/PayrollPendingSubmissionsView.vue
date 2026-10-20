@@ -133,7 +133,7 @@
                 <td>{{ nameForUserId(r.user_id) }}</td>
                 <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
                 <td>{{ submitterLabel(r) }}</td>
-                <td>{{ r.request_type==='school_support' ? 'Support activity hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}<div v-if="r.request_type === 'training'" class="muted">{{ r.training_description }}<span v-if="r.training_cost != null"> · Reported cost: ${{ Number(r.training_cost).toFixed(2) }}</span></div></td>
+                <td>{{ r.request_type==='school_support' ? 'School Support Hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}<div v-if="r.request_type === 'training'" class="muted">{{ r.training_description }}<span v-if="r.training_cost != null"> · Reported cost: ${{ Number(r.training_cost).toFixed(2) }}</span></div></td>
                 <td><span :class="['status-badge', `st-${String(r.status || 'submitted').toLowerCase()}`]">{{ statusLabel(r.status) }}</span></td>
                 <td class="right">{{ fmtNum(r.total_hours) }}</td>
                 <td class="right">{{ r.status === 'submitted' ? fmtNum(ptoBalancePreview(r).start) : '—' }}</td>
