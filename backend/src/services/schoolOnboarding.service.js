@@ -1,3 +1,4 @@
+import { fictionalSchool, fictionalDemoGet } from './fictionalSchoolDemo.service.js';
 import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
@@ -1716,153 +1717,19 @@ export async function resolveDemoSchool(token) {
   if (!usable.ok) {
     throw Object.assign(new Error(usable.message), { status: usable.code === 'not_found' ? 404 : 410 });
   }
-  const [rows] = await pool.execute(
-    `SELECT id, name, slug, portal_url, organization_type
-     FROM agencies
-     WHERE slug = 'hogwarts' AND organization_type = 'school'
-     LIMIT 1`
-  );
-  const hogwarts = rows?.[0];
-  if (!hogwarts) {
-    throw Object.assign(new Error('Demo school (Hogwarts) is not available in this environment'), { status: 404 });
-  }
-
-  return {
-    id: hogwarts.id,
-    name: hogwarts.name || 'Hogwarts',
-    slug: hogwarts.portal_url || hogwarts.slug || 'hogwarts',
-    viewOnly: true,
-    publicShell: true
-  };
+  return { ...structuredClone(fictionalSchool), viewOnly: true, publicShell: true };
 }
 
-function demoDisplayName(firstName, lastName, fallback = 'Demo User') {
-  const first = String(firstName || '').trim();
-  const last = String(lastName || '').trim();
-  const name = `${first} ${last}`.trim();
-  return name || fallback;
-}
-
-function demoInitials(firstName, lastName) {
-  const f = String(firstName || '').trim().charAt(0);
-  const l = String(lastName || '').trim().charAt(0);
-  const out = `${f}${l}`.toUpperCase();
-  return out || 'DU';
-}
-
-/**
- * Public, sanitized Hogwarts snapshot for school-onboarding demo shell.
- * No auth/permissions required beyond a valid invite token.
- * Returns display copies only (no emails, phones, or real account handles).
- */
+/** Invite-gated snapshot built exclusively from synthetic fixtures. */
 export async function getDemoSnapshot(token) {
-  const demo = await resolveDemoSchool(token);
-  const schoolId = demo.id;
-  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-
-  const [providerRows] = await pool.execute(
-    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
-     FROM provider_school_assignments psa
-     INNER JOIN users u ON u.id = psa.provider_user_id
-     WHERE psa.school_organization_id = ?
-     ORDER BY u.last_name ASC, u.first_name ASC
-     LIMIT 40`,
-    [schoolId]
-  );
-
-  const [dayRows] = await pool.execute(
-    `SELECT weekday, provider_user_id
-     FROM school_day_provider_assignments
-     WHERE school_organization_id = ?
-       AND is_active = 1
-       AND weekday IN ('Monday','Tuesday','Wednesday','Thursday','Friday')`,
-    [schoolId]
-  );
-
-  const [clientRows] = await pool.execute(
-    `SELECT initials, identifier_code, status
-     FROM clients
-     WHERE organization_id = ?
-     ORDER BY initials ASC
-     LIMIT 60`,
-    [schoolId]
-  );
-
-  let staffRows = [];
-  try {
-    const [rows] = await pool.execute(
-      `SELECT u.first_name, u.last_name
-       FROM user_agencies ua
-       INNER JOIN users u ON u.id = ua.user_id
-       WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
-       ORDER BY u.last_name ASC, u.first_name ASC
-       LIMIT 40`,
-      [schoolId]
-    );
-    staffRows = rows || [];
-  } catch {
-    staffRows = [];
-  }
-
-  const providerById = new Map();
-  const providers = (providerRows || []).map((r, idx) => {
-    const item = {
-      demoId: `provider-${idx + 1}`,
-      displayName: demoDisplayName(r.first_name, r.last_name, `Provider ${idx + 1}`),
-      initials: demoInitials(r.first_name, r.last_name),
-      roleLabel: String(r.role || 'provider').replace(/_/g, ' ')
-    };
-    providerById.set(Number(r.id), item);
-    return item;
-  });
-
-  const days = weekdays.map((weekday) => {
-    const ids = (dayRows || [])
-      .filter((d) => String(d.weekday) === weekday)
-      .map((d) => Number(d.provider_user_id));
-    const dayProviders = ids
-      .map((id) => providerById.get(id))
-      .filter(Boolean);
-    return {
-      weekday,
-      providerCount: dayProviders.length,
-      providers: dayProviders
-    };
-  });
-
-  const clients = (clientRows || []).map((r, idx) => ({
-    demoId: `client-${idx + 1}`,
-    initials: String(r.initials || '').trim().toUpperCase() || 'XXXXXX',
-    code: String(r.identifier_code || '').trim() || null,
-    status: String(r.status || 'ACTIVE').toUpperCase()
-  }));
-
-  const staff = (staffRows || []).map((r, idx) => ({
-    demoId: `staff-${idx + 1}`,
-    displayName: demoDisplayName(r.first_name, r.last_name, `Staff ${idx + 1}`),
-    initials: demoInitials(r.first_name, r.last_name),
-    badges: idx === 0 ? ['School Admin'] : []
-  }));
-
-  return {
-    school: {
-      name: demo.name,
-      slug: demo.slug,
-      tagline: 'Demo school portal — browse freely. Nothing here is live.'
-    },
-    stats: {
-      providers: providers.length,
-      clients: clients.length,
-      staff: staff.length,
-      activeDays: days.filter((d) => d.providerCount > 0).length
-    },
-    providers,
-    days,
-    clients,
-    staff,
-    viewOnly: true
-  };
+  const school = await resolveDemoSchool(token);
+  const providers = fictionalDemoGet('providers/scheduling');
+  const clients = fictionalDemoGet('clients');
+  const staff = fictionalDemoGet('school-staff');
+  const days = fictionalDemoGet('days');
+  return { school, providers, clients, staff, days,
+    stats: { providers: providers.length, clients: clients.length, staff: staff.length, activeDays: days.filter(d => d.is_active).length },
+    viewOnly: true };
 }
 
 export async function submitOnboarding(token) {

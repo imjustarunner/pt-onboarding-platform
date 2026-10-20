@@ -45,7 +45,8 @@
           <span class="roster-quicklist-meta">{{ formatOnboardingSummary(client) }}</span>
         </button>
       </aside>
-      <SchoolClientOverviewPanel
+      <FictionalClientPreview v-if="fictionalDemo" :client="overviewClient" inline @close="closeOverview" />
+      <SchoolClientOverviewPanel v-else
         :client="overviewClient"
         :can-edit-action="canOpenMoreInfo"
         :school-organization-id="Number(overviewClient?.organization_id || organizationId)"
@@ -729,6 +730,9 @@
 </template>
 
 <script setup>
+import FictionalClientPreview from './redesign/FictionalClientPreview.vue';
+import { isSchoolOnboardingDemoActive } from '../../utils/schoolOnboardingDemoContext.js';
+const fictionalDemo = isSchoolOnboardingDemoActive();
 import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import { computed, ref, onMounted, watch, inject } from 'vue';
 import { useRouter } from 'vue-router';

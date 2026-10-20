@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'frontend/**'
+      - 'scripts/check-school-demo-release.test.mjs'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
@@ -29,6 +30,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Check public school demo and homepage navigation
+        run: node --test scripts/check-school-demo-release.test.mjs
 
       # google-github-actions/auth is often 429'd when frontend + backend deploys
       # start together. Stagger, then retry the download a couple of times.

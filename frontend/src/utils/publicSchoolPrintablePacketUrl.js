@@ -21,6 +21,10 @@ export function publicSchoolPrintablePacketApiPath(slugOrId, locale = 'en') {
  * Uses the same API host as other app calls (`api.defaults.baseURL`).
  */
 export function buildPublicSchoolPrintablePacketUrl(slugOrId, locale = 'en', { origin, apiBase } = {}) {
+  if (['juniper-lantern-demo', '990001'].includes(packetKey(slugOrId))) {
+    const base = origin || (typeof window !== 'undefined' ? window.location.origin : '');
+    return `${String(base).replace(/\/$/, '')}/downloads/demo-enrollment-${normalizeLocale(locale)}.pdf`;
+  }
   const path = publicSchoolPrintablePacketApiPath(slugOrId, locale);
   if (!path) return '';
   const base = String(apiBase || '').replace(/\/$/, '');

@@ -10,7 +10,7 @@
     <PlatformPreviewBanner
       v-if="(props.previewMode || onboardingDemoToken) && !props.publicDemoToken"
       :eyebrow="onboardingDemoToken ? 'School onboarding demo' : 'Platform Preview'"
-      :title="onboardingDemoToken ? 'Hogwarts demo — view only' : `Previewing ${organizationDisplayName} portal`"
+      :title="onboardingDemoToken ? 'Juniper Lantern Academy demo — view only' : `Previewing ${organizationDisplayName} portal`"
       :subtitle="previewBannerSubtitle"
     >
       <template v-if="onboardingDemoToken" #actions>
@@ -2650,7 +2650,7 @@ const isPreviewOrDemo = computed(() => props.previewMode || isPublicDemo.value);
 
 const previewBannerSubtitle = computed(() => {
   if (onboardingDemoToken.value) {
-    return 'Browse the Hogwarts school portal. When you’re done, return to finish onboarding.';
+    return 'Browse the Juniper Lantern Academy school portal. When you’re done, return to finish onboarding.';
   }
   if (
     String(route.name || '') === 'SchoolOnboardingDemo' ||

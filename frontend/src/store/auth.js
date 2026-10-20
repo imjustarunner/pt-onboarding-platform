@@ -50,7 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => {
     // Token is in HttpOnly cookie, so we check user object only
-    const hasUser = !!user.value;
+    const hasUser = !!user.value && user.value.__schoolOnboardingDemoUser !== true;
     if (hasUser && !user.value.role) {
       console.warn('Auth: User object exists but no role property:', user.value);
     }

@@ -1,3 +1,4 @@
+import { fictionalSchool, fictionalDemoGet, fictionalDemoMutation } from '../services/fictionalSchoolDemo.service.js';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
@@ -241,12 +242,12 @@ export async function getDemoSnapshot(req, res, next) {
 
 export async function getDemoPortal(req, res, next) {
   try {
-    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
+    await S.resolveDemoSchool(req.params.token);
     // When mounted at /:token/demo/portal, remaining path is req.url (e.g. /stats?x=1)
     const pathRest = String(req.url || '/')
       .split('?')[0]
       .replace(/^\/+/, '');
-    const data = await DemoPortal.handleDemoPortalGet(req.params.token, pathRest, req.query || {});
+    const data = fictionalDemoGet(pathRest, req.query || {});
     res.json(data);
   } catch (err) {
     handleServiceError(err, res, next);
@@ -255,13 +256,11 @@ export async function getDemoPortal(req, res, next) {
 
 export async function mutateDemoPortal(req, res, next) {
   try {
-    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
-    // Validate invite exists
     await S.resolveDemoSchool(req.params.token);
     const pathRest = String(req.url || '/')
       .split('?')[0]
       .replace(/^\/+/, '');
-    const data = await DemoPortal.handleDemoPortalMutation(req.method, pathRest, req.body || {}, req.params.token);
+    const data = fictionalDemoMutation();
     res.json(data);
   } catch (err) {
     handleServiceError(err, res, next);
@@ -270,53 +269,21 @@ export async function mutateDemoPortal(req, res, next) {
 
 export async function getDemoSchoolMeta(req, res, next) {
   try {
-    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
-    const school = await DemoPortal.getDemoSchoolMeta(req.params.token);
+    await S.resolveDemoSchool(req.params.token);
+    const school = structuredClone(fictionalSchool);
     res.json({ school });
   } catch (err) {
     handleServiceError(err, res, next);
   }
 }
 
-export async function getPublicStandaloneDemo(req, res, next) {
-  try {
-    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
-    const { demo } = await DemoPortal.resolveHogwartsCore();
-    res.json({ demo });
-  } catch (err) {
-    handleServiceError(err, res, next);
-  }
+export async function getPublicStandaloneDemo(req,res) { res.json({demo:fictionalSchool}); }
+export async function getPublicStandaloneDemoSchoolMeta(req,res) { res.json({school:fictionalSchool}); }
+export async function getPublicStandaloneDemoPortal(req,res,next) {
+ try { res.json(fictionalDemoGet(String(req.url||'/').split('?')[0],req.query)); }catch(e){handleServiceError(e,res,next);}
 }
-
-export async function getPublicStandaloneDemoSchoolMeta(req, res, next) {
-  req.params = { ...(req.params || {}), token: 'public' };
-  return getDemoSchoolMeta(req, res, next);
-}
-
-export async function getPublicStandaloneDemoPortal(req, res, next) {
-  try {
-    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
-    const pathRest = String(req.url || '/')
-      .split('?')[0]
-      .replace(/^\/+/, '');
-    const data = await DemoPortal.handleDemoPortalGet('public', pathRest, req.query || {});
-    res.json(data);
-  } catch (err) {
-    handleServiceError(err, res, next);
-  }
-}
-
-export async function mutatePublicStandaloneDemoPortal(req, res, next) {
-  try {
-    const DemoPortal = await import('../services/schoolOnboardingDemoPortal.service.js');
-    const pathRest = String(req.url || '/')
-      .split('?')[0]
-      .replace(/^\/+/, '');
-    const data = await DemoPortal.handleDemoPortalMutation(req.method, pathRest, req.body || {}, 'public');
-    res.json(data);
-  } catch (err) {
-    handleServiceError(err, res, next);
-  }
+export async function mutatePublicStandaloneDemoPortal(req,res,next) {
+ try { fictionalDemoMutation(); }catch(e){handleServiceError(e,res,next);}
 }
 
 export async function submit(req, res, next) {

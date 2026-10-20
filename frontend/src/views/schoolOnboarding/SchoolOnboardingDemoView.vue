@@ -1,12 +1,13 @@
 <template>
   <div class="so-demo-portal" :style="demoThemeVars">
     <header class="so-demo-banner">
+      <a href="https://schoolcarebridge.org"><img src="/assets/schoolcarebridge/logo.png" alt="SchoolCareBridge · Powered by MH4Kidz" style="width:190px;height:66px;object-fit:cover;background:white;border-radius:10px" /></a>
       <div>
-        <strong>{{ schoolName }} demo</strong>
+        <strong>{{ schoolName }}</strong>
         <span class="muted">
           {{
             standalone
-              ? 'School portal preview — browse freely. No login required.'
+              ? 'Fictional school preview — no login required.'
               : 'Identical school portal UI — browse freely. Nothing here is live.'
           }}
         </span>
@@ -17,12 +18,14 @@
       </div>
     </header>
 
-    <div v-if="loading" class="so-demo-msg muted">Opening Hogwarts school portal demo…</div>
+    <p class="fictional-notice" role="note">Demonstration only. This school and all students, staff, schedules, messages, and records are fictional. No real people or school data are shown. Changes are not saved and messages are not sent.</p>
+    <div v-if="loading" class="so-demo-msg muted">Opening your fictional school portal demo…</div>
     <div v-else-if="error" class="so-demo-msg">
       <p class="error">{{ error }}</p>
       <button type="button" class="btn primary" @click="boot">Try again</button>
-      <button type="button" class="btn ghost" @click="continueReview">Skip demo →</button>
+      <button v-if="!standalone" type="button" class="btn ghost" @click="continueReview">Skip demo →</button>
     </div>
+
     <SchoolPortalView
       v-else-if="ready"
       :preview-mode="true"
@@ -59,9 +62,10 @@ const ready = ref(false);
 const error = ref('');
 const schoolMeta = ref(null);
 let previousAuthUser = null;
+let previousOrganization = null;
 let injectedDemoAuth = false;
 
-const schoolName = computed(() => schoolMeta.value?.official_name || schoolMeta.value?.name || 'Hogwarts');
+const schoolName = computed(() => schoolMeta.value?.name || schoolMeta.value?.official_name || 'Juniper Lantern Academy');
 
 /** Hard fallback so the demo never renders platform gold if theme fetch lags. */
 const ITSCO_DEMO_PALETTE = {
@@ -71,7 +75,7 @@ const ITSCO_DEMO_PALETTE = {
 };
 
 function demoPortalThemeSlug() {
-  // Always brand the public demo with the affiliated tenant (ITSCO), never Hogwarts gold/red.
+  // Always brand the public demo with the affiliated tenant (ITSCO), never legacy school colors.
   return 'itsco';
 }
 
@@ -100,7 +104,7 @@ const demoThemeVars = computed(() => {
     '--agency-accent-color': accent,
     '--header-text-color': '#ffffff',
     '--header-text-muted': 'rgba(255,255,255,0.85)',
-    '--border': accent,
+    '--border': '#d7e8e2',
     ...(theme.themeSettings?.fontFamily
       ? { '--agency-font-family': theme.themeSettings.fontFamily }
       : {})
@@ -131,36 +135,29 @@ async function applyDemoPortalTheme(school) {
     });
   };
   applySchoolIdentityTheme();
-  // Prefer live ITSCO theme when available (fonts), but keep Hogwarts crest/icon.
-  try {
-    await brandingStore.fetchAgencyTheme(slug);
-    brandingStore.setActiveRouteSlug(slug);
-    applySchoolIdentityTheme();
-  } catch {
-    // keep hard-applied ITSCO palette + Hogwarts identity
-  }
+
 }
 
 function injectDemoSchoolAdmin(school) {
   const demoUser = school?.demo_user || {
-    id: 1015,
-    firstName: 'Minerva',
-    lastName: 'McGonagall',
-    email: 'minerva.mcgonagall@hogwarts.edu',
+    id: 990010,
+    firstName: 'Avery',
+    lastName: 'Meadowvale',
+    email: 'avery@example.invalid',
     role: 'school_staff',
     isSchoolAdmin: true
   };
   previousAuthUser = authStore.user ? { ...authStore.user } : null;
   authStore.user = {
     id: demoUser.id,
-    first_name: demoUser.firstName || demoUser.first_name || 'Minerva',
-    last_name: demoUser.lastName || demoUser.last_name || 'McGonagall',
-    firstName: demoUser.firstName || demoUser.first_name || 'Minerva',
-    lastName: demoUser.lastName || demoUser.last_name || 'McGonagall',
-    email: demoUser.email || 'minerva.mcgonagall@hogwarts.edu',
+    first_name: demoUser.firstName || demoUser.first_name || 'Avery',
+    last_name: demoUser.lastName || demoUser.last_name || 'Meadowvale',
+    firstName: demoUser.firstName || demoUser.first_name || 'Avery',
+    lastName: demoUser.lastName || demoUser.last_name || 'Meadowvale',
+    email: demoUser.email || 'avery@example.invalid',
     role: demoUser.role || 'school_staff',
     isSchoolAdmin: true,
-    username: demoUser.email || 'minerva.mcgonagall@hogwarts.edu',
+    username: demoUser.email || 'avery@example.invalid',
     __schoolOnboardingDemoUser: true
   };
   injectedDemoAuth = true;
@@ -213,6 +210,10 @@ async function boot() {
     });
     const school = res.data?.school;
     if (!school?.id) throw new Error('Demo school unavailable');
+    // During a rolling release, an older API must never restore the retired demo.
+    if (school.slug !== 'juniper-lantern-demo') {
+      throw new Error('The school demo is being updated. Please try again shortly.');
+    }
     schoolMeta.value = school;
 
     activateSchoolOnboardingDemo({
@@ -222,19 +223,20 @@ async function boot() {
     });
     const theme = school.portal_theme || {};
     const colorPalette = resolveDemoColorPalette(school);
+    previousOrganization = organizationStore.currentOrganization;
     organizationStore.setCurrentOrganization({
       id: school.id,
       name: school.name,
       official_name: school.official_name || school.name,
-      slug: school.slug || 'hogwarts',
-      portal_url: school.portal_url || school.slug || 'hogwarts',
+      slug: school.slug || 'juniper-lantern-demo',
+      portal_url: school.portal_url || school.slug || 'juniper-lantern-demo',
       organization_type: 'school',
       is_active: true,
       logo_url: school.logo_url || school.logo_path || null,
       logo_path: school.logo_path || null,
       icon_file_path: school.icon_file_path || school.icon_path || null,
       icon_path: school.icon_path || null,
-      // Keep school identity as Hogwarts, but paint chrome with tenant (ITSCO) colors.
+      // Keep school fictional school identity, but paint chrome with tenant (ITSCO) colors.
       color_palette: colorPalette,
       theme_settings: {
         ...(theme.themeSettings || school.theme_settings || {}),
@@ -260,6 +262,9 @@ onMounted(boot);
 onUnmounted(() => {
   restoreAuthUser();
   deactivateSchoolOnboardingDemo();
+  if (organizationStore.currentOrganization?.id === schoolMeta.value?.id) {
+    organizationStore.setCurrentOrganization(previousOrganization);
+  }
   brandingStore.setActiveRouteSlug('');
   brandingStore.clearPortalTheme();
 });
@@ -280,7 +285,7 @@ onUnmounted(() => {
   align-items: center;
   flex-wrap: wrap;
   padding: 0.7rem 1rem;
-  background: #0f172a;
+  background: #064d3e;
   color: #fff;
 }
 .so-demo-banner .muted {
@@ -318,4 +323,5 @@ onUnmounted(() => {
 }
 .error { color: #b91c1c; }
 .muted { color: #64748b; }
+.fictional-notice{padding:16px 24px;margin:0;background:#eef7d8;color:#264d35;border-bottom:1px solid #cfdfb8;font-size:14px;line-height:1.6}
 </style>

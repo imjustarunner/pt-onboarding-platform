@@ -1,0 +1,12 @@
+import {describe,it,expect} from 'vitest';
+import {fictionalSchool,fictionalDemoGet,fictionalDemoMutation,FICTIONAL_DEMO_NOTICE} from '../fictionalSchoolDemo.service.js';
+describe('public fictional school demo',()=>{
+ it('uses invented fixtures with no live student or contact destinations',()=>{const data=[fictionalSchool,...['stats','days','providers/scheduling','clients','school-staff','affiliation','announcements/banner','chat/threads','chat/threads/990400/messages','intake-links','public-documents'].map(p=>fictionalDemoGet(p))];const text=JSON.stringify(data);expect(text).not.toMatch(/hogwarts|minerva|mcgonagall|@itsco\.health|uploads\/|intake\//i);expect(text).toContain('example.invalid');expect(FICTIONAL_DEMO_NOTICE).toContain('fictional');});
+ it('does not save or send anything and returns isolated fixture copies',()=>{const rows=fictionalDemoGet('clients');rows[0].first_name='changed';expect(fictionalDemoGet('clients')[0].first_name).toBe('Nora');expect(()=>fictionalDemoMutation()).toThrow('view-only');});
+});
+describe('complete fictional exploration contracts',()=>{
+ it('offers clickable active clients with current example ROI access',()=>{for(const c of fictionalDemoGet('clients')){expect(c.school_portal_can_open).toBe(true);expect(c.school_staff_effective_access_state).toBe('roi_docs');expect(c.client_status_label).toContain('Being seen');}});
+ it('provides photos, descriptive profiles and caseload assignments',()=>{for(const p of fictionalDemoGet('providers/scheduling')){expect(p.profile_photo_url).toMatch(/https:\/\/schoolcarebridge.org\/assets\/schoolcarebridge\/demo-/);expect(p.school_info_blurb).toContain('Fictional');expect(fictionalDemoGet(`providers/${p.id}/profile`).service_focus).toBeTruthy();expect(fictionalDemoGet(`providers/${p.id}/caseload-slots`).assignments[0].clients).toHaveLength(3);}});
+ it('uses real calendar field names and valid date values',()=>{for(const e of fictionalDemoGet('school-events')){expect(Number.isFinite(Date.parse(e.startsAt))).toBe(true);expect(Date.parse(e.endsAt)).toBeGreaterThan(Date.parse(e.startsAt));expect(e.isActive).toBe(true);}});
+ it('offers both language packets through the isolated demo keys',()=>{const d=fictionalDemoGet('digital-forms');expect(d).toEqual(fictionalDemoGet('intake-links'));expect(d.links.map(v=>v.public_key)).toEqual(['juniper-lantern-demo-en','juniper-lantern-demo-es']);expect(d.links.every(v=>v.form_type==='intake')).toBe(true);});
+});

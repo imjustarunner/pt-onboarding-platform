@@ -901,6 +901,12 @@ const routes = [
     redirect: '/login'
   },
   {
+    path: '/intake/:demoKey(juniper-lantern-demo-en|juniper-lantern-demo-es)',
+    name: 'SchoolDemoPacket',
+    component: () => import('../views/schoolOnboarding/FictionalEnrollmentPacket.vue'),
+    meta: { requiresGuest: false, public: true }
+  },
+  {
     path: '/school-onboarding/demo',
     name: 'SchoolOnboardingStandaloneDemo',
     component: () => import('../views/schoolOnboarding/SchoolOnboardingDemoView.vue'),

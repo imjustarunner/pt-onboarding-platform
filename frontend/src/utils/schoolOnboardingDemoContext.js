@@ -1,5 +1,5 @@
 /**
- * School-onboarding Hogwarts demo context.
+ * School-onboarding fictional school demo context.
  * When active, school-portal API calls are rewritten to public demo endpoints
  * so the real SchoolPortalView can render without a live login session.
  */
@@ -38,7 +38,7 @@ export function isSchoolOnboardingStandaloneDemo() {
   return standaloneDemo;
 }
 
-/** True when the current route is a school-onboarding Hogwarts demo page. */
+/** True when the current route is a school-onboarding fictional school demo page. */
 export function isSchoolOnboardingDemoRoute(routeOrPath) {
   if (!routeOrPath) return false;
   const path = typeof routeOrPath === 'string' ? routeOrPath : String(routeOrPath?.path || '');
@@ -72,12 +72,15 @@ export function rewriteSchoolPortalUrlForDemo(url) {
   const query = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
   const base = demoPortalBase();
 
+  if (new RegExp(`^(?:/api)?/public-intake/school/${activeSchoolId}$`).test(pathOnly)) return `${base}/digital-forms${query}`;
+  if (/^(?:\/api)?\/billing-reports\/session-totals$/.test(pathOnly)) return `${base}/session-totals${query}`;
+
   // Match /school-portal/:orgId/... or /api/school-portal/:orgId/...
   const m = pathOnly.match(/^(?:\/api)?\/school-portal\/(\d+)(?:\/(.*))?$/i);
   if (m) {
     const orgId = Number(m[1]);
     if (activeSchoolId && orgId && orgId !== activeSchoolId) {
-      // Keep demo locked to Hogwarts only.
+      // Keep demo locked to fictional school only.
       return null;
     }
     const rest = String(m[2] || '').replace(/^\/+/, '');

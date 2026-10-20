@@ -1,5 +1,6 @@
 <template>
-  <SchoolClientChatModal
+  <FictionalClientPreview v-if="fictionalDemo" :client="client" @close="$emit('close')" />
+  <SchoolClientChatModal v-else
     :client="client"
     :presentation="presentation"
     :schoolOrganizationId="schoolOrganizationId"
@@ -16,6 +17,9 @@
 </template>
 
 <script setup>
+import FictionalClientPreview from './FictionalClientPreview.vue';
+import { isSchoolOnboardingDemoActive } from '../../../utils/schoolOnboardingDemoContext.js';
+const fictionalDemo = isSchoolOnboardingDemoActive();
 import SchoolClientChatModal from '../SchoolClientChatModal.vue';
 
 defineProps({

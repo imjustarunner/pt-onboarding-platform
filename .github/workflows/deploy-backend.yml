@@ -7,6 +7,7 @@ on:
     paths:
       - 'backend/**'
       - 'frontend/**'
+      - 'scripts/check-school-demo-release.test.mjs'
       - 'database/migrations/**'
       - 'scripts/preserve-deploy-secrets*'
       - 'scripts/provision-mfa-secret*'
@@ -36,6 +37,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Check public school demo and homepage navigation
+        run: node --test scripts/check-school-demo-release.test.mjs
 
       - id: 'auth'
         name: 'Authenticate to Google Cloud'

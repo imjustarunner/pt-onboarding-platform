@@ -1,8 +1,8 @@
 <template>
-  <router-link class="scb-brand" :class="{'scb-brand-compact':compact}" to="/schoolcarebridge" aria-label="SchoolCareBridge, a Plot Twist Co. product">
+  <a class="scb-brand" :class="{'scb-brand-compact':compact}" href="https://schoolcarebridge.org/" aria-label="SchoolCareBridge, a Plot Twist Co. product">
     <img :src="logo || '/assets/schoolcarebridge/logo.png'" :class="{ 'scb-supplied-logo': !logo || logo === '/assets/schoolcarebridge/logo.png' }" alt="SchoolCareBridge" />
     <span>A <strong>Plot Twist Co.</strong> product</span>
-  </router-link>
+  </a>
 </template>
 <script setup>
 defineProps({ compact: Boolean, logo: { type: String, default: '' } });
