@@ -9,6 +9,7 @@ import { itscoLegalLinks } from '../src/content/itscoLegalDocuments.js';
 import { renderItscoLegalHtml, itscoLegalTypeForPath } from '../src/utils/itscoLegalHtml.js';
 import { tenantLegalProfiles } from '../src/content/tenantLegalProfiles.js';
 import { legalRouteEntries } from '../src/utils/tenantLegalRoutes.js';
+import { skillBuildersPages, skillBuildersPath } from '../src/content/skillBuildersWebsite.js';
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const out = `${dist}/_public-sites/itsco`;
 mkdirSync(out, {recursive:true});
@@ -28,6 +29,10 @@ writeFileSync(`${out}/sitemap.xml`, itscoSitemap());
 writeFileSync(`${out}/robots.txt`, `User-agent: *\nAllow: /\nSitemap: ${ITSCO_ORIGIN}/sitemap.xml\n`);
 writeFileSync(`${out}/404.html`, '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Page not found | ITSCO</title></head><body><main><h1>Page not found</h1><a href="/">Return to ITSCO</a></main></body></html>');
 const redirects = Object.entries(ITSCO_REDIRECTS).map(([from,to])=>`location = ${from} { return 301 ${ITSCO_ORIGIN}${to}$is_args$args; }`).join('\n');
+const skillBuildersLocations = Object.keys(skillBuildersPages).map(key => {
+ const path = skillBuildersPath(key);
+ return `location = ${path} { add_header Cache-Control "no-cache"; try_files ${path}/index.html =404; }\n location = ${path}/ { return 301 ${ITSCO_ORIGIN}${path}$is_args$args; }`;
+}).join('\n');
 // An additional exact-host server leaves the existing app/QV default server untouched.
 writeFileSync(`${dist}/itsco-public.nginx.conf`, `
 map $uri $itsco_clean_uri {
@@ -61,6 +66,8 @@ server {
  location = /careers/itsco { return 301 ${ITSCO_ORIGIN}/careers$is_args$args; }
  location ~ ^/careers/itsco/(.*)$ { return 301 ${ITSCO_ORIGIN}/careers/$1$is_args$args; }
  ${redirects}
+ ${skillBuildersLocations}
+ location ^~ /assets/skillbuilders/ { add_header Cache-Control "public, max-age=86400"; try_files $uri =404; }
  location ~ ^/providers/[a-z0-9-]+-[1-9][0-9]*$ { add_header Cache-Control "no-cache"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/itsco/providers.html =404; }
  ${locations.join('\n')}
  location = /assets/itsco/ITSCO-School-Partnership-Guide.pdf {

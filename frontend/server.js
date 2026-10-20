@@ -11,6 +11,7 @@ import {isSstcPublicHost, sstcMarketingPage} from './src/sstc/website/routing.mj
 import { itscoPublicResponse, itscoSitemap, ITSCO_ORIGIN } from './src/utils/itscoPublicSeo.js';
 import { renderItscoLegalHtml, itscoLegalTypeForPath } from './src/utils/itscoLegalHtml.js';
 import { tenantLegalRequest } from './src/utils/tenantLegalRoutes.js';
+import { skillBuildersPageForPath, SKILL_BUILDERS_BASE } from './src/content/skillBuildersWebsite.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -161,6 +162,15 @@ app.get(['/schoolcarebridge/demo','/schoolcarebridge/demo/','/schoolcarebridge-d
 app.get('/demo', (req,res,next)=>['schoolcarebridge.org','www.schoolcarebridge.org'].includes(req.hostname) ? res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex').sendFile(join(distPath,'schoolcarebridge-demo.html')) : next());
 app.get('/auricwell-demo.html', (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex, nofollow').set('Permissions-Policy','camera=(), microphone=(), geolocation=()').sendFile(join(distPath,'auricwell-demo.html')));
 app.get('/auricwell.html', (_req, res) => res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html')));
+
+// Serve the standalone Skill Builders pages before express.static's directory
+// redirects, preserving the public site's canonical URLs without trailing slashes.
+app.use((req, res, next) => {
+  const page = skillBuildersPageForPath(req.path);
+  if (!page) return next();
+  const folder = page.slug ? `${SKILL_BUILDERS_BASE}/${page.slug}` : SKILL_BUILDERS_BASE;
+  return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, folder.slice(1), 'index.html'));
+});
 
 // Serve static files from dist directory
 // This handles all static assets including /assets/* files

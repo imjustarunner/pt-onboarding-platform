@@ -2,6 +2,7 @@ import { isItscoPublicHost, cleanItscoPath, internalItscoPath, ITSCO_PUBLIC_SECT
 import { itscoLegalLinks } from '../content/itscoLegalDocuments.js';
 import { legalDocumentsForProfile } from '../content/tenantLegalDocuments.js';
 import { tenantLegalProfiles } from '../content/tenantLegalProfiles.js';
+import { skillBuildersPages, skillBuildersPageForPath, skillBuildersPath } from '../content/skillBuildersWebsite.js';
 const itscoLegalDocuments = legalDocumentsForProfile(tenantLegalProfiles.itsco);
 // Preserve the canonical hostname advertised by the existing Wix site.
 import { ITSCO_PUBLIC_ORIGIN } from './providerProfileLinks.js';
@@ -14,6 +15,7 @@ export const ITSCO_REDIRECTS = {
   '/terms': '/itsco/terms', '/messaging': '/itsco/messaging', '/hipaa': '/itsco/platformhipaa', '/platformhipaa': '/itsco/platformhipaa'
 };
 const titles = {
+  ...Object.fromEntries(Object.entries(skillBuildersPages).map(([key, page]) => [skillBuildersPath(key).slice(1), page.title])),
   ...Object.fromEntries(itscoLegalLinks.map(link => [link.path.slice(1), itscoLegalDocuments[link.type].title])),
   '': 'ITSCO | Counseling in Colorado Springs and Denver',
   services: 'Counseling Services | ITSCO', providers: 'Find a Counselor | ITSCO',
@@ -45,7 +47,7 @@ export function itscoPublicResponse(host, originalUrl) {
     internalPath: internalItscoPath(clean),
     canonical: `${ITSCO_ORIGIN}${clean}`,
     title: titles[section] || (functional ? 'ITSCO' : 'Page not found | ITSCO'),
-    description: itscoLegalDocuments[itscoLegalLinks.find(link => link.path === clean)?.type]?.intro || (section === 'careers'
+    description: skillBuildersPageForPath(clean)?.description || itscoLegalDocuments[itscoLegalLinks.find(link => link.path === clean)?.type]?.intro || (section === 'careers'
       ? 'Explore open positions at ITSCO and join our counseling and support team.'
       : `Explore ${section ? section.replace(/-/g, ' ') : 'counseling and mental health support'} with ITSCO for children, teens, adults, families, and school communities in Colorado.`),
     noindex: !indexable || url.searchParams.has('provider') || url.searchParams.has('school')
@@ -53,7 +55,7 @@ export function itscoPublicResponse(host, originalUrl) {
 }
 export function itscoSitemap() {
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
-    [...ITSCO_PUBLIC_SECTIONS, 'careers', ...itscoLegalLinks.map(link => link.path.slice(1))].filter(s=>s!=='live-chat-support').map(s => `<url><loc>${ITSCO_ORIGIN}/${s}</loc></url>`).join('') + '</urlset>';
+    [...ITSCO_PUBLIC_SECTIONS, 'careers', ...itscoLegalLinks.map(link => link.path.slice(1)), ...Object.keys(skillBuildersPages).map(key => skillBuildersPath(key).slice(1))].filter(s=>s!=='live-chat-support').map(s => `<url><loc>${ITSCO_ORIGIN}/${s}</loc></url>`).join('') + '</urlset>';
 }
 
 /** Keep metadata accurate after SPA navigation as well as a direct page load. */
