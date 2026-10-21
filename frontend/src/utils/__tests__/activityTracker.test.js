@@ -17,6 +17,7 @@ let serverSession;
 let policy;
 const serverData = () => ({ policy, session: { ...serverSession, serverNow: Date.now() } });
 beforeEach(() => {
+  mocks.auth.user.role = 'super_admin';
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-15T12:00:00Z'));
   vi.clearAllMocks(); setActivePinia(createPinia()); localStorage.clear();
   localStorage.setItem('sessionId', 'login-one'); localStorage.setItem('user', '{"id":7}');
@@ -34,6 +35,12 @@ beforeEach(() => {
 });
 afterEach(() => { stopActivityTracking(); vi.useRealTimers(); });
 describe('shared activity tracking', () => {
+  it('maintains the family session heartbeat without publishing staff presence', async () => {
+    mocks.auth.user.role = 'client_guardian';
+    await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });
+    expect(mocks.post.mock.calls.some(([url]) => url === '/auth/platform-session/heartbeat')).toBe(true);
+    expect(mocks.post.mock.calls.some(([url]) => url === '/presence/heartbeat')).toBe(false);
+  });
   it('reuses the authenticated login response without another policy request', async () => {
     await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });
     expect(mocks.get).not.toHaveBeenCalled();

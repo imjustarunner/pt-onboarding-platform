@@ -150,8 +150,9 @@ async function sendHeartbeats(force = false) {
   const sessionId = localStorage.getItem('sessionId');
   if (!useAuthStore().user?.id) return;
   const agencyId = useAgencyStore().currentAgency?.id || null;
+  const familyAccount = ['client_guardian', 'guardian', 'client'].includes(String(useAuthStore().user?.role || '').toLowerCase());
   await Promise.allSettled([
-    api.post('/presence/heartbeat', { agencyId, lastActivityAt: new Date(lastActivityTime).toISOString(), sessionPhase: phase }, REQUEST_OPTIONS),
+    ...(!familyAccount ? [api.post('/presence/heartbeat', { agencyId, lastActivityAt: new Date(lastActivityTime).toISOString(), sessionPhase: phase }, REQUEST_OPTIONS)] : []),
     ...(sessionId ? [api.post('/auth/platform-session/heartbeat', { sessionId, agencyId, phase, meaningful: phase === 'active' && Date.now() - lastActivityTime < 60000 }, REQUEST_OPTIONS)] : [])
   ]);
 }

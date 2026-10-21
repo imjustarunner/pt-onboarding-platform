@@ -56,6 +56,10 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
   }
 
   async function refreshFromServer() {
+    if (['client_guardian', 'guardian', 'client'].includes(String(useAuthStore().user?.role || '').toLowerCase())) {
+      clearLocalExtend();
+      return null;
+    }
     const revision = statusRevision;
     const sequence = ++refreshSequence;
     const userId = currentUserId();

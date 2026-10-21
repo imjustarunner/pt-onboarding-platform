@@ -677,7 +677,7 @@ const previewParams = computed(() => {
   };
 });
 
-const loading = ref(false);
+const loading = ref(true);
 const error = ref('');
 const overview = ref({ children: [], programs: [] });
 

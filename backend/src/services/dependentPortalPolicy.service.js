@@ -11,6 +11,7 @@ export function dependentRouteAllowed(method,path,clientId){
  if(/^\/api\/account-security(?:\/.*)?$/.test(path))return true;
  if(method==='POST'&&['/api/auth/activity-log','/api/auth/platform-session/heartbeat'].includes(path))return true;
  if(method==='POST'&&path==='/api/users/change-password')return true;
+ if(method==='GET'&&/^\/api\/icons\/\d+$/.test(path))return true;
  if(/^\/api\/auth\/(me|logout|session-activity|session-lock-config|verify-session-pin|refresh|change-password|security(?:\/.*)?|sessions(?:\/.*)?|passkeys(?:\/.*)?)\/?$/.test(path))return true;
  if(method==='GET'&&/^\/api\/(users\/me(?:\/agencies)?|branding(?:\/.*)?|agencies\/[^/]+\/(branding|public))$/.test(path))return true;
  // The authenticated appointment-entry page still uses the same tutor office.

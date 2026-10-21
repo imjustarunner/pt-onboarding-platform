@@ -1,7 +1,7 @@
 <template>
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
-    <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
+    <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
@@ -2014,7 +2014,7 @@
         :login-trigger="privilegedLoginBriefingTrigger"
       />
       <ProviderUpdateReminderSplash
-        v-if="isAuthenticated && !sessionLockStore.isLocked && !isImmersiveJoinRoute && !route.meta?.familyCommandCenter"
+        v-if="isAuthenticated && !isFamilyPortalAccount && !sessionLockStore.isLocked && !isImmersiveJoinRoute && !route.meta?.familyCommandCenter"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
       <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !route.meta?.fundthred" />
@@ -2172,12 +2172,12 @@
         </div>
       </div>
       <AnnouncementToasts
-        v-if="isAuthenticated && user?.id && agencyStore.currentAgency?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
+        v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && agencyStore.currentAgency?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
         :storage-key="`staff:${user.id}:agency:${agencyStore.currentAgency.id}`"
         :load-items="loadOfficeToasts"
         :record-event="recordOfficeToastEvent"
       />
-      <ActiveMeetingToasts v-if="isAuthenticated && user?.id" :key="user.id" :user-id="user.id" />
+      <ActiveMeetingToasts v-if="isAuthenticated && !isFamilyPortalAccount && user?.id" :key="user.id" :user-id="user.id" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
         v-if="toolsAssignState"
@@ -2424,6 +2424,7 @@ import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBranding.js';
 
 const authStore = useAuthStore();
+const isFamilyPortalAccount = computed(() => ['client_guardian', 'guardian', 'client'].includes(String(authStore.user?.role || '').toLowerCase()));
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const indirectTimeSessionStore = useIndirectTimeSessionStore();
@@ -2445,7 +2446,7 @@ const currentAgencyIdForAddon = computed(() => {
   return agencyStore.currentAgency?.id ?? null;
 });
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
-const focusMusicUserId = computed(() => authStore.user?.id ?? null);
+const focusMusicUserId = computed(() => isFamilyPortalAccount.value ? null : authStore.user?.id ?? null);
 const focusMusic = useFocusMusicPlayer({ userIdRef: focusMusicUserId });
 provide('focusMusic', focusMusic);
 const showFocusMusicNav = computed(() => {

@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), user: { id: 555, role: 'provider' } }));
 vi.mock('../../services/api', () => ({ default: mocks }));
-vi.mock('../auth', () => ({ useAuthStore: () => ({ user: { id: 555 } }) }));
+vi.mock('../auth', () => ({ useAuthStore: () => ({ user: mocks.user }) }));
 import { usePresenceSessionStore } from '../presenceSession';
 const away = () => ({ data: { session_extend_active: true, presence_session_extend_until: new Date(Date.now() + 3600000).toISOString(), presence_reason: 'meal' } });
-beforeEach(() => { setActivePinia(createPinia()); localStorage.clear(); vi.resetAllMocks(); mocks.post.mockResolvedValue({ data: {} }); });
+beforeEach(() => { mocks.user.role='provider'; setActivePinia(createPinia()); localStorage.clear(); vi.resetAllMocks(); mocks.post.mockResolvedValue({ data: {} }); });
 describe('Away state recovery', () => {
+  it('clears staff presence for a family account without fetching staff status', async () => {
+    const store = usePresenceSessionStore();store.setLocalExtend(away().data.presence_session_extend_until);mocks.user.role='client_guardian';
+    expect(await store.refreshFromServer()).toBeNull();expect(store.isExtended).toBe(false);expect(mocks.get).not.toHaveBeenCalled();
+  });
   it('does not restore an old Away timer when a refresh finishes after returning', async () => {
     const store = usePresenceSessionStore();
     store.setLocalExtend(away().data.presence_session_extend_until);
