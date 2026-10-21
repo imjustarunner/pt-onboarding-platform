@@ -63,7 +63,7 @@ export function validateCancellationChoices(facts = {}) {
   if (!['send', 'none'].includes(notificationMode)) throw fail('Choose whether to send cancellation notifications.');
   const suppressionReason = String(facts.suppressionReason || '').trim();
   if (notificationMode === 'none' && (!suppressionReason || suppressionReason.length > 500)) throw fail('Record why no notification should be sent (up to 500 characters).');
-  const action = facts.followUpAction || 'client_contact_support';
+  const action = facts.followUpAction || 'keep_next';
   if (['private_slots', 'portal_booking'].includes(action)) {
     if (notificationMode === 'none') throw fail('Send a notification when inviting the client to choose a replacement time.');
     if (facts.eventType !== 'canceled') throw fail('Replacement offers are for a canceled appointment, not an already-booked replacement.');

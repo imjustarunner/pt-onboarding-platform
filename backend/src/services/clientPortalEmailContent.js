@@ -1,4 +1,5 @@
 import { escapePortalHtml as e, portalMessageHtml } from './portalEmailBranding.service.js';
+import { conversaEmailBlock, conversaEmailNote } from './conversaEmail.service.js';
 
 export function clientEmailLabel(client = {}) {
   const parts = String(client.full_name || client.name || '').replace(/\s*[—–-]\s*(?:DEMO|FICTIONAL).*$/i, '').trim().split(/\s+/).filter(Boolean);
@@ -47,8 +48,8 @@ export function buildTreatmentPlanEmail({ client, recipientName, url, expires = 
 export function buildSecureMessageEmail({agencyName,clinical=true,url}) {
   const portal=clinical?'AuricWell':`${agencyName} portal`;
   const subject=`You have a secure message in ${portal}`;
-  const intro=`${agencyName} sent you a secure message in Messages by Conversa${clinical?' within AuricWell':''}. Sign in to ${portal} to read and reply.`;
+  const intro=`${agencyName} sent you a secure message. Sign in to ${portal} to read and reply.`;
   const note='Your message stays inside your secure portal. This email does not include its contents. Please reply in the portal.';
-  return {subject,text:`${intro}\n\nRead secure message:\n${url}\n\n${note}`,
-    html:`<h2>You have a secure message</h2><p>${e(intro)}</p>${portalActionHtml('Read secure message',url)}<p>${e(note)}</p>`};
+  return {subject,text:`${intro}\n\nRead secure message:\n${url}\n\n${note}\n\n${conversaEmailNote}`,
+    html:`<h2>You have a secure message</h2><p>${e(intro)}</p>${portalActionHtml('Read secure message',url)}<p>${e(note)}</p>${conversaEmailBlock()}`};
 }

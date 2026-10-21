@@ -44,6 +44,9 @@ const normalizeUploadsPath = (p) => {
  */
 export function resolveOrgLogoUrl(orgRow, opts = {}) {
   if (!orgRow) return null;
+  const slug = String(orgRow.slug || orgRow.portal_url || '').toLowerCase();
+  if (slug === 'itsco' || orgRow.name === 'ITSCO') return 'https://itsco.health/assets/plotline/careers/itsco-logo.png';
+  if (slug === 'nlu' || orgRow.name === 'Next Level Up') return 'https://nextleveluplcc.com/assets/nlu/logo.png';
   const baseUrl = String(opts.baseUrl || '').replace(/\/$/, '');
   if (orgRow.logo_path && baseUrl) {
     const cleaned = normalizeUploadsPath(orgRow.logo_path);

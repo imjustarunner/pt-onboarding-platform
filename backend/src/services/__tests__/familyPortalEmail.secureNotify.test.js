@@ -17,7 +17,7 @@ beforeEach(()=>{
 });
 it('sends a content-free Conversa alert within AuricWell through the standard portal sender',async()=>{
  const result=await sendSecureMessageNotification(input);expect(result.sent).toBe(true);
- const sent=m.send.mock.calls[0][0];expect(sent.subject).toContain('AuricWell');expect(sent.text).toContain('Messages by Conversa within AuricWell');
+ const sent=m.send.mock.calls[0][0];expect(sent.subject).toContain('AuricWell');expect(sent.text).toContain('Conversa by AuricWell');
  expect(sent.html).toContain('Read secure message');expect(sent.html).toContain('https://auricwell.com/secure-message/');
  expect(sent.clientId).toBe(2240);expect(sent.userId).toBe(1411);expect(sent.context.clinical).toBe(true);
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('SET sent_at'),[12]);

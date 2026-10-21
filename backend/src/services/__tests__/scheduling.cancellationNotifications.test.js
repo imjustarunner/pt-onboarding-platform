@@ -46,6 +46,7 @@ beforeEach(() => {
   sendEmail = vi.fn(async () => ({ id: 'email-accepted' })); sendSms = vi.fn(async () => ({ sid: 'sms-accepted' }));
   audit = { create: vi.fn(async () => ({ id: 100 })), updateDeliveryStatus: vi.fn(async () => ({})) }; log = vi.fn();
   service = createCancellationNotificationService({ database: db, appointments, consent, preferences, tenantSettings,
+    followUp: { nextAppointment: vi.fn(async () => null) },
     sendEmail, sendSms, smsSender: vi.fn(async () => '+17195550100'), communications: audit, log,
     encrypt: value => JSON.stringify({ _enc: true, cipher: Buffer.from(value).toString('base64') }),
     decrypt: value => { const parsed = JSON.parse(value); return parsed._enc ? Buffer.from(parsed.cipher, 'base64').toString() : value; } });
@@ -126,4 +127,14 @@ describe('durable cancellation delivery', () => {
     await expect(service.retry(2, 1)).rejects.toMatchObject({ status: 409 });
     expect(sendEmail).toHaveBeenCalledTimes(2);
   });
+});
+
+it('defaults to the next appointment with a portal update instruction, without asking the family to rebook', async () => {
+  const message = buildCancellationNotification(await appointments.findById(), { eventType: 'canceled', clientFacingReason: 'Provider unavailable' }, { nextAppointment: { displayWhen: 'November 10 at 3:00 PM', timeZone: 'America/Denver' } });
+  expect(message.text).toContain('November 10 at 3:00 PM');
+  expect(message.text).toContain('sign in to see any updates');
+  expect(message.text).not.toContain('arrange another appointment');
+  const noNext = buildCancellationNotification(await appointments.findById(), { eventType: 'canceled', clientFacingReason: 'Provider unavailable' });
+  expect(noNext.text).toContain('No next appointment is currently scheduled');
+  expect(noNext.text).not.toContain('arrange');
 });

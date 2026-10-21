@@ -4,6 +4,8 @@ import { enrichApplicationRecord, appendApplicationJobDescription } from '../ser
 import Agency from '../models/Agency.model.js';
 import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
+import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
+import StorageService from '../services/storage.service.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
 import pool from '../config/database.js';
@@ -26,6 +28,8 @@ function sendPdf(res, buffer, filename) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', String(bytes.length));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   return res.send(bytes);
 }
 
@@ -70,6 +74,8 @@ async function resolveOfficeRecord(req) {
     throw err;
   }
   let link = await IntakeLink.findByPublicKey(publicKey);
+  const issuedRoiLink = !link ? await ClientSchoolRoiSigningLink.findByPublicKey(publicKey) : null;
+  if (issuedRoiLink) link = await IntakeLink.findById(issuedRoiLink.intake_link_id);
   if (!link) {
     const err = new Error('Intake link not found');
     err.statusCode = 404;
@@ -81,12 +87,22 @@ async function resolveOfficeRecord(req) {
     err.statusCode = 404;
     throw err;
   }
-  if (Number(submission.intake_link_id) !== Number(link.id)) {
+  if (Number(submission.intake_link_id) !== Number(link.id)
+    || (issuedRoiLink && (Number(issuedRoiLink.latest_intake_submission_id) !== submissionId
+      || Number(issuedRoiLink.client_id) !== Number(submission.client_id)
+      || issuedRoiLink.status !== 'completed'))) {
     const err = new Error('Submission not found');
     err.statusCode = 404;
     throw err;
   }
   const agency = await Agency.findById(link.organization_id);
+  if (String(link.form_type || '').toLowerCase() === 'smart_school_roi') {
+    if (submission.status !== 'submitted' || !submission.combined_pdf_path) {
+      throw Object.assign(new Error('The signed release is not available yet.'), { statusCode: 409 });
+    }
+    // Serve the original signed artifact, never a reconstructed enrollment summary.
+    return { agency, submission, isSchoolRoi: true };
+  }
   try {
     link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agency?.id || link.organization_id });
   } catch (inheritErr) {
@@ -154,7 +170,8 @@ function summaryPdfFilename(agency, body = {}) {
 /** POST /api/public-intake/:publicKey/:submissionId/summary-pdf */
 export async function downloadPublicIntakeSummaryPdf(req, res, next) {
   try {
-    const { agency, spec, submission } = await resolveOfficeRecord(req);
+    const { agency, spec, submission, isSchoolRoi } = await resolveOfficeRecord(req);
+    if (isSchoolRoi) return sendPdf(res, await StorageService.readObject(submission.combined_pdf_path), `release-of-information-${submission.id}.pdf`);
     const pdf = await appendApplicationJobDescription(await generateIntakeSummaryPdf(spec), submission);
     return sendPdf(
       res,
@@ -178,7 +195,14 @@ export async function downloadPublicIntakeSummaryPdf(req, res, next) {
 /** GET /api/public-intake/:publicKey/:submissionId/summary — branded HTML, no PDF wait */
 export async function viewPublicIntakeSummaryHtml(req, res, next) {
   try {
-    const { spec } = await resolveOfficeRecord(req);
+    const { spec, submission, isSchoolRoi } = await resolveOfficeRecord(req);
+    if (isSchoolRoi) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="release-of-information-${submission.id}.pdf"`);
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      return res.send(await StorageService.readObject(submission.combined_pdf_path));
+    }
     const html = buildIntakeSummaryDocumentHtml({ ...spec, printable: true });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'private, no-store');
@@ -282,7 +306,9 @@ export async function downloadQuickIntakeSummaryPdf(req, res, next) {
 }
 
 async function buildOfficeSummaryPdf(req) {
-  const { agency, spec, submission } = await resolveOfficeRecord(req);
+  const { agency, spec, submission, isSchoolRoi } = await resolveOfficeRecord(req);
+  if (isSchoolRoi) return { agency, pdf: await StorageService.readObject(submission.combined_pdf_path),
+    filename: `release-of-information-${submission.id}.pdf`, clientId: submission.client_id };
   const pdf = await appendApplicationJobDescription(await generateIntakeSummaryPdf(spec), submission);
   const filename = summaryPdfFilename(agency, {
     initials: req.body?.initials,

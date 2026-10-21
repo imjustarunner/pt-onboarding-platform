@@ -1,10 +1,10 @@
 <template>
-  <div class="smart-roi-flow">
+  <div ref="flowRoot" class="smart-roi-flow" tabindex="-1">
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="stage === 'intro'" class="smart-roi-card">
-      <div class="progress-label">Step 1 of {{ totalSteps }}</div>
-      <h3>{{ tr('Smart School Release of Information', 'Autorizacion Escolar Inteligente de Divulgacion de Informacion') }}</h3>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} 1 {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <h3>{{ tr('Release of Information', 'Autorización de divulgación de información') }}</h3>
       <p>
         This release is specific to <strong>{{ schoolName }}</strong> and the currently active school staff who may need
         information to support the client in the school setting.
@@ -184,7 +184,7 @@
     </div>
 
     <div v-else-if="stage === 'purpose'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Purpose of release', 'Proposito de la autorizacion') }}</h3>
       <p>{{ tr('This authorization allows communication for school care coordination within the approved scope.', 'Esta autorizacion permite la comunicacion para la coordinacion de atencion escolar dentro del alcance aprobado.') }}</p>
       <div class="info-panel">
@@ -199,17 +199,17 @@
     </div>
 
     <div v-else-if="stage === 'ack'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <section v-for="currentAck in ackItems" :key="currentAck.id" class="roi-decision-group">
       <h3>{{ currentAck?.title }}</h3>
       <p>{{ currentAck?.body }}</p>
       <p class="required-note">
         {{ tr('This acknowledgement is required to continue.', 'Este reconocimiento es requerido para continuar.') }}
       </p>
-      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <div class="choice-row">
-        <label class="choice-card" @click.prevent="selectAckDecision(true)">
+        <label class="choice-card" @click.prevent="form.requiredAcknowledgements[currentAck.id] = true">
           <input
-            name="requiredAcknowledgement"
+            :name="`ack_${currentAck.id}`"
             :checked="form.requiredAcknowledgements[currentAck.id] === true"
             :value="true"
             type="radio"
@@ -217,21 +217,23 @@
           <span>{{ tr('I acknowledge and accept', 'Reconozco y acepto') }}</span>
         </label>
       </div>
+      </section>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'waiver'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <section v-for="currentWaiver in waiverItems" :key="currentWaiver.id" class="roi-decision-group">
       <h3>{{ currentWaiver?.title }}</h3>
       <p>{{ currentWaiver?.body }}</p>
-      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <p v-if="currentWaiver?.requiredAccept" class="required-note">
         {{ tr('This authorization is required to provide services in the school setting.', 'Esta autorizacion es requerida para brindar servicios en el entorno escolar.') }}
       </p>
       <div class="choice-row">
-        <label class="choice-card" @click.prevent="selectWaiverDecision('accept')">
+        <label class="choice-card" @click.prevent="form.waiverItems[currentWaiver.id] = 'accept'">
           <input
             :name="`waiverDecision_${currentWaiver?.id || 'current'}`"
             :checked="form.waiverItems[currentWaiver.id] === 'accept'"
@@ -243,7 +245,7 @@
         <label
           v-if="!currentWaiver?.requiredAccept"
           class="choice-card"
-          @click.prevent="selectWaiverDecision('decline')"
+          @click.prevent="form.waiverItems[currentWaiver.id] = 'decline'"
         >
           <input
             :name="`waiverDecision_${currentWaiver?.id || 'current'}`"
@@ -254,13 +256,16 @@
           <span>{{ tr('Do not authorize', 'No autorizar') }}</span>
         </label>
       </div>
+      </section>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'staff'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <section v-for="currentStaff in staffRoster" :key="currentStaff.schoolStaffUserId" class="roi-decision-group">
       <h3>{{ tr('School staff approval', 'Aprobacion de personal escolar') }}</h3>
       <p>
         {{ tr(
@@ -268,7 +273,6 @@
           'Elija el nivel de ROI de este miembro del personal. ROI (Speak) y ROI All Active abren el mismo portal escolar que ROI Active. Los documentos de referencia permanecen ocultos salvo que elija ROI All Active.'
         ) }}
       </p>
-      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <div class="staff-card">
         <div class="staff-name">{{ currentStaff?.fullName }}</div>
         <div class="staff-meta">{{ currentStaff?.role || '—' }}</div>
@@ -282,7 +286,7 @@
             'ROI All Active: they may speak about treatment goals and progress and can access this client’s referral documents.',
             'ROI All Active: pueden hablar sobre las metas y el progreso del tratamiento y acceder a los documentos de referencia de este cliente.'
           )"
-          @click.prevent="selectStaffDecision('roi_docs')"
+          @click.prevent="form.staffDecisions[currentStaff.schoolStaffUserId] = 'roi_docs'"
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'roi_docs'" value="roi_docs" type="radio" />
           <span>
@@ -300,7 +304,7 @@
             'ROI (Speak): same portal access as ROI Active, and they may speak with the provider about treatment goals and progress. Referral documents stay hidden.',
             'ROI (Speak): mismo acceso al portal que ROI Active, y pueden hablar con el proveedor sobre las metas y el progreso del tratamiento. Los documentos de referencia permanecen ocultos.'
           )"
-          @click.prevent="selectStaffDecision('roi')"
+          @click.prevent="form.staffDecisions[currentStaff.schoolStaffUserId] = 'roi'"
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'roi'" value="roi" type="radio" />
           <span>
@@ -318,7 +322,7 @@
             'No ROI on file for this staff member. They cannot open this client in the school portal.',
             'Sin ROI en archivo para este miembro del personal. No pueden abrir este cliente en el portal escolar.'
           )"
-          @click.prevent="selectStaffDecision('none')"
+          @click.prevent="form.staffDecisions[currentStaff.schoolStaffUserId] = 'none'"
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'none'" value="none" type="radio" />
           <span>
@@ -327,13 +331,15 @@
           </span>
         </label>
       </div>
+      </section>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
       </div>
     </div>
 
     <div v-else-if="stage === 'third_party'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Add third party / fill-in person', 'Agregar tercero / persona adicional') }}</h3>
       <p>
         {{ tr(
@@ -412,7 +418,7 @@
     </div>
 
     <div v-else-if="stage === 'external_programmed'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Non-school recipient approval', 'Aprobacion de destinatario no escolar') }}</h3>
       <p>{{ tr('Choose what this pre-selected non-school recipient may receive — the same permission levels as school staff.', 'Elija que puede recibir este destinatario no escolar preseleccionado: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div class="staff-card">
@@ -457,7 +463,7 @@
     </div>
 
     <div v-else-if="stage === 'external_parent'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Non-school release recipients', 'Destinatarios de divulgacion no escolar') }}</h3>
       <p>{{ tr('Add each non-school person and choose what they may receive — the same permission levels as school staff.', 'Agregue cada persona no escolar y elija que puede recibir: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div
@@ -533,7 +539,7 @@
     </div>
 
     <div v-else-if="stage === 'guidelines'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Guidelines and limitations', 'Lineamientos y limitaciones') }}</h3>
       <p>{{ tr('These disclosures are limited and documented according to the terms below.', 'Estas divulgaciones son limitadas y documentadas segun los terminos a continuacion.') }}</p>
       <div class="info-panel">
@@ -548,7 +554,7 @@
     </div>
 
     <div v-else-if="stage === 'term'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Term and revocation', 'Vigencia y revocacion') }}</h3>
       <div class="info-panel">
         <ul>
@@ -682,7 +688,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
 
@@ -776,9 +782,9 @@ const programmedRecipient = computed(() => props.roiContext?.externalRelease?.pr
 
 const stageOrder = computed(() => {
   const stages = ['intro', 'purpose'];
-  ackItems.value.forEach((item) => stages.push(`ack:${item.id}`));
-  waiverItems.value.forEach((item) => stages.push(`waiver:${item.id}`));
-  staffRoster.value.forEach((staff) => stages.push(`staff:${staff.schoolStaffUserId}`));
+  if (ackItems.value.length) stages.push('ack');
+  if (waiverItems.value.length) stages.push('waiver');
+  if (staffRoster.value.length) stages.push('staff');
   stages.push('third_party');
   if (externalReleaseMode.value === 'sender_programmed') stages.push('external_programmed');
   if (externalReleaseMode.value === 'parent_defined') stages.push('external_parent');
@@ -790,13 +796,19 @@ const stageOrder = computed(() => {
 });
 
 const stageIndex = ref(0);
+const flowRoot = ref(null);
+watch(stageIndex, async () => {
+  await nextTick();
+  flowRoot.value?.focus({ preventScroll: true });
+  flowRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+});
 const submissionId = ref(null);
 const signatureData = ref('');
 const forceResign = ref(false);
 const downloadUrl = ref('');
 const submitting = ref(false);
 const error = ref('');
-const roiDraftStorageVersion = 1;
+const roiDraftStorageVersion = 2;
 const roiDraftTtlMs = 2 * 60 * 60 * 1000;
 let draftPersistTimer = null;
 
@@ -890,12 +902,6 @@ const hydrateClientFieldsFromContext = () => {
 
 const stageToken = computed(() => stageOrder.value[stageIndex.value] || 'intro');
 const stage = computed(() => stageToken.value.split(':')[0]);
-const currentAckId = computed(() => stageToken.value.startsWith('ack:') ? stageToken.value.split(':')[1] : null);
-const currentWaiverId = computed(() => stageToken.value.startsWith('waiver:') ? stageToken.value.split(':')[1] : null);
-const currentStaffId = computed(() => stageToken.value.startsWith('staff:') ? Number(stageToken.value.split(':')[1]) : null);
-const currentAck = computed(() => ackItems.value.find((item) => item.id === currentAckId.value) || null);
-const currentWaiver = computed(() => waiverItems.value.find((item) => item.id === currentWaiverId.value) || null);
-const currentStaff = computed(() => staffRoster.value.find((item) => Number(item.schoolStaffUserId) === Number(currentStaffId.value)) || null);
 const totalSteps = computed(() => Math.max(stageOrder.value.length - 1, 1));
 const stepNumber = computed(() => Math.min(stageIndex.value + 1, totalSteps.value));
 const schoolName = computed(() => props.roiContext?.school?.name || 'School');
@@ -1135,7 +1141,7 @@ const restoreDraftSnapshot = () => {
   } catch {
     return;
   }
-  if (!parsed || parsed.version !== roiDraftStorageVersion) return;
+  if (!parsed || ![1, roiDraftStorageVersion].includes(parsed.version)) return;
   const savedAtMs = parsed?.savedAt ? new Date(parsed.savedAt).getTime() : 0;
   if (!savedAtMs || Number.isNaN(savedAtMs) || (Date.now() - savedAtMs) > roiDraftTtlMs) {
     clearDraft();
@@ -1202,7 +1208,8 @@ const restoreDraftSnapshot = () => {
     });
   }
   const maxIdx = Math.max(stageOrder.value.length - 1, 0);
-  const nextIdx = Number.isFinite(Number(parsed.stageIndex)) ? Number(parsed.stageIndex) : 0;
+  // Keep answers from the earlier one-question-per-page layout, but review from the start.
+  const nextIdx = parsed.version === roiDraftStorageVersion && Number.isFinite(Number(parsed.stageIndex)) ? Number(parsed.stageIndex) : 0;
   stageIndex.value = Math.max(0, Math.min(nextIdx, maxIdx));
 };
 
@@ -1233,19 +1240,19 @@ const validateCurrentStage = () => {
       return false;
     }
   }
-  if (stage.value === 'ack' && form.requiredAcknowledgements[currentAck.value.id] !== true) {
+  if (stage.value === 'ack' && ackItems.value.some(item => form.requiredAcknowledgements[item.id] !== true)) {
     error.value = 'This acknowledgement must be accepted to continue.';
     return false;
   }
-  if (stage.value === 'waiver' && !form.waiverItems[currentWaiver.value.id]) {
+  if (stage.value === 'waiver' && waiverItems.value.some(item => !['accept', 'decline'].includes(form.waiverItems[item.id]))) {
     error.value = 'Choose whether to authorize this item before continuing.';
     return false;
   }
-  if (stage.value === 'waiver' && currentWaiver.value?.requiredAccept && form.waiverItems[currentWaiver.value.id] !== 'accept') {
+  if (stage.value === 'waiver' && waiverItems.value.some(item => item.requiredAccept && form.waiverItems[item.id] !== 'accept')) {
     error.value = 'This authorization is required to continue.';
     return false;
   }
-  if (stage.value === 'staff' && !['roi_docs', 'roi', 'none'].includes(form.staffDecisions[currentStaff.value.schoolStaffUserId])) {
+  if (stage.value === 'staff' && staffRoster.value.some(item => !['roi_docs', 'roi', 'none'].includes(form.staffDecisions[item.schoolStaffUserId]))) {
     error.value = 'Choose ROI All Active, ROI (Speak), or No ROI on file for this staff member.';
     return false;
   }
@@ -1296,27 +1303,6 @@ const goNext = () => {
 const goBack = () => {
   error.value = '';
   if (stageIndex.value > 0) stageIndex.value -= 1;
-};
-
-const selectAckDecision = (accepted) => {
-  if (!currentAck.value?.id) return;
-  form.requiredAcknowledgements[currentAck.value.id] = accepted === true;
-  error.value = '';
-  goNext();
-};
-
-const selectWaiverDecision = (decision) => {
-  if (!currentWaiver.value?.id) return;
-  form.waiverItems[currentWaiver.value.id] = decision;
-  error.value = '';
-  goNext();
-};
-
-const selectStaffDecision = (decision) => {
-  if (!currentStaff.value?.schoolStaffUserId) return;
-  form.staffDecisions[currentStaff.value.schoolStaffUserId] = decision;
-  error.value = '';
-  goNext();
 };
 
 const selectProgrammedExternalDecision = (decision) => {
@@ -1488,7 +1474,7 @@ const submitRoi = async () => {
     if (String(err?.message || '').includes('request_timeout')) {
       error.value = 'This is taking too long to submit. Please retry in a few seconds.';
     } else {
-      error.value = err.response?.data?.error?.message || 'Failed to complete the smart school ROI.';
+      error.value = err.response?.data?.error?.message || 'Unable to complete the release of information.';
     }
   } finally {
     submitting.value = false;
@@ -1497,6 +1483,8 @@ const submitRoi = async () => {
 </script>
 
 <style scoped>
+.smart-roi-flow { scroll-margin-top: 24px; outline: none; }
+.roi-decision-group + .roi-decision-group { margin-top: 24px; padding-top: 24px; border-top: 1px solid #dce4ed; }
 .smart-roi-flow {
   display: grid;
   gap: 16px;

@@ -338,7 +338,7 @@
           </div>
           <div class="df-cover-program">{{ currentIntro?.displayName || t('welcome') }}</div>
           <div v-if="currentIntro?.subtitle" class="cover-subtitle">{{ currentIntro.subtitle }}</div>
-          <div v-if="introIndex === 0" class="cover-subtitle">
+          <div v-if="introIndex === 0 && !isSmartSchoolRoi" class="cover-subtitle">
             {{ t('formTimeLimit') }}
           </div>
           <div v-if="isJobApplication && introIndex === introScreens.length - 1 && jobDescriptionSummary" class="job-ack-card">
@@ -756,6 +756,7 @@
           :roi-context="roiContext"
           :link="link"
           :bound-client="boundClient"
+          :prefill="{ signerEmail: issuedRoiRecipientEmail }"
           :locale="intakeLocale"
           @completed="handleSmartRoiCompleted"
         />
@@ -2784,8 +2785,9 @@
         </template>
 
         <div v-if="!isMultiChildPostSubmit" class="intake-download-panel">
+          <p v-if="officeSummaryError" class="error" role="alert">{{ officeSummaryError }}</p>
           <div class="intake-download-meta">
-            <p class="muted" style="margin: 0;">{{ t('packetRecordLead') }}</p>
+            <p class="muted" style="margin: 0;">{{ isSmartSchoolRoi ? 'Your signed release is saved. View or download your copy below.' : t('packetRecordLead') }}</p>
             <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">
               {{ jobApplicationSubmitted ? t('applicationCopyReady') : t('signedFormsReady') }}
             </p>
@@ -2797,7 +2799,7 @@
               :href="packetSummaryViewUrl"
               target="_blank"
               rel="noopener"
-            >{{ jobApplicationSubmitted ? 'View Application Copy' : t('viewPacketNow') }}</a>
+            >{{ jobApplicationSubmitted ? 'View Application Copy' : isSmartSchoolRoi ? 'View signed release' : t('viewPacketNow') }}</a>
             <button
               class="btn btn-secondary"
               type="button"
@@ -2805,7 +2807,7 @@
               @click="downloadOfficeSummaryPdf"
             >{{ officeSummaryDownloading ? t('preparingPdf') : t('downloadSummary') }}</button>
             <a
-              v-if="downloadUrl && !jobApplicationSubmitted"
+              v-if="downloadUrl && !jobApplicationSubmitted && !isSmartSchoolRoi"
               class="btn btn-outline"
               :href="downloadUrl"
               target="_blank"
@@ -4631,9 +4633,9 @@ const beginSubtitleText = computed(() => {
 });
 
 const publicCoverLead = computed(() =>
-  publicIntakeDescription(tx(link.value?.description), beginSubtitleText.value)
+  formTypeKey.value === 'smart_school_roi' ? beginSubtitleText.value : publicIntakeDescription(tx(link.value?.description), beginSubtitleText.value)
 );
-const publicFormLead = computed(() => publicIntakeDescription(tx(link.value?.description), ''));
+const publicFormLead = computed(() => formTypeKey.value === 'smart_school_roi' ? '' : publicIntakeDescription(tx(link.value?.description), ''));
 
 const publicPacketBadge = computed(() => {
   const title = String(link.value?.title || '');
@@ -5640,7 +5642,7 @@ const shellFormSubtitle = computed(() => {
 });
 
 const shellFormDocumentTitle = computed(() =>
-  localizePublicIntakeTitle(link.value?.title || defaultTitle.value, intakeLocale.value)
+  formTypeKey.value === 'smart_school_roi' ? t('releaseOfInformation') : localizePublicIntakeTitle(link.value?.title || defaultTitle.value, intakeLocale.value)
 );
 
 function childDisplayName(idx) {
@@ -5692,6 +5694,7 @@ function progressBucketId(s) {
 }
 
 const dfProgressSteps = computed(() => {
+  if (formTypeKey.value === 'smart_school_roi') return [{ id: 'release', label: t('releaseOfInformation'), marker: '1' }, { id: 'complete', label: t('completed'), marker: '2' }];
   if (isJobApplication.value) {
     return [
       { id: 'personal', label: 'Your information', marker: '1' },
@@ -6920,6 +6923,7 @@ let draftRestoredBannerTimer = null;
 
 const signerInitials = ref('');
 const roiContext = ref(null);
+const issuedRoiRecipientEmail = ref('');
 const disclosureContext = ref(null);
 const organizationId = ref('');
 
@@ -8403,7 +8407,7 @@ const introScreens = computed(() => {
     screens.push({
       key: 'agency',
       displayName: agencyName,
-      logoUrl: resolveLogoUrl(agencyInfo.value),
+      logoUrl: formBranding.value?.agencyLogoUrl || resolveLogoUrl(agencyInfo.value),
       altText: `${agencyName} logo`,
       subtitle: t('introAgencySubtitle')
     });
@@ -9434,6 +9438,7 @@ const loadLink = async () => {
     } catch { /* ignore */ }
     boundClient.value = resp.data?.boundClient || null;
     roiContext.value = resp.data?.roiContext || null;
+    issuedRoiRecipientEmail.value = String(resp.data?.issuedLink?.recipient_email || '').trim();
     disclosureContext.value = resp.data?.disclosureContext
       || resp.data?.link?.disclosureContext
       || link.value?.disclosureContext
@@ -10117,15 +10122,13 @@ async function downloadOfficeSummaryPdf() {
       const tenant = String(agencyInfo.value?.official_name || agencyInfo.value?.name || agencyInfo.value?.portal_url || agencyInfo.value?.slug || 'intake').trim();
       const dob = String(packet.dateOfBirth || '').replace(/[^0-9]/g, '');
       anchor.href = url;
-      anchor.download = `${[tenant, packet.initials, dob].filter(Boolean).join('-').replace(/[^a-zA-Z0-9._-]+/g, '-')}.pdf`;
+      anchor.download = isSmartSchoolRoi.value ? `release-of-information-${id}.pdf` : `${[tenant, packet.initials, dob].filter(Boolean).join('-').replace(/[^a-zA-Z0-9._-]+/g, '-')}.pdf`;
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
   } catch (err) {
     officeSummaryError.value = await messageFromPdfError(err);
-    if (packetSummaryViewUrl.value) {
-      window.open(packetSummaryViewUrl.value, '_blank', 'noopener');
-    }
+    // Keep download errors visible instead of opening a JSON error as a document.
   } finally {
     officeSummaryDownloading.value = false;
   }

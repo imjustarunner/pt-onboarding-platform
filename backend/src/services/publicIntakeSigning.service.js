@@ -25,8 +25,9 @@ class PublicIntakeSigningService {
       page: template.signature_page
     };
 
-    const referenceNumber = `INTAKE-${submissionId}-${template.id}-${Date.now().toString(36).toUpperCase()}`;
-    const documentName = template.name || 'Document';
+    const isRoi = auditTrail?.smartSchoolRoi === true;
+    const referenceNumber = `${isRoi ? 'ROI' : 'INTAKE'}-${submissionId}-${template.id}-${Date.now().toString(36).toUpperCase()}`;
+    const documentName = isRoi ? 'Release of Information' : template.name || 'Document';
     const mergedAuditTrail = {
       ...(auditTrail || {}),
       documentReference: referenceNumber,
@@ -53,7 +54,7 @@ class PublicIntakeSigningService {
     );
 
     const pdfHash = DocumentSigningService.calculatePDFHash(pdfBytes);
-    const filename = `intake-${submissionId}-${template.id}-${Date.now()}.pdf`;
+    const filename = `${isRoi ? 'release-of-information' : 'intake'}-${submissionId}-${template.id}-${Date.now()}.pdf`;
     const storageResult = await StorageService.saveIntakeSignedDocument({
       submissionId,
       templateId: template.id,

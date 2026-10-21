@@ -279,7 +279,7 @@ export const cancelAppointmentHandler = async (req, res, next) => {
       notes: req.body?.notes ?? null,
       reason: req.body?.reason || req.body?.cancellationReason || null,
       clientFacingReason: req.body?.clientFacingReason || null,
-      followUpAction: req.body?.followUpAction || 'client_contact_support',
+      followUpAction: req.body?.followUpAction || 'keep_next',
       followUpMessage: req.body?.followUpMessage || null,
       clientId: req.body?.clientId || null,
       waive: req.body?.waive === true,

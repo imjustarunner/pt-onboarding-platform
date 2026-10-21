@@ -32,7 +32,7 @@ export function cancellationClientDetails(facts = {}, { requireReason = true } =
   const choices = validateCancellationChoices(facts);
   const reason = String(facts.clientFacingReason || '').trim();
   if ((requireReason && !reason) || reason.length > 500) throw fail('Enter the cancellation reason to share with the client (up to 500 characters).');
-  const followUpAction = facts.followUpAction || 'client_contact_support';
+  const followUpAction = facts.followUpAction || 'keep_next';
   if (!Object.hasOwn(CANCELLATION_FOLLOW_UP, followUpAction)) throw fail('Choose a follow-up action for the client.');
   if (followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) throw fail('Link the replacement appointment before telling the client it is booked.');
   const followUpMessage = String(facts.followUpMessage || '').trim();
@@ -46,7 +46,7 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
     timeZone: appointment.sourceTimezone || 'America/Denver' }).format(parseUtcDate(appointment.startAt));
   const nextText = resolved.nextAppointment
     ? `Your next ${resolved.nextAppointment.recurring ? 'recurring ' : ''}appointment is ${resolved.nextAppointment.displayWhen} (${resolved.nextAppointment.timeZone}). It remains scheduled; you do not need to book it again.`
-    : 'No next appointment is currently scheduled. Please contact our support team to arrange your next visit.';
+    : 'No next appointment is currently scheduled.';
   let followUpText = CANCELLATION_FOLLOW_UP[details.followUpAction];
   if (['keep_next', 'keep_next_or_support'].includes(details.followUpAction)) followUpText = nextText;
   if (['private_slots', 'portal_booking'].includes(details.followUpAction)) followUpText = resolved.offer?.status === 'open'
@@ -56,9 +56,10 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   const paragraphs = [
     moved ? `Your appointment has moved from ${when} (${appointment.sourceTimezone || 'America/Denver'}) to ${appointmentTimeLabel(resolved.replacement.startAt, resolved.replacement.sourceTimezone || appointment.sourceTimezone)} (${resolved.replacement.sourceTimezone || appointment.sourceTimezone || 'America/Denver'}). The previous time is no longer scheduled.` : `Your appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} scheduled for ${when} (${appointment.sourceTimezone || 'America/Denver'}) has been canceled.`,
     `Reason: ${details.clientFacingReason}`,
-    moved ? 'Please review the updated appointment in your portal.' : followUpText,
+    moved ? 'Please sign in to see your updated appointment and any other schedule changes.'
+      : `${followUpText}${['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(details.followUpAction) ? '' : ` ${nextText}`} Please sign in to see any updates to your appointments.`,
     ...(details.followUpMessage ? [details.followUpMessage] : []),
-    'You can reply to this email to reach our support team. Please use a secure conversation for clinical details.'
+    'If you have questions, you can contact your care team. Please use a secure conversation for clinical details.'
   ];
   const portalUrl = resolved.portalUrl;
   const links = portalUrl ? `<p><a href="${escapeHtml(portalUrl)}">${resolved.offer?.status === 'open' ? 'View available reschedule options' : 'Review my appointments'}</a></p>${resolved.offer?.status === 'open' && resolved.nextAppointment ? `<p><a href="${escapeHtml(portalUrl + '&offerAction=keep_next')}">See you next session — ${escapeHtml(resolved.nextAppointment.displayWhen)}</a></p><p>Confirm this choice in your portal to decline the replacement offer and keep your next session.</p>` : ''}` : '';
@@ -163,7 +164,7 @@ export function createCancellationNotificationService({ database = pool, appoint
     const channels = facts.notificationMode === 'none' ? ['email'] : ['email', ...(tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms') ? ['sms'] : [])];
     for (const clientId of new Set(participants.map(p => Number(p.clientId)).filter(Boolean))) {
       const resolved = {};
-      if (['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(facts.followUpAction)) {
+      if (facts.eventType === 'canceled') {
         resolved.nextAppointment = await followUp.nextAppointment(appointment, clientId, { afterAt: facts.followUpAfterAt || null });
       }
       if (['private_slots', 'portal_booking'].includes(facts.followUpAction)) {

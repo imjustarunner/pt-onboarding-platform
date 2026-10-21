@@ -140,6 +140,7 @@ import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notif
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import { existingIssuedRoiGuardian } from '../services/issuedRoiGuardian.service.js';
 import { resolveDevFillContext } from '../services/devFill.service.js';
 import {
   buildJobDescriptionAttachmentForEmail,
@@ -6169,7 +6170,9 @@ export const getPublicIntakeLink = async (req, res, next) => {
         status: issuedRoiLink.status || 'issued',
         signed_at: issuedRoiLink.signed_at || null,
         client_id: issuedRoiLink.client_id,
-        intake_link_id: issuedRoiLink.intake_link_id
+        intake_link_id: issuedRoiLink.intake_link_id,
+        // Convenience only: the signer still confirms their identity and authority.
+        recipient_email: issuedRoiLink.status !== 'completed' ? issuedRoiLink.last_email_sent_to || null : null
       } : null,
       boundClient: boundClient ? {
         id: boundClient.id,
@@ -8641,7 +8644,11 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       await IntakeSubmission.updateById(submissionId, {
         combined_pdf_path: signedResult.storagePath,
-        combined_pdf_hash: signedResult.pdfHash
+        combined_pdf_hash: signedResult.pdfHash,
+        // Staff-issued recipient + existing permitted relationship; not signer-entered email.
+        ...(!updatedSubmission.guardian_user_id && issuedRoiLink?.id
+          ? { guardian_user_id: await existingIssuedRoiGuardian(issuedRoiLink, boundClient.id) }
+          : {})
       });
 
       if (issuedRoiLink?.id) {

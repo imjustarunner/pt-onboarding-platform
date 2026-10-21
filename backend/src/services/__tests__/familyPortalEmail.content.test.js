@@ -8,7 +8,7 @@ const url='https://auricwell.com/itsco/guardian';
 it('offers a branded secure message button without message contents or a billing sender',()=>{
  const message=buildSecureMessageEmail({agencyName:'ITSCO',url:'https://auricwell.com/secure-message/example'});
  expect(message.subject).toContain('AuricWell');expect(message.html).toContain('Read secure message');expect(message.text).toContain('Please reply in the portal');
- expect(message.text).toContain('Messages by Conversa within AuricWell');expect(message.html).toContain('copy and paste');
+ expect(message.text).toContain('Conversa by AuricWell');expect(message.html).toContain('copy and paste');
 });
 it('welcomes two dependents into one portal without exposing their full names',()=>{
  const message=buildClientEnrollmentEmail({firstName:'Alex',agencyName:'ITSCO',clients:[{full_name:'Riley Bennett — DEMO'},{full_name:'Avery Bennett — DEMO'}],url});
