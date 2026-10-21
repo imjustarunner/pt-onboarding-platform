@@ -75,7 +75,7 @@
                 class="form-input"
                 :disabled="setting"
               />
-              <p class="field-hint">Enter the client’s date of birth to finish opening this portal account.</p>
+              <p class="field-hint">{{ guardianAccount ? 'Enter the date of birth of any one of your linked dependents to finish opening your account.' : 'Enter your date of birth to finish opening your portal account.' }}</p>
             </div>
 
             <p v-if="setupError" class="error-message">{{ setupError }}</p>
@@ -121,6 +121,7 @@ const setupError = ref('');
 const showPassword = ref(false);
 const showConfirm = ref(false);
 const requiresClientDob = ref(false);
+const guardianAccount = ref(false);
 const clientDob = ref('');
 const tenantBrand = ref(null);
 const schoolBrand = ref(null);
@@ -155,6 +156,7 @@ const validateToken = async () => {
     const preferred = String(response.data?.preferredName || '').trim();
     userFirstName.value = preferred ? `${first} "${preferred}"` : first;
     requiresClientDob.value = !!response.data?.requiresClientDob;
+    guardianAccount.value = ['guardian', 'client_guardian'].includes(response.data?.role);
     tenantBrand.value = response.data?.tenant || null;
     schoolBrand.value = response.data?.school || null;
     const slug = route.params.organizationSlug || route.query.portal || response.data?.portalSlug || response.data?.tenant?.slug;

@@ -1,5 +1,9 @@
 <template>
   <div class="prb">
+    <div v-if="isAuricWellPortal" class="prb-auricwell">
+      <img src="/auricwell/mark.svg" alt="" width="36" height="36" />
+      <strong>AuricWell</strong><span class="prb-beta">Beta</span>
+    </div>
     <div v-if="school?.logoUrl || school?.name" class="prb-dual">
       <div class="prb-col">
         <span class="prb-label">{{ tenantLabel }}</span>
@@ -32,6 +36,8 @@ const props = defineProps({
   fallbackLogoUrl: { type: String, default: '' },
   tenantLabel: { type: String, default: 'Service partner' }
 });
+
+const isAuricWellPortal = /^(www\.)?auricwell\.com$/i.test(window.location.hostname);
 
 const hideTenantLogo = ref(false);
 const hideSchoolLogo = ref(false);
@@ -69,6 +75,8 @@ const onSchoolError = () => { hideSchoolLogo.value = true; };
 
 <style scoped>
 .prb { margin-bottom: 18px; }
+.prb-auricwell { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 20px; color: #24567d; font-size: 24px; }
+.prb-beta { font-size: 11px; padding: 3px 7px; background: #edf4fc; border-radius: 12px; }
 .prb-dual {
   display: flex;
   align-items: stretch;
