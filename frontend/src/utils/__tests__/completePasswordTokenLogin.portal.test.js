@@ -24,3 +24,20 @@ it('does not let a query string select a tenant outside the account memberships'
   await completePasswordTokenLogin({ token: 'jwt', user: { role: 'client' }, agencies: [{ id: 1, slug: 'itsco', organization_type: 'agency' }] }, router, { portalSlug: 'unlinked' });
   expect(mocks.agency.setCurrentAgency).not.toHaveBeenCalled(); expect(router.replace).toHaveBeenCalledWith('/default');
 });
+
+import {auricWellAccountDestination} from '../familyPortalContext.js';
+it('routes returning guardian and self-client accounts to their invited agency instead of the admin preview',()=>{
+ const organizations=[{id:6,slug:'nlu',organization_type:'agency'},{id:2,slug:'itsco',organization_type:'agency'}];
+ for(const role of ['client_guardian','client']) {
+  const dest=auricWellAccountDestination({hostname:'auricwell.com',role,organizations,requestedSlug:'itsco',redirectPath:'/app'});
+  expect(dest).toEqual({path:'/itsco/guardian?portal=itsco',hardNavigate:false,organization:organizations[1]});
+ }
+ expect(auricWellAccountDestination({hostname:'auricwell.com',role:'provider',organizations,requestedSlug:'itsco'})).toBeNull();
+ expect(auricWellAccountDestination({hostname:'auricwell.com',role:'super_admin'})).toMatchObject({path:'/app',hardNavigate:true});
+});
+it('preserves an internal message link without accepting an external redirect or unauthorized tenant',()=>{
+ const input={hostname:'auricwell.com',role:'client_guardian',organizations:[{id:2,slug:'itsco',organization_type:'agency'}],requestedSlug:'unlinked'};
+ expect(auricWellAccountDestination({...input,redirectPath:'//outside.test'}).path).toBe('/itsco/guardian?portal=itsco');
+ expect(auricWellAccountDestination({...input,redirectPath:'/itsco/messages?threadId=5'}).path).toBe('/itsco/messages?threadId=5');
+ expect(auricWellAccountDestination({...input,hostname:'app.itsco.health'})).toBeNull();
+});

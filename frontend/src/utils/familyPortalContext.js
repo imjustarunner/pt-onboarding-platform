@@ -24,3 +24,17 @@ export function familyPortalClients(clients, organization) {
   const childOrganization = ['school', 'program', 'learning', 'clinical'].includes(typeOf(organization));
   return list.filter(client => Number(childOrganization ? client.organization_id : client.agency_id) === id);
 }
+
+// The AuricWell /app entry currently serves the administrator preview. Family
+// accounts use the same authorized portal for setup and subsequent sign-ins.
+export function auricWellAccountDestination({hostname,role,organizations,requestedSlug,redirectPath}) {
+  if (!/^(www\.)?auricwell\.com$/i.test(hostname || '')) return null;
+  const normalizedRole=String(role || '').toLowerCase();
+  const redirect=typeof redirectPath==='string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\') ? redirectPath : null;
+  if (normalizedRole==='super_admin') return {path:redirect || '/app',hardNavigate:true,organization:null};
+  if (!['client_guardian','client'].includes(normalizedRole)) return null;
+  const organization=resolveFamilyPortalOrganization(organizations,requestedSlug)
+    || (Array.isArray(organizations)?organizations:[]).find(org=>resolveFamilyPortalOrganization([org],slugOf(org)));
+  const familyRedirect=redirect && !/^\/app(?:\/|\?|$)/.test(redirect) ? redirect : null;
+  return {path:familyRedirect || familyPortalDashboardPath(organization) || '/guardian',hardNavigate:false,organization:organization || null};
+}

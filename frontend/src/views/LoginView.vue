@@ -752,6 +752,7 @@ import { Eye, EyeOff } from '@lucide/vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
+import { auricWellAccountDestination } from '../utils/familyPortalContext.js';
 import {
   getRememberedLogin,
   setRememberedLogin,
@@ -2364,8 +2365,14 @@ const handleLogin = async (passkeyResult = null) => {
         agencyStore.applyLoginAgencies(result.agencies);
       }
 
-      if (window.location.hostname === 'auricwell.com' && !authStore.user?.requiresPasswordChange) {
-        window.location.assign(safeLoginDestination(route.query.redirect) || '/app');
+      const auricWellDestination = !authStore.user?.requiresPasswordChange && auricWellAccountDestination({
+        hostname: window.location.hostname, role: roleNorm, organizations: agencyStore.userAgencies,
+        requestedSlug: currentOrgSlug, redirectPath: safeLoginDestination(route.query.redirect)
+      });
+      if (auricWellDestination) {
+        if (auricWellDestination.organization) agencyStore.setCurrentAgency(auricWellDestination.organization);
+        if (auricWellDestination.hardNavigate) window.location.assign(auricWellDestination.path);
+        else await router.replace(auricWellDestination.path);
         loading.value = false; return;
       }
       if (isSchoolCareBridge.value) {
