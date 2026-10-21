@@ -18,3 +18,9 @@ it('does not notify when the password write or identity check fails',async()=>{
  await expect(User.changePassword(7,'new-password')).rejects.toThrow('Write failed');expect(m.notice).not.toHaveBeenCalled();
  m.identity.mockRejectedValue(new Error('Wrong product'));await expect(User.changePassword(7,'new-password')).rejects.toThrow('Wrong product');expect(m.notice).not.toHaveBeenCalled();
 });
+it('records first password creation separately and preserves password case',async()=>{
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT password_hash')?[[{password_hash:null}]]:[[]]);
+ await User.changePassword(7,'Orange-Moon-Demo!');
+ expect(m.notice).toHaveBeenCalledWith({userId:7,kind:'password',initialSetup:true});
+ const bcrypt=(await import('bcrypt')).default;expect(bcrypt.hash).toHaveBeenCalledWith('Orange-Moon-Demo!',10);
+});

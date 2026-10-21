@@ -2,7 +2,7 @@
   <component
     :is="isFundThredLogin ? FundThredLoginShell : isPlatformLogin ? HqLoginShell : 'div'"
     class="login-page"
-    :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--tisi-video': showTisiLoginVideo, 'login-page--nlu-video': showNluLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
+    :class="{ 'login-page--auricwell': isAuricWellLogin, 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--tisi-video': showTisiLoginVideo, 'login-page--nlu-video': showNluLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
     :style="tenantLoginPageStyle"
     @security="openLoginSecurity"
   >
@@ -82,6 +82,7 @@
         </div>
       </aside>
       <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger, 'login-card--app': isAppLike, 'login-card--ipad': isIpadPreviewMode }">
+        <AuricWellAuthBrand v-if="isAuricWellLogin" />
         <SchoolCareBridgeBrand v-if="isLegacySchoolLogin" compact style="margin: 0 auto 18px" />
         <div v-if="isIpadPreviewMode && !loginParentBranding" class="ipad-hero-panel">
           <img
@@ -700,6 +701,7 @@
 </template>
 
 <script setup>
+import AuricWellAuthBrand from '../components/AuricWellAuthBrand.vue';
 import PasskeySignIn from '../components/PasskeySignIn.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
@@ -780,6 +782,7 @@ import {
 // Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();
+const isAuricWellLogin = /^(www\.)?auricwell\.com$/i.test(window.location.hostname);
 const isFundThredLogin = computed(() => isFundthredLogin(route));
 useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
@@ -1088,7 +1091,7 @@ const portalLoginSubtitle = computed(() => {
 });
 
 const defaultLoginSubtitle = computed(() =>
-  isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
+  isAuricWellLogin ? `Sign in to your ${loginTheme.value?.agency?.name || ''} AuricWell portal`.replace('  ', ' ') : isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
 );
 const sstcTenantDisplayName = computed(() => {
   const themedName = String(loginTheme.value?.agency?.name || '').trim();
@@ -1102,6 +1105,7 @@ const sstcClubDisplayName = computed(() => {
 const sstcClubInitials = computed(() => buildInitials(sstcClubDisplayName.value, 'CL'));
 
 const loginBackground = computed(() => {
+  if (isAuricWellLogin) return 'linear-gradient(160deg, #eff7f5, #edf3fb)';
   if (loginTheme.value?.agency?.themeSettings?.loginBackground) {
     return loginTheme.value.agency.themeSettings.loginBackground;
   }
@@ -1205,7 +1209,7 @@ const isMainTenantHubLogin = (portalSlug) => {
 };
 
 const activeTenantLoginVideos = computed(() => {
-  if (isFundThredLogin.value) return null;
+  if (isFundThredLogin.value || isAuricWellLogin) return null;
   for (const [portalSlug, sources] of Object.entries(TENANT_LOGIN_BG_VIDEOS)) {
     if (isMainTenantHubLogin(portalSlug)) return sources;
   }
@@ -2710,6 +2714,9 @@ const handleLogoError = (event) => {
 </script>
 
 <style scoped>
+.login-page--auricwell .login-card { background:#fff; color:#234166; border-radius:20px; box-shadow:0 12px 48px #20456714; }
+.login-page--auricwell .login-logo .logo-image { max-height:68px; }
+
 /* Login page styles - use dynamic theme from branding store */
 .login-page {
   min-height: 100vh;

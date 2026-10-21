@@ -47,3 +47,21 @@ it('escapes tenant text and limits required-email exemptions to credential notic
  expect(isCredentialSecurityNotice({identity_key:'marketing'},'security_password_changed')).toBe(false);
  expect(isCredentialSecurityNotice({identity_key:'security'},'newsletter')).toBe(false);
 });
+it('treats successful test-inbox redirection as delivered rather than retrying it',async()=>{
+ m.send.mockResolvedValue({id:'gmail-demo-message',redirected:true});await deliverCredentialChangeNotice(81);
+ expect(m.db.mock.calls.some(([sql])=>sql.includes("delivery_status='sent'"))).toBe(true);
+ expect(m.db.mock.calls.some(([sql])=>sql.includes('INTERVAL 5 MINUTE'))).toBe(false);
+});
+it('keeps first-password wording durable across retries without storing any credential',async()=>{
+ await queueCredentialChangeNotice({userId:7,kind:'password',initialSetup:true});
+ expect(m.execute.mock.calls[0][1][0]).toMatch(/^password_setup:7:/);
+ expect(m.execute.mock.calls[0][1][3]).toBe('password');
+});
+it('uses the registered time zone, Mountain fallback and seasonal daylight savings',()=>{
+ const message=options=>buildCredentialChangeMessage({kind:'password',agency,replyTo:'admin@itsco.health',loginUrl:'https://auricwell.com/itsco/login',clientAccount:true,clinical:true,initialSetup:true,occurredAt:'2026-10-21T10:48:05Z',...options});
+ const created=message({});expect(created.text).toContain('4:48 AM MDT');expect(created.subject).toContain('AuricWell');expect(created.subject).toContain('created');expect(created.html).toContain('This wasn’t me');expect(created.text).not.toContain('Google');expect(created.text).not.toContain('administrator');expect(created.html).toContain('auricwell/logo.png');
+ expect(message({timeZone:'America/New_York'}).text).toContain('6:48 AM EDT');
+ expect(message({timeZone:'invalid'}).text).toContain('4:48 AM MDT');
+ expect(message({occurredAt:'2026-12-21T10:48:05Z'}).text).toContain('3:48 AM MST');
+ expect(message({initialSetup:false}).subject).toContain('changed');
+});

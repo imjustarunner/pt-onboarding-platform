@@ -2873,12 +2873,14 @@ class User {
     const bcrypt = (await import('bcrypt')).default;
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
+    let initialSetup = false;
     // Persist old hash to history before overwriting
     try {
       const [currentRows] = await pool.execute(
         'SELECT password_hash FROM users WHERE id = ? LIMIT 1',
         [userId]
       );
+      initialSetup = currentRows?.length === 1 && !currentRows[0].password_hash;
       if (currentRows?.[0]?.password_hash) {
         await this._savePasswordHistory(userId, currentRows[0].password_hash);
       }
@@ -2912,7 +2914,7 @@ class User {
     }
     
     const { recordCredentialChangeNotice } = await import('../services/credentialChangeNotification.service.js');
-    await recordCredentialChangeNotice({ userId, kind: 'password' });
+    await recordCredentialChangeNotice({ userId, kind: 'password', ...(initialSetup ? { initialSetup: true } : {}) });
     return this.findById(userId);
   }
 
@@ -3053,8 +3055,11 @@ class User {
 
   static async updateStatus(userId, status, actorUserId = null) {
     let completedHire = false;
+    let preserveTestExpiration = false;
     if (status === 'ACTIVE_EMPLOYEE') {
       const current = await this.findById(userId);
+      const { isGuardianTestAccount } = await import('../services/guardianTestAccess.service.js');
+      preserveTestExpiration = isGuardianTestAccount(current);
       if (['PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(current?.status)) {
         throw Object.assign(new Error('Complete onboarding before activating this employee.'), { status: 409 });
       }
@@ -3083,7 +3088,8 @@ class User {
     if (status === 'ACTIVE_EMPLOYEE') {
       updates.push('status = ?');
       updates.push('completed_at = ?');
-      updates.push('status_expires_at = NULL');
+      // Activation must not remove the separate, bounded demo-access window.
+      if (!preserveTestExpiration) updates.push('status_expires_at = NULL');
       updates.push('terminated_at = NULL');
       updates.push('termination_date = NULL');
       // Clear pending fields when moving to active employee

@@ -6,6 +6,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import { resolveSecurityMailbox } from './securityMailbox.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { enrollmentMailBrand, renderPortalEmail } from './portalEmailBranding.service.js';
 import { buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
 
 const email = value => String(value || '').trim().toLowerCase();
@@ -27,21 +28,33 @@ async function notificationAgency(userId, agencyId) {
   return agency;
 }
 
-export function buildCredentialChangeMessage({ kind, agency, replyTo, occurredAt, loginUrl }) {
+export function buildCredentialChangeMessage({ kind, agency, replyTo, occurredAt, loginUrl, timeZone, initialSetup = false, clinical = false, clientAccount = false, googleSignIn = false }) {
   const credential = kind === 'quick_view' ? 'Quick View six-digit passcode' : 'account password';
-  const title = `Your ${credential} was changed`;
-  const when = new Date(occurredAt).toLocaleString('en-US', { timeZone: 'UTC', dateStyle: 'long', timeStyle: 'short' }) + ' UTC';
-  const subject = `${agency.name} security alert: ${credential} changed`;
+  const verb = initialSetup ? 'created' : 'changed';
+  const title = `Your ${credential} was ${verb}`;
+  const zone = [timeZone, agency.timezone, 'America/Denver'].find(value => {
+    if (!value) return false;
+    try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true; } catch { return false; }
+  });
+  const when = new Intl.DateTimeFormat('en-US', { timeZone: zone, year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(occurredAt));
+  const eventSentence = initialSetup ? 'Your account password was created on' : `A change to your ${credential} was completed on`;
+  const subject = `${clinical ? 'AuricWell · ' : ''}${agency.name} security: ${credential} ${verb}`;
   const reportUrl = `mailto:${replyTo}?subject=${encodeURIComponent(`I did not change my ${credential}`)}`;
   const recovery = kind === 'quick_view' ? 'Reset your Quick View code in My Account → Accounts & access.' : 'Use Change Password in your account’s Security section.';
-  const steps = `Contact ${replyTo} immediately by replying to this email or choosing Report this change. Open your usual ${agency.name} sign-in page. ${recovery} Ask your administrator to end other active sessions. If you use Google sign-in, also review your Google account security. Do not share passwords or passcodes by email.`;
-  const text = `${title}\n\nA change to your ${credential} was completed on ${when}.\n\nIf you made this change, no action is needed.\n\nIf this was not you\n${steps}\n\nReport this change: ${reportUrl}\nSign in: ${loginUrl}\n\nYour new password or passcode is never included in this notice. This is a required account security notification.`;
+  const steps = clientAccount
+    ? `If you did not do this, reply to this email or choose “This wasn’t me” so ${agency.name} can help secure your account. Never email your password.`
+    : `Reply to this email or report this change immediately. ${recovery}${googleSignIn ? ' Also review your Google account security.' : ''} Never email your password or passcode.`;
+  const reportLabel = clientAccount ? 'This wasn’t me' : 'Report this change';
+  const text = `${title}\n\n${eventSentence} ${when}.\n\nIf you made this change, no action is needed.\n\nIf this was not you\n${steps}\n\n${reportLabel}: ${reportUrl}\nSign in: ${loginUrl}\n\nYour new password or passcode is never included in this notice. This is a required account security notification.`;
   const color = /^#[\da-f]{6}$/i.test(agency.primary_color || '') ? agency.primary_color : '#245b43';
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1f2937;line-height:1.65"><p style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:${color};font-weight:700">${esc(agency.name)} · Account security</p><h1 style="font-size:26px;line-height:1.25">${esc(title)}</h1><p>A change to your ${esc(credential)} was completed on <strong>${esc(when)}</strong>.</p><p>If you made this change, no action is needed.</p><div style="padding:18px;background:#f8fafc;border:1px solid #dbe3eb;border-radius:10px"><h2 style="font-size:19px;margin:0 0 10px">If this was not you</h2><p>${esc(steps)}</p><p><a href="${esc(reportUrl)}" style="display:inline-block;background:${color};color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:bold">Report this change</a></p><p><a href="${esc(loginUrl)}">Open your sign-in page</a></p></div><p style="font-size:12px;color:#64748b">Your new password or passcode is never included in this notice. This is a required account security notification.</p></div>`;
-  return { subject, text, html };
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;color:#1f2937;line-height:1.65"><p style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:${color};font-weight:700">${esc(agency.name)} · Account security</p><h1 style="font-size:26px;line-height:1.25">${esc(title)}</h1><p>${esc(eventSentence)} <strong>${esc(when)}</strong>.</p><p>If you made this change, no action is needed.</p><div style="padding:18px;background:#f8fafc;border:1px solid #dbe3eb;border-radius:10px"><h2 style="font-size:19px;margin:0 0 10px">If this was not you</h2><p>${esc(steps)}</p><p><a href="${esc(reportUrl)}" style="display:inline-block;background:${color};color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:bold">${esc(reportLabel)}</a></p><p><a href="${esc(loginUrl)}">Open your sign-in page</a></p></div><p style="font-size:12px;color:#64748b">Your new password or passcode is never included in this notice. This is a required account security notification.</p></div>`;
+  const brand = enrollmentMailBrand({ agency, domain: replyTo.split('@')[1], clinicalOverride: clinical });
+  brand.displayName = clinical ? 'AuricWell Account Security' : `${agency.name} Account Security`;
+  brand.replyTo = replyTo;
+  return { subject, text, html: clinical ? renderPortalEmail({ brand, html }) : html };
 }
 
-export async function queueCredentialChangeNotice({ userId, agencyId = null, kind }) {
+export async function queueCredentialChangeNotice({ userId, agencyId = null, kind, initialSetup = false }) {
   if (!['password','quick_view'].includes(kind)) throw new Error('Unknown credential change');
   const user = await User.findById(userId);
   if (!user) throw new Error('Account not found for security notification');
@@ -50,7 +63,7 @@ export async function queueCredentialChangeNotice({ userId, agencyId = null, kin
   const agency = await notificationAgency(userId, agencyId);
   // Each completed mutation gets an event, including concurrent resets.
   // Retries deliver this same row; they never enqueue another event.
-  const key = `${kind}:${userId}:${crypto.randomUUID()}`;
+  const key = `${initialSetup && kind === 'password' ? 'password_setup' : kind}:${userId}:${crypto.randomUUID()}`;
   const [result] = await pool.execute(`INSERT INTO credential_change_notifications (event_key,user_id,agency_id,credential_kind,recipient_email)
     VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`, [key,userId,agency.id,kind,to]);
   // Durable row comes first. A background retry survives request/process failure.
@@ -79,9 +92,14 @@ export async function deliverCredentialChangeNotice(id) {
     if (!job) return;
     try {
       const { agency, identity, replyTo } = await resolveSecurityMailbox(job.agency_id);
-      const message = buildCredentialChangeMessage({ kind: job.credential_kind, agency, replyTo, occurredAt: job.occurred_at, loginUrl: buildPublicPortalLoginUrl(agency) });
-      const result = await sendEmailFromIdentity({ ...message, senderIdentityId: identity.id, to: job.recipient_email, userId: job.user_id, source: 'manual', replyToOverride: replyTo, templateType: job.credential_kind === 'quick_view' ? 'security_quick_view_changed' : 'security_password_changed', internetMessageIdOverride: `<credential-notice-${id}@${identity.from_email.split('@')[1]}>` });
-      if (!result?.id || result.queued || result.pendingApproval || result.skipped || result.blocked || result.redirected) throw new Error('Security email was not sent');
+      const user = await User.findById(job.user_id);
+      const brand = enrollmentMailBrand({ agency, domain: replyTo.split('@')[1] });
+      const clientAccount = ['client', 'guardian', 'client_guardian'].includes(user?.role);
+      const clinical = clientAccount && brand.clinical;
+      const loginUrl = clinical ? `https://auricwell.com/${encodeURIComponent(agency.slug || agency.portal_url)}/login` : buildPublicPortalLoginUrl(agency);
+      const message = buildCredentialChangeMessage({ kind: job.credential_kind, agency, replyTo, occurredAt: job.occurred_at, loginUrl, timeZone: user?.timezone, initialSetup: String(job.event_key || '').startsWith('password_setup:'), clinical, clientAccount, googleSignIn: !clientAccount && !!user?.google_id });
+      const result = await sendEmailFromIdentity({ ...message, ...(clinical ? { fromDisplayNameOverride: `AuricWell Security · ${agency.name}` } : {}), senderIdentityId: identity.id, to: job.recipient_email, userId: job.user_id, source: 'manual', replyToOverride: replyTo, templateType: job.credential_kind === 'quick_view' ? 'security_quick_view_changed' : 'security_password_changed', internetMessageIdOverride: `<credential-notice-${id}@${identity.from_email.split('@')[1]}>` });
+      if (!result?.id || result.queued || result.pendingApproval || result.skipped || result.blocked) throw new Error('Security email was not sent');
       await db.execute("UPDATE credential_change_notifications SET delivery_status='sent',sent_at=UTC_TIMESTAMP(),attempts=attempts+1,last_error=NULL WHERE id=?", [id]);
     } catch (error) {
       await db.execute("UPDATE credential_change_notifications SET attempts=attempts+1,last_error=?,next_attempt_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE) WHERE id=?", [String(error?.code || error?.message || 'delivery_failed').slice(0,500),id]);

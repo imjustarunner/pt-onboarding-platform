@@ -1,10 +1,10 @@
 <template>
   <div
     class="se-page"
-    :class="{ 'se-page--platform': isPlatformBrand }"
+    :class="{ 'se-page--platform': isPlatformBrand, 'se-page--auricwell': isAuricWellPortal }"
     role="main"
     tabindex="0"
-    :aria-label="isMobile ? 'Session timed out' : 'Session timed out. Click anywhere to log back in.'"
+    :aria-label="sessionMessage"
     @click="!isMobile && goLogin()"
     @keydown.enter.prevent="goLogin"
     @keydown.space.prevent="goLogin"
@@ -16,11 +16,12 @@
     />
 
     <!-- Mobile: visible card with message + button -->
-    <div v-if="isMobile || isPlatformBrand" class="se-mobile-card">
-      <img v-if="isPlatformBrand" class="se-platform-logo" src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co" /><div v-else class="se-mobile-icon" aria-hidden="true">🔒</div>
+    <div v-if="isMobile || isPlatformBrand || isAuricWellPortal" class="se-mobile-card">
+      <AuricWellAuthBrand v-if="isAuricWellPortal" />
+      <img v-else-if="isPlatformBrand" class="se-platform-logo" src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co" /><div v-else class="se-mobile-icon" aria-hidden="true">🔒</div>
       <h1 class="se-mobile-title">You've Been Logged Out</h1>
       <p class="se-mobile-body">
-        To keep your information safe, your session ended due to inactivity.
+        {{ sessionMessage }}
       </p>
       <button type="button" class="se-mobile-btn" @click="goLogin">
         Log back in
@@ -30,6 +31,7 @@
 </template>
 
 <script setup>
+import AuricWellAuthBrand from '../components/AuricWellAuthBrand.vue';
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import {
@@ -45,6 +47,10 @@ import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from 
 
 const route = useRoute();
 const stored = readSessionEndedContext();
+const isAuricWellPortal = /^(www\.)?auricwell\.com$/i.test(window.location.hostname);
+const sessionMessage = computed(() => route.query.reason === 'verification'
+  ? 'We could not verify your session. Please sign in again to open your portal.'
+  : 'Your session has ended. Sign in again to continue securely.');
 
 // ── Mobile detection ──────────────────────────────────────────────────────────
 const mobileQuery = typeof window !== 'undefined'
@@ -55,7 +61,7 @@ function onMobileChange(e) { isMobile.value = e.matches; }
 onMounted(() => {
   mobileQuery?.addEventListener('change', onMobileChange);
   clearSessionEndedRedirecting();
-  document.title = 'Session timed out';
+  document.title = isAuricWellPortal ? 'Sign in again | AuricWell' : 'Session ended';
   history.pushState(null, '', window.location.href);
   window.addEventListener('popstate', blockBack);
 });
@@ -78,7 +84,7 @@ const tenantKey = computed(() => {
 
 const isPlatformBrand = computed(() => ['Platform', 'PlotTwistCo'].includes(tenantKey.value));
 const bgUrl = computed(() =>
-  isPlatformBrand.value ? null : isMobile.value
+  isAuricWellPortal || isPlatformBrand.value ? null : isMobile.value
     ? getMobileTimedownBgUrl()
     : getSessionEndedImageUrl(tenantKey.value)
 );
@@ -109,6 +115,10 @@ function blockBack(e) {
 </script>
 
 <style scoped>
+.se-page--auricwell .se-stage, .se-page--auricwell .se-mobile-card { background:linear-gradient(160deg,#eff7f5,#edf3fb); }
+.se-page--auricwell .se-mobile-title, .se-page--auricwell .se-mobile-body { color:#234166; text-shadow:none; }
+.se-page--auricwell .se-mobile-btn { color:#fff; background:#24567d; box-shadow:none; }
+
 .se-page {
   position: fixed;
   inset: 0;

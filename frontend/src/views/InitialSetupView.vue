@@ -20,6 +20,10 @@
           <p class="subtitle">Create your password to get started. You will be signed in automatically after you save it.</p>
 
           <form @submit.prevent="handleSetup" autocomplete="on">
+            <div v-if="loginUsername" class="form-group">
+              <label for="setupUsername">Your sign-in username</label>
+              <input id="setupUsername" :value="loginUsername" type="text" autocomplete="username" readonly class="form-input" />
+            </div>
             <!-- New password -->
             <div class="form-group">
               <label for="password">Password</label>
@@ -33,6 +37,9 @@
                   class="form-input"
                   :disabled="setting"
                   autocomplete="new-password"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  :spellcheck="false"
                   minlength="10"
                   maxlength="128"
                 />
@@ -56,6 +63,9 @@
                   class="form-input"
                   :disabled="setting"
                   autocomplete="new-password"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  :spellcheck="false"
                   minlength="10"
                   maxlength="128"
                 />
@@ -75,7 +85,7 @@
                 class="form-input"
                 :disabled="setting"
               />
-              <p class="field-hint">{{ guardianAccount ? 'Enter the date of birth of any one of your linked dependents to finish opening your account.' : 'Enter your date of birth to finish opening your portal account.' }}</p>
+              <p class="field-hint">{{ guardianAccount ? 'Enter your date of birth if you are also a client, or the date of birth of any one of your linked dependents to finish opening your account.' : 'Enter your date of birth to finish opening your portal account.' }}</p>
             </div>
 
             <p v-if="setupError" class="error-message">{{ setupError }}</p>
@@ -114,6 +124,7 @@ const brandingStore = useBrandingStore();
 const loading = ref(true);
 const error = ref('');
 const userFirstName = ref('');
+const loginUsername = ref('');
 const password = ref('');
 const confirmPassword = ref('');
 const setting = ref(false);
@@ -155,6 +166,7 @@ const validateToken = async () => {
     const first = response.data.firstName || 'User';
     const preferred = String(response.data?.preferredName || '').trim();
     userFirstName.value = preferred ? `${first} "${preferred}"` : first;
+    loginUsername.value = response.data?.username || response.data?.email || '';
     requiresClientDob.value = !!response.data?.requiresClientDob;
     guardianAccount.value = ['guardian', 'client_guardian'].includes(response.data?.role);
     tenantBrand.value = response.data?.tenant || null;

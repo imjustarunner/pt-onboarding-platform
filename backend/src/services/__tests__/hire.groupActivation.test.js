@@ -24,3 +24,11 @@ it('does not add Gmail requirements to non-group employees or other status chang
  User.findById.mockResolvedValue({ ...user, login_is_group_email: 0 }); await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE');
  User.findById.mockResolvedValue(user); await User.updateStatus(user.id, 'ONBOARDING'); expect(m.ready).not.toHaveBeenCalled();
 });
+it('preserves the bounded guardian demo window when password setup activates the account', async () => {
+ User.findById.mockResolvedValue({id:9,status:'PENDING_SETUP',role:'client_guardian',is_demo:1,email:'guardian-test-smoke@example.com',status_expires_at:'2026-10-28T12:00:00Z'});
+ await User.updateStatus(9,'ACTIVE_EMPLOYEE');
+ const sql=m.execute.mock.calls[0][0];expect(sql).not.toContain('status_expires_at = NULL');expect(sql).toContain('status = ?');
+});
+it('still clears employee lifecycle expiration for an ordinary activation',async()=>{
+ await User.updateStatus(9,'ACTIVE_EMPLOYEE');expect(m.execute.mock.calls[0][0]).toContain('status_expires_at = NULL');
+});

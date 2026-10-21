@@ -35,3 +35,15 @@ describe('guardian access readiness',()=>{
  it('expires test account access, not only the sign-in token',()=>{const user={role:'client_guardian',is_demo:1,is_active:1,status_expires_at:new Date(10000)};expect(guardianTestAccessAllowed(user,9999)).toBe(true);expect(guardianTestAccessAllowed(user,10000)).toBe(false);expect(guardianTestAccessAllowed({...user,is_demo:0},9999)).toBe(false);});
  it('does not add a database lookup for real guardians',async()=>{const next=vi.fn();await requireUnexpiredGuardianTestAccess({user:{email:'real@example.test'}},{},next);expect(next).toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();});
 });
+it('checks demo expiration from account identity even when the login identifier is a short alias',async()=>{
+ m.execute.mockResolvedValue([[{email:'guardian-test-family@example.com',role:'client_guardian',is_demo:1,is_active:1,status_expires_at:new Date(0)}]]);
+ const next=vi.fn(),res={status:vi.fn().mockReturnThis(),json:vi.fn()};
+ await requireUnexpiredGuardianTestAccess({user:{id:7,role:'client_guardian',email:'morgan.demo'}},res,next);
+ expect(res.status).toHaveBeenCalledWith(401);expect(next).not.toHaveBeenCalled();
+});
+it('allows an ordinary guardian without a demo expiration date',async()=>{
+ m.execute.mockResolvedValue([[{email:'parent@example.test',role:'client_guardian',is_demo:0,is_active:1,status_expires_at:null}]]);
+ const next=vi.fn(),res={status:vi.fn().mockReturnThis(),json:vi.fn()};
+ await requireUnexpiredGuardianTestAccess({user:{id:7,role:'client_guardian',email:'parent'}},res,next);
+ expect(next).toHaveBeenCalledOnce();expect(res.status).not.toHaveBeenCalled();
+});

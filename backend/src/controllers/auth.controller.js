@@ -2557,7 +2557,8 @@ export const validateSetupToken = async (req, res, next) => {
       lastName: user.last_name,
       preferredName: user.preferred_name || null,
       email: user.personal_email || user.email,
-      username: user.username || user.personal_email || user.email,
+      username: setupUser.username || user.personal_email || user.email,
+      role: user.role,
       ...dobMeta,
       ...branding
     });
@@ -3528,12 +3529,14 @@ export const initialSetup = async (req, res, next) => {
     // Mark token as used (single-use token)
     await User.markTokenAsUsed(user.id);
 
+    const updatedUser = await User.findById(user.id);
+
     // Generate session ID
     const sessionId = crypto.randomUUID();
 
     // Generate JWT token for session
     const jwtToken = jwt.sign(
-      { id: user.id, email: user.username || user.email, role: user.role, status: user.status, sessionId },
+      { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, status: updatedUser.status, sessionId },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -3578,8 +3581,6 @@ export const initialSetup = async (req, res, next) => {
 
     console.log('[initialSetup] Password set successfully for user:', user.id, user.first_name, user.last_name);
     
-    // Get updated user data
-    const updatedUser = await User.findById(user.id);
     
     res.json({
       token: jwtToken,
