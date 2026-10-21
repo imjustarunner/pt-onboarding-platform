@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
 
 const email = value => String(value || '').trim().toLowerCase();
 function addresses(value) {
@@ -20,7 +21,7 @@ const staffRoles = new Set(['admin','super_admin','support','staff','provider','
  * Demo mail, actual recovery/security events and deliberately authored staff email
  * remain available. Resuming this control does not reset any reminder sent markers.
  */
-export async function routineParentEmailGate({agencyId,to,cc,bcc,source='auto',templateType,clientId,existingCommunicationId}, db=pool) {
+async function parentPauseGate({agencyId,to,cc,bcc,source='auto',templateType,clientId,existingCommunicationId}, db=pool) {
   const type=String(templateType || '').replace(/^trigger:/,'').toLowerCase();
   if(recovery.has(type) || type.startsWith('security_')) return {allowed:true};
   const recipients=[...new Set([...addresses(to),...addresses(cc),...addresses(bcc)])];
@@ -49,4 +50,16 @@ export async function routineParentEmailGate({agencyId,to,cc,bcc,source='auto',t
     parent=recipients.some(address=>address===email(client?.email));
   }
   return parent ? {allowed:false,reason:'routine_parent_emails_paused'} : {allowed:true};
+}
+
+export async function routineParentEmailGate(input,db=pool) {
+  const pause=await parentPauseGate(input,db);
+  if(!pause.allowed)return pause;
+  // Apply saved personal choices even to a staff-approved retry or demo send.
+  // The pause and this preference gate both run before recipient redirection.
+  for(const to of new Set([...addresses(input.to),...addresses(input.cc),...addresses(input.bcc)])) {
+    const choice=await familyNotificationDeliveryGate({...input,to,channel:'email'},db);
+    if(!choice.allowed)return choice;
+  }
+  return pause;
 }

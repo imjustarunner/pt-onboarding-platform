@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), query:vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn(), listParticipants: vi.fn(), update: vi.fn(), mapRow: r => r } }));
 vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn() } }));
 vi.mock('../../models/ClientContactAffiliation.model.js', () => ({ default: { listReminderRecipientsForClient: vi.fn() } }));
@@ -19,7 +19,7 @@ import { resolveAppointmentServiceSetting } from '../appointmentServiceSetting.s
 import { resolveRegisteredSmsSender, recordedReminderConsent } from '../smsCompliance.service.js';
 import Vonage from '../vonage.service.js';
 import { sendNotificationEmail } from '../unifiedEmail/unifiedEmailSender.service.js';
-import { buildDeliveryPlan, processDueSessionNotifications, applyConfirmReply, putClientPreferences } from '../sessionNotification.service.js';
+import { buildDeliveryPlan, processDueSessionNotifications, applyConfirmReply, putClientPreferences, loadClientConsent } from '../sessionNotification.service.js';
 import { applyAppointmentReply, resolveAppointmentForClientReply } from '../appointmentReply.service.js';
 let preferences, due, choice, client, lock;
 beforeEach(() => {
@@ -34,12 +34,15 @@ beforeEach(() => {
   sendNotificationEmail.mockResolvedValue({ id: 'email' });
   lock = { execute: vi.fn(async sql => sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : sql.includes('SELECT status') ? [[{ status: 'pending' }]] : [[]]), release: vi.fn() };
   pool.getConnection.mockResolvedValue(lock);
+  pool.query.mockImplementation((...args)=>pool.execute(...args));
   pool.execute.mockImplementation(async sql => {
     if (sql.includes('FROM platform_session_notification_settings')) return [[]];
     if (sql.includes('FROM agency_session_notification_settings')) return [[{ channels_enabled_json: { email: true, sms: true },
       booking_confirmation_json: { enabled: true, channels: ['sms'], requireResponse: true, message: 'Reply Y to confirm at our office' },
       standard_reminder_json: { enabled: true, required: true, channels: ['sms', 'email'], message: 'Reply N to cancel at the office' } }]];
     if (sql.includes('FROM client_session_notification_preferences')) return [preferences];
+    if (sql.includes('FROM family_notification_choices')) return [[]];
+    if (sql.includes('FROM appointment_schedule_notices')) return [[]];
     if (sql.includes('FROM clients WHERE')) return [[client]];
     if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
@@ -60,6 +63,10 @@ it('recipient No choices beat mandatory email and SMS reminder rules', async () 
 it('an intake No blocks an older imported Yes flag', async () => {
   choice = { smsPreference: 'no', emailPreference: 'no' };
   expect((await buildDeliveryPlan(12)).deliveries).toEqual([]);
+});
+it('does not assume email consent when a preference lookup fails',async()=>{
+  pool.execute.mockRejectedValue(new Error('Database unavailable'));
+  expect(await loadClientConsent(4,2)).toMatchObject({email:false,sms:false,phone:false});
 });
 it('rechecks opt-out after scheduling', async () => {
   due = [{ id: 5, appointment_id: 12, channel: 'sms', kind: 'reminder', is_required: 1 }];

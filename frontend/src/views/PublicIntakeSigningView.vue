@@ -1793,9 +1793,10 @@
                 <span>{{ tx('No - Do not text me') }}</span>
               </label>
             </div>
-            <p v-if="communicationConsent?.schoolText" class="communications-disclosure">{{ tx(communicationConsent.schoolText) }}</p>
+            <p v-if="isSchoolScopedIntake && communicationConsent?.schoolText" class="communications-disclosure">{{ tx(communicationConsent.schoolText) }}</p>
             <p class="communications-disclosure">{{ tx('A past appointment confirmation is not a new text subscription. Other adults must make their own choices. You may choose No now and change your preference later.') }}</p>
-            <label v-if="communications.smsPreference === 'scheduling_only'">{{ tx('Your phone number for these texts') }}
+            <p class="communications-disclosure">{{ tx('A Yes saves your request. Texts start only after your phone, signed permission and the agency’s parent texting program are verified. A saved form does not override an earlier STOP.') }}</p>
+            <label v-if="communications.smsPreference === 'scheduling_only' || communications.providerTextingOptIn === 'yes'">{{ tx('Your phone number for these texts') }}
               <input v-model="communications.recipientPhone" type="tel" autocomplete="tel" :placeholder="guardianPhone || '+1…'" />
             </label>
             <p>{{ tx(communicationConsent?.signatureText || 'Sign your communication choices. All choices may be No.') }}</p>
@@ -5174,6 +5175,7 @@ const communicationsSmsTitle = computed(() => {
   return tx(override || 'Text Message (SMS) Communication Preference');
 });
 const communicationsEmailDisclosure = computed(() => {
+  if (communicationConsent.value?.emailText && !isWorkforceAudience.value) return tx(communicationConsent.value.emailText);
   const saved = officeCommsSaved('emailDisclosure');
   if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailDisclosure?.trim();
@@ -5201,6 +5203,7 @@ const communicationsSmsDisclosure = computed(() => {
   );
 });
 const communicationsEmailAllLabel = computed(() => {
+  if (communicationConsent.value?.emailAllLabel && !isWorkforceAudience.value) return tx(communicationConsent.value.emailAllLabel);
   const saved = officeCommsSaved('emailAllLabel');
   if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailAllLabel?.trim();
@@ -11443,7 +11446,7 @@ const completeCommunicationsStep = () => {
     stepError.value = tx('Please sign your communication choices. All choices may be No.');
     return;
   }
-  if (communications.smsPreference === 'scheduling_only' && !/^[+()\d\s.-]{10,25}$/.test(communications.recipientPhone.trim())) {
+  if ((communications.smsPreference === 'scheduling_only' || communications.providerTextingOptIn === 'yes') && !/^[+()\d\s.-]{10,25}$/.test(communications.recipientPhone.trim())) {
     stepError.value = tx('Enter the phone you control for text reminders, or choose No.');
     return;
   }
@@ -11452,6 +11455,7 @@ const completeCommunicationsStep = () => {
     disclosure: communicationConsent.value?.text,
     schoolDisclosure: communicationConsent.value?.schoolText,
     displayedDisclosure: communicationsSmsDisclosure.value,
+    emailDisclosure: communicationConsent.value?.emailText,
     recipientPhone: communications.recipientPhone,
     signerName: communications.signerName.trim(),
     signatureAccepted: communications.signatureAccepted,

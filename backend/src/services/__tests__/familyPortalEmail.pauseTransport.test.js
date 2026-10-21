@@ -32,3 +32,13 @@ it('does not let manual approval release a queued automatic reminder',async()=>{
  expect(result.reason).toBe('routine_parent_emails_paused');expect(m.gmail).not.toHaveBeenCalled();
  expect(m.execute.mock.calls.some(([sql,args])=>sql.startsWith('UPDATE user_communications')&&args[1]===123)).toBe(true);
 });
+it.each([['fallback',x=>EmailService.sendEmail(x)],['identity',sendEmailFromIdentity],['notification',sendNotificationEmail]])('respects category opt-outs in the actual %s transport after the agency pause is lifted',async(_name,send)=>{
+ const prior=m.execute.getMockImplementation();m.execute.mockImplementation((sql,args)=>{
+  if(sql.includes('agency_parent_email_controls'))return Promise.resolve([[{routine_emails_paused:0}]]);
+  if(sql.includes('FROM family_notification_choices'))return Promise.resolve([[{choices_json:{billing:'off'}}]]);
+  return prior(sql,args);
+ });
+ const result=await send({agencyId:2,senderIdentityId:1,to:'parent@example.test',userId:50,source:'manual',templateType:'family_balance_due',subject:'Balance reminder',text:'Open your portal.'});
+ expect(result).toMatchObject({skipped:true,reason:'family_notification_category_off'});
+ expect(m.gmail).not.toHaveBeenCalled();expect(m.workspace).not.toHaveBeenCalled();
+});

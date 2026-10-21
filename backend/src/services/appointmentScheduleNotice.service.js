@@ -197,7 +197,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             } else {
               const from = await d.smsSender({agencyId:seed.agency_id,purpose:'reminders'});
               if (!from) { status='held'; reason='No registered SMS sender. Review before contacting the client.'; }
-              else { attempted=true; result=await d.sendSms({agencyId:seed.agency_id,clientId:seed.client_id,purpose:'reminders',from,to:recipient,body}); }
+              else { attempted=true; result=await d.sendSms({agencyId:seed.agency_id,clientId:seed.client_id,notificationCategory:'schedule_changes',purpose:'reminders',from,to:recipient,body}); }
             }
             if (result) {
               externalId = result.id || result.sid || result.messageId || result.messageUuid || result.messageUUID || null;

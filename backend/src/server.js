@@ -1,5 +1,6 @@
 import publicAppointmentResponseRoutes from './routes/publicAppointmentResponse.routes.js';
 import publicSchoolSessionEmailPreferencesRoutes from './routes/publicSchoolSessionEmailPreferences.routes.js';
+import publicFamilyNotificationsRoutes from './routes/publicFamilyNotifications.routes.js';
 import { publicRouter as publicSchoolVisitRoutes, staffRouter as schoolVisitRoutes } from './routes/schoolVisit.routes.js';
 import { recordsError } from './services/recordsRequests/errors.js';
 import clinicalVideoCallbackRoutes, { clinicalVideoCallbackPaths } from './routes/clinicalVideoCallback.routes.js';
@@ -840,6 +841,7 @@ app.use('/api/public/misdirected-email-report', publicMisdirectedEmailReportRout
 app.use('/api/public/contact-reminders', publicContactRemindersRoutes);
 app.use('/api/public/appointment-response', publicAppointmentResponseRoutes);
 app.use('/api/public/school-session-emails', publicSchoolSessionEmailPreferencesRoutes);
+app.use('/api/public/family-notifications', publicFamilyNotificationsRoutes);
 app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
 app.use('/api/admin-updates', adminUpdateMeRoutes);
 app.use('/api/public/mental-range', rangePublicRouter);

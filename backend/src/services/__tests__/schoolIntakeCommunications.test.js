@@ -57,3 +57,17 @@ it('shows communication choices to returning families as well as new families', 
   const [step] = ensureEnrollmentCommunicationStep({ create_client: 1 }, [{ type: 'communications', visibility: 'new_client_only', showIf: { hidden: true }, campaigns: { internalWorkforce: true } }]);
   expect(step).toMatchObject({ visibility: 'always', showIf: null, campaigns: { internalWorkforce: false } });
 });
+it.each(['school','agency'])('adds signed communication choices to %s enrollment',scope_type=>{
+  expect(ensureEnrollmentCommunicationStep({create_client:1,scope_type},[])).toContainEqual(expect.objectContaining({type:'communications',campaigns:expect.objectContaining({internalWorkforce:false})}));
+});
+it('keeps account emails separate from marketing and records the displayed email disclosure',async()=>{
+  cp.emailPreference='all';cp.emailDisclosure=intakeCommunicationDisclosure(agency).emailText;
+  await stamp();expect(cp.emailActivationStatus).toBe('selected_subject_to_agency_controls');
+  expect(cp.emailDisclosure).toContain('does not include marketing');
+});
+it('rejects changed email disclosures and requires a phone for care-team texts even when reminder texts are declined',async()=>{
+  cp.emailDisclosure='Include ads';await expect(stamp()).rejects.toThrow('Email communication');
+  delete cp.emailDisclosure;cp.providerTextingOptIn='yes';await expect(stamp()).rejects.toThrow('phone');
+  cp.recipientPhone='+17195550100';cp.internalWorkforceOptIn='yes';await stamp();
+  expect(cp.providerTextingActivationStatus).toBe('awaiting_recipient_and_campaign_review');expect(cp.internalWorkforceOptIn).toBeNull();
+});

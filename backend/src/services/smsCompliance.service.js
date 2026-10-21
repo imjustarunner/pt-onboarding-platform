@@ -101,7 +101,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, clientId, notificationCategory }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -120,6 +120,11 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+  if(notificationCategory) {
+    const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
+    const choice=await familyNotificationDeliveryGate({agencyId:sender.agency_id,clientId,to:recipient,channel:'sms',notificationCategory});
+    if(!choice.allowed)throw smsPolicyError(choice.reason,'This notification type is turned off for this recipient.');
+  }
   if (companyEventId != null) {
     const [events] = await pool.execute('SELECT id FROM company_events WHERE id = ? AND agency_id = ?', [Number(companyEventId), Number(sender.agency_id)]);
     if (!events.length) throw smsPolicyError('event_sms_invalid_event', 'Event does not belong to this sending agency');

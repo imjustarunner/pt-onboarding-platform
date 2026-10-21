@@ -10,6 +10,8 @@ export const SCHOOL_COMMUNICATION_NOTICE = 'For visits at school, no appointment
 export function intakeCommunicationDisclosure(agency) {
   const brandName = String(agency?.official_name || agency?.name || '').trim();
   return { version: INTAKE_COMMUNICATION_VERSION, agencyId: Number(agency?.id), brandName,
+    emailText: `${brandName} offers optional account emails about appointments, school sessions when applicable, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all account emails, scheduling only, or No. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.`,
+    emailAllLabel: 'Yes - All account-related emails (no marketing)',
     text: `${brandName} offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care, enrollment or school services. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.`,
     schoolText: SCHOOL_COMMUNICATION_NOTICE,
     signatureText: 'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient or their authorized guardian. I can decline texts and still receive services.' };
@@ -45,11 +47,15 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
     fail('Please choose Yes or No for text messages and an email preference. All choices may be No.');
   }
   const disclosure = intakeCommunicationDisclosure(await Agency.findById(agencyId));
+  // Client enrollment must never accept a forged workforce subscription.
+  cp.internalWorkforceOptIn = null;
   if (cp.version !== disclosure.version || cp.disclosure !== disclosure.text || cp.schoolDisclosure !== disclosure.schoolText) {
     fail('Communication information has changed. Refresh and review your communication choices before signing.');
   }
   if (!String(cp.signerName || '').trim() || cp.signatureAccepted !== true) fail('Please sign your communication choices. You may decline all texts.');
-  if (cp.smsPreference === 'scheduling_only' && !normalizeSmsPhone(cp.recipientPhone)) fail('Enter the phone you control to request text reminders, or choose No.');
+  if (cp.emailDisclosure != null && cp.emailDisclosure !== disclosure.emailText) fail('Email communication information has changed. Refresh and review your choices.');
+  if (cp.providerTextingOptIn != null && !['yes','no'].includes(cp.providerTextingOptIn)) fail('Choose Yes or No for care-team texting.');
+  if ((cp.smsPreference === 'scheduling_only' || cp.providerTextingOptIn === 'yes') && !normalizeSmsPhone(cp.recipientPhone)) fail('Enter the phone you control to request texts, or choose No.');
   if (!cp.termsUrl || !cp.privacyUrl) fail('The communication terms and privacy policy must be available before signing.');
   cp.agencyId = Number(agencyId);
   cp.brandName = disclosure.brandName;
@@ -58,6 +64,8 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
   cp.disclosureHash = createHash('sha256').update(JSON.stringify(disclosure)).digest('hex');
   cp.signedAt = submittedAt.toISOString();
   cp.activationStatus = cp.smsPreference === 'no' ? 'declined' : 'awaiting_recipient_and_campaign_review';
+  cp.emailActivationStatus = cp.emailPreference === 'no' ? 'declined' : 'selected_subject_to_agency_controls';
+  cp.providerTextingActivationStatus = cp.providerTextingOptIn === 'yes' ? 'awaiting_recipient_and_campaign_review' : 'declined';
 }
 
 export async function latestIntakeCommunicationChoices(clientId, agencyId) {

@@ -11,6 +11,7 @@ beforeEach(()=>{
     if(sql.includes('user_communications'))return [[{metadata}]];
     if(sql.includes('FROM users'))return [users.filter(u=>args.includes(u.email))];
     if(sql.includes('FROM clients'))return [[{email:'anonymous@example.test'}]];
+    if(sql.includes('FROM family_notification_choices'))return [[]];
     throw new Error(`Unexpected query ${sql}`);
   })};
 });

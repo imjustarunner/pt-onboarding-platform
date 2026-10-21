@@ -374,18 +374,22 @@ export async function loadClientConsent(clientId, agencyId) {
     const guardians = await ClientGuardian.listForClient(clientId);
     const matchingGuardians = guardians.filter(g => Number(g.access_enabled) === 1 && PhoneNumber.normalizePhone(g.phone)
       && PhoneNumber.normalizePhone(g.phone) === PhoneNumber.normalizePhone(phoneNumber));
-    const guardianUserId = (signed ? cp.guardianUserId : null) || (matchingGuardians.length === 1 ? matchingGuardians[0].guardian_user_id : null);
+    const emailAddress = signed && cp.recipientEmail ? cp.recipientEmail : c.email || c.guardian_email || null;
+    const {latestFamilyEmailSchedulingChoice}=await import('./familyNotificationChoices.service.js');
+    const emailChoice=await latestFamilyEmailSchedulingChoice({agencyId,clientId,to:emailAddress,after:cp?.signedAt||cp?.submittedAt});
+    const guardianUserId = emailChoice?.guardianUserId || (signed ? cp.guardianUserId : null) || (matchingGuardians.length === 1 ? matchingGuardians[0].guardian_user_id : null);
     return {
       guardianUserId,
       intakeChoice: cp?.smsPreference || null,
-      email: cp?.emailPreference === 'no' ? false : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
+      email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
       sms: cp?.smsPreference === 'no' ? !!laterSignedConsent : !!recorded || (signed ? cp.smsPreference === 'scheduling_only' : Number(c.session_sms_opt_in) === 1),
       phone: Number(c.session_phone_opt_in) === 1,
-      emailAddress: signed && cp.recipientEmail ? cp.recipientEmail : c.email || c.guardian_email || null,
+      emailAddress,
       phoneNumber
     };
   } catch {
-    return { email: true, sms: false, phone: false };
+    // A failed consent lookup cannot be treated as permission to email a family.
+    return { email: false, sms: false, phone: false };
   }
 }
 
@@ -1037,7 +1041,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           results.skipped += 1;
           continue;
         }
-        await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toPhoneNorm, from, body: body.slice(0, 480) });
+        await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toPhoneNorm, from, body: body.slice(0, 480) });
         await pool.execute(
           `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
           [row.id]
@@ -1060,7 +1064,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
             if (!c.sms_reminders_enabled || !c.sms_opt_in || !c.contact_phone) continue;
             const toC = PhoneNumber.normalizePhone(c.contact_phone);
             if (!toC || !from || toC === toPhoneNorm) continue;
-            await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toC, from, body: contactBody });
+            await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toC, from, body: contactBody });
             await logCommunication({
               appointmentId: appt.id,
               agencyId: appt.agencyId,

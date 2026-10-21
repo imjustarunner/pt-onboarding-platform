@@ -139,7 +139,7 @@ export function createCancellationNotificationService({ database = pool, appoint
         const from = await smsSender({ agencyId: row.agency_id, purpose: 'reminders' });
         if (!from) { await finish('held', 'No registered SMS reminder sender; scheduling staff must follow up.'); return; }
         attempted = true;
-        result = await sendSms({ agencyId: row.agency_id, clientId: row.client_id, purpose: 'reminders', from, to: recipient, body: message.sms });
+        result = await sendSms({ agencyId: row.agency_id, clientId: row.client_id, notificationCategory:'schedule_changes', purpose: 'reminders', from, to: recipient, body: message.sms });
       }
       const externalId = result?.id || result?.sid || result?.messageId || result?.messageUuid || result?.messageUUID || null;
       acceptedExternalId = externalId;
