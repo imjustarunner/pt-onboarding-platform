@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as ctrl from '../controllers/tutoringLearningOs.controller.js';
 import { guardianLearningRouteAllowed } from '../utils/planStaffAccess.js';
@@ -83,6 +84,9 @@ router.patch('/assessment-blueprints/:blueprintId', ctrl.updateAssessmentBluepri
 
 router.get('/clients/:clientId/guardian-feed', ctrl.getGuardianFeed);
 router.get('/clients/:clientId/guardian-dashboard', ctrl.getGuardianDashboard);
+router.get('/clients/:clientId/office-status',ctrl.getGuardianOfficeStatus);
+router.get('/clients/:clientId/office-entry',ctrl.getGuardianOfficeEntry);
+router.post('/clients/:clientId/office-visit',rateLimit({windowMs:60000,max:6,standardHeaders:true,legacyHeaders:false}),ctrl.postGuardianOfficeVisit);
 router.get('/clients/:clientId/packages', ctrl.listClientPackages);
 router.get('/clients/:clientId/package-entitlements', ctrl.listClientPackageEntitlements);
 router.post('/clients/:clientId/packages/:packageId/checkout', ctrl.checkoutClientPackage);

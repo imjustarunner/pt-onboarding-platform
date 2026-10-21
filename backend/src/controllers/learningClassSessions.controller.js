@@ -1,3 +1,4 @@
+import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import { createTutoringPayrollDraft } from '../services/tutoringPayroll.service.js';
 import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
 import pool from '../config/database.js';
@@ -266,7 +267,8 @@ export const getClassSession = async (req, res, next) => {
       state,
       handRaises,
       primaryClientId,
-      officeDestination:await tutoringOfficeDestination(session,req.user.id),
+      officeDestination:canModerate?await tutoringOfficeDestination(session,req.user.id):null,
+      officeAgencyId:(await LearningProgramClass.findById(session.learning_class_id))?.organization_id || null,
       studentSubjectId: session?.student_subject_id || null,
       learningPlanId: session?.learning_plan_id || null
     });

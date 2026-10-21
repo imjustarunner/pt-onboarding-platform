@@ -18,11 +18,12 @@ export async function guardianAppointmentJoin(row,client,db) {
   const [offices]=await db.execute(`SELECT r.slug FROM provider_my_rooms r
     JOIN user_agencies ua ON ua.user_id=r.user_id AND ua.agency_id=r.agency_id AND ua.is_active=1
     WHERE r.user_id=? AND r.agency_id=? AND r.is_active=1 LIMIT 1`,[row.providerUserId,client.agency_id]);
-  if(offices[0]?.slug)return `/join/my-room/${encodeURIComponent(offices[0].slug)}`;
+  const entry=row.id?`/tutoring-session/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(client.agency_id)}`:null;
+  if(offices[0]?.slug)return entry||`/join/my-room/${encodeURIComponent(offices[0].slug)}`;
   try {
     const {officeForHost}=await import('./privateVirtualOffice.service.js');
     const {room}=await officeForHost(row.providerUserId,client.agency_id);
-    return `/join/my-room/${encodeURIComponent(room.slug)}`;
+    return entry||`/join/my-room/${encodeURIComponent(room.slug)}`;
   } catch(error) {
     // A provider without an eligible video plan cannot expose a standing room.
     if(![403,404,409,503].includes(error.status))throw error;

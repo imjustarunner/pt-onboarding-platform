@@ -172,9 +172,11 @@ class IntakeSubmissionDocument {
        WHERE isd.client_id = ?
          AND isd.signed_pdf_path IS NOT NULL
          AND s.guardian_user_id = ?
-         AND (? IS NULL OR il.agency_id=?)
+         AND (? IS NULL OR (il.scope_type='agency' AND il.organization_id=?)
+           OR (il.scope_type='school' AND il.organization_id IN (SELECT school_organization_id FROM agency_schools WHERE agency_id=? AND is_active=TRUE))
+           OR (il.scope_type='program' AND il.organization_id IN (SELECT organization_id FROM organization_affiliations WHERE agency_id=? AND is_active=TRUE)))
        ORDER BY isd.signed_at DESC, isd.id DESC`,
-      [cid, gid,agencyId,agencyId]
+      [cid, gid,agencyId,agencyId,agencyId,agencyId]
     );
     return rows || [];
   }

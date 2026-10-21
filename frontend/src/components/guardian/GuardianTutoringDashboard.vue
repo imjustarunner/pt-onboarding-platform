@@ -36,6 +36,7 @@
       </div>
     </section>
 
+    <TutorOfficeStatus :key="clientId" :client-id="clientId" />
     <div class="gtd-grid">
       <section class="gtd-card gtd-packages">
         <h3>Your packages</h3>
@@ -197,6 +198,7 @@ const careContext=inject('portalCareContext',null);
 import PackagePriceChoice from '../learning/PackagePriceChoice.vue';
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import TutorOfficeStatus from './TutorOfficeStatus.vue';
 import { loadStripe } from '@stripe/stripe-js';
 import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';

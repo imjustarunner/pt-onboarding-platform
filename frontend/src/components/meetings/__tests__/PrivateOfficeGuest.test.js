@@ -39,3 +39,13 @@ it('restores the same admitted visit after reload and reconnects without creatin
  expect(request.mock.calls.filter(([p])=>p.endsWith('/video-token')).every(([,o])=>o.headers['X-Office-Visit']==='x'.repeat(43))).toBe(true);
  expect(request.mock.calls.some(([p,o])=>p.endsWith('/lobby')&&o.method==='POST')).toBe(false);w.unmount();expect(request.mock.calls.some(([p])=>p.endsWith('/leave'))).toBe(false);
 });
+
+it('shows private office availability and keeps waiting messages out of the session workspace',async()=>{
+ vi.useFakeTimers();let availability='in_session';
+ const request=vi.fn(async(url,options)=>url.endsWith('/public')?{room:{displayName:'Timmy Turner',provider:{firstName:'Timmy'}}}:url.endsWith('/messages')?{messages:[],canSend:true}:options?.method==='POST'?{lobby:{id:8,credential:'a'.repeat(43)}}:{lobby:{status:'waiting',availability}});
+ const w=mount(Guest,{props:{slug:'sample',request},global:{stubs:{SupervisionWaitingRoomStage:true,TherapySessionWorkspace:true}}});await flushPromises();await w.find('form').trigger('submit');await flushPromises();await vi.advanceTimersByTimeAsync(4000);
+ expect(w.text()).toContain('Timmy is currently in a session');expect(w.text()).toContain('Only you and Timmy');
+ expect(request.mock.calls.find(([url])=>url.endsWith('/messages'))[1].headers['X-Office-Visit']).toBe('a'.repeat(43));
+ availability='available';await vi.advanceTimersByTimeAsync(4000);expect(w.text()).toContain('Timmy is in the office');
+ availability='away';await vi.advanceTimersByTimeAsync(4000);expect(w.text()).toContain('Timmy is away');w.unmount();
+});

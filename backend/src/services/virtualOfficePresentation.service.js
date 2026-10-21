@@ -18,7 +18,7 @@ export async function virtualOfficePresentation(room, req) {
   return {
     slug: room.slug, displayName: name, agencyId: room.agencyId, branding,
     provider: {
-      name, photoUrl: publicUploadsUrlFromStoredPath(person.profile_photo_path),
+      name, firstName: person.first_name || '', photoUrl: publicUploadsUrlFromStoredPath(person.profile_photo_path),
       credential: person.credential || '', title: person.title || '',
       bio: profile?.publicBlurb || '',
       languages: Array.isArray(profile?.details?.languages) ? profile.details.languages : []

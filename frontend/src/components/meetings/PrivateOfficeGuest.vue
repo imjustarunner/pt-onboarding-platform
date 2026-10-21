@@ -8,6 +8,7 @@
         <header class="visit-header"><OfficeBrand :branding="room?.branding" /><ol class="visit-steps" aria-label="Visit progress"><li :class="{active:phase==='form'}">1 · Check-in</li><li :class="{active:phase==='waiting'}">2 · Waiting room</li><li :class="{active:phase==='video'}">3 · Visit</li></ol></header>
         <div v-if="phase === 'waiting'" class="waiting-office">
           <div class="waiting-welcome"><OfficeProviderCard :provider="room?.provider" :display-name="roomDisplayName" :agency-name="room?.branding?.agencyName" /><div class="waiting-identity"><img v-if="photoDataUrl" :src="photoDataUrl" alt="Your check-in photo" /><span>Joining as {{ guestDisplayName || 'Guest' }}</span><button class="jmr-btn jmr-btn--secondary" @click="leaveVisit">Leave waiting room</button></div></div>
+          <OfficeWaitingMessages :key="lobbyId" :request="messageRequest" :recipient="providerFirstName" :notice="availabilityNotice" />
           <div class="jmr-waiting"><SupervisionWaitingRoomStage :meeting-title="`${roomDisplayName}’s virtual office`" :host-present="hostPresent" host-role-label="Provider" :show-preview-hint="false" /></div>
         </div>
         <TherapySessionWorkspace v-else-if="phase === 'video'" :video="video" :identified="identified" :branding="room?.branding" :product-name="productName" :request="workspaceRequest" @leave-request="leaveVisit" @disconnected="reconnectVisit" @meeting-ended="leaveVisit" />
@@ -94,6 +95,7 @@
 <script setup>
 import { officeAccent } from '../../utils/officeBranding';
 import OfficeBrand from './OfficeBrand.vue';
+import OfficeWaitingMessages from './OfficeWaitingMessages.vue';
 import OfficeProviderCard from './OfficeProviderCard.vue';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import TherapySessionWorkspace from './TherapySessionWorkspace.vue';
@@ -123,7 +125,10 @@ function reconnectVisit(){video.value=null;if(phase.value==='ended')return;phase
 const guestOptions = () => ({...publicOpts,headers:{'X-Office-Visit':credential.value}});
 async function leaveVisit(){if(phase.value==='ended')return;video.value=null;stopStatusPoll();phase.value='ended';if(lobbyId.value)try{await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/leave`,{},guestOptions());}catch(e){error.value=e.response?.data?.error?.message||'Could not confirm departure.';}photoDataUrl.value='';}
 const workspaceRequest=(_path,options)=>props.request(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/workspace${_path}`,{...guestOptions(),...options});
-const hostPresent=ref(false);
+const hostPresent=ref(false),availability=ref('unknown');
+const providerFirstName=computed(()=>room.value?.provider?.firstName||room.value?.provider?.name||room.value?.displayName||'your provider');
+const availabilityNotice=computed(()=>({in_session:`${providerFirstName.value} is currently in a session. You can leave a message; they can reply when they are free.`,available:`${providerFirstName.value} is in the office. You can send a message while you wait to be admitted.`,away:`${providerFirstName.value} is away from the office. You can leave a message for them to read when they return.`,unknown:'Checking office availability… You can leave a message while you wait.'})[availability.value]);
+const messageRequest=options=>props.request(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/messages`,{...guestOptions(),...options});
 async function resumeVisit(){submitting.value=true;error.value='';try{await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/resume`,{},guestOptions());phase.value='waiting';startStatusPoll();}catch(e){error.value=e.response?.data?.error?.message||'This visit cannot be rejoined.';}finally{submitting.value=false;}}
 function startOver(){forgetVisit();lobbyId.value=null;credential.value='';photoDataUrl.value='';photoRequiredAck.value=false;phase.value='form';error.value='';}
 const lobbyStatus = ref('waiting');
@@ -224,7 +229,7 @@ function startStatusPoll() {
       );
       const status = String(res?.data?.lobby?.status || '').toLowerCase();
       if (status) lobbyStatus.value = status;
-      hostPresent.value=!!res.data.lobby.hostPresent;identified.value=!!res.data.lobby.identified;
+      availability.value=res.data.lobby.availability||'unknown';hostPresent.value=!!res.data.lobby.hostPresent;identified.value=!!res.data.lobby.identified;
       if (status === 'admitted' && !video.value) {
         video.value=(await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/video-token`,{},guestOptions())).data;
         phase.value='video';error.value='';

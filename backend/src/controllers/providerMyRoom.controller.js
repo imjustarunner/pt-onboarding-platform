@@ -1,3 +1,4 @@
+import {readOfficeMessages,sendOfficeMessage} from '../services/officeWaitingMessages.service.js';
 import {activeMeetingAgencyIds} from '../services/meetingJoinPolicy.service.js';
 import {officeSchedule,officeEncounterLink} from '../services/virtualOfficeSchedule.service.js';
 import {admitCounselingVisit} from '../services/counselingSessionVisit.service.js';
@@ -106,3 +107,8 @@ export const getOfficeVisitArtifacts = respond(async req => {
  if(!Number.isSafeInteger(generation)||generation<1)throw Object.assign(new Error('Invalid visit.'),{status:400});
  return workspace.readWorkspace({req,...await office.officeHistoryContext(room,generation),afterId:req.query.afterId});
 });
+
+const officeMessageActor=req=>req.params.slug?{role:'guest',credential:req.get('X-Office-Visit'),req}:{role:'provider',userId:req.user.id,req};
+async function officeMessageRoom(req){return req.params.slug?office.officeBySlug(req.params.slug):ownerOfVisit(req);}
+export const getOfficeMessages=respond(async req=>readOfficeMessages(await officeMessageRoom(req),Number(req.params.visitId),officeMessageActor(req)));
+export const postOfficeMessage=respond(async req=>sendOfficeMessage(await officeMessageRoom(req),Number(req.params.visitId),officeMessageActor(req),req.body));

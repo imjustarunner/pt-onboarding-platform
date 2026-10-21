@@ -25,9 +25,10 @@
           <article v-for="item in pendingAppointments" :key="item.key" class="guest-card"><div class="guest-identity"><div class="guest-initial"><Users :size="20" /></div><div><strong>{{item.title}}</strong><small>{{item.agencyName}} · {{item.waitingCount}} waiting via personal links</small></div></div><button class="admit-button" :disabled="busy||agendaLocked" @click="openAgenda(item)">Open appointment</button><small v-if="agendaLocked">Finish the current visit first.</small></article>
           <article v-for="guest in scheduledWaiting" :key="`scheduled-${guest.id}`" class="guest-card"><div class="guest-identity"><div class="guest-initial">{{guest.guestDisplayName.slice(0,1)}}</div><div><strong>{{guest.guestDisplayName}}</strong><small>Personal session link</small></div></div><button class="primary admit-button" :disabled="!canAdmit||busy" @click="admitScheduled(guest.id)">Admit to scheduled session</button></article>
           <article v-for="guest in waiting" :key="guest.id" class="guest-card"><div class="guest-identity"><button v-if="guest.guestPhotoUrl" class="photo-button" :aria-label="`Enlarge photo of ${guest.guestDisplayName}`" @click="selectedPhoto=guest"><img :src="guest.guestPhotoUrl" :alt="`Snapshot supplied by ${guest.guestDisplayName}`" /></button><div v-else class="guest-initial">{{ guest.guestDisplayName.slice(0,1) }}</div><div><strong>{{ guest.guestDisplayName }}</strong><small>{{ guest.guestPhotoUrl ? 'Select photo to enlarge' : 'No photo supplied' }}</small></div></div>
-            <button class="primary admit-button" :disabled="!canAdmit || busy || (encounter.hasParticipants && !sessionToIdentify && !guest.returning)" @click="prepareAdmission(guest)">{{ tutoring ? 'Admit to this tutoring session' : sessionToIdentify ? `Identify and admit ${guest.guestDisplayName}` : guest.returning ? `Readmit ${guest.guestDisplayName}` : `Start session with ${guest.guestDisplayName}` }}</button><button v-if="!sessionToIdentify && encounter.hasParticipants && admitted.length && plan.multipleOfficeGuests && encounter.state==='active'" :disabled="!canAdmit || busy" @click="sameSessionGuest=guest">Add to this couples / family session</button><button v-if="tutoring && encounter.hasParticipants" class="next-student-button" :disabled="busy || encounter.state!=='active'" @click="requestEndTutoring">End tutoring session before next student</button><button class="dismiss-button" :disabled="busy" @click="dismiss(guest.id)">Dismiss</button>
+            <button class="primary admit-button" :disabled="!canAdmit || busy || (encounter.hasParticipants && !sessionToIdentify && !guest.returning)" @click="prepareAdmission(guest)">{{ tutoring ? 'Admit to this tutoring session' : sessionToIdentify ? `Identify and admit ${guest.guestDisplayName}` : guest.returning ? `Readmit ${guest.guestDisplayName}` : `Start session with ${guest.guestDisplayName}` }}</button><button v-if="!sessionToIdentify && encounter.hasParticipants && admitted.length && plan.multipleOfficeGuests && encounter.state==='active'" :disabled="!canAdmit || busy" @click="sameSessionGuest=guest">Add to this couples / family session</button><button v-if="tutoring && encounter.hasParticipants" class="next-student-button" :disabled="busy || encounter.state!=='active'" @click="requestEndTutoring">End tutoring session before next student</button><button class="message-guest-button" @click="messageGuest=guest">Message {{ guest.guestDisplayName }}<span v-if="guest.unreadMessages"> · {{ guest.unreadMessages }} unread</span></button><button class="dismiss-button" :disabled="busy" @click="dismiss(guest.id)">Dismiss</button>
           </article>
-          <section v-if="admitted.length || scheduledAdmitted.length" class="admitted-guests"><h3>In this session <span>{{ admitted.length + scheduledAdmitted.length }}</span></h3><p v-for="guest in [...admitted,...scheduledAdmitted]" :key="`${guest.entryMethod||'office'}-${guest.id}`"><span class="presence-dot"></span>{{ guest.guestDisplayName }}</p></section>
+          <section v-if="admitted.length || scheduledAdmitted.length" class="admitted-guests"><h3>In this session <span>{{ admitted.length + scheduledAdmitted.length }}</span></h3><p v-for="guest in [...admitted,...scheduledAdmitted]" :key="`${guest.entryMethod||'office'}-${guest.id}`"><span class="presence-dot"></span>{{ guest.guestDisplayName }}<button v-if="!guest.entryMethod || guest.entryMethod==='office_link'" @click="messageGuest=guest">Message<span v-if="guest.unreadMessages"> · {{ guest.unreadMessages }} unread</span></button></p></section>
+          <OfficeWaitingMessages v-if="messageGuest" :key="`${effectiveAgencyId}-${messageGuest.id}`" :request="messageRequest" :recipient="messageGuest.guestDisplayName" role="provider" closable @close="messageGuest=null" />
           <p v-if="!video && waiting.length" class="lobby-hint">Open office video to welcome your guest.</p><p v-else-if="encounter.hasParticipants && !admitted.length && !scheduledAdmitted.length" class="lobby-hint">End the current session before starting another visit.</p>
         </aside>
       </div>
@@ -48,6 +49,7 @@ import { registerClinicalWorkspace } from '../../composables/useClinicalWorkspac
 import OfficeDayList from './OfficeDayList.vue';
 import {officeMeetingTarget} from '../../utils/officeAgenda';
 import OfficeBrand from './OfficeBrand.vue';
+import OfficeWaitingMessages from './OfficeWaitingMessages.vue';
 import { Video, Users } from '@lucide/vue';
 import '../../styles/clinicalWorkspace.css';
 import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, nextTick } from 'vue';
@@ -59,6 +61,8 @@ const emit=defineEmits(['change-agency']);
 const props=defineProps({initialSelection:Object,agencyId:{type:Number,default:0},request:{type:Function,required:true},publicOrigin:{type:String,default:''},productName:{type:String,default:'AuricWell'}});
 const call=(path,method='GET',body)=>props.request(path,{method,body});
 const room=ref(null),plan=ref(null),waiting=ref([]),admitted=ref([]),video=ref(null),connected=ref(false),error=ref(''),busy=ref(false),copied=ref(false);
+const messageGuest=ref(null);
+const messageRequest=options=>props.request(`/me/visits/${messageGuest.value.id}/messages`,options);
 const effectiveAgencyId=computed(()=>Number(room.value?.agencyId||props.agencyId));
 const auricwell=computed(()=>isAuricWellOffice(room.value?.branding));
 registerClinicalWorkspace(auricwell);
@@ -101,7 +105,7 @@ async function refresh(){const version=++lobbyRequestVersion;try{const data=awai
 const open=()=>action(async()=>{if(externalMeeting.value)throw new Error('Return from the current meeting first.');video.value=await call('/me/video-token','POST');await refresh();});
 async function onConnected(){connected.value=true;await refresh();}
 function putAwayTutoringMaterials(){
- lobbyRequestVersion++;
+ lobbyRequestVersion++;messageGuest.value=null;
  closeTutoringPrompt.value=false;video.value=null;connected.value=false;tutoringStudentId.value=null;binderOpen.value=false;binderStudents.value=[];binderClientId.value='';binderVisitId.value='';binderIdentityConfirmed.value=false;historyArtifacts.value=null;identityGuest.value=null;sameSessionGuest.value=null;proposedAppointment.value=null;activeAgendaKey.value='';
 }
 async function reopenEmptyOffice(){await nextTick();video.value=await call('/me/video-token','POST');await refresh();}

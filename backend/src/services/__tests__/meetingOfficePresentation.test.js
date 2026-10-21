@@ -9,7 +9,7 @@ it('only returns public provider fields and resolves uploaded tenant branding fo
  m.profile.mockResolvedValue({publicBlurb:'Public introduction',details:{languages:['English'],availabilityByAgency:{99:{private:true}}},selfPayRateCents:10000});
  m.branding.mockResolvedValue({agencyName:'Practice A',agencyLogoUrl:'/agency.png'});
  const room=await virtualOfficePresentation({slug:'synthetic',userId:5,agencyId:2},{});
- expect(room.provider).toEqual({name:'Sam Sample',photoUrl:expect.stringContaining('/uploads/profiles/synthetic.png'),credential:'LPC',title:'Counselor',bio:'Public introduction',languages:['English']});
+ expect(room.provider).toEqual({name:'Sam Sample',firstName:'Sam',photoUrl:expect.stringContaining('/uploads/profiles/synthetic.png'),credential:'LPC',title:'Counselor',bio:'Public introduction',languages:['English']});
  expect(m.profile).toHaveBeenCalledWith({providerUserId:5,agencyId:2});
  expect(m.branding).toHaveBeenCalledWith(2,{baseUrl:expect.any(String)});
  expect(JSON.stringify(room)).not.toMatch(/private@example|password|availabilityByAgency|selfPay/);

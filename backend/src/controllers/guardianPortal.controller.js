@@ -1315,11 +1315,8 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
       return res.status(404).json({ error: { message: 'Document not found' } });
     }
 
-    const [srows] = await pool.execute(
-      'SELECT s.guardian_user_id,il.agency_id FROM intake_submissions s JOIN intake_links il ON il.id=s.intake_link_id WHERE s.id = ? LIMIT 1',
-      [doc.intake_submission_id]
-    );
-    if ((req.query.agencyId&&Number(srows?.[0]?.agency_id)!==Number(req.query.agencyId))||Number(srows?.[0]?.guardian_user_id) !== Number(uid)) {
+    const availableDocuments = await IntakeSubmissionDocument.listSignedForGuardianClient({guardianUserId:uid,clientId,agencyId:Number(req.query.agencyId)||null});
+    if (!availableDocuments.some(item=>Number(item.id)===Number(documentId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 

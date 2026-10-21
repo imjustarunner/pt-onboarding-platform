@@ -3443,6 +3443,18 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/tutoring-session/appointment/:appointmentId',
+    name: 'VirtualTutoringAppointment',
+    component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/tutoring-session/appointment/:appointmentId',
+    name: 'OrganizationVirtualTutoringAppointment',
+    component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/tutoring-session/:sessionId',
     name: 'VirtualTutoringSession',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),

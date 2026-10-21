@@ -4,6 +4,11 @@ import { authenticate, requireActiveStatus, requireSuperAdmin } from '../middlew
 import * as c from '../controllers/providerMyRoom.controller.js';
 import { requireClinicalStaffSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
 const router=express.Router();
+const officeMessageLimit=rateLimit({windowMs:60000,max:30,standardHeaders:true,legacyHeaders:false});
+router.get('/me/visits/:visitId/messages',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getOfficeMessages);
+router.post('/me/visits/:visitId/messages',authenticate,requireClinicalStaffSecurity,requireActiveStatus,officeMessageLimit,c.postOfficeMessage);
+router.get('/:slug/lobby/:visitId/messages',c.getOfficeMessages);
+router.post('/:slug/lobby/:visitId/messages',officeMessageLimit,c.postOfficeMessage);
 router.get('/me/plan',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getMyRoomPlan);
 router.put('/plans/:userId',authenticate,requireClinicalStaffSecurity,requireActiveStatus,requireSuperAdmin,c.putMyRoomPlan);
 router.get('/me',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getMyRoomMe);

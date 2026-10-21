@@ -1,3 +1,4 @@
+import {officeVisitWindowOpen} from './tutoringOfficeWindow.service.js';
 import {scheduledAttendance} from './virtualOfficeAttendance.service.js';
 import crypto from 'node:crypto';
 import {officeEncounterLink,openScheduledOffice,scheduledParticipants,markOfficeAttendance} from './virtualOfficeSchedule.service.js';
@@ -72,16 +73,26 @@ async function guestFor(room,id,credential,db=pool) {
  if (!rows[0]) throw fail(403,'This visit has expired. Reopen the office link.');
  return rows[0];
 }
+// Availability never includes another visitor's identity or participant count.
+export async function officeAvailability(room,excludeVisitId=0,current=null){
+ if(!current){const [[session]]=await pool.execute('SELECT host_seen_at,office_seen_at,generation FROM private_virtual_office_sessions WHERE room_id=?',[room.id]);current=session;}
+ if(!current)return 'away';
+ const [[presence]]=await pool.execute(`SELECT EXISTS(SELECT 1 FROM private_virtual_office_visits v WHERE v.room_id=? AND v.generation=? AND v.status='admitted' AND v.id<>? AND v.expires_at>UTC_TIMESTAMP()) OR EXISTS(SELECT 1 FROM virtual_office_encounters e JOIN counseling_session_visits v ON v.session_id=e.counseling_session_id WHERE e.room_id=? AND e.generation=? AND v.status='admitted' AND (v.office_visit_id IS NULL OR v.office_visit_id<>?)) AS occupied`,[room.id,current.generation||0,excludeVisitId,room.id,current.generation||0,excludeVisitId]);
+ const lastSeen=current.office_seen_at||current.host_seen_at;
+ return Number(presence?.occupied)?'in_session':lastSeen&&Date.now()-new Date(lastSeen).getTime()<90000?'available':'away';
+}
 export async function officeGuestStatus(room,id,credential) {
  await assertOfficeAccess(room);
  const guest = await guestFor(room,id,credential);
  await pool.execute('UPDATE private_virtual_office_visits SET last_seen_at=UTC_TIMESTAMP() WHERE id=?',[guest.id]);
- const [sessions] = await pool.execute('SELECT host_seen_at,generation,video_session_id FROM private_virtual_office_sessions WHERE room_id=?',[room.id]);
+ const [sessions] = await pool.execute('SELECT host_seen_at,office_seen_at,generation,video_session_id FROM private_virtual_office_sessions WHERE room_id=?',[room.id]);
+ const availability=await officeAvailability(room,guest.id,sessions[0]);
  const media=guest.admitted_at&&sessions[0]?.video_session_id?await clinical.clinicalMedia(sessions[0].video_session_id):null;
- return {id:guest.id,status:guest.status,canRejoin:guest.status==='ended'&&Number(guest.generation)===Number(sessions[0]?.generation)&&media?.state==='active',guestDisplayName:guest.display_name,identified:!!guest.counseling_visit_id,hostPresent:!!sessions[0]?.host_seen_at && Date.now()-new Date(sessions[0].host_seen_at).getTime()<90000};
+ return {id:guest.id,status:guest.status,availability,canRejoin:guest.status==='ended'&&Number(guest.generation)===Number(sessions[0]?.generation)&&media?.state==='active',guestDisplayName:guest.display_name,identified:!!guest.counseling_visit_id,hostPresent:!!sessions[0]?.host_seen_at && Date.now()-new Date(sessions[0].host_seen_at).getTime()<90000};
 }
 export async function officeLobby(room,req) {
  const plan = await assertOfficeAccess(room);
+ await pool.execute('INSERT INTO private_virtual_office_sessions (room_id,office_seen_at) VALUES (?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE office_seen_at=UTC_TIMESTAMP()',[room.id]);
  await closeAbsentVisits(room);
  // Photos are encrypted at rest, returned only to the owning provider, and discarded after the visit.
  await pool.execute(`UPDATE private_virtual_office_visits SET photo_envelope=NULL,status=IF(status='waiting','dismissed',status) WHERE room_id=? AND expires_at<=UTC_TIMESTAMP()`,[room.id]);
@@ -104,9 +115,9 @@ export async function officeLobby(room,req) {
  let tutoring=null;
  if(tutoringLink) { try { tutoring=await officeTutoringContext(room,current); } catch(e) { if(![404,409].includes(e.status))throw e; tutoring={unavailable:true,title:'Tutoring visit unavailable',participants:[]}; } }
  const encounter={scheduled,tutoring,state:media?.state||'idle',hasParticipants:Number(previous.total)>0,generation:current?.generation||0,providerReady:!!providerReady,startedAt:previous.started_at||null};
- const [rows] = await pool.execute(`SELECT id,display_name,status,photo_envelope,admitted_at,ip_address,counseling_visit_id,generation FROM private_virtual_office_visits WHERE room_id=? AND status IN ('waiting','admitted') AND expires_at>UTC_TIMESTAMP() ORDER BY created_at`,[room.id]);
+ const [rows] = await pool.execute(`SELECT id,display_name,status,photo_envelope,admitted_at,ip_address,counseling_visit_id,generation,(SELECT COUNT(*) FROM private_virtual_office_messages m WHERE m.room_id=private_virtual_office_visits.room_id AND m.visit_id=private_virtual_office_visits.id AND m.author_role='guest' AND m.read_at IS NULL) AS unread_messages FROM private_virtual_office_visits WHERE room_id=? AND status IN ('waiting','admitted') AND expires_at>UTC_TIMESTAMP() ORDER BY created_at`,[room.id]);
  if(rows.length)await clinicalAudit({kind:'office',sessionId:room.id,generation:current?.generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req},'clinical_lobby_read',{visitIds:rows.map(r=>r.id)});
- return {plan,encounter,scheduledWaiting:scheduledVisits.filter(v=>v.status==='waiting'),scheduledAdmitted:scheduledVisits.filter(v=>v.status==='admitted'),waiting:rows.filter(r=>r.status==='waiting').map(r=>({id:r.id,guestDisplayName:r.display_name,guestPhotoUrl:r.photo_envelope?decryptChatText(JSON.parse(r.photo_envelope)):null,returning:!!r.admitted_at&&Number(r.generation)===Number(current?.generation)})),admitted:rows.filter(r=>r.status==='admitted').map(r=>({id:r.id,guestDisplayName:r.display_name,admittedAt:r.admitted_at,ipAddress:r.ip_address}))};
+ return {plan,encounter,scheduledWaiting:scheduledVisits.filter(v=>v.status==='waiting'),scheduledAdmitted:scheduledVisits.filter(v=>v.status==='admitted'),waiting:rows.filter(r=>r.status==='waiting').map(r=>({id:r.id,unreadMessages:Number(r.unread_messages||0),guestDisplayName:r.display_name,guestPhotoUrl:r.photo_envelope?decryptChatText(JSON.parse(r.photo_envelope)):null,returning:!!r.admitted_at&&Number(r.generation)===Number(current?.generation)})),admitted:rows.filter(r=>r.status==='admitted').map(r=>({id:r.id,unreadMessages:Number(r.unread_messages||0),guestDisplayName:r.display_name,admittedAt:r.admitted_at,ipAddress:r.ip_address}))};
 }
 export async function admitOfficeGuest(room,id,{sameEncounter=false,clientId=null,confirmIdentity=false,req}={}) {
  return transaction(async db=> {
@@ -117,6 +128,8 @@ export async function admitOfficeGuest(room,id,{sameEncounter=false,clientId=nul
   if(media?.session_kind==='counseling')await db.execute('SELECT id FROM counseling_sessions WHERE id=? FOR UPDATE',[media.session_id]);
   const [rows] = await db.execute(`SELECT * FROM private_virtual_office_visits WHERE id=? AND room_id=? AND status='waiting' AND expires_at>UTC_TIMESTAMP() FOR UPDATE`,[id,room.id]);
   if (!rows[0]) throw fail(409,'This guest is no longer waiting.');
+  if(!await officeVisitWindowOpen(id,db))throw fail(409,'This appointment’s waiting-room window has closed or the appointment changed.');
+  if(rows[0].tutoring_client_id&&media?.session_kind==='counseling')throw fail(409,'End the counseling session before admitting a tutoring visitor.');
   await clinical.requireMonitoredProvider(session.video_session_id,db);
   const link=media?.session_kind==='counseling'?await officeEncounterLink(room.id,session.generation,db):null;
   if(link){

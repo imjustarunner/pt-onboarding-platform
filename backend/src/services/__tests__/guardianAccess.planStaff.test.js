@@ -22,7 +22,7 @@ it('permits provider roles while preserving the separate agency/client guard', (
 it.each([['POST', '/plans'], ['POST', '/plans/3/approve'], ['GET', '/plans/3'], ['GET', '/subjects/7/evidence'], ['POST', '/session-notes']])('keeps %s %s out of family routes', (method, path) => {
   expect(guardianLearningRouteAllowed(method, path)).toBe(false);
 });
-it.each([['GET', '/clients/5/guardian-dashboard'], ['POST', '/practice/7/complete'], ['POST', '/clients/5/packages/3/checkout']])('preserves authorized family operation %s %s', (method, path) => {
+it.each([['GET', '/clients/5/office-status'], ['POST', '/clients/5/office-visit'], ['GET', '/clients/5/guardian-dashboard'], ['POST', '/practice/7/complete'], ['POST', '/clients/5/packages/3/checkout']])('preserves authorized family operation %s %s', (method, path) => {
   expect(guardianLearningRouteAllowed(method, path)).toBe(true);
 });
 it.each([createOrUpdatePlan, getPlan, approvePlan])('also rejects family roles inside the staff handler', async handler => {

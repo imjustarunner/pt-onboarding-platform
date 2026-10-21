@@ -1,3 +1,4 @@
+import {guardianTutoringOfficeStatus,startGuardianOfficeVisit,guardianTutoringOfficeEntry} from '../services/guardianTutoringOffice.service.js';
 import pool from '../config/database.js';
 import {assertLearningSessionAccess} from '../utils/learningClassAccess.js';
 import { requireResponsiblePayer } from '../services/familyBillingPolicy.service.js';
@@ -1019,3 +1020,13 @@ async function requireTutorSession(req,sessionId,subject=null){
  }
  return session;
 }
+
+async function familyOfficeAccess(req,writing=false){
+ const access=await assertLearningClientAccess(req,req.params.clientId);
+ if(access.permissions?.canViewAppointments===false||(writing&&access.permissions?.canMessage===false))throw Object.assign(new Error('Your account does not have access to this appointment conversation.'),{status:403});
+ return access;
+}
+export async function getGuardianOfficeStatus(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req);res.set('Cache-Control','no-store');res.json(await guardianTutoringOfficeStatus({clientId,agencyId,providerId:service?.provider_user_id||null}));}catch(e){next(e);}}
+export async function postGuardianOfficeVisit(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req,req.body?.intent!=='join');res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.json(await startGuardianOfficeVisit({clientId,agencyId,providerId:service?.provider_user_id||null},req.body,req.user.id));}catch(e){next(e);}}
+
+export async function getGuardianOfficeEntry(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req);res.set('Cache-Control','no-store');res.json(await guardianTutoringOfficeEntry({clientId,agencyId,providerId:service?.provider_user_id||null},req.query));}catch(e){next(e);}}

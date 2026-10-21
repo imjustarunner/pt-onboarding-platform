@@ -29,7 +29,7 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
   await state.db.query('CREATE TABLE users (id INT PRIMARY KEY,role VARCHAR(30))');await state.db.query("INSERT INTO users VALUES (5,'provider')");
   await state.db.query('CREATE TABLE provider_my_rooms (id INT PRIMARY KEY,user_id INT,agency_id INT,slug VARCHAR(100),join_token VARCHAR(64),display_name VARCHAR(100),is_active BOOLEAN DEFAULT TRUE,UNIQUE KEY uq_provider_my_rooms_user(user_id))');
   await state.db.query('CREATE TABLE counseling_sessions (id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,provider_user_id INT,client_user_id INT,appointment_id INT,title VARCHAR(100),guest_invite_token VARCHAR(64),public_id VARCHAR(36),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,status VARCHAR(20),vonage_session_id VARCHAR(512),vonage_application_id VARCHAR(100),started_at DATETIME,ended_at DATETIME)');
-  for(const name of ['1456_security_evidence.sql','1522_private_virtual_offices.sql','1530_tenant_office_session_workspace.sql','1531_clinical_encounter_security.sql','1560_unified_virtual_office.sql']){
+  for(const name of ['1456_security_evidence.sql','1522_private_virtual_offices.sql','1530_tenant_office_session_workspace.sql','1531_clinical_encounter_security.sql','1560_unified_virtual_office.sql','1685_private_office_messages.sql']){
    const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');
    for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);
   }

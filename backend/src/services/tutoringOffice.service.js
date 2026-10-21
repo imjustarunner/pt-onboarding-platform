@@ -156,8 +156,8 @@ export async function tutoringOfficeDestination(session, actorId, db=pool) {
 export function assertTutoringArrivalTime(visit,now=Date.now()){
  const start=parseUtcDate(visit.starts_at),end=parseUtcDate(visit.ends_at);
  if(!start||!end||+end<=+start)throw fail(409,'This appointment needs a valid scheduled time.');
- if(now<+start-15*60000)throw fail(409,'The student can enter 15 minutes before their scheduled appointment.');
- if(now>+end+60*60000)throw fail(409,'This appointment has passed. Update the schedule before admitting the student.');
+ if(now<+start-30*60000)throw fail(409,'The student can enter 30 minutes before their scheduled appointment.');
+ if(now>+end+30*60000)throw fail(409,'This appointment has passed. Update the schedule before admitting the student.');
 }
 export async function finishTutoringOffice(room,generation){
  const link=await tutoringOfficeLink(room,generation);

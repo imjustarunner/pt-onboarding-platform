@@ -75,3 +75,7 @@ it('builds action buttons for email without SMS reply instructions or full names
  expect(school.subject).toBe('ITSCO: School session notice');expect(school.html).toContain('My child will miss school');expect(school.html).not.toContain('action=confirm');
  expect(school.html).toContain('Stop in-school session emails for this child');expect(school.templateType).toBe('school_session_notice');expect(message.html).not.toContain('school-session-emails');
 });
+it('routes virtual tutoring email joins through the appointment check, retaining the agency and student',async()=>{
+ const message=await buildAppointmentEmail({appointment:{...appt,businessType:'learning',modality:'VIRTUAL'},clientId:22,to:email,actionUrl:null});
+ expect(message.text).toContain('Join tutoring session');expect(message.text).toContain('/tutoring-session/appointment/44?clientId=22&agencyId=2');expect(message.text).not.toContain('/join/my-room/');
+});

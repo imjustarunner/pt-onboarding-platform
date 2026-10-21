@@ -15,6 +15,7 @@ const room={id:1,userId:5,agencyId:2,isActive:true,displayName:'Provider'};
 let db;
 beforeEach(()=>{vi.clearAllMocks();clinical.clinicalMedia.mockResolvedValue({state:'active'});clinical.clinicalVideoToken.mockResolvedValue('video-token');clinical.finishClinicalEnd.mockResolvedValue({ok:false,state:'ending'});mocks.membership.mockResolvedValue(true);mocks.plan.mockResolvedValue({privateOffice:true,multipleOfficeGuests:false});mocks.video.isVideoConfigured.mockReturnValue(true);mocks.video.generateToken.mockReturnValue('video-token');mocks.video.createSession.mockResolvedValue('new-session');mocks.video.endLiveSession.mockResolvedValue({ok:true});db={execute:mocks.execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};mocks.getConnection.mockResolvedValue(db);});
 function handler({guest={id:8,status:'waiting',generation:2,photo_envelope:'photo',display_name:'Guest'},count=0,present=count,session={video_session_id:'live',generation:2,host_seen_at:new Date()}}={}){mocks.execute.mockImplementation(async sql=>{
+ if(sql.includes('FROM private_virtual_office_appointment_visits'))return [[]];
  if(sql.includes('SELECT * FROM tutoring_office_encounters'))return [[]];
  if(sql.includes('SELECT role'))return [[{role:'provider'}]];
  if(sql.includes('SELECT * FROM private_virtual_office_sessions'))return [[session]];
@@ -47,3 +48,12 @@ it('admits a waiting guest without a photo',async()=>{handler({guest:{id:8,statu
 it('does not admit a missing or already ended visit',async()=>{handler({guest:null});await expect(admitOfficeGuest(room,8)).rejects.toMatchObject({status:409});});
 
 it('never treats an invalid public lobby id as the host workspace',async()=>{handler();for(const id of [0,NaN,-1])await expect(officeWorkspaceContext(room,{id,credential:'a'.repeat(43)})).rejects.toMatchObject({status:403});});
+
+it('returns only availability for a waiting visitor, including other admitted session-link guests',async()=>{
+ const {officeAvailability}=await import('../privateVirtualOffice.service.js');
+ mocks.execute.mockResolvedValueOnce([[{occupied:1}]]);
+ expect(await officeAvailability(room,8,{generation:2,office_seen_at:new Date()})).toBe('in_session');
+ const [sql,args]=mocks.execute.mock.calls[0];expect(sql).toContain('counseling_session_visits');expect(args).toEqual([1,2,8,1,2,8]);
+ mocks.execute.mockResolvedValueOnce([[{occupied:0}]]);expect(await officeAvailability(room,8,{generation:2,office_seen_at:new Date()})).toBe('available');
+ mocks.execute.mockResolvedValueOnce([[{occupied:0}]]);expect(await officeAvailability(room,8,{generation:2,office_seen_at:new Date(0)})).toBe('away');
+});

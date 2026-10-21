@@ -8,7 +8,7 @@ export function requireStaffPlanActor(user) {
 }
 
 export function guardianLearningRouteAllowed(method, path) {
-  const reads = [/^\/taxonomy$/, /^\/clients\/\d+\/(guardian-feed|guardian-dashboard|practice|packages|package-entitlements)$/];
-  const writes = [/^\/practice\/\d+\/complete$/, /^\/clients\/\d+\/packages\/\d+\/(checkout|confirm)$/];
+  const reads = [/^\/taxonomy$/, /^\/clients\/\d+\/(guardian-feed|guardian-dashboard|office-status|office-entry|practice|packages|package-entitlements)$/];
+  const writes = [/^\/clients\/\d+\/office-visit$/, /^\/practice\/\d+\/complete$/, /^\/clients\/\d+\/packages\/\d+\/(checkout|confirm)$/];
   return (method === 'GET' && reads.some(pattern => pattern.test(path))) || (method === 'POST' && writes.some(pattern => pattern.test(path)));
 }

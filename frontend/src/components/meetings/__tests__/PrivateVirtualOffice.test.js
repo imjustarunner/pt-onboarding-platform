@@ -137,3 +137,12 @@ it('puts away the binder and reopens a clean office only after guest disconnecti
  expect(wrapper.find('input[readonly]').element.value).toBe(url);expect(wrapper.text()).toContain('Second client');
  expect(request.mock.calls.some(([p])=>p.includes('/admit'))).toBe(false);wrapper.unmount();
 });
+
+it('opens a private visitor conversation without interrupting the active video or admitting them',async()=>{
+ const {wrapper,request,data}=await setup({state:'active',hasParticipants:true},[{id:1,guestDisplayName:'Current student'}]);
+ await button(wrapper,'Reconnect').trigger('click');await flushPromises();
+ data.waiting[0].unreadMessages=1;
+ await button(wrapper,'Message Second client').trigger('click');await flushPromises();
+ expect(wrapper.find('.office-messages').text()).toContain('Only you and Second client');expect(request).toHaveBeenCalledWith('/me/visits/7/messages',{method:'GET'});
+ expect(wrapper.findComponent(stub).exists()).toBe(true);expect(request.mock.calls.some(([p])=>p.endsWith('/admit')||p.endsWith('/end'))).toBe(false);wrapper.unmount();
+});
