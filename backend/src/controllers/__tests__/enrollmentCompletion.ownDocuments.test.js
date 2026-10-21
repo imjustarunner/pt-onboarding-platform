@@ -46,3 +46,26 @@ it('includes generated agreements with no template ID in the own-submission list
   const [query,params]=pool.execute.mock.calls.find(([sql])=>sql.includes('FROM intake_submission_documents'));
   expect(query).toContain('LEFT JOIN document_templates');expect(query).toContain('s.guardian_user_id = ?');expect(params).toEqual([4,12]);
 });
+it('lets an adult client list and download their own enrollment through an active self relationship',async()=>{
+  ClientGuardian.getLink.mockResolvedValue({access_enabled:1,relationship_type:'self',permissions_json:{canViewDocs:true}});
+  isClientAdultLockedForGuardian.mockResolvedValue(true);
+  await listMyClientIntakeSignedDocuments(req,res,next);
+  await getMyClientIntakeSignedDocumentDownloadUrl(req,res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({filename:'own.pdf'}));
+  expect(isClientAdultLockedForGuardian).not.toHaveBeenCalled();
+});
+it('keeps another adult’s records locked to a guardian relationship',async()=>{
+  isClientAdultLockedForGuardian.mockResolvedValue(true);
+  for(const handler of [listMyClientIntakeSignedDocuments,getMyClientIntakeSignedDocumentDownloadUrl])await handler(req,res,next);
+  expect(res.status).toHaveBeenCalledWith(403);expect(StorageService.getSignedUrl).not.toHaveBeenCalled();
+});
+it('does not let self access override revocation, document restrictions, or submission ownership',async()=>{
+  for(const link of [{access_enabled:0},{access_enabled:1,permissions_json:{canViewDocs:false}}]){
+    ClientGuardian.getLink.mockResolvedValue({...link,relationship_type:'self'});
+    await getMyClientIntakeSignedDocumentDownloadUrl(req,res,next);expect(res.status).toHaveBeenCalledWith(403);
+  }
+  ClientGuardian.getLink.mockResolvedValue({access_enabled:1,relationship_type:'self',permissions_json:{canViewDocs:true}});
+  pool.execute.mockImplementation(async sql=>sql.includes('SELECT guardian_user_id')?[[{guardian_user_id:99}]]:[[{id:9,client_id:4,intake_submission_id:20,signed_pdf_path:'other.pdf'}]]);
+  await getMyClientIntakeSignedDocumentDownloadUrl(req,res,next);expect(res.status).toHaveBeenCalledWith(403);expect(StorageService.getSignedUrl).not.toHaveBeenCalled();
+});

@@ -1269,7 +1269,7 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
         error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
       });
     }
-    if (await isClientAdultLockedForGuardian(clientId)) {
+    if (link.relationship_type !== 'self' && await isClientAdultLockedForGuardian(clientId)) {
       return res.status(403).json({
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
       });
@@ -1302,7 +1302,7 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
         error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
       });
     }
-    if (await isClientAdultLockedForGuardian(clientId)) {
+    if (link.relationship_type !== 'self' && await isClientAdultLockedForGuardian(clientId)) {
       return res.status(403).json({
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
       });
