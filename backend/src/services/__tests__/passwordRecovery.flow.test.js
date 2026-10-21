@@ -11,6 +11,7 @@ vi.mock('../communicationLogging.service.js', () => ({ default: { logGeneratedCo
 vi.mock('../activityLog.service.js', () => ({ default: { logActivity: m.audit } }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../utils/hogwartsTestEmail.js', () => ({ looksLikeTestInboxRedirectAddress: () => false, shouldRedirectHogwartsOutboundEmail: async () => false }));
+vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.send}));
 vi.mock('../passwordRecoverySupport.service.js', () => ({ createPasswordRecoverySupportTicket: m.ticket }));
 import { requestPasswordRecoveryEmail } from '../passwordRecovery.service.js';
 import { passwordRecoverySsoState, passwordRecoveryRequiresSupport } from '../passwordRecoveryPolicy.service.js';
@@ -22,7 +23,7 @@ beforeEach(() => {
   m.ticket.mockResolvedValue(81);
   m.find.mockImplementation(async () => user); m.byId.mockImplementation(async () => user);
   m.agencies.mockResolvedValue([tenant]); m.token.mockResolvedValue({ token: 'reset-token' });
-  m.send.mockResolvedValue({ id: 'message-id' }); m.log.mockResolvedValue({ id: 7 }); m.execute.mockResolvedValue([]);
+  m.send.mockResolvedValue({ id: 'message-id' }); m.log.mockResolvedValue({ id: 7 }); m.execute.mockImplementation(async sql=>sql.includes('SELECT identity_product,status')?[[{identity_product:'full_suite',status:'ACTIVE_EMPLOYEE'}]]:[]);
   m.identities.mockResolvedValue([{ id: 12, agency_id: 9, from_email: 'app@tenant.example' }]); m.template.mockResolvedValue(null);
 });
 describe('password recovery delivery', () => {
@@ -137,4 +138,13 @@ describe('recovery SSO and account restrictions', () => {
   it.each([{ status: 'ARCHIVED' }, { status: 'inactive' }, { is_archived: '1' }, { pending_access_locked: 1 }])('preserves access restrictions for %j', (u) => {
     expect(passwordRecoveryRequiresSupport(u)).toBe(true);
   });
+});
+
+it('uses an AuricWell password link for clinical enrollment and the tenant link for tutoring',async()=>{
+ user.role='client_guardian';m.send.mockResolvedValue({id:'message-id',sent:true});
+ await requestPasswordRecoveryEmail({targetUser:user,enrollment:{agencyId:9,channel:'counseling'}});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({enrollmentChannel:'counseling',html:expect.stringContaining('https://auricwell.com/tenant/reset-password/reset-token')}));
+ m.send.mockClear();
+ await requestPasswordRecoveryEmail({targetUser:user,enrollment:{agencyId:9,channel:'tutoring'}});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({enrollmentChannel:'tutoring',html:expect.stringContaining('https://tenant.example/reset-password/reset-token')}));
 });
