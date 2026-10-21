@@ -20,8 +20,7 @@
         <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
         <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
         <template v-if="showBookingQueueTabs">
-          <router-link class="tab tab-link" :to="bookingQueueLink('booking')">Booking requests</router-link>
-          <router-link class="tab tab-link" :to="bookingQueueLink('legacy')">Legacy room requests</router-link>
+          <router-link class="tab tab-link" :to="bookingQueueLink('requests')">Office approvals</router-link>
         </template>
         <button class="btn btn-secondary btn-sm" style="margin-left:auto;" @click="reload" :disabled="loading">Refresh</button>
       </div>
@@ -30,74 +29,8 @@
       <div v-else-if="error" class="error">{{ error }}</div>
 
       <div v-else>
-        <!-- Office requests -->
-        <div v-if="tab === 'office'">
-          <div v-if="officeRequests.length === 0" class="muted">No pending office availability requests.</div>
-          <div v-else class="list">
-            <div v-for="r in officeRequests" :key="r.id" class="row">
-              <div class="main">
-                <div class="title">{{ r.providerName }}</div>
-                <div class="meta">
-                  Preferred offices:
-                  <span v-if="!(Array.isArray(r.preferredOfficeIds) && r.preferredOfficeIds.length)">Any</span>
-                  <span v-else>{{ (Array.isArray(r.preferredOfficeIds) ? r.preferredOfficeIds : []).map((id) => officeName(id)).join(', ') }}</span>
-                </div>
-                <div class="meta" v-if="r.preferredRooms?.length">Room preferences: {{ r.preferredRooms.map((room,i)=>`${i+1}. ${room.label}`).join(' → ') }}</div>
-                <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
-                <div class="meta">
-                  <span v-if="r.requestedStartDate">Starting <strong>{{ fmtDate(r.requestedStartDate) }}</strong>&nbsp;·&nbsp;</span>
-                  <strong>{{ requestedRecurrenceLabel(r) }}{{ r.requestedFrequency && r.requestedFrequency !== 'ONCE' ? ` × ${r.requestedOccurrenceCount}` : '' }}</strong>
-                </div>
-                <div class="meta">
-                  Windows:
-                  <span v-for="(s, idx) in r.slots" :key="idx" class="pill">
-                    {{ weekdayLabel(s.weekday) }} {{ hourLabel(s.startHour) }}–{{ hourLabel(s.endHour) }}
-                  </span>
-                </div>
-                <div class="meta occurrence-preview" v-if="occurrencePreview(r).length > 1">
-                  Occurrences:
-                  <span v-for="(d, i) in occurrencePreview(r)" :key="i" class="pill pill-date">{{ fmtShortDate(d) }}</span>
-                </div>
-              </div>
-
-              <div class="assign">
-                <div class="lbl">Requested (approve as-is)</div>
-                <div class="assign-readonly">
-                  <div class="assign-row"><span class="assign-label">Office:</span> {{ officeAssignDisplay(r).office }}</div>
-                  <div class="assign-row"><span class="assign-label">Room:</span> {{ officeAssignDisplay(r).room }}</div>
-                  <div class="assign-row"><span class="assign-label">Date:</span> {{ fmtDate(r.requestedStartDate) || 'Not specified' }}</div>
-                  <div class="assign-row"><span class="assign-label">Time:</span> {{ officeAssignDisplay(r).time }}</div>
-                  <div class="assign-row"><span class="assign-label">Frequency:</span> {{ requestedRecurrenceLabel(r) }}{{ r.requestedFrequency && r.requestedFrequency !== 'ONCE' ? ` × ${r.requestedOccurrenceCount}` : '' }}</div>
-                </div>
-                <div v-if="needsAutoAssignableRoom(r)" class="assign-options">
-                  <div class="lbl">Available offices for {{ requestedRecurrenceLabel(r) }}</div>
-                  <div v-if="officeAssignOptionsState[r.id]?.loading" class="assign-hint muted">Checking availability…</div>
-                  <div v-else-if="officeAssignOptionsState[r.id]?.error" class="assign-hint error">{{ officeAssignOptionsState[r.id]?.error }}</div>
-                  <select
-                    v-else-if="(officeAssignOptions[r.id] || []).length"
-                    class="select"
-                    :value="officeAssignSelectedKey(r)"
-                    @change="onSelectAssignOption(r, $event.target.value)"
-                  >
-                    <option
-                      v-for="opt in officeAssignOptions[r.id]"
-                      :key="`${opt.officeId}:${opt.roomId}`"
-                      :value="`${opt.officeId}:${opt.roomId}`"
-                    >
-                      {{ opt.officeName }} — {{ opt.roomLabel }}
-                    </option>
-                  </select>
-                  <div v-else class="assign-hint warning">{{ assignOptionsMessage(r) }}</div>
-                </div>
-                <div v-else-if="officeAssignIncomplete(r)" class="assign-hint muted">Provider must specify office, room, and time when requesting. Deny and ask for resubmission.</div>
-                <div class="row-inline" style="gap: 8px; margin-top: 6px;">
-                  <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving || officeAssignIncomplete(r)">Approve</button>
-                  <button class="btn btn-secondary btn-sm" @click="denyOffice(r)" :disabled="saving">Deny</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- All office entry points use the same review and decision interface. -->
+        <OfficeApprovalsView v-if="tab === 'office'" />
 
         <!-- Additional school daytime hours requests -->
         <div v-else-if="tab === 'school'">
@@ -402,6 +335,7 @@
 </template>
 
 <script setup>
+import OfficeApprovalsView from '../../views/admin/OfficeApprovalsView.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -710,7 +644,7 @@ const reload = async () => {
     const [officesResp, schoolsResp, officeReqResp, schoolReqResp, scheduleAdjResp, publicReqResp, skillsResp, providersResp, publicLinkResp] = await Promise.all([
       api.get('/offices'),
       api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
-      api.get('/availability/admin/office-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
+      Promise.resolve({ data: [] }), // The unified OfficeApprovalsView owns office request loading.
       api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING', requestKind: 'additional_hours' } }),
       api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING', requestKind: 'schedule_adjustment' } }),
       api.get('/availability/admin/public-appointment-requests', { params: { agencyId: agencyId.value } }).catch(() => ({ data: { requests: [] } })),

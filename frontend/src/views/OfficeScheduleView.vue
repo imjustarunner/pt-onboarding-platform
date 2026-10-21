@@ -9,6 +9,7 @@
         </div>
       </div>
       <div class="controls" data-tour="buildings-schedule-controls">
+        <router-link v-if="canManageSchedule" class="btn btn-primary btn-sm" :to="officeApprovalsTo">Office approvals<span v-if="officeApprovalCount !== null"> · {{ officeApprovalCount }}</span></router-link>
         <div class="field" data-tour="buildings-schedule-week">
           <label>Week of</label>
           <input v-model="weekStart" type="date" @change="loadGrid" :disabled="!officeId" />
@@ -30,7 +31,7 @@
     <div v-else-if="loading && !grid" class="loading">Loading…</div>
     <div v-if="successToast" class="success-toast">{{ successToast }}</div>
 
-    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? '/admin/office-approvals' : ''" />
+    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? officeApprovalsTo : ''" />
 
     <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="office-schedule-legend" data-tour="buildings-schedule-legend">
@@ -893,6 +894,20 @@ const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
+const officeApprovalCount = ref(null);
+const officeApprovalsTo = computed(() => ({
+  path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/office-approvals`
+}));
+async function loadOfficeApprovalCount() {
+  if (!canManageSchedule.value) return;
+  try {
+    const { data } = await api.get('/office-schedule/approvals', { params: { summary: 1 } });
+    officeApprovalCount.value = data.total;
+  } catch {
+    officeApprovalCount.value = null;
+  }
+}
+
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
 const officeRoomPhotoGallery = ref({ open: false, officeId: 0, roomId: 0, roomLabel: '' });
 function openOfficeRoomPhotoGallery(payload = {}) {
@@ -1265,6 +1280,7 @@ const goToPreviousWeek = async () => {
 let gridRequestId=0;
 const loadGrid = async ({preserveSelection=false} = {}) => {
   const requestId=++gridRequestId;
+  loadOfficeApprovalCount();
   if (!officeId.value) return;
   const hadGrid = !!grid.value;
   try {

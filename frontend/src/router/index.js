@@ -2723,7 +2723,7 @@ const routes = [
     path: '/:organizationSlug/admin/schedule-approvals',
     name: 'OrganizationOfficeScheduleApprovals',
     redirect: (to) => ({
-      path: `/${to.params.organizationSlug}/admin/availability-intake`,
+      path: `/${to.params.organizationSlug}/admin/office-approvals`,
       query: { ...to.query, tab: to.query?.tab || 'booking' }
     })
   },
@@ -4336,7 +4336,7 @@ const routes = [
     path: '/admin/schedule-approvals',
     name: 'OfficeScheduleApprovals',
     redirect: (to) => ({
-      path: '/admin/availability-intake',
+      path: '/admin/office-approvals',
       query: { ...to.query, tab: to.query?.tab || 'booking' }
     })
   },

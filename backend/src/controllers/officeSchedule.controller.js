@@ -1,3 +1,4 @@
+import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import {indexPendingRoomRequest,pendingBookingOccurrences} from '../utils/officePendingRequests.js';
@@ -2428,7 +2429,8 @@ export const listPendingRequests = async (req, res, next) => {
   }
 };
 
-export const approveRequest = async (req, res, next) => {
+export const approveRequest = (req,res,next) => runOfficeDecision(req,res,next,{source:'legacy',action:'approve',handler:approveRequestImpl});
+const approveRequestImpl = async (req, res, next) => {
   try {
     if (!canManageSchedule(req.user.role)) {
       return res.status(403).json({ error: { message: 'Only CPA/admin can approve requests' } });
@@ -2436,6 +2438,13 @@ export const approveRequest = async (req, res, next) => {
 
     const { id } = req.params;
     const reqRow = await OfficeRoomRequest.findById(parseInt(id));
+    if (reqRow && req.officeApprovalWindow) {
+      const w=req.officeApprovalWindow;
+      reqRow.start_at=mysqlDateTimeForDateHour(w.startDate,w.startHour,w.timezone);
+      reqRow.end_at=mysqlDateTimeForDateHour(w.startDate,w.endHour,w.timezone);
+      reqRow.room_id=Number(req.body.roomId);
+      reqRow.booked_occurrence_count=w.occurrenceCount;
+    }
     if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
     if (reqRow.status !== 'PENDING') {
       return res.status(400).json({ error: { message: 'Request is not pending' } });
@@ -2499,7 +2508,8 @@ export const approveRequest = async (req, res, next) => {
   }
 };
 
-export const denyRequest = async (req, res, next) => {
+export const denyRequest = (req,res,next) => runOfficeDecision(req,res,next,{source:'legacy',action:'deny',handler:denyRequestImpl});
+const denyRequestImpl = async (req, res, next) => {
   try {
     if (!canManageSchedule(req.user.role)) {
       return res.status(403).json({ error: { message: 'Only CPA/admin can deny requests' } });
@@ -3107,7 +3117,8 @@ export const getOfficeBookingRequestContext = async (req, res, next) => {
   }
 };
 
-export const approveOfficeBookingRequest = async (req, res, next) => {
+export const approveOfficeBookingRequest = (req,res,next) => runOfficeDecision(req,res,next,{source:'booking',action:'approve',handler:approveOfficeBookingRequestImpl});
+const approveOfficeBookingRequestImpl = async (req, res, next) => {
   try {
     const request = await OfficeBookingRequest.findById(req.params.requestId || req.params.id);
     return await withClientSchedulingLock([request?.client_id], () => approveOfficeBookingRequestLocked(req,res,next));
@@ -3123,6 +3134,13 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'Invalid request id' } });
 
     const reqRow = await OfficeBookingRequest.findById(id);
+    if (reqRow && req.officeApprovalWindow) {
+      const w=req.officeApprovalWindow;
+      reqRow.start_at=mysqlDateTimeForDateHour(w.startDate,w.startHour,w.timezone);
+      reqRow.end_at=mysqlDateTimeForDateHour(w.startDate,w.endHour,w.timezone);
+      reqRow.room_id=Number(req.body.roomId);
+      reqRow.booked_occurrence_count=w.occurrenceCount;
+    }
     if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
     if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
       return res.status(409).json({ error: { message: 'Request is not pending' } });
@@ -3302,7 +3320,7 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     const rooms = await OfficeRoom.findByLocation(loc.id);
     const requestedRoom = requestedRoomId ? rooms.find((r) => Number(r.id) === requestedRoomId) : null;
     const allowAlt = !!reqRow.open_to_alternative_room;
-    const candidates = requestedRoom && !allowAlt ? [requestedRoom] : rooms;
+    const candidates = req.officeApprovalWindow ? rooms.filter(r=>Number(r.id)===Number(req.body.roomId)) : requestedRoom && !allowAlt ? [requestedRoom] : rooms;
 
     // Ensure week events are materialized so standing assignments appear as occupied.
     try {
@@ -3332,7 +3350,10 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     let chosen = null;
     for (const r of candidates) {
       // eslint-disable-next-line no-await-in-loop
-      const open = await isRoomOpenAt({
+      // A reviewed approval has already checked every occurrence and standing
+      // owner under the decision lock. Kiosk soft holds are pending requests,
+      // not reservations; they must not override the approver's reviewed choice.
+      const open = req.officeApprovalWindow ? true : await isRoomOpenAt({
         officeLocationId: loc.id,
         roomId: r.id,
         startAt: reqRow.start_at,
@@ -3658,7 +3679,8 @@ export const getBookingMetadata = async (req, res, next) => {
   }
 };
 
-export const denyOfficeBookingRequest = async (req, res, next) => {
+export const denyOfficeBookingRequest = (req,res,next) => runOfficeDecision(req,res,next,{source:'booking',action:'deny',handler:denyOfficeBookingRequestImpl});
+const denyOfficeBookingRequestImpl = async (req, res, next) => {
   try {
     if (!canManageSchedule(req.user.role)) {
       return res.status(403).json({ error: { message: 'Only CPA/admin can deny booking requests' } });
