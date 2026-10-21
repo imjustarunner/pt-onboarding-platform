@@ -1,4 +1,5 @@
 import { usesPasswordLogin } from '../utils/passwordLogin.js';
+import { familyLoginOrganization, portalSignInUsername } from '../utils/familyLoginContext.js';
 import { mintRoutingHint } from '../services/schoolCareBridgeRouting.service.js';
 import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport, PASSWORD_RECOVERY_SUPPORT_MESSAGE } from '../services/passwordRecoveryPolicy.service.js';
 import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
@@ -1378,6 +1379,7 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
+    resolved = familyLoginOrganization(user, orgs, requested) || resolved;
     const resolvedSlug = resolved ? pickSlug(resolved) : null;
 
     // Determine login method (Google vs password) for resolved org
@@ -2557,7 +2559,7 @@ export const validateSetupToken = async (req, res, next) => {
       lastName: user.last_name,
       preferredName: user.preferred_name || null,
       email: user.personal_email || user.email,
-      username: setupUser.username || user.personal_email || user.email,
+      username: portalSignInUsername(setupUser),
       role: user.role,
       ...dobMeta,
       ...branding
@@ -2635,6 +2637,7 @@ export const validateResetToken = async (req, res, next) => {
       firstName: user.first_name,
       needsJobTitle,
       accessRoleLabel,
+      username: portalSignInUsername(recoveryUser),
       ...branding
     });
   } catch (error) {

@@ -38,3 +38,19 @@ describe('employee Google and password routing', () => {
     expect((await identify()).login.method).toBe('password');
   });
 });
+
+describe('family email-first portal routing', () => {
+  const school={id:376,slug:'hogwarts',organization_type:'school',affiliated_agency_id:2};
+  const learning={id:6,slug:'nlu',organization_type:'learning'};
+  beforeEach(()=>{
+    Object.assign(user,{role:'client_guardian',email:'parent@example.com',username:'parent@example.com',password_hash:'existing-password'});
+    m.agencies.mockResolvedValue([school,learning,agency]);
+  });
+  it.each([null,'hogwarts','unrelated'])('selects the family care agency for entry %s',async organizationSlug=>{
+    const result=await identify({organizationSlug});
+    expect(result.resolvedOrg.slug).toBe('itsco');expect(result.login.method).toBe('password');
+  });
+  it('keeps an authorized tutoring portal when its link was selected',async()=>{
+    expect((await identify({organizationSlug:'nlu'})).resolvedOrg.slug).toBe('nlu');
+  });
+});

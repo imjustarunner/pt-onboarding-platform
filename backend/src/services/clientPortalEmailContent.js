@@ -11,7 +11,7 @@ export function portalActionHtml(label, url) {
   return `${portalMessageHtml({ text: url, linkUrl: url, linkLabel: label })}<p style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;color:#627187">Or copy and paste this link into your browser:<br><a href="${e(url)}" style="color:#16457c">${e(url)}</a></p>`;
 }
 
-export function buildClientEnrollmentEmail({ firstName, agencyName, clients = [], learning = false, existingAccount = false, url }) {
+export function buildClientEnrollmentEmail({ firstName, agencyName, clients = [], learning = false, existingAccount = false, url, username = null }) {
   const labels = clients.map(clientEmailLabel).join(', '), count = clients.length || 1;
   const who = count === 1 ? 'Your dependent' : `Your ${count} dependents`;
   const service = learning ? 'tutoring services' : 'counseling services';
@@ -24,8 +24,10 @@ export function buildClientEnrollmentEmail({ firstName, agencyName, clients = []
     : `Use one ${learning ? 'family' : 'AuricWell'} portal account for ${count === 2 ? 'both dependents' : count > 2 ? 'all your dependents' : 'your dependent'}. ${agencyName} is your ${learning ? 'tutoring' : 'care'} agency. You can view appointments, complete forms, manage billing, and review information shared by your team. Set your password below to get started.`;
   const greeting = `Hi ${firstName || 'there'},`, action = existingAccount ? 'View your dependents' : 'Set up your portal';
   const preferences = 'Review your notification preferences in the portal to choose which reminders you receive.';
-  return { subject: heading, text: `${greeting}\n\n${introduction}\n\n${details}\n\n${action}:\n${url}\n\n${preferences}`,
-    html: `<p>${e(greeting)}</p><h2 style="font-size:22px;line-height:1.3">${existingAccount ? 'Your account has new access' : 'Welcome to your portal'}</h2><p>${e(introduction)}</p><p>${e(details)}</p>${portalActionHtml(action, url)}<p>${e(preferences)}</p>`, linkUrl: url };
+  const signIn = username ? `Your sign-in email (username): ${username}` : '';
+  const nextTime = existingAccount ? '' : 'After saving your password, you will be signed in automatically. On your own device, you can save your password when your browser offers. Next time, use your email and password from the Portal login button on our website.';
+  return { subject: heading, text: `${greeting}\n\n${introduction}\n\n${details}\n\n${signIn ? `${signIn}\n\n` : ''}${action}:\n${url}\n\n${nextTime ? `${nextTime}\n\n` : ''}${preferences}`,
+    html: `<p>${e(greeting)}</p><h2 style="font-size:22px;line-height:1.3">${existingAccount ? 'Your account has new access' : 'Welcome to your portal'}</h2><p>${e(introduction)}</p><p>${e(details)}</p>${username ? `<p>Your sign-in email (username): <strong style="overflow-wrap:anywhere">${e(username)}</strong></p>` : ''}${portalActionHtml(action, url)}${nextTime ? `<p>${e(nextTime)}</p>` : ''}<p>${e(preferences)}</p>`, linkUrl: url };
 }
 
 export function buildFamilyBillingEmail({ kind, agencyName, url }) {

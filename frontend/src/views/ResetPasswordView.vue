@@ -30,6 +30,11 @@
           <p class="subtitle">Choose a new password for your account.</p>
 
           <form @submit.prevent="handleReset" autocomplete="on">
+            <div v-if="loginUsername" class="form-group">
+              <label for="resetUsername">Your sign-in username</label>
+              <input id="resetUsername" name="username" :value="loginUsername" type="text" autocomplete="username" autocapitalize="none" :spellcheck="false" readonly class="form-input" />
+              <p class="muted tiny">You will be signed in after saving. On your own device, you can save your password when your browser offers.</p>
+            </div>
             <div v-if="needsJobTitle" class="form-group">
               <label for="jobTitle">Your job title / role at the school</label>
               <input
@@ -51,6 +56,7 @@
               <div class="input-wrap">
                 <input
                   id="password"
+                  name="new-password"
                   v-model="password"
                   :type="showPassword ? 'text' : 'password'"
                   placeholder="Choose a new password"
@@ -58,6 +64,9 @@
                   class="form-input"
                   :disabled="saving"
                   autocomplete="new-password"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  :spellcheck="false"
                   minlength="10"
                   maxlength="128"
                 />
@@ -73,6 +82,7 @@
               <div class="input-wrap">
                 <input
                   id="confirmPassword"
+                  name="confirm-password"
                   v-model="confirmPassword"
                   :type="showConfirm ? 'text' : 'password'"
                   placeholder="Re-enter your new password"
@@ -80,6 +90,9 @@
                   class="form-input"
                   :disabled="saving"
                   autocomplete="new-password"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  :spellcheck="false"
                   minlength="10"
                   maxlength="128"
                 />
@@ -129,6 +142,7 @@ const brandingStore = useBrandingStore();
 const loading = ref(true);
 const error = ref('');
 const firstName = ref('');
+const loginUsername = ref('');
 const password = ref('');
 const confirmPassword = ref('');
 const jobTitle = ref('');
@@ -185,6 +199,7 @@ const validateToken = async () => {
   try {
     const resp = await api.get(`/auth/validate-reset-token/${encodeURIComponent(token.value)}`);
     firstName.value = resp.data.firstName || '';
+    loginUsername.value = resp.data.username || '';
     needsJobTitle.value = !!resp.data.needsJobTitle;
     accessRoleLabel.value = resp.data.accessRoleLabel || '';
     await applyBranding(resp.data);

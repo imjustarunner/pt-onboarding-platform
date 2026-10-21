@@ -22,7 +22,8 @@
           <form @submit.prevent="handleSetup" autocomplete="on">
             <div v-if="loginUsername" class="form-group">
               <label for="setupUsername">Your sign-in username</label>
-              <input id="setupUsername" :value="loginUsername" type="text" autocomplete="username" readonly class="form-input" />
+              <input id="setupUsername" name="username" :value="loginUsername" type="text" autocomplete="username" autocapitalize="none" :spellcheck="false" readonly class="form-input" />
+              <p class="field-hint">On your own device, you can save your password when your browser offers. Next time, use this email and your password.</p>
             </div>
             <!-- New password -->
             <div class="form-group">
@@ -30,6 +31,7 @@
               <div class="input-wrap">
                 <input
                   id="password"
+                  name="new-password"
                   v-model="password"
                   :type="showPassword ? 'text' : 'password'"
                   placeholder="Choose your password"
@@ -56,6 +58,7 @@
               <div class="input-wrap">
                 <input
                   id="confirmPassword"
+                  name="confirm-password"
                   v-model="confirmPassword"
                   :type="showConfirm ? 'text' : 'password'"
                   placeholder="Re-enter your password"

@@ -726,7 +726,7 @@ export async function emailPortalLoginInfo({
     token=saved?.token||(await User.generatePasswordlessToken(guardian.id,48,'setup')).token;
   }
   const url=clientPortalInviteUrl({portal:context.portal,token,existingAccount});
-  const content=canSetup?buildClientEnrollmentEmail({firstName:guardian?.first_name,agencyName:agency.name,
+  const content=canSetup?buildClientEnrollmentEmail({username:guardian?.email || guardian?.username,firstName:guardian?.first_name,agencyName:agency.name,
     clients:[context.client],learning:context.learning,existingAccount,url}):{
       subject:`${agency.name}: sign in to your portal`,text:`Sign in to your ${context.clinical?'AuricWell':'family'} portal to view information shared with your account.\n\n${url}`,
       html:(await import('./clientPortalEmailContent.js')).portalActionHtml('Sign in to your portal',url),linkUrl:url};
