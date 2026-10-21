@@ -13,19 +13,11 @@ import {
   signAcknowledgment,
   publicSigningPath
 } from '../services/treatmentPlanAck.service.js';
-import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { clientEmailContext, sendClientPortalEmail } from '../services/clientPortalEmail.service.js';
 
 function parseIntValue(v) {
   const n = Number(v);
   return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-function appBaseUrl(req) {
-  const env = String(process.env.APP_BASE_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-  if (env) return env;
-  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
-  const host = req.get('x-forwarded-host') || req.get('host') || 'plottwisthq.com';
-  return `${proto}://${host}`;
 }
 
 export const listTreatmentPlanAcks = async (req, res, next) => {
@@ -106,39 +98,17 @@ export const emailTreatmentPlanAckLink = async (req, res, next) => {
       recipientName: req.body.recipientName || null,
       recipientKind: req.body.recipientKind === 'guardian' ? 'guardian' : 'client'
     });
-    const url = `${appBaseUrl(req)}${publicSigningPath(link.public_key)}`;
+    const context = await clientEmailContext({agencyId,clientId});
+    const url = `${context.clinical ? 'https://auricwell.com' : new URL(context.url('guardian')).origin}${publicSigningPath(link.public_key)}`;
     let emailed = false;
     let emailError = null;
     try {
-      const { resolvePreferredSenderIdentityForAgency } = await import(
-        '../services/emailSenderIdentityResolver.service.js'
-      );
-      let senderIdentityId = parseIntValue(req.body.senderIdentityId);
-      if (!senderIdentityId) {
-        const identity = await resolvePreferredSenderIdentityForAgency({ agencyId });
-        senderIdentityId = identity?.id || null;
-      }
-      if (!senderIdentityId) {
-        throw new Error('No email sender identity configured for this agency. Copy the signing link below.');
-      }
+      const { buildTreatmentPlanEmail } = await import('../services/clientPortalEmailContent.js');
       const client = await Client.findById(clientId);
-      const clientLabel = client?.full_name || client?.initials || `Client ${clientId}`;
-      await sendEmailFromIdentity({
-        senderIdentityId,
-        to: link.recipient_email,
-        subject: 'Please review and sign the treatment plan',
-        html: `
-          <p>Hello${link.recipient_name ? ` ${link.recipient_name}` : ''},</p>
-          <p>Please review and digitally sign the treatment plan for <strong>${clientLabel}</strong>.</p>
-          <p><a href="${url}">Open treatment plan to sign</a></p>
-          <p>This link expires in 14 days.</p>
-        `,
-        text: `Please review and sign the treatment plan: ${url}`,
-        clientId,
-        generatedByUserId: req.user?.id || null,
-        source: 'auto',
-        linkUrl: url
-      });
+      const delivery = await sendClientPortalEmail({agencyId,clientId,context,to:link.recipient_email,
+        ...buildTreatmentPlanEmail({client,recipientName:link.recipient_name,url,expires:true}),
+        templateType:'guardian_plan_review',generatedByUserId:req.user?.id || null,source:'auto'});
+      if (!delivery?.id || delivery.blocked || delivery.skipped || delivery.queued || delivery.pendingApproval) throw new Error('Treatment plan email was not confirmed as sent.');
       emailed = true;
       await markEmailSent(link.id, { actorUserId: req.user.id });
     } catch (mailErr) {

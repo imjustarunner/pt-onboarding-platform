@@ -16,8 +16,8 @@ export function enrollmentMailBrand({ agency, domain, school = false, channel = 
   const rawLogo = agency.logo_url || agency.logo_path || agency.icon_file_path;
   let agencyLogo = publicUrl(rawLogo) || publicUrl(rawLogo ? publicUploadsUrlFromStoredPath(rawLogo) : '');
   const slug = String(agency.slug || agency.portal_url || '').toLowerCase();
-  if (!agencyLogo && (slug === 'itsco' || name === 'ITSCO')) agencyLogo = 'https://itsco.health/assets/plotline/careers/itsco-logo.png';
-  if (!agencyLogo && (slug === 'nlu' || name === 'Next Level Up')) agencyLogo = 'https://nextleveluplcc.com/assets/nlu/logo.png';
+  if (slug === 'itsco' || name === 'ITSCO') agencyLogo = 'https://itsco.health/assets/plotline/careers/itsco-logo.png';
+  if (slug === 'nlu' || name === 'Next Level Up') agencyLogo = 'https://nextleveluplcc.com/assets/nlu/logo.png';
   return {
     clinical, name, agencyLogo,
     displayName: clinical ? 'AuricWell Portal' : `${name} Portal`,
@@ -43,7 +43,7 @@ export function renderPortalEmail({ brand, text, html, linkUrl, linkLabel }) {
   const mark = brand.clinical ? 'https://auricwell.com/auricwell/logo.png' : brand.agencyLogo;
   const name = brand.clinical ? 'AuricWell' : brand.name;
   const label = brand.clinical ? brand.displayName.replace(/^AuricWell\s*/, '') : 'Portal';
-  const agencyTag = brand.clinical ? `<td align="right" valign="middle" style="padding-left:12px"><table role="presentation" cellspacing="0" cellpadding="0" align="right"><tr>${brand.agencyLogo ? `<td valign="middle" style="padding-right:7px"><img src="${e(brand.agencyLogo)}" alt="" width="22" style="display:block;width:22px;height:auto;border:0"></td>` : ''}<td valign="middle" style="font-size:13px;font-weight:700;color:#234166;line-height:1.3">${e(brand.name)}</td></tr></table></td>` : '';
+  const agencyTag = brand.clinical ? `<td align="right" valign="middle" style="padding-left:12px"><table role="presentation" cellspacing="0" cellpadding="0" align="right"><tr>${brand.agencyLogo ? `<td valign="middle" style="padding-right:7px"><img src="${e(brand.agencyLogo)}" alt="" width="38" style="display:block;width:38px;height:auto;border:0"></td>` : ''}<td valign="middle" style="font-size:19px;font-weight:700;color:#234166;line-height:1.3">${e(brand.name)}</td></tr></table></td>` : '';
   const school = brand.products.some(p => p.startsWith('SchoolCareBridge'));
   return `<table role="presentation" data-portal-email="v2" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f6f9;font-family:Arial,Helvetica,sans-serif;color:#26364a"><tr><td align="center" style="padding:18px 10px">
 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #dce4ed;border-top:3px solid #16457c;border-radius:8px">

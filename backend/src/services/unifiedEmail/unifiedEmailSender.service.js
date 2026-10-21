@@ -196,7 +196,8 @@ export async function finalizeOutboundContent({
   source = null,
   templateType = null,
   clientId = null,
-  schoolOrganizationId = null
+  schoolOrganizationId = null,
+  portalEmailBrand = null
 }) {
   const schoolCommunication = await isSchoolCommunication({ templateType, clientId, userId, agencyId: agencyId || identity?.agency_id, schoolOrganizationId });
   ({ text, html } = compactSchoolCareBridgeEmail({ text, html, templateType, schoolCommunication }));
@@ -218,7 +219,8 @@ export async function finalizeOutboundContent({
   const providerUpdateReceipt = tt === 'provider_update_completion_receipt';
   // A mailbox is the transport, not the author. Human-authored Hub email gets
   // exactly the staff signature; department automations keep their own branding.
-  const portal = isPortalIdentity(identity);
+  const framedPortal = /data-portal-email="v[12]"/.test(String(html || ''));
+  const portal = !!portalEmailBrand || isPortalIdentity(identity) || framedPortal;
   if (providerUpdateReceipt && !portal && !String(html || '').includes('data-pt-provider-update-receipt="1"')) {
     html = renderProviderUpdateReceipt({ text });
   }
@@ -237,7 +239,12 @@ export async function finalizeOutboundContent({
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (portal) {
+  if (portalEmailBrand) {
+    signed = { text, html: renderPortalEmail({brand:portalEmailBrand,text,html}) };
+  } else if (framedPortal) {
+    // Approval-held messages already contain the reviewed portal frame.
+    signed = { text, html };
+  } else if (portal) {
     const { default: Agency } = await import('../../models/Agency.model.js');
     const agency = await Agency.findById(aid);
     if (!agency) throw new Error('A portal message requires its agency branding.');
@@ -1011,7 +1018,8 @@ export async function sendEmailFromIdentity({
   /** Optional identity whose signature image is used when the From mailbox has none. */
   signatureIdentityId = null,
   internetMessageIdOverride = null,
-  afterHoursReplyContext = null
+  afterHoursReplyContext = null,
+  portalEmailBrand = null
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
@@ -1144,6 +1152,7 @@ export async function sendEmailFromIdentity({
     clientId,
     schoolOrganizationId,
     identity: identityForSignature,
+    portalEmailBrand,
     text,
     html,
     to,

@@ -1,3 +1,7 @@
+import { sendClientPortalEmail } from '../clientPortalEmail.service.js';
+import { clientPortalAppUrl } from '../clientPortalContext.service.js';
+import { portalActionHtml } from '../clientPortalEmailContent.js';
+import { escapePortalHtml } from '../portalEmailBranding.service.js';
 import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '../intakeCommunicationChoices.service.js';
 import crypto from 'node:crypto';
 import { isCardReviewer } from './scope.js';
@@ -10,15 +14,13 @@ import { cardContext, refreshCardFollowup } from './service.js';
 import { reminderOrdinal } from './policy.js';
 import { guardianReminderPreferences } from '../guardianAppointments.service.js';
 import { requireReadySender } from '../familyLedger/senders.js';
-import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
-import { buildPublicAppUrl } from '../../utils/publicPortalUrl.js';
 
 const uncertainStatuses = ['sending', 'unknown', 'held'];
 const activeEmail = profile => profile.email && ![0,false,'0'].includes(profile.user_is_active) && ![1,true,'1'].includes(profile.user_is_archived) && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(profile.user_status).toUpperCase());
 const isDemo = profile => [1,true,'1'].includes(profile.user_is_demo);
 const depsFor = overrides => ({ reviewer: isCardReviewer, db: pool, agencies: billingWorkspaceAgencies, authorize: requireBillingStaff,
   activeAgency: isActiveBillingAgency, context: cardContext, refresh: refreshCardFollowup,
-  choices: latestIntakeCommunicationChoices, preferences: guardianReminderPreferences, sender: requireReadySender, send: sendEmailFromIdentity,
+  choices: latestIntakeCommunicationChoices, preferences: guardianReminderPreferences, sender: requireReadySender, send: sendClientPortalEmail,
   audit: auditBilling, now: new Date(), ...overrides });
 
 function insuranceEmailAllowed(choice,userId) {
@@ -106,10 +108,16 @@ async function emailPreview(input, deps, db, { locked = false } = {}) {
   catch (e) { if (e.status !== 409) throw e; blocked = e.message; }
   if (isDemo(profile)) blocked = 'Insurance card emails are disabled for demo accounts.';
   const clientId = context.clients.map(c => Number(c.id)).sort((a,b) => a-b)[0];
-  const url = buildPublicAppUrl({ slug: profile.slug, portal_url: profile.portal_url }, `guardian?panel=payment_methods&clientId=${clientId}&insuranceProfile=${profile.id}`);
-  const subject = 'Optional insurance card upload';
-  const text = `A photo of your non-Medicaid insurance card can help our billing team verify that coverage. Please upload only the non-Medicaid card sides shown in your portal. We do not request Medicaid cards, even when Medicaid is secondary. Uploading a card is optional and does not prevent you from completing intake. If you have it, sign in to upload the requested front or back as a photo or PDF.\n\n${url}\n\nPlease use the secure portal upload. Do not send card images by email. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there. Card follow-ups stop once your insurance verification is complete.`;
-  const snapshot = { to: profile.email || '', from: sender?.from_email || '', subject, text, senderId: sender?.id || null,
+  const url = clientPortalAppUrl({ slug: profile.slug, portal_url: profile.portal_url, clinical_portal: ['clinical','mental_health','school'].includes(context.clients.find(c=>Number(c.id)===clientId)?.client_type) }, `guardian?panel=payment_methods&clientId=${clientId}&insuranceProfile=${profile.id}`);
+  const subject = 'Please upload your insurance card';
+  const text = `Please upload the requested front and back of your insurance card so our billing team can verify your coverage. Medicaid cards are not needed.
+
+${url}
+
+Please use the secure portal upload. Do not send card images by email. Uploading a card is optional and does not prevent you from completing enrollment. If you do not have the card or need help, choose “I need help” in the portal. You can pause these emails there. Card follow-ups stop once your insurance verification is complete.`;
+  const [intro,,...rest] = text.split('\n\n');
+  const html = `<p>${escapePortalHtml(intro)}</p>${portalActionHtml('Upload insurance card',url)}<p>${escapePortalHtml(rest.join('\n\n'))}</p>`;
+  const snapshot = { to: profile.email || '', from: sender?.from_email || '', subject, text, html, clientId, senderId: sender?.id || null,
     cycle: progress.cycle_hash, ordinal: status.ordinal, missingSlots: progress.missingSlots, guardianUserId: profile.guardian_user_id };
   const reviewHash = crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
   return { ...snapshot, reviewHash, blocked, canSend: !blocked };
@@ -159,7 +167,7 @@ export async function sendReviewedCardEmail(user, input, overrides = {}) {
     deliveryId = claim.insertId;
     await deps.audit({ agencyId: input.agencyId, userId: user.id, action: 'insurance_email_reviewed_for_send', objectId: deliveryId }, db);
     await db.commit(); transaction = false;
-    const result = await deps.send({ senderIdentityId: preview.senderId, replyToOverride: preview.from, to: preview.to,
+    const result = await deps.send({ agencyId: input.agencyId, clientId: preview.clientId, billing: true, html: preview.html, senderIdentityId: preview.senderId, replyToOverride: preview.from, to: preview.to,
       userId: preview.guardianUserId, subject: preview.subject, text: preview.text, templateType: 'insurance_card_followup',
       source: 'manual', generatedByUserId: user.id, usedFallbackSender: false });
     const sent = !!result?.id && !result.queued && !result.skipped && !result.blocked && !result.redirected;

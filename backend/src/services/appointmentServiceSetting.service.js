@@ -51,5 +51,5 @@ export function formatAppointmentTime(appt) {
 }
 
 export function buildSchoolReminder(appt) {
-  return `Reminder: A school visit is scheduled for ${formatAppointmentTime(appt)}. No confirmation is needed. If your child will be absent or plans change, please let our team know. Continue to report school absences to the school as usual.`;
+  return `Reminder: A school session is scheduled for ${formatAppointmentTime(appt)}. No confirmation is needed. If your child will be absent or plans change, please let our team know. Continue to report school absences to the school as usual.`;
 }

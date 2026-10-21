@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS appointment_email_actions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  appointment_id INT NULL,
+  agency_id INT NULL,
+  client_id INT NULL,
+  product VARCHAR(24) NOT NULL DEFAULT 'guardian',
+  practice_id CHAR(36) NULL,
+  native_appointment_id CHAR(36) NULL,
+  native_patient_id CHAR(36) NULL,
+  guardian_user_id INT NULL,
+  recipient_hash CHAR(64) NOT NULL,
+  appointment_start DATETIME NOT NULL,
+  appointment_end DATETIME NOT NULL,
+  expires_at DATETIME NOT NULL,
+  status ENUM('ready','processing','completed','review') NOT NULL DEFAULT 'ready',
+  chosen_action VARCHAR(24) NULL,
+  result_message VARCHAR(1000) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  KEY appointment_email_actions_appointment (appointment_id, client_id),
+  KEY appointment_email_actions_expiry (expires_at)
+);

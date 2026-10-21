@@ -1,3 +1,5 @@
+import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.service.js';
+import { buildFamilyBillingEmail } from '../clientPortalEmailContent.js';
 import pool from '../../config/database.js';
 import { billingError, auditBilling, requireResponsiblePayer } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
@@ -5,7 +7,6 @@ import { listBalances, renderPrivatePdf } from './views.js';
 import { findReceivable } from './receivables.js';
 import { assertCollectible, dateOnly, today, key, transaction, parseJson } from './policy.js';
 import { requireReadySender } from './senders.js';
-import { sendNotificationEmail } from '../unifiedEmail/unifiedEmailSender.service.js';
 import { externallyManaged } from './collectionHandoff.js';
 import { isGuardianTestAccountId, requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
 export function agingFor(row,asOf=today()){
@@ -51,13 +52,17 @@ export async function sendNotice({agencyId,noticeId,actorUserId}){
     const [tasks]=await pool.execute("SELECT * FROM family_billing_tasks WHERE id=? AND agency_id=? AND guardian_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP",[s.taskId,agencyId,row.payer_user_id]);if(!tasks.length)throw billingError(409,'The payment task is no longer pending');for(const clientId of parseJson(tasks[0].client_ids_json)){const {requireBillingLink}=await import('../familyBillingPolicy.service.js');await requireBillingLink(row.payer_user_id,clientId,agencyId);}
   }else{const current=await aging({agencyId,userId:actorUserId,payerUserId:row.payer_user_id});if(s.balances.some(b=>!current.some(c=>Number(c.allocationId)===Number(b.allocationId)&&c.pastDueCents===b.amountCents)))throw billingError(409,'Balances or access changed. Generate a current notice.');}
   // Practice statements stay with billing; referred FundThred cases are separate.
-  const sender=await requireReadySender(agencyId,'billing'),url=portalUrl(s.path);
+  const sender=await requireReadySender(agencyId,'billing');
+  let clientId=s.balances[0]?.clientId;
+  if(!clientId&&s.taskId){const [[task]]=await pool.execute('SELECT client_ids_json FROM family_billing_tasks WHERE id=? AND agency_id=? AND guardian_user_id=?',[s.taskId,agencyId,row.payer_user_id]);clientId=parseJson(task?.client_ids_json,[])[0];}
+  const context=await clientEmailContext({agencyId,clientId});
+  const url=context.url(row.notice_kind==='payment_setup'?s.path.replace(/^\//,''):'guardian?panel=billing');
   const [claimed]=await pool.execute("UPDATE family_collections_notices SET status='queued',sender_identity_id=?,last_error=NULL WHERE id=? AND agency_id=? AND status IN ('draft','held')",[sender.id,noticeId,agencyId]);if(!claimed.affectedRows)throw billingError(409,'This notice is already being sent');
   try{
-    const setup=row.notice_kind==='payment_setup',subject=setup?'Complete your payment setup':'Your account statement is ready',text=`${s.agencyName}\n\n${setup?'Please verify your payment method and complete your billing authorization.':'Please sign in to review your account statement. You can make a payment or contact our billing team for assistance.'}\n\nSign in securely: ${url}\n\nThis link opens your portal after login.`;
-    const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const html=`<div style="font-family:Arial;max-width:600px;margin:auto;padding:28px"><h2>${esc(s.agencyName)}</h2><h3>${subject}</h3><p>${setup?'Please verify your payment method and sign your billing authorization.':'Your statement is available in your secure portal. Contact our billing team if you need help or would like to discuss payment arrangements.'}</p><p><a href="${esc(url)}" style="display:inline-block;background:#164c6a;color:#fff;padding:14px 22px;border-radius:6px">${setup?'Complete payment setup':'View my statement'}</a></p><p>Sign in with the account that received this invitation.</p></div>`;
-    const result=await sendNotificationEmail({agencyId,triggerKey:setup?'family_payment_setup':'family_collections',senderIdentityId:sender.id,to:s.email,subject,text,html,generatedByUserId:actorUserId,userId:row.payer_user_id,templateType:setup?'family_payment_setup':'family_collections',source:'manual'});
+    const setup=row.notice_kind==='payment_setup';
+    const result=await sendClientPortalEmail({agencyId,clientId,context,billing:true,to:s.email,
+      ...buildFamilyBillingEmail({kind:setup?'payment_setup':'statement',agencyName:s.agencyName,url}),
+      generatedByUserId:actorUserId,userId:row.payer_user_id,templateType:setup?'family_payment_setup':'family_collections',source:'manual'});
     const held=result.skipped||result.blocked;const queued=result.queued||result.pendingApproval;
     await pool.execute('UPDATE family_collections_notices SET status=?,email_message_id=?,sent_at=?,last_error=? WHERE id=?',[held?'held':queued?'queued':'sent',result.id||result.messageId||result.communicationId||null,!held&&!queued?new Date():null,held?String(result.reason||'Sending is held by email settings').slice(0,255):null,noticeId]);
     await auditBilling({agencyId,userId:actorUserId,action:held?'notice_held':'notice_submitted',objectId:noticeId});return result;

@@ -729,31 +729,33 @@ export async function emailPortalLoginInfo({
 }) {
   const email = String(to || '').trim().toLowerCase();
   if (!email || !email.includes('@')) throw new Error('Enter a valid email address.');
-  const org = String(agency?.official_name || agency?.name || 'Care team').trim();
-  const origin = String(process.env.FRONTEND_URL || process.env.APP_URL || 'https://plottwisthq.com').replace(/\/$/, '');
-  const path = String(portalPath || '/login').startsWith('http')
-    ? String(portalPath)
-    : `${origin}${String(portalPath || '/login').startsWith('/') ? '' : '/'}${portalPath || '/login'}`;
-  const lines = [
-    `Your ${org} parent/guardian portal username is: ${username || email}`,
-    '',
-    `Sign in: ${path}`,
-    '',
-    'You can keep this email as your username or change it after you sign in.',
-    temporaryPassword
-      ? `Temporary password: ${temporaryPassword}`
-      : 'If you already chose a password, use that. If your access token expired or never arrived, use “Access token expired?” on the login page — that notifies the care team. They can send a new token or a temporary password. It is not Forgot password.',
-    '',
-    'You can skip portal setup for now, but an account may still be needed for medical records.'
-  ];
-  const delivery = await sendEnrollmentPortalEmail({
-    to: email,
-    subject: `${org}: your parent/guardian portal login`,
-    text: lines.join('\n'),
-    agencyId: agency.id,
-    clientId,
-    source: 'guardian_portal_login_info',
-    templateType: 'guardian_portal_login_info'
-  });
+  const {clientEmailContext,sendClientPortalEmail}=await import('./clientPortalEmail.service.js');
+  const {buildClientEnrollmentEmail}=await import('./clientPortalEmailContent.js');
+  const {clientPortalInviteUrl}=await import('./clientPortalContext.service.js');
+  const guardian=await User.findByEmail(email);
+  if(!clientId && guardian?.role==='client_guardian') {
+    const [[linked]]=await pool.execute(`SELECT c.id FROM clients c JOIN client_guardians cg ON cg.client_id=c.id
+      WHERE cg.guardian_user_id=? AND c.agency_id=? AND cg.access_enabled=1 AND c.guardian_portal_enabled=1
+      AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') ORDER BY c.id LIMIT 1`,[guardian.id,agency.id]);
+    clientId=linked?.id || null;
+  }
+  const context=await clientEmailContext({agencyId:agency.id,clientId});
+  const canSetup=!!clientId && guardian?.role==='client_guardian';
+  const existingAccount=!!guardian?.password_hash || !canSetup;
+  let token=null;
+  if(!existingAccount){
+    const [[saved]]=await pool.execute("SELECT passwordless_token AS token FROM users WHERE id=? AND passwordless_token_purpose='setup' AND passwordless_token_expires_at>NOW()",[guardian.id]);
+    token=saved?.token||(await User.generatePasswordlessToken(guardian.id,48,'setup')).token;
+  }
+  const url=clientPortalInviteUrl({portal:context.portal,token,existingAccount});
+  const content=canSetup?buildClientEnrollmentEmail({firstName:guardian?.first_name,agencyName:agency.name,
+    clients:[context.client],learning:context.learning,existingAccount,url}):{
+      subject:`${agency.name}: sign in to your portal`,text:`Sign in to your ${context.clinical?'AuricWell':'family'} portal to view information shared with your account.\n\n${url}`,
+      html:(await import('./clientPortalEmailContent.js')).portalActionHtml('Sign in to your portal',url),linkUrl:url};
+  if(temporaryPassword){content.text+=`\n\nTemporary password: ${temporaryPassword}`;const {escapePortalHtml}=await import('./portalEmailBranding.service.js');content.html+=`<p>Temporary password: <strong>${escapePortalHtml(temporaryPassword)}</strong></p>`;}
+  const result=await sendClientPortalEmail({agencyId:agency.id,clientId,context,to:email,...content,
+    userId:guardian?.id||null,source:'guardian_portal_login_info',templateType:'guardian_portal_login_info'});
+  const sent=!!result?.id&&!result.queued&&!result.skipped&&!result.blocked&&!result.redirected;
+  const delivery={...result,sent};
   return { ok: delivery.sent, ...delivery };
 }

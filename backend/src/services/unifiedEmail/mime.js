@@ -23,6 +23,19 @@ function encodeRfc2047Subject(subject) {
   return `=?UTF-8?B?${b64}?=`;
 }
 
+/** Encode display names independently of mailbox syntax (RFC 2047). */
+function encodeMailboxHeader(value) {
+  const clean = normalizeHeaderValue(value);
+  const match = clean.match(/^(.*?)\s*<([^<>]+)>$/);
+  if (!match) return clean;
+  const name = match[1].trim().replace(/^"(.*)"$/, '$1');
+  if (!name) return match[2];
+  const encoded = /^[\x20-\x7E]*$/.test(name)
+    ? `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+    : encodeRfc2047Subject(name);
+  return `${encoded} <${match[2]}>`;
+}
+
 /**
  * Quoted-printable for UTF-8 body parts (soft line breaks at ~72 octets).
  */
@@ -89,11 +102,11 @@ function buildMimeMessage({
   const headers = [
     `To: ${normalizeHeaderValue(to)}`,
     `Subject: ${encodeRfc2047Subject(subject)}`,
-    `From: ${normalizeHeaderValue(from)}`,
+    `From: ${encodeMailboxHeader(from)}`,
     ...(messageId ? [`Message-ID: ${normalizeHeaderValue(messageId)}`] : []),
     ...(ccHeader ? [`Cc: ${ccHeader}`] : []),
     ...(bccHeader ? [`Bcc: ${bccHeader}`] : []),
-    ...(replyTo ? [`Reply-To: ${normalizeHeaderValue(replyTo)}`] : []),
+    ...(replyTo ? [`Reply-To: ${encodeMailboxHeader(replyTo)}`] : []),
     ...(inReplyTo ? [`In-Reply-To: ${normalizeHeaderValue(inReplyTo)}`] : []),
     ...(references ? [`References: ${normalizeHeaderValue(references)}`] : []),
     ...(autoSubmitted ? ['Auto-Submitted: auto-replied', 'X-Auto-Response-Suppress: All'] : []),

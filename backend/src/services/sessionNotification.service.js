@@ -7,7 +7,6 @@ import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '
 
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
-import EmailService from './email.service.js';
 import VonageService from './vonage.service.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveRegisteredSmsSender, recordedReminderConsent } from './smsCompliance.service.js';
@@ -21,7 +20,6 @@ import {
   buildConfirmationMessage,
   interpretAppointmentReply as interpretReplyIntent
 } from './appointmentReply.service.js';
-import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -869,46 +867,11 @@ export async function applyConfirmReply(appointmentId, {
   return Appointment.findById(appointmentId);
 }
 
-async function sendSessionEmail({
-  to,
-  subject,
-  text,
-  html,
-  agencyId = null,
-  clientId = null,
-  kind = 'reminder'
-}) {
-  const htmlBody = html || `<p>${String(text || '').replace(/\n/g, '<br/>')}</p>`;
-  // Prefer branded unified sender (tenant chrome via finalizeOutboundContent)
-  try {
-    const result = await sendNotificationEmail({
-      agencyId,
-      triggerKey: kind.startsWith('confirmation') ? 'session_confirmation' : 'session_reminder',
-      to,
-      subject,
-      text,
-      html: htmlBody,
-      clientId,
-      templateType: kind.startsWith('confirmation') ? 'session_confirmation' : 'session_reminder',
-      source: 'auto'
-    });
-    if (result && !result.skipped) return result;
-  } catch (e) {
-    console.warn('[sessionNotification] unified email failed, falling back:', e?.message || e);
-  }
-  // Keep EmailService fallback so SMS/email drains stay resilient
-  if (EmailService.isConfigured?.()) {
-    return EmailService.sendEmail({
-      to,
-      subject,
-      text,
-      html: htmlBody,
-      agencyId: agencyId || null,
-      clientId: clientId || null,
-      templateType: 'session_reminder'
-    });
-  }
-  throw new Error('No email transport accepted this reminder');
+async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment}) {
+  const {sendAppointmentEmail}=await import('./appointmentEmailActions.service.js');
+  const result=await sendAppointmentEmail({to,clientId,kind,appointment});
+  if(!result?.id || result.skipped || result.blocked || result.queued || result.pendingApproval) throw new Error('The appointment email was not confirmed as sent.');
+  return result;
 }
 
 function defaultMessage(appt, kind, requiresConfirmation) {
@@ -1134,7 +1097,8 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       if (consent.emailAddress) {
         await sendSessionEmail({
           to: consent.emailAddress,
-          subject: serviceSetting.isSchool ? 'School visit notice' : kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
+          appointment: appt,
+          subject: serviceSetting.isSchool ? 'School session notice' : kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
           text: body,
           html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
           agencyId: appt.agencyId || null,
@@ -1164,6 +1128,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           if (!c.email_reminders_enabled || !c.contact_email || String(c.contact_email).toLowerCase() === String(consent.emailAddress).toLowerCase()) continue;
           await sendSessionEmail({
             to: c.contact_email,
+            appointment: appt,
             subject: 'Upcoming session reminder',
             text: contactBody,
             html: `<p>${escapeHtml(contactBody)}</p>`,

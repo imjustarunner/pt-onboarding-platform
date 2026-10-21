@@ -3,11 +3,12 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:
 vi.mock('../familyLedger/views.js',()=>({listBalances:vi.fn()}));
 vi.mock('../familyLedger/senders.js',()=>({requireReadySender:vi.fn()}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
+vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:vi.fn(async()=>({url:path=>'https://auricwell.com/tenant/'+path})),sendClientPortalEmail:vi.fn()}));
 vi.mock('../guardianTestAccess.service.js',()=>({isGuardianTestAccountId:vi.fn()}));
 import pool from '../../config/database.js';
 import {listBalances} from '../familyLedger/views.js';
 import {requireReadySender} from '../familyLedger/senders.js';
-import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
+import {sendClientPortalEmail as sendEmailFromIdentity} from '../clientPortalEmail.service.js';
 import {sendPendingBalanceNotifications} from '../familyLedger/balanceNotifications.js';
 import {isGuardianTestAccountId} from '../guardianTestAccess.service.js';
 let db;
@@ -25,7 +26,7 @@ beforeEach(()=>{
  requireReadySender.mockResolvedValue({id:9,from_email:'billing@tenant.test'});
  sendEmailFromIdentity.mockResolvedValue({id:'accepted',communicationId:77});
 });
-it('sends a generic billing notice from billing without clinical or card information',async()=>{expect(await sendPendingBalanceNotifications()).toEqual([{agencyId:2,userId:3,status:'sent'}]);expect(requireReadySender).toHaveBeenCalledWith(2,'billing');expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:9,replyToOverride:'billing@tenant.test',to:'parent@example.test',usedFallbackSender:false}));expect(sendEmailFromIdentity.mock.calls[0][0].text).not.toContain('1000');expect(db.release).toHaveBeenCalled();});
+it('sends a generic billing notice from billing without clinical or card information',async()=>{expect(await sendPendingBalanceNotifications()).toEqual([{agencyId:2,userId:3,status:'sent'}]);expect(requireReadySender).toHaveBeenCalledWith(2,'billing');expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,billing:true,to:'parent@example.test'}));expect(sendEmailFromIdentity.mock.calls[0][0].text).not.toContain('1000');expect(db.release).toHaveBeenCalled();});
 it('skips a notice if the balance is paid or access has been revoked',async()=>{listBalances.mockResolvedValue([]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("status='skipped'"),[11]);});
 it('keeps a queued email held rather than claiming it was sent',async()=>{sendEmailFromIdentity.mockResolvedValue({queued:true,communicationId:77});expect(await sendPendingBalanceNotifications()).toEqual([{agencyId:2,userId:3,status:'held'}]);});
 it('does not fall back to another sender when billing is unavailable',async()=>{requireReadySender.mockRejectedValue(new Error('Billing sender unavailable'));await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});

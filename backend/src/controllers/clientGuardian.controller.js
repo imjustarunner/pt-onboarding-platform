@@ -1,4 +1,3 @@
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
@@ -104,6 +103,7 @@ export const upsertClientGuardian = async (req, res, next) => {
       await User.assignToAgency(guardian.id, parseInt(client.organization_id, 10));
     }
 
+    const priorLink = await ClientGuardian.getLink({clientId,guardianUserId:guardian.id});
     // Link guardian to client.
     await ClientGuardian.upsertLink({
       clientId,
@@ -127,36 +127,17 @@ export const upsertClientGuardian = async (req, res, next) => {
     const Agency = (await import('../models/Agency.model.js')).default;
     const organization = client.organization_id ? await Agency.findById(Number(client.organization_id)) : null;
     const invitationDeferred = deferSchoolGuardianInvitation({ ...client, organization_type: organization?.organization_type });
-    const tokenResult = invitationDeferred ? null : await User.generatePasswordlessToken(guardian.id, 48, 'setup');
-    const tenant = await Agency.findById(Number(client.agency_id));
-    const passwordlessTokenLink = tokenResult ? buildPublicAppUrl(tenant, `/passwordless-login/${tokenResult.token}`) : null;
-
+    let passwordlessTokenLink = null;
     let setupEmailSent = false;
-    if (created && !invitationDeferred) {
-      const to = [guardian.email, guardian.username, guardian.work_email, guardian.personal_email]
-        .filter(Boolean)
-        .map((e) => String(e).trim().toLowerCase())
-        .find((e) => e.includes('@'));
-      if (to) {
-        try {
-          const { sendGuardianNotificationEmail } = await import('../services/guardianNotificationEmail.service.js');
-          const delivery = await sendGuardianNotificationEmail({
-            agencyId: Number(client.agency_id),
-            to,
-            subject: 'Set up your guardian account',
-            text: `You have been added as a guardian. Set up your account using this link (expires in 48 hours):\n${passwordlessTokenLink}\n\nYour portal keeps your children's documents, appointments, and secure messages in one place.`,
-            html: null,
-            source: 'auto',
-            templateType: 'guardian_portal_login_info',
-            userId: guardian.id,
-            clientId
-          });
-          setupEmailSent = delivery.sent;
-
-        } catch (emailErr) {
-          console.error('[upsertClientGuardian] Failed to send guardian setup email:', emailErr);
-        }
-      }
+    if (!invitationDeferred && accessEnabled && (created || !Number(priorLink?.access_enabled))) {
+      try {
+        const {sendHubPortalInvitation}=await import('../services/messagesHub.service.js');
+        const invitation=await sendHubPortalInvitation({agencyId:Number(client.agency_id),actorUserId:req.user.id,
+          clientId,guardianUserId:guardian.id,existingLinkOnly:true});
+        passwordlessTokenLink=invitation.setupUrl;
+        const delivery=invitation.delivery;
+        setupEmailSent=!!delivery?.id&&!delivery.skipped&&!delivery.blocked&&!delivery.queued&&!delivery.pendingApproval&&!delivery.redirected;
+      }catch(emailErr){console.error('[upsertClientGuardian] Failed to send guardian setup email:',emailErr);}
     }
 
     res.status(created ? 201 : 200).json({
@@ -172,7 +153,7 @@ export const upsertClientGuardian = async (req, res, next) => {
         role: guardian.role,
         status: guardian.status
       },
-      passwordlessToken: tokenResult?.token || null,
+      passwordlessToken: null,
       passwordlessTokenLink
     });
   } catch (e) {

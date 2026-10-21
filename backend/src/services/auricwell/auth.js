@@ -301,10 +301,20 @@ export async function sendAccountLink(accountId, purpose, { agencyId = null } = 
     templateType: `auricwell_account_${purpose}`,
   };
   if (agencyId) {
-    const { sendGuardianNotificationEmail } = await import('../guardianNotificationEmail.service.js');
+    const { clientEmailContext, sendClientPortalEmail } = await import('../clientPortalEmail.service.js');
+    const { portalActionHtml } = await import('../clientPortalEmailContent.js');
+    const { escapePortalHtml } = await import('../portalEmailBranding.service.js');
     const { fromAddress, fromName, replyTo, ...tenantMessage } = message;
-    return sendGuardianNotificationEmail({agencyId,...tenantMessage});
+    const context=await clientEmailContext({agencyId,clinical:true});
+    const url=`${process.env.AURICWELL_PUBLIC_ORIGIN || 'https://auricwell.com'}/app#accountToken=${token}`;
+    const result=await sendClientPortalEmail({agencyId,context,...tenantMessage,html:`<p>Set your AuricWell password. Username: ${escapePortalHtml(account.username)}</p>${portalActionHtml(purpose==='reset'?'Reset your password':'Set up your AuricWell account',url)}<p>This link expires in one hour.</p>`});
+    const sent=!!result?.id&&!result.queued&&!result.pendingApproval&&!result.skipped&&!result.blocked&&!result.redirected;
+    return {...result,sent,deliveryStatus:sent?'sent':'pending'};
   }
+  const {portalActionHtml}=await import('../clientPortalEmailContent.js');
+  const {enrollmentMailBrand,renderPortalEmail,escapePortalHtml}=await import('../portalEmailBranding.service.js');
+  const brand=enrollmentMailBrand({agency:{name:'AuricWell'},domain:'auricwell.com',clinicalOverride:true});
+  message.html=renderPortalEmail({brand,html:`<p>Set your AuricWell password. Username: ${escapePortalHtml(account.username)}</p>${portalActionHtml(purpose==='reset'?'Reset your password':'Set up your AuricWell account',`${process.env.AURICWELL_PUBLIC_ORIGIN || 'https://auricwell.com'}/app#accountToken=${token}`)}<p>This link expires in one hour.</p>`});
   const result = await EmailService.sendEmail(message);
   const sent = !!result?.id && !result.queued && !result.skipped && !result.blocked && !result.redirected;
   return {...result,sent,deliveryStatus:sent?'sent':'pending'};

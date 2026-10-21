@@ -13,11 +13,11 @@ const school = { id: 2, name: 'School', slug: 'school', organization_type: 'scho
 const learning = { id: 3, name: 'Tutoring', slug: 'tutoring', organization_type: 'learning' };
 beforeEach(() => { vi.resetAllMocks(); Agency.findById.mockImplementation(async id => ({ 1: tenant, 2: school, 3: learning })[id]); });
 it('uses the owning tenant portal for school-based care', async () => {
-  expect(await resolveClientPortalContext({ agency_id: 1, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false });
+  expect(await resolveClientPortalContext({ agency_id: 1, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false, clinical: false });
 });
 it('resolves legacy child-owned records to their main tenant', async () => {
   Affiliation.getActiveAgencyIdForOrganization.mockResolvedValue(1);
-  expect(await resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false });
+  expect(await resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false, clinical: false });
 });
 it('retains a separate learning portal under the owning tenant', async () => {
   const context = await resolveClientPortalContext({ agency_id: 1, organization_id: 3 });
@@ -42,4 +42,13 @@ it('uses only a sender belonging to the main tenant', async () => {
 });
 it('fails instead of sending from an unconfigured school', async () => {
   await expect(resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).rejects.toMatchObject({ status: 503 });
+});
+
+it('routes clinical clients from every agency to AuricWell and leaves tutoring with its agency',async()=>{
+ const clinical=await resolveClientPortalContext({agency_id:1,organization_id:1,client_type:'clinical'});
+ const schoolContext=await resolveClientPortalContext({agency_id:1,organization_id:2,client_type:'school'});
+ const counselingAtLearningOrg=await resolveClientPortalContext({agency_id:1,organization_id:3,client_type:'clinical'});
+ for(const context of [clinical,schoolContext,counselingAtLearningOrg]) expect(clientPortalInviteUrl({portal:context.portal,token:'opaque',existingAccount:false})).toBe('https://auricwell.com/itsco/new_account/opaque?portal=itsco');
+ const learningContext=await resolveClientPortalContext({agency_id:1,organization_id:1,client_type:'learning'});
+ expect(learningContext.learning).toBe(true);expect(learningContext.clinical).toBe(false);
 });

@@ -24,14 +24,29 @@ export async function resolveClientPortalContext(client) {
   }
   // School affiliations never become a clinical client's sign-in portal.
   // Learning organizations retain their dedicated tutoring experience.
-  const learning = typeOf(organization) === 'learning';
-  const portal = learning ? { ...organization, parent_portal_url: slugOf(tenant), parent_custom_domain: tenant.custom_domain } : tenant;
+  const clientType = String(client.client_type || '').toLowerCase();
+  const clinical = ['clinical', 'mental_health', 'school'].includes(clientType);
+  const learning = !clinical && (['learning', 'tutoring'].includes(clientType) || typeOf(organization) === 'learning');
+  const portal = learning && typeOf(organization) === 'learning'
+    ? { ...organization, parent_portal_url: slugOf(tenant), parent_custom_domain: tenant.custom_domain }
+    : clinical ? { ...tenant, clinical_portal: true } : tenant;
   if (!slugOf(portal)) throw fail('The client’s portal address is not configured.');
-  return { tenant, portal, learning };
+  return { tenant, portal, learning, clinical };
+}
+
+export function clientPortalAppUrl(portal, path = 'guardian') {
+  if (String(path).replace(/^\//, '').startsWith('billing/complete/')) {
+    const origin = portal?.clinical_portal ? 'https://auricwell.com' : new URL(buildPublicAppUrl(portal)).origin;
+    const url = new URL(`/${String(path).replace(/^\//, '')}`, origin);
+    url.searchParams.set('portal',slugOf(portal));
+    return url.toString();
+  }
+  if (portal?.clinical_portal) return `https://auricwell.com/${encodeURIComponent(slugOf(portal))}/${String(path).replace(/^\//, '')}`;
+  return buildPublicAppUrl(portal, path);
 }
 
 export function clientPortalInviteUrl({ portal, token, existingAccount }) {
-  const url = new URL(buildPublicAppUrl(portal, existingAccount ? 'login' : `new_account/${encodeURIComponent(token)}`));
+  const url = new URL(clientPortalAppUrl(portal, existingAccount ? 'login' : `new_account/${encodeURIComponent(token)}`));
   url.searchParams.set('portal', slugOf(portal));
   if (existingAccount) {
     const dashboard = ['life_coach', 'consultant'].includes(typeOf(portal)) ? 'client-dashboard' : 'guardian';

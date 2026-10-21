@@ -144,3 +144,15 @@ it.each(['manual', 'co_guardian_invite'])('keeps %s portal mail co-branded witho
  const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
  expect(wrapOutboundHtmlWithTenantChrome).not.toHaveBeenCalled();
 });
+
+it('preserves reviewed family billing branding on an approval retry without adding a staff or department signature',async()=>{
+ const brand={clinical:true,name:'ITSCO',displayName:'ITSCO Billing',replyTo:'billing@itsco.health',products:['AuricWell']};
+ const input={...message,templateType:'family_balance_due',identity:{...identity,identity_key:'billing',from_email:'billing@itsco.health'},portalEmailBrand:brand};
+ const first=await finalizeOutboundContent(input);
+ const second=await finalizeOutboundContent({...input,portalEmailBrand:null,...first});
+ for(const result of [first,second]){
+   expect(result.html.match(/data-portal-email=/g)).toHaveLength(1);
+   expect(result.html).not.toContain('pt-staff-html-signature');expect(result.html).not.toContain('pt-department-html-signature');expect(result.html).not.toContain('Michael Mendez');
+ }
+ expect(wrapOutboundHtmlWithTenantChrome).not.toHaveBeenCalled();
+});

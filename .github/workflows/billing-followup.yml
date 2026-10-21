@@ -4,6 +4,12 @@ on:
     branches: [main]
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/clientPortal*.js'
+      - 'backend/src/services/appointmentEmailActions.service.js'
+      - 'backend/src/services/auricwell/appointmentEmailResponse.js'
+      - 'backend/src/services/__tests__/familyPortalEmail.*.test.js'
+      - 'backend/src/routes/publicAppointmentResponse.routes.js'
+      - 'backend/vitest.family-email.config.js'
       - 'backend/src/services/insuranceCards/**'
       - 'backend/src/services/__tests__/billingFollowup*'
       - 'backend/src/services/clientDocumentationReadiness.service.js'
@@ -30,6 +36,12 @@ on:
   pull_request:
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/clientPortal*.js'
+      - 'backend/src/services/appointmentEmailActions.service.js'
+      - 'backend/src/services/auricwell/appointmentEmailResponse.js'
+      - 'backend/src/services/__tests__/familyPortalEmail.*.test.js'
+      - 'backend/src/routes/publicAppointmentResponse.routes.js'
+      - 'backend/vitest.family-email.config.js'
       - 'backend/src/services/insuranceCards/**'
       - 'backend/src/services/__tests__/billingFollowup*'
       - 'backend/src/services/clientDocumentationReadiness.service.js'
@@ -91,6 +103,8 @@ jobs:
       - run: npm ci --prefix frontend --ignore-scripts
       - name: Reminder delivery and notification ownership
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-followup.config.js
+      - name: Standard family emails and appointment responses
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
       - name: Native SQL workflow and policy checks
         run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js
       - name: Claim and documentation verification

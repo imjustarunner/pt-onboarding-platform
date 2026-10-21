@@ -30,7 +30,7 @@ const reviewed=async()=>({...input,reviewHash:(await previewCardEmail(user,input
 it('never sends missing-card emails from the background, even when settings were enabled',async()=>{expect(await runInsuranceCardReminders(deps)).toEqual([]);expect(deps.send).not.toHaveBeenCalled();});
 it('previews the exact generic email and sends only after explicit review, once across billers',async()=>{
  const p=await previewCardEmail(user,input,deps);expect(p.canSend).toBe(true);expect(p.text).toContain('panel=payment_methods');expect(p.text).toContain('clientId=101');expect(p.text).not.toContain('Synthetic Client');expect(deps.send).not.toHaveBeenCalled();
- expect(p.text).toContain('only the non-Medicaid card sides');expect(p.text).toContain('We do not request Medicaid cards, even when Medicaid is secondary.');
+ expect(p.text).toContain('Please upload the requested front and back');expect(p.text).toContain('Medicaid cards are not needed.');expect(p.text).not.toContain('your non-Medicaid');
  const request={...input,reviewHash:p.reviewHash};expect(await sendReviewedCardEmail(user,request,deps)).toEqual({status:'sent'});await expect(sendReviewedCardEmail({...user,id:98},request,deps)).rejects.toMatchObject({status:409});expect(deps.send).toHaveBeenCalledOnce();expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({source:'manual',generatedByUserId:99,to:p.to,subject:p.subject,text:p.text,usedFallbackSender:false}));expect(connection.commit).toHaveBeenCalledOnce();
 });
 it('passes outbound quality checks without files while directing card images into the secure portal',async()=>{

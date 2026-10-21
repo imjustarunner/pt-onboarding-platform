@@ -1,7 +1,8 @@
+import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.service.js';
+import { buildFamilyBillingEmail } from '../clientPortalEmailContent.js';
 import pool from '../../config/database.js';
 import { listBalances } from './views.js';
 import { requireReadySender } from './senders.js';
-import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
 import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 
 /** Enqueue only newly posted balances. This never scans or re-mails historical bills. */
@@ -38,13 +39,14 @@ export async function sendPendingBalanceNotifications() {
       const [[user]]=await db.execute("SELECT email FROM users WHERE id=? AND LOWER(status) IN ('active','active_employee')",[userId]);
       if(!user?.email)throw new Error('Recipient unavailable');
       const [[agency]]=await db.execute('SELECT name,slug,portal_url FROM agencies WHERE id=?',[agencyId]);
-      const origin=String(process.env.FRONTEND_URL||'https://plottwisthq.com').replace(/\/$/,'');
-      const url=`${origin}/${encodeURIComponent(agency.portal_url||agency.slug)}/guardian?panel=billing`;
+      const clientId = balances.find(b=>due.has(Number(b.receivableId)))?.clientId;
+      const context=await clientEmailContext({agencyId,clientId});
+      const url=context.url('guardian?panel=billing');
       const marks=claimed.map(()=>'?').join(',');
       await db.execute(`UPDATE family_balance_notifications SET status='sending' WHERE id IN (${marks}) AND status='pending'`,claimed);
-      const result=await sendEmailFromIdentity({senderIdentityId:sender.id,replyToOverride:sender.from_email,to:user.email,userId,
-        subject:`${agency.name}: a new payment is due`,text:`A new payment is due. Sign in to your secure portal to view service dates, payment details, and the amount assigned to you.\n\n${url}\n\nStatements are shared with authorized guardians. Saving a card or receiving this notification does not authorize a new charge. Contact billing if you need help.`,
-        templateType:'family_balance_due',source:'family_balance_due',usedFallbackSender:false});
+      const result=await sendClientPortalEmail({agencyId,clientId,context,billing:true,to:user.email,userId,
+        ...buildFamilyBillingEmail({kind:'balance',agencyName:agency.name,url}),
+        templateType:'family_balance_due',source:'family_balance_due'});
       const sent=!!result?.id&&!result.queued&&!result.skipped&&!result.blocked&&!result.redirected;
       await db.execute(`UPDATE family_balance_notifications SET status=?,communication_id=? WHERE id IN (${marks})`,[sent?'sent':'held',result?.communicationId||null,...claimed]);
       results.push({agencyId,userId,status:sent?'sent':'held'});

@@ -3801,7 +3801,7 @@ export async function sendHubPortalInvitation({
     throw err;
   }
 
-  const { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl } = await import('./clientPortalContext.service.js');
+  const { resolveClientPortalContext, clientPortalInviteUrl } = await import('./clientPortalContext.service.js');
   const portalContext = await resolveClientPortalContext(client);
   const inviteAgencyId = Number(portalContext.tenant.id);
 
@@ -3898,10 +3898,10 @@ export async function sendHubPortalInvitation({
     /* ignore */
   }
 
-  const existingAccount = existingLinkOnly && !!guardian.password_hash;
+  const existingAccount = !!guardian.password_hash;
   let tokenResult = null;
   if (!existingAccount) {
-    if (existingLinkOnly) {
+    {
       // Shared accounts can receive invitations from multiple agencies. Reuse a
       // still-valid setup link so the later email does not invalidate the first.
       const [tokens] = await pool.execute(`SELECT passwordless_token AS token FROM users
@@ -3912,46 +3912,29 @@ export async function sendHubPortalInvitation({
     tokenResult ||= await User.generatePasswordlessToken(guardian.id, 48, 'setup');
   }
   const agency = portalContext.tenant;
-  const { buildPublicAppUrl } = await import('../utils/publicPortalUrl.js');
   const setupUrl = clientPortalInviteUrl({ portal: portalContext.portal, token: tokenResult?.token, existingAccount });
   const setupDisplayUrl = setupUrl;
 
   let delivery = null;
   if (!skipEmail) {
 
-  const actor = actorRows?.[0];
-  const providerName =
-    [actor?.first_name, actor?.last_name].filter(Boolean).join(' ') || 'your provider';
-  const providerTitle = [providerName, actor?.credential || actor?.title].filter(Boolean).join(', ');
+  const { clientEmailContext, sendClientPortalEmail } = await import('./clientPortalEmail.service.js');
+  const { buildClientEnrollmentEmail } = await import('./clientPortalEmailContent.js');
+  const emailContext = await clientEmailContext({agencyId:inviteAgencyId,clientId:cid});
+  const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id
+    FROM clients c JOIN client_guardians cg ON cg.client_id=c.id
+    WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND c.agency_id=?
+      AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[guardian.id,inviteAgencyId]);
+  const included = [];
+  for (const sibling of siblings) {
+    const siblingContext = await resolveClientPortalContext(sibling);
+    if (siblingContext.learning === portalContext.learning) included.push(sibling);
+  }
+  const built = buildClientEnrollmentEmail({firstName:firstName || guardian.first_name,
+    agencyName:agency.name,clients:existingAccount ? [client] : included.length ? included : [client],learning:portalContext.learning,existingAccount,url:setupUrl});
+  delivery = await sendClientPortalEmail({agencyId:inviteAgencyId,clientId:cid,context:emailContext,
+    to:email,...built,source:'auto',templateType:'hub_portal_invite',userId:guardian.id});
 
-  const { buildPortalInvitationEmailForAgency } = await import('./portalInvitationEmail.service.js');
-  const built = await buildPortalInvitationEmailForAgency(agency, {
-    agencyId: inviteAgencyId,
-    agencyName: portalContext.portal.name || agency.name || 'Care team',
-    providerName: providerTitle,
-    recipientFirstName: firstName || guardian.first_name,
-    existingAccount,
-    setupUrl,
-    setupDisplayUrl,
-    colorPalette: agency?.color_palette,
-    supportUrl: buildPublicAppUrl(agency, 'support')
-  });
-
-  const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
-  const identity = await resolveClientPortalSender(inviteAgencyId);
-
-  delivery = await sendEmailFromIdentity({
-    senderIdentityId: identity.id,
-    to: email,
-    subject: built.subject,
-    text: built.text,
-    html: built.html,
-    source: 'auto',
-    agencyId: inviteAgencyId,
-    templateType: 'hub_portal_invite',
-    userId: guardian.id,
-    clientId: cid
-  });
   }
 
   return {
