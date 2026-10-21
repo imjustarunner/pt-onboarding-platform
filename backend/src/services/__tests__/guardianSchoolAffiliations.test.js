@@ -12,6 +12,11 @@ function seed() {
  .mockResolvedValueOnce([[{client_id:8,school_organization_id:19,status:'completed',document_id:33,signed_at:'2025-08-01'}]]);
 }
 describe('guardian school history', () => {
+ it('shows an uploaded school logo when only its storage path is configured', async () => {
+  execute.mockResolvedValueOnce([[{client_id:8,organization_id:20,name:'Current School',logo_url:null,logo_path:'/uploads/logos/school.png',is_active:1}]]).mockResolvedValue([[]]);
+  const [result]=await attachGuardianSchoolAffiliations([client],options);
+  expect(result.school_affiliations[0].logo_url).toBe('/api/uploads/logos/school.png');
+ });
  it('retains former schools, days, providers and included staff without claiming they are current', async () => {
   seed(); const [result] = await attachGuardianSchoolAffiliations([client],options);
   const former = result.school_affiliations[1];

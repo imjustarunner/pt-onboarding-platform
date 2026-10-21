@@ -28,6 +28,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       const authStore = useAuthStore();
       const agencyStore = useAgencyStore();
       const role = String(authStore.user?.role || '').toLowerCase();
+      const isFamilyAccount = ['client_guardian', 'client'].includes(role);
       // Match GET /support-tickets/count authorization (avoid 403 noise for providers, etc.).
       const canFetchOpenTicketCount =
         role === 'school_staff' ||
@@ -63,7 +64,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
         canFetchOpenTicketCount
           ? api.get('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} }),
-        agencyId
+        agencyId && !isFamilyAccount
           ? api.get('/communications/attention-summary', { params: { agencyId, hubScope: 1 }, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: { summary: { unread: 0 } } }),
         canFetchOpenTicketCount

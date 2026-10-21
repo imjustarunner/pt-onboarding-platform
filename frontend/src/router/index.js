@@ -33,7 +33,7 @@ import api from '../services/api';
 import { navigateWorkspace } from '../services/workspaceNavigation';
 import {
   isSuperadminRole, isPlatformWorkspaceHost, isLocalWorkspaceHost,
-  tenantWorkspaceDestination
+  tenantWorkspaceDestination, isFamilyPortalRoute
 } from '../utils/workspaceDestination';
 import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
 import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js';
@@ -5359,7 +5359,8 @@ router.beforeEach(async (to, from, next) => {
 
   // Canonicalize tenant entries before applying any tenant state or branding.
   // Child portals (schools/programs) remain under their existing parent navigation.
-  if (authStore.isAuthenticated && to.meta.requiresAuth && !to.meta.fundthred && routeWorkspaceSlug && (
+  if (authStore.isAuthenticated && to.meta.requiresAuth && !to.meta.fundthred && routeWorkspaceSlug &&
+    !isFamilyPortalRoute({ role: authStore.user?.role, path: to.path }) && (
     (hostPortalEarly && routeWorkspaceSlug !== hostPortalEarly) ||
     (isPlatformWorkspaceHost(workspaceHost) && !isSuperadminRole(authStore.user?.role))
   )) {

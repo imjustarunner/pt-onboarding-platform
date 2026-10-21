@@ -6,8 +6,16 @@ vi.mock('../agency', () => ({ useAgencyStore: () => state }));
 vi.mock('../../services/api', () => ({ default: { get: vi.fn() } }));
 import api from '../../services/api';
 import { useCommunicationsCountsStore } from '../communicationsCounts';
-beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); state.currentAgency = { id: 2 }; });
+beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); state.currentAgency = { id: 2 }; state.user = { id: 1, role: 'provider' }; });
 describe('message navigation unread count', () => {
+  it.each(['client_guardian', 'client'])('does not request staff communications for %s', async role => {
+    state.user.role = role;
+    const store = useCommunicationsCountsStore();
+    store.unreadMessagesCount = 12;
+    await store.fetchCounts();
+    expect(api.get).not.toHaveBeenCalled();
+    expect(store.unreadMessagesCount).toBe(0);
+  });
   it('includes email and chat using the same personal agency scope as the hub', async () => {
     api.get.mockResolvedValue({ data: { summary: { unread: 45, emailUnread: 40, chatUnread: 5 } } });
     const store = useCommunicationsCountsStore();

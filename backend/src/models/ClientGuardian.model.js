@@ -183,10 +183,10 @@ class ClientGuardian {
          o.name AS organization_name,
          o.organization_type AS organization_type,
          o.slug AS organization_slug,
-         o.logo_url AS organization_logo_url,
+         COALESCE(NULLIF(o.logo_url,''),CONCAT('/api/',NULLIF(TRIM(LEADING '/' FROM o.logo_path),''))) AS organization_logo_url,
          a.name AS agency_name,
          a.slug AS agency_slug,
-         a.logo_url AS agency_logo_url,
+         COALESCE(NULLIF(a.logo_url,''),CONCAT('/api/',NULLIF(TRIM(LEADING '/' FROM a.logo_path),''))) AS agency_logo_url,
          ${hasRelationshipType ? 'cg.relationship_type,' : "'guardian' AS relationship_type,"}
          cg.relationship_title,
          cg.permissions_json

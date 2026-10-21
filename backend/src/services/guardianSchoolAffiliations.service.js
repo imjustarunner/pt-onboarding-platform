@@ -8,7 +8,7 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
   const ids = visible.map(c => Number(c.client_id)).filter(id => id > 0);
   if (!ids.length) return clients.map(c => ({ ...c, school_affiliations: [] }));
   const [rows] = await pool.execute(
-    `SELECT coa.client_id, coa.organization_id, a.name, a.logo_url,
+    `SELECT coa.client_id, coa.organization_id, a.name, a.logo_url,a.logo_path,
             coa.is_active, coa.is_primary
      FROM client_organization_assignments coa
      JOIN agencies a ON a.id = coa.organization_id AND a.organization_type = 'school'
@@ -19,7 +19,7 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
   for (const row of rows) {
     byClient.get(Number(row.client_id))?.push({
       organization_id: Number(row.organization_id), name: row.name,
-      logo_url: row.logo_url || null,
+      logo_url: row.logo_url || (row.logo_path ? `/api/${row.logo_path.replace(/^\/+/, '')}` : null),
       status: Number(row.is_active) === 1 ? 'current' : 'former',
       is_primary: Number(row.is_primary) === 1
     });

@@ -4,6 +4,13 @@ export const workspaceSlug = (agency) => String(agency?.slug || agency?.portal_u
 export const isSuperadminRole = (role) => ['super_admin', 'superadmin'].includes(String(role || '').toLowerCase());
 export const isLocalWorkspaceHost = (host) => ['localhost', '127.0.0.1', '[::1]'].includes(host);
 
+// A family can have authorized profiles at several agencies. Keep their session
+// on its current origin while the guardian route selects the person's branding.
+export function isFamilyPortalRoute({ role, path }) {
+  return ['client_guardian', 'client'].includes(String(role || '').toLowerCase())
+    && /^\/(?:[^/]+\/)?guardian(?:\/|$)/.test(String(path || ''));
+}
+
 export function isPlatformWorkspaceHost(host) {
   const normalized = normalizeHostname(host);
   return normalized === getPlatformAppHostname() || normalized === `www.${getPlatformAppHostname()}`;
