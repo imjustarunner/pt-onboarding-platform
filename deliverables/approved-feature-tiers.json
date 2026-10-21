@@ -8,7 +8,7 @@
   "features": [
     {
       "key": "ai_note_aid",
-      "feature": "Documentation Hub",
+      "feature": "Note Workspace",
       "minimumTier": "basic"
     },
     {

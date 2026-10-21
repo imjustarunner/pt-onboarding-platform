@@ -15,6 +15,8 @@ on:
       - 'frontend/public/auricwell/legal/**'
       - 'docs/legal/auricwell/**'
       - 'scripts/plans/**'
+      - 'deliverables/approved-feature-tiers.json'
+      - 'deliverables/feature-tier-inventory.json'
       - 'database/migrations/1624_auricwell_pricing_drafts.sql'
       - '.github/workflows/auricwell-pricing.yml'
   pull_request:
@@ -26,6 +28,8 @@ on:
       - 'frontend/public/auricwell/legal/**'
       - 'docs/legal/auricwell/**'
       - 'scripts/plans/**'
+      - 'deliverables/approved-feature-tiers.json'
+      - 'deliverables/feature-tier-inventory.json'
       - 'database/migrations/1624_auricwell_pricing_drafts.sql'
       - '.github/workflows/auricwell-pricing.yml'
   workflow_dispatch:

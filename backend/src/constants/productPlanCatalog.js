@@ -3,7 +3,7 @@ export const PLAN_TIERS = Object.freeze([{"id":"basic","name":"Basic"},{"id":"pr
 export const PLAN_FEATURES = Object.freeze([
   {
     "key": "ai_note_aid",
-    "label": "Documentation Hub",
+    "label": "Note Workspace",
     "description": "AI assistance for drafting notes; clinician reviews and signs.",
     "category": "Clinical",
     "minimumTier": "basic",

@@ -188,6 +188,8 @@ jobs:
       CLINICAL_DB_USER: family_billing_test
       CLINICAL_DB_PASSWORD: synthetic-only
       FAMILY_BILLING_ENCRYPTION_KEY_BASE64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      # Synthetic fixture encryption only; never a production key.
+      CLIENT_CHAT_ENCRYPTION_KEY_BASE64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       BILLING_FOLLOWUP_MYSQL_TEST: '1'
     steps:
       - uses: actions/checkout@v4
