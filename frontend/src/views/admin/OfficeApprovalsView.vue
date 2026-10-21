@@ -1,6 +1,6 @@
 <template>
-  <div class="office-approvals">
-    <header>
+  <div class="office-approvals" :class="{ embedded }">
+    <header v-if="!embedded">
       <div>
         <h1>
           Office Approvals <span class="count">{{ requests.length }}</span>
@@ -21,7 +21,7 @@
         </button>
       </nav>
     </header>
-    <nav class="tabs">
+    <nav v-if="!embedded" class="tabs">
       <button
         :class="{ active: !showConflicts }"
         @click="showConflicts = false"
@@ -40,7 +40,7 @@
         No pending office requests in the agencies you can manage.
       </p>
       <div v-else class="workspace" :class="{ 'detail-open': !!selectedKey }">
-        <aside class="queue">
+        <aside v-if="!embedded" class="queue">
           <label
             >Find a request<input
               v-model="search"
@@ -70,7 +70,7 @@
           ref="detailElement"
           tabindex="-1"
         >
-          <button class="back btn btn-secondary" @click="clearSelection">
+          <button v-if="!embedded" class="back btn btn-secondary" @click="clearSelection">
             ← All requests ({{ requests.length }})
           </button>
           <p v-if="contextLoading" role="status">
@@ -154,7 +154,7 @@
                   <span
                     ><strong
                       >{{ room.officeName }} · {{ room.roomLabel }}</strong
-                    ><small v-if="room.requested"
+                    ><small v-if="room.roomType">{{ room.roomType }}</small><small v-if="room.requested"
                       >Requested / preferred room</small
                     >
                     <span
@@ -257,7 +257,7 @@
               >Decision note<textarea
                 v-model="comment"
                 rows="3"
-                placeholder="Add context for the provider (optional)"
+                :placeholder="confirmAction === 'deny' ? 'Explain why the request was declined (required)' : 'Add context for the provider'"
                 :disabled="saving"
               />
             </label>
@@ -281,7 +281,7 @@
                 {{ review.request.frequencyLabel }}
               </p>
               <p v-else-if="confirmAction === 'deny'">
-                This request will be closed without reserving a room.
+                This request will be closed. A typed reason is required and will be emailed to the provider.
               </p>
               <button
                 class="btn"
@@ -289,7 +289,7 @@
                   confirmAction === 'approve' ? 'btn-primary' : 'btn-danger'
                 "
                 :disabled="
-                  saving || (confirmAction === 'approve' && !canApprove)
+                  saving || (confirmAction === 'approve' && !canApprove) || (confirmAction === 'deny' && !comment.trim())
                 "
                 @click="decide"
               >
@@ -338,12 +338,13 @@
   </div>
 </template>
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import OfficeCoverageFlagsView from './OfficeCoverageFlagsView.vue';
 const route = useRoute(),
   router = useRouter();
+const props = defineProps({ embedded: Boolean, requestKey: { type: String, default: '' } });
 const emit = defineEmits(['decided']);
 const requests = ref([]),
   loading = ref(false),
@@ -438,7 +439,7 @@ async function load() {
   try {
     const { data } = await api.get('/office-schedule/approvals');
     requests.value = data.requests || [];
-    const key = selectedKey.value || String(route.query.request || '');
+    const key = props.requestKey || selectedKey.value || String(route.query.request || '');
     if (key && requests.value.some((r) => r.key === key)) await select(key);
     else if (selectedKey.value) clearSelection();
   } catch (e) {
@@ -458,7 +459,7 @@ async function select(key) {
   acknowledged.value = false;
   comment.value = '';
   roomId.value = null;
-  router.replace({ query: { ...route.query, request: key, tab: 'requests' } });
+  if (!props.embedded) router.replace({ query: { ...route.query, request: key, tab: 'requests' } });
   await nextTick();
   detailElement.value?.focus({ preventScroll: true });
   try {
@@ -482,7 +483,7 @@ function clearSelection() {
   contextVersion++;
   selectedKey.value = '';
   review.value = null;
-  router.replace({ query: { ...route.query, request: undefined } });
+  if (!props.embedded) router.replace({ query: { ...route.query, request: undefined } });
 }
 async function separateWindows() {
   saving.value = true;
@@ -503,6 +504,7 @@ async function separateWindows() {
   }
 }
 async function decide() {
+  if (confirmAction.value === 'deny' && !comment.value.trim()) { error.value = 'Please explain the denial so the provider knows why.'; return; }
   saving.value = true;
   error.value = '';
   const key = selectedKey.value;
@@ -533,8 +535,13 @@ async function decide() {
   }
 }
 onMounted(load);
+watch(() => props.requestKey, key => { if (key) select(key); });
 </script>
 <style scoped>
+.office-approvals.embedded { padding: 0; }
+.embedded .workspace { display: block; }
+.embedded .detail { padding: 0; border: 0; }
+
 .office-approvals {
   max-width: 1500px;
   margin: auto;

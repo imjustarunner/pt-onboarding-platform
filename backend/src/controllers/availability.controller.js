@@ -1,3 +1,4 @@
+import { allocateOfficeRoom,lockOfficeRequests,unlockOfficeRequests } from '../services/officeRoomAllocation.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import {resolveOfficeRequestPreferences,readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import {assertOfficeRequestNotExpired} from '../utils/roomBookingWindow.js';
@@ -1429,28 +1430,8 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       supersedeId = Number(rows?.[0]?.id || 0) || null;
     }
 
-    // Soft hold: block a second request for the same specific room+weekday+hour.
-    // Exclude the request we are about to cancel/replace.
-    const conflict = await findConflictingPendingOfficeRequest({
-      officeIds,
-      slots: normalizedSlots,
-      excludeRequestId: supersedeId
-    });
-    if (conflict) {
-      return res.status(409).json({
-        error: {
-          message: 'That office slot is already requested.',
-          code: 'ALREADY_REQUESTED',
-          conflictingRequestId: conflict.requestId,
-          roomId: conflict.roomId,
-          weekday: conflict.weekday,
-          startHour: conflict.startHour,
-          endHour: conflict.endHour
-        }
-      });
-    }
-
     conn = await pool.getConnection();
+    await lockOfficeRequests(conn);
     await conn.beginTransaction();
 
     const cancelledIds = [];
@@ -1483,15 +1464,28 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       }
     }
 
-    const requestIds = await insertOfficeRequestWindows(conn, {
-      agencyId, providerId,
-      officesJson: officeIds.length ? JSON.stringify(officeIds) : null,
-      roomsJson: preferences.preferredRooms.length ? JSON.stringify(preferences.preferredRooms) : null,
-      notes, recurrence: requestedRecurrence.recurrence, occurrenceCount: requestedRecurrence.occurrenceCount
-    }, requestWindows);
+    const allowedOffices = officeIds.length ? officeIds : await OfficeLocationAgency.listOfficeIdsForAgencies([agencyId]);
+    if (!allowedOffices.length) throw Object.assign(new Error('Choose an accessible building.'), {status:400});
+    const requestIds = [];
+    for (const window of requestWindows) {
+      let allocation, lastError;
+      for (const officeId of allowedOffices) {
+        try { allocation = await allocateOfficeRoom(conn, { ...window, source: 'intake', officeId:Number(officeId), providerId, roomType:req.body?.roomType || 'counseling', preferredRoomIds:preferences.preferredRooms.map(r=>Number(r.id)), recurrence:requestedRecurrence.recurrence, occurrenceCount:requestedRecurrence.occurrenceCount }); break; }
+        catch(error) { if(error.code==='ALREADY_REQUESTED')throw error; if(error.code!=='NO_SUITABLE_OFFICE')throw error; lastError=error; }
+      }
+      if(!allocation)throw lastError || new Error('No suitable office available.');
+      window.roomId=allocation.roomId;
+      requestIds.push(...await insertOfficeRequestWindows(conn, {
+        agencyId, providerId,
+        officesJson: officeIds.length ? JSON.stringify(officeIds) : null,
+        roomsJson: preferences.preferredRooms.length ? JSON.stringify(preferences.preferredRooms) : null,
+        notes, recurrence: requestedRecurrence.recurrence, occurrenceCount: requestedRecurrence.occurrenceCount
+      }, [window]));
+    }
     const requestId = requestIds[0];
 
     await conn.commit();
+    await unlockOfficeRequests(conn);
     conn.release();
     conn = null;
 
@@ -1513,7 +1507,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     }
     next(e);
   } finally {
-    if (conn) conn.release();
+    if (conn) { await unlockOfficeRequests(conn).catch(()=>{}); conn.release(); }
   }
 };
 

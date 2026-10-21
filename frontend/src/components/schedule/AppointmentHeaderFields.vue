@@ -255,7 +255,7 @@
                 </div>
                 <div class="ahf-field ahf-field--rooms">
                   <span class="ahf-label">{{ multipleRoomPreferences ? 'Room preferences · choose up to 3' : 'Preferred room' }}</span>
-                  <p v-if="multipleRoomPreferences" class="ahf-preference-help">Choose up to three rooms in order of preference, or select “Any available room” if you truly have no preference. Staff assigns one room after reviewing the building schedule. For repeated scheduling, choose Recurring above.</p>
+                  <p v-if="multipleRoomPreferences" class="ahf-preference-help">Choose up to three rooms in order of preference, or select “Any available room” if you truly have no preference. The app holds a suitable room for CPA approval, preferring an office you have used before. For repeated scheduling, choose Recurring above.</p>
                   <input v-if="preferredRoomOptions.length > 6" v-model="roomPreferenceSearch" type="search" class="ahf-input ahf-room-search" aria-label="Search room preferences" placeholder="Search room number or name…" :disabled="disabled" />
                   <div v-if="preferredRoomOptions.length" class="ahf-room-list">
                     <button
@@ -282,8 +282,7 @@
                         @click="chooseRoomPreference(Number(r.id || r.roomId))"
                       >
                         <span v-if="multipleRoomPreferences && roomPreferenceIds.includes(Number(r.id || r.roomId))" class="ahf-preference-rank">{{ roomPreferenceIds.indexOf(Number(r.id || r.roomId)) + 1 }}</span>
-                        <span v-if="roomNumberOf(r)" class="ahf-room-num">#{{ roomNumberOf(r) }}</span>
-                        <span>{{ roomNameOf(r) }}</span>
+                        <span>{{ officeRoomTitle(r) }}</span><small>{{ r.roomType || r.room_type || '' }}</small>
                         <span v-if="r.stateLabel" class="ahf-room-state">{{ r.stateLabel }}</span>
                       </button>
                       <button
@@ -313,7 +312,7 @@
                   </select>
                 </div>
               </div>
-              <p v-if="multipleRoomPreferences" class="ahf-preference-summary" aria-live="polite">{{ roomPreferenceIds.length ? roomPreferenceSummary : roomPreferenceAcknowledged ? 'Any available room — staff will choose one' : 'Choose preferred rooms or explicitly choose any available room' }}. This sends one request; it does not book these rooms.</p>
+              <p v-if="multipleRoomPreferences" class="ahf-preference-summary" aria-live="polite">{{ roomPreferenceIds.length ? roomPreferenceSummary : roomPreferenceAcknowledged ? 'Choose a suitable office — held for CPA approval' : 'Choose preferred rooms or explicitly choose any available room' }}. This holds one available office while the CPA reviews your request.</p>
               <p v-if="preferredRoomsHint" class="ahf-office-hint muted">{{ preferredRoomsHint }}</p>
               <div v-if="roomPhotoPreviewUrl" class="ahf-photo-lightbox" @click="roomPhotoPreviewUrl = ''">
                 <img :src="roomPhotoPreviewUrl" alt="Room photo" @click.stop />
@@ -595,11 +594,12 @@
 </template>
 
 <script setup>
+import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import { computed, ref, watch } from 'vue';
 
 const roomPreferenceSearch = ref('');
 const filteredRoomPreferenceOptions = computed(() => props.preferredRoomOptions.filter(r => `${roomNumberOf(r)} ${roomNameOf(r)}`.toLowerCase().includes(roomPreferenceSearch.value.trim().toLowerCase())));
-const roomPreferenceSummary = computed(() => roomPreferenceIds.value.map((id,index) => { const room=props.preferredRoomOptions.find(r => Number(r.id || r.roomId)===id); return `${index+1}. ${room ? [roomNumberOf(room)?`#${roomNumberOf(room)}`:'',roomNameOf(room)].filter(Boolean).join(' ') : `Room ${id}`}`; }).join(' → '));
+const roomPreferenceSummary = computed(() => roomPreferenceIds.value.map((id,index) => { const room=props.preferredRoomOptions.find(r => Number(r.id || r.roomId)===id); return `${index+1}. ${room ? officeRoomTitle(room) : `Room ${id}`}`; }).join(' → '));
 const roomPreferenceIds = computed(() => props.multipleRoomPreferences ? props.preferredRoomIds.map(Number) : Number(props.preferredRoomId) > 0 ? [Number(props.preferredRoomId)] : []);
 function chooseRoomPreference(id) {
   emit('update:roomPreferenceAcknowledged',true);
@@ -828,7 +828,7 @@ function openRoomPhotos(r) {
   emit('open-room-photos', {
     roomId,
     officeId: Number(props.officeLocationId || 0),
-    roomLabel: `${roomNumberOf(r) ? `#${roomNumberOf(r)} ` : ''}${roomNameOf(r)}`.trim(),
+    roomLabel: officeRoomTitle(r),
     photoUrl: roomPhotoOf(r)
   });
 }

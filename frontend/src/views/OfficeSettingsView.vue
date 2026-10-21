@@ -233,24 +233,24 @@
           <div class="section-title">Offices</div>
           <div class="row" data-tour="buildings-settings-rooms-create">
             <input v-model="newRoomNumber" type="number" placeholder="Number" style="max-width: 120px;" />
-            <input v-model="newRoomLabel" placeholder="Label (e.g. Office 101)" />
-            <button class="btn btn-primary" @click="createRoom" :disabled="saving || loading || (!newRoomLabel.trim() && !newRoomNumber) || !canManageOfficeSettings">Add</button>
+            <select v-model="newRoomTypeId" aria-label="Office type"><option value="">Choose office type</option><option v-for="t in roomTypes" :key="t.id" :value="t.id">{{ t.name }}</option></select>
+            <button class="btn btn-primary" @click="createRoom" :disabled="saving || loading || (!newRoomNumber || !newRoomTypeId) || !canManageOfficeSettings">Add</button>
           </div>
           <div v-if="rooms.length === 0" class="muted" style="margin-top: 10px;">No offices yet.</div>
           <div v-else class="list" style="margin-top: 10px;">
             <div v-for="r in rooms" :key="r.id" class="list-row">
               <div class="list-main">
                 <div class="title" style="display:flex; align-items:center; gap:8px;">
-                  <span>{{ r.room_number ? `#${r.room_number}` : '' }} {{ r.label || r.name }}</span>
+                  <span>{{ officeRoomTitle(r) }}</span>
                   <OfficeRoomPhotoButton
                     :room-id="Number(r.id)"
                     :office-id="Number(officeId || 0)"
                     :photo-url="String(r.photo_url || r.photoUrl || '')"
-                    :room-label="`${r.room_number ? `#${r.room_number} ` : ''}${r.label || r.name || ''}`.trim()"
+                    :room-label="officeRoomTitle(r)"
                     @open="openOfficeRoomPhotoGallery"
                   />
                 </div>
-                <div class="meta">Office ID: {{ r.id }}</div>
+                <div class="meta">{{ r.room_type || 'Type not set' }}</div>
                 <div style="margin-top: 10px;">
                   <button class="btn btn-secondary btn-sm" @click="toggleEditRoom(r)" :disabled="saving || loading || !canManageOfficeSettings">
                     {{ editingRoomIds.has(r.id) ? 'Cancel' : 'Edit' }}
@@ -265,7 +265,7 @@
                     @click="openOfficeRoomPhotoGallery({
                       roomId: Number(r.id),
                       officeId: Number(officeId || 0),
-                      roomLabel: `${r.room_number ? `#${r.room_number} ` : ''}${r.label || r.name || ''}`.trim(),
+                      roomLabel: officeRoomTitle(r),
                       photoUrl: String(r.photo_url || r.photoUrl || '')
                     })"
                   >
@@ -282,7 +282,7 @@
                       placeholder="Number"
                       style="max-width: 140px;"
                     />
-                    <input v-model="roomEdits[String(r.id)].label" placeholder="Label (e.g. Office 101)" />
+                    <span>Office #{{ roomEdits[String(r.id)].roomNumber }}</span>
                   </div>
                   <div class="row" style="margin-top: 8px; margin-bottom: 0;">
                     <input v-model="roomEdits[String(r.id)].svgRoomId" placeholder="SVG room id (optional)" />
@@ -311,7 +311,7 @@
                     </button>
                   </div>
                   <div class="hint" style="margin-top: 6px;">
-                    The “label” is what users see (we fall back to name if label is empty).
+                    Titles use the office number. Select its type separately; mixed-use offices may have more than one type.
                   </div>
                 </div>
                 <div class="meta" style="margin-top: 8px;">
@@ -385,6 +385,7 @@
 </template>
 
 <script setup>
+import { officeRoomTitle } from '../utils/officeRoomTitle.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
@@ -513,7 +514,7 @@ const newRoomTypeName = ref('');
 
 const rooms = ref([]);
 const newRoomNumber = ref('');
-const newRoomLabel = ref('');
+const newRoomTypeId = ref('');
 const roomGoogleEmails = ref({});
 const roomEdits = ref({});
 const editingRoomIds = ref(new Set());
@@ -831,11 +832,10 @@ const createRoom = async () => {
     error.value = '';
     await api.post(`/offices/${officeId.value}/rooms`, {
       roomNumber: newRoomNumber.value === '' ? null : Number(newRoomNumber.value),
-      label: newRoomLabel.value.trim() || null,
-      roomTypeIds: []
+      roomTypeIds: [Number(newRoomTypeId.value)]
     });
     newRoomNumber.value = '';
-    newRoomLabel.value = '';
+    newRoomTypeId.value = '';
     await loadAll();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to create room';

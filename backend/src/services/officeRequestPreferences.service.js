@@ -22,7 +22,7 @@ export async function resolveOfficeRequestPreferences(database, {agencyId, offic
   }
   const preferredRooms=ids.map(id=>{
     const room=rooms.find(r=>Number(r.id)===id);
-    return {id,officeId:Number(room.officeId),officeName:room.officeName,label:[room.room_number?`#${room.room_number}`:'',room.label||room.name||`Room ${id}`].filter(Boolean).join(' ')};
+    return {id,officeId:Number(room.officeId),officeName:room.officeName,label:room.room_number ? `Office #${room.room_number}` : room.label||room.name||`Room ${id}`};
   });
   return {preferredRooms,slots:slots.map(s=>({...s,roomId:supplied?(ids.length===1?ids[0]:null):s.roomId}))};
 }

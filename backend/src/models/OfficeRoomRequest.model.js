@@ -1,3 +1,4 @@
+import {allocateOfficeRoom,lockOfficeRequests,unlockOfficeRequests} from '../services/officeRoomAllocation.service.js';
 import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
 import OfficeLocation from './OfficeLocation.model.js';
 import pool from '../config/database.js';
@@ -11,12 +12,15 @@ class OfficeRoomRequest {
   static async create({ userId, locationId, roomId, requestType = 'ONE_TIME', startAt, endAt, notes = null }) {
     const office = await OfficeLocation.findById(locationId);
     assertRoomBookingStart(startAt,office?.timezone || 'America/Denver');
-    const [result] = await pool.execute(
-      `INSERT INTO office_room_requests
-       (user_id, location_id, room_id, request_type, status, start_at, end_at, notes)
-       VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
-      [userId, locationId, roomId, requestType, startAt, endAt, notes]
-    );
+    const db=await pool.getConnection();
+    let locked=false,result;
+    try {
+      await lockOfficeRequests(db);locked=true;await db.beginTransaction();
+      const allocation=await allocateOfficeRoom(db,{officeId:locationId,providerId:userId,roomId,startAt,endAt,recurrence:requestType==='RECURRING'?'WEEKLY':'ONCE'});
+      [result]=await db.execute(`INSERT INTO office_room_requests (user_id,location_id,room_id,request_type,status,start_at,end_at,notes) VALUES (?,?,?,?,'PENDING',?,?,?)`,[userId,locationId,allocation.roomId,requestType,startAt,endAt,notes]);
+      await db.commit();
+    } catch(error) {await db.rollback();throw error;}
+    finally {if(locked)await unlockOfficeRequests(db);db.release();}
     try {
       const {notifyOfficeRequestPending}=await import('../services/officeApprovalWorkflow.service.js');
       await notifyOfficeRequestPending({source:'legacy',id:result.insertId,officeId:locationId,providerId:userId});

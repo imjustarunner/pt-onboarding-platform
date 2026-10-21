@@ -43,6 +43,8 @@ export async function runOfficeDecision(
     return await withOfficeDecisionLock(async () => {
       const key = `${source}:${Number(req.params.id)}`;
       const request = await findOfficeApproval(req.user, key);
+      if (action === 'deny' && !String(req.body?.approverComment || req.body?.reason || '').trim())
+        return res.status(400).json({ error: { message: 'A typed reason is required and will be emailed to the provider.' } });
       let selected = null;
       if (action === 'approve' && request.roomRequest) {
         const review = await officeApprovalContext(req.user, key, {

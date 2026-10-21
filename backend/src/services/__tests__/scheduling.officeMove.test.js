@@ -1,3 +1,4 @@
+vi.mock('../officeMoveEmail.service.js', () => ({ queueOfficeMoveReceipt: vi.fn() }));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { getConnection: vi.fn() } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));

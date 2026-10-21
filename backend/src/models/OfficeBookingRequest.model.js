@@ -1,3 +1,4 @@
+import { allocateOfficeRoom,lockOfficeRequests,unlockOfficeRequests } from '../services/officeRoomAllocation.service.js';
 import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
 import OfficeLocation from './OfficeLocation.model.js';
 import pool from '../config/database.js';
@@ -8,7 +9,29 @@ class OfficeBookingRequest {
     return rows?.[0] || null;
   }
 
-  static async create({
+  static async create(input) {
+    if (!['PROVIDER_REQUEST','INTAKE_REQUEST'].includes(input.requestType || 'PROVIDER_REQUEST')) return this.insert(input);
+    const db = await pool.getConnection();
+    let locked=false;
+    try {
+      await lockOfficeRequests(db); locked=true;
+      await db.beginTransaction();
+      const allocation=await allocateOfficeRoom(db,{officeId:input.officeLocationId,providerId:input.requestedProviderId,roomId:input.roomId,roomType:input.roomType || 'counseling',startAt:input.startAt,endAt:input.endAt,recurrence:input.recurrence || 'ONCE',occurrenceCount:input.bookedOccurrenceCount});
+      const result=await this.insert({...input,roomId:allocation.roomId},db);
+      await db.commit();
+      await unlockOfficeRequests(db);locked=false;
+      await this.notifyPending(result);
+      return result;
+    } catch(error) { await db.rollback(); throw error; }
+    finally { if(locked)await unlockOfficeRequests(db); db.release(); }
+  }
+  static async notifyPending(result) {
+    try {
+      const {notifyOfficeRequestPending}=await import('../services/officeApprovalWorkflow.service.js');
+      await notifyOfficeRequestPending({source:'booking',id:result.id,officeId:result.office_location_id,providerId:result.requested_provider_id});
+    } catch(error) { console.error('[office-request] Pending alert failed',error.message); }
+  }
+  static async insert({
     requestType = 'PROVIDER_REQUEST',
     officeLocationId,
     roomId = null,
@@ -25,7 +48,7 @@ class OfficeBookingRequest {
     serviceCode = null,
     modality = null,
     sessionContext = null
-  }) {
+  }, db = pool) {
     if (['PROVIDER_REQUEST','INTAKE_REQUEST'].includes(requestType)) {
       const office = await OfficeLocation.findById(officeLocationId);
       assertRoomBookingStart(startAt,office?.timezone || 'America/Denver');
@@ -35,7 +58,7 @@ class OfficeBookingRequest {
       : null;
     let result;
     try {
-      [result] = await pool.execute(
+      [result] = await db.execute(
         `INSERT INTO office_booking_requests
           (request_type, status, office_location_id, room_id, requested_provider_id, client_id, start_at, end_at, recurrence, booked_occurrence_count, appointment_type_code, appointment_subtype_code, service_code, modality, open_to_alternative_room, requester_notes)
          VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -59,7 +82,7 @@ class OfficeBookingRequest {
       );
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      [result] = await pool.execute(
+      [result] = await db.execute(
         `INSERT INTO office_booking_requests
           (request_type, status, office_location_id, room_id, requested_provider_id, start_at, end_at, recurrence, open_to_alternative_room, requester_notes)
          VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -76,12 +99,10 @@ class OfficeBookingRequest {
         ]
       );
     }
-    if (sessionContext) await pool.execute('UPDATE office_booking_requests SET session_context_json = ? WHERE id = ?', [JSON.stringify(sessionContext), result.insertId]);
-    try {
-      const {notifyOfficeRequestPending}=await import('../services/officeApprovalWorkflow.service.js');
-      await notifyOfficeRequestPending({source:'booking',id:result.insertId,officeId:officeLocationId,providerId:requestedProviderId});
-    } catch(error) { console.error('[office-request] Pending alert failed',error.message); }
-    return this.findById(result.insertId);
+    if (sessionContext) await db.execute('UPDATE office_booking_requests SET session_context_json = ? WHERE id = ?', [JSON.stringify(sessionContext), result.insertId]);
+    const [[row]] = await db.execute('SELECT * FROM office_booking_requests WHERE id=?',[result.insertId]);
+    if(db===pool)await this.notifyPending(row);
+    return row;
   }
 
   static async listPendingForAgencies(agencyIds, { officeLocationId = null } = {}) {

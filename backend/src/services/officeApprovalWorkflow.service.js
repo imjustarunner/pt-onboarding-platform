@@ -3,7 +3,9 @@
  * into another queue. All decisions (including old URLs) use this service.
  */
 import pool from '../config/database.js';
-import { isExpiredTemporaryAssignment } from '../utils/officeMoveConflict.js';
+import { approvalAssignmentConflict } from '../utils/officeAssignmentConflict.js';
+export { approvalAssignmentConflict } from '../utils/officeAssignmentConflict.js';
+import { pendingOfficeWindows, overlappingRequest } from './officeRoomAllocation.service.js';
 import User from '../models/User.model.js';
 import OfficeBookingRequest from '../models/OfficeBookingRequest.model.js';
 import OfficeRoomRequest from '../models/OfficeRoomRequest.model.js';
@@ -229,8 +231,7 @@ export function approvalWindow(request, timezone, now = new Date()) {
     throw fail(
       'This older monthly request starts on a month-end date. Confirm a new request with the provider so its day-of-month is preserved.'
     );
-  const checkedDates =
-    request.occurrenceCount == null ? remaining.slice(0, 12) : remaining;
+  const checkedDates = remaining;
   return {
     startDate: remaining[0],
     startHour,
@@ -260,67 +261,18 @@ async function candidateRooms(actor, request) {
   }
   const [rooms] = await pool.execute(
     `SELECT DISTINCT rm.id AS roomId,l.id AS officeId,l.name AS officeName,l.timezone,
-    rm.room_number,rm.label,rm.name FROM office_rooms rm JOIN office_locations l ON l.id=rm.location_id
+    rm.room_number,rm.label,rm.name,(SELECT GROUP_CONCAT(t.name SEPARATOR ' · ') FROM office_room_type_links k JOIN office_room_types t ON t.id=k.room_type_id AND t.is_active=1 WHERE k.room_id=rm.id) AS roomType FROM office_rooms rm JOIN office_locations l ON l.id=rm.location_id
     JOIN office_location_agencies ola ON ola.office_location_id=l.id
     WHERE ${where} AND rm.is_active=1 AND l.is_active=1 AND l.physical_office_location_id IS NULL ORDER BY l.name,rm.room_number,rm.id`,
     params
   );
   return rooms.map((r) => ({
     ...r,
-    roomLabel: [r.room_number ? `#${r.room_number}` : '', r.label || r.name]
-      .filter(Boolean)
-      .join(' '),
+    roomLabel: r.room_number ? `Office #${r.room_number}` : r.label || r.name,
     requested:
       Number(r.roomId) === request.roomId ||
       request.preferredRooms.some((p) => Number(p.id) === Number(r.roomId))
   }));
-}
-// Standing rows reserve a physical weekday/hour even when no booking event has
-// been generated. Match the writer's ownership rules before offering a room.
-export function approvalAssignmentConflict(
-  request,
-  room,
-  window,
-  inventory,
-  now
-) {
-  const today = utcToZonedMysqlWall(now, window.timezone).slice(0, 10);
-  const owners = (inventory?.assignments || []).filter(
-    (row) =>
-      Number(row.room_id) === Number(room.roomId) &&
-      Number(row.weekday) === window.weekday &&
-      Number(row.hour) >= window.startHour &&
-      Number(row.hour) < window.endHour &&
-      !isExpiredTemporaryAssignment(row, today)
-  );
-  if (!owners.length) return null;
-  // The intake writer can borrow a complete one-time window without replacing
-  // its owner's standing assignment. Its booked occurrences were checked above.
-  const canBorrow =
-    request.source === 'intake' &&
-    request.recurrence === 'ONCE' &&
-    Array.from(
-      { length: window.endHour - window.startHour },
-      (_, i) => window.startHour + i
-    ).every((hour) =>
-      owners.some(
-        (row) =>
-          Number(row.hour) === hour &&
-          Number(row.provider_id) !== request.providerId
-      )
-    );
-  if (
-    canBorrow &&
-    owners.every((row) => Number(row.provider_id) !== request.providerId)
-  )
-    return null;
-  const owner = owners[0];
-  const name =
-    [owner.first_name, owner.last_name].filter(Boolean).join(' ') ||
-    'a provider';
-  return Number(owner.provider_id) === request.providerId
-    ? 'This provider already has a standing assignment here. Review or update that assignment in Building Master instead of creating another.'
-    : `This room has a standing assignment for ${name} during this time. Choose another room or review the existing assignment in Building Master.`;
 }
 async function reviewRoom(request, room, now, inventory) {
   const timezone = room.timezone || 'America/Denver';
@@ -405,6 +357,19 @@ export async function officeApprovalContext(
   const rooms = await Promise.all(
     candidates.map((r) => reviewRoom(request, r, now, inventory))
   );
+  // Room holds apply across agencies sharing the physical building. Do not expose
+  // the other agency's provider or client information while enforcing the hold.
+  const holdsByOffice = new Map();
+  for (const candidate of rooms) {
+    if (!candidate.available || !candidate.window) continue;
+    if (!holdsByOffice.has(candidate.officeId)) holdsByOffice.set(candidate.officeId,
+      await pendingOfficeWindows(pool, { officeId: candidate.officeId, timeZone: candidate.window.timezone }));
+    if (holdsByOffice.get(candidate.officeId).some(other => other.key !== key &&
+      Number(other.roomId) === Number(candidate.roomId) && overlappingRequest(candidate.window, other))) {
+      candidate.available = false;
+      candidate.reason = 'Held by another pending office request. Choose another room.';
+    }
+  }
   const selected =
     rooms.find((r) => Number(r.roomId) === Number(roomId || request.roomId)) ||
     null;
@@ -547,6 +512,12 @@ export async function officeApprovalContext(
         otherWindow.checkedDates.includes(date)
       );
       if (!overlappingDate) continue;
+      if (other.roomId) {
+        for (const candidate of rooms) if (candidate.available && Number(candidate.roomId) === Number(other.roomId)) {
+          candidate.available = false;
+          candidate.reason = 'Held by another pending office request. Resolve that request or choose another room.';
+        }
+      }
       warnings.push({
         kind: 'pending_request',
         requestKey: other.key,
@@ -581,7 +552,7 @@ export async function officeApprovalContext(
     checkedAt: new Date().toISOString(),
     horizon:
       request.occurrenceCount == null
-        ? 'Next 12 occurrences; the standing reservation continues.'
+        ? 'All occurrences within the next year; the standing reservation continues.'
         : 'All remaining requested occurrences.'
   };
 }

@@ -1,3 +1,4 @@
+import { pendingOfficeWindows,overlappingRequest } from '../services/officeRoomAllocation.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
 import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
@@ -2593,7 +2594,7 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
       return res.status(202).json({ ok: true, pendingApproval: true, request, message: 'Change requested. Your current reservation remains in place until approval.' });
     }
     await OfficeScheduleMaterializer.materializeWeek({ officeLocationId, weekStartRaw: startWall.slice(0, 10), createdByUserId: req.user.id, force: true });
-    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone, actorUserId: req.user.id, approvalRequestId: req.officeMoveApprovalId || null });
+    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone, actorUserId: req.user.id, reason: String(req.body?.reason || '').trim(), approvalRequestId: req.officeMoveApprovalId || null });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
     const warnings = await refreshMovedOfficeNotifications(movedEventIds);
     return res.json({ ok: true, movedEventIds, warnings });
@@ -2700,7 +2701,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
       return res.status(202).json({ ok: true, pendingApproval: true, request, message: 'Change requested. Your current reservation remains in place until approval.' });
     }
     const movedEventIds = await moveOfficeSessionSeries({ assignment, assignments, newRoomId, newWeekday, newHour,
-      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId, approvalRequestId: req.officeMoveApprovalId || null });
+      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId, reason, approvalRequestId: req.officeMoveApprovalId || null });
     const cancelledEventIds = [];
     const updated = await OfficeStandingAssignment.findById(sid);
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
@@ -2714,30 +2715,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const oldSlotLabel = `${WEEKDAY_NAMES[oldWeekday] || oldWeekday} ${formatHourLabel(oldHour)} in ${oldRoomLabel}`;
     const newSlotLabel = `${WEEKDAY_NAMES[newWeekday] || newWeekday} ${formatHourLabel(newHour)} in ${newRoomLabel}`;
 
-    let notificationSent = false;
-    if (notifyProvider && providerId) {
-      try {
-        const agencyId = bookingAgencyId || await resolveAgencyForProviderOffice({ providerId, officeLocationId });
-        const actor = await User.findById(req.user.id);
-        const actorName = formatProviderName(actor, req.user.id);
-        const reasonSuffix = reason ? ` Reason: ${reason}` : '';
-        await createNotificationAndDispatch({
-          type: 'office_schedule_slot_rescheduled',
-          severity: 'info',
-          title: 'Office slot rescheduled',
-          message: `${actorName} moved your recurring office slot from ${oldSlotLabel} to ${newSlotLabel}.${reasonSuffix}`,
-          userId: providerId,
-          agencyId,
-          relatedEntityType: 'office_standing_assignment',
-          relatedEntityId: sid,
-          actorUserId: req.user.id,
-          actorSource: 'Office Scheduling'
-        });
-        notificationSent = true;
-      } catch {
-        // best-effort notification
-      }
-    }
+    const notificationSent = false; // The branded receipt is durably queued with the move.
 
     return res.json({
       ok: true,
@@ -2815,6 +2793,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     if (assignmentMode === 'PROVIDER') assertOfficeAssignmentPlanningDate(date, officeTz);
     const startHour = Number(hour);
     const finalHour = Number(endHour !== null ? endHour : hour + 1);
+    const held=await pendingOfficeWindows(pool,{officeId:officeLocationId,timeZone:officeTz});
+    const requestedDays=recurrenceFrequency==='ONCE'?[date]:recurrenceWeekdays.map(day=>addDaysYmd(date,(day-new Date(`${date}T12:00:00Z`).getUTCDay()+7)%7));
+    if (held.some(p=>p.roomId===roomId && requestedDays.some(startDate=>overlappingRequest({startDate,startHour,endHour:finalHour,recurrence:recurrenceFrequency},p)))) return res.status(409).json({error:{message:'This office is held by a pending request. Open that request in Building Master to approve or deny it first.'}});
+
     if (assignmentMode === 'COMPANY_HOLD') assertRoomBookingStart(date,officeTz);
     const startAt = mysqlDateTimeForDateHour(date, hour, officeTz);
     const endAt = mysqlDateTimeForDateHour(date, finalHour, officeTz);
@@ -3001,6 +2983,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
 
       const startHour = Number(hour);
       const finalHour = Number(endHour !== null ? endHour : hour + 1);
+    const held=await pendingOfficeWindows(pool,{officeId:officeLocationId,timeZone:officeTz});
+    const requestedDays=recurrenceFrequency==='ONCE'?[date]:recurrenceWeekdays.map(day=>addDaysYmd(date,(day-new Date(`${date}T12:00:00Z`).getUTCDay()+7)%7));
+    if (held.some(p=>p.roomId===roomId && requestedDays.some(startDate=>overlappingRequest({startDate,startHour,endHour:finalHour,recurrence:recurrenceFrequency},p)))) return res.status(409).json({error:{message:'This office is held by a pending request. Open that request in Building Master to approve or deny it first.'}});
+
 
       // Pre-flight scan: classify each hour of each weekday before creating anything.
       const existingToAlign = new Map(); // 'weekday:hour' → existing assignment row

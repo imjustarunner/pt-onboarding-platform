@@ -3,8 +3,8 @@ import pool from '../config/database.js';
 class OfficeRoom {
   static async findByLocation(locationId) {
     const [rows] = await pool.execute(
-      `SELECT * FROM office_rooms
-       WHERE location_id = ? AND is_active = TRUE
+      `SELECT office_rooms.*,(SELECT GROUP_CONCAT(t.name ORDER BY t.sort_order,t.name SEPARATOR ' · ') FROM office_room_type_links k JOIN office_room_types t ON t.id=k.room_type_id AND t.is_active=1 WHERE k.room_id=office_rooms.id) AS room_type
+       FROM office_rooms WHERE location_id = ? AND is_active = TRUE
        ORDER BY
          (room_number IS NULL) ASC,
          room_number ASC,

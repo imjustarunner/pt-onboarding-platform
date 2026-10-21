@@ -466,6 +466,7 @@ export async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, o
       officeLocationId,
       roomId,
       weekdayIndex: wh.weekdayIndex,
+      date: wh.date, timeZone: officeTimeZone || 'America/Denver',
       startHour,
       endHour
     });
@@ -1808,7 +1809,7 @@ export const getWeeklyGrid = async (req, res, next) => {
             continue;
           }
           indexPendingRoomRequest(pendingBySlot,unassignedRoomRequests,{
-            id:Number(req.id),providerId:Number(req.provider_id),providerName,roomId,
+            key:`intake:${req.id}`,id:Number(req.id),providerId:Number(req.provider_id),providerName,roomId,
             date:dateForWeekday,startHour:sh,endHour:eh,frequency:requestedFrequency,
             preferredRooms:readPreferredRooms(req.preferred_rooms_json)
           });
@@ -1824,8 +1825,23 @@ export const getWeeklyGrid = async (req, res, next) => {
       const pkSpecific = `${s.date}:${s.hour}:${roomId}`;
       const pending = pendingBySlot.get(pkSpecific) || [];
       const uniqueNames = [...new Set(pending.map((p) => p.providerName))];
-      s.pendingRequestCount = uniqueNames.length;
+      s.pendingRequests = pending;
+      s.pendingRequestCount = pending.length;
       s.pendingRequestNames = uniqueNames.length > 0 ? uniqueNames : null;
+    }
+
+    const linkedEventIds = [...new Set(slots.map(s => Number(s.eventId)).filter(Boolean))];
+    if (linkedEventIds.length) {
+      const [linked] = await pool.query(`SELECT e.id event_id,e.start_at,e.end_at,a.id appointment_id
+        FROM office_events e LEFT JOIN appointments a ON a.office_event_id=e.id
+        WHERE e.id IN (?)`, [linkedEventIds]);
+      const byEvent = new Map(linked.map(row => [Number(row.event_id), row]));
+      for (const slot of slots) {
+        const event = byEvent.get(Number(slot.eventId));
+        slot.appointmentId = event?.appointment_id || null;
+        slot.eventStartAt = event?.start_at || null;
+        slot.eventEndAt = event?.end_at || null;
+      }
     }
 
     for (const s of slots) {
@@ -1941,6 +1957,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         || Number(out.providerId || 0) === actorId
       );
       if (!canSeeClientIds && !isOwn) {
+        out.appointmentId = null;
         out.clientId = null;
         out.clinicalSessionId = null;
         out.noteContextId = null;
@@ -1959,6 +1976,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         name: r.name,
         roomNumber: r.room_number ?? null,
         label: r.label ?? null,
+        roomType: r.room_type || null,
         photoUrl: r.photo_url || null,
         photo_url: r.photo_url || null
       })),
@@ -2361,7 +2379,8 @@ export const getAvailability = async (req, res, next) => {
 
 export const createBookingRequest = async (req, res, next) => {
   try {
-    const { locationId, roomId, startAt, endAt, notes } = req.body;
+    const { locationId, roomId, notes } = req.body;
+    let { startAt, endAt } = req.body;
     if (!locationId || !roomId || !startAt || !endAt) {
       return res.status(400).json({ error: { message: 'locationId, roomId, startAt, endAt are required' } });
     }
@@ -2374,6 +2393,12 @@ export const createBookingRequest = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(parseInt(locationId));
     if (!loc) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const toUtc = value => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(value))
+      ? dateToMysqlUtcDateTime(new Date(value))
+      : wallMysqlToUtcMysql(normalizeWallMysqlDatetime(value), loc.timezone || 'America/Denver');
+    startAt = toUtc(startAt); endAt = toUtc(endAt);
+    if (!startAt || !endAt || endAt <= startAt) return res.status(400).json({ error: { message: 'Choose a valid office time' } });
 
     // Must belong to an agency assigned to the office (unless super_admin)
     if (req.user.role !== 'super_admin') {
@@ -2666,225 +2691,13 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       }
     }
 
-    // ONCE auto-book:
-    // 1) Borrow an ASSIGNED_AVAILABLE / ASSIGNED_TEMPORARY occurrence (any day) for requestedProviderId
-    // 2) Same-day open-room create when no standing event occupies the slot
-    const tz = loc.timezone || 'America/New_York';
-    const startYmd = localYmdInTz(startAt, tz);
-    const todayYmd = localYmdInTz(new Date(), tz);
-    const isSameDay = !!(startYmd && todayYmd && startYmd === todayYmd);
-
-    if (normalizedRecurrence === 'ONCE' && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
-      // Materialize the containing week so standing assignments appear as occupied.
-      try {
-        const ws = OfficeScheduleMaterializer.startOfWeekMonday(startYmd);
-        if (ws) {
-          await OfficeScheduleMaterializer.materializeWeek({
-            officeLocationId: loc.id,
-            weekStartRaw: ws,
-            createdByUserId: req.user.id,
-            useExactWeekStart: true
-          });
-        }
-      } catch {
-        // ignore
-      }
-
-      const rooms = await OfficeRoom.findByLocation(loc.id);
-      const candidates = room && !openToAlternativeRoom ? [room] : rooms;
-      let borrowedEvent = null;
-      let chosen = null;
-      let blockedBySoftHold = false;
-
-      for (const r of candidates) {
-        // eslint-disable-next-line no-await-in-loop
-        const [occRows] = await pool.execute(
-          `SELECT id, status, slot_state, assigned_provider_id, booked_provider_id, client_id,
-                  appointment_type_code, appointment_subtype_code, service_code, modality
-           FROM office_events
-           WHERE room_id = ?
-             AND start_at < ?
-             AND end_at > ?
-             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-           ORDER BY id DESC
-           LIMIT 1`,
-          [r.id, endAt, startAt]
-        );
-        const occ = occRows?.[0] || null;
-        if (occ) {
-          const occStatus = String(occ.status || '').toUpperCase();
-          const occState = String(occ.slot_state || '').toUpperCase();
-          if (occStatus === 'BOOKED' || ['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(occState)) {
-            continue;
-          }
-          if (['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(occState) || occStatus === 'RELEASED') {
-            const standingAssigneeId = Number(occ.assigned_provider_id || 0) || 0;
-            const allowBorrow = req.body?.borrow === true
-              || req.body?.allowBorrow === true
-              || String(req.body?.borrow || '').toLowerCase() === 'true';
-            // Default: book as the standing assignee (both assigned + booked = that person).
-            // Only when borrow=true may a different requestedProviderId take the day.
-            const bookAsProviderId = (allowBorrow && requestedProviderId && standingAssigneeId
-              && requestedProviderId !== standingAssigneeId)
-              ? requestedProviderId
-              : (standingAssigneeId || requestedProviderId);
-            // eslint-disable-next-line no-await-in-loop
-            borrowedEvent = await OfficeEvent.markBooked({
-              eventId: occ.id,
-              bookedProviderId: bookAsProviderId,
-              appointmentTypeCode: validatedSelection.appointmentTypeCode || occ.appointment_type_code || null,
-              appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode || occ.appointment_subtype_code || null,
-              serviceCode: validatedSelection.serviceCode || occ.service_code || null,
-              modality: validatedSelection.modality || occ.modality || null,
-              serviceLocationId: rawSelection.serviceLocationId || null,
-              addonServiceCodes: validatedSelection.addonServiceCodes || null
-            });
-            // Keep standing ownership coherent — never leave assigned pointing at someone else
-            // while booking "for" the assignee under a mistaken schedule-context user id.
-            if (standingAssigneeId && bookAsProviderId === standingAssigneeId) {
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                await pool.execute(
-                  `UPDATE office_events
-                   SET assigned_provider_id = ?, updated_at = CURRENT_TIMESTAMP
-                   WHERE id = ?`,
-                  [standingAssigneeId, occ.id]
-                );
-              } catch {
-                // best-effort
-              }
-            }
-            if (clientId && borrowedEvent?.id) {
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                await ensureAppointmentContext({
-                  officeEventId: borrowedEvent.id,
-                  agencyId: Number(req.body?.agencyId || 0) || null,
-                  sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
-                    packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
-                  clientId,
-                  sourceTimezone: tz,
-                  actorUserId: req.user.id
-                });
-              } catch (error) {
-                return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: borrowedEvent.id });
-              }
-            }
-            break;
-          }
-          continue;
-        }
-
-        if (!isSameDay) continue;
-        // eslint-disable-next-line no-await-in-loop
-        const open = await isRoomOpenAt({
-          officeLocationId: loc.id,
-          roomId: r.id,
-          startAt,
-          endAt,
-          officeTimeZone: tz
-        });
-        if (open) {
-          chosen = r;
-          break;
-        }
-        const wh = weekdayHourInTz(startAt, tz) || weekdayHourFromSqlDateTime(startAt);
-        if (wh) {
-          // eslint-disable-next-line no-await-in-loop
-          const softHeld = await hasPendingSoftHoldAt({
-            officeLocationId: loc.id,
-            roomId: r.id,
-            weekdayIndex: wh.weekdayIndex,
-            startHour: Number(wh.hour),
-            endHour: Number(wh.hour) + 1
-          });
-          if (softHeld) blockedBySoftHold = true;
-        }
-      }
-
-      if (borrowedEvent?.id) {
-        return res.status(201).json({
-          ok: true,
-          kind: 'auto_booked',
-          borrow: true,
-          event: borrowedEvent
-        });
-      }
-
-      if (!chosen && blockedBySoftHold && room && !openToAlternativeRoom) {
-        return res.status(409).json({
-          error: { message: 'That office slot is already requested.', code: 'ALREADY_REQUESTED' }
-        });
-      }
-
-      if (chosen) {
-        const [eventRows] = await pool.execute(
-          `SELECT 1
-           FROM office_events
-           WHERE room_id = ?
-             AND start_at < ?
-             AND end_at > ?
-             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-           LIMIT 1`,
-          [chosen.id, endAt, startAt]
-        );
-        if (eventRows?.[0]) {
-          return res.status(409).json({ error: { message: 'That office slot is no longer available.' } });
-        }
-
-        const ev = await OfficeEvent.createIfRoomOpen({
-          officeLocationId: loc.id,
-          roomId: chosen.id,
-          startAt,
-          endAt,
-          status: 'BOOKED',
-          // Open-room day book: same person for assigned + booked (not the approving admin).
-          assignedProviderId: requestedProviderId,
-          bookedProviderId: requestedProviderId,
-          clientId,
-          source: 'PROVIDER_REQUEST',
-          recurrenceGroupId: null,
-          notes,
-          appointmentTypeCode: validatedSelection.appointmentTypeCode,
-          appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
-          serviceCode: validatedSelection.serviceCode,
-          modality: validatedSelection.modality,
-          createdByUserId: req.user.id,
-          approvedByUserId: req.user.id
-        });
-        if (rawSelection.serviceLocationId && ev?.id) {
-          try {
-            await pool.execute(
-              `UPDATE office_events SET service_location_id = ? WHERE id = ?`,
-              [rawSelection.serviceLocationId, ev.id]
-            );
-          } catch {
-            // column may not exist until migration 974
-          }
-        }
-        if (clientId) {
-          try {
-            await ensureAppointmentContext({
-              officeEventId: ev?.id,
-              agencyId: Number(req.body?.agencyId || 0) || null,
-              sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
-                packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
-              clientId,
-              sourceTimezone: tz,
-              actorUserId: req.user.id
-            });
-          } catch (error) {
-            return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: ev?.id });
-          }
-        }
-        return res.status(201).json({ ok: true, kind: 'auto_booked', event: ev });
-      }
-    }
-
+    // Every new room request uses the same allocator and pending hold. Legacy
+    // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
       sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: Number(req.body?.agencyId || 0) || null,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
+      roomType: req.body?.roomType || 'counseling',
       officeLocationId: loc.id,
       roomId: room?.id || null,
       requestedProviderId,
@@ -3924,38 +3737,11 @@ export const updateLocation = async (req, res, next) => {
   }
 };
 
+// The older floor-plan URL uses the same numbered/type-aware room writer.
 export const createRoom = async (req, res, next) => {
-  try {
-    if (!canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Only CPA/admin can create rooms' } });
-    }
-
-    const { locationId } = req.params;
-    const { name, svgRoomId, sortOrder } = req.body;
-    if (!name) return res.status(400).json({ error: { message: 'name is required' } });
-
-    const loc = await OfficeLocation.findById(parseInt(locationId));
-    if (!loc) return res.status(404).json({ error: { message: 'Location not found' } });
-
-    if (req.user.role !== 'super_admin') {
-      const userAgencies = await User.getAgencies(req.user.id);
-      const ok = await OfficeLocationAgency.userHasAccess({
-        officeLocationId: loc.id,
-        agencyIds: userAgencies.map((a) => a.id)
-      });
-      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-
-    const room = await OfficeRoom.create({
-      locationId: loc.id,
-      name,
-      svgRoomId: svgRoomId || null,
-      sortOrder: Number.isFinite(parseInt(sortOrder)) ? parseInt(sortOrder) : 0
-    });
-    res.status(201).json(room);
-  } catch (e) {
-    next(e);
-  }
+  const { createRoom: createConfiguredRoom } = await import('./officeSettings.controller.js');
+  req.params.officeId = req.params.locationId;
+  return createConfiguredRoom(req, res, next);
 };
 
 // ─── Slot-conflict resolver (booking reinstatement) ──────────────────────────
@@ -4099,7 +3885,7 @@ export const availableRoomsForSlot = async (req, res, next) => {
       let rooms;
       try {
         const [rows] = await pool.execute(
-          `SELECT r.id, r.name, r.label, r.room_number, r.room_type, r.photo_url
+          `SELECT r.id, r.name, r.label, r.room_number, (SELECT GROUP_CONCAT(t.name ORDER BY t.sort_order,t.name SEPARATOR ' · ') FROM office_room_type_links k JOIN office_room_types t ON t.id=k.room_type_id AND t.is_active=1 WHERE k.room_id=r.id) AS room_type, r.photo_url
            FROM office_rooms r
            WHERE r.location_id = ?
              AND (r.is_active = TRUE OR r.is_active IS NULL)
@@ -4121,7 +3907,7 @@ export const availableRoomsForSlot = async (req, res, next) => {
       } catch (colErr) {
         if (!String(colErr?.message || '').includes('photo_url')) throw colErr;
         const [rows] = await pool.execute(
-          `SELECT r.id, r.name, r.label, r.room_number, r.room_type
+          `SELECT r.id, r.name, r.label, r.room_number, (SELECT GROUP_CONCAT(t.name ORDER BY t.sort_order,t.name SEPARATOR ' · ') FROM office_room_type_links k JOIN office_room_types t ON t.id=k.room_type_id AND t.is_active=1 WHERE k.room_id=r.id) AS room_type
            FROM office_rooms r
            WHERE r.location_id = ?
              AND (r.is_active = TRUE OR r.is_active IS NULL)

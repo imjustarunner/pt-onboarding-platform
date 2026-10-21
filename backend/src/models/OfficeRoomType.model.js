@@ -1,6 +1,9 @@
 import pool from '../config/database.js';
 
 class OfficeRoomType {
+  static async ensureDefaults(officeLocationId) {
+    await pool.execute(`INSERT IGNORE INTO office_room_types (office_location_id,name,sort_order) VALUES (?, 'Counseling Office',0),(?,'Play Room',1),(?,'Tutoring Room',2),(?,'Group Room',3)`, Array(4).fill(officeLocationId));
+  }
   static async listByOffice(officeLocationId) {
     const [rows] = await pool.execute(
       `SELECT * FROM office_room_types

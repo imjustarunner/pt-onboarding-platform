@@ -1,3 +1,6 @@
+import { pendingOfficeWindows,overlappingRequest } from './officeRoomAllocation.service.js';
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
+import { queueOfficeMoveReceipt } from './officeMoveEmail.service.js';
 import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailability.service.js';
 import { legacyOfficeAvailabilityDuplicates } from '../utils/officeLegacyDuplicates.js';
 import { retireExpiredOfficeAssignment } from './officeAssignmentExpiry.service.js';
@@ -10,7 +13,7 @@ import { utcDateToZonedParts, wallMysqlToUtcMysql, dateToMysqlUtcDateTime } from
 const fail = (message) => Object.assign(new Error(message), { status: 409 });
 const utc = (value) => value instanceof Date ? value : new Date(`${String(value).replace(' ', 'T').replace(/Z$/, '')}Z`);
 
-export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt, endAt, timeZone, actorUserId, approvalRequestId = null }) {
+export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt, endAt, timeZone, actorUserId, reason = '', approvalRequestId = null }) {
   if (!(utc(startAt).getTime() > Date.now()) || !(utc(endAt) > utc(startAt))) throw fail('Choose a valid future session time');
   const conn = await pool.getConnection();
   try {
@@ -25,6 +28,9 @@ export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt,
       WHERE s.office_event_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL LIMIT 1`, [eventId]);
     if (notes.length) throw fail('A signed note is attached to this session. Preserve that record and book a new session.');
     const providerId = Number(event.booked_provider_id || event.assigned_provider_id);
+    const held=await pendingOfficeWindows(conn,{officeId:event.office_location_id,timeZone});
+    const localStart=utcToZonedMysqlWall(startAt,timeZone), localEnd=utcToZonedMysqlWall(endAt,timeZone);
+    if(held.some(p=>p.roomId===Number(newRoomId) && overlappingRequest({startDate:localStart.slice(0,10),startHour:Number(localStart.slice(11,13))+Number(localStart.slice(14,16))/60,endHour:Number(localEnd.slice(11,13))+Number(localEnd.slice(14,16))/60,recurrence:'ONCE'},p))) throw fail('The target office is held by a pending request. Resolve that request first.');
     const [roomConflicts] = await conn.execute(`SELECT * FROM office_events WHERE room_id = ? AND start_at < ? AND end_at > ?
       AND (status IS NULL OR status <> 'CANCELLED') AND id <> ? FOR UPDATE`, [newRoomId, endAt, startAt, eventId]);
     const ownAvailability = roomConflicts.filter((e) => e.status !== 'BOOKED' && !e.client_id && !e.clinical_session_id
@@ -45,7 +51,7 @@ export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt,
       const originalDate = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
       await conn.execute('UPDATE office_booking_plans SET skipped_dates_json = ? WHERE id = ?', [JSON.stringify([...new Set([...skips, originalDate])]), event.booking_plan_id]);
     }
-    await conn.execute('UPDATE office_events SET room_id = ?, start_at = ?, end_at = ?, standing_assignment_id = NULL, assigned_provider_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newRoomId, startAt, endAt, providerId, eventId]);
+    await conn.execute("UPDATE office_events SET room_id = ?, start_at = ?, end_at = ?, standing_assignment_id = NULL, assigned_provider_id = ?, google_sync_status = 'PENDING', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [newRoomId, startAt, endAt, providerId, eventId]);
     if (event.standing_assignment_id && (Number(newRoomId) !== Number(event.room_id) || utc(startAt).getTime() !== utc(event.start_at).getTime())) {
       await conn.execute(`INSERT INTO office_events (office_location_id, room_id, start_at, end_at, status, standing_assignment_id, assigned_provider_id, created_by_user_id)
         VALUES (?, ?, ?, ?, 'CANCELLED', ?, ?, ?)`, [event.office_location_id, event.room_id, event.start_at, event.end_at, event.standing_assignment_id, providerId, actorUserId]);
@@ -57,6 +63,7 @@ export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt,
       SET p.start_at = ?, p.end_at = ?, p.updated_at = CURRENT_TIMESTAMP WHERE a.office_event_id = ?`, [startAt, endAt, eventId]);
     await conn.execute(`UPDATE appointments SET room_id = ?, start_at = ?, end_at = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE office_event_id = ?`, [newRoomId, startAt, endAt, actorUserId, eventId]);
     if (approvalRequestId) await conn.execute("UPDATE office_booking_requests SET status = 'APPROVED', decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?", [actorUserId, approvalRequestId]);
+    await queueOfficeMoveReceipt(conn, { source:event,newRoomId,startAt,endAt,scope:'occurrence',timeZone,reason,actorUserId });
     await conn.commit();
   } catch (error) {
     await conn.rollback();
@@ -90,12 +97,16 @@ export function movedOfficeWindow(event, { oldWeekday, newWeekday, newHour, time
 }
 
 /** Move the existing occurrences, appointments and session links; never recreate patient sessions. */
-export async function moveOfficeSessionSeries({ assignment, assignments = [assignment], newRoomId, newWeekday, newHour, timeZone, actorUserId, bookingAgencyId = null, approvalRequestId = null }) {
+export async function moveOfficeSessionSeries({ assignment, assignments = [assignment], newRoomId, newWeekday, newHour, timeZone, actorUserId, bookingAgencyId = null, reason = '', approvalRequestId = null }) {
   const conn = await pool.getConnection();
   let moves = [];
   try {
     await conn.beginTransaction();
     if (approvalRequestId) await lockMoveApproval(conn, approvalRequestId);
+    const held=await pendingOfficeWindows(conn,{officeId:assignment.office_location_id,timeZone});
+    const today=utcToZonedMysqlWall(new Date(),timeZone).slice(0,10);
+    const targetDate=addDaysYmd(today,(newWeekday-new Date(`${today}T12:00:00Z`).getUTCDay()+7)%7);
+    if(held.some(p=>p.roomId===Number(newRoomId) && overlappingRequest({startDate:targetDate,startHour:newHour,endHour:newHour+assignments.length,recurrence:assignment.assigned_frequency || 'WEEKLY'},p))) throw fail('The target office is held by a pending request. Resolve that request first.');
     const assignmentIds = assignments.map(row => Number(row.id));
     const assignmentPlaceholders = assignmentIds.map(() => '?').join(',');
     // Serialize moves into the target room, including slots with no materialized events.
@@ -205,6 +216,13 @@ export async function moveOfficeSessionSeries({ assignment, assignments = [assig
     for (const source of [...assignments].sort((a, b) => (newHour > Number(assignment.hour) ? -1 : 1) * (Number(a.hour) - Number(b.hour)))) await conn.execute('UPDATE office_standing_assignments SET room_id = ?, weekday = ?, hour = ?, available_since_date = DATE_ADD(available_since_date, INTERVAL ? DAY), temporary_until_date = DATE_ADD(temporary_until_date, INTERVAL ? DAY), last_two_week_confirmed_at = NOW() WHERE id = ?',
       [newRoomId, newWeekday, newHour + Number(source.hour) - Number(assignment.hour), deltaDays, deltaDays, source.id]);
     if (approvalRequestId) await conn.execute("UPDATE office_booking_requests SET status = 'APPROVED', decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?", [actorUserId, approvalRequestId]);
+    const todayParts = utcDateToZonedParts(new Date(), timeZone);
+    const localToday = `${todayParts.year}-${String(todayParts.month).padStart(2,'0')}-${String(todayParts.day).padStart(2,'0')}`;
+    const firstDate = addDaysYmd(localToday, (newWeekday-new Date(`${localToday}T12:00:00Z`).getUTCDay()+7)%7 || 7);
+    const firstMove = moves[0] || {startAt:wallMysqlToUtcMysql(`${firstDate} ${String(newHour).padStart(2,'0')}:00:00`,timeZone),endAt:wallMysqlToUtcMysql(`${firstDate} ${String(newHour+assignments.length).padStart(2,'0')}:00:00`,timeZone)};
+    const blockEnd=dateToMysqlUtcDateTime(new Date(utc(firstMove.startAt).getTime()+assignments.length*3600000));
+    await conn.execute(`UPDATE office_assignment_checkin_usage SET monitoring_started_at=UTC_TIMESTAMP(),unused_occurrences=0 WHERE assignment_id IN (${assignmentPlaceholders})`,assignmentIds);
+    await queueOfficeMoveReceipt(conn, { source:{...assignment,block_hours:assignments.length},newRoomId,startAt:firstMove.startAt,endAt:blockEnd,scope:'future',timeZone,reason,actorUserId });
     await conn.commit();
   } catch (error) {
     await conn.rollback();
