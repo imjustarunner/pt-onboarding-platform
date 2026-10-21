@@ -32,3 +32,17 @@ it('cannot attach tutoring materials to a clinical session',async()=>{
  clinicalMedia.mockResolvedValue({state:'active',session_kind:'counseling'});
  await expect(attachTutoringBinder(room,office,input,dbFor())).rejects.toHaveProperty('status',409);
 });
+
+it('requires explicit same-session confirmation before a parent joins an existing binder',async()=>{
+ const {confirmTutoringGuest}=await import('../tutoringOffice.service.js');
+ const db={execute:vi.fn(async sql=>{
+  if(sql.includes('SELECT * FROM tutoring_office_encounters'))return [[{room_id:5,generation:3}]];
+  if(sql.includes('SELECT DISTINCT tutoring_client_id'))return [[{tutoring_client_id:40}]];
+  if(sql.includes('SELECT DISTINCT c.id'))return [[{id:40,full_name:'Student'}]];
+  if(sql.includes('SELECT COUNT(*) total'))return [[{total:1}]];
+  return [{affectedRows:1}];
+ })};
+ await expect(confirmTutoringGuest(room,office,{id:8},{clientId:40,confirmIdentity:true,sameEncounter:false},db)).rejects.toHaveProperty('status',409);
+ expect(db.execute.mock.calls.some(([q])=>q.startsWith('UPDATE'))).toBe(false);
+ expect(await confirmTutoringGuest(room,office,{id:8},{clientId:40,confirmIdentity:true,sameEncounter:true},db)).toBe(true);
+});

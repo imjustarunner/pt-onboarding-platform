@@ -98,3 +98,42 @@ it('opens the admitted student binder with a deliberate identity confirmation',a
  expect(wrapper.findComponent({name:'TutorSessionGuidePanel'}).props('clientId')).toBe(40);
  expect(wrapper.text()).toContain('Only you can see the session guide');wrapper.unmount();
 });
+
+it('offers an explicit same-session admission for a parent without ending tutoring',async()=>{
+ const {wrapper,request}=await setup({state:'active',generation:3,hasParticipants:true,tutoring:{manualBinder:true,participants:[{id:40,displayName:'Student'}]}},[{id:1,guestDisplayName:'Student'}]);
+ await button(wrapper,'Reconnect').trigger('click');await flushPromises();wrapper.findComponent(stub).vm.$emit('connected');await flushPromises();
+ await button(wrapper,'Admit to this tutoring session').trigger('click');await flushPromises();
+ expect(wrapper.find('[role=dialog]').text()).toContain('parent or other invited participant');
+ await wrapper.find('[role=dialog] select').setValue('40');expect(button(wrapper,'Confirm and admit').attributes('disabled')).toBeDefined();
+ await wrapper.find('[role=dialog] input[type=checkbox]').setValue(true);await button(wrapper,'Confirm and admit').trigger('click');await flushPromises();
+ expect(request).toHaveBeenCalledWith('/lobby/7/admit',{method:'POST',body:{clientId:40,confirmIdentity:true,sameEncounter:true}});
+ expect(request.mock.calls.some(([p])=>p==='/me/end')).toBe(false);wrapper.unmount();
+});
+it('asks once when the last tutoring guest leaves and permits keeping the session open',async()=>{
+ vi.useFakeTimers();const {wrapper,data,request}=await setup({state:'active',generation:3,hasParticipants:true,tutoring:{manualBinder:true,participants:[{id:40,displayName:'Student'}]}},[{id:1,guestDisplayName:'Student'}]);
+ await button(wrapper,'Reconnect').trigger('click');await flushPromises();data.admitted=[];
+ await vi.advanceTimersByTimeAsync(5000);await flushPromises();expect(wrapper.find('[aria-label="End tutoring session"]').exists()).toBe(true);
+ await button(wrapper,'Keep this session open').trigger('click');await vi.advanceTimersByTimeAsync(5000);await flushPromises();
+ expect(wrapper.find('[aria-label="End tutoring session"]').exists()).toBe(false);expect(request.mock.calls.some(([p])=>p==='/me/end')).toBe(false);wrapper.unmount();
+});
+it('puts away the binder and reopens a clean office only after guest disconnection is confirmed',async()=>{
+ vi.useFakeTimers();const {wrapper,data,request}=await setup({state:'active',generation:3,hasParticipants:true,tutoring:{manualBinder:true,participants:[{id:40,displayName:'Student'}]}},[{id:1,guestDisplayName:'Student'}]);
+ const original=request.getMockImplementation();request.mockImplementation(async(path,options)=>{
+  if(path==='/me/end'&&data.encounter.state==='ended')return {ok:true,state:'ended'};
+  if(path==='/me/video-token'&&data.encounter.state==='ended'){
+   data.encounter={state:'active',generation:4,hasParticipants:false,providerReady:false,tutoring:null};return {sessionId:'fresh-media',token:'synthetic'};
+  }
+  return original(path,options);
+ });
+ await button(wrapper,'Reconnect').trigger('click');await flushPromises();const url=wrapper.find('input[readonly]').element.value;
+ expect(wrapper.findComponent({name:'TutorSessionGuidePanel'}).exists()).toBe(true);
+ await button(wrapper,'End tutoring session before next student').trigger('click');await button(wrapper,'Yes, end and prepare my office').trigger('click');await flushPromises();
+ expect(wrapper.findComponent({name:'TutorSessionGuidePanel'}).exists()).toBe(false);
+ expect(request.mock.calls.filter(([p])=>p==='/me/video-token')).toHaveLength(1);
+ data.admitted=[];data.encounter.state='ended';data.encounter.tutoring=null;
+ await vi.advanceTimersByTimeAsync(5000);await flushPromises();
+ expect(request.mock.calls.filter(([p])=>p==='/me/video-token')).toHaveLength(2);
+ expect(wrapper.findComponent(stub).exists()).toBe(true);expect(wrapper.findComponent({name:'TutorSessionGuidePanel'}).exists()).toBe(false);
+ expect(wrapper.find('input[readonly]').element.value).toBe(url);expect(wrapper.text()).toContain('Second client');
+ expect(request.mock.calls.some(([p])=>p.includes('/admit'))).toBe(false);wrapper.unmount();
+});

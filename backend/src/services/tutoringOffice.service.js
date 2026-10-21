@@ -112,12 +112,20 @@ export async function linkTutoringOffice(room, generation, visit, db, req) {
   await clinicalAudit({kind:'office',sessionId:room.id,generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req}, 'tutoring_office_loaded', {learningSessionId:visit.learningSessionId,appointmentId:visit.tutoringAppointmentId}, db);
 }
 
+async function requireSameTutoringSession(room,office,guest,sameEncounter,db){
+ const returning=!!guest.admitted_at&&Number(guest.generation)===Number(office.generation);
+ if(returning)return;
+ const [[prior]]=await db.execute('SELECT COUNT(*) total FROM private_virtual_office_visits WHERE room_id=? AND generation=? AND admitted_at IS NOT NULL AND id<>?',[room.id,office.generation,guest.id]);
+ if(Number(prior?.total)>0&&sameEncounter!==true)throw fail(409,'Confirm that this parent or other invited participant belongs to the current tutoring session, or end it before the next student.');
+}
+
 export async function confirmTutoringGuest(room, office, guest, {clientId,confirmIdentity,sameEncounter}, db) {
   const link = await tutoringOfficeLink(room, office.generation, db);
   if (!link) return false;
   if(!link.learning_session_id&&!link.appointment_id){
     const context=await officeTutoringContext(room,office,db);
     if(!confirmIdentity||!context.participants.some(s=>s.id===Number(clientId))||(guest.tutoring_client_id&&Number(guest.tutoring_client_id)!==Number(clientId)))throw fail(409,'Confirm the student for this binder before admission.');
+    await requireSameTutoringSession(room,office,guest,sameEncounter,db);
     await db.execute('UPDATE private_virtual_office_visits SET tutoring_client_id=? WHERE id=?',[clientId,guest.id]);
     return true;
   }
@@ -126,6 +134,7 @@ export async function confirmTutoringGuest(room, office, guest, {clientId,confir
   if (!confirmIdentity || !visit.participants.some(c => c.id === Number(clientId))) throw fail(409, 'Confirm the scheduled student’s identity before admitting them.');
   if (guest.tutoring_client_id && Number(guest.tutoring_client_id) !== Number(clientId)) throw fail(409, 'A returning visit must keep its originally confirmed student.');
   assertTutoringArrivalTime(visit);
+  await requireSameTutoringSession(room,office,guest,sameEncounter,db);
   const [[others]] = await db.execute(`SELECT COUNT(*) total FROM private_virtual_office_visits WHERE room_id=? AND generation=? AND admitted_at IS NOT NULL AND id<>? AND (tutoring_client_id IS NULL OR tutoring_client_id<>?)`, [room.id,office.generation,guest.id,clientId]);
   if (Number(others.total) && !sameEncounter) throw fail(409, 'Confirm that this student belongs to the same group tutoring visit.');
   await db.execute('UPDATE private_virtual_office_visits SET tutoring_client_id=? WHERE id=?', [clientId,guest.id]);
