@@ -799,9 +799,9 @@ const selectedSchoolId = ref(null);
 const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(s.organization_id) === Number(selectedSchoolId.value)) || schoolAffiliations.value[0] || null);
 const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSchool.value.name}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
 const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
-const clinicalGuardianContext = computed(() => !!selectedChild.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
+const clinicalGuardianContext = computed(() => !!selectedChild.value && !standardsLearningVisible.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
 const guardianWorkspaceMode = ref('clinical');
-const schoolWorkspaceActive = computed(() => hasSchoolAffiliations.value && guardianWorkspaceMode.value === 'overview');
+const schoolWorkspaceActive = computed(() => clinicalGuardianContext.value && hasSchoolAffiliations.value && guardianWorkspaceMode.value === 'overview');
 function changeGuardianWorkspaceMode(mode) {
   if (mode === 'overview' && hasSchoolAffiliations.value) navigatePortal('schoolcarebridge');
   else if (activePanel.value === 'schoolcarebridge') navigatePortal('overview');
