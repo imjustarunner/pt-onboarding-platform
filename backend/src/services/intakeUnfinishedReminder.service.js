@@ -1,5 +1,5 @@
 /**
- * Unfinished Digital Enrollment Form reminders (24h / 72h / 7d) and hard deletion.
+ * Unfinished Digital Enrollment Form reminders (24h / 72h / 7d) and reminder opt-out. Access expiry does not authorize record deletion.
  * Agreed drafts expire at 10 days; declined drafts expire at 12 hours. No emails when declined.
  */
 import crypto from 'crypto';
@@ -9,8 +9,6 @@ import Agency from '../models/Agency.model.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
-import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
-import StorageService from './storage.service.js';
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
 
 export const REMINDER_AGREE_TTL_MS = 10 * 24 * 60 * 60 * 1000;
@@ -74,35 +72,6 @@ export async function buildEnrollmentDeleteUrl(agency, publicKey, rawDeletionTok
   const key = String(publicKey || '').trim();
   const tok = String(rawDeletionToken || '').trim();
   return `${base}/api/public-intake/${encodeURIComponent(key)}/delete-data?token=${encodeURIComponent(tok)}`;
-}
-
-async function resolveAgencyForSubmission(submissionId) {
-  const [rows] = await pool.execute(
-    `SELECT a.*, il.public_key, il.scope_type, il.organization_id AS link_organization_id,
-            il.title AS link_title, il.inherits_office_master, il.inherits_school_master,
-            school.name AS school_name,
-            school.official_name AS school_official_name
-     FROM intake_submissions s
-     INNER JOIN intake_links il ON il.id = s.intake_link_id
-     LEFT JOIN agencies a ON a.id = (
-       CASE
-         WHEN il.scope_type = 'agency' THEN il.organization_id
-         ELSE (
-           SELECT af.agency_id FROM agency_schools af
-           WHERE af.school_organization_id = il.organization_id AND af.is_active = 1
-           ORDER BY af.id ASC LIMIT 1
-         )
-       END
-     )
-     LEFT JOIN agencies school ON school.id = COALESCE(
-       s.school_organization_id,
-       CASE WHEN il.scope_type IN ('school','program') THEN il.organization_id ELSE NULL END
-     )
-     WHERE s.id = ?
-     LIMIT 1`,
-    [submissionId]
-  );
-  return rows[0] || null;
 }
 
 export async function applyReminderConsent({
@@ -170,106 +139,9 @@ async function logReminderEvent({
   );
 }
 
-export async function recordAnonymousDeletionAudit({
-  agencyId,
-  schoolOrganizationId = null,
-  scopeType = 'unknown',
-  reason = 'user_opt_out'
-}) {
-  if (!agencyId) return;
-  await pool.execute(
-    `INSERT INTO unfinished_form_deletion_audits
-     (agency_id, school_organization_id, scope_type, reason)
-     VALUES (?, ?, ?, ?)`,
-    [agencyId, schoolOrganizationId || null, String(scopeType || 'unknown').slice(0, 24), String(reason || 'user_opt_out').slice(0, 64)]
-  );
-}
-
-async function purgeSubmissionUploads(submissionId) {
-  try {
-    const [rows] = await pool.execute(
-      `SELECT storage_path, file_path, gcs_path FROM intake_submission_uploads WHERE intake_submission_id = ?`,
-      [submissionId]
-    ).catch(() => [[]]);
-    for (const row of rows || []) {
-      const key = row.storage_path || row.file_path || row.gcs_path;
-      if (!key) continue;
-      try {
-        await StorageService.deleteObject(String(key).replace(/^\/+/, ''));
-      } catch {
-        /* ignore missing */
-      }
-    }
-    await pool.execute(`DELETE FROM intake_submission_uploads WHERE intake_submission_id = ?`, [submissionId]).catch(() => null);
-  } catch {
-    /* table may not exist in older envs */
-  }
-}
-
-/**
- * Hard-delete unfinished enrollment draft + uploads. Records anonymous audit only.
- */
-export async function purgeUnfinishedEnrollmentDraft({
-  submissionId,
-  reason = 'user_opt_out',
-  notifyAdmins = false
-} = {}) {
-  const id = Number(submissionId || 0);
-  if (!id) return { ok: false, reason: 'missing_id' };
-  const ctx = await resolveAgencyForSubmission(id);
-  const submission = await IntakeSubmission.findById(id);
-  if (!submission) return { ok: false, reason: 'not_found' };
-  if (String(submission.status || '').toLowerCase() === 'submitted') {
-    return { ok: false, reason: 'already_submitted' };
-  }
-
-  const agencyId = Number(ctx?.id || 0) || null;
-  const schoolOrganizationId = Number(
-    submission.school_organization_id || ctx?.link_organization_id || 0
-  ) || null;
-  const scopeType = String(ctx?.scope_type || '').toLowerCase() === 'school'
-    || String(ctx?.scope_type || '').toLowerCase() === 'program'
-    ? 'school'
-    : (Number(ctx?.inherits_office_master) ? 'office' : (String(ctx?.scope_type) === 'agency' ? 'office' : 'unknown'));
-
-  await purgeSubmissionUploads(id);
-  await IntakeSubmission.deleteById(id);
-
-  if (agencyId) {
-    await recordAnonymousDeletionAudit({
-      agencyId,
-      schoolOrganizationId: scopeType === 'school' ? schoolOrganizationId : null,
-      scopeType,
-      reason
-    });
-  }
-
-  if (notifyAdmins && agencyId && reason === 'user_opt_out') {
-    const schoolLabel = String(ctx?.school_official_name || ctx?.school_name || '').trim();
-    const schoolBit = scopeType === 'school' && schoolLabel
-      ? ` for ${schoolLabel}`
-      : (scopeType === 'school' ? ' for a school' : ' for an office enrollment packet');
-    await createNotificationAndDispatch({
-      type: 'unfinished_form_data_deleted',
-      severity: 'info',
-      title: 'Enrollment form data deleted by request',
-      message: `Someone chose “Stop notifying me and delete all my data forever”${schoolBit}. No personal details were retained.`,
-      audienceJson: {
-        admin: true,
-        clinicalPracticeAssistant: true,
-        schoolStaff: false,
-        supervisor: false,
-        provider: false
-      },
-      userId: null,
-      agencyId,
-      relatedEntityType: 'agency',
-      relatedEntityId: agencyId,
-      actorSource: 'System'
-    }).catch(() => null);
-  }
-
-  return { ok: true, agencyId, schoolOrganizationId, scopeType };
+/** Legacy cleanup entry point: keep saved answers and uploads for records review. */
+export async function purgeUnfinishedEnrollmentDraft() {
+  return { ok: false, skipped: true, deleted: 0, recordsRetained: true, reason: 'records_retained' };
 }
 
 export async function purgeByDeletionToken({ publicKey, rawToken }) {
@@ -288,8 +160,8 @@ export async function purgeByDeletionToken({ publicKey, rawToken }) {
   );
   const id = Number(rows?.[0]?.id || 0);
   if (!id) return { ok: false, reason: 'not_found' };
-  await IntakeSubmission.updateById(id, { reminder_opt_out_at: new Date() }).catch(() => null);
-  return purgeUnfinishedEnrollmentDraft({ submissionId: id, reason: 'user_opt_out', notifyAdmins: true });
+  await IntakeSubmission.updateById(id, { reminder_opt_out_at: new Date() });
+  return { ok: true, remindersStopped: true, recordsRetained: true };
 }
 
 function formatExpiry(when) {
@@ -319,10 +191,10 @@ async function sendSlotReminder({ row, slotKey, identity }) {
   const schoolName = String(row.school_official_name || row.school_name || '').trim();
   const resumeUrl = await buildEnrollmentSessionUrl(agency, row.public_key, row.session_token);
 
-  // Mint a fresh deletion token for the email so old links stay valid until expiry.
+  // Keep the legacy token field and route for existing reminder opt-out links.
   let deleteUrl = `${buildPublicPortalBaseUrl(agency)}/api/public-intake/${encodeURIComponent(row.public_key)}/delete-data`;
   if (row.deletion_token_hash) {
-    // Re-use stored hash: we cannot recover raw token; mint a new one for this send.
+    // The raw token cannot be recovered; this send replaces the previous opt-out token.
     const minted = mintDeletionToken();
     await IntakeSubmission.updateById(row.id, {
       deletion_token_hash: minted.hash,
@@ -342,16 +214,16 @@ async function sendSlotReminder({ row, slotKey, identity }) {
     '',
     schoolLine,
     '',
-    `This is a reminder to finish your enrollment form when you have a few minutes. Your private, HIPAA-protected session will expire on ${expiresLabel}. After that, all information will be permanently deleted.`,
+    `This is a reminder to finish your enrollment form when you have a few minutes. Your private enrollment link will expire on ${expiresLabel}. The link expiring does not delete saved records. Contact the agency to request access to or removal of records; some records must be kept under applicable requirements.`,
     '',
     `Continue your form: ${resumeUrl}`,
     '',
     `If the button or link does not work, copy and paste this address into your browser:`,
     resumeUrl,
     '',
-    `Stop notifying me and delete all my data forever: ${deleteUrl}`,
+    `Stop enrollment reminders: ${deleteUrl}`,
     '',
-    `No other reminders will be sent after your third reminder or after the 10-day deletion date.`,
+    `No other reminders will be sent after your third reminder or when this enrollment link expires.`,
     '',
     `Thank you,`,
     `${agencyName} Forms`
@@ -360,16 +232,16 @@ async function sendSlotReminder({ row, slotKey, identity }) {
   const html = `<div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #10231f; max-width: 560px;">
   <p>Hi ${escapeHtml(firstName)},</p>
   <p>${escapeHtml(schoolLine)}</p>
-  <p>This is a reminder to finish your enrollment form when you have a few minutes. Your private, HIPAA-protected session will expire on <strong>${escapeHtml(expiresLabel)}</strong>. After that, all information will be permanently deleted.</p>
+  <p>This is a reminder to finish your enrollment form when you have a few minutes. Your private enrollment link will expire on <strong>${escapeHtml(expiresLabel)}</strong>. The link expiring does not delete saved records. Contact the agency to request access to or removal of records; some records must be kept under applicable requirements.</p>
   <p style="margin: 24px 0;">
     <a href="${escapeHtml(resumeUrl)}" style="display:inline-block;background:#1f6b4a;color:#fff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;">Continue your enrollment form</a>
   </p>
   <p style="font-size:13px;color:#4b5563;">If the button does not work, copy and paste this link into your browser:<br/>
   <a href="${escapeHtml(resumeUrl)}">${escapeHtml(resumeUrl)}</a></p>
   <p style="font-size:13px;margin-top:28px;">
-    <a href="${escapeHtml(deleteUrl)}" style="color:#7f1d1d;">Stop notifying me and delete all my data forever</a>
+    <a href="${escapeHtml(deleteUrl)}" style="color:#7f1d1d;">Stop enrollment reminders</a>
   </p>
-  <p style="font-size:12px;color:#6b7280;">No other reminders will be sent after your third reminder or after the 10-day deletion date.</p>
+  <p style="font-size:12px;color:#6b7280;">No other reminders will be sent after your third reminder or when this enrollment link expires.</p>
   <p>Thank you,<br/>${escapeHtml(agencyName)} Forms</p>
 </div>`;
 
@@ -489,23 +361,9 @@ export async function listExpiredEnrollmentDrafts({ limit = 200 } = {}) {
 }
 
 /**
- * Hourly worker: send due reminders; purge expired unfinished drafts.
+ * Hourly worker: send due reminders. Saved drafts are retained after access expires.
  */
 export async function runUnfinishedEnrollmentReminderTick() {
-  const expired = await listExpiredEnrollmentDrafts({ limit: 300 });
-  for (const row of expired) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await purgeUnfinishedEnrollmentDraft({
-        submissionId: row.id,
-        reason: 'draft_expired',
-        notifyAdmins: false
-      });
-    } catch {
-      /* ignore single failure */
-    }
-  }
-
   const pending = await listPendingReminderRows({ limit: 200 });
   const now = Date.now();
 

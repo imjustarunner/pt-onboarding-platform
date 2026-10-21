@@ -1,6 +1,7 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),identities:vi.fn(),send:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:2,name:'ITSCO'})}}));
 vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{list:m.identities}}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({inferAgencyMailDomain:async()=> 'itsco.health'}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
@@ -23,7 +24,7 @@ describe('school-wide branding',()=>{
  it('brands school receipts using verified school context before a client exists',async()=>{m.execute.mockResolvedValue([[{id:8}]]);expect(await isSchoolCommunication({templateType:'intake_packet_completion',schoolOrganizationId:8})).toBe(true);});
 });
 describe('ROI immediate delivery',()=>{
- it('selects schools on the owning tenant with support replies despite old sender mappings',async()=>{await sendSchoolRoiEmail({agencyId:2,templateType:'school_roi_signing',to:'parent@example.test',senderIdentityId:1,replyToOverride:'wrong@test'});expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,replyToOverride:'support@itsco.health',usedFallbackSender:false}));});
+ it('selects schools on the owning tenant with support replies despite old sender mappings',async()=>{await sendSchoolRoiEmail({agencyId:2,templateType:'school_roi_signing',to:'parent@example.test',senderIdentityId:1,replyToOverride:'wrong@test'});expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,replyToOverride:'support@itsco.health',usedFallbackSender:false,fromDisplayNameOverride:'ITSCO Schools Team',html:expect.stringContaining('AuricWell'),text:expect.stringContaining('School forms through AuricWell')}));});
  it('refuses a sender from another tenant',async()=>{m.identities.mockResolvedValue([{id:12,agency_id:3,from_email:'schools@itsco.health'}]);await expect(sendSchoolRoiEmail({agencyId:2})).rejects.toThrow('schools@');expect(m.send).not.toHaveBeenCalled();});
  it.each(['school_roi_signing','school_roi_signer_completion','school_roi_release','smart_school_roi'])('retires the approval hold for branded %s',async templateType=>{expect(await emailRequiresAdminApproval({agencyId:2,templateType})).toBe(false);expect(await emailRequiresAdminApproval({agencyId:2,templateType,usedFallbackSender:true})).toBe(true);});
  it.each([{blocked:true},{skipped:true},{pendingApproval:true},{id:"x",redirected:true},{id:"x",queued:true},{}])('never claims %j was sent',result=>{expect(schoolRoiDelivery(result).sent).toBe(false);});

@@ -1,3 +1,4 @@
+import { clientEmailLabel, portalActionHtml } from '../services/clientPortalEmailContent.js';
 import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import crypto from 'crypto';
 import Client from '../models/Client.model.js';
@@ -22,17 +23,9 @@ import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSend
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { resolvePreferredSenderIdentityForSchoolThenAgency } from '../services/emailSenderIdentityResolver.service.js';
 
-function buildPublicIntakeUrl(publicKey) {
+export function buildSchoolRoiSigningUrl(publicKey) {
   const key = String(publicKey || '').trim();
-  if (!key) return null;
-  const base = String(
-    process.env.PUBLIC_INTAKE_BASE_URL
-      || process.env.PUBLIC_APP_URL
-      || process.env.FRONTEND_URL
-      || ''
-  ).trim().replace(/\/+$/, '');
-  if (!base) return `/intake/${encodeURIComponent(key)}`;
-  return `${base}/intake/${encodeURIComponent(key)}`;
+  return key ? `https://auricwell.com/intake/${encodeURIComponent(key)}` : null;
 }
 
 const BACKOFFICE_NOTIFICATION_AUDIENCE = Object.freeze({
@@ -209,7 +202,7 @@ function buildDefaultRoiSmsMessage({ agencyName, linkUrl }) {
   ].join(' ');
 }
 
-function buildDefaultRoiEmailSubject({ agencyName, schoolName, languageCode = 'en' }) {
+export function buildDefaultRoiEmailSubject({ agencyName, schoolName, languageCode = 'en' }) {
   const locale = normalizeLanguageCode(languageCode);
   const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName || 'your school').trim() || 'your school';
@@ -219,11 +212,11 @@ function buildDefaultRoiEmailSubject({ agencyName, schoolName, languageCode = 'e
   return `${senderName}: Release of Information for ${school}`;
 }
 
-function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl, languageCode = 'en' }) {
+export function buildDefaultRoiEmailBody({ agencyName, schoolName, clientName, linkUrl, languageCode = 'en' }) {
   const locale = normalizeLanguageCode(languageCode);
   const senderName = String(agencyName || 'ITSCO').trim() || 'ITSCO';
   const school = String(schoolName || 'your school').trim() || 'your school';
-  const client = String(clientName || 'the client').trim() || 'the client';
+  const client = clientName ? clientEmailLabel({ full_name: clientName }) : 'your dependent';
   const url = String(linkUrl || '').trim();
   if (locale === 'es') {
     return [
@@ -287,10 +280,12 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function buildRoiEmailHtml({ body }) {
+export function buildRoiEmailHtml({ body, linkUrl, languageCode = 'en' }) {
   return String(body || '')
     .split(/\n{2,}/)
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .map((paragraph) => paragraph.trim() === linkUrl
+      ? portalActionHtml(normalizeLanguageCode(languageCode) === 'es' ? 'Revisar autorizacion escolar' : 'Review school release', linkUrl)
+      : `<p>${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
     .join('');
 }
 
@@ -1071,7 +1066,7 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
 
     const schoolName = client.organization_name || 'School';
     const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
-    const linkUrl = buildPublicIntakeUrl(issuedResult.issuedLink?.public_key || '');
+    const linkUrl = buildSchoolRoiSigningUrl(issuedResult.issuedLink?.public_key || '');
     const defaultSubject = buildDefaultRoiEmailSubject({
       agencyName: client.agency_name || agency?.name || 'ITSCO',
       schoolName,
@@ -1101,7 +1096,7 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       to: toEmail,
       subject,
       text: body,
-      html: buildRoiEmailHtml({ body }),
+      html: buildRoiEmailHtml({ body, linkUrl, languageCode: preferredLanguageCode }),
       templateType: 'school_roi_signing',
       clientId,
       generatedByUserId: req.user?.id || null,

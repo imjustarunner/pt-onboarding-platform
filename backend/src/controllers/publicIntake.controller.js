@@ -1,3 +1,4 @@
+import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
 import { safeEnrollmentPortalUrl } from '../utils/enrollmentPortalAccess.js';
@@ -103,7 +104,6 @@ import { hydrateOfficeQuestionnaireSteps } from '../utils/officeQuestionnaireSte
 import { linkLooksLikeOfficeIntake, isNonClientIntakeFormType } from '../utils/officeIntakeLink.js';
 import {
   applyReminderConsent,
-  purgeUnfinishedEnrollmentDraft,
   purgeByDeletionToken,
   REMINDER_DECLINE_TTL_MS
 } from '../services/intakeUnfinishedReminder.service.js';
@@ -2205,44 +2205,23 @@ const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
   return Date.now() - startedAt > ttl;
 };
 
-const deleteSubmissionData = async (submissionId, { reason = 'draft_expired' } = {}) => {
-  const id = Number(submissionId || 0);
-  if (!id) return;
-  try {
-    const purged = await purgeUnfinishedEnrollmentDraft({
-      submissionId: id,
-      reason,
-      notifyAdmins: false
-    });
-    if (purged?.ok || purged?.reason === 'not_found' || purged?.reason === 'already_submitted') {
-      return;
-    }
-    await IntakeSubmission.deleteById(id);
-  } catch (err) {
-    console.warn('[publicIntake] expired draft delete failed', { submissionId: id, message: err?.message });
-    try {
-      await IntakeSubmission.deleteById(id);
-    } catch {
-      /* ignore */
-    }
-  }
-};
+const deleteSubmissionData = async () => ({ skipped: true, recordsRetained: true });
 
 const buildDeleteDataHtml = ({ publicKey, token = '', success = false, error = null } = {}) => {
   const safeKey = escapeHtml(publicKey);
   const safeToken = escapeHtml(token);
   const title = success
-    ? 'Your data has been deleted'
-    : (error ? 'Unable to delete data' : 'Delete your enrollment form data');
+    ? 'Enrollment reminders stopped'
+    : (error ? 'Unable to stop reminders' : 'Stop enrollment reminders');
   const body = success
-    ? '<p>Your unfinished enrollment form and any saved answers have been permanently deleted. No further reminder emails will be sent.</p>'
+    ? '<p>Reminder emails for this enrollment have stopped. Your saved answers and uploads are retained. Contact the agency for a records or removal request; some records must be kept under applicable requirements.</p>'
     : (error
       ? `<p>${escapeHtml(error)}</p><p>If you continue to need help, contact the organization that sent you this form.</p>`
-      : `<p>This will permanently delete your unfinished enrollment form and stop reminder emails. This cannot be undone.</p>
+      : `<p>This stops reminder emails for this enrollment only. It does not delete saved answers, uploads, signed forms, or clinical records. Contact the agency for a records or removal request; some records must be kept under applicable requirements.</p>
     <form method="POST" action="/api/public-intake/${safeKey}/delete-data" style="margin-top:24px;">
       <input type="hidden" name="token" value="${safeToken}" />
       <button type="submit" style="background:#7f1d1d;color:#fff;border:0;padding:12px 18px;border-radius:999px;font-weight:700;cursor:pointer;">
-        Stop notifying me and delete all my data forever
+        Stop enrollment reminders
       </button>
     </form>`);
   return `<!DOCTYPE html>
@@ -2371,7 +2350,7 @@ const resolvePacketEmailTemplateType = (link, customMessages = {}) => {
   return scope === 'school' ? SCHOOL_PACKET_EMAIL_DEFAULT_TEMPLATE_TYPE : PACKET_EMAIL_DEFAULT_TEMPLATE_TYPE;
 };
 
-const resolvePacketCompletionEmailContent = async ({
+export const resolvePacketCompletionEmailContent = async ({
   link,
   agencyId = null,
   signerName,
@@ -2400,8 +2379,10 @@ const resolvePacketCompletionEmailContent = async ({
 }) => {
   const safeClientBundles = Array.isArray(clientBundles)
     ? clientBundles.filter((b) => b && (b.clientName || b.clientId || b.downloadUrl))
+      .map(b => ({ ...b, clientName: clientEmailLabel({ full_name: b.clientName, initials: b.clientInitials }) }))
     : [];
   const isMultiChildSummary = safeClientBundles.length > 1;
+  primaryClientName = primaryClientName ? clientEmailLabel({ full_name: primaryClientName }) : '';
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
     ? link.custom_messages
     : {};
@@ -6767,13 +6748,13 @@ export const getPublicIntakeDeleteDataPage = async (req, res, next) => {
     if (!publicKey) {
       return res.status(404).type('html').send(buildDeleteDataHtml({
         publicKey: '',
-        error: 'This delete link is invalid.'
+        error: 'This reminder link is invalid.'
       }));
     }
     if (!token) {
       return res.status(400).type('html').send(buildDeleteDataHtml({
         publicKey,
-        error: 'A deletion token is required. Open the link from your reminder email.'
+        error: 'A reminder token is required. Open the link from your reminder email.'
       }));
     }
     res.type('html').send(buildDeleteDataHtml({ publicKey, token }));
@@ -6794,21 +6775,21 @@ export const postPublicIntakeDeleteData = async (req, res, next) => {
       }
       return res.status(400).type('html').send(buildDeleteDataHtml({
         publicKey,
-        error: 'A deletion token is required.'
+        error: 'A reminder token is required.'
       }));
     }
     const result = await purgeByDeletionToken({ publicKey, rawToken: token });
     if (!result?.ok) {
       const message = result?.reason === 'not_found'
-        ? 'This delete link is invalid or has already been used.'
-        : 'Unable to delete this form data.';
+        ? 'This reminder link is invalid, expired, or no longer applicable.'
+        : 'Unable to stop these enrollment reminders.';
       if (wantsJson) {
         return res.status(404).json({ error: { message } });
       }
       return res.status(404).type('html').send(buildDeleteDataHtml({ publicKey, error: message }));
     }
     if (wantsJson) {
-      return res.json({ ok: true });
+      return res.json({ ok: true, remindersStopped: true, recordsRetained: true });
     }
     res.type('html').send(buildDeleteDataHtml({ publicKey, success: true }));
   } catch (error) {
@@ -6834,8 +6815,8 @@ export const deletePublicIntakeSession = async (req, res, next) => {
     if (String(submission.status || '').toLowerCase() === 'submitted') {
       return res.status(400).json({ error: { message: 'Completed submissions cannot be deleted from this link' } });
     }
-    await deleteSubmissionData(submission.id, { reason: 'user_cancel' });
-    res.json({ ok: true });
+    await IntakeSubmission.updateById(submission.id, { session_token: null, reminder_opt_out_at: new Date() });
+    res.json({ ok: true, sessionEnded: true, remindersStopped: true, recordsRetained: true });
   } catch (error) {
     next(error);
   }
@@ -8730,7 +8711,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (updatedSubmission.signer_email && downloadUrl) {
         emailDelivery.attempted = true;
         const signerName = String(updatedSubmission.signer_name || '').trim() || 'Signer';
-        const clientName = String(roiResponse.clientFullName || boundClient.full_name || '').trim() || 'Client';
+        const clientName = clientEmailLabel({ full_name: roiResponse.clientFullName || boundClient.full_name, initials: boundClient.initials });
         const schoolName = String(roiContext?.school?.name || '').trim() || 'School';
         const subject = `${clientName} - School ROI Completed`;
         const text = `${signerName}, your school release of information is complete.\n\nClient: ${clientName}\nSchool: ${schoolName}\n\nDownload your signed copy:\n${downloadUrl}\n\nThis link expires in 7 days.`;
