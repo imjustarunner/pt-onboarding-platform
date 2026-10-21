@@ -15,7 +15,7 @@ describe('personal security screen', () => {
   it('encourages guardian email setup and activates it only after code verification',async()=>{
     state={...state,guardianAccount:true,required:false,emailEnrollmentAvailable:true,emailEnabled:false,maskedEmail:'p•••@example.invalid'};
     api.post.mockImplementation(async url=>{if(url==='/account-security/email/verify')state={...state,emailEnrollmentAvailable:false,emailEnabled:true,method:'email',verified:true,required:true};return {data:{sent:true}};});
-    const wrapper=await open();expect(wrapper.text()).toContain('Each parent manages their own account');
+    const wrapper=await open();expect(wrapper.text()).toContain('Each person manages their own account');expect(wrapper.text()).not.toContain('sign in with Google again');expect(wrapper.text()).not.toContain('Additional client-file access');
     await wrapper.find('input[autocomplete="current-password"]').setValue('fixture-password');
     await wrapper.findAll('button').find(b=>b.text()==='Email me a code').trigger('click');await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/account-security/email/send',{enrollEmail:true,password:'fixture-password'},expect.anything());

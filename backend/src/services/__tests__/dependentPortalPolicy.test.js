@@ -10,4 +10,5 @@ describe('single-client personal portal boundaries',()=>{
  it.each([{client_id:9},{client_id:8,revoked_at:new Date()}])('denies revoked or wrong-client grants',async row=>{execute.mockResolvedValue([[row]]);expect(await dependentClinicalScopes(3,8,2)).toEqual([]);});
  it('rechecks revocation on an already signed-in session',async()=>{execute.mockResolvedValue([[{client_id:8,revoked_at:new Date()}]]);const res={status:vi.fn().mockReturnThis(),json:vi.fn()},next=vi.fn();await enforceDependentPortalScope({user:{id:3,role:'client_guardian'},originalUrl:'/api/dependent-portal/me',method:'GET'},res,next);expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();});
  it('leaves ordinary guardians unchanged',async()=>{execute.mockResolvedValue([[]]);const next=vi.fn();await enforceDependentPortalScope({user:{id:3,role:'client_guardian'}},{},next);expect(next).toHaveBeenCalledOnce();});
+ it('allows own-password maintenance without permitting changes to another user',()=>{expect(dependentRouteAllowed('POST','/api/users/change-password',8)).toBe(true);expect(dependentRouteAllowed('POST','/api/users/99/change-password',8)).toBe(false);});
 });

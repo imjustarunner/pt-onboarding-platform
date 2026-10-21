@@ -1557,7 +1557,7 @@ const routes = [
     path: '/:organizationSlug/change-password',
     name: 'OrganizationChangePassword',
     component: () => import('../views/ChangePasswordView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: true, organizationSlug: true, accountSecurity: true }
   },
   {
     path: '/:organizationSlug/join/supervision/:sessionId',
@@ -3254,7 +3254,7 @@ const routes = [
     path: '/change-password',
     name: 'ChangePassword',
     component: () => import('../views/ChangePasswordView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, accountSecurity: true }
   },
   {
     path: '/messages',

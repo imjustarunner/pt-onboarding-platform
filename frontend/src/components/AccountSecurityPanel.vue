@@ -10,7 +10,7 @@
       <section class="security-card">
         <h2>{{ state.method === 'email' ? 'Email verification' : 'Two-step verification' }}</h2>
         <p v-if="state.ssoAuthenticated">You’re signed in with Google. No additional app verification is required.</p>
-        <p v-if="state.guardianAccount">Keep your portal private with a passkey, an authenticator app, or email verification. Setup is optional and recommended. Once enabled, you must verify each password sign-in before opening protected information. Each parent manages their own account and security.</p>
+        <p v-if="state.guardianAccount">Keep your portal private with a passkey, an authenticator app, or email verification. Setup is optional and recommended. Once enabled, you must verify each password sign-in before opening protected information. Each person manages their own account and security.</p>
         <p v-else-if="!state.required">We’re rolling out two-step verification for people who sign in without Google SSO to help protect our clients’ information. Setup is optional for now, and we encourage you to get started. We plan to make it mandatory for non-SSO sign-ins over the next few months. Google SSO users do not need additional app verification.</p>
         <p v-if="state.verified">Your current sign-in is verified.</p>
         <p v-else-if="state.required">To protect client privacy, {{ state.enabled ? 'verify your sign-in' : 'set up two-step verification' }} to view full names and open client documents. You can keep using client codes and initials.</p>
@@ -19,7 +19,7 @@
           <p>We’ll send a six-digit code to {{ state.guardianAccount ? 'your account email' : 'your school email' }}, {{ state.maskedEmail || 'the address on your account' }}. No authenticator app is needed.</p>
           <template v-if="state.emailEnrollmentAvailable">
             <label>Confirm your password to enable email verification<input v-model="emailPassword" type="password" autocomplete="current-password" /></label>
-            <p class="hint">A Google sign-in within the last five minutes also confirms your identity. Email verification starts only after you enter the code below.</p>
+            <p class="hint"><span v-if="!state.guardianAccount">A Google sign-in within the last five minutes also confirms your identity. </span>Email verification starts only after you enter the code below.</p>
           </template>
           <button :disabled="busy" @click="sendEmailCode">{{ emailSent ? 'Send a new code' : 'Email me a code' }}</button>
           <p v-if="emailSent" role="status">Code sent. It expires in 10 minutes. Wait one minute before requesting another.</p>
@@ -43,7 +43,7 @@
         <p>Use Google Authenticator, Microsoft Authenticator, or another authenticator app. No text message or phone number is needed.</p>
         <form v-if="!authenticatorEnabled && !setup" @submit.prevent="beginSetup">
           <label>Confirm your account password<input v-model="password" type="password" autocomplete="current-password" /></label>
-          <p class="hint">If you just signed in with Google, you can leave this blank. Otherwise, sign in with Google again and return within five minutes.</p>
+          <p v-if="!state.guardianAccount" class="hint">If you just signed in with Google, you can leave this blank. Otherwise, sign in with Google again and return within five minutes.</p>
           <button class="btn btn-primary" :disabled="busy">Set up authenticator</button>
         </form>
         <div v-if="setup">
@@ -71,7 +71,7 @@
           <p>This ends all your sign-ins and forgets remembered devices. After signing in again, you can set up your new authenticator.</p>
           <form @submit.prevent="resetAuthenticator">
             <label>Confirm your account password<input v-model="replacementPassword" type="password" autocomplete="current-password" /></label>
-            <p class="hint">A Google sign-in within the last five minutes also satisfies password confirmation.</p>
+            <p v-if="!state.guardianAccount" class="hint">A Google sign-in within the last five minutes also satisfies password confirmation.</p>
             <label>{{ replacementRecovery ? 'Unused recovery code' : 'Current authenticator code' }}<input v-model="replacementCode" autocomplete="one-time-code" required maxlength="40" /></label>
             <label class="security-checkbox"><input v-model="replacementRecovery" type="checkbox" /><span>Use an unused recovery code</span></label>
             <label class="security-checkbox"><input v-model="confirmReplacement" type="checkbox" required /><span>End my sessions and replace my authenticator</span></label>
@@ -109,7 +109,7 @@
         <ol><li v-for="event in events" :key="event.id"><strong>{{ time(event.occurred_at) }}</strong> — {{ label(event.action) }} · {{ label(event.outcome) }}<small>{{ event.method }} {{ event.route }} · {{ event.phase }}<template v-if="event.response_bytes != null"> · {{ event.response_bytes }} response bytes</template></small><small v-if="transferDescription(event.transfer)">{{ transferDescription(event.transfer) }}</small></li></ol>
         <button v-if="eventCursor" :disabled="busy" @click="loadEvents(true)">Earlier activity</button>
       </section>
-      <ActivityProtectionPanel />
+      <ActivityProtectionPanel v-if="state && !state.guardianAccount" />
     </template>
   </section>
 </template>
