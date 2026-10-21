@@ -10,7 +10,7 @@ beforeEach(()=>{
     if(sql.includes('agency_parent_email_controls'))return [[{routine_emails_paused:paused.has(args[0])?1:0}]];
     if(sql.includes('user_communications'))return [[{metadata}]];
     if(sql.includes('FROM users'))return [users.filter(u=>args.includes(u.email))];
-    if(sql.includes('FROM clients'))return [[{guardian_email:'anonymous@example.test'}]];
+    if(sql.includes('FROM clients'))return [[{email:'anonymous@example.test'}]];
     throw new Error(`Unexpected query ${sql}`);
   })};
 });

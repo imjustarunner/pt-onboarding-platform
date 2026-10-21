@@ -11,7 +11,7 @@ const recovery = new Set(['password_reset','admin_initiated_password_reset','acc
 const familyTypes = new Set(['hub_portal_invite','co_guardian_invite','co_guardian_invite_failed','guardian_plan_review',
   'adaptive_full_intake_invite','intake_packet_completion','intake_summary_pdf_copy','insurance_card_followup',
   'session_reminder','session_confirmation','session_change','session_cancellation','school_session_notice','auricwell_session_reminder',
-  'client_renewal','provider_waitlist_update','learning_client_message']);
+  'client_renewal','provider_waitlist_update','learning_client_message','school_roi_signer_completion','school_roi_signing','smart_school_roi']);
 const parentRoles = new Set(['client','client_guardian','guardian']);
 const staffRoles = new Set(['admin','super_admin','support','staff','provider','provider_plus','school_staff','clinical_practice_assistant','intern','supervisor','schedule_manager','facilitator','tutor']);
 
@@ -45,8 +45,8 @@ export async function routineParentEmailGate({agencyId,to,cc,bcc,source='auto',t
   if(onlyStaff && !knownParent) return {allowed:true};
   let parent=knownParent || familyTypes.has(type) || type.startsWith('family_') || type.startsWith('enrollment_unfinished_reminder');
   if(!parent && clientId) {
-    const [[client]]=await db.execute('SELECT email,guardian_email FROM clients WHERE id=? AND agency_id=?',[clientId,agencyId]);
-    parent=recipients.some(address=>address===email(client?.email) || address===email(client?.guardian_email));
+    const [[client]]=await db.execute('SELECT email FROM clients WHERE id=? AND agency_id=?',[clientId,agencyId]);
+    parent=recipients.some(address=>address===email(client?.email));
   }
   return parent ? {allowed:false,reason:'routine_parent_emails_paused'} : {allowed:true};
 }
