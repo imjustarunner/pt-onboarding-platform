@@ -1,5 +1,6 @@
 import { assertFreshCardEmail } from '../insuranceCards/scope.js';
 import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
+import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -405,7 +406,7 @@ export async function logSkippedOrFailedEmail({
       generatedByUserId: generatedByUserId || null,
       metadata: metadata || null
     });
-    notifyTestingInboxOfHeldEmail({
+    if(metadata?.reason!=='routine_parent_emails_paused') notifyTestingInboxOfHeldEmail({
       communicationId: row?.id || null,
       to,
       subject,
@@ -625,7 +626,8 @@ export async function sendNotificationEmail({
   to=eventDelivery.to; subject=eventDelivery.subject;
   await assertMessageReminderRecipient({ templateType, userId, to });
   await managedGroupEnvelope({ to, actorUserId: generatedByUserId });
-  const gate = await canSendEmail({ source, agencyId });
+  const emailGate = await canSendEmail({ source, agencyId });
+  const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId,to,templateType:templateType || triggerKey,clientId}) : emailGate;
   if (!gate.allowed) {
     // Gate blocked — write a visible audit row so admins can see that a send
     // was attempted but suppressed by platform/agency settings.
@@ -1038,9 +1040,11 @@ export async function sendEmailFromIdentity({
   await assertProviderUpdateReminderDelivery({templateType,existingCommunicationId,userId,agencyId:identity.agency_id});
   const eventDelivery=await priorityEventEmailRecipient({agencyId:identity.agency_id,userId,templateType,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
-  const gate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
+  const emailGate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
+  const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId:identity.agency_id,to,cc,bcc,templateType,clientId,existingCommunicationId}) : emailGate;
   if (!gate.allowed) {
     // Gate blocked — log a visible "skipped" row on the recipient's / client's
+    if(existingCommunicationId && gate.reason==='routine_parent_emails_paused') await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=?",[gate.reason,existingCommunicationId]);
     // Communications tab so an absent email is diagnosable instead of silent.
     await logSkippedOrFailedEmail({
       to,

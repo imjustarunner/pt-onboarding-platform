@@ -1,3 +1,4 @@
+import { routineParentEmailGate } from './routineParentEmailPause.service.js';
 import { isSchoolCommunication } from './schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
 import GoogleWorkspaceEmailService from './googleWorkspaceEmail.service.js';
@@ -111,7 +112,8 @@ class EmailService {
         fromEmail: fromAddress || null
       })
       : {};
-    const gate = await this.canSend({ source, agencyId });
+    const emailGate = await this.canSend({ source, agencyId });
+    const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId,to,templateType,clientId,existingCommunicationId}) : emailGate;
     if (!gate.allowed) {
       // Write a visible "skipped" row so the attempted send shows up on the
       // recipient/client Communications tab. Without this, a platform or
@@ -142,7 +144,7 @@ class EmailService {
               WHERE id = ?`,
             [`send skipped — ${gate.reason}`, comm.id]
           ).catch(() => {});
-          notifyTestingInboxOfHeldEmail({
+          if(gate.reason!=='routine_parent_emails_paused') notifyTestingInboxOfHeldEmail({
             communicationId: comm.id,
             to,
             subject,
@@ -453,4 +455,3 @@ class EmailService {
 }
 
 export default EmailService;
-

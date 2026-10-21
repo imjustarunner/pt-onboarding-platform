@@ -22,7 +22,7 @@ export function deliveryKey(appointment, kind, channel, recipient, room) {
 async function sendEmail(ctx, to, text, appointment) {
   const {sendNativeAppointmentEmail}=await import('./appointmentEmailResponse.js');
   const result=await sendNativeAppointmentEmail(ctx,to,text,appointment);
-  if(result?.reason==='school_session_email_opted_out') return {status:'cancelled',reason:result.reason};
+  if(['school_session_email_opted_out','routine_parent_emails_paused'].includes(result?.reason)) return {status:'cancelled',reason:result.reason};
   if (!result?.id || result.skipped || result.blocked || result.redirected || result.queued || result.pendingApproval)
     throw fail(503, 'Email was not confirmed as sent.');
   return { provider: 'email', status: 'submitted', id: result.id };
