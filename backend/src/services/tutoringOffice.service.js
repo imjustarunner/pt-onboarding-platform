@@ -48,6 +48,43 @@ export async function tutoringOfficeLink(room, generation, db = pool) {
   return row || null;
 }
 
+export async function assignedTutoringStudents(room,db=pool){
+ const [students]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade FROM clients c
+  WHERE (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
+  AND (EXISTS(SELECT 1 FROM client_service_enrollments e WHERE e.client_id=c.id AND e.agency_id=? AND e.provider_user_id=? AND e.service_kind='tutoring' AND e.is_active=1)
+   OR EXISTS(SELECT 1 FROM student_subjects s WHERE s.client_id=c.id AND s.agency_id=? AND s.primary_tutor_user_id=? AND s.status NOT IN ('completed','discharged','archived')))
+  ORDER BY c.full_name,c.id`,[room.agencyId,room.agencyId,room.agencyId,room.userId,room.agencyId,room.userId]);
+ return students.map(c=>({id:Number(c.id),displayName:c.full_name||c.initials||'Student',grade:c.grade}));
+}
+
+export async function officeTutoringContext(room,office,db=pool){
+ const link=await tutoringOfficeLink(room,office.generation,db);
+ if(!link)return null;
+ if(link.learning_session_id||link.appointment_id)return tutoringVisit(room,link.learning_session_id?{learningSessionId:link.learning_session_id}:{tutoringAppointmentId:link.appointment_id},db);
+ const [visits]=await db.execute('SELECT DISTINCT tutoring_client_id FROM private_virtual_office_visits WHERE room_id=? AND generation=? AND tutoring_client_id IS NOT NULL AND admitted_at IS NOT NULL',[room.id,office.generation]);
+ const students=await assignedTutoringStudents(room,db);
+ return {kind:'tutoring',manualBinder:true,title:'Student learning binder',participants:students.filter(s=>visits.some(v=>Number(v.tutoring_client_id)===s.id))};
+}
+
+export async function attachTutoringBinder(room,office,{clientId,visitId,confirmIdentity},db,req){
+ if(confirmIdentity!==true)throw fail(400,'Confirm which admitted student this binder belongs to.');
+ const media=office.video_session_id?await clinicalMedia(office.video_session_id,db,true):null;
+ if(media?.state!=='active'||media.session_kind!=='office')throw fail(409,'Open your office and admit the student first.');
+ const students=await assignedTutoringStudents(room,db);
+ if(!students.some(s=>s.id===Number(clientId)))throw fail(403,'Choose a student assigned to you for tutoring with this agency.');
+ const [visits]=await db.execute('SELECT id,tutoring_client_id,status FROM private_virtual_office_visits WHERE room_id=? AND generation=? AND admitted_at IS NOT NULL FOR UPDATE',[room.id,office.generation]);
+ const guest=visits.find(v=>Number(v.id)===Number(visitId)&&v.status==='admitted');
+ if(!guest)throw fail(409,'Choose a student currently admitted to your office.');
+ if(visits.some(v=>v.tutoring_client_id&&Number(v.tutoring_client_id)!==Number(clientId)))throw fail(409,'End this visit before opening a different student’s binder.');
+ const existing=await officeTutoringContext(room,office,db);
+ if(existing&&!existing.participants.some(s=>s.id===Number(clientId)))throw fail(409,'This office visit is already linked to a different student.');
+ if(existing&&!existing.manualBinder)return existing;
+ await db.execute('UPDATE private_virtual_office_visits SET tutoring_client_id=? WHERE id=?',[clientId,guest.id]);
+ await db.execute('INSERT IGNORE INTO tutoring_office_encounters(room_id,generation,agency_id) VALUES(?,?,?)',[room.id,office.generation,room.agencyId]);
+ await clinicalAudit({kind:'office',sessionId:room.id,generation:office.generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req},'tutoring_binder_opened',{clientId:Number(clientId),visitId:guest.id},db);
+ return {kind:'tutoring',manualBinder:true,title:'Student learning binder',participants:students.filter(s=>s.id===Number(clientId))};
+}
+
 // The caller holds the office row lock, the same lock used by admission and end.
 export async function prepareTutoringOffice(room, office, options, db) {
   const visit = await tutoringVisit(room, options, db);
@@ -78,6 +115,12 @@ export async function linkTutoringOffice(room, generation, visit, db, req) {
 export async function confirmTutoringGuest(room, office, guest, {clientId,confirmIdentity,sameEncounter}, db) {
   const link = await tutoringOfficeLink(room, office.generation, db);
   if (!link) return false;
+  if(!link.learning_session_id&&!link.appointment_id){
+    const context=await officeTutoringContext(room,office,db);
+    if(!confirmIdentity||!context.participants.some(s=>s.id===Number(clientId))||(guest.tutoring_client_id&&Number(guest.tutoring_client_id)!==Number(clientId)))throw fail(409,'Confirm the student for this binder before admission.');
+    await db.execute('UPDATE private_virtual_office_visits SET tutoring_client_id=? WHERE id=?',[clientId,guest.id]);
+    return true;
+  }
   const visit = await tutoringVisit(room, link.learning_session_id?{learningSessionId:link.learning_session_id}:{tutoringAppointmentId:link.appointment_id}, db);
   if(link.appointment_id)await tutoringVisit(room,{tutoringAppointmentId:link.appointment_id},db);
   if (!confirmIdentity || !visit.participants.some(c => c.id === Number(clientId))) throw fail(409, 'Confirm the scheduled student’s identity before admitting them.');

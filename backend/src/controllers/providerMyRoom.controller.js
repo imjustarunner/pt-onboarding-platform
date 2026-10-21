@@ -12,6 +12,7 @@ import * as workspace from '../services/therapyWorkspace.service.js';
 import User from '../models/User.model.js';
 import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
 import * as office from '../services/privateVirtualOffice.service.js';
+import {assignedTutoringStudents} from '../services/tutoringOffice.service.js';
 import { getMeetingPlan, setMeetingPlan, MEETING_PLANS } from '../services/meetingAccessPlan.service.js';
 
 const respond = fn => async (req,res,next) => {
@@ -33,6 +34,8 @@ export const getMyRoomPlan = respond(async req => ({plan:await getMeetingPlan(re
 export const putMyRoomPlan = respond(async req => ({plan:await setMeetingPlan(Number(req.params.userId),req.body.tier,req.user.id)}));
 export const getMyRoomMe = respond(async req => { const {room,plan}=await host(req); return {room:await virtualOfficePresentation(room,req),plan}; });
 export const getMyRoomLobby = respond(async req => { const {room}=await host(req); return office.officeLobby(room,req); });
+export const getTutoringStudents=respond(async req=>({students:await assignedTutoringStudents((await host(req)).room)}));
+export const openTutoringBinder=respond(async req=>({tutoring:await office.openStudentBinder((await host(req)).room,req.body,req)}));
 export const getMyRoomHostVideo = respond(async req => office.officeHostVideo((await host(req)).room,{appointmentId:req.body?.appointmentId,sessionId:req.body?.sessionId,learningSessionId:req.body?.learningSessionId,tutoringAppointmentId:req.body?.tutoringAppointmentId,req}));
 export const getOfficeScheduleScopes = respond(async req => {
  const agencies=await User.getAgencies(req.user.id);

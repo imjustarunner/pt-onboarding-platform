@@ -10,8 +10,8 @@ export const getLearningRecommendations = async (req, res, next) => {
   try {
     const clientId = asInt(req.params.studentId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
-    await assertLearningClientAccess(req, clientId);
-    const recommendations = await LearningProgress.getRecommendations(clientId);
+    const {agencyId,service}=await assertLearningClientAccess(req, clientId);
+    const recommendations = await LearningProgress.getRecommendations(clientId,{agencyId,providerId:service?.provider_user_id});
     res.json({ recommendations });
   } catch (error) {
     next(error);

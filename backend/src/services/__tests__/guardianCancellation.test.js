@@ -14,6 +14,7 @@ beforeEach(() => {
   m.find.mockImplementation(async id => ({ id, agencyId: 2, providerUserId: 7, status: 'scheduled', startAt: '2099-01-01 10:00:00' }));
   m.evaluate.mockResolvedValue({ allowed: true, feeAmount: 25 });
   m.execute.mockImplementation(async sql => {
+    if (sql.includes('SELECT c.id FROM clients')) return [[{id:8}]];
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('SELECT p.recurrence_series_id')) return [[{ recurrence_series_id: 'series-a', booking_plan_id: 5 }]];
     if (sql.includes('SELECT DISTINCT a.id')) return [[{ id: 1 }, { id: 2 }]];
@@ -49,12 +50,13 @@ it('rejects cross-tenant appointments, shared group appointments, and unauthoriz
 });
 it('requires an explicit confirmation and never treats a missing series as all appointments', async () => {
   await expect(cancelGuardianAppointments({ ...input, confirmed: false })).rejects.toMatchObject({ status: 400 });
-  m.execute.mockImplementation(async sql => sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : [[]]);
+  m.execute.mockImplementation(async sql => sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : sql.includes('SELECT c.id FROM clients') ? [[{id:8}]] : [[]]);
   await expect(cancelGuardianAppointments(input)).rejects.toMatchObject({ status: 409 });
   expect(m.cancel).not.toHaveBeenCalled();
 });
 it('releases the connection even if releasing the advisory lock fails', async () => {
   m.execute.mockImplementation(async sql => {
+    if (sql.includes('SELECT c.id FROM clients')) return [[{id:8}]];
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) throw new Error('connection lost');
     return [[]];

@@ -7,6 +7,8 @@ const router=express.Router();
 router.get('/me/plan',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getMyRoomPlan);
 router.put('/plans/:userId',authenticate,requireClinicalStaffSecurity,requireActiveStatus,requireSuperAdmin,c.putMyRoomPlan);
 router.get('/me',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getMyRoomMe);
+router.get('/me/tutoring-students',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getTutoringStudents);
+router.post('/me/tutoring-binder',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.openTutoringBinder);
 router.get('/me/schedule-scopes',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getOfficeScheduleScopes);
 router.get('/me/schedule',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.getOfficeSchedule);
 router.post('/me/scheduled-visits/:visitId/admit',authenticate,requireClinicalStaffSecurity,requireActiveStatus,c.admitOfficeScheduledVisit);

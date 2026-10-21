@@ -13,11 +13,12 @@ async function currentRecipient(scope,db) {
     COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone,
     c.full_name,c.client_type,a.name AS agency_name,u.is_demo
     FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id
-    JOIN clients c ON c.id=cg.client_id JOIN agencies a ON a.id=c.agency_id
-    WHERE cg.client_id=? AND cg.guardian_user_id=? AND c.agency_id=?
+    JOIN clients c ON c.id=cg.client_id JOIN agencies a ON a.id=?
+    WHERE cg.client_id=? AND cg.guardian_user_id=? AND (c.agency_id=a.id OR EXISTS
+      (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=a.id AND ca.is_active=1))
       AND cg.access_enabled=1 AND u.is_active=1 AND a.is_active=1
       AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())`,
-    [scope.client_id,scope.guardian_user_id,scope.agency_id]);
+    [scope.agency_id,scope.client_id,scope.guardian_user_id]);
   if(!row||ClientGuardian.isNoView(parse(row.permissions_json))||familyContactHash(row.email)!==scope.recipient_hash)throw unavailable();
   return row;
 }

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import {officeEncounterLink,openScheduledOffice,scheduledParticipants,markOfficeAttendance} from './virtualOfficeSchedule.service.js';
 import pool from '../config/database.js';
 import {prepareTutoringOffice,linkTutoringOffice,tutoringOfficeLink,tutoringVisit,confirmTutoringGuest,finishTutoringOffice} from './tutoringOffice.service.js';
+import {attachTutoringBinder,officeTutoringContext} from './tutoringOffice.service.js';
 import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
 import { getMeetingPlan } from './meetingAccessPlan.service.js';
@@ -101,7 +102,7 @@ export async function officeLobby(room,req) {
  }
  const tutoringLink=current && media?.session_kind==='office' && media.state==='active' ? await tutoringOfficeLink(room,current.generation) : null;
  let tutoring=null;
- if(tutoringLink) { try { tutoring=await tutoringVisit(room,tutoringLink.learning_session_id?{learningSessionId:tutoringLink.learning_session_id}:{tutoringAppointmentId:tutoringLink.appointment_id}); } catch(e) { if(![404,409].includes(e.status))throw e; tutoring={unavailable:true,title:'Tutoring visit unavailable',participants:[]}; } }
+ if(tutoringLink) { try { tutoring=await officeTutoringContext(room,current); } catch(e) { if(![404,409].includes(e.status))throw e; tutoring={unavailable:true,title:'Tutoring visit unavailable',participants:[]}; } }
  const encounter={scheduled,tutoring,state:media?.state||'idle',hasParticipants:Number(previous.total)>0,generation:current?.generation||0,providerReady:!!providerReady,startedAt:previous.started_at||null};
  const [rows] = await pool.execute(`SELECT id,display_name,status,photo_envelope,admitted_at,ip_address,counseling_visit_id,generation FROM private_virtual_office_visits WHERE room_id=? AND status IN ('waiting','admitted') AND expires_at>UTC_TIMESTAMP() ORDER BY created_at`,[room.id]);
  if(rows.length)await clinicalAudit({kind:'office',sessionId:room.id,generation:current?.generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req},'clinical_lobby_read',{visitIds:rows.map(r=>r.id)});
@@ -187,6 +188,12 @@ export async function officeHostHeartbeat(room) {
  await assertOfficeAccess(room);
  await pool.execute('UPDATE private_virtual_office_sessions SET host_seen_at=UTC_TIMESTAMP() WHERE room_id=? AND video_session_id IS NOT NULL',[room.id]);
  return {ok:true};
+}
+export async function openStudentBinder(room,input,req){
+ return transaction(async db=>{
+  const current=await lockOffice(db,room);await assertOfficeAccess(room,db);
+  return attachTutoringBinder(room,current,input,db,req);
+ });
 }
 export async function officeGuestVideo(room,id,credential) {
  return transaction(async db=>{

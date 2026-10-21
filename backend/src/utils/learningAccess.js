@@ -68,9 +68,16 @@ export async function assertLearningClientAccess(req, clientId, resourceAgencyId
   if(['provider','provider_plus','intern','intern_plus'].includes(role)){
     const [[assigned]]=await pool.execute(`SELECT 1 FROM client_service_enrollments
       WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind='tutoring' AND is_active=1
-      UNION SELECT 1 FROM student_subjects WHERE client_id=? AND agency_id=? AND primary_tutor_user_id=? AND status='active' LIMIT 1`,[cid,agencyId,req.user.id,cid,agencyId,req.user.id]);
+      UNION SELECT 1 FROM student_subjects WHERE client_id=? AND agency_id=? AND primary_tutor_user_id=? AND status NOT IN ('completed','discharged','archived') LIMIT 1`,[cid,agencyId,req.user.id,cid,agencyId,req.user.id]);
     if(!assigned)throw Object.assign(new Error('Assigned tutoring access is required for this student.'),{status:403});
   }
 
   return { clientId: cid, client, agencyId };
+}
+
+export async function assertLearningWriteAccess(req,clientId,record=null){
+ if(['guardian','client_guardian','client'].includes(String(req.user?.role||'').toLowerCase()))throw Object.assign(new Error('Only your learning team can edit learning records.'),{status:403});
+ let recordAgencyId=null;
+ if(record){const client=await Client.findById(clientId,{includeSensitive:false});recordAgencyId=Number(record.metadata_json?.agencyId||client?.agency_id);}
+ return assertLearningClientAccess(req,clientId,recordAgencyId);
 }

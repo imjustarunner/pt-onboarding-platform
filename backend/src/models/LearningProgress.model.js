@@ -1,3 +1,4 @@
+import {learningRecordScope} from '../utils/learningRecordScope.js';
 import pool from '../config/database.js';
 
 const parseJson = (value, fallback = null) => {
@@ -56,7 +57,7 @@ class LearningProgress {
         validityFlag ? 1 : 0,
         reliabilityFlag ? 1 : 0,
         confidenceScore,
-        metadata ? JSON.stringify(metadata) : null,
+        JSON.stringify({...metadata,...(payload.agencyId?{agencyId:Number(payload.agencyId)}:{})}),
         actorUserId || null
       ]
     );
@@ -96,14 +97,16 @@ class LearningProgress {
     };
   }
 
-  static async listEvidenceTimeline(clientId, { domainId = null, limit = 100 } = {}) {
+  static async listEvidenceTimeline(clientId, { domainId = null, limit = 100, agencyId=null,providerId=null } = {}) {
     const params = [clientId];
-    let where = 'le.client_id = ?';
+    const scope=learningRecordScope('le',{agencyId,providerId});
+    let where = 'le.client_id = ?'+scope.sql;params.push(...scope.params);
     if (domainId) {
       where += ' AND le.domain_id = ?';
       params.push(domainId);
     }
-    params.push(Math.max(1, Math.min(Number(limit) || 100, 500)));
+    // MySQL prepared LIMIT parameters must be encoded as integers/decimal strings.
+    params.push(String(Math.max(1, Math.min(Math.trunc(Number(limit)) || 100, 500))));
 
     const [rows] = await pool.execute(
       `SELECT le.*, d.title AS domain_title, sd.title AS subdomain_title,
@@ -125,7 +128,8 @@ class LearningProgress {
     }));
   }
 
-  static async listDomainProgress(clientId) {
+  static async listDomainProgress(clientId,context={}) {
+    const scope=learningRecordScope('le',context);
     const [rows] = await pool.execute(
       `SELECT d.id AS domain_id, d.code AS domain_code, d.title AS domain_title,
               COUNT(le.id) AS evidence_count,
@@ -135,28 +139,29 @@ class LearningProgress {
               (
                 SELECT lps.mastery_estimate
                 FROM learning_progress_snapshots lps
-                WHERE lps.client_id = ? AND lps.domain_id = d.id
+                WHERE lps.client_id = ? AND lps.domain_id = d.id AND (? IS NULL OR ?=(SELECT agency_id FROM clients WHERE id=lps.client_id)) AND ? IS NULL
                 ORDER BY lps.snapshot_at DESC
                 LIMIT 1
               ) AS latest_mastery_estimate,
               (
                 SELECT lps.goal_alignment_score
                 FROM learning_progress_snapshots lps
-                WHERE lps.client_id = ? AND lps.domain_id = d.id
+                WHERE lps.client_id = ? AND lps.domain_id = d.id AND (? IS NULL OR ?=(SELECT agency_id FROM clients WHERE id=lps.client_id)) AND ? IS NULL
                 ORDER BY lps.snapshot_at DESC
                 LIMIT 1
               ) AS latest_goal_alignment_score
        FROM learning_standards_domains d
-       LEFT JOIN learning_evidence le ON le.domain_id = d.id AND le.client_id = ?
+       LEFT JOIN learning_evidence le ON le.domain_id = d.id AND le.client_id = ? ${scope.sql}
        WHERE d.is_active = 1
        GROUP BY d.id, d.code, d.title
        ORDER BY d.title ASC`,
-      [clientId, clientId, clientId]
+      [clientId,context.agencyId||null,context.agencyId||null,context.providerId||null,clientId,context.agencyId||null,context.agencyId||null,context.providerId||null,clientId,...scope.params]
     );
     return rows;
   }
 
-  static async getRecommendations(clientId) {
+  static async getRecommendations(clientId,context={}) {
+    const scope=learningRecordScope('le',context);
     const [rows] = await pool.execute(
       `SELECT d.id AS domain_id, d.title AS domain_title,
               sk.id AS skill_id, sk.title AS skill_title,
@@ -166,12 +171,12 @@ class LearningProgress {
        FROM learning_evidence le
        JOIN learning_standards_domains d ON d.id = le.domain_id
        JOIN learning_skills sk ON sk.id = le.skill_id
-       WHERE le.client_id = ?
+       WHERE le.client_id = ? ${scope.sql}
        GROUP BY d.id, d.title, sk.id, sk.title
        HAVING evidence_count >= 1
        ORDER BY avg_score ASC, latest_observed_at DESC
        LIMIT 8`,
-      [clientId]
+      [clientId,...scope.params]
     );
 
     return rows.map((row) => {

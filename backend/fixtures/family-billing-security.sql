@@ -4,6 +4,7 @@ USE family_billing_test;
 CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(255),timezone VARCHAR(80) DEFAULT 'America/Denver');
 CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(100),last_name VARCHAR(100),role VARCHAR(50));
 CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,full_name VARCHAR(255),initials VARCHAR(20),primary_insurer_name VARCHAR(255),insurance_member_id VARCHAR(128),insurance_group_number VARCHAR(128),insurance_subscriber_name VARCHAR(255));
+CREATE TABLE client_agency_assignments(client_id INT NOT NULL,agency_id INT NOT NULL,is_active BOOLEAN DEFAULT 1,PRIMARY KEY(client_id,agency_id));
 CREATE TABLE client_guardians(id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,guardian_user_id INT,relationship_type VARCHAR(30),access_enabled TINYINT,permissions_json JSON);
 CREATE TABLE agency_billing_accounts(agency_id INT PRIMARY KEY,stripe_connect_account_id VARCHAR(255),stripe_connect_status VARCHAR(50));
 CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY,agency_id INT,member_id VARCHAR(80),payer_name VARCHAR(255));

@@ -2,7 +2,7 @@ import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.
 import LearningGoal from '../models/LearningGoal.model.js';
 import LearningProgress from '../models/LearningProgress.model.js';
 import pool from '../config/database.js';
-import { assertLearningClientAccess } from '../utils/learningAccess.js';
+import { assertLearningClientAccess, assertLearningWriteAccess } from '../utils/learningAccess.js';
 
 const asInt = (value) => {
   const n = Number.parseInt(value, 10);
@@ -13,8 +13,8 @@ export const getStudentDomainProgress = async (req, res, next) => {
   try {
     const clientId = asInt(req.params.studentId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
-    await assertLearningClientAccess(req, clientId);
-    const domains = await LearningProgress.listDomainProgress(clientId);
+    const {agencyId,service}=await assertLearningClientAccess(req, clientId);
+    const domains = await LearningProgress.listDomainProgress(clientId,{agencyId,providerId:service?.provider_user_id});
     res.json({ domains });
   } catch (error) {
     next(error);
@@ -25,8 +25,8 @@ export const getStudentGoalsProgress = async (req, res, next) => {
   try {
     const clientId = asInt(req.params.studentId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
-    await assertLearningClientAccess(req, clientId);
-    const goals = await LearningGoal.listByClient(clientId);
+    const {agencyId,service}=await assertLearningClientAccess(req, clientId);
+    const goals = await LearningGoal.listByClient(clientId,{agencyId,providerId:service?.provider_user_id});
     res.json({ goals });
   } catch (error) {
     next(error);
@@ -37,10 +37,10 @@ export const getStudentEvidenceTimeline = async (req, res, next) => {
   try {
     const clientId = asInt(req.params.studentId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
-    await assertLearningClientAccess(req, clientId);
+    const {agencyId,service}=await assertLearningClientAccess(req, clientId);
     const domainId = asInt(req.query.domainId);
     const limit = asInt(req.query.limit) || 100;
-    const timeline = await LearningProgress.listEvidenceTimeline(clientId, { domainId, limit });
+    const timeline = await LearningProgress.listEvidenceTimeline(clientId, { domainId, limit, agencyId, providerId:service?.provider_user_id });
     res.json({ timeline });
   } catch (error) {
     next(error);
@@ -58,7 +58,7 @@ export const getStudentTutoringSessions = async (req, res, next) => {
   try {
     const clientId = asInt(req.params.studentId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
-    await assertLearningClientAccess(req, clientId);
+    const {agencyId,service}=await assertLearningClientAccess(req, clientId);
     const limit = Math.min(Math.max(asInt(req.query.limit) || 10, 1), 50);
     // ?upcoming=1 returns scheduled future sessions; default returns past completed sessions
     const upcomingOnly = String(req.query.upcoming || '') === '1';
@@ -77,18 +77,15 @@ export const getStudentTutoringSessions = async (req, res, next) => {
               CONCAT(u.first_name, ' ', u.last_name) AS provider_name,
               a.slug AS org_slug
          FROM learning_class_sessions s
-         JOIN learning_class_client_memberships m
-           ON m.learning_class_id = s.learning_class_id
-          AND m.client_id = ?
-          AND m.membership_status IN ('active','completed')
+         JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
          LEFT JOIN users u ON u.id = s.provider_user_id
          LEFT JOIN learning_program_classes lpc ON lpc.id = s.learning_class_id
          LEFT JOIN agencies a ON a.id = lpc.organization_id
-        WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual')
+        WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual') AND lpc.organization_id=? AND (? IS NULL OR s.provider_user_id=?)
           ${dateFilter}
         ${orderBy}
         LIMIT ?`,
-      [clientId, limit]
+      [clientId,agencyId,service?.provider_user_id||null,service?.provider_user_id||null,limit]
     );
 
     const sessions = rows.map((r) => {
@@ -141,7 +138,13 @@ export const createLearningEvidence = async (req, res, next) => {
         error: { message: 'clientId, sourceType, domainId, and skillId are required' }
       });
     }
-    await assertLearningClientAccess(req, payload.clientId);
+    const access=await assertLearningWriteAccess(req, payload.clientId);payload.agencyId=access.agencyId;
+    for(const goalId of payload.goalIds){
+      const goal=await LearningGoal.findById(goalId);
+      if(!goal||Number(goal.client_id)!==payload.clientId)throw Object.assign(new Error('Choose a goal for this student.'),{status:403});
+      const goalAccess=await assertLearningWriteAccess(req,payload.clientId,goal);
+      if(goalAccess.agencyId!==access.agencyId)throw Object.assign(new Error('Choose a goal from this agency.'),{status:403});
+    }
 
     const evidence = await LearningProgress.createEvidence(payload, req.user?.id);
     res.status(201).json(evidence);

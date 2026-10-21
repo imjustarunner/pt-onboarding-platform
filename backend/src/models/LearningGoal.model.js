@@ -1,3 +1,4 @@
+import {learningRecordScope} from '../utils/learningRecordScope.js';
 import pool from '../config/database.js';
 
 const parseJson = (value, fallback = null) => {
@@ -60,7 +61,7 @@ class LearningGoal {
         targetDate,
         status,
         notes,
-        metadata ? JSON.stringify(metadata) : null,
+        JSON.stringify({...metadata,...(payload.agencyId?{agencyId:Number(payload.agencyId)}:{})}),
         actorUserId || null,
         actorUserId || null
       ]
@@ -149,7 +150,8 @@ class LearningGoal {
     return rows[0] ? normalizeGoal(rows[0]) : null;
   }
 
-  static async listByClient(clientId) {
+  static async listByClient(clientId,context={}) {
+    const scope=learningRecordScope('lg',context);
     const [rows] = await pool.execute(
       `SELECT lg.*, d.title AS domain_title, sd.title AS subdomain_title,
               st.code AS standard_code, sk.title AS skill_title
@@ -158,26 +160,27 @@ class LearningGoal {
        LEFT JOIN learning_standards_subdomains sd ON sd.id = lg.subdomain_id
        LEFT JOIN learning_standards st ON st.id = lg.standard_id
        JOIN learning_skills sk ON sk.id = lg.skill_id
-       WHERE lg.client_id = ?
+       WHERE lg.client_id = ? ${scope.sql}
        ORDER BY FIELD(lg.status, 'active', 'draft', 'paused', 'achieved', 'closed'), lg.target_date ASC`,
-      [clientId]
+      [clientId,...scope.params]
     );
     return rows.map(normalizeGoal);
   }
 
-  static async suggestFromRecentEvidence(clientId, { days = 30 } = {}) {
+  static async suggestFromRecentEvidence(clientId, { days = 30,agencyId=null,providerId=null } = {}) {
+    const scope=learningRecordScope('le',{agencyId,providerId});
     const [rows] = await pool.execute(
       `SELECT le.domain_id, le.subdomain_id, le.standard_id, le.skill_id,
               COUNT(*) AS evidence_count,
               AVG(CASE WHEN le.score_value IS NULL THEN 0 ELSE le.score_value END) AS avg_score,
               MAX(le.observed_at) AS latest_observed_at
        FROM learning_evidence le
-       WHERE le.client_id = ?
+       WHERE le.client_id = ? ${scope.sql}
          AND le.observed_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
        GROUP BY le.domain_id, le.subdomain_id, le.standard_id, le.skill_id
        ORDER BY avg_score ASC, evidence_count DESC
        LIMIT 5`,
-      [clientId, days]
+      [clientId,...scope.params, days]
     );
 
     return rows;

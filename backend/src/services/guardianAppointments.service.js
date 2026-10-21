@@ -23,7 +23,8 @@ export async function authorizedClient(userId, clientId, requiredClinicalScope =
   return client;
 }
 export async function requireGuardianCancellation({ userId, clientId, appointment }) {
-  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId:appointment.agencyId});
+  const scope=['learning','tutoring'].includes(appointment.businessType||appointment.business_type)?null:'session_frequency';
+  const client = await authorizedClient(userId, clientId,scope,{agencyId:appointment.agencyId});
   if (Number(client.agency_id) !== Number(appointment.agencyId)) throw fail('Appointment not found.', 404);
   const participants = await Appointment.listParticipants(appointment.id);
   const clientIds = [...new Set(participants.map(p => Number(p.clientId)).filter(Boolean))];
@@ -188,9 +189,9 @@ export async function recordGuardianAppointmentApproval(appointmentId, userId) {
   await pool.execute("UPDATE guardian_appointment_requests SET status='approved',decided_by_user_id=?,decided_at=NOW() WHERE appointment_id=? AND status='pending'", [userId, appointmentId]);
 }
 
-export async function guardianReminderPreferences({ userId, clientId, input = null }) {
+export async function guardianReminderPreferences({ userId, clientId, agencyId, input = null }) {
   // Personal channel choices disclose no appointment data; viewing and delivery retain their clinical grants.
-  const client = await authorizedClient(userId, clientId, null);
+  const client = await authorizedClient(userId, clientId, null, {agencyId});
   const { getClientPreferences, putClientPreferences } = await import('./sessionNotification.service.js');
   if (!input) {
     const preferences = await getClientPreferences(client.agency_id, clientId, userId);

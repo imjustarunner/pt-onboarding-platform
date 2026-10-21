@@ -24,10 +24,11 @@ export function linkAllowsBilling(link) {
 }
 export async function requireBillingLink(userId, clientId, agencyId, db = pool) {
   const [rows] = await db.execute(`SELECT cg.*, c.agency_id, c.date_of_birth FROM client_guardians cg
-    JOIN clients c ON c.id = cg.client_id WHERE cg.guardian_user_id = ? AND cg.client_id = ? AND c.agency_id = ?`,
-  [positiveId(userId), positiveId(clientId), positiveId(agencyId)]);
+    JOIN clients c ON c.id = cg.client_id WHERE cg.guardian_user_id = ? AND cg.client_id = ? AND (c.agency_id = ? OR EXISTS
+      (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`,
+  [positiveId(userId), positiveId(clientId), positiveId(agencyId), positiveId(agencyId)]);
   if (!linkAllowsBilling(rows[0])) throw billingError(403, 'Billing access is not authorized for this client');
-  return rows[0];
+  return {...rows[0],agency_id:positiveId(agencyId)};
 }
 export async function requireResponsiblePayer(userId, clientId, agencyId, db = pool) {
   await requireBillingLink(userId, clientId, agencyId, db);

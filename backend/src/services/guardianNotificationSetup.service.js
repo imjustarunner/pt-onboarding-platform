@@ -5,8 +5,8 @@ import { getSmsSender, isSmsSuppressed, recordedReminderConsent, resolveRegister
 import { createSmsConsentRequest } from './smsConsentRequest.service.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
-async function setupContext(userId, clientId) {
-  const preferences = await guardianReminderPreferences({ userId, clientId });
+async function setupContext(userId, clientId, selectedAgencyId) {
+  const preferences = await guardianReminderPreferences({ userId, clientId, ...(selectedAgencyId ? {agencyId:selectedAgencyId} : {}) });
   const contacts = await ClientGuardian.listForClient(clientId);
   const contact = contacts.find(c => Number(c.guardian_user_id) === Number(userId));
   const phone = normalizeSmsPhone(contact?.phone);
@@ -20,8 +20,8 @@ async function setupContext(userId, clientId) {
   return { preferences, contact, phone, agencyId, sender, wantsTexts };
 }
 
-export async function guardianNotificationSetup({ userId, clientId }) {
-  const { preferences, phone, agencyId, sender, wantsTexts } = await setupContext(userId, clientId);
+export async function guardianNotificationSetup({ userId, clientId, agencyId: selectedAgencyId }) {
+  const { preferences, phone, agencyId, sender, wantsTexts } = await setupContext(userId, clientId, selectedAgencyId);
   let smsStatus = 'needs_consent';
   if (!phone) smsStatus = 'needs_phone';
   else if (!sender) smsStatus = 'unavailable';
@@ -38,8 +38,8 @@ export async function guardianNotificationSetup({ userId, clientId }) {
     complete: preferences.isDefault === false && (!wantsTexts || smsStatus === 'enrolled') };
 }
 
-export async function beginGuardianSmsConsent({ userId, clientId }) {
-  const { contact, phone, agencyId, sender, wantsTexts } = await setupContext(userId, clientId);
+export async function beginGuardianSmsConsent({ userId, clientId, agencyId: selectedAgencyId }) {
+  const { contact, phone, agencyId, sender, wantsTexts } = await setupContext(userId, clientId, selectedAgencyId);
   if (!wantsTexts) throw Object.assign(new Error('Choose which text updates you want and save your choices first.'), { status: 409 });
   if (!phone || !sender) throw Object.assign(new Error('Ask your care team to check your phone number and text enrollment availability.'), { status: 409 });
   if (await isSmsSuppressed(sender, phone)) throw Object.assign(new Error('Texts are stopped. Contact your care team for help with the program’s re-enrollment instructions.'), { status: 409 });

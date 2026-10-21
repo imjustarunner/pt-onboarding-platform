@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {clientAgencyMembership} from './clientServiceEnrollment.service.js';
 import crypto from 'node:crypto';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
@@ -29,8 +30,8 @@ export async function migrationPaymentReady({agencyId,userId},db=pool){
 async function migrationAccess({user,agencyId,clientId},db=pool){
  if(!['client','client_guardian'].includes(user.role))throw billingError(403,'Your own portal account is required');
  const links=await ClientGuardian.listClientsForGuardian({guardianUserId:user.id});
- const link=links.find(c=>Number(c.client_id)===Number(clientId)&&Number(c.agency_id)===Number(agencyId));
- if(!link||!linkAllowsBillingView({...link,access_enabled:1}))throw billingError(403,'This profile is not available to your account');
+ const link=links.find(c=>Number(c.client_id)===Number(clientId));
+ if(!link||!linkAllowsBillingView({...link,access_enabled:1})||(Number(link.agency_id)!==Number(agencyId)&&!await clientAgencyMembership(clientId,agencyId,db)))throw billingError(403,'This profile is not available to your account');
  const [[enrollment]]=await db.execute('SELECT * FROM family_portal_migration_enrollments WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,user.id]);
  return {link,enrollment};
 }

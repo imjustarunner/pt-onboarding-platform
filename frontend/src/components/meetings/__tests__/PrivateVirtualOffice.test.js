@@ -8,11 +8,13 @@ async function setup(encounter,admitted=[]){
  const request=vi.fn(async(path,options)=>{
   if(path==='/me/plan')return {plan:{privateOffice:true,multipleOfficeGuests:true}};
   if(path==='/me')return {room:{slug:'synthetic',branding:{agencyName:'Practice',officeProduct:'auricwell',officeOrigin:'https://auricwell.com'}}};
+  if(path==='/me/tutoring-students')return {students:[{id:40,displayName:'Demo Student'}]};
+  if(path==='/me/tutoring-binder'){data.encounter.tutoring={manualBinder:true,participants:[{id:40,displayName:'Demo Student'}]};return {tutoring:data.encounter.tutoring};}
   if(path==='/me/video-token')return {sessionId:'media',token:'synthetic'};
   if(path==='/me/end'){data.encounter.state='ending';return {ok:false,state:'ending'};}
   return structuredClone(data);
  });
- const wrapper=mount(Office,{props:{request},global:{stubs:{TherapySessionWorkspace:stub,OfficeDayList:true,CounselingSessionView:true}}});await flushPromises();
+ const wrapper=mount(Office,{props:{request},global:{stubs:{TutorSessionGuidePanel:true,TherapySessionWorkspace:stub,OfficeDayList:true,CounselingSessionView:true}}});await flushPromises();
  return {wrapper,request,data};
 }
 const button=(wrapper,text)=>wrapper.findAll('button').find(b=>b.text().includes(text));
@@ -79,8 +81,20 @@ it('requires identity confirmation before assigning an office guest to an appoin
 
 it('keeps a non-EHR office on its tenant brand and stable guest link',async()=>{
  const request=vi.fn(async path=>path==='/me'?{room:{slug:'same-stable-room',branding:{officeProduct:'tenant',officeOrigin:'https://learn.example',agencyName:'Learning Center',agencyLogoUrl:'/learning.svg',colorPalette:{primary:'#884499'}}}}:path==='/me/plan'?{plan:{privateOffice:true}}:{waiting:[],admitted:[],encounter:{state:'idle'}});
- const w=mount(Office,{props:{request},global:{stubs:{TherapySessionWorkspace:stub,OfficeDayList:true,CounselingSessionView:true}}});await flushPromises();
+ const w=mount(Office,{props:{request},global:{stubs:{TutorSessionGuidePanel:true,TherapySessionWorkspace:stub,OfficeDayList:true,CounselingSessionView:true}}});await flushPromises();
  expect(w.text()).not.toContain('AuricWell');expect(w.text()).toContain('Learning Center');expect(w.text()).toContain('My Virtual Office');
  expect(w.classes()).not.toContain('auricwell-surface');expect(w.find('input[readonly]').element.value).toBe('https://learn.example/join/my-room/same-stable-room');
  expect(w.attributes('style')).toContain('#884499');w.unmount();
+});
+
+it('opens the admitted student binder with a deliberate identity confirmation',async()=>{
+ const {wrapper,request}=await setup({state:'active',hasParticipants:true},[{id:1,guestDisplayName:'Student arrival'}]);
+ await button(wrapper,'Reconnect').trigger('click');await flushPromises();
+ await button(wrapper,'Choose student').trigger('click');await flushPromises();
+ await wrapper.find('.tutoring-guide select').setValue('40');
+ expect(button(wrapper,'Open learning binder').attributes('disabled')).toBeDefined();
+ await wrapper.find('.binder-confirm input').setValue(true);await wrapper.find('.tutoring-guide form').trigger('submit');await flushPromises();
+ expect(request).toHaveBeenCalledWith('/me/tutoring-binder',{method:'POST',body:{clientId:40,visitId:1,confirmIdentity:true}});
+ expect(wrapper.findComponent({name:'TutorSessionGuidePanel'}).props('clientId')).toBe(40);
+ expect(wrapper.text()).toContain('Only you can see the session guide');wrapper.unmount();
 });
