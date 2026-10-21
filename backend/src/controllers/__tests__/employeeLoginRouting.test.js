@@ -50,6 +50,7 @@ describe('family email-first portal routing', () => {
     const result=await identify({organizationSlug});
     expect(result.resolvedOrg.slug).toBe('itsco');expect(result.login.method).toBe('password');
   });
+  it('identifies the clinical family surface even on an agency login',async()=>{m.execute.mockImplementation(async(sql)=>sql.includes('SELECT c.client_type')?[[{client_type:'clinical'}]]:[[]]);expect((await identify()).familyPortalSurface).toBe('clinical');});
   it('keeps an authorized tutoring portal when its link was selected',async()=>{
     expect((await identify({organizationSlug:'nlu'})).resolvedOrg.slug).toBe('nlu');
   });

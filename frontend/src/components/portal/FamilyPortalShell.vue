@@ -12,12 +12,14 @@
       </div>
       <slot name="context" />
     </header>
+    <button v-if="menuOpen" class="portal-menu-backdrop" aria-label="Close menu" @click="menuOpen=false" />
     <aside class="portal-sidebar" :class="{ 'portal-sidebar--open': menuOpen }">
       <div id="family-portal-nav" class="portal-nav-wrap" :class="{ expanded: menuOpen }" @keydown.esc="menuOpen = false">
         <nav aria-label="Your portal">
-          <button v-for="item in navigation" :key="item.key" type="button" :class="{ selected: active === item.key }" :aria-current="active === item.key ? 'page' : undefined" @click="navigate(item.key)">
+          <template v-for="(item,index) in navigation" :key="item.key"><h2 v-if="item.group && item.group !== navigation[index-1]?.group" class="portal-nav-group">{{ item.group }}</h2>
+          <button type="button" :class="{ selected: active === item.key }" :aria-current="active === item.key ? 'page' : undefined" @click="navigate(item.key)">
             <PortalIcon :name="item.icon || item.key" /><span>{{ item.label }}</span><span v-if="item.count > 0" class="portal-count">{{ item.count }}</span>
-          </button>
+          </button></template>
         </nav>
         <div class="portal-support">
           <div class="portal-support-art" aria-hidden="true"><PortalIcon name="support" /></div>
@@ -51,6 +53,8 @@ function navigate(key) { menuOpen.value = false; emit('navigate', key); }
 watch(() => props.logoUrl, () => { logoFailed.value = false; });
 </script>
 <style scoped>
+.portal-menu-backdrop{display:none}.portal-nav-group{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5c6f85;margin:20px 12px 4px;line-height:1.5}@media(max-width:760px){.portal-menu-backdrop{display:block;position:fixed;inset:var(--family-header-height) 0 0;border:0;background:#142e4c50;z-index:109;width:100%;height:auto;cursor:pointer}}
+
 .portal-sticky-header{grid-column:1/-1;position:sticky;top:0;z-index:110;background:white;border-bottom:1px solid #dce5ef;padding:12px 22px;box-shadow:0 3px 15px #18345208}.portal-brand-row{display:flex;align-items:center;gap:16px;min-width:0}.portal-brand-row .portal-brand{display:flex;align-items:center;gap:10px;min-width:0;padding:0}.portal-brand-row .portal-brand img{width:38px;height:38px;object-fit:contain;margin:0}.portal-brand-row .portal-brand strong{display:block;font-size:19px;line-height:1.2;color:#173451}.portal-brand small{display:block;color:#526784;font-size:12px}.portal-agency-mark{margin-left:auto;display:flex;align-items:center;gap:8px;color:#29415d;font-size:13px;font-weight:600}.portal-agency-mark img{width:42px;height:38px;object-fit:contain}
 
 .family-portal{display:grid;grid-template-columns:244px minmax(0,1fr);grid-template-rows:auto 1fr;min-height:100vh;background:var(--portal-bg);color:#172746;font-family:var(--font-family,Inter,'Segoe UI',sans-serif);font-size:14px;line-height:1.55;--primary:var(--portal-accent);--primary-color:var(--portal-accent);--primary-hover:var(--portal-accent);--text-primary:#172746;--text-secondary:#52627b;--border:#dfe7f1;--bg:#fff;--bg-muted:var(--portal-tint)}

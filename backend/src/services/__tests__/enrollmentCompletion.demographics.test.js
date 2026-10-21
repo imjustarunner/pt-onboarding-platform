@@ -5,7 +5,7 @@ import {createGuardianDemographicsService,demographicRevision,validateDemographi
 let db,service,current,record;
 const parent={id:9,role:'client_guardian'},staff={id:4,role:'admin'};
 beforeEach(()=>{
- current={full_name:'Susanne Example',preferred_name:'Susanne',date_of_birth:'2018-01-01',preferred_language:'English'};
+ current={full_name:'Susanne Example',preferred_name:'Susanne',date_of_birth:'2018-01-01',preferred_language:'English',gender:'',grade:'',contact_phone:'',email:'',address_street:'',address_apt:'',address_city:'',address_state:'',address_zip:'',ethnicity:''};
  record={id:7,status:'pending',guardian_user_id:9,changes_encrypted:JSON.stringify({base:current,proposed:{preferred_name:'Susie'}})};
  db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async(sql)=>{
   if(sql.startsWith('SELECT full_name'))return [[current]];
@@ -100,3 +100,5 @@ it('rolls back the enrollment proposal when its support task fails',async()=>{
  await expect(service.enqueueFromEnrollment({clientId:5,submissionId:18,guardianUserId:9,values:{preferred_name:'Susie'}})).rejects.toThrow('Queue unavailable');
  expect(db.rollback).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();
 });
+
+it('reviews home-address edits into the same client fields used by claims',async()=>{record.changes_encrypted=JSON.stringify({base:current,proposed:{address_street:'100 Demo Way',address_city:'Denver',address_zip:'80202'}});await service.review({user:staff,clientId:5,requestId:7,acceptedFields:['address_street','address_city','address_zip'],reason:'Family verified',revision:demographicRevision(current)});expect(db.execute).toHaveBeenCalledWith('UPDATE clients SET address_street=?,address_city=?,address_zip=?,updated_by_user_id=?,last_activity_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',['100 Demo Way','Denver','80202',4,5,2]);});

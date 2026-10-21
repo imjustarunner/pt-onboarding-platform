@@ -1,3 +1,7 @@
+import { listSharedFiles,sharedFile } from '../services/guardianFileShares.service.js';
+import { guardianCheckins } from '../services/guardianCheckins.service.js';
+import { authorizedClient } from '../services/guardianAppointments.service.js';
+import { ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import {familyAccount,updateFamilyAccount} from '../services/familyPortalAccount.service.js';
 import * as guardianInvitations from '../controllers/guardianInvitation.controller.js';
 import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
@@ -100,7 +104,17 @@ router.get('/clients/:clientId/notification-history', listClientNotificationHist
 router.get('/clients/:clientId/notification-setup', notificationSetup.getSetup);
 router.post('/clients/:clientId/notification-setup/sms-consent', notificationSetup.beginConsent);
 router.get('/clients', listMyGuardianClients);
+router.get('/clients/:clientId/shared-files',requireActiveStatus,async(req,res,next)=>{try{res.set('Cache-Control','no-store').json({files:await listSharedFiles(req.user.id,Number(req.params.clientId))});}catch(e){next(e);}});
+router.get('/clients/:clientId/shared-files/:shareId',requireActiveStatus,async(req,res,next)=>{try{const f=await sharedFile(req.user.id,Number(req.params.clientId),Number(req.params.shareId));res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Type':f.type,'Content-Disposition':`attachment; filename="${f.name}"`}).send(f.body);}catch(e){next(e);}});
+router.get('/clients/:clientId/checkins',requireActiveStatus,async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access client records'}});res.set('Cache-Control','no-store').json(await guardianCheckins({userId:req.user.id,clientId:Number(req.params.clientId)}));}catch(e){next(e);}});
 router.get('/clients/:clientId/details', guardianDemographics.read);
+router.get('/clients/:clientId/care-access',requireActiveStatus,async(req,res,next)=>{try{
+  if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access care conversations'}});
+  const clientId=Number(req.params.clientId);
+  const client=await authorizedClient(req.user.id,clientId,'clinical_messages');
+  const conversation=await ensureClientSecureConversation({clientId,agencyId:client.agency_id,actorUserId:req.user.id});
+  res.set('Cache-Control','no-store').json({participants:conversation.participants,shared:true});
+}catch(e){next(e);}});
 router.post('/clients/:clientId/details', guardianDemographics.submit);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);

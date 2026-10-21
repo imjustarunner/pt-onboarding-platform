@@ -85,7 +85,7 @@
       <section class="gtd-card gtd-sessions">
         <h3>Upcoming sessions</h3>
         <ul class="gtd-list">
-          <li v-for="s in (dashboard.upcomingSessions || [])" :key="s.id">
+          <li v-for="s in (dashboard.upcomingSessions || [])" :key="`${s.source}:${s.id}`">
             <div>
               <strong>{{ formatWhen(s.starts_at) }}</strong>
               <div class="gtd-muted">{{ s.title || 'Tutoring session' }} · {{ s.provider_name || 'Tutor' }}</div>
@@ -93,7 +93,7 @@
             <span class="gtd-badge" :class="s.status === 'confirmed' || s.status === 'scheduled' ? 'ok' : ''">
               {{ statusLabel(s.status) }}
             </span>
-            <button type="button" class="gtd-btn sm" @click="joinSession(s)">Join</button>
+            <a v-if="s.joinUrl" :href="s.joinUrl" class="gtd-btn sm">Join online session</a><button v-else-if="s.source !== 'appointment' && s.delivery_context !== 'in_person'" type="button" class="gtd-btn sm" @click="joinSession(s)">Join online session</button><button v-else type="button" class="gtd-btn sm" @click="$emit('appointments')">View appointment</button>
           </li>
         </ul>
         <p v-if="!(dashboard.upcomingSessions || []).length" class="gtd-muted">No upcoming sessions yet.</p>
@@ -199,6 +199,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';
 
+defineEmits(['appointments']);
 const props = defineProps({
   embedded: {type:Boolean,default:false},
   clientId: { type: [Number, String], required: true },
@@ -283,7 +284,7 @@ const nextSessionLabel = computed(() => {
   return formatWhen(s.starts_at);
 });
 
-const nextTutorLabel = computed(() => dashboard.value.nextSession?.provider_name || dashboard.value.upcomingSessions?.[0]?.provider_name || 'Not assigned');
+const nextTutorLabel = computed(() => dashboard.value.nextSession?.provider_name || dashboard.value.upcomingSessions?.[0]?.provider_name || dashboard.value.assignedTutor || 'Not assigned');
 
 const encouragement = computed(() => {
   const pct = Number(dashboard.value.overallProgress) || 0;
@@ -304,6 +305,8 @@ function formatWhen(value) {
   if (!value) return '—';
   try {
     return new Date(value).toLocaleString(undefined, {
+      timeZone: 'America/Denver',
+      timeZoneName: 'short',
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -316,6 +319,7 @@ function formatWhen(value) {
 }
 
 function sessionUrl(s) {
+  if (s.source === 'appointment') return null;
   const id = s.id;
   const slug = props.organizationSlug;
   const inPerson = String(s.delivery_context || '').toLowerCase() === 'in_person';
@@ -328,7 +332,8 @@ function sessionUrl(s) {
 }
 
 function joinSession(s) {
-  router.push(sessionUrl(s));
+  const url = sessionUrl(s);
+  if (url) router.push(url);
 }
 
 function destroyCard() {
@@ -487,17 +492,23 @@ async function purchaseSelected() {
   }
 }
 
+let loadVersion = 0;
 async function load() {
+  const version = ++loadVersion;
+  dashboard.value = {};
   if (!props.clientId) return;
   loading.value = true;
   error.value = '';
   try {
-    dashboard.value = await los.fetchGuardianTutoringDashboard(props.clientId);
+    const result = await los.fetchGuardianTutoringDashboard(props.clientId);
+    if (version !== loadVersion) return;
+    dashboard.value = result;
     await loadPackages();
   } catch (e) {
+    if (version !== loadVersion) return;
     error.value = e.response?.data?.error?.message || e.message || 'Could not load tutoring dashboard';
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 

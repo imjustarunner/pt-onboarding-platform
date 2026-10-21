@@ -9,7 +9,7 @@ const upload = multer({
   limits: { fileSize: 15 * 1024 * 1024 }
 });
 
-router.use(authenticate);
+router.use(authenticate,(req,res,next)=>{res.set('Cache-Control','no-store');next();});
 
 router.post('/assign', ctrl.assign);
 router.get('/clients/:clientId', ctrl.listForClient);

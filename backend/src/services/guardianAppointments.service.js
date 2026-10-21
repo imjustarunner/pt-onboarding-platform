@@ -1,3 +1,4 @@
+import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
@@ -108,7 +109,7 @@ export async function appointmentRequests(appointmentId, db = pool) {
 }
 export async function listGuardianAppointments({ userId, clientId }) {
   const client = await authorizedClient(userId, clientId);
-  const selection = `SELECT DISTINCT a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'`;
+  const selection = `SELECT DISTINCT a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'`;
   // This is a display window only: keep the provider's future reservation intact.
   // Query upcoming and history independently, so far-future rows cannot crowd out either.
   const [upcoming] = await pool.execute(`${selection} AND a.start_at>=UTC_TIMESTAMP()
@@ -119,6 +120,8 @@ export async function listGuardianAppointments({ userId, clientId }) {
   const [offers] = await pool.execute('SELECT appointment_id FROM appointment_replacement_offers WHERE client_id=? AND agency_id=?', [clientId, client.agency_id]);
   const offerIds = new Set(offers.map(o => Number(o.appointment_id)));
   for (const row of rows) {
+    row.joinUrl = await guardianAppointmentJoin(row,client,pool);
+    delete row.googleMeetLink;
     row.requests = (await appointmentRequests(row.id)).filter(r => Number(r.clientId) === Number(clientId));
     row.serviceSetting = await resolveAppointmentServiceSetting(row);
     if (offerIds.has(Number(row.id))) {

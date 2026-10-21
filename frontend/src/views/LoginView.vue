@@ -783,7 +783,8 @@ import {
 // Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();
-const isAuricWellLogin = /^(www\.)?auricwell\.com$/i.test(window.location.hostname);
+const identifiedFamilySurface = ref('');
+const isAuricWellLogin = computed(() => /^(www\.)?auricwell\.com$/i.test(window.location.hostname) || identifiedFamilySurface.value === 'clinical');
 const isFundThredLogin = computed(() => isFundthredLogin(route));
 useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
@@ -1092,7 +1093,7 @@ const portalLoginSubtitle = computed(() => {
 });
 
 const defaultLoginSubtitle = computed(() =>
-  isAuricWellLogin ? `Sign in to your ${loginTheme.value?.agency?.name || ''} AuricWell portal`.replace('  ', ' ') : isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
+  isAuricWellLogin.value ? `Sign in to your ${loginTheme.value?.agency?.name || ''} AuricWell portal`.replace('  ', ' ') : isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
 );
 const sstcTenantDisplayName = computed(() => {
   const themedName = String(loginTheme.value?.agency?.name || '').trim();
@@ -1106,7 +1107,7 @@ const sstcClubDisplayName = computed(() => {
 const sstcClubInitials = computed(() => buildInitials(sstcClubDisplayName.value, 'CL'));
 
 const loginBackground = computed(() => {
-  if (isAuricWellLogin) return 'linear-gradient(160deg, #eff7f5, #edf3fb)';
+  if (isAuricWellLogin.value) return 'linear-gradient(160deg, #eff7f5, #edf3fb)';
   if (loginTheme.value?.agency?.themeSettings?.loginBackground) {
     return loginTheme.value.agency.themeSettings.loginBackground;
   }
@@ -1210,7 +1211,7 @@ const isMainTenantHubLogin = (portalSlug) => {
 };
 
 const activeTenantLoginVideos = computed(() => {
-  if (isFundThredLogin.value || isAuricWellLogin) return null;
+  if (isFundThredLogin.value || isAuricWellLogin.value) return null;
   for (const [portalSlug, sources] of Object.entries(TENANT_LOGIN_BG_VIDEOS)) {
     if (isMainTenantHubLogin(portalSlug)) return sources;
   }
@@ -2015,6 +2016,7 @@ const resetToUsernameStep = () => {
   username.value = '';
   lastErrorCode.value = null;
   lastVerifiedUsername.value = '';
+  identifiedFamilySurface.value = '';
   identifyPasswordPolicy.value = null;
   sstcClubBranding.value = null;
   rememberedGoogleLogin.value = null;
@@ -2055,6 +2057,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     );
 
     const data = resp?.data || {};
+    identifiedFamilySurface.value = data?.familyPortalSurface || '';
     const matched = data?.matched === true;
     if (!matched) {
       showPassword.value = false;

@@ -1,3 +1,4 @@
+import { fileShareRecipients,setFileShare } from '../services/guardianFileShares.service.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
@@ -29,6 +30,9 @@ router.get('/signed-school-packets/:packetId', authenticate, getClientSignedScho
 
 // Upload a PHI doc for a client (authenticated)
 router.post('/clients/:clientId/upload', authenticate, uploadClientPhiDocument);
+
+router.get('/:docId/portal-shares',authenticate,async(req,res,next)=>{try{res.set('Cache-Control','no-store').json(await fileShareRecipients(req.user,Number(req.params.docId)));}catch(e){next(e);}});
+router.put('/:docId/portal-shares',authenticate,async(req,res,next)=>{try{res.json(await setFileShare(req.user,Number(req.params.docId),req.body));}catch(e){next(e);}});
 
 // Get signed URL to view a PHI doc (also logs access)
 router.get('/:docId/view', authenticate, viewPhiDocument);

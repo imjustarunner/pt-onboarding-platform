@@ -6,7 +6,7 @@ import { normalizePolicy, applySubmittedClientInsurance, readClientInsurance, cl
 import { getStripePublishableKey } from './stripePayments.service.js';
 
 export async function getFamilyBillingSummary(userId, agencyId) {
-  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json
+  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json
     FROM client_guardians cg JOIN clients c ON c.id = cg.client_id WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1 ORDER BY c.full_name`, [userId, agencyId]);
   const items = [];
   for (const c of clients) {
@@ -16,7 +16,7 @@ export async function getFamilyBillingSummary(userId, agencyId) {
       JOIN client_guardians cg ON cg.client_id = p.client_id AND cg.guardian_user_id = p.guardian_user_id
       WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active' AND cg.access_enabled = 1`, [agencyId, c.id]);
     const own = linkAllowsBilling(c) ? payers.find(p => Number(p.guardian_user_id) === Number(userId)) : null;
-    items.push({ clientId: c.id, clientName: c.full_name || c.initials, insuranceOnFile: !!c.insurance_on_file, canManageInsurance: linkAllowsBilling(c), responsiblePayers: payers.map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
+    items.push({ clientId: c.id, clientName: c.full_name || c.initials, clientType:c.client_type, insuranceApplicable:!['learning','tutoring'].includes(String(c.client_type).toLowerCase()), insuranceOnFile: !!c.insurance_on_file, canManageInsurance: linkAllowsBilling(c), responsiblePayers: payers.map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
       ...(own ? { paymentCardId: own.payment_card_id, recurringEnabled: !!own.consent_id, recurringLimitCents: own.recurring_limit_cents, paymentOnFileRequired: !own.payment_card_id } : {}) });
   }
   const canManage = items.some(c => c.canManageBilling);

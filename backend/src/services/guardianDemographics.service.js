@@ -5,7 +5,7 @@ import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 
-export const demographicFields = Object.freeze({ full_name: 'Legal full name', preferred_name: 'Name they go by', date_of_birth: 'Date of birth', preferred_language: 'Preferred language' });
+export const demographicFields = Object.freeze({ full_name: 'Legal full name', preferred_name: 'Name they go by', date_of_birth: 'Date of birth', preferred_language: 'Preferred language', gender:'Sex / gender on record', grade:'Grade', contact_phone:'Client phone', email:'Client email', address_street:'Home address', address_apt:'Apartment / unit', address_city:'City', address_state:'State', address_zip:'ZIP / postal code', ethnicity:'Ethnicity' });
 const keys = Object.keys(demographicFields);
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const context = (agencyId, clientId) => `guardian-demographics:${agencyId}:${clientId}`;
@@ -17,6 +17,9 @@ export function validateDemographicValues(input) {
   for (const [key, value] of Object.entries(input)) {
     if (typeof value !== 'string' || value.length > 255) fail(400, 'Client details must be text of 255 characters or fewer.');
     out[key] = value.trim();
+    const limits={grade:32,gender:64,contact_phone:20,email:255,address_apt:64,address_city:100,address_state:50,address_zip:20,ethnicity:100,preferred_language:100};
+    if(out[key].length>(limits[key]||255)) fail(400,`${demographicFields[key]} is too long.`);
+    if(key==='email'&&out[key]&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out[key])) fail(400,'Enter a valid client email address.');
     if (key === 'full_name' && !out[key]) fail(400, 'Enter the legal full name.');
     if (key === 'date_of_birth') {
       const d = new Date(`${out[key]}T00:00:00Z`);
@@ -46,6 +49,10 @@ export function enrollmentDemographicValues({ child = {}, responses = {}, demogr
   const language = String(responses.child_preferred_language || responses.preferred_language
     || responses.client_preferred_language || own.preferredLanguage || demographics.preferredLanguage || '').trim();
   if (language) out.preferred_language = language;
+  // Explicit client identifiers only: never copy a guardian's contact/address
+  // into a child's chart merely because both appear in the same packet.
+  const extra={gender:['gender','client_gender'],grade:['grade','child_grade'],contact_phone:['phone','client_phone'],email:['email','client_email'],address_street:['addressStreet','client_address_street'],address_apt:['addressApt','client_address_apt'],address_city:['addressCity','client_address_city'],address_state:['addressState','client_address_state'],address_zip:['addressZip','client_address_zip'],ethnicity:['ethnicity','client_ethnicity']};
+  for(const [field,[childKey,responseKey]] of Object.entries(extra)){const value=child[childKey]||child[field]||responses[responseKey];if(typeof value==='string'&&value.trim())out[field]=value.trim();}
   return out;
 }
 

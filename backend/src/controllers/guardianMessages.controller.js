@@ -126,7 +126,9 @@ export const listGuardianMessageThreads = async (req, res, next) => {
       } catch {
         threadId = null;
       }
+      const [[activity]] = threadId ? await pool.execute(`SELECT MAX(m.created_at) AS last_message_at FROM chat_messages m WHERE m.thread_id=? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[threadId,req.user.id]) : [[null]];
       threads.push({
+        last_message_at: activity?.last_message_at || null,
         client_id: c.client_id,
         client_label: c.full_name || c.initials || `Child #${c.client_id}`,
         organization_name: c.organization_name,

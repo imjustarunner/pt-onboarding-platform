@@ -3,31 +3,52 @@
     <p v-if="loading" role="status">Loading your notification choices…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
     <form v-if="data" @submit.prevent="save">
-      <p>Choose updates for this profile and agency. Texts are optional; insurance-card requests use email only.</p>
+      <p>{{ targets.length > 1 ? "Choose updates once for all profiles linked to your account." : "Choose your account updates." }} Texts are optional; insurance-card requests use email only.</p>
       <div class="choice-table"><table><thead><tr><th scope="col">Update</th><th v-for="channel in channels" :key="channel.key" scope="col">{{ channel.label }}</th></tr></thead><tbody><tr v-for="category in data.categories" :key="category.key"><th scope="row">{{ category.label }}<small>{{ category.detail }}</small></th><td v-for="channel in channels" :key="channel.key"><input v-if="!category.emailOnly || ['email','off'].includes(channel.key)" v-model="choices[category.key]" type="radio" :name="category.key" :value="channel.key" :aria-label="`${category.label}: ${channel.label}`" :disabled="busy" required/><span v-else aria-label="Unavailable">—</span></td></tr></tbody></table></div>
       <p v-if="wantsTexts" class="text-disclosure">You are requesting text updates for the choices above. Texts remain off until your number and text permission are verified. Message and data rates may apply. STOP stops texts; HELP requests help; START requests a restart where supported.</p>
-      <details><summary>About these choices</summary><p>{{ data.disclosure }}</p></details>
+      <p v-if="mixed">Some profiles had different preferences. Choose a channel for each marked row to apply one set of choices across your family.</p><details><summary>About these choices</summary><p>{{ data.disclosure }}</p></details>
       <label class="confirm"><input v-model="confirmed" type="checkbox" required :disabled="busy"/> I confirm these notification choices.</label>
       <button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Confirm my choices' }}</button>
       <p v-if="saved" role="status">Your choices are saved.{{ wantsTexts ? ' Text preferences will apply when enrollment is active.' : '' }}</p>
     </form>
-    <div v-if="saved && wantsTexts" class="text-disclosure"><h3>Text enrollment</h3><p>{{smsMessage}}</p><button v-if="setup?.smsStatus==='needs_phone'" type="button" @click="editContact=!editContact">Update my phone number</button><FamilyAccountSettings v-if="editContact" :agency-id="agencyId" @notifications="editContact=false;checkSms()"/><button v-if="setup?.smsStatus==='needs_consent'" type="button" :disabled="busy" @click="beginConsent">Review text consent</button><a v-if="consentPath" :href="consentPath" target="_blank" rel="noopener noreferrer">Open text consent form →</a><button type="button" :disabled="busy" @click="checkSms">Check text enrollment</button><button type="button" @click="$emit('saved')">{{ setup?.smsStatus==='enrolled' ? 'Continue' : 'Continue with text enrollment pending' }}</button></div>
+    <section v-if="saved && wantsTexts" class="text-disclosure"><h3>Text enrollment</h3>
+      <article v-for="entry in smsEntries" :key="entry.agencyId"><h4>{{ entry.name }}</h4><p>{{ smsMessage(entry.setup?.smsStatus) }}</p>
+        <button v-if="entry.setup?.smsStatus==='needs_phone'" type="button" @click="editContact=!editContact">Update my phone number</button>
+        <button v-if="entry.setup?.smsStatus==='needs_consent' && !entry.path" type="button" :disabled="busy" @click="beginConsent(entry)">Review text consent</button>
+        <a v-if="entry.path" :href="entry.path" target="_blank" rel="noopener noreferrer">Open text consent form →</a>
+      </article>
+      <FamilyAccountSettings v-if="editContact" :agency-id="agencyId || targets[0]?.agencyId" @notifications="editContact=false;checkSms()"/>
+      <button type="button" :disabled="busy" @click="checkSms">Check text enrollment</button><button type="button" @click="$emit('saved')">Continue</button>
+    </section>
   </section>
 </template>
 <script setup>
 import FamilyAccountSettings from './FamilyAccountSettings.vue';
-import {computed,ref,watch} from 'vue';import api from '../../services/api';
-const props=defineProps({agencyId:[Number,String],clientId:[Number,String]});const emit=defineEmits(['saved']);
+import {computed,ref,watch,onBeforeUnmount} from 'vue';
+import api from '../../services/api';
+const props=defineProps({agencyId:[Number,String],clientId:[Number,String],profiles:{type:Array,default:()=>[]}});
+const emit=defineEmits(['saved']);
 const channels=[{key:'email',label:'Email'},{key:'sms',label:'Text'},{key:'both',label:'Both'},{key:'off',label:'Off'}];
-const setup=ref(null),consentPath=ref(''),editContact=ref(false);
-const smsMessage=computed(()=>({needs_phone:'Add your phone number in Settings, then return here to enroll.',needs_consent:'Your choices are saved. Review and sign the text consent form to request enrollment.',enrolled:'Text enrollment is active for this number. Your saved choices control which updates you receive.',awaiting_review:'Your signed text consent is waiting for care-team review.',stopped:'Texts are stopped for this number. Your care team can help you restart them.',unavailable:'Text enrollment is not available for this agency yet. Your email choices are saved.'}[setup.value?.smsStatus]||'Checking text enrollment…'));
-async function checkSms(){try{const r=await api.get(`/guardian-portal/clients/${props.clientId}/notification-setup`);setup.value=r.data;}catch{error.value='Text enrollment could not be checked. Your saved notification choices are unchanged.';}}
-async function beginConsent(){busy.value=true;error.value='';try{const r=await api.post(`/guardian-portal/clients/${props.clientId}/notification-setup/sms-consent`);consentPath.value=r.data.path;}catch(e){error.value=e.response?.status<500?e.response?.data?.error?.message:'Text consent could not be opened.';}finally{busy.value=false;}}
-const data=ref(null),choices=ref({}),loading=ref(false),busy=ref(false),error=ref(''),confirmed=ref(false),saved=ref(false);let seq=0;
+const targets=computed(()=>props.profiles.length ? [...new Map(props.profiles.map(p=>[`${p.agency_id}:${p.client_id}`,{agencyId:p.agency_id,clientId:p.client_id,name:p.agency_name||p.organization_name||'Care team'}])).values()] : props.agencyId&&props.clientId ? [{agencyId:props.agencyId,clientId:props.clientId,name:'Your care team'}] : []);
+const data=ref(null),entries=ref([]),choices=ref({}),loading=ref(false),busy=ref(false),error=ref(''),confirmed=ref(false),saved=ref(false),mixed=ref(false),smsEntries=ref([]),editContact=ref(false);
+let seq=0;
 const wantsTexts=computed(()=>Object.values(choices.value).some(v=>['sms','both'].includes(v)));
-async function load(){const own=++seq;data.value=null;error.value='';confirmed.value=false;saved.value=false;setup.value=null;consentPath.value='';editContact.value=false;if(!props.agencyId||!props.clientId)return;loading.value=true;try{const r=await api.get(`/portal-migration/clients/${props.clientId}/notification-choices`,{params:{agencyId:props.agencyId}});if(own===seq){data.value=r.data;choices.value={...r.data.choices};}}catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Notification choices could not be loaded.';}finally{if(own===seq)loading.value=false;}}
-async function save(){if(busy.value||!confirmed.value)return;const own=seq;busy.value=true;error.value='';try{const r=await api.put(`/portal-migration/clients/${props.clientId}/notification-choices`,{agencyId:props.agencyId,token:data.value.token,preferences:{choices:choices.value,revision:data.value.revision,version:data.value.version,confirm:'yes'}});if(own===seq){saved.value=true;data.value.revision=r.data.revision;if(wantsTexts.value)await checkSms();else emit('saved');}}catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Your choices could not be saved.';}finally{busy.value=false;}}
-watch(()=>[props.agencyId,props.clientId],load,{immediate:true});
+const smsMessage=status=>({needs_phone:'Add your phone number in Settings, then return here to enroll.',needs_consent:'Review and sign the text consent form for this agency.',enrolled:'Text enrollment is active. Your saved choices control the updates you receive.',awaiting_review:'Your signed text consent is waiting for care-team review.',stopped:'Texts are stopped for this number. Your care team can help you restart them.',unavailable:'Text enrollment is not available for this agency yet. Your email choices are saved.'}[status]||'Text enrollment could not be checked.');
+async function checkSms(){const own=seq;const unique=[...new Map(targets.value.map(t=>[Number(t.agencyId),t])).values()];const results=await Promise.allSettled(unique.map(t=>api.get(`/guardian-portal/clients/${t.clientId}/notification-setup`)));if(own!==seq)return;smsEntries.value=unique.map((t,i)=>({...t,setup:results[i].status==='fulfilled'?results[i].value.data:null,path:smsEntries.value.find(e=>e.agencyId===t.agencyId)?.path||''}));}
+async function beginConsent(entry){busy.value=true;error.value='';try{const r=await api.post(`/guardian-portal/clients/${entry.clientId}/notification-setup/sms-consent`);entry.path=r.data.path;}catch(e){error.value=e.response?.status<500?e.response?.data?.error?.message:'Text consent could not be opened.';}finally{busy.value=false;}}
+async function load(){const own=++seq;data.value=null;entries.value=[];error.value='';confirmed.value=false;saved.value=false;editContact.value=false;smsEntries.value=[];if(!targets.value.length)return;loading.value=true;
+ try{const rows=await Promise.all(targets.value.map(async t=>({...t,...(await api.get(`/portal-migration/clients/${t.clientId}/notification-choices`,{params:{agencyId:t.agencyId}})).data})));if(own!==seq)return;
+ entries.value=rows;data.value=rows[0];choices.value={};mixed.value=false;
+ for(const c of data.value.categories){const values=new Set(rows.map(r=>r.choices[c.key]));choices.value[c.key]=values.size===1?[...values][0]:'';if(values.size>1)mixed.value=true;}
+ }catch{if(own===seq)error.value='We could not load all family preferences. Try again before changing them.';}finally{if(own===seq)loading.value=false;}}
+async function save(){if(busy.value||!confirmed.value||data.value.categories.some(c=>!choices.value[c.key]))return;const own=seq;busy.value=true;error.value='';saved.value=false;
+ const snapshot={...choices.value};
+ try{const results=await Promise.allSettled(entries.value.map(async entry=>{const r=await api.put(`/portal-migration/clients/${entry.clientId}/notification-choices`,{agencyId:entry.agencyId,token:entry.token,preferences:{choices:snapshot,revision:entry.revision,version:entry.version,confirm:'yes'}});entry.revision=r.data.revision;return r;}));
+ if(own!==seq)return;const failed=results.filter(r=>r.status==='rejected').length;if(failed){error.value=`${failed} profile(s) could not be updated. The other profiles were saved. Reload preferences before trying again.`;confirmed.value=false;return;}
+ saved.value=true;mixed.value=false;if(wantsTexts.value)await checkSms();else emit('saved');
+ }finally{busy.value=false;}}
+watch(()=>targets.value.map(t=>`${t.agencyId}:${t.clientId}`).join(','),load,{immediate:true});
+onBeforeUnmount(()=>{seq++;});
 </script>
 <style scoped>
 .family-notification-choices{padding:18px;border:1px solid #d6e3ef;border-radius:12px;background:white;color:#173451}.choice-table{max-width:100%;overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:12px 5px;border-bottom:1px solid #dfe7ef;text-align:center}th:first-child{text-align:left}th small{display:block;font-weight:400;color:#52647c;font-size:11px;margin-top:4px}input[type=radio],input[type=checkbox]{width:18px;height:18px;accent-color:#16457c}.confirm{display:flex;gap:10px;align-items:center;margin:20px 0}button{padding:12px 16px;background:#16457c;color:white;border:0;border-radius:8px;font:600 14px system-ui;cursor:pointer}p{line-height:1.6}details{margin-top:16px}p[role=alert]{color:#a12727}.text-disclosure{padding:14px;background:#f2f6fc;border-radius:8px}@media(max-width:440px){.family-notification-choices{padding:12px}table{font-size:12px}th small{display:none}th:first-child{width:42%}}

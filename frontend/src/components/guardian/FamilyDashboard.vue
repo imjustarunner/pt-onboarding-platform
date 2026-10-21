@@ -1,0 +1,36 @@
+<template>
+<section class="family-dashboard">
+  <div class="family-quick"><button @click="$emit('navigate','notifications')">Notification settings</button><button @click="$emit('navigate','family_billing')">Balances & payments</button><button @click="$emit('navigate','family_messages')">All secure messages</button><button @click="$emit('navigate','account')">Account settings</button></div>
+  <p v-if="loading" role="status">Loading your family overview…</p><p v-if="errors.length" role="alert">{{ errors.join(' ') }} <button @click="load">Retry</button></p>
+  <div class="family-summary-grid">
+    <article><h2>Your assigned balance</h2><strong class="total">{{ loading ? 'Loading…' : balanceFailed ? 'Unavailable' : money(totalDue) }}</strong><p>Across your linked agencies. Shared statements assigned to another payer are not included.</p><button @click="$emit('navigate','family_billing')">View balances & receipts →</button></article>
+    <article><h2>Upcoming appointments</h2><ul><li v-for="a in upcoming" :key="`${a.clientId}:${a.id}`"><button @click="$emit('profile',a.clientId,'appointments')"><strong>{{ a.name }}</strong><span>{{ when(a.startAt,a.timeZone) }}</span><small>{{ a.providerName }} · {{ a.agencyName }}</small></button><a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener">Join online appointment →</a></li></ul><p v-if="!loading&&!upcoming.length">No upcoming appointments are shared with your account.</p></article>
+    <article><h2>Recent appointments</h2><ul><li v-for="a in recent" :key="`${a.clientId}:${a.id}`"><button @click="$emit('profile',a.clientId,'appointments')"><strong>{{ a.name }}</strong><span>{{ when(a.startAt,a.timeZone) }}</span><small>{{ String(a.status).replaceAll('_',' ') }} · {{ a.providerName }}</small></button></li></ul><p v-if="!loading&&!recent.length">No recent appointments to show.</p></article>
+    <article><h2>Your care & learning teams</h2><ul><li v-for="t in threads" :key="t.client_id"><button @click="$emit('profile',t.client_id,'messages')"><strong>{{ t.provider ? [t.provider.first_name,t.provider.last_name].filter(Boolean).join(' ') : 'Awaiting assignment' }}</strong><span>{{ personName(t.client_id) }}</span><small>Open secure messages →</small></button></li></ul><p v-if="!loading&&!threads.length">Your teams will appear when they are assigned.</p></article>
+    <article><h2>Recent messages</h2><ul><li v-for="t in recentThreads" :key="t.client_id"><button @click="$emit('profile',t.client_id,'messages')"><strong>{{ personName(t.client_id) }}</strong><span>{{ t.last_message_at ? when(t.last_message_at) : 'Open conversation' }}</span><small>{{ t.unread_count ? `${t.unread_count} unread` : 'View conversation →' }}</small></button></li></ul><p v-if="!loading&&!recentThreads.length">No recent secure messages.</p><button @click="$emit('navigate','family_messages')">All conversations →</button></article>
+  </div>
+</section>
+</template>
+<script setup>
+import {computed,ref,watch,onBeforeUnmount} from 'vue';import api from '../../services/api';
+const props=defineProps({profiles:{type:Array,default:()=>[]},preview:Boolean});defineEmits(['navigate','profile']);
+const loading=ref(false),errors=ref([]),appointments=ref([]),balances=ref([]),threads=ref([]),balanceFailed=ref(false);let seq=0;
+const personName=id=>{const p=props.profiles.find(p=>Number(p.client_id)===Number(id));return p?.full_name||p?.initials||'Profile';};
+const money=n=>new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(n/100);
+const when=(v,tz='America/Denver')=>new Date(v).toLocaleString(undefined,{timeZone:tz||'America/Denver',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+const totalDue=computed(()=>balances.value.filter(r=>r.isOwnShare&&!r.paymentStatus).reduce((n,r)=>n+Math.max(0,Number(r.dueCents)||0),0));
+const upcoming=computed(()=>appointments.value.filter(a=>new Date(a.startAt)>=new Date()&&['scheduled','confirmed','client_confirmed'].includes(a.status)).sort((a,b)=>new Date(a.startAt)-new Date(b.startAt)).slice(0,6));
+const recent=computed(()=>appointments.value.filter(a=>new Date(a.startAt)<new Date()).sort((a,b)=>new Date(b.startAt)-new Date(a.startAt)).slice(0,5));
+const recentThreads=computed(()=>threads.value.filter(t=>t.thread_id&&(t.last_message_at||t.lastMessageAt||t.unread_count)).sort((a,b)=>new Date(b.last_message_at||b.lastMessageAt||0)-new Date(a.last_message_at||a.lastMessageAt||0)).slice(0,4));
+async function load(){const run=++seq;appointments.value=[];balances.value=[];threads.value=[];errors.value=[];balanceFailed.value=false;if(props.preview||!props.profiles.length)return;loading.value=true;
+ const agencies=[...new Set(props.profiles.map(p=>Number(p.agency_id)))];
+ const jobs=[...props.profiles.map(p=>({kind:'appointments',p,run:()=>api.get(`/guardian-portal/clients/${p.client_id}/appointments`,{skipGlobalLoading:true})})),...agencies.map(agencyId=>({kind:'balances',run:()=>api.get('/family-billing/balances',{params:{agencyId},skipGlobalLoading:true})})),{kind:'messages',run:()=>api.get('/guardian-portal/messages',{skipGlobalLoading:true})}];
+ const results=await Promise.allSettled(jobs.map(j=>j.run()));if(run!==seq)return;
+ results.forEach((r,i)=>{const j=jobs[i];if(r.status==='rejected'){if(j.kind==='balances')balanceFailed.value=true;if(r.reason?.response?.status!==403)errors.value.push(`${j.kind==='balances'?'Some balances':j.kind==='messages'?'Messages':'Some appointments'} could not be loaded.`);return;}const d=r.value.data;if(j.kind==='appointments')appointments.value.push(...(d.appointments||[]).map(a=>({...a,clientId:j.p.client_id,name:personName(j.p.client_id),agencyName:j.p.agency_name})));else if(j.kind==='balances')balances.value.push(...(d.balances||[]));else threads.value=d.threads||[];});errors.value=[...new Set(errors.value)];loading.value=false;
+}
+watch(()=>[props.profiles.map(p=>`${p.client_id}:${p.agency_id}`).join(','),props.preview],load,{immediate:true});
+onBeforeUnmount(()=>{seq++;});
+</script>
+<style scoped>
+.family-dashboard{display:grid;gap:20px;margin-bottom:28px}.family-quick{display:flex;gap:10px;flex-wrap:wrap}.family-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.family-summary-grid article{padding:22px;background:white;border:1px solid #d7e3ef;border-radius:14px}.family-summary-grid h2{font-size:18px;margin:0 0 14px;color:#173451}.total{font-size:32px}.family-summary-grid p{font-size:14px;line-height:1.6;color:#526784}.family-dashboard button,.family-dashboard a{font:inherit;color:#16457c;cursor:pointer}.family-quick button{border:1px solid #c9d8e7;border-radius:9px;padding:12px;background:white}.family-summary-grid button{border:0;background:transparent;text-align:left;padding:8px 0}.family-summary-grid ul{list-style:none;padding:0;margin:0}.family-summary-grid li+li{border-top:1px solid #e1e9f1}.family-summary-grid li button{display:grid;gap:4px;width:100%}.family-summary-grid small{color:#526784}[role=alert]{color:#a12727}@media(max-width:650px){.family-summary-grid{grid-template-columns:1fr}.family-summary-grid article{padding:18px}}
+</style>

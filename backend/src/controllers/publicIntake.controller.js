@@ -1,3 +1,4 @@
+import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
 import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
@@ -12368,57 +12369,6 @@ export const uploadIntakeFiles = async (req, res, next) => {
  * Upload front/back insurance card photos for the guardian.
  * Stores images in GCS under intake-insurance/<submissionId>/<slot>.
  */
-function parseInsuranceCardText(rawText = '') {
-  const text = String(rawText || '').replace(/\r/g, '\n');
-  const compact = text.replace(/\s+/g, ' ').trim();
-  const insurerPatterns = [
-    { label: 'Health First Colorado (Medicaid)', re: /(health\s*first\s*colorado|colorado\s+access|ccha|community\s+health\s+alliance|medicaid|chp\+)/i },
-    { label: 'United Healthcare', re: /united\s*health\s*care|uhc/i },
-    { label: 'Anthem Blue Cross Blue Shield of Colorado', re: /(anthem|blue\s*cross|blue\s*shield|bcbs)/i },
-    { label: 'Aetna', re: /\baetna\b/i },
-    { label: 'Cigna', re: /\bcigna\b/i },
-    { label: 'Kaiser Permanente', re: /kaiser/i },
-    { label: 'Humana', re: /humana/i },
-    { label: 'Molina Healthcare of Colorado', re: /molina/i },
-    { label: 'TRICARE', re: /tricare/i },
-    { label: 'Medicare (Original)', re: /medicare/i }
-  ];
-
-  const memberMatch = compact.match(/(?:member(?:\s*id)?|id(?:\s*#)?|subscriber(?:\s*id)?)\s*[:#]?\s*([A-Z0-9\-]{5,})/i);
-  const groupMatch = compact.match(/(?:group(?:\s*(?:number|no|#))?)\s*[:#]?\s*([A-Z0-9\-]{3,})/i);
-  const subscriberMatch = compact.match(/(?:subscriber|member|name)\s*[:#]?\s*([A-Z][A-Z\-'., ]{2,})/i);
-
-  let insurerName = '';
-  for (const candidate of insurerPatterns) {
-    if (candidate.re.test(compact)) {
-      insurerName = candidate.label;
-      break;
-    }
-  }
-
-  return {
-    insurerName,
-    memberId: memberMatch?.[1] ? String(memberMatch[1]).trim() : '',
-    groupNumber: groupMatch?.[1] ? String(groupMatch[1]).trim() : '',
-    subscriberName: subscriberMatch?.[1]
-      ? String(subscriberMatch[1]).replace(/\s+/g, ' ').trim().slice(0, 120)
-      : ''
-  };
-}
-
-async function extractInsuranceCardFieldsBestEffort(file) {
-  if (!file?.buffer) return null;
-  try {
-    const text = await ReferralOcrService.extractText({
-      buffer: file.buffer,
-      mimeType: file.mimetype || 'image/jpeg'
-    });
-    if (!String(text || '').trim()) return null;
-    return parseInsuranceCardText(text);
-  } catch {
-    return null;
-  }
-}
 
 function normalizePersonName(value) {
   return String(value || '')

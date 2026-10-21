@@ -1,0 +1,11 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../services/assessmentDeliverable.service.js',()=>({getById:vi.fn(),assertClientCanViewOwnShared:vi.fn(),assertCoachCanAccessClient:vi.fn(),exportDeliverable:vi.fn(),listSharedForClient:vi.fn()}));
+vi.mock('../../services/assessmentAssign.service.js',()=>({}));
+import * as svc from '../../services/assessmentDeliverable.service.js';
+import {getOne,exportOne,listSharedForClient} from '../assessmentDeliverables.controller.js';
+const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),setHeader:vi.fn(),send:vi.fn()});
+beforeEach(()=>{vi.clearAllMocks();svc.getById.mockResolvedValue({id:1,clientId:8,sharedWithClient:false});svc.assertClientCanViewOwnShared.mockResolvedValue({agency_id:2});});
+it('does not let a guardian read or export an unshared report',async()=>{for(const handler of [getOne,exportOne]){const res=response();await handler({user:{id:9,role:'client_guardian'},params:{id:1},body:{format:'pdf'}},res);expect(res.status).toHaveBeenCalledWith(403);}expect(svc.exportDeliverable).not.toHaveBeenCalled();});
+it('does not export after a guardian loses access',async()=>{svc.getById.mockResolvedValue({id:1,clientId:8,sharedWithClient:true});svc.assertClientCanViewOwnShared.mockRejectedValue(Object.assign(new Error('Access changed'),{status:403}));const res=response();await exportOne({user:{id:9,role:'client_guardian'},params:{id:1},body:{format:'pdf'}},res);expect(res.status).toHaveBeenCalledWith(403);expect(svc.exportDeliverable).not.toHaveBeenCalled();});
+it('does not let a family account export a shared report to Google Drive',async()=>{svc.getById.mockResolvedValue({id:1,clientId:8,sharedWithClient:true});const res=response();await exportOne({user:{id:9,role:'client_guardian'},params:{id:1},body:{format:'google_doc'}},res);expect(res.status).toHaveBeenCalledWith(400);expect(svc.exportDeliverable).not.toHaveBeenCalled();});
+it('authorizes the selected client before listing shared reports',async()=>{svc.assertClientCanViewOwnShared.mockRejectedValue(Object.assign(new Error('No relationship'),{status:403}));const res=response();await listSharedForClient({user:{id:9,role:'client_guardian'},params:{clientId:12}},res);expect(res.status).toHaveBeenCalledWith(403);expect(svc.listSharedForClient).not.toHaveBeenCalled();});

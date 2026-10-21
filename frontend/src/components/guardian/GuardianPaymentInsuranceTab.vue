@@ -4,14 +4,14 @@
     <p v-if="loading" role="status">Loading billing…</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <InsuranceCardTasks v-if="section === 'all'" :key="insuranceRevision" :agency-id="agencyId" :client-id="clientId" />
+    <InsuranceCardTasks v-if="section === 'all' && insurableClients.length" :key="insuranceRevision" :agency-id="agencyId" :client-id="clientId" />
     <template v-if="data">
       <p v-if="!data.clients.length">No clients are linked to this account in this organization.</p>
       <section class="client-grid">
         <article v-for="client in scopedClients" :key="client.clientId" class="billing-card">
           <h4>{{ client.clientName }}</h4>
           <p><strong>Responsible payer:</strong> {{ client.responsiblePayers.map(p => p.name).join(', ') || 'Not yet designated' }}</p>
-          <p v-if="client.insuranceOnFile">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
+          <p v-if="client.insuranceOnFile && client.insuranceApplicable !== false">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
           <button v-if="section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
           <template v-else-if="client.canManageBilling">
             <p class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : 'Payment method required before paid services' }}</p>
@@ -35,7 +35,7 @@
       <template v-if="manageableClients.length || insurableClients.length">
         <section v-if="manageableClients.length && section !== 'authorization'" class="billing-card wallet-section">
           <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : 'Add a card' }}</button></div>
-          <p v-if="!data.stripe.enabled">Card collection is not enabled for this organization yet. The office will need to arrange payment before paid services.</p>
+          <p v-if="!data.stripe.enabled">Online card setup is not available yet because this agency has not completed its payment connection. Your financial authorization is saved separately.</p>
           <p v-if="!data.cards.length">No payment method on file.</p>
           <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} · {{ expired(card) ? 'Expired' : 'Expires' }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
           <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for your clients at this agency.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
@@ -59,9 +59,9 @@
           <h4>Insurance coverage</h4>
           <label>Policy scope<select v-model="insuranceDraft.coverageScope"><option value="client">One client</option><option value="account_holder">Account holder and covered dependents</option></select></label>
           <fieldset><legend>Clients covered by this policy</legend><label v-for="client in insurableClients" :key="client.clientId" class="check"><input v-model="insuranceDraft.clientIds" type="checkbox" :value="Number(client.clientId)" /> {{ client.clientName }}</label></fieldset>
-          <h5>Your policy</h5><p>The office determines whether this is primary or secondary coverage for each client.</p><InsurancePolicyFields v-model="insuranceDraft.primary" />
+          <InsuranceCardReader :key="`primary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('primary',$event)" @files="cardFiles.primary=$event"/><h5>Your policy</h5><p>The office determines whether this is primary or secondary coverage for each client.</p><InsurancePolicyFields v-model="insuranceDraft.primary" />
           <label class="check"><input v-model="hasSecondary" type="checkbox" /> Add another policy you hold</label>
-          <template v-if="hasSecondary"><h5>Additional policy</h5><InsurancePolicyFields v-model="insuranceDraft.secondary" /></template>
+          <template v-if="hasSecondary"><InsuranceCardReader :key="`secondary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('secondary',$event)" @files="cardFiles.secondary=$event"/><h5>Additional policy</h5><InsurancePolicyFields v-model="insuranceDraft.secondary" /></template>
           <label class="check"><input v-model="coverageConfirmed" type="checkbox" required /> I confirm that the selected clients are covered. I have checked the subscriber and member details; I understand the office must verify benefits.</label>
           <div class="actions"><button class="btn btn-primary" :disabled="busy || !coverageConfirmed">Save coverage</button><button class="btn btn-secondary" type="button" @click="insuranceDraft = null">Cancel</button></div>
         </form>
@@ -70,18 +70,20 @@
   </div>
 </template>
 <script setup>
+import InsuranceCardReader from '../billing/InsuranceCardReader.vue';
 import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 import { ref, computed, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import SecureCardSetup from '../billing/SecureCardSetup.vue';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
-const insuranceRevision = ref(0);
+const insuranceRevision = ref(0),draftVersion=ref(0),cardFiles=ref({primary:{},secondary:{}});
+function applyCardFields(slot,fields){if(!insuranceDraft.value)return;for(const [key,value] of Object.entries(fields))if(value&&!insuranceDraft.value[slot][key])insuranceDraft.value[slot][key]=value;coverageConfirmed.value=false;}
 const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,String], clientId:[Number,String], section:{type:String,default:'all'} });
 const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''), busy = ref(false), showCard = ref(false), removingCard = ref(null), authorization = ref(null), signature = ref(''), accepted = ref(false), limitDollars = ref(''), cardSelections = ref({}), insuranceDraft = ref(null), hasSecondary = ref(false), coverageConfirmed = ref(false);
 const scopedClients = computed(() => (data.value?.clients || []).filter(c => !props.clientId || Number(c.clientId) === Number(props.clientId)));
 const scopedProfiles = computed(() => (data.value?.profiles || []).filter(p => !props.clientId || p.clientIds?.some(id => Number(id) === Number(props.clientId))));
 const manageableClients = computed(() => scopedClients.value.filter(c => c.canManageBilling));
-const insurableClients = computed(() => scopedClients.value.filter(c => c.canManageInsurance ?? c.canManageBilling));
+const insurableClients = computed(() => scopedClients.value.filter(c => c.insuranceApplicable !== false && (c.canManageInsurance ?? c.canManageBilling)));
 const expired = card => Number(card.card_exp_year) < new Date().getFullYear() || (Number(card.card_exp_year) === new Date().getFullYear() && Number(card.card_exp_month) < new Date().getMonth() + 1);
 const money = cents => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents || 0)/100);
 let generation = 0;
@@ -105,8 +107,22 @@ function revoke(client) { return perform(() => api.delete(`/guardian-billing/cli
 function removeCard() { const id=removingCard.value.id; return perform(async () => {await api.delete(`/guardian-billing/payment-cards/${id}`,{params:{agencyId:props.agencyId}});removingCard.value=null;},'Card removed and its authorizations revoked.'); }
 function cardSaved() { showCard.value=false; notice.value='Card saved. Select which clients will use it.'; void load(); }
 const insuranceForm = ref(null);
-async function editInsurance(profile) { insuranceDraft.value={profileId:profile?.id,coverageScope:profile?.coverageScope || 'client',clientIds:[...(profile?.clientIds || (props.clientId ? [Number(props.clientId)] : []))],primary:{...(profile?.primary || {})},secondary:{...(profile?.secondary || {})}}; hasSecondary.value=!!profile?.secondary; coverageConfirmed.value=false; await nextTick(); insuranceForm.value?.scrollIntoView?.({block:"start",behavior:"smooth"}); insuranceForm.value?.querySelector("input,select")?.focus({preventScroll:true}); }
-function saveInsurance() { const payload={...insuranceDraft.value,agencyId:props.agencyId,coverageConfirmed:coverageConfirmed.value,secondary:hasSecondary.value ? insuranceDraft.value.secondary : null}; return perform(async()=>{await api.post('/guardian-billing/insurance',payload);insuranceRevision.value++;insuranceDraft.value=null;},'Your insurance was saved for office review. Upload your card sides below when requested.'); }
+async function editInsurance(profile) { draftVersion.value++;cardFiles.value={primary:{},secondary:{}};insuranceDraft.value={profileId:profile?.id,coverageScope:profile?.coverageScope || 'client',clientIds:[...(profile?.clientIds || (props.clientId ? [Number(props.clientId)] : []))],primary:{...(profile?.primary || {})},secondary:{...(profile?.secondary || {})}}; hasSecondary.value=!!profile?.secondary; coverageConfirmed.value=false; await nextTick(); insuranceForm.value?.scrollIntoView?.({block:"start",behavior:"smooth"}); insuranceForm.value?.querySelector("input,select")?.focus({preventScroll:true}); }
+async function saveInsurance() {
+ if(busy.value||!insuranceDraft.value||!coverageConfirmed.value)return;
+ const payload={...insuranceDraft.value,agencyId:props.agencyId,coverageConfirmed:coverageConfirmed.value,secondary:hasSecondary.value?insuranceDraft.value.secondary:null};
+ const files=Object.entries(cardFiles.value).filter(([slot])=>slot==='primary'||hasSecondary.value).flatMap(([slot,sides])=>Object.entries(sides).map(([side,file])=>({slot:`${slot}_${side}`,file})));
+ busy.value=true;error.value='';notice.value='';const current=generation;
+ try{
+  const {data:result}=await api.post('/guardian-billing/insurance',payload);
+  if(current!==generation)return;
+  insuranceDraft.value.profileId=result.profileId; // retries update this policy, never create duplicates
+  if(files.length){const {data:tasks}=await api.get('/family-billing/insurance-cards',{params:{agencyId:props.agencyId}});const task=tasks.tasks.find(t=>Number(t.profileId)===Number(result.profileId));if(!task)throw new Error('Coverage saved. Card upload is unavailable; refresh and try the card upload section.');
+   for(const item of files){if(!task.uploadSlots.includes(item.slot))continue;const form=new FormData();form.append('file',item.file);form.append('slot',item.slot);form.append('cycle',task.cycle);await api.post(`/family-billing/insurance-cards/${result.profileId}/upload`,form,{params:{agencyId:props.agencyId},headers:{'Content-Type':'multipart/form-data'}});}
+  }
+  if(current!==generation)return;insuranceDraft.value=null;cardFiles.value={primary:{},secondary:{}};insuranceRevision.value++;notice.value='Your coverage and selected card images were saved for billing review.';await load();
+ }catch(e){if(current===generation)error.value=e.response?.data?.error?.message||e.message||'Coverage could not be saved. Please try again.';}finally{busy.value=false;}
+}
 watch(()=>[props.agencyId,props.guardianUserId,props.clientId,props.section],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
 </script>
 <style scoped>

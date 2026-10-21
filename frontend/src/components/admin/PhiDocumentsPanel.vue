@@ -174,7 +174,7 @@
               <span v-else class="pill pill-ready">Ready</span>
             </td>
             <td class="actions">
-              <button class="btn btn-primary btn-sm" :disabled="!!d.removed_at" @click="confirmOpen(d)">View</button>
+              <button class="btn btn-primary btn-sm" :disabled="!!d.removed_at" @click="confirmOpen(d)">View</button><button v-if="!ownOnly && ['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(roleNorm)" class="btn btn-secondary btn-sm" :disabled="!!d.removed_at" @click="sharingDocument=d.id">Share to portal</button>
               <button
                 v-if="canManageLifecycle"
                 class="btn btn-secondary btn-sm"
@@ -378,9 +378,11 @@
       </div>
     </div>
   </div>
+<PortalFileSharing v-if="sharingDocument" :document-id="Number(sharingDocument)" @close="sharingDocument=null" />
 </template>
 
 <script setup>
+import PortalFileSharing from './PortalFileSharing.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -414,6 +416,7 @@ function emitDocsLoaded() {
 }
 
 const authStore = useAuthStore();
+const sharingDocument = ref(null);
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff', 'school_staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'facilitator', 'qbha'].includes(roleNorm.value));
 const attachSubtitle = computed(() => {

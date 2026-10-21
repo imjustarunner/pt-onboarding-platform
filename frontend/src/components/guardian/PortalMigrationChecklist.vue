@@ -13,7 +13,7 @@
         <article :key="currentKey" ref="stepPanel" class="step-panel" tabindex="-1" @invalid.capture="highlightInvalid">
           <p class="step-count">Step {{ currentIndex+1 }} of {{ actionableItems.length }}</p><h3>{{ currentItem.title }}</h3><p>{{ currentItem.detail }}</p>
           <GuardianClientDetails v-if="currentKey==='information'" :client-id="Number(clientId)" />
-          <FamilyNotificationChoices v-else-if="currentKey==='notifications'" :agency-id="agencyId" :client-id="clientId" @saved="verifyAndContinue" />
+          <FamilyNotificationChoices :profiles="profiles" v-else-if="currentKey==='notifications'" :agency-id="agencyId" :client-id="clientId" @saved="verifyAndContinue" />
           <GuardianPlanProgressPanel v-else-if="currentKey==='plan'" :client-id="clientId" :agency-id="agencyId" :client-type="clientType" />
           <template v-else-if="data.demo && ['insurance','authorization','payment'].includes(currentKey)"><div class="demo-step"><strong>Fictional test profile</strong><p>{{ currentKey==='insurance'?'A real family securely uploads the front and back of their commercial insurance card here.':currentKey==='authorization'?'A real family reviews the payment terms and signs their authorization here.':'A real family adds a card securely or selects a saved card for this profile.' }}</p><p>This example does not upload a real insurance card, sign a financial agreement, or authorize a charge.</p><button type="button" :disabled="busy" @click="completeDemo">Complete with sample information</button></div></template>
           <InsuranceCardTasks v-else-if="currentKey==='insurance'" :agency-id="agencyId" :client-id="clientId" />
@@ -33,7 +33,7 @@
 <script setup>
 import {computed,nextTick,ref,watch} from 'vue';import api from '../../services/api';
 import GuardianClientDetails from './GuardianClientDetails.vue';import FamilyNotificationChoices from './FamilyNotificationChoices.vue';import GuardianPlanProgressPanel from './GuardianPlanProgressPanel.vue';import GuardianPaymentInsuranceTab from './GuardianPaymentInsuranceTab.vue';import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
-const props=defineProps({agencyId:[Number,String],clientId:[Number,String],clientType:String,active:Boolean});const emit=defineEmits(['state','navigate','finished']);
+const props=defineProps({agencyId:[Number,String],clientId:[Number,String],clientType:String,active:Boolean,profiles:{type:Array,default:()=>[]}});const emit=defineEmits(['state','navigate','finished']);
 const data=ref({}),error=ref(''),loading=ref(false),busy=ref(false),confirmed=ref(false),confirmationError=ref(false),currentKey=ref(''),root=ref(null),stepPanel=ref(null),confirmationInput=ref(null);let seq=0;
 const actionableItems=computed(()=>(data.value.items||[]).filter(i=>!i.waiting));const waitingItems=computed(()=>(data.value.items||[]).filter(i=>i.waiting&&!i.complete));const hasIncomplete=computed(()=>actionableItems.value.some(i=>!i.complete));const currentItem=computed(()=>actionableItems.value.find(i=>i.key===currentKey.value));const currentIndex=computed(()=>actionableItems.value.findIndex(i=>i.key===currentKey.value));
 async function scrollStep(){await nextTick();const target=stepPanel.value||root.value;target?.scrollIntoView?.({block:'start',behavior:'instant'});target?.focus?.({preventScroll:true});}

@@ -2,7 +2,7 @@
   <div class="gmsg conversa-surface">
     <div class="panel-head">
       <ConversaBrand compact />
-      <div class="panel-subtitle">Choose “Message your care team” to read or send a secure message.</div>
+      <div class="panel-subtitle">Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.</div>
     </div>
 
     <div class="gmsg-tabs">
@@ -35,6 +35,7 @@
               {{ item.title }}
             </div>
             <div class="gmsg-row-meta">{{ item.subtitle }}</div><span class="message-action">{{ item.provider || item.available ? 'Message your care team →' : 'Waiting for a provider assignment' }}</span>
+            <small v-if="item.type === 'secure'" class="group-label">Shared care conversation</small>
           </button>
           <div v-if="!mailboxItems.length" class="muted pad">No care conversations are available for this profile yet. You can use Support for account questions.</div>
         </aside>
@@ -48,6 +49,11 @@
               <strong>{{ selectedTitle }}</strong>
               <span class="muted">{{ selectedSubtitle }}</span>
             </div>
+            <section v-if="selectedType === 'secure'" class="conversation-audience" aria-label="Who can see these messages">
+              <strong>Who can read and reply</strong>
+              <ul><li v-for="person in selected?.participants || []" :key="person.id">{{ person.name }}{{ Number(person.id) === Number(meId) ? ' (you)' : '' }} <span>· {{ person.role === 'guardian' ? 'Guardian' : person.role === 'client' ? 'Client' : person.role === 'provider' ? 'Provider' : 'Care team' }}</span></li></ul>
+              <p>This is a group conversation, including when you address one provider by name. Everyone listed can see your message. Authorized care-team access can change.</p>
+            </section>
             <div v-if="messagesLoading" class="muted pad">Loading…</div>
             <div v-else class="gmsg-thread" ref="threadEl">
               <div
@@ -61,7 +67,7 @@
               </div>
               <div v-if="!messages.length" class="muted">No messages yet. Say hello.</div>
             </div>
-            <p v-if="selectedType === 'secure'" class="muted pad" role="note">Only the authorized people listed above can access this care conversation. For emergencies, contact emergency services.</p>
+            <p v-if="selectedType === 'secure'" class="muted pad" role="note">Your reply goes to this shared care conversation. For emergencies, contact emergency services.</p>
             <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.</p>
             <div v-else class="gmsg-composer">
               <textarea
@@ -72,7 +78,7 @@
               <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="sending || !draft.trim()"
+                :disabled="sending || messagesLoading || (selectedType === 'secure' && !audienceReady) || !draft.trim()"
                 @click="send"
               >
                 {{ sending ? 'Sending…' : 'Send secure message' }}
@@ -220,6 +226,7 @@ const messages = ref([]);
 const loading = ref(false);
 const messagesLoading = ref(false);
 const sending = ref(false);
+const audienceReady = ref(false);
 const error = ref('');
 const draft = ref('');
 const threadEl = ref(null);
@@ -358,6 +365,7 @@ async function selectEmail(item) {
 }
 
 async function selectThread(t) {
+  audienceReady.value = false;
   if (!t?.provider?.id && !t?.available) return;
   creatingTicket.value = false;
   messagesLoading.value = true;
@@ -386,7 +394,9 @@ async function selectThread(t) {
     selectedType.value = 'secure';
     selectedEmail.value = null;
     selected.value = thread;
-    const r = await api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true });
+    const [r, audience] = await Promise.all([api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true }), api.get(`/guardian-portal/clients/${thread.client_id}/care-access`, { skipGlobalLoading:true })]);
+    selected.value = {...thread, participants:audience.data.participants || []};
+    audienceReady.value = selected.value.participants.length > 0;
     const raw = Array.isArray(r.data?.messages) ? r.data.messages : (Array.isArray(r.data) ? r.data : []);
     messages.value = raw.map((m) => ({
       id: m.id,
@@ -406,7 +416,7 @@ async function selectThread(t) {
 }
 
 async function send() {
-  if (!draft.value.trim()) return;
+  if (!draft.value.trim() || messagesLoading.value || (selectedType.value === 'secure' && !audienceReady.value)) return;
   sending.value = true;
   try {
     if (selectedType.value === 'email' && selectedEmail.value?.conversationId) {
@@ -695,4 +705,5 @@ onMounted(loadThreads);
 @media (max-width: 700px) {
   .gmsg-body { grid-template-columns: 1fr; }
 }
+.group-label{display:block;font-size:12px;margin-top:6px;color:#526784}.conversation-audience{padding:14px;background:#eef4fb;border-bottom:1px solid #c9d8e7}.conversation-audience ul{list-style:none;padding:0;margin:8px 0}.conversation-audience li{padding:4px 0;font-size:14px}.conversation-audience p{font-size:13px;line-height:1.5;margin:8px 0 0}.conversation-audience span{color:#526784}
 </style>

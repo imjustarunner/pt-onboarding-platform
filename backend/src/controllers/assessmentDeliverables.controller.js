@@ -6,7 +6,7 @@ function handleError(res, error) {
   if (status >= 500) console.error('[assessment-deliverables]', error);
   return res.status(status).json({
     success: false,
-    error: error?.message || 'Assessment deliverable error'
+    error: status>=500 ? 'This document is temporarily unavailable.' : error?.message || 'Assessment deliverable error'
   });
 }
 
@@ -51,7 +51,7 @@ export async function getOne(req, res) {
     const doc = await deliverableService.getById(req.params.id);
     if (!doc) return res.status(404).json({ success: false, error: 'Not found' });
     const role = String(req.user?.role || '').toLowerCase();
-    const isClientLike = role === 'client' || role === 'guardian';
+    const isClientLike = ['client','client_guardian','guardian'].includes(role);
     if (isClientLike || doc.sharedWithClient) {
       try {
         await deliverableService.assertClientCanViewOwnShared({
@@ -141,7 +141,7 @@ export async function exportOne(req, res) {
     const doc = await deliverableService.getById(req.params.id);
     if (!doc) return res.status(404).json({ success: false, error: 'Not found' });
     const role = String(req.user?.role || '').toLowerCase();
-    const isClientLike = role === 'client' || role === 'guardian';
+    const isClientLike = ['client','client_guardian','guardian'].includes(role);
     if (isClientLike) {
       await deliverableService.assertClientCanViewOwnShared({
         user: req.user,
@@ -157,6 +157,7 @@ export async function exportOne(req, res) {
       });
     }
     const format = req.body?.format || req.query?.format;
+    if(isClientLike&&!['pdf','txt','docx'].includes(String(format)))return res.status(400).json({success:false,error:'Choose a PDF, text or Word copy.'});
     const subjectEmail =
       req.body?.subjectEmail ||
       req.user?.email ||

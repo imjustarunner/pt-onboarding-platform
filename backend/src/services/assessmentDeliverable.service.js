@@ -1,3 +1,6 @@
+import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
+import { authorizedClient } from './guardianAppointments.service.js';
+import { requireClinicalScope } from './guardianClinicalAccess.service.js';
 import HTMLtoDOCX from 'html-to-docx';
 import pool from '../config/database.js';
 import ClientAssessmentDeliverable from '../models/ClientAssessmentDeliverable.model.js';
@@ -52,66 +55,19 @@ async function assertClientInAgency({ clientId, agencyId }) {
 }
 
 export async function assertCoachCanAccessClient({ user, clientId }) {
-  if (!user) throw err(401, 'Authentication required');
-  const role = String(user.role || user.accountType || '').toLowerCase();
-  const isSuper = role === 'super_admin';
-  const agencyId = user.agencyId || user.agency_id || null;
-
-  const client = await assertClientInAgency({
-    clientId,
-    agencyId: isSuper ? null : agencyId
-  });
-
-  if (!isSuper) {
-    const userAgencies = Array.isArray(user.agencyIds)
-      ? user.agencyIds.map(Number)
-      : agencyId
-        ? [Number(agencyId)]
-        : [];
-    if (userAgencies.length && !userAgencies.includes(Number(client.agency_id))) {
-      throw err(403, 'Not authorized for this client');
-    }
-  }
-  return client;
+  if (!user) throw err(401,'Authentication required');
+  if (!['super_admin','admin','agency_admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','life_coach','consultant'].includes(String(user.role).toLowerCase())) throw err(403,'Staff access required');
+  const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId});
+  if(!access.ok)throw err(access.status||403,'Not authorized for this client');
+  return access.client;
 }
-
 export async function assertClientCanViewOwnShared({ user, clientId }) {
-  if (!user) throw err(401, 'Authentication required');
-  const [rows] = await pool.execute(
-    `SELECT id, user_id, agency_id FROM clients WHERE id = ? LIMIT 1`,
-    [Number(clientId)]
-  );
-  const client = rows?.[0];
-  if (!client) throw err(404, 'Client not found');
-  const uid = Number(user.id);
-  const linkedClientId =
-    user.clientId || user.client_id || user.linkedClientId || null;
-  const isOwner =
-    (client.user_id != null && Number(client.user_id) === uid) ||
-    (linkedClientId != null && Number(linkedClientId) === Number(clientId));
-  const role = String(user.role || '').toLowerCase();
-  const isStaff = [
-    'super_admin',
-    'admin',
-    'support',
-    'staff',
-    'provider',
-    'provider_plus',
-    'supervisor',
-    'life_coach',
-    'consultant'
-  ].includes(role);
-  if (isOwner || isStaff) return client;
-
-  const [links] = await pool.execute(
-    `SELECT 1 AS ok FROM client_guardians
-     WHERE client_id = ? AND guardian_user_id = ? AND access_enabled = 1
-     LIMIT 1`,
-    [Number(clientId), uid]
-  );
-  if (links?.length) return client;
-
-  throw err(403, 'Not authorized');
+  if (!user) throw err(401,'Authentication required');
+  if(!['client','client_guardian','guardian'].includes(String(user.role).toLowerCase())) return assertCoachCanAccessClient({user,clientId});
+  const client=await authorizedClient(user.id,clientId,'clinical_documents');
+  if(client.permissions_json?.canViewDocs===false)throw err(403,'Documents are not shared with this account.');
+  if(!['learning','tutoring'].includes(String(client.client_type).toLowerCase()))await requireClinicalScope({agencyId:client.agency_id,clientId,userId:user.id,scope:'clinical_documents'});
+  return client;
 }
 
 /**

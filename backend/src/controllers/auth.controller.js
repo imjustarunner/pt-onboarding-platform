@@ -1453,6 +1453,12 @@ export const identifyLogin = async (req, res, next) => {
         schoolCareBridgeRedirect = await mintRoutingHint(pool, { username: normalizedUsername, slug: resolved?.organization_type === 'school' ? resolvedSlug : '' });
       }
     }
+    let familyPortalSurface = null;
+    if (['client','client_guardian','guardian'].includes(String(user.role).toLowerCase()) && resolved?.id) {
+      const [profiles] = await pool.execute(`SELECT c.client_type FROM clients c JOIN client_guardians cg ON cg.client_id=c.id
+        WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND (c.agency_id=? OR c.organization_id=?)`, [user.id,resolved.id,resolved.id]);
+      familyPortalSurface = profiles.some(p => !['learning','tutoring'].includes(String(p.client_type || '').toLowerCase())) ? 'clinical' : profiles.length ? 'learning' : null;
+    }
     notifyRescueAttempt({ matched: true, method: loginMethod, resolvedSlug });
     const passwordPolicy =
       loginMethod === 'password'
@@ -1473,6 +1479,7 @@ export const identifyLogin = async (req, res, next) => {
           }
         : null,
       affiliationBranding,
+      familyPortalSurface,
       schoolCareBridgeRedirect,
       login:
         loginMethod === 'google'

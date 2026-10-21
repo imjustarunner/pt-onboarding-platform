@@ -2,7 +2,8 @@
   <section class="guardian-appointments" aria-label="Appointments">
     <header><h2>Appointments</h2><button type="button" @click="load" :disabled="loading">Refresh</button></header>
     <p>Your next appointments are shown first. Open an appointment to make a change.</p>
-    <details v-if="!preview && preferences">
+    <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">Family notification settings</button>
+    <details v-if="!familyNotifications && !preview && preferences">
       <summary>My reminder preferences</summary>
       <p>These choices apply to your notifications. Each other recipient has their own choices. Turning texts on requires recorded SMS consent and a working practice number; ask the care team for a consent link if needed. Reply STOP to stop texts from the program.</p>
       <label><input v-model="preferences.channels.email" type="checkbox" /> Email reminders</label>
@@ -17,6 +18,7 @@
     <p v-else-if="!appointments.length">No appointments are available to display.</p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? 'In person' : a.modality === 'VIRTUAL' ? 'Online' : a.modality }} · {{ a.status.replaceAll('_',' ') }}</p>
+      <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">Join online appointment →</a>
       <p v-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
       <p v-if="a.serviceSetting?.isSchool">No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.</p>
       <p v-if="a.canceledBy">Canceled by {{ a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
@@ -64,7 +66,7 @@
 <script setup>
 import { ref, reactive, watch, nextTick } from 'vue';
 import api from '../../services/api.js';
-const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false}});
+const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
 const editingId=ref(null),actionForm=ref(null);
 async function openAction(a,type){draft(a).type=type;draft(a).confirmed=false;editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
 const preferences=ref(null),preferenceNotice=ref('');
@@ -100,6 +102,7 @@ async function load(){const own=++sequence;appointments.value=[];preferences.val
   await nextTick();
   const requestedId = Number(new URLSearchParams(window.location.search).get('appointmentId'));
   if (appointments.value.some(a => Number(a.id) === requestedId)) document.getElementById(`appointment-${requestedId}`)?.scrollIntoView?.({ block: 'center' });
+  if (props.familyNotifications) return;
   const response=await api.get(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,{skipGlobalLoading:true});
   if(own===sequence)preferences.value=response.data;
 }}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}

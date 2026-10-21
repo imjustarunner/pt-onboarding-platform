@@ -1,3 +1,4 @@
+import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import pool from '../config/database.js';
 import StudentSubject from '../models/StudentSubject.model.js';
 import EvaluationSummary from '../models/EvaluationSummary.model.js';
@@ -1702,6 +1703,27 @@ export async function getGuardianTutoringDashboard(clientId) {
     recentSessions = [];
   }
 
+  // The scheduling system is authoritative for booked appointments. Learning
+  // rooms supplement it; their IDs are never treated as appointment IDs.
+  const [appointments] = await pool.execute(`SELECT DISTINCT a.id,a.agency_id,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality,
+      a.source_timezone AS time_zone,CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name
+    FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id
+    JOIN clients c ON c.id=ap.client_id AND c.agency_id=a.agency_id
+    LEFT JOIN users u ON u.id=a.provider_user_id
+    WHERE ap.client_id=? AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR)
+      AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId]);
+  const now = Date.now();
+  const canonical = await Promise.all(appointments.map(async a => ({...a, source:'appointment', title:'Tutoring appointment', delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({modality:a.modality,status:a.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning'},pool)})));
+  upcomingSessions=upcomingSessions.filter(r=>!canonical.some(a=>+new Date(a.starts_at)===+new Date(r.starts_at)&&a.provider_name===r.provider_name&&!['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)));
+  const merge = (rooms, booked, direction, limit) => {
+    const rows = rooms.map(r => ({...r,source:'learning_session'}));
+    for (const a of booked) if (!rows.some(r => +new Date(r.starts_at) === +new Date(a.starts_at) && r.provider_name === a.provider_name)) rows.push(a);
+    return rows.sort((a,b) => direction * (+new Date(a.starts_at)-+new Date(b.starts_at))).slice(0,limit);
+  };
+  upcomingSessions = merge(upcomingSessions, canonical.filter(a => +new Date(a.starts_at)>=now && ['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)),1,8);
+  recentSessions = merge(recentSessions, canonical.filter(a => +new Date(a.starts_at)<now),-1,5);
+  const [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM clients c LEFT JOIN users u ON u.id=c.provider_id WHERE c.id=?`,[clientId]);
+
   const allPractice = (feed.subjects || []).flatMap((s) =>
     (s.practice || []).map((a) => ({
       ...a,
@@ -1736,6 +1758,7 @@ export async function getGuardianTutoringDashboard(clientId) {
     upcomingSessions,
     recentSessions,
     nextSession: upcomingSessions[0] || null,
+    assignedTutor: assigned?.name || null,
     practice: allPractice,
     skillBars,
     overallProgress,
