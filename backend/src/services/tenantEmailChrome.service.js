@@ -204,6 +204,8 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   let raw = String(html || '');
   if (!raw.trim()) return html;
   if (/data-tenant-email-chrome\s*=\s*["']?1["']?/i.test(raw)) return html;
+  // Office cards already provide their own spacing. Avoid three nested gutters on phones.
+  const officeLayout = /data-office-request-email\s*=\s*["']1["']/i.test(raw);
 
   const headerUrl = String(chrome.headerUrl || '').trim();
   const footerUrl = String(chrome.footerUrl || '').trim();
@@ -287,15 +289,15 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
       </td>`;
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>${officeLayout ? '<style>@media only screen and (max-width:600px){.office-email-frame{padding:0 0 16px!important}.office-email-body{padding:12px!important}}</style>' : ''}</head>
 <body style="margin:0;padding:0;background:#eef2f6;" data-tenant-email-chrome="1">
   <!-- tenant-email-chrome -->
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#eef2f6;margin:0;padding:0;">
     <tr>
-      <td align="center" style="padding:8px 12px 20px;">
+      <td align="center"${officeLayout ? ' class="office-email-frame"' : ''} style="padding:${officeLayout ? '8px 4px 20px' : '8px 12px 20px'};">
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0 auto;padding:0;">
           ${headerBlock ? `<tr><td style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
-          <tr><td style="padding:6px 24px 10px;margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
+          <tr><td${officeLayout ? ' class="office-email-body"' : ''} style="padding:${officeLayout ? '6px 12px 10px' : '6px 24px 10px'};margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
           <tr>${footerBlock}</tr>
         </table>
       </td>

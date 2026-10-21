@@ -123,7 +123,7 @@ export function buildOfficeRequestEmail({
     );
     return {
       text: `${lines.join("\n")}\n${review ? "Review in Building Master" : "Open My Schedule"}: ${url}`,
-      html: `${buildingPhoto}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:18px 0 24px;border:1px solid #dce8e1;border-radius:14px;background:#f4f8f5"><tr><td style="padding:20px">${lines
+      html: `${buildingPhoto}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:18px 0 24px;border:1px solid #dce8e1;border-radius:14px;background:#f4f8f5"><tr><td style="padding:16px 12px">${lines
         .slice(0, 2)
         .map(
           (s, i) =>
@@ -140,6 +140,6 @@ export function buildOfficeRequestEmail({
   return {
     subject: `${preview ? "PREVIEW · " : ""}${review ? "Office approval needed" : allApproved ? "Office approved" : "Office request update"} · ${items.length} request${items.length === 1 ? "" : "s"}`,
     text: `${preview ? "DESIGN PREVIEW — fictional reservations; nothing has been booked.\n\n" : ""}Hello ${name || "there"},\n\n${title}\n${intro}\n\n${sections.map((s) => s.text).join("\n\n")}`,
-    html: `<div style="font-family:Arial,sans-serif;color:#203b32;font-size:16px;line-height:1.55;padding:20px;max-width:640px;margin:auto">${preview ? '<p style="padding:12px;background:#fff3d2;border-radius:8px;color:#755811;font-size:13px"><strong>DESIGN PREVIEW</strong> · Fictional reservations. Nothing has been booked. Photos below are placeholders.</p>' : ""}<p>Hello ${esc(name || "there")},</p><h1 style="font-size:28px;line-height:1.2;color:#175d43">${esc(title)}</h1><p>${esc(intro)}</p>${sections.map((s) => s.html).join("")}</div>`,
+    html: `<div data-office-request-email="1" style="font-family:Arial,sans-serif;color:#203b32;font-size:16px;line-height:1.55;padding:12px 0;width:100%;max-width:640px;box-sizing:border-box;margin:auto">${preview ? '<p style="padding:12px;background:#fff3d2;border-radius:8px;color:#755811;font-size:13px"><strong>DESIGN PREVIEW</strong> · Fictional reservations. Nothing has been booked. Photos below are placeholders.</p>' : ""}<p>Hello ${esc(name || "there")},</p><h1 style="font-size:28px;line-height:1.2;color:#175d43">${esc(title)}</h1><p>${esc(intro)}</p>${sections.map((s) => s.html).join("")}</div>`,
   };
 }
