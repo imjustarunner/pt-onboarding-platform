@@ -3,9 +3,10 @@ const m=vi.hoisted(()=>({intake:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../intakeCommunicationChoices.service.js',()=>({latestIntakeCommunicationChoices:m.intake}));
 import {familyContactHash,familyNotificationInvitationContext,saveFamilyNotificationChoices,familyNotificationDeliveryGate,createFamilyNotificationInvitation,latestFamilyEmailSchedulingChoice} from '../familyNotificationChoices.service.js';
-import {FAMILY_NOTIFICATION_CATEGORIES,FAMILY_CHOICE_VERSION,normalizeFamilyChoices} from '../../utils/familyNotificationChoices.js';
+import {FAMILY_NOTIFICATION_CATEGORIES,FAMILY_ACCOUNT_UPDATE_CATEGORIES,FAMILY_CHOICE_VERSION,normalizeFamilyChoices,normalizeAccountUpdateChoices} from '../../utils/familyNotificationChoices.js';
 const token='a'.repeat(64),email='guardian@example.test';
 const all=choice=>Object.fromEntries(FAMILY_NOTIFICATION_CATEGORIES.map(c=>[c.key,choice]));
+const select=choice=>Object.fromEntries(FAMILY_ACCOUNT_UPDATE_CATEGORIES.map(c=>[c.key,c.emailOnly&&['sms','both'].includes(choice)?'email':choice]));
 let db,scope,recipient,saved,school;
 beforeEach(()=>{
   m.intake.mockResolvedValue(null);saved=null;school=null;
@@ -37,11 +38,11 @@ it.each(['forged','expired','revoked','changed email','no view'])('rejects a %s 
 });
 it('requires complete choices and an explicit confirmation, never a GET preset',async()=>{
   for(const choices of [{},all('yes'),{...all('off'),marketing:'both'}])expect(()=>normalizeFamilyChoices(choices)).toThrow();
-  await expect(saveFamilyNotificationChoices({token,input:{choices:all('both'),revision:0,version:FAMILY_CHOICE_VERSION}},db)).rejects.toThrow('confirm');
+  await expect(saveFamilyNotificationChoices({token,input:{choices:select('both'),revision:0,version:FAMILY_CHOICE_VERSION}},db)).rejects.toThrow('confirm');
   expect(db.commit).not.toHaveBeenCalled();
 });
 it('saves a recipient/child/agency-specific preference and audit atomically without enrolling SMS or activating accounts',async()=>{
-  await expect(saveFamilyNotificationChoices({token,input:{choices:all('both'),revision:0,version:FAMILY_CHOICE_VERSION,confirm:'yes',clientId:999,guardianUserId:999}},db)).resolves.toMatchObject({saved:true,textPreferencesPending:true});
+  await expect(saveFamilyNotificationChoices({token,input:{choices:select('both'),revision:0,version:FAMILY_CHOICE_VERSION,confirm:'yes',clientId:999,guardianUserId:999}},db)).resolves.toMatchObject({saved:true,textPreferencesPending:true});
   const writes=db.execute.mock.calls.filter(([sql])=>/^(INSERT|UPDATE)/.test(sql));
   expect(writes).toHaveLength(4);
   expect(writes[0][1].slice(0,3)).toEqual([2,22,50]);
@@ -50,11 +51,11 @@ it('saves a recipient/child/agency-specific preference and audit atomically with
 });
 it('rejects stale confirmations and rolls back failed audit persistence',async()=>{
   saved={choices_json:all('off'),revision:2};
-  await expect(saveFamilyNotificationChoices({token,input:{choices:all('both'),revision:1,version:FAMILY_CHOICE_VERSION,confirm:'yes'}},db)).rejects.toMatchObject({status:409});
+  await expect(saveFamilyNotificationChoices({token,input:{choices:select('both'),revision:1,version:FAMILY_CHOICE_VERSION,confirm:'yes'}},db)).rejects.toMatchObject({status:409});
   expect(db.commit).not.toHaveBeenCalled();
   saved=null;const impl=db.execute.getMockImplementation();
   db.execute.mockImplementation((sql,args)=>sql.startsWith('INSERT INTO family_notification_choice_events')?Promise.reject(new Error('audit failed')):impl(sql,args));
-  await expect(saveFamilyNotificationChoices({token,input:{choices:all('email'),revision:0,version:FAMILY_CHOICE_VERSION,confirm:'yes'}},db)).rejects.toThrow('audit failed');
+  await expect(saveFamilyNotificationChoices({token,input:{choices:select('email'),revision:0,version:FAMILY_CHOICE_VERSION,confirm:'yes'}},db)).rejects.toThrow('audit failed');
   expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();
 });
 it('reflects a later scoped school opt-out without changing other categories',async()=>{
@@ -97,4 +98,74 @@ it('does not issue invitations to a recipient who has explicitly declined emails
   saved=null;m.intake.mockResolvedValue({recipientEmail:email,emailPreference:'no'});
   await expect(createFamilyNotificationInvitation(input,db)).rejects.toMatchObject({status:409});
   expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+});
+
+it('proposes email defaults without recording consent and preserves the recipient’s enrollment declines',async()=>{
+  const fresh=await familyNotificationInvitationContext(token,db);
+  expect(fresh.choices.messages).toBe('email');expect(fresh.choices.documents).toBe('email');
+  expect(fresh.choices.billing).toBe('email');expect(fresh.choices.insurance).toBe('email');
+  expect(fresh.choices.enrollment).toBe('off');
+  expect(Object.values(fresh.choices).some(value=>['both','sms'].includes(value))).toBe(false);
+  m.intake.mockResolvedValue({recipientEmail:email,emailPreference:'no'});
+  expect((await familyNotificationInvitationContext(token,db)).choices).toEqual(all('off'));
+  m.intake.mockResolvedValue({recipientEmail:email,emailPreference:'scheduling_only'});
+  const scheduling=await familyNotificationInvitationContext(token,db);
+  expect(scheduling.choices.appointments).toBe('email');expect(scheduling.choices.school_sessions).toBe('email');
+  expect(scheduling.choices.messages).toBe('off');expect(scheduling.choices.billing).toBe('off');
+  expect(db.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
+});
+it.each(['sms','both'])('rejects insurance %s preferences and legacy SMS delivery',async(choice)=>{
+  expect(()=>normalizeAccountUpdateChoices({...select('email'),insurance:choice})).toThrow('email only');
+  saved={choices_json:all('both')};
+  expect(await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:'+17195550100',channel:'sms',notificationCategory:'insurance'},db))
+    .toEqual({allowed:false,reason:'insurance_notifications_email_only'});
+});
+it.each(['school','office'])('maps one appointment choice to the actual %s enrollment without changing unfinished enrollment',async(clientType)=>{
+  recipient.client_type=clientType;saved={choices_json:{...all('off'),enrollment:'sms'},revision:1};
+  await saveFamilyNotificationChoices({token,input:{choices:select('email'),revision:1,version:FAMILY_CHOICE_VERSION,confirm:'yes'}},db);
+  const call=db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO family_notification_choices'));
+  const stored=JSON.parse(call[1][5]);
+  expect(stored.appointments).toBe('email');expect(stored.school_sessions).toBe(clientType==='school'?'email':'off');
+  expect(stored.enrollment).toBe('sms');
+  expect(db.execute.mock.calls.some(([sql])=>sql.includes('sms_recipient_permissions'))).toBe(false);
+});
+it('allows a preference invitation separately from unfinished enrollment but honors all-email opt-out',async()=>{
+  saved={choices_json:{...all('off'),messages:'email'}};
+  expect(await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:email,templateType:'family_notification_invitation'},db)).toEqual({allowed:true});
+  saved={choices_json:all('off')};
+  expect(await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:email,templateType:'family_notification_invitation'},db)).toMatchObject({allowed:false});
+});
+
+it('shows a newer enrollment email decline even when older saved preferences allowed emails',async()=>{
+  saved={choices_json:all('both'),updated_at:new Date('2026-10-20T10:00Z'),revision:1};
+  m.intake.mockResolvedValue({recipientEmail:email,emailPreference:'no',signedAt:'2026-10-21T10:00Z'});
+  const context=await familyNotificationInvitationContext(token,db);
+  expect(Object.values(context.choices).every(choice=>choice==='sms')).toBe(true);
+});
+
+it('applies billing choices to automatic benefits-update notices',async()=>{
+  saved={choices_json:{...all('email'),billing:'off'}};
+  expect(await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:email,templateType:'family_benefits_update'},db)).toMatchObject({allowed:false,reason:'family_notification_category_off'});
+});
+
+it.each(['portal_migration_invite','trigger:portal_migration_invite'])('gates %s separately from unfinished forms while honoring explicit restrictions',async(templateType)=>{
+  const input={agencyId:2,clientId:22,to:email,templateType};
+  expect(await familyNotificationDeliveryGate(input,db)).toEqual({allowed:true});
+  saved={choices_json:{...all('off'),messages:'email'},updated_at:new Date('2026-10-20T10:00Z')};
+  expect(await familyNotificationDeliveryGate(input,db)).toEqual({allowed:true});
+  saved={choices_json:all('off')};
+  expect(await familyNotificationDeliveryGate(input,db)).toMatchObject({allowed:false});
+  saved=null;
+  for(const emailPreference of ['no','scheduling_only']){
+    m.intake.mockResolvedValue({emailPreference,recipientEmail:email});
+    expect(await familyNotificationDeliveryGate(input,db)).toMatchObject({allowed:false,reason:'enrollment_email_choice_off'});
+  }
+  expect(await familyNotificationDeliveryGate({...input,templateType:'password_reset'},db)).toEqual({allowed:true});
+  expect(await familyNotificationDeliveryGate({...input,templateType:'guardian_portal_login_info'},db)).toEqual({allowed:true});
+});
+it('respects billing preferences for generated cost estimates and does not affect document choices',async()=>{
+  const input={agencyId:2,clientId:22,to:email,templateType:'family_cost_estimate'};
+  saved={choices_json:{...all('email'),billing:'off'}};
+  expect(await familyNotificationDeliveryGate(input,db)).toMatchObject({allowed:false});
+  expect(await familyNotificationDeliveryGate({...input,templateType:'guardian_plan_review'},db)).toEqual({allowed:true});
 });

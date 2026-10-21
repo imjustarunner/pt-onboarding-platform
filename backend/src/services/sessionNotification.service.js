@@ -1,4 +1,5 @@
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import {hasTerminalClientStatus} from './clientTerminationRoster.service.js';
 import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from './intakeCommunicationChoices.service.js';
 /**
  * Fully customizable session notification system.
@@ -358,13 +359,14 @@ export async function loadClientConsent(clientId, agencyId) {
   if (!clientId) return { email: true, sms: false, phone: false };
   try {
     const [rows] = await pool.execute(
-      `SELECT session_email_opt_in, session_sms_opt_in, session_phone_opt_in,
-              email, phone, guardian_email, guardian_phone
-       FROM clients WHERE id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT c.session_email_opt_in,c.session_sms_opt_in,c.session_phone_opt_in,
+              c.email,c.contact_phone AS phone,c.status,s.status_key AS client_status_key,s.label AS client_status_label
+       FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id
+       WHERE c.id=? AND c.agency_id=? LIMIT 1`,
       [Number(clientId), Number(agencyId)]
     );
     const c = rows?.[0];
-    if (!c) return { email: true, sms: false, phone: false, emailAddress: null, phoneNumber: null };
+    if (!c || c.status==='ARCHIVED' || hasTerminalClientStatus(c)) return { email: false, sms: false, phone: false, emailAddress: null, phoneNumber: null };
     const cp = await latestIntakeCommunicationChoices(clientId, agencyId);
     const signed = cp?.version === INTAKE_COMMUNICATION_VERSION && cp?.signatureAccepted && cp?.signedAt;
     const phoneNumber = (signed ? cp.recipientPhone : null) || c.phone || c.guardian_phone || null;

@@ -1,5 +1,6 @@
 import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import pool from '../config/database.js';
+import {closeTerminatedClientRoster} from './clientTerminationRoster.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import BookingPackage from '../models/BookingPackage.model.js';
@@ -14,6 +15,7 @@ export async function enqueueClientScheduleTermination(db, clientId, actorUserId
   const [[client]] = await db.execute(`SELECT c.id, s.status_key, s.label AS client_status_label
     FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=?`, [clientId]);
   if (!isTerminatedClient(client)) return null;
+  await closeTerminatedClientRoster(db,{clientId,actorUserId});
   const [result] = await db.execute('INSERT INTO client_schedule_termination_jobs (client_id,actor_user_id) VALUES (?,?)', [clientId, actorUserId]);
   return result.insertId;
 }

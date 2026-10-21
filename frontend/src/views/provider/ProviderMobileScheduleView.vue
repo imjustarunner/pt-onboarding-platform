@@ -1,5 +1,6 @@
 <template>
   <section class="card">
+    <ProviderCopayAttendance />
     <div class="section-head">
       <div>
         <h2>This Week</h2>
@@ -46,6 +47,7 @@ import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import ProviderCopayAttendance from '../../components/provider/ProviderCopayAttendance.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

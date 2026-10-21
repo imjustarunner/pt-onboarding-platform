@@ -1,3 +1,4 @@
+import {hasTerminalClientStatus} from './clientTerminationRoster.service.js';
 import { resolveClientProviderHolds } from './publicProviderHold.service.js';
 import { resolveAssignedEnrollmentWaitlist } from './providerEnrollmentWaitlist.service.js';
 import pool from '../config/database.js';
@@ -65,9 +66,11 @@ export async function syncLegacyProviderToAffiliatedOrgs(
   if (!cid) return { repaired: 0 };
 
   const [clientRows] = await connection.execute(
-    `SELECT provider_id, service_day FROM clients WHERE id = ? LIMIT 1`,
+    `SELECT c.provider_id,c.service_day,c.status,s.status_key AS client_status_key,s.label AS client_status_label
+     FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=? LIMIT 1`,
     [cid]
   );
+  if(clientRows[0]?.status==='ARCHIVED'||hasTerminalClientStatus(clientRows[0]))return {repaired:0};
   const providerUserId = parseInt(clientRows?.[0]?.provider_id, 10);
   if (!providerUserId) return { repaired: 0 };
 
@@ -272,7 +275,7 @@ export async function repairMissingProviderAssignmentsForSchool(schoolOrganizati
   const candidates = (clients || []).filter((c) => {
     const legacyPid = parseInt(c.legacy_provider_id, 10);
     const providerIds = String(c.provider_ids || '').trim();
-    return legacyPid && !providerIds;
+    return legacyPid && !providerIds && c.status!=='ARCHIVED' && !hasTerminalClientStatus(c);
   });
   if (!candidates.length) return { repaired: 0, clientIds: [] };
 

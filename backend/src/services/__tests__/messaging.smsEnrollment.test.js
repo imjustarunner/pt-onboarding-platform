@@ -3,7 +3,7 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn(), recordSmsPermission: vi.fn(), isSmsSuppressed: vi.fn() }));
 import { getSmsSender, recordSmsPermission, isSmsSuppressed } from '../smsCompliance.service.js';
 import pool from '../../config/database.js';
-import { enrollSmsRecipient, saveSmsRegistration } from '../smsEnrollment.service.js';
+import { enrollSmsRecipient, enrollSmsRecipientBatch, saveSmsRegistration } from '../smsEnrollment.service.js';
 const registration = { brandId: 'B123', campaignId: 'C123', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC',
   supportContact: 'support@itsco.health', website: 'https://www.itsco.health', privacyUrl: 'https://www.itsco.health/privacy',
   termsUrl: 'https://www.itsco.health/terms', evidenceUrl: 'https://www.itsco.health/proof',
@@ -44,4 +44,22 @@ describe('signed enrollment', () => {
     await expect(enrollSmsRecipient({ ...enrollment, sendConfirmation })).rejects.toMatchObject({ code: 'sms_opted_out' });
     expect(recordSmsPermission).not.toHaveBeenCalled(); expect(sendConfirmation).not.toHaveBeenCalled();
   });
+});
+
+it('sends one combined account confirmation for multiple selected purposes with supported keywords',async()=>{
+  const purposes=['reminders','care','billing'];
+  getSmsSender.mockResolvedValue({agency_id:2,registration:{...registration,purposes,allowRestart:true},scope:'campaign:C123',phone_number:enrollment.from});
+  const sendConfirmation=vi.fn().mockResolvedValue({sid:'one-confirmation'});
+  const result=await enrollSmsRecipientBatch({...enrollment,enrollments:purposes.map(purpose=>({purpose,status:'opted_in',evidence:enrollment.evidence})),sendConfirmation});
+  expect(sendConfirmation).toHaveBeenCalledOnce();
+  const message=sendConfirmation.mock.calls[0][0];
+  expect(message.confirmationPurposes).toEqual(purposes);
+  expect(message.body).toContain('ITSCO:');
+  for(const keyword of ['STOP','HELP','START'])expect(message.body).toContain(keyword);
+  expect(message.body.length).toBeLessThanOrEqual(160);
+  expect(result.every(entry=>entry.confirmationMessageId==='one-confirmation')).toBe(true);
+});
+it('does not promise START when the registered program does not support restarting',async()=>{
+  const sendConfirmation=vi.fn();await enrollSmsRecipient({...enrollment,sendConfirmation});
+  expect(sendConfirmation.mock.calls[0][0].body).not.toContain('START');
 });

@@ -11,10 +11,20 @@ import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 export async function assertAutomaticCopay(receivable, allocation, db=pool) {
   const profile=await getReadiness(receivable.agency_id,receivable.client_id,db),payload=sourcePayload(receivable);
   if(profile.setup_status!=='ready'||profile.collection_policy==='manual'||!profile.automatic_from||new Date(receivable.created_at)<new Date(profile.automatic_from))throw billingError(409,'Automatic billing is not enabled for this balance');
-  if(receivable.source_type!=='claim_responsibility'||payload.responsibilityType!=='copay'||!payload.serviceCompleted||!receivable.service_date||dateOnly(receivable.service_date)>today())throw billingError(409,'Only a verified completed-visit copay can be collected automatically');
+  if(!['claim_responsibility','clinical_copay'].includes(receivable.source_type)||payload.responsibilityType!=='copay'||!payload.serviceCompleted||!receivable.service_date||dateOnly(receivable.service_date)>today())throw billingError(409,'Only a verified completed-visit copay can be collected automatically');
   if(profile.collection_policy==='after_era'&&payload.verificationBasis!=='era')throw billingError(409,'This client waits for verified payer responsibility');
   const [plans]=await db.execute("SELECT id FROM family_payment_plans WHERE allocation_id=? AND status IN ('proposed','active') LIMIT 1",[allocation.id]);
   if(plans.length)throw billingError(409,'This balance follows its payment plan');
+  if(receivable.source_type==='clinical_copay'||payload.attendanceSessionId){
+    const {attendanceCopaysEnabled,assertAttendanceCopay,attendanceCopayTerms}=await import('./copayAttendance.js');
+    if(!await attendanceCopaysEnabled(receivable.agency_id,db))throw billingError(409,'Attendance copay collection is paused');
+    await assertAttendanceCopay(receivable,db);
+    const [[session]]=await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?',[payload.attendanceSessionId||receivable.source_key,receivable.agency_id,receivable.client_id]);
+    if(!session)throw billingError(409,'The session is unavailable');
+    const current=await attendanceCopayTerms(session,db);
+    if(Number(current.payerUserId)!==Number(allocation.payer_user_id)||Number(current.term.totalCents)!==Number(allocation.amount_cents))throw billingError(409,'The current signed copay differs from this balance');
+    if(receivable.source_type==='clinical_copay')return;
+  }
   const [claims]=await clinicalPool.execute("SELECT c.id FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id WHERE c.id=? AND c.agency_id=? AND c.client_id=? AND c.is_deleted=0 AND s.encounter_status='completed'",[receivable.source_key,receivable.agency_id,receivable.client_id]);
   if(!claims.length)throw billingError(409,'The visit changed; review its copay before collection');
 }

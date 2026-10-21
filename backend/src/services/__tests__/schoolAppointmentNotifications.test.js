@@ -43,7 +43,7 @@ beforeEach(() => {
     if (sql.includes('FROM client_session_notification_preferences')) return [preferences];
     if (sql.includes('FROM family_notification_choices')) return [[]];
     if (sql.includes('FROM appointment_schedule_notices')) return [[]];
-    if (sql.includes('FROM clients WHERE')) return [[client]];
+    if (sql.includes('FROM clients c LEFT JOIN client_statuses')) return [[client]];
     if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
     if (sql.includes('FROM appointment_cancellation_deliveries')) return [[]];
@@ -119,4 +119,14 @@ it('a later signed enrollment can supersede intake No without overriding portal 
   expect((await buildDeliveryPlan(12)).deliveries.some(d => d.channel === 'sms')).toBe(true);
   preferences = [{ agency_id: 2, client_id: 4, channels_json: { sms: false } }];
   expect((await buildDeliveryPlan(12)).deliveries).toEqual([]);
+});
+
+it.each([{status:'ARCHIVED'},{client_status_key:'terminated'},{client_status_label:'Terminated'}])('does not remind a currently terminated client (%j)',async fields=>{
+  Object.assign(client,fields);
+  expect(await loadClientConsent(4,2)).toMatchObject({email:false,sms:false,phone:false});
+  expect((await buildDeliveryPlan(12)).deliveries).toEqual([]);
+});
+it('does not mistake a historic termination timestamp for current termination',async()=>{
+  Object.assign(client,{status:'ACTIVE',client_status_key:'current',terminated_at:'2020-01-01'});
+  expect(await loadClientConsent(4,2)).toMatchObject({email:true,sms:true});
 });

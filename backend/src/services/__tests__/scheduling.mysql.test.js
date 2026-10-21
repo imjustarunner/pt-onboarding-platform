@@ -73,7 +73,10 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     await clinicalPool.query('ALTER TABLE clinical_sessions ADD COLUMN billing_encounter_id INT NULL');
     const lifecycleDdl = [
       `CREATE TABLE supervision_session_attendees (session_id INT,user_id INT,is_required BOOLEAN,status VARCHAR(32))`,
-      `ALTER TABLE clients ADD COLUMN client_status_id INT, ADD COLUMN agency_id INT, ADD COLUMN terminated_at DATETIME, ADD COLUMN updated_by_user_id INT, ADD COLUMN last_activity_at DATETIME`,
+      `ALTER TABLE clients ADD COLUMN client_status_id INT, ADD COLUMN agency_id INT, ADD COLUMN terminated_at DATETIME, ADD COLUMN updated_by_user_id INT, ADD COLUMN last_activity_at DATETIME, ADD COLUMN status VARCHAR(32) DEFAULT 'ACTIVE', ADD COLUMN provider_id INT, ADD COLUMN service_day VARCHAR(32), ADD COLUMN organization_id INT`,
+      `CREATE TABLE client_provider_assignments (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,organization_id INT,provider_user_id INT,service_day VARCHAR(32),is_active BOOLEAN,is_primary BOOLEAN,updated_by_user_id INT,updated_at DATETIME)`,
+      `CREATE TABLE provider_school_assignments (id INT PRIMARY KEY,provider_user_id INT,school_organization_id INT,day_of_week VARCHAR(32),is_active BOOLEAN,slots_total INT,slots_available INT)`,
+      `CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,changed_by_user_id INT,field_changed VARCHAR(64),from_value TEXT,to_value TEXT,note TEXT)`,
       `CREATE TABLE client_statuses (id INT PRIMARY KEY,status_key VARCHAR(64),label VARCHAR(80))`,
       `INSERT INTO client_statuses VALUES (1,'current','Current'),(2,'terminated','Terminated')`,
       `ALTER TABLE office_standing_assignments ADD COLUMN assigned_frequency VARCHAR(32) DEFAULT 'WEEKLY'`,
@@ -115,7 +118,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   }, 20000);
   beforeEach(async () => {
     for (const table of ['self_pay_service_rates', 'agency_self_pay_settings', 'appointment_change_waivers', 'appointment_billing', 'clinical_record_refs', 'clients', 'users', 'practitioner_session_credit_ledger', 'practitioner_client_package_entitlements', 'practitioner_session_packages', 'appointment_change_workflows', 'office_events', 'appointments', 'provider_schedule_events', 'office_booking_plans', 'office_standing_assignments', 'booking_packages', 'booking_package_entitlements', 'booking_package_ledger']) await pool.query(`DELETE FROM ${table}`);
-    for (const table of ['supervision_schedule_actions','client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_session_attendees','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
+    for (const table of ['provider_school_assignments','client_status_history','client_provider_assignments','supervision_schedule_actions','client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_session_attendees','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
     await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.query('DELETE FROM office_rooms');
     await pool.query('INSERT INTO office_rooms VALUES (4), (5)');
@@ -369,6 +372,9 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     await BookingPackage.applyAppointmentUsage({entitlementId:6,agencyId:1,appointmentId:10,mode:'reserve',actorUserId:9});
     await pool.execute('UPDATE appointments SET package_entitlement_id=6 WHERE id=10');
     await Client.update(8,{client_status_id:2,terminated_at:new Date()},9,{hydrate:false});
+    const [[roster]]=await pool.query('SELECT status,provider_id FROM clients WHERE id=8');
+    expect(roster).toEqual({status:'ARCHIVED',provider_id:null});
+    const [[history]]=await pool.query("SELECT COUNT(*) n FROM client_status_history WHERE client_id=8 AND field_changed='status'");expect(history.n).toBe(1);
     const [[appointment]]=await pool.query('SELECT * FROM appointments WHERE id=10');
     expect(appointment.status).toBe('canceled_by_organization'); expect(appointment.cancellation_fee_cents).toBe(0);
     const [events]=await pool.query('SELECT * FROM office_events ORDER BY id');
@@ -386,6 +392,33 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       standingAssignmentId:7,bookingPlanId:3,assignedProviderId:9,bookedProviderId:9,slotState:'ASSIGNED_BOOKED',createdByUserId:9})).resolves.toBeNull();
     const [[available]]=await pool.query("SELECT COUNT(*) n FROM office_events WHERE slot_state='ASSIGNED_AVAILABLE'");expect(available.n).toBe(1);
 
+  });
+  it('terminates active roster assignments atomically, preserves their rows and reconciles available capacity once',async()=>{
+    await pool.query("UPDATE clients SET provider_id=9,organization_id=2,service_day='Monday' WHERE id=8");
+    await pool.query("INSERT INTO client_provider_assignments (client_id,organization_id,provider_user_id,service_day,is_active,is_primary) VALUES (8,2,9,'Monday',1,1)");
+    await pool.query("INSERT INTO provider_school_assignments VALUES (3,9,2,'Monday',1,5,4)");
+    await Client.update(8,{client_status_id:2,terminated_at:new Date()},9,{hydrate:false});
+    const [[client]]=await pool.query('SELECT status,provider_id,service_day FROM clients WHERE id=8');
+    expect(client).toEqual({status:'ARCHIVED',provider_id:null,service_day:null});
+    const [[assignment]]=await pool.query('SELECT client_id,provider_user_id,is_active,is_primary FROM client_provider_assignments');
+    expect(assignment).toEqual({client_id:8,provider_user_id:9,is_active:0,is_primary:0});
+    const [[slots]]=await pool.query('SELECT slots_available FROM provider_school_assignments');expect(slots.slots_available).toBe(5);
+    await Client.update(8,{client_status_id:2},9,{hydrate:false});
+    const [[retried]]=await pool.query('SELECT slots_available FROM provider_school_assignments');expect(retried.slots_available).toBe(5);
+    const [[history]]=await pool.query("SELECT COUNT(*) n FROM client_status_history WHERE client_id=8 AND field_changed='provider_assignment'");expect(history.n).toBe(1);
+  });
+  it('rolls back the client status when required roster history cannot be recorded',async()=>{
+    const conn=await pool.getConnection();
+    const execute=conn.execute.bind(conn);
+    const executeSpy=vi.spyOn(conn,'execute').mockImplementation((sql,...args)=>sql.includes('INSERT INTO client_status_history')?Promise.reject(new Error('test audit unavailable')):execute(sql,...args));
+    const connectionSpy=vi.spyOn(pool,'getConnection').mockResolvedValueOnce(conn);
+    try{
+      await expect(Client.update(8,{client_status_id:2,terminated_at:new Date()},9,{hydrate:false})).rejects.toThrow('test audit unavailable');
+    }finally{executeSpy.mockRestore();connectionSpy.mockRestore();}
+    const [[client]]=await pool.query('SELECT status,client_status_id,terminated_at FROM clients WHERE id=8');
+    expect(client).toEqual({status:'ACTIVE',client_status_id:1,terminated_at:null});
+    const [[jobs]]=await pool.query('SELECT COUNT(*) n FROM client_schedule_termination_jobs');expect(jobs.n).toBe(0);
+    const [[appointment]]=await pool.query('SELECT status FROM appointments WHERE id=10');expect(appointment.status).toBe('scheduled');
   });
   it.each([0,1])('client termination never reopens an archived provider room (assignment active=%i)', async active => {
     await pool.query("UPDATE users SET status='ARCHIVED',is_archived=1 WHERE id=9");

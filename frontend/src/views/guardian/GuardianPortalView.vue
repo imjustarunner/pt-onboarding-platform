@@ -17,6 +17,7 @@
         <div class="portal-program-picker"><GuardianProgramSelector :programs="programs" /><button class="btn btn-secondary btn-sm" @click="refreshAll" :disabled="loading">Refresh</button></div>
       </section>
 
+      <PortalMigrationChecklist v-if="!isSuperadminPreview && activePanel === 'overview'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
       <GuardianInvitations v-if="!isSuperadminPreview" :agency-id="selectedChildAgencyId || currentAgencyId" />
 
       <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" :organization-name="careAgencyName || currentAgencyName" @contact="navigatePortal('messages')" />
@@ -464,6 +465,8 @@
               </div>
               <template v-else>
                 <FamilyLedgerPanel :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
+                <FamilyCostEstimates :agency-id="Number(selectedChildAgencyId)" :client-id="Number(selectedChildId)" />
+                <HistoricalBillingRequest :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
                 <GuardianBillingTab v-if="learningBillingVisible" :agency-id="currentAgencyId" :client-id="selectedChildId" />
               </template>
             </template>
@@ -644,6 +647,9 @@ import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.
 import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosurePanel.vue';
 import GuardianBillingNeeds from '../../components/billing/GuardianBillingNeeds.vue';
 import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
+import PortalMigrationChecklist from '../../components/guardian/PortalMigrationChecklist.vue';
+import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';
+import HistoricalBillingRequest from '../../components/billing/HistoricalBillingRequest.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianInvitations from '../../components/guardian/GuardianInvitations.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';

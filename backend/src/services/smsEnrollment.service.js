@@ -55,12 +55,12 @@ export async function enrollSmsRecipientBatch({ from, phone, enrollments, actorU
     }
     if (accepted.length) {
       const first = accepted.find(e => e.purpose === 'workforce') || accepted[0];
-      const descriptions = { care: 'care-team messages', reminders: 'appointment reminders', workforce: 'workforce notifications', billing: 'billing-account notifications', marketing: 'optional program offers', account_security: 'account security messages', polling: 'optional polls and surveys' };
-      const selected = accepted.map(e => descriptions[e.purpose]).join(' and ');
+      const brand = first.sender.registration?.brandName || first.sender.agency_name || 'AuricWell';
+      const restart = first.sender.registration?.allowRestart === true ? ' START to restart.' : '';
       const sent = await sendConfirmation({ to: phone, from: first.sender.phone_number, purpose: first.purpose,
         agencyId: first.sender.agency_id, staffNotificationKind: first.staffNotificationKind,
         confirmationPurposes: accepted.map(e => e.purpose),
-        body: `You subscribed to ${selected}. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.` });
+        body: `${brand}: Selected texts are on. Frequency varies. Message and data rates may apply. STOP to stop, HELP for help.${restart}` });
       confirmationMessageId = sent?.sid || null;
     }
   } catch (error) {

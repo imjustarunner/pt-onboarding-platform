@@ -1,3 +1,4 @@
+import { visibleSchoolRosterClients } from '../services/clientTerminationRoster.service.js';
 import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
 import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 import { createSchoolStaffRecoveryHandler } from './schoolStaffRecovery.controller.js';
@@ -141,12 +142,9 @@ async function applyRosterSearchAndYear(restrictedClients, rawClients, req, {
   const q = String(req.query?.q || '').trim();
   const includeTerminated = parseTruthyQuery(req.query?.includeTerminated || req.query?.include_terminated);
   const includePastYears = parseTruthyQuery(req.query?.includePastYears || req.query?.include_past_years);
-  let list = restrictedClients || [];
+  let list = visibleSchoolRosterClients(restrictedClients || [], { includeTerminated });
   if (q) {
     list = filterClientsByRosterSearch(rawClients, list, q);
-    if (!includeTerminated) {
-      list = list.filter((c) => String(c?.client_status_key || '').toLowerCase() !== 'terminated');
-    }
   }
   let schoolYearFilter = parseSchoolYearFilterParam(req.query?.schoolYear || req.query?.school_year);
   if (schoolYearFilter === null) schoolYearFilter = defaultYearFilter;

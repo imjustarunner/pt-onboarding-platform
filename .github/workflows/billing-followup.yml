@@ -4,6 +4,31 @@ on:
     branches: [main]
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/familyBillingPolicy.service.js'
+      - 'backend/src/services/familyCostEstimates.service.js'
+      - 'backend/src/services/costEstimatePolicy.js'
+      - 'backend/src/services/portalMigration*.js'
+      - 'backend/src/services/billingBenefitsEmail*.js'
+      - 'backend/src/services/coverageVerification.service.js'
+      - 'backend/src/services/messagesHub.service.js'
+      - 'backend/src/services/familyNotification*.js'
+      - 'backend/src/utils/familyNotificationChoices.js'
+      - 'backend/src/controllers/guardianSupportTickets.controller.js'
+      - 'backend/src/controllers/__tests__/familyPortalEmail.*.test.js'
+      - 'backend/src/routes/supportTickets.routes.js'
+      - 'backend/src/routes/familyCostEstimates.routes.js'
+      - 'backend/src/routes/portalMigration.routes.js'
+      - 'backend/src/services/__tests__/familyCostEstimates*'
+      - 'backend/vitest.cost-estimates.config.js'
+      - 'backend/src/assets/costEstimates/**'
+      - 'database/migrations/1674_portal_migration_benefit_notices.sql'
+      - 'database/migrations/1675_family_cost_estimates.sql'
+      - 'frontend/src/components/guardian/PortalMigrationChecklist.vue'
+      - 'frontend/src/views/admin/FamilyBillingDesk.vue'
+      - 'backend/src/services/__tests__/copayAttendance*'
+      - 'backend/vitest.attendance-copays.config.js'
+      - 'database/migrations/1673_attendance_copays.sql'
+      - 'frontend/src/components/provider/ProviderCopayAttendance.vue'
       - 'backend/src/services/clientPortal*.js'
       - 'backend/src/services/appointmentEmailActions.service.js'
       - 'backend/src/services/schoolSessionEmailPreferences.service.js'
@@ -43,6 +68,32 @@ on:
   pull_request:
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/familyBillingPolicy.service.js'
+      - 'backend/src/services/familyCostEstimates.service.js'
+      - 'backend/src/services/costEstimatePolicy.js'
+      - 'backend/src/services/portalMigration*.js'
+      - 'backend/src/services/billingBenefitsEmail*.js'
+      - 'backend/src/services/coverageVerification.service.js'
+      - 'backend/src/services/messagesHub.service.js'
+      - 'backend/src/services/familyNotification*.js'
+      - 'backend/src/utils/familyNotificationChoices.js'
+      - 'backend/src/controllers/guardianSupportTickets.controller.js'
+      - 'backend/src/controllers/__tests__/familyPortalEmail.*.test.js'
+      - 'backend/src/routes/supportTickets.routes.js'
+      - 'backend/src/routes/familyCostEstimates.routes.js'
+      - 'backend/src/routes/portalMigration.routes.js'
+      - 'backend/src/services/__tests__/familyCostEstimates*'
+      - 'backend/vitest.cost-estimates.config.js'
+      - 'backend/src/assets/costEstimates/**'
+      - 'database/migrations/1674_portal_migration_benefit_notices.sql'
+      - 'database/migrations/1675_family_cost_estimates.sql'
+      - 'frontend/src/components/guardian/PortalMigrationChecklist.vue'
+      - 'frontend/src/views/guardian/GuardianPortalView.vue'
+      - 'frontend/src/views/admin/FamilyBillingDesk.vue'
+      - 'backend/src/services/__tests__/copayAttendance*'
+      - 'backend/vitest.attendance-copays.config.js'
+      - 'database/migrations/1673_attendance_copays.sql'
+      - 'frontend/src/components/provider/ProviderCopayAttendance.vue'
       - 'backend/src/services/clientPortal*.js'
       - 'backend/src/services/appointmentEmailActions.service.js'
       - 'backend/src/services/schoolSessionEmailPreferences.service.js'
@@ -121,6 +172,20 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
       - name: Native SQL workflow and policy checks
         run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js
+      - name: Attendance copay authorization and timing
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.attendance-copays.config.js
+      - name: Attendance copay SQL concurrency and final payer reconciliation
+        env:
+          ATTENDANCE_COPAY_MYSQL_TEST: '1'
+        run: node --test backend/src/services/__tests__/copayAttendance.mysql.test.js
+      - name: Cost estimate policy and document access
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.cost-estimates.config.js
+      # This extends the synthetic billing fixture created by the previous SQL
+      # step. It never resets the fixture or contacts an external transport.
+      - name: Migration deduplication and encrypted cost estimate SQL
+        env:
+          FAMILY_PORTAL_ESTIMATE_MYSQL_TEST: '1'
+        run: node --test backend/src/services/__tests__/familyCostEstimates.mysql.test.js
       - name: Claim and documentation verification
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
       - name: Guardian and billing workspace screens

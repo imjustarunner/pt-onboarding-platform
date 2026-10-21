@@ -3728,7 +3728,9 @@ export async function sendHubPortalInvitation({
   clientId = null,
   guardianUserId = null,
   skipEmail = false,
-  existingLinkOnly = false
+  existingLinkOnly = false,
+  migration = false,
+  migrationClientIds = null
 } = {}) {
   const aid = Number(agencyId);
   const actorId = Number(actorUserId);
@@ -3807,7 +3809,7 @@ export async function sendHubPortalInvitation({
 
   if (existingLinkOnly) {
     const link = (await ClientGuardian.listForClient(cid)).find(g => Number(g.guardian_user_id) === uid);
-    if (Number(client.agency_id) !== aid || !link || ![1, true].includes(link.access_enabled)) {
+    if (Number(client.agency_id) !== aid || !link || ![1, true].includes(link.access_enabled) || link.permissions_json?.noView || link.permissions_json?.noViewOtherGuardian) {
       throw Object.assign(new Error('Portal contact access changed. Refresh the invitation preview.'), { status: 409 });
     }
   }
@@ -3921,19 +3923,33 @@ export async function sendHubPortalInvitation({
   const { clientEmailContext, sendClientPortalEmail } = await import('./clientPortalEmail.service.js');
   const { buildClientEnrollmentEmail } = await import('./clientPortalEmailContent.js');
   const emailContext = await clientEmailContext({agencyId:inviteAgencyId,clientId:cid});
-  const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id
-    FROM clients c JOIN client_guardians cg ON cg.client_id=c.id
+  const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id,cg.permissions_json,o.organization_type
+    FROM clients c JOIN client_guardians cg ON cg.client_id=c.id LEFT JOIN agencies o ON o.id=c.organization_id
     WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND c.agency_id=?
       AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[guardian.id,inviteAgencyId]);
   const included = [];
   for (const sibling of siblings) {
+    const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
+    if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
+    if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
     const siblingContext = await resolveClientPortalContext(sibling);
     if (siblingContext.learning === portalContext.learning) included.push(sibling);
   }
-  const built = buildClientEnrollmentEmail({firstName:firstName || guardian.first_name,
-    agencyName:agency.name,clients:existingAccount ? [client] : included.length ? included : [client],learning:portalContext.learning,existingAccount,url:setupUrl});
+  if(migration){
+    const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
+    for(const profile of included.length?included:[client]){
+      const gate=await familyNotificationDeliveryGate({agencyId:inviteAgencyId,clientId:profile.id,to:email,templateType:'portal_migration_invite'});
+      if(!gate.allowed)return {ok:false,delivery:{blocked:true,reason:gate.reason},guardianUserId:guardian.id,clientId:cid};
+    }
+  }
+  const built = migration
+    ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({firstName:firstName || guardian.first_name,
+      agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
+      portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school')})
+    : buildClientEnrollmentEmail({firstName:firstName || guardian.first_name,
+      agencyName:agency.name,clients:existingAccount ? [client] : included.length ? included : [client],learning:portalContext.learning,existingAccount,url:setupUrl});
   delivery = await sendClientPortalEmail({agencyId:inviteAgencyId,clientId:cid,context:emailContext,
-    to:email,...built,source:'auto',templateType:'hub_portal_invite',userId:guardian.id});
+    to:email,...built,source:'auto',templateType:migration?'portal_migration_invite':'hub_portal_invite',userId:guardian.id});
 
   }
 

@@ -92,6 +92,10 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
   const errors=asList(result?.elig||result?.result?.elig).flatMap(e=>asList(e.error));
   let followUpTaskId=null;
   if(errors.length||evidence.summary.status!=='active_reported'||evidence.summary.identityMatches===false) followUpTaskId=await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:errors.some(e=>String(e.error_code)==='75')?'subscriber_not_found':evidence.summary.status==='active_reported'&&evidence.summary.identityMatches===false?'identity_mismatch':'eligibility_unresolved'},db);
+  if(process.env.AUTOMATIC_BENEFIT_EMAILS_ENABLED==='true'&&slot==='primary') {
+    try {const {sendAutomaticBillingBenefits}=await import('./billingBenefitsEmail.service.js');await sendAutomaticBillingBenefits({agencyId,clientId,coverageCheckId:id,actorUserId});}
+    catch { /* Eligibility evidence remains valid; notification failures never invalidate it. */ }
+  }
   return {id,status:'returned',...evidence,followUpTaskId};
  }catch(e){await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND client_id=?",[id,agencyId,clientId]);await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);throw billingError(502,'Eligibility could not be confirmed. Review payer enrollment or use the payer portal; coverage remains unverified');}
 }

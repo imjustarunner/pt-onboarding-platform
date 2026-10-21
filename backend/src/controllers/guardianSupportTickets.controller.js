@@ -116,15 +116,35 @@ function enrichTicket(ticket) {
   };
 }
 
+function guardianCanViewTicket(guardianUserId, ticket) {
+  return normalizeTicketTopic(ticket?.topic) !== 'billing'
+    || Number(ticket?.created_by_user_id) === Number(guardianUserId);
+}
+
 async function assertGuardianOwnsTicket(guardianUserId, ticketId) {
   const [rows] = await pool.execute(
     `SELECT * FROM support_tickets WHERE id = ? LIMIT 1`,
     [ticketId]
   );
   const ticket = rows?.[0];
-  if (!ticket || !await assertGuardianClientAccess(guardianUserId, ticket.client_id)) return null;
+  if (!ticket || !guardianCanViewTicket(guardianUserId,ticket) || !await assertGuardianClientAccess(guardianUserId, ticket.client_id)) return null;
   return ticket;
 }
+
+// The general ticket routes also expose attachment downloads. Family accounts
+// must not bypass their private billing thread through agency membership there.
+// Staff continue through the existing tenant/topic authorization unchanged.
+export const restrictGuardianBillingTicketAccess = async (req,res,next) => {
+  if (!['client_guardian','client'].includes(String(req.user?.role || '').toLowerCase())) return next();
+  try {
+    const ticketId=Number(req.params.id);
+    if (!Number.isSafeInteger(ticketId)||ticketId<1) return res.status(400).json({error:{message:'Invalid ticket id'}});
+    const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id = ? LIMIT 1',[ticketId]);
+    if (!ticket) return res.status(404).json({error:{message:'Ticket not found'}});
+    if (normalizeTicketTopic(ticket.topic)==='billing' && (!guardianCanViewTicket(req.user.id,ticket)||!await assertGuardianClientAccess(req.user.id,ticket.client_id))) return res.status(404).json({error:{message:'Ticket not found'}});
+    next();
+  } catch(error) {next(error);}
+};
 
 async function assertGuardianClientAccess(guardianUserId, clientId) {
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId });
@@ -142,6 +162,7 @@ export const listGuardianSupportTickets = async (req, res, next) => {
     const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
     const ids = linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id));
     if (!ids.length) return res.json({ tickets: [] });
+    const hasTopic=await hasSupportTicketTopicColumn();
     const [rows] = await pool.execute(
       `SELECT t.*,
               u.first_name AS answered_by_first_name,
@@ -156,10 +177,11 @@ export const listGuardianSupportTickets = async (req, res, next) => {
        LEFT JOIN agencies a ON a.id = t.agency_id
        LEFT JOIN clients c ON c.id = t.client_id
        WHERE t.client_id IN (${ids.map(() => '?').join(',')})
+         ${hasTopic?"AND (LOWER(COALESCE(t.topic,'general')) <> 'billing' OR t.created_by_user_id = ?)":''}
        ORDER BY t.created_at DESC`,
-      ids
+      [...ids,...(hasTopic?[req.user.id]:[])]
     );
-    res.json({ tickets: (rows || []).map((t) => enrichTicket(t)) });
+    res.json({ tickets: (rows || []).filter(t=>guardianCanViewTicket(req.user.id,t)).map((t) => enrichTicket(t)) });
   } catch (e) {
     next(e);
   }
@@ -175,7 +197,7 @@ export const createGuardianSupportTicket = async (req, res, next) => {
     if (req.guardianPreviewMode) {
       return res.status(403).json({ error: { message: 'Preview cannot create tickets' } });
     }
-    if (String(req.user?.role || '').toLowerCase() !== 'client_guardian') {
+    if (!['client_guardian','client'].includes(String(req.user?.role || '').toLowerCase())) {
       return res.status(403).json({ error: { message: 'Guardian access required' } });
     }
     const clientId = parseInt(req.body?.clientId, 10);
@@ -193,7 +215,7 @@ export const createGuardianSupportTicket = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied to this child' } });
     }
 
-    const schoolOrganizationId = Number(client.organization_id || 0);
+    const schoolOrganizationId = Number(client.organization_id || client.agency_id || 0);
     const agencyId = Number(client.agency_id || 0);
     if (!schoolOrganizationId || !agencyId) {
       return res.status(400).json({ error: { message: 'Child is missing organization affiliation' } });
@@ -206,7 +228,11 @@ export const createGuardianSupportTicket = async (req, res, next) => {
     }
 
     const hasEnc = await hasSupportTicketEncryptionColumns();
+    if (!hasEnc && String(process.env.NODE_ENV || '').toLowerCase() === 'production') return res.status(503).json({ error: { message: 'Encrypted support ticket storage is required.' } });
     const hasPriority = await hasSupportTicketPriorityColumn();
+    const hasTopic=await hasSupportTicketTopicColumn();
+    if(topic==='billing'&&!hasTopic)return res.status(503).json({error:{message:'Private billing tickets are not configured yet.'}});
+    const topicColumn=hasTopic?', topic':'',topicValue=hasTopic?', ?':'',topicParams=hasTopic?[topic]:[];
     const qEnc = hasEnc
       ? prepareEncryptedTicketText(question)
       : { plain: question, ciphertext: null, iv: null, authTag: null, keyId: null };
@@ -219,8 +245,8 @@ export const createGuardianSupportTicket = async (req, res, next) => {
       [result] = await pool.execute(
         `INSERT INTO support_tickets
           (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority,
-           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id${topicColumn})
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?${topicValue})`,
         [
           schoolOrganizationId,
           clientId,
@@ -232,15 +258,16 @@ export const createGuardianSupportTicket = async (req, res, next) => {
           qEnc.ciphertext,
           qEnc.iv,
           qEnc.authTag,
-          qEnc.keyId
+          qEnc.keyId,
+          ...topicParams
         ]
       );
     } else if (hasEnc) {
       [result] = await pool.execute(
         `INSERT INTO support_tickets
           (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status,
-           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`,
+           question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id${topicColumn})
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?${topicValue})`,
         [
           schoolOrganizationId,
           clientId,
@@ -251,22 +278,23 @@ export const createGuardianSupportTicket = async (req, res, next) => {
           qEnc.ciphertext,
           qEnc.iv,
           qEnc.authTag,
-          qEnc.keyId
+          qEnc.keyId,
+          ...topicParams
         ]
       );
     } else if (hasPriority) {
       [result] = await pool.execute(
         `INSERT INTO support_tickets
-          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority)
-         VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`,
-        [schoolOrganizationId, clientId, req.user.id, agencyId, ticketSubject, question, priority]
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status, priority${topicColumn})
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?${topicValue})`,
+        [schoolOrganizationId, clientId, req.user.id, agencyId, ticketSubject, question, priority,...topicParams]
       );
     } else {
       [result] = await pool.execute(
         `INSERT INTO support_tickets
-          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'open')`,
-        [schoolOrganizationId, clientId, req.user.id, agencyId, ticketSubject, question]
+          (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status${topicColumn})
+         VALUES (?, ?, ?, ?, ?, ?, 'open'${topicValue})`,
+        [schoolOrganizationId, clientId, req.user.id, agencyId, ticketSubject, question,...topicParams]
       );
     }
 
@@ -308,14 +336,6 @@ export const createGuardianSupportTicket = async (req, res, next) => {
            VALUES (?, NULL, ?, ?, ?)`,
           [ticketId, req.user.id, 'client_guardian', question]
         );
-      }
-    }
-
-    if (ticketId && (await hasSupportTicketTopicColumn())) {
-      try {
-        await pool.execute(`UPDATE support_tickets SET topic = ? WHERE id = ?`, [topic, ticketId]);
-      } catch {
-        /* ignore */
       }
     }
 
@@ -420,6 +440,7 @@ export const sendGuardianSupportTicketMessage = async (req, res, next) => {
     }
 
     const hasEnc = await hasSupportTicketEncryptionColumns();
+    if (!hasEnc && String(process.env.NODE_ENV || '').toLowerCase() === 'production') return res.status(503).json({ error: { message: 'Encrypted support ticket storage is required.' } });
     const enc = hasEnc
       ? prepareEncryptedTicketText(body)
       : { plain: body, ciphertext: null, iv: null, authTag: null, keyId: null };

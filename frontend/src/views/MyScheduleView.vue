@@ -48,6 +48,7 @@
 
         <OfficeSchedulingTransition v-if="isSuperadmin && showOfficeTransition" />
         <OfficeAssignmentUsageReviews />
+        <ProviderCopayAttendance />
         <ScheduleAvailabilityGrid
           :user-id="Number(authStore.user.id)"
           :mode="'self'"
@@ -77,6 +78,7 @@ import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilit
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import OfficeSchedulingTransition from '../components/schedule/OfficeSchedulingTransition.vue';
 import OfficeAssignmentUsageReviews from '../components/schedule/OfficeAssignmentUsageReviews.vue';
+import ProviderCopayAttendance from '../components/provider/ProviderCopayAttendance.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 
 const route = useRoute();

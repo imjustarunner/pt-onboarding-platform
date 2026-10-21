@@ -1,0 +1,25 @@
+import express from 'express';
+import rateLimit from 'express-rate-limit';
+import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
+import { positiveId } from '../services/familyBillingPolicy.service.js';
+import { requireBillingStaff } from '../services/familyLedger/policy.js';
+import { COST_ESTIMATE_VERSION, ESTIMATE_ACKNOWLEDGMENT } from '../services/costEstimatePolicy.js';
+import { listCostEstimates, getCostEstimate, acknowledgeCostEstimate, costEstimateOptions, saveCostEstimateRate, createCostEstimate, issueCostEstimate, renderCostEstimatePdf } from '../services/familyCostEstimates.service.js';
+
+const router = express.Router();
+const run = fn => async (req, res, next) => { try { await fn(req, res); } catch (error) { next(error); } };
+const context = req => ({ agencyId: positiveId(req.body?.agencyId || req.query.agencyId), userId: positiveId(req.user.id), actorUserId: positiveId(req.user.id) });
+const limited = rateLimit({ windowMs: 60000, max: 30, standardHeaders: true, legacyHeaders: false });
+router.use(authenticate, requireActiveStatus, (req, res, next) => { res.set({ 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' }); next(); });
+router.use('/staff', async (req, res, next) => { try { await requireBillingStaff(req.user, context(req).agencyId); next(); } catch (error) { next(error); } });
+router.get('/staff/options', run(async (req, res) => res.json(await costEstimateOptions(context(req).agencyId))));
+router.put('/staff/rates/:code', limited, run(async (req, res) => res.json(await saveCostEstimateRate({ ...req.body, ...context(req), serviceCode: req.params.code }))));
+router.get('/staff', run(async (req, res) => res.json({ estimates: await listCostEstimates({ ...context(req), clientId: req.query.clientId || null, staff: true }) })));
+router.post('/staff', limited, run(async (req, res) => res.status(201).json(await createCostEstimate({ ...req.body, ...context(req) }))));
+router.get('/staff/:id.pdf', run(async (req, res) => { const item = await getCostEstimate({ ...context(req), estimateId: req.params.id, staff: true }); res.type('pdf').set('Content-Disposition', `attachment; filename="good-faith-estimate-${item.id}.pdf"`).send(await renderCostEstimatePdf(item)); }));
+router.post('/staff/:id/issue', limited, run(async (req, res) => res.json(await issueCostEstimate({ ...context(req), estimateId: positiveId(req.params.id) }))));
+router.get('/', run(async (req, res) => res.json({ estimates: await listCostEstimates({ ...context(req), clientId: req.query.clientId || null }), acknowledgmentText: ESTIMATE_ACKNOWLEDGMENT, version: COST_ESTIMATE_VERSION })));
+router.get('/:id.pdf', run(async (req, res) => { const item = await getCostEstimate({ ...context(req), estimateId: req.params.id }); res.type('pdf').set('Content-Disposition', `attachment; filename="good-faith-estimate-${item.id}.pdf"`).send(await renderCostEstimatePdf(item)); }));
+router.get('/:id', run(async (req, res) => { const item = await getCostEstimate({ ...context(req), estimateId: req.params.id }); delete item.acknowledgment?.ip; delete item.acknowledgment?.userAgent; res.json({ ...item, acknowledgmentText: ESTIMATE_ACKNOWLEDGMENT }); }));
+router.post('/:id/acknowledge', limited, run(async (req, res) => res.json(await acknowledgeCostEstimate({ ...req.body, ...context(req), estimateId: positiveId(req.params.id), ip: req.ip, userAgent: req.get('user-agent') }))));
+export default router;

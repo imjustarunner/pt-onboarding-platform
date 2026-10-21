@@ -64,14 +64,19 @@ export async function assertCollectible(receivable, db = pool) {
   if (receivable.status !== 'open' || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is settled or on hold and cannot be collected');
   await assertLedgerIntegrity(receivable,db);
   if(receivable.source_type==='clinical_self_pay'){const {assertSelfPayVisit}=await import('./serviceCharges.js');await assertSelfPayVisit(receivable);}
+  if(receivable.source_type==='clinical_copay' || (receivable.source_payload && decryptFamilyBilling(receivable.source_payload,`receivable:${receivable.agency_id}:${receivable.client_id}`)?.attendanceSessionId)) {
+    const {assertAttendanceCopay}=await import('./copayAttendance.js');await assertAttendanceCopay(receivable,db);
+  }
   if(receivable.source_type==='claim_responsibility') {
-    const [claims]=await clinicalPool.execute(`SELECT c.id,s.encounter_status,c.claim_status,c.claim_lifecycle,
+    const [claims]=await clinicalPool.execute(`SELECT c.id,c.clinical_session_id,s.encounter_status,c.claim_status,c.claim_lifecycle,
       (SELECT COALESCE(MAX(cr.id),0) FROM clinical_claim_change_requests cr WHERE cr.agency_id=c.agency_id AND cr.clinical_session_id=c.clinical_session_id) AS latest_change_id,
       EXISTS(SELECT 1 FROM clinical_claim_change_requests cr WHERE cr.agency_id=c.agency_id AND cr.clinical_session_id=c.clinical_session_id AND cr.status IN ('pending','reconciliation_required')) AS correction_pending
       FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id
       WHERE c.id=? AND c.agency_id=? AND c.client_id=? AND c.is_deleted=0`,[receivable.source_key,receivable.agency_id,receivable.client_id]);
     const claim=claims[0];
     if(!claim||claim.claim_lifecycle==='void'||claim.encounter_status!=='completed'||['VOID','VOIDED','CANCELLED','CANCELED'].includes(String(claim.claim_status).toUpperCase())||Number(claim.correction_pending))throw billingError(409,'The visit or claim needs review before collecting patient responsibility');
+    const {assertSessionAttendanceNotSuppressed}=await import('./copayAttendance.js');
+    await assertSessionAttendanceNotSuppressed({agencyId:receivable.agency_id,clientId:receivable.client_id,sessionId:claim.clinical_session_id},db);
     const payload=receivable.source_payload?decryptFamilyBilling(receivable.source_payload,`receivable:${receivable.agency_id}:${receivable.client_id}`):{};
     if(['paid','adjusted','denied'].includes(claim.claim_lifecycle)) {
       const [pendingEras]=await clinicalPool.execute(`SELECT j.id FROM claimmd_responsibility_jobs j JOIN clinical_claims c ON c.id=j.clinical_claim_id AND c.agency_id=j.agency_id

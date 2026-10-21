@@ -29,7 +29,7 @@ export async function setClaimResponsibility({agencyId,claimId,clientId,amountCe
   if (verificationBasis === 'era') { amountCents = amountCents ?? 0; responsibilityType ||= 'patient_balance'; }
   if(!['copay','deductible','coinsurance','patient_balance'].includes(responsibilityType)||!String(reason||'').trim())throw billingError(400,'Select the patient responsibility type and document verification');
   if(!['benefit','era'].includes(verificationBasis)|| (verificationBasis!=='era'&&responsibilityType!=='copay'))throw billingError(400,'Deductible, coinsurance and final patient balances require a verified payer remittance');
-  const [claims]=await clinicalPool.execute('SELECT c.id,c.parent_claim_id,c.payer_sequence,c.destination_payer_id,c.claimmd_submitted_at,c.claim_lifecycle,c.claim_status,c.agency_id,c.client_id,s.scheduled_start_at,s.encounter_status FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id WHERE c.id=? AND c.agency_id=? AND c.is_deleted=0',[positiveId(claimId),agencyId]);if(!claims.length)throw billingError(404,'Claim not found in this organization');if(clientId&&Number(clientId)!==Number(claims[0].client_id))throw billingError(409,'The claim belongs to a different client');
+  const [claims]=await clinicalPool.execute('SELECT c.id,c.clinical_session_id,c.parent_claim_id,c.payer_sequence,c.destination_payer_id,c.claimmd_submitted_at,c.claim_lifecycle,c.claim_status,c.agency_id,c.client_id,s.scheduled_start_at,s.encounter_status FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id WHERE c.id=? AND c.agency_id=? AND c.is_deleted=0',[positiveId(claimId),agencyId]);if(!claims.length)throw billingError(404,'Claim not found in this organization');if(clientId&&Number(clientId)!==Number(claims[0].client_id))throw billingError(409,'The claim belongs to a different client');
   if(claims[0].claim_lifecycle==='void'||['VOID','VOIDED','CANCELLED','CANCELED'].includes(String(claims[0].claim_status).toUpperCase()))throw billingError(409,'Reconcile the voided claim before posting responsibility');
   const serviceDate=claims[0].scheduled_start_at?dateOnly(claims[0].scheduled_start_at):null;
   if(claims[0].encounter_status!=='completed'||!serviceDate||serviceDate>new Date().toISOString().slice(0,10))throw billingError(409,'Patient responsibility can be posted only for a completed visit');
@@ -45,6 +45,15 @@ export async function setClaimResponsibility({agencyId,claimId,clientId,amountCe
     // Primary and secondary use one balance; final zero closes it through an audited adjustment.
     const finalZero = verificationBasis === 'era' && input.amountCents === 0;
     await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,agencyId]);
+    // A same-day attendance copay and the later claim/ERA are one balance.
+    // Adopt its source without replacing allocations, payments, or receipts.
+    const [[visitCopay]]=await db.execute("SELECT * FROM family_receivables WHERE agency_id=? AND client_id=? AND source_type='clinical_copay' AND source_key=? FOR UPDATE",[agencyId,input.clientId,String(claims[0].clinical_session_id)]);
+    if(visitCopay){
+      const [[claimBalance]]=await db.execute("SELECT id FROM family_receivables WHERE agency_id=? AND source_type='claim_responsibility' AND source_key=?",[agencyId,input.sourceKey]);
+      if(claimBalance)throw billingError(409,'Reconcile the session copay and existing claim balance before posting responsibility');
+      if(verificationBasis!=='era'&&Number(visitCopay.amount_cents)!==input.amountCents)throw billingError(409,'The posted copay differs from the attendance balance; use an audited adjustment');
+      await db.execute("UPDATE family_receivables SET source_type='claim_responsibility',source_key=? WHERE id=? AND agency_id=?",[input.sourceKey,visitCopay.id,agencyId]);
+    }
     const [existing] = verificationBasis === 'era' ? await db.execute("SELECT * FROM family_receivables WHERE agency_id=? AND source_type='claim_responsibility' AND source_key=?",[agencyId,input.sourceKey]) : [[]];
     const found = existing[0] || await createReceivable(input,db);
     const row=await findReceivable(agencyId,found.id,db,true);

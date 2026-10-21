@@ -9,7 +9,7 @@ function addresses(value) {
 }
 const recovery = new Set(['password_reset','admin_initiated_password_reset','account_login_help','school_staff_account_recovery',
   'guardian_portal_login_info','auricwell_account_recovery']);
-const familyTypes = new Set(['hub_portal_invite','co_guardian_invite','co_guardian_invite_failed','guardian_plan_review',
+const familyTypes = new Set(['hub_portal_invite','portal_migration_invite','co_guardian_invite','co_guardian_invite_failed','guardian_plan_review',
   'adaptive_full_intake_invite','intake_packet_completion','intake_summary_pdf_copy','insurance_card_followup',
   'session_reminder','session_confirmation','session_change','session_cancellation','school_session_notice','auricwell_session_reminder',
   'client_renewal','provider_waitlist_update','learning_client_message','school_roi_signer_completion','school_roi_signing','smart_school_roi']);

@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireAgencyAccess } from '../middleware/agencyAccess.middleware.js';
 import { addTicketAttachmentToClient } from '../controllers/ticketAttachmentFiling.controller.js';
+import { restrictGuardianBillingTicketAccess } from '../controllers/guardianSupportTickets.controller.js';
 import {
   listMySupportTickets,
   listSupportTicketsQueue,
@@ -69,6 +70,7 @@ router.post('/platform', createPlatformSupportTicket);
 router.post('/', createSupportTicket);
 
 // Thread messages (client-scoped + future general ticket threading)
+router.use('/:id', restrictGuardianBillingTicketAccess);
 router.get('/:id/messages', listSupportTicketMessages);
 router.get('/:id/client-assigned-providers', listClientAssignedProvidersForSupportTicket);
 router.post('/:id/forward-to-providers', forwardSupportTicketToProviders);
@@ -116,4 +118,3 @@ router.get('/:id/attachments/:attachmentId/download', requireAgencyAccess, downl
 router.post('/:id/attachments/:attachmentId/add-to-client', requireAgencyAccess, addTicketAttachmentToClient);
 
 export default router;
-

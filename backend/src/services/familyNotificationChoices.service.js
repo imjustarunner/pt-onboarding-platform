@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import {normalizeSmsPhone} from '../utils/smsThreadIdentity.js';
 import {dateToMysqlUtcDateTime,utcMysqlToIso} from '../utils/zonedWallTime.util.js';
-import {FAMILY_CHOICE_VERSION,FAMILY_CHOICE_DISCLOSURE,FAMILY_NOTIFICATION_CATEGORIES,normalizeFamilyChoices,choiceAllows,familyNotificationCategory} from '../utils/familyNotificationChoices.js';
+import {FAMILY_CHOICE_VERSION,FAMILY_CHOICE_DISCLOSURE,FAMILY_NOTIFICATION_CATEGORIES,normalizeFamilyChoices,normalizeAccountUpdateChoices,defaultFamilyChoices,choiceAllows,familyNotificationCategory} from '../utils/familyNotificationChoices.js';
 export const familyContactHash=value=>crypto.createHash('sha256').update(String(value||'').trim().toLowerCase()).digest('hex');
 const parse=value=>typeof value==='string'?JSON.parse(value):value;
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
@@ -46,7 +46,17 @@ export async function familyNotificationInvitationContext(token,db=pool) {
   if(!scope||!Number.isFinite(+expiry)||+expiry<=Date.now())throw unavailable();
   const recipient=await currentRecipient(scope,db);
   const [[saved]]=await db.execute('SELECT * FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[scope.agency_id,scope.client_id,scope.guardian_user_id]);
-  const choices=saved?normalizeFamilyChoices(parse(saved.choices_json)):Object.fromEntries(FAMILY_NOTIFICATION_CATEGORIES.map(c=>[c.key,'off']));
+  const {latestIntakeCommunicationChoices}=await import('./intakeCommunicationChoices.service.js');
+  const latest=await latestIntakeCommunicationChoices(scope.client_id,scope.agency_id);
+  const ownIntake=Number(latest?.guardianUserId)===Number(scope.guardian_user_id)||familyContactHash(latest?.recipientEmail)===scope.recipient_hash;
+  const intake=ownIntake?latest:null;
+  const choices=saved?normalizeFamilyChoices(parse(saved.choices_json)):defaultFamilyChoices({isSchool:recipient.client_type==='school',emailPreference:intake?.emailPreference});
+  const savedAt=new Date(saved?.updated_at instanceof Date?saved.updated_at:utcMysqlToIso(saved?.updated_at)).getTime();
+  const intakeAt=new Date(intake?.signedAt||intake?.submittedAt||0).getTime();
+  if(saved&&intakeAt>savedAt)for(const category of FAMILY_NOTIFICATION_CATEGORIES) {
+    if(intake.emailPreference==='no'||(intake.emailPreference==='scheduling_only'&&!['appointments','schedule_changes','school_sessions'].includes(category.key)))
+      choices[category.key]=choiceAllows(choices[category.key],'sms')?'sms':'off';
+  }
   const [[school]]=await db.execute(`SELECT disabled_at FROM school_session_email_preferences WHERE product='guardian' AND agency_id=? AND client_id=? AND recipient_hash=?`,[scope.agency_id,scope.client_id,scope.recipient_hash]);
   if(school?.disabled_at)choices.school_sessions=choiceAllows(choices.school_sessions,'sms')?'sms':'off';
   return {scope,recipient,choices,revision:Number(saved?.revision)||0};
@@ -54,18 +64,21 @@ export async function familyNotificationInvitationContext(token,db=pool) {
 /** A POST is required. A token permits preferences only, never access to the account or chart. */
 export async function saveFamilyNotificationChoices({token,input},db=pool) {
   if(input?.confirm!=='yes'||input?.version!==FAMILY_CHOICE_VERSION)throw fail('Please review and confirm your notification choices.');
-  const choices=normalizeFamilyChoices(input.choices);
+  const selected=normalizeAccountUpdateChoices(input.choices);
   if(!Number.isSafeInteger(Number(input.revision))||Number(input.revision)<0)throw fail('Reload this page before saving.');
   const connection=await db.getConnection();let locked=false;
   try {
     const context=await familyNotificationInvitationContext(token,connection),s=context.scope;
-    if(context.recipient.client_type!=='school'&&choices.school_sessions!=='off')throw fail('In-school session notices do not apply to this office enrollment.');
     const lockKey=`family-choices:${s.agency_id}:${s.client_id}:${s.guardian_user_id}`;
     const [[lock]]=await connection.execute('SELECT GET_LOCK(?,5) AS acquired',[lockKey]);
     if(!Number(lock?.acquired))throw fail('Your choices are being saved. Please try again.',409);
     locked=lockKey;await connection.beginTransaction();
     const current=await familyNotificationInvitationContext(token,connection);
     if(current.revision!==Number(input.revision))throw fail('Your choices changed in another window. Reload this page to see them.',409);
+    // The one appointment row maps to the actual enrollment. Existing-family
+    // preferences never enroll someone into unfinished-enrollment follow-ups.
+    const choices={...current.choices,...selected,
+      school_sessions:current.recipient.client_type==='school'?selected.appointments:'off'};
     const revision=current.revision+1,phone=normalizeSmsPhone(current.recipient.phone);
     await connection.execute(`INSERT INTO family_notification_choices
       (agency_id,client_id,guardian_user_id,recipient_hash,phone_hash,choices_json,revision) VALUES (?,?,?,?,?,?,?)
@@ -85,7 +98,7 @@ export async function saveFamilyNotificationChoices({token,input},db=pool) {
       WHERE product='guardian' AND agency_id=? AND client_id=? AND recipient_hash=?`,
       [choiceAllows(choices.school_sessions,'email')?null:dateToMysqlUtcDateTime(new Date()),s.agency_id,s.client_id,s.recipient_hash]);
     await connection.commit();
-    return {saved:true,revision,textPreferencesPending:Object.values(choices).some(c=>choiceAllows(c,'sms'))};
+    return {saved:true,revision,textPreferencesPending:Object.values(selected).some(c=>choiceAllows(c,'sms'))};
   }catch(error){await connection.rollback();throw error;}
   finally{if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[locked]);connection.release();}
 }
@@ -103,6 +116,7 @@ export async function latestFamilyEmailSchedulingChoice({agencyId,clientId,to,af
 export async function familyNotificationDeliveryGate({agencyId,clientId,to,channel='email',templateType,notificationCategory},db=pool) {
   const category=notificationCategory||familyNotificationCategory(templateType);
   if(!category||!Number(agencyId))return {allowed:true};
+  if(channel==='sms'&&category==='insurance')return {allowed:false,reason:'insurance_notifications_email_only'};
   if(!FAMILY_NOTIFICATION_CATEGORIES.some(c=>c.key===category))return {allowed:false,reason:'unknown_family_notification_category'};
   const address=channel==='sms'?normalizeSmsPhone(to):String(to||'').trim().toLowerCase();
   if(!address)return {allowed:false,reason:'family_notification_recipient_missing'};
@@ -119,6 +133,11 @@ export async function familyNotificationDeliveryGate({agencyId,clientId,to,chann
         return {allowed:false,reason:'enrollment_email_choice_off'};
     }
   }
-  const allowed=rows.every(row=>choiceAllows(parse(row.choices_json)?.[category],channel));
+  // An invitation to review preferences is separate from unfinished enrollment.
+  // It remains blocked when every optional email is off and by an intake decline.
+  const invitation=['family_notification_invitation','portal_migration_invite'].includes(String(templateType||'').replace(/^trigger:/,''));
+  const allowed=rows.every(row=>invitation&&channel==='email'
+    ?Object.values(parse(row.choices_json)||{}).some(choice=>choiceAllows(choice,'email'))
+    :choiceAllows(parse(row.choices_json)?.[category],channel));
   return {allowed,...(!allowed?{reason:'family_notification_category_off'}:{})};
 }

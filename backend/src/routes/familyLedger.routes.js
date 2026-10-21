@@ -1,4 +1,5 @@
 import {guardianBillingNeeds} from '../services/familyLedger/needs.js';
+import {pendingProviderCopays,recordCopayAttendance} from '../services/familyLedger/copayAttendance.js';
 import insuranceCardsRoutes from './insuranceCards.routes.js';
 import {postSignedService,listSignedServiceVisits} from '../services/familyLedger/serviceCharges.js';
 import {listServiceRates,saveServiceRate} from '../services/familyLedger/serviceRates.js';
@@ -32,6 +33,9 @@ const staff=run(async(req,res)=>{await requireBillingStaff(req.user,context(req)
 const staffOnly=async(req,res,next)=>{try{await requireBillingStaff(req.user,context(req).agencyId);next();}catch(e){next(e);}};
 const limited=rateLimit({windowMs:60000,max:30,standardHeaders:true,legacyHeaders:false});
 router.use('/insurance-cards',insuranceCardsRoutes);
+// Provider access is narrowly scoped to their own session attendance, not billing staff access.
+router.get('/provider/copay-attendance',run(async(req,res)=>res.json(await pendingProviderCopays({...context(req),providerUserId:req.user.id,serviceDate:req.query.date||null}))));
+router.post('/provider/copay-attendance/:id',limited,run(async(req,res)=>res.json(await recordCopayAttendance({...context(req),providerUserId:req.user.id,sessionId:positiveId(req.params.id),occurred:req.body.occurred}))));
 router.get('/collections/organizations',run(async(req,res)=>res.json(await collectionOrganizations(req.user))));
 router.get('/needs',run(async(req,res)=>res.json(await guardianBillingNeeds({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null}))));
 router.get('/payers',run(async(req,res)=>{const c=context(req);const [links]=await pool.execute("SELECT client_id FROM client_billing_payers WHERE agency_id=? AND guardian_user_id=? AND status='active'",[c.agencyId,c.userId]);const payers={};for(const link of links){try{await requireResponsiblePayer(c.userId,link.client_id,c.agencyId);}catch(e){if(e.status===403)continue;throw e;}const [rows]=await pool.execute("SELECT p.guardian_user_id AS userId,u.first_name,u.last_name FROM client_billing_payers p JOIN users u ON u.id=p.guardian_user_id WHERE p.agency_id=? AND p.client_id=? AND p.status='active' AND p.guardian_user_id<>?",[c.agencyId,link.client_id,c.userId]);payers[link.client_id]=[];for(const row of rows){try{await requireResponsiblePayer(row.userId,link.client_id,c.agencyId);payers[link.client_id].push({userId:row.userId,name:[row.first_name,row.last_name].filter(Boolean).join(' ')});}catch(e){if(e.status!==403)throw e;}}}res.json({payers});}));

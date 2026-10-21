@@ -1,0 +1,15 @@
+import express from 'express';
+import rateLimit from 'express-rate-limit';
+import {authenticate,requireActiveStatus} from '../middleware/auth.middleware.js';
+import {positiveId} from '../services/familyBillingPolicy.service.js';
+import {requireBillingStaff} from '../services/familyLedger/policy.js';
+import {portalMigrationOverview,confirmMigrationInformation,prepareMigrationCohort,inviteMigrationFamily} from '../services/portalMigration.service.js';
+const router=express.Router();router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
+const run=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){next(e);}};
+const context=req=>({user:req.user,clientId:positiveId(req.params.clientId),agencyId:positiveId(req.query.agencyId||req.body.agencyId)});
+router.get('/clients/:clientId',run(async(req,res)=>res.json(await portalMigrationOverview(context(req)))));
+router.post('/clients/:clientId/information',run(async(req,res)=>res.json(await confirmMigrationInformation({...context(req),revision:req.body.revision,confirmed:req.body.confirmed}))));
+router.use('/staff',rateLimit({windowMs:60000,max:20}),async(req,res,next)=>{try{await requireBillingStaff(req.user,positiveId(req.body.agencyId));next();}catch(e){next(e);}});
+router.post('/staff/preview',run(async(req,res)=>res.json(await prepareMigrationCohort({actor:req.user,agencyId:positiveId(req.body.agencyId),clientIds:req.body.clientIds,cohortLabel:req.body.cohortLabel}))));
+router.post('/staff/invite',run(async(req,res)=>res.json(await inviteMigrationFamily({actor:req.user,agencyId:positiveId(req.body.agencyId),clientIds:req.body.clientIds,cohortLabel:req.body.cohortLabel,recipientKey:req.body.recipientKey}))));
+export default router;

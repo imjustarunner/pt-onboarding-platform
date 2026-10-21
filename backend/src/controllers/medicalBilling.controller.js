@@ -1764,6 +1764,7 @@ export const signClinicalNote = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the note author can apply the provider signature' } });
     }
     if (note.provider_signed_at) {
+      try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
       await completeH0002Screening(note, new Date(note.provider_signed_at).toISOString());
       const retryMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
       if (retryMeta?.source === H0002_SOURCE) await draftClaimAfterSignature(req, note);
@@ -1999,6 +2000,7 @@ export const signClinicalNote = async (req, res, next) => {
     await completeH0002Screening({ ...note, metadata_json: meta }, signedAtIso);
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
     if (!nonBillable) await draftClaimAfterSignature(req, note);
+    try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: signedAtIso, terminationTodo });
   } catch (e) {
     next(e);
