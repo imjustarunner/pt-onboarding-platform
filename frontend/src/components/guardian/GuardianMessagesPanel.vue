@@ -44,15 +44,14 @@
           <div v-if="!selectedKey" class="muted pad message-placeholder">Open your care conversation using the button above.</div>
           <template v-else>
             <button class="back-conversations" type="button" @click="selected=null;selectedEmail=null;messages=[]">← Back to conversations</button>
-            <SecureMessageBanner v-if="selectedType === 'secure'" :thread-id="selected?.thread_id" />
             <div class="gmsg-chat-head">
               <strong>{{ selectedTitle }}</strong>
-              <span class="muted">{{ selectedSubtitle }}</span>
+              <span v-if="selectedType === 'email'" class="muted">{{ selectedSubtitle }}</span>
             </div>
             <section v-if="selectedType === 'secure'" class="conversation-audience" aria-label="Who can see these messages">
               <strong>Who can read and reply</strong>
               <ul><li v-for="person in selected?.participants || []" :key="person.id">{{ person.name }}{{ Number(person.id) === Number(meId) ? ' (you)' : '' }} <span>· {{ person.role === 'guardian' ? 'Guardian' : person.role === 'client' ? 'Client' : person.role === 'provider' ? 'Provider' : 'Care team' }}</span></li></ul>
-              <p>This is a group conversation, including when you address one provider by name. Everyone listed can see your message. Authorized care-team access can change.</p>
+              <p>This is a group conversation. Everyone listed can read your replies, including when you address one person.</p>
             </section>
             <div v-if="messagesLoading" class="muted pad">Loading…</div>
             <div v-else class="gmsg-thread" ref="threadEl">
@@ -67,13 +66,12 @@
               </div>
               <div v-if="!messages.length" class="muted">No messages yet. Say hello.</div>
             </div>
-            <p v-if="selectedType === 'secure'" class="muted pad" role="note">Your reply goes to this shared care conversation. For emergencies, contact emergency services.</p>
             <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.</p>
             <div v-else class="gmsg-composer">
               <textarea
                 v-model="draft"
                 rows="2"
-                :placeholder="selectedType === 'email' ? 'Write an email reply…' : 'Write a secure message…'"
+                :placeholder="selectedType === 'email' ? 'Write an email reply…' : 'Write to everyone listed above…'"
               />
               <button
                 type="button"
@@ -81,9 +79,10 @@
                 :disabled="sending || messagesLoading || (selectedType === 'secure' && !audienceReady) || !draft.trim()"
                 @click="send"
               >
-                {{ sending ? 'Sending…' : 'Send secure message' }}
+                {{ sending ? 'Sending…' : selectedType === 'email' ? 'Send reply' : 'Send to group' }}
               </button>
             </div>
+            <details v-if="selectedType === 'secure'" class="muted pad"><summary>Message security & activity</summary><SecureMessageBanner :thread-id="selected?.thread_id" /><p>For emergencies, contact emergency services.</p></details>
           </template>
         </section>
       </div>
