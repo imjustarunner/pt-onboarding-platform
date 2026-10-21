@@ -54,9 +54,12 @@ function generateOccurrenceDates({ startDate, recurrence, occurrenceCount }) {
   const normalized = normalizeYmd(startDate);
   if (!normalized) return [];
   // Open-ended weekly series: validate a forward window (12 weeks).
-  const count = occurrenceCount == null
-    ? (isRecurringFrequency(recurrence) ? 12 : 1)
-    : Math.max(1, Number(occurrenceCount || 1));
+  const count =
+    occurrenceCount == null
+      ? isRecurringFrequency(recurrence)
+        ? 12
+        : 1
+      : Math.max(1, Number(occurrenceCount || 1));
   if (!isRecurringFrequency(recurrence) || count === 1) {
     return [normalized];
   }
@@ -91,6 +94,45 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
  *
  * @returns {Promise<{ ok: true }|{ ok: false, status: number, error: object }>}
  */
+// Read one consistent inventory per review rather than querying every room ×
+// hour × recurring date. Re-read on confirmation under the approval lock.
+export async function loadOfficeSlotInventory(
+  database,
+  { roomIds, startAt, endAt }
+) {
+  const ids = [...new Set(roomIds.map(Number).filter((id) => id > 0))];
+  if (!ids.length)
+    return { events: [], assignments: [], plans: [], legacy: [] };
+  const marks = ids.map(() => '?').join(',');
+  const [[events], [assignments], [plans], [legacy]] = await Promise.all([
+    database.execute(
+      `SELECT e.*,u.first_name,u.last_name,r.label AS room_label,r.room_number
+      FROM office_events e JOIN office_rooms r ON r.id=e.room_id
+      LEFT JOIN users u ON u.id=COALESCE(e.booked_provider_id,e.assigned_provider_id)
+      WHERE e.room_id IN (${marks}) AND e.start_at<? AND e.end_at>?
+      AND (e.status IS NULL OR e.status<>'CANCELLED')
+      AND (e.status='BOOKED' OR e.slot_state IN ('ASSIGNED_BOOKED','COMPANY_HOLD'))`,
+      [...ids, endAt, startAt]
+    ),
+    database.execute(
+      `SELECT a.*,u.first_name,u.last_name,l.name AS office_name FROM office_standing_assignments a
+      JOIN users u ON u.id=a.provider_id JOIN office_locations l ON l.id=a.office_location_id
+      WHERE a.room_id IN (${marks}) AND a.is_active=TRUE`,
+      ids
+    ),
+    database.execute(
+      `SELECT p.* FROM office_booking_plans p JOIN office_standing_assignments a ON a.id=p.standing_assignment_id
+      WHERE a.room_id IN (${marks}) AND a.is_active=TRUE AND p.is_active=TRUE ORDER BY p.id DESC`,
+      ids
+    ),
+    database.execute(
+      `SELECT a.*,u.first_name,u.last_name FROM office_room_assignments a LEFT JOIN users u ON u.id=a.assigned_user_id
+      WHERE a.room_id IN (${marks}) AND a.start_at<? AND (a.end_at IS NULL OR a.end_at>?)`,
+      [...ids, endAt, startAt]
+    )
+  ]);
+  return { events, assignments, plans, legacy };
+}
 async function validateOfficeSlotSeries({
   pool,
   providerId,
@@ -102,178 +144,109 @@ async function validateOfficeSlotSeries({
   endHour,
   recurrence,
   occurrenceCount,
-  officeTimeZone = null
+  officeTimeZone = null,
+  inventory = null,
+  occurrenceDates: explicitDates = null
 }) {
-  const occurrenceDates = generateOccurrenceDates({ startDate, recurrence, occurrenceCount });
-
-  let officeTz = String(officeTimeZone || '').trim() || null;
-  if (!officeTz && officeLocationId) {
-    try {
-      const [tzRows] = await pool.execute(
-        `SELECT timezone FROM office_locations WHERE id = ? LIMIT 1`,
-        [officeLocationId]
-      );
-      officeTz = String(tzRows?.[0]?.timezone || '').trim() || 'America/Denver';
-    } catch {
-      officeTz = 'America/Denver';
-    }
+  const dates =
+    explicitDates ||
+    generateOccurrenceDates({ startDate, recurrence, occurrenceCount });
+  if (
+    !dates.length ||
+    !Number.isInteger(startHour) ||
+    !Number.isInteger(endHour) ||
+    endHour <= startHour ||
+    startHour < 0 ||
+    endHour > 24
+  )
+    return {
+      ok: false,
+      status: 400,
+      error: {
+        message: 'Choose valid dates and a whole-hour office time range.'
+      }
+    };
+  let timezone = officeTimeZone;
+  if (!timezone) {
+    const [[office]] = await pool.execute(
+      'SELECT timezone FROM office_locations WHERE id=? LIMIT 1',
+      [officeLocationId]
+    );
+    timezone = office?.timezone || 'America/Denver';
   }
-  officeTz = officeTz || 'America/Denver';
-
-  for (let oi = 0; oi < occurrenceDates.length; oi++) {
-    const occDate = occurrenceDates[oi];
-    const occurrenceWeekday = new Date(`${occDate}T12:00:00Z`).getUTCDay();
-
-    for (let h = startHour; h < endHour; h++) {
-      // office_events.start_at/end_at are UTC — never compare wall-digit strings or HOUR()/DAYOFWEEK().
-      const startAt = mysqlDateTimeForDateHour(occDate, h, officeTz);
-      const endAt = mysqlDateTimeForDateHour(occDate, h + 1, officeTz);
-      if (!startAt || !endAt) continue;
-
-      // Check for a concrete office_event blocking THIS occurrence only.
-      // Only real bookings / company holds block — not ASSIGNED_AVAILABLE.
-      const [evConflicts] = await pool.execute(
-        `SELECT e.id, u.first_name, u.last_name, r.label AS room_label, r.room_number
-         FROM office_events e
-         JOIN office_rooms r ON r.id = e.room_id
-         LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
-         WHERE e.room_id = ?
-           AND e.start_at < ?
-           AND e.end_at > ?
-           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-           AND COALESCE(e.booked_provider_id, e.assigned_provider_id) != ?
-           AND (
-             UPPER(COALESCE(e.status, '')) = 'BOOKED'
-             OR UPPER(COALESCE(e.slot_state, '')) IN ('ASSIGNED_BOOKED', 'COMPANY_HOLD')
-           )
-         LIMIT 1`,
-        [roomId, endAt, startAt, providerId]
-      );
-      if (evConflicts?.length) {
-        const c = evConflicts[0];
-        const roomLabel = c.room_number
-          ? `#${c.room_number} ${c.room_label || ''}`.trim()
-          : (c.room_label || `Room ${roomId}`);
-        const blocker = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
-        const dateLabel = new Date(occDate + 'T00:00:00').toLocaleDateString('en-US', {
-          weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-        });
+  const { toMysqlUtcDateTime } = await import(
+    '../utils/officeEventDateTime.util.js'
+  );
+  const { isAssignmentActiveOnDate, shouldBookOnDate, shouldBookByCount } =
+    await import('./officeScheduleMaterializer.service.js');
+  const data =
+    inventory ||
+    (await loadOfficeSlotInventory(pool, {
+      roomIds: [roomId],
+      startAt: mysqlDateTimeForDateHour(dates[0], startHour, timezone),
+      endAt: mysqlDateTimeForDateHour(dates.at(-1), endHour, timezone)
+    }));
+  const inRoom = (row) => Number(row.room_id) === Number(roomId);
+  const otherProvider = (row) =>
+    Number(
+      row.booked_provider_id ||
+        row.assigned_provider_id ||
+        row.provider_id ||
+        row.assigned_user_id ||
+        row.user_id ||
+        0
+    ) !== Number(providerId);
+  const overlaps = (row, start, end) =>
+    toMysqlUtcDateTime(row.start_at) < end &&
+    (!row.end_at || toMysqlUtcDateTime(row.end_at) > start);
+  const conflict = (row, date, index, hour, plan = false) => ({
+    ok: false,
+    status: 409,
+    error: {
+      message: `Cannot approve — this room is reserved by ${[row.first_name, row.last_name].filter(Boolean).join(' ') || 'another provider'} on ${date} at ${hour}:00 (${timezone})${plan ? ' in the recurring booking plan' : ''}. Choose a different room.`,
+      blockedDate: date,
+      blockedOccurrence: index + 1,
+      blockingProvider:
+        [row.first_name, row.last_name].filter(Boolean).join(' ') || null,
+      missingMaterializedEvent: plan
+    }
+  });
+  for (let i = 0; i < dates.length; i++)
+    for (let hour = startHour; hour < endHour; hour++) {
+      const date = dates[i],
+        start = mysqlDateTimeForDateHour(date, hour, timezone),
+        end = mysqlDateTimeForDateHour(date, hour + 1, timezone);
+      if (!start || !end)
         return {
           ok: false,
-          status: 409,
+          status: 400,
           error: {
-            message: `Cannot approve — ${roomLabel} is already booked by ${blocker} on ${dateLabel} at ${DAY_NAMES[occurrenceWeekday] || occurrenceWeekday} ${h}:00. Please choose a different room or start date.`,
-            blockedOccurrence: oi + 1,
-            blockedDate: occDate,
-            blockingProvider: blocker,
-            roomLabel
+            message: 'This office time cannot be resolved in its timezone.'
           }
         };
-      }
-
-      // Standing conflict: only when THIS occurrence is already booked for the standing owner.
-      // Future booked Fridays must not block an open occurrence (biweekly off-week / released day).
-      if (officeLocationId) {
-        const [saConflicts] = await pool.execute(
-          `SELECT a.id, a.provider_id, a.office_location_id, a.availability_mode,
-                  a.weekday, a.assigned_frequency, a.legacy_monthly_four_weeks, a.available_since_date, a.temporary_until_date,
-                  u.first_name, u.last_name, u.role, ol.name AS office_name
-           FROM office_standing_assignments a
-           JOIN users u ON u.id = a.provider_id
-           LEFT JOIN office_locations ol ON ol.id = a.office_location_id
-           WHERE a.office_location_id = ?
-             AND a.room_id = ?
-             AND (a.weekday = ? OR a.assigned_frequency = 'MONTHLY')
-             AND a.hour = ?
-             AND a.is_active = TRUE
-             AND a.provider_id != ?
-             AND (a.available_since_date IS NULL OR a.available_since_date <= ?)
-             AND (
-               UPPER(COALESCE(a.availability_mode, '')) <> 'TEMPORARY'
-               OR a.temporary_until_date IS NULL
-               OR a.temporary_until_date >= ?
-             )
-           ORDER BY a.id`,
-          [officeLocationId, roomId, occurrenceWeekday, h, providerId, occDate, occDate]
+      const event = data.events.find(
+        (row) => inRoom(row) && otherProvider(row) && overlaps(row, start, end)
+      );
+      if (event) return conflict(event, date, i, hour);
+      const legacy = data.legacy.find(
+        (row) => inRoom(row) && otherProvider(row) && overlaps(row, start, end)
+      );
+      if (legacy) return conflict(legacy, date, i, hour);
+      for (const assignment of data.assignments.filter(
+        (row) => inRoom(row) && otherProvider(row) && Number(row.hour) === hour
+      )) {
+        if (!isAssignmentActiveOnDate(assignment, date)) continue;
+        const plan = data.plans.find(
+          (p) => Number(p.standing_assignment_id) === Number(assignment.id)
         );
-        for (const c of saConflicts || []) {
-          const staffRoles = new Set([
-            'super_admin', 'superadmin', 'admin', 'staff', 'support', 'clinical_practice_assistant'
-          ]);
-          if (staffRoles.has(String(c.role || '').trim().toLowerCase())) {
-            continue;
-          }
-          const [liveEvents] = await pool.execute(
-            `SELECT 1
-             FROM office_events
-             WHERE room_id = ?
-               AND start_at < ?
-               AND end_at > ?
-               AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-               AND (
-                 UPPER(COALESCE(status, '')) = 'BOOKED'
-                 OR UPPER(COALESCE(slot_state, '')) IN ('ASSIGNED_BOOKED', 'COMPANY_HOLD')
-               )
-               AND (
-                 standing_assignment_id = ?
-                 OR booked_provider_id = ?
-                 OR assigned_provider_id = ?
-               )
-             LIMIT 1`,
-            [roomId, endAt, startAt, c.id, c.provider_id, c.provider_id]
-          );
-          let reservedByPlan = false;
-          if (!liveEvents?.length) {
-            try {
-              // Dynamic import avoids circular load with officeScheduleMaterializer.
-              const {
-                shouldBookOnDate,
-                shouldBookByCount,
-                isAssignmentActiveOnDate
-              } = await import('./officeScheduleMaterializer.service.js');
-              if (isAssignmentActiveOnDate(c, occDate)) {
-                const [planRows] = await pool.execute(
-                  `SELECT *
-                   FROM office_booking_plans
-                   WHERE standing_assignment_id = ?
-                     AND is_active = TRUE
-                   ORDER BY id DESC
-                   LIMIT 1`,
-                  [c.id]
-                );
-                const plan = planRows?.[0] || null;
-                reservedByPlan = !!(plan && shouldBookOnDate(plan, c, occDate) && shouldBookByCount(plan, c, occDate));
-              }
-            } catch {
-              reservedByPlan = false;
-            }
-          }
-          if (liveEvents?.length || reservedByPlan) {
-            const blocker = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
-            const officeNote = c.office_name ? ` in ${c.office_name}` : '';
-            const dateLabel = new Date(occDate + 'T00:00:00').toLocaleDateString('en-US', {
-              weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-            });
-            return {
-              ok: false,
-              status: 409,
-              error: {
-                message: reservedByPlan && !liveEvents?.length
-                  ? `Cannot approve — ${blocker}${officeNote} has this recurring slot reserved on ${dateLabel} (booking plan), but it is missing from the day grid. Refresh the schedule or rematerialize, then choose another room if needed.`
-                  : `Cannot approve — this room/time is already booked by ${blocker}${officeNote} on ${dateLabel}. Please choose a different room.`,
-                blockedOccurrence: oi + 1,
-                blockedDate: occDate,
-                blockingProvider: blocker,
-                blockingOffice: c.office_name || null,
-                missingMaterializedEvent: !!(reservedByPlan && !liveEvents?.length)
-              }
-            };
-          }
-        }
+        if (
+          plan &&
+          shouldBookOnDate(plan, assignment, date) &&
+          shouldBookByCount(plan, assignment, date)
+        )
+          return conflict(assignment, date, i, hour, true);
       }
     }
-  }
-
   return { ok: true };
 }
 

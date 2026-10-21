@@ -89,6 +89,7 @@
               :to="`/${slug}/admin/office-approvals`"
               class="nav-item"
             >Office Approvals</router-link>
+            <router-link :to="`${prefix}/buildings/schedule`" class="nav-item">Building Master</router-link>
           </div>
           <div class="sidebar-section">
             <div class="section-header">PROGRAMS</div>
@@ -197,6 +198,11 @@
         </div>
 
         <FrequentPagesBar :limit="6" class="fpb-dashboard" />
+
+        <router-link v-if="isOperationsMode" :to="`${prefix}/buildings/schedule?approvals=1`" class="building-master-shortcut">
+          <strong>Building Master</strong>
+          <span>{{ officeRequestCount }} pending office requests · Review rooms, conflicts, and approvals →</span>
+        </router-link>
 
         <div class="dashboard-stack">
           <div
@@ -930,7 +936,7 @@ const glanceCards = computed(() => {
         hint: 'Pending office requests & coverage conflicts',
         cta: 'Review',
         tone: officeRequestCount.value > 0 ? 'danger' : 'accent',
-        to: `${prefix.value}/admin/office-approvals`
+        to: `${prefix.value}/buildings/schedule?approvals=1`
       },
       {
         key: 'new_hires',
@@ -1169,6 +1175,7 @@ const defaultQuickActionIds = computed(() => {
       'schedule',
       'provider_availability_dashboard',
       'office_approvals',
+      'building_master',
       'communications_center',
       'communications',
       ...(canSeeSchoolPortals.value ? ['school_portals'] : []),
@@ -1426,6 +1433,17 @@ const quickActionsCatalog = computed(() => {
       category: 'Events',
       roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'provider'],
       capabilities: ['canAccessOutreach']
+    },
+    {
+      id: 'building_master',
+      title: 'Building Master',
+      description: 'Review rooms, conflicts, and office requests',
+      to: `${p}/buildings/schedule?approvals=1`,
+      emoji: '🏢',
+      iconKey: 'schedule',
+      category: 'Scheduling',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+      capabilities: ['canAccessPlatform']
     },
     {
       id: 'office_approvals',
@@ -2042,16 +2060,13 @@ const loadDashboard = async () => {
       canSeeSchoolPortals.value
         ? withTimeout(fetchProviderCoverageSummary(agencyId), 8000).catch(() => null)
         : Promise.resolve(null),
-      safeGet('/availability/admin/office-requests', {
-        params: { agencyId, status: 'PENDING' }
+      safeGet('/office-schedule/approvals', {
+        params: { summary: 1 }
       }, 8000),
       safeGet('/hiring/onboarding-candidates', { params: { agencyId } }, 8000)
     ]);
 
-    const officeList = Array.isArray(officeRequestsRaw)
-      ? officeRequestsRaw
-      : (Array.isArray(officeRequestsRaw?.requests) ? officeRequestsRaw.requests : []);
-    officeRequestCount.value = officeList.length;
+    officeRequestCount.value = Number(officeRequestsRaw?.total || 0);
 
     const onboardingList = Array.isArray(onboardingRaw)
       ? onboardingRaw
@@ -2412,6 +2427,14 @@ const logout = () => {
 </script>
 
 <style scoped>
+.building-master-shortcut {
+  display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center;
+  padding: 16px; margin: 0 0 18px; border: 1px solid #b5d9c5;
+  border-radius: 12px; background: #eef8f2; color: #175d43; text-decoration: none;
+}
+.building-master-shortcut span { font-size: 14px; }
+.building-master-shortcut:focus-visible { outline: 3px solid #175d43; outline-offset: 2px; }
+
 .tenant-admin-dashboard {
   min-height: 100vh;
   background:

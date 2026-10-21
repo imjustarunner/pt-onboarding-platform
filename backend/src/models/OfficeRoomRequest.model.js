@@ -17,6 +17,10 @@ class OfficeRoomRequest {
        VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
       [userId, locationId, roomId, requestType, startAt, endAt, notes]
     );
+    try {
+      const {notifyOfficeRequestPending}=await import('../services/officeApprovalWorkflow.service.js');
+      await notifyOfficeRequestPending({source:'legacy',id:result.insertId,officeId:locationId,providerId:userId});
+    } catch(error) { console.error('[office-request] Pending alert failed',error.message); }
     return this.findById(result.insertId);
   }
 
@@ -34,6 +38,7 @@ class OfficeRoomRequest {
       `SELECT
          r.*,
          ol.name AS location_name,
+         ol.timezone AS office_timezone,
          rm.name AS room_name,
          u.first_name AS user_first_name,
          u.last_name AS user_last_name,
@@ -55,6 +60,7 @@ class OfficeRoomRequest {
       `SELECT
          r.*,
          ol.name AS location_name,
+         ol.timezone AS office_timezone,
          rm.name AS room_name,
          u.first_name AS user_first_name,
          u.last_name AS user_last_name,
@@ -89,6 +95,7 @@ class OfficeRoomRequest {
       `SELECT DISTINCT
          r.*,
          ol.name AS location_name,
+         ol.timezone AS office_timezone,
          rm.name AS room_name,
          u.first_name AS user_first_name,
          u.last_name AS user_last_name,

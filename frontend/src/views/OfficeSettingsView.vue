@@ -53,6 +53,19 @@
           <div class="hint">
             Delete archives then permanently deletes this building and its rooms/events.
           </div>
+          <div class="building-photo-editor">
+            <img v-if="buildingPhoto" :src="toUploadsUrl(buildingPhoto)" :alt="`${officeName} building`" class="building-photo-preview" />
+            <div>
+              <h3>Building photo</h3>
+              <p class="hint">Shown in office request and approval emails. Add each office's interior photo in its room photo gallery below.</p>
+              <label v-if="canManageOfficeSettings" class="building-photo-upload">
+                {{ photoSaving ? 'Uploading…' : buildingPhoto ? 'Replace building photo' : 'Upload building photo' }}
+                <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" :disabled="photoSaving || loading" @change="uploadBuildingPhoto" />
+              </label>
+              <button v-if="buildingPhoto && canManageOfficeSettings" class="btn btn-secondary" :disabled="photoSaving || loading" @click="removeBuildingPhoto">Remove photo</button>
+              <p class="hint">JPG, PNG, GIF, or WebP, up to 10 MB. Until a photo is added, emails simply show the building details.</p>
+            </div>
+          </div>
         </div>
 
         <div v-if="isSuperAdmin" class="section">
@@ -375,6 +388,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
+import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { useAuthStore } from '../store/auth';
 import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
 import OfficeKioskAccessSettings from '../components/kiosk/OfficeKioskAccessSettings.vue';
@@ -418,6 +432,37 @@ const error = ref('');
 const officeName = ref('');
 const officeTimezone = ref('America/New_York');
 const svgUrl = ref('');
+const buildingPhoto = ref('');
+const photoSaving = ref(false);
+async function uploadBuildingPhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file || !canManageOfficeSettings.value) return;
+  if (file.size > 10 * 1024 * 1024) {
+    error.value = 'Choose a photo smaller than 10 MB.';
+    event.target.value = '';
+    return;
+  }
+  const selectedOffice = officeId.value;
+  photoSaving.value = true;
+  error.value = '';
+  try {
+    const body = new FormData();
+    body.append('photo', file);
+    const response = await api.post(`/offices/${selectedOffice}/photo`, body, { headers: { 'Content-Type': 'multipart/form-data' } });
+    if (officeId.value === selectedOffice) buildingPhoto.value = response.data.building_photo_url || '';
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to upload building photo.'; }
+  finally { photoSaving.value = false; event.target.value = ''; }
+}
+async function removeBuildingPhoto() {
+  const selectedOffice = officeId.value;
+  photoSaving.value = true;
+  error.value = '';
+  try {
+    await api.delete(`/offices/${selectedOffice}/photo`);
+    if (officeId.value === selectedOffice) buildingPhoto.value = '';
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to remove building photo.'; }
+  finally { photoSaving.value = false; }
+}
 const officeAgencies = ref([]);
 const allAgencies = ref([]);
 const selectedAgencyToAdd = ref('');
@@ -524,6 +569,7 @@ const loadAll = async () => {
     officeName.value = officeResp.data?.name || '';
     officeTimezone.value = officeResp.data?.timezone || 'America/New_York';
     svgUrl.value = officeResp.data?.svg_url || '';
+    buildingPhoto.value = officeResp.data?.building_photo_url || '';
     officeAgencies.value = officeResp.data?.agencies || [];
     questionnaires.value = qResp?.data || [];
     // Show only shared modules with form pages (kiosk questionnaires)
@@ -919,6 +965,7 @@ const removeAgencyAccess = async (agencyId) => {
 
 watch(() => officeId.value, async () => {
   officeName.value = '';
+  buildingPhoto.value = '';
   officeAgencies.value = [];
   await loadAll();
 }, { immediate: true });
@@ -927,6 +974,12 @@ onMounted(loadAgencyOptions);
 </script>
 
 <style scoped>
+.building-photo-editor { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border-color, #dce8e1); }
+.building-photo-editor > div { flex: 1 1 240px; min-width: 0; }
+.building-photo-preview { width: 240px; max-width: 100%; height: 160px; object-fit: cover; border-radius: 12px; }
+.building-photo-upload { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; font-weight: 600; }
+.building-photo-upload input { max-width: 100%; min-height: 44px; }
+
 .card {
   background: white;
   border: 1px solid var(--border);

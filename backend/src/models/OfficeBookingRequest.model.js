@@ -77,6 +77,10 @@ class OfficeBookingRequest {
       );
     }
     if (sessionContext) await pool.execute('UPDATE office_booking_requests SET session_context_json = ? WHERE id = ?', [JSON.stringify(sessionContext), result.insertId]);
+    try {
+      const {notifyOfficeRequestPending}=await import('../services/officeApprovalWorkflow.service.js');
+      await notifyOfficeRequestPending({source:'booking',id:result.insertId,officeId:officeLocationId,providerId:requestedProviderId});
+    } catch(error) { console.error('[office-request] Pending alert failed',error.message); }
     return this.findById(result.insertId);
   }
 

@@ -14,7 +14,7 @@
       </div>
     </div>
 
-    <div v-if="kioskUrl" class="kiosk-link-panel">
+    <div v-if="kioskUrl && route.query.approvals !== '1' && !route.query.request" class="kiosk-link-panel">
       <div>
         <strong>{{ selectedOfficeName }} · Lobby check-in</strong>
         <p>One building code covers all affiliated agencies. No client login needed.</p>

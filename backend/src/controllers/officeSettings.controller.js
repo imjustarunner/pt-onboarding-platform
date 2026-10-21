@@ -10,6 +10,8 @@ import Module from '../models/Module.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
+import sharp from 'sharp';
+import StorageService from '../services/storage.service.js';
 import { officeAccessStatus, rotateOfficeCode, revokeOfficeDevice } from '../services/officeKioskAccess.service.js';
 
 export const manageOfficeKioskAccess = async (req, res, next) => {
@@ -62,6 +64,35 @@ async function requireOfficeAccess(req, officeLocationId) {
   const agencies = await User.getAgencies(req.user.id);
   return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: agencies.map((a) => a.id) });
 }
+
+export const updateBuildingPhoto = async (req, res, next) => {
+  try {
+    const officeId = Number(req.params.officeId);
+    if (!Number.isSafeInteger(officeId) || officeId <= 0) return res.status(400).json({ error: { message: 'Invalid building.' } });
+    if (!(await canManageOfficeSettings(req)) || !(await requireOfficeAccess(req, officeId))) {
+      return res.status(403).json({ error: { message: 'Building management access is required.' } });
+    }
+    const office = await OfficeLocation.findById(officeId);
+    if (!office?.is_active) return res.status(404).json({ error: { message: 'Active building not found.' } });
+    if (office.physical_office_location_id) return res.status(409).json({ error: { message: 'Use the shared physical building.' } });
+    let storedPath = null;
+    if (req.method !== 'DELETE') {
+      if (!req.file) return res.status(400).json({ error: { message: 'Choose a building photo.' } });
+      let buffer;
+      try {
+        // Decode the image, remove metadata, orient phone photos, and keep email images small.
+        buffer = await sharp(req.file.buffer, { limitInputPixels: 40000000 }).rotate()
+          .resize({ width: 1400, height: 1000, fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 82 }).toBuffer();
+      } catch {
+        return res.status(400).json({ error: { message: 'This image could not be read. Use a JPG, PNG, GIF, or WebP photo.' } });
+      }
+      storedPath = (await StorageService.saveOfficeBuildingPhoto(officeId, buffer)).relativePath;
+    }
+    await pool.execute('UPDATE office_locations SET building_photo_url=? WHERE id=?', [storedPath, officeId]);
+    return res.json({ building_photo_url: storedPath });
+  } catch (error) { next(error); }
+};
 
 /** Attach agencyIds[] to each office location for tenant filtering in schedule UI. */
 async function withOfficeAgencyIds(locations) {

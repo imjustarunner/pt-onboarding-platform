@@ -1,3 +1,4 @@
+import * as approvalWorkflow from '../controllers/officeApprovalWorkflow.controller.js';
 import { getOfficeAssignmentOptions } from '../services/officeAssignmentOptions.service.js';
 import { bookOfficeToday } from '../services/officeSameDayBooking.service.js';
 import express from 'express';
@@ -97,6 +98,11 @@ router.post('/requests', (req,res,next) => requirePhysicalOffice(req,res,next,re
 
 // Office booking requests (frequency-aware, supports kiosk auto-book for same-day open slots)
 router.post('/booking-requests', (req,res,next) => requirePhysicalOffice(req,res,next,req.body?.officeLocationId), createOfficeBookingRequest);
+
+// All entry points share this approval workflow. Old endpoints remain compatible.
+router.get('/approvals', approvalWorkflow.list);
+router.get('/approvals/:key/context', approvalWorkflow.context);
+router.post('/approvals/:key/decision', approvalWorkflow.decide);
 
 // Approvals (CPA/Admin)
 router.get('/requests/pending', listPendingRequests);

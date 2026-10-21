@@ -1,14 +1,20 @@
 <template>
   <div class="office-schedule">
+    <section v-if="showOfficeApprovals && canManageSchedule" class="building-approval-workspace">
+      <button class="btn btn-secondary" @click="closeOfficeApprovals">← Building Master grid</button>
+      <OfficeApprovalsView @decided="loadGrid" />
+    </section>
+    <div v-show="!showOfficeApprovals || !canManageSchedule">
     <div class="header" data-tour="buildings-schedule-header">
       <div>
-        <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Schedule</h3>
+        <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Master</h3>
         <div class="subtitle" data-tour="buildings-schedule-subtitle">
           Weekly office grid (7am–9pm)
           <span v-if="officeTimezoneLabel"> · Times are in {{ officeTimezoneLabel }}</span>
         </div>
       </div>
       <div class="controls" data-tour="buildings-schedule-controls">
+        <router-link v-if="canManageSchedule" class="btn btn-primary btn-sm" :to="officeApprovalsTo">Office approvals<span v-if="officeApprovalCount !== null"> · {{ officeApprovalCount }}</span></router-link>
         <div class="field" data-tour="buildings-schedule-week">
           <label>Week of</label>
           <input v-model="weekStart" type="date" @change="loadGrid" :disabled="!officeId" />
@@ -30,7 +36,7 @@
     <div v-else-if="loading && !grid" class="loading">Loading…</div>
     <div v-if="successToast" class="success-toast">{{ successToast }}</div>
 
-    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? '/admin/office-approvals' : ''" />
+    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? officeApprovalsTo : ''" />
 
     <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="office-schedule-legend" data-tour="buildings-schedule-legend">
@@ -869,11 +875,13 @@
       @close="closeOfficeRoomPhotoGallery"
       @updated="loadGrid"
     />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { confirmOneTimeRoom } from '../utils/officeRequestConfirmation';
+import OfficeApprovalsView from './admin/OfficeApprovalsView.vue';
 import UnassignedOfficeRequests from '../components/schedule/UnassignedOfficeRequests.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -892,6 +900,26 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const officeApprovalCount = ref(null);
+const showOfficeApprovals = computed(() => route.query.approvals === '1' || !!route.query.request);
+function closeOfficeApprovals() {
+  router.replace({ query: { ...route.query, approvals: undefined, request: undefined, tab: undefined } });
+  loadGrid();
+}
+const officeApprovalsTo = computed(() => ({
+  path: route.path,
+  query: { ...route.query, approvals: '1' }
+}));
+async function loadOfficeApprovalCount() {
+  if (!canManageSchedule.value) return;
+  try {
+    const { data } = await api.get('/office-schedule/approvals', { params: { summary: 1 } });
+    officeApprovalCount.value = data.total;
+  } catch {
+    officeApprovalCount.value = null;
+  }
+}
 
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
 const officeRoomPhotoGallery = ref({ open: false, officeId: 0, roomId: 0, roomLabel: '' });
@@ -1265,6 +1293,7 @@ const goToPreviousWeek = async () => {
 let gridRequestId=0;
 const loadGrid = async ({preserveSelection=false} = {}) => {
   const requestId=++gridRequestId;
+  loadOfficeApprovalCount();
   if (!officeId.value) return;
   const hadGrid = !!grid.value;
   try {
@@ -2877,6 +2906,12 @@ watch(() => officeId.value, async () => {
   await loadGrid();
   if (canManageSchedule.value) await loadProviders();
 }, { immediate: true });
+
+watch(() => route.query.weekStart || route.query.date, (date) => {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  weekStart.value = date;
+  void loadGrid();
+});
 
 let officeRefreshTimer;
 let lastVisibleRefresh = 0;

@@ -221,6 +221,8 @@
       <p class="muted">
         “Mark Being Seen” confirms that a returning client from last fall has actually resumed services this school year. Enter the first completed session date this year—not a planned appointment. This is a temporary manual check during our EHR transition; once the EHR connection is active and verified to update service status, completed sessions will replace this manual step.
       </p>
+      <p class="muted">Save the steps you have completed. A client may stay on this list when another step is pending. After reviewing the list, select “Save changes &amp; mark reviewed” to finish this section.</p>
+      <p v-if="fallSaveNotice" class="fall-save-notice" role="status">{{ fallSaveNotice }}</p>
       <p v-if="fallLoading" class="muted">Loading action-item clients…</p>
       <ul v-else-if="fallClients.length" class="fall-list">
         <li v-for="c in fallClients" :key="c.id">
@@ -229,14 +231,16 @@
             <span class="muted"> · {{ c.schoolName || 'School' }}</span>
             <div class="badge">{{ c.lifecycleAction?.label || 'Action needed' }}</div><ul class="client-action-details"><li v-for="item in c.actionItems||[]" :key="item">{{item}}</li></ul>
           </div>
-          <div v-if="['confirm_services_started','provider_intake'].includes(c.lifecycleAction?.actionKey)" class="client-inline-actions">
+          <fieldset v-if="['confirm_services_started','provider_intake'].includes(c.lifecycleAction?.actionKey)" class="client-inline-actions preview-fields" :disabled="saving || fallLoading">
             <template v-if="c.lifecycleAction.actionKey === 'provider_intake'">
               <label class="field"><span>Parent / guardian contacted on</span><input v-model="c.checklist.parentsContactedAt" type="date" class="input" :max="today" /></label>
               <label class="field"><span>Was contact successful?</span><select v-model="c.checklist.parentsContactedSuccessful" class="input"><option value="">Choose</option><option :value="true">Yes</option><option :value="false">No — follow-up needed</option></select></label>
             </template>
             <label class="field"><span>{{c.lifecycleAction.actionKey === 'confirm_services_started' ? 'First completed session this school year' : 'First completed service (leave blank if pending)'}}</span><input v-model="c.checklist.firstServiceAt" type="date" class="input" :max="today" /></label>
             <button type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="saveFallClient(c)">{{c.lifecycleAction.actionKey === 'confirm_services_started' ? 'Mark being seen' : 'Save completed steps'}}</button>
-          </div>
+            <p v-if="fallSaveMessages[c.id]" class="fall-save-notice">{{ fallSaveMessages[c.id] }}</p>
+            <p v-if="fallSaveErrors[c.id]" class="err" role="alert">{{ fallSaveErrors[c.id] }}</p>
+          </fieldset>
           <a
             v-else-if="c.schoolOrganizationId"
             class="pu-btn sm"
@@ -254,7 +258,7 @@
         <button
           type="button"
           class="pu-btn"
-          :disabled="fallLoading"
+          :disabled="fallLoading || saving"
           @click="loadFallClients"
         >
           Refresh list
@@ -262,10 +266,10 @@
         <button
           type="button"
           class="pu-btn primary"
-          :disabled="saving || fallLoading || !!localError"
-          @click="markComplete({ fallClientCount: fallClients.length })"
+          :disabled="saving || fallLoading || fallLoadFailed"
+          @click="markFallActionsReviewed"
         >
-          Mark Fall actions reviewed
+          Save changes &amp; mark reviewed
         </button>
       </div>
     </div>
@@ -422,6 +426,11 @@ const notify = reactive({ email: true, sms: false });
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const linkNote = ref('');
 const fallClients = ref([]);
+const fallBaselines = new Map();
+const fallSaveNotice = ref('');
+const fallSaveErrors = reactive({});
+const fallSaveMessages = reactive({});
+const fallLoadFailed = ref(false);
 const today=new Intl.DateTimeFormat('en-CA').format(new Date());
 const fallLoading = ref(false);
 
@@ -497,6 +506,7 @@ function currentDraft(){
 async function saveDraft(){
  if(props.recipient?.previewOnly)return true;
  if(saving.value||reviewLoading.value||quickViewResetBusy.value){localError.value='Please wait for the current save, code reset, or upload to finish.';return false;}
+ if(props.section.key==='client_fall_update')return saveFallChanges();
  if(props.section.key==='pin'&&(newPasscode.value||quickViewResetShown.value)&&!quickViewCodeAcknowledged.value){
   quickViewError.value='Save your new code somewhere safe, then choose “I saved my code somewhere safe — continue” before leaving this step.';
   return false;
@@ -584,14 +594,45 @@ async function saveLicense() {
   await markComplete({ license: { ...license } });
 }
 
-async function saveFallClient(client){
- if(props.recipient?.previewOnly)return;
- saving.value=true;localError.value='';
- try{await api.put(`${reviewBase.value}/fall-actions/${client.id}`,{agencyId:props.agencyId,...client.checklist,serviceDate:client.checklist.firstServiceAt});await loadFallClients();}
- catch(e){localError.value=e.response?.data?.error?.message||'Could not save the client steps.';}finally{saving.value=false;}
+function fallChecklistChanged(client) {
+  return fallBaselines.has(client.id) && JSON.stringify(client.checklist) !== fallBaselines.get(client.id);
+}
+async function saveFallClient(client) {
+  if (props.recipient?.previewOnly || saving.value || fallLoading.value) return false;
+  saving.value = true; localError.value = ''; fallSaveNotice.value = ''; delete fallSaveErrors[client.id]; delete fallSaveMessages[client.id];
+  const checklist = { ...client.checklist };
+  try {
+    const { data } = await api.put(`${reviewBase.value}/fall-actions/${client.id}`, { agencyId: props.agencyId, ...checklist, serviceDate: checklist.firstServiceAt });
+    fallBaselines.set(client.id, JSON.stringify(checklist));
+    const name = [client.preferredName || client.firstName, client.lastName].filter(Boolean).join(' ');
+    fallSaveMessages[client.id] = data?.serviceConfirmation?.message || data?.message || 'Client changes saved.';
+    fallSaveNotice.value = `${name}: ${fallSaveMessages[client.id]}`;
+    return await loadFallClients();
+  } catch (e) {
+    const message = e.response?.data?.error?.message || 'Could not save the client steps. Please retry.';
+    fallSaveErrors[client.id] = message;
+    localError.value = message;
+    return false;
+  } finally { saving.value = false; }
+}
+async function saveFallChanges() {
+  if (saving.value || fallLoading.value) return false;
+  // These edits belong to client records, not to the Provider Update draft.
+  // Save them through the same scoped endpoint before navigation or completion.
+  const pendingIds = fallClients.value.filter(fallChecklistChanged).map(c => c.id);
+  for (const id of pendingIds) {
+    const client = fallClients.value.find(c => c.id === id);
+    if (client && !(await saveFallClient(client))) return false;
+  }
+  return !localError.value;
+}
+async function markFallActionsReviewed() {
+  if (props.recipient?.previewOnly || !(await saveFallChanges())) return;
+  await markComplete({ fallClientCount: fallClients.value.length });
 }
 async function loadFallClients() {
   if (props.section.key !== 'client_fall_update') return;
+  const pending = new Map(fallClients.value.filter(fallChecklistChanged).map(c => [c.id, { ...c.checklist }]));
   fallLoading.value = true;localError.value='';
   try {
     let res;
@@ -602,10 +643,17 @@ async function loadFallClients() {
         params: { agencyId: props.agencyId }
       });
     }
-    fallClients.value = (res.data?.clients || []).map(c=>({...c,checklist:{...c.checklist,parentsContactedAt:String(c.checklist?.parentsContactedAt||'').slice(0,10),firstServiceAt:c.lifecycleAction?.actionKey==='confirm_services_started'?'':String(c.checklist?.firstServiceAt||'').slice(0,10)}}));
+    fallClients.value = (res.data?.clients || []).map(c => {
+      const checklist = { ...c.checklist, parentsContactedAt: String(c.checklist?.parentsContactedAt || '').slice(0, 10), firstServiceAt: c.lifecycleAction?.actionKey === 'confirm_services_started' ? '' : String(c.checklist?.firstServiceAt || '').slice(0, 10) };
+      fallBaselines.set(c.id, JSON.stringify(checklist));
+      return { ...c, checklist: pending.get(c.id) || checklist };
+    });
+    fallLoadFailed.value = false;
+    return true;
   } catch {
-    localError.value='Could not load assigned client actions. Retry before confirming this section.';
-    fallClients.value = [];
+    fallLoadFailed.value = true;
+    localError.value='Could not refresh assigned client actions. Your entered values are still here. Retry Refresh list before confirming this section.';
+    return false;
   } finally {
     fallLoading.value = false;
   }
@@ -634,6 +682,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.fall-save-notice{padding:12px 16px;border:1px solid #86bfa5;border-radius:8px;background:#edf8f1;color:#20543d}
 .directory-photo{width:180px;height:180px;object-fit:cover;border-radius:16px}.focus-group{display:flex;flex-wrap:wrap;gap:12px}.hours-table{border-collapse:collapse;width:100%}.hours-table th,.hours-table td{text-align:left;padding:10px;border-bottom:1px solid #e5e7eb}.school-list li{display:grid;gap:6px;padding:12px}.preview-fields{border:0;margin:0;padding:0;min-width:0}
 .pu-section-head h1 { margin: 0 0 0.25rem; }
 .pu-section-head p { color: #6b7280; margin: 0 0 1rem; }

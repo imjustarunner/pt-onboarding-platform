@@ -21,7 +21,7 @@
       </select>
     </div>
 
-    <OfficeScheduleApprovalsView
+    <OfficeApprovalsView
       v-if="isBookingQueueTab"
       :embedded="true"
       :initial-queue-tab="initialTab"
@@ -42,7 +42,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
-import OfficeScheduleApprovalsView from './OfficeScheduleApprovalsView.vue';
+import OfficeApprovalsView from './OfficeApprovalsView.vue';
 
 const route = useRoute();
 const router = useRouter();

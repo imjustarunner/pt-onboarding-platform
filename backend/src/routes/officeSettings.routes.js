@@ -9,6 +9,7 @@ import {
   createOffice,
   getOffice,
   updateOffice,
+  updateBuildingPhoto,
   archiveOffice,
   restoreOffice,
   deleteOffice,
@@ -58,6 +59,8 @@ router.get('/:officeId/kiosk-access', manageOfficeKioskAccess);
 router.post('/:officeId/kiosk-access/rotate', kioskSameOrigin, manageOfficeKioskAccess);
 router.delete('/:officeId/kiosk-access/devices/:deviceId', kioskSameOrigin, manageOfficeKioskAccess);
 router.put('/:officeId', updateOffice);
+router.post('/:officeId/photo', roomPhotoUpload.single('photo'), updateBuildingPhoto);
+router.delete('/:officeId/photo', updateBuildingPhoto);
 router.post('/:officeId/archive', archiveOffice);
 router.post('/:officeId/restore', restoreOffice);
 router.delete('/:officeId', deleteOffice);

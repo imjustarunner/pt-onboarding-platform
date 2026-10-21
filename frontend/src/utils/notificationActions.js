@@ -73,7 +73,11 @@ export function notificationDestination(notification, { organizationSlug = null,
       return `${base}/admin/program-events?photoId=${entityId}`;
     }
   }
-  if (n.type === 'office_availability_request_pending') return `${base}/admin/office-approvals?agencyId=${n.agency_id}&tab=requests`;
+  if (n.type === 'office_availability_request_pending') {
+    const source = {office_booking_request:'booking',office_room_request:'legacy',provider_office_availability_request:'intake'}[n.related_entity_type];
+    const key = source && n.related_entity_id ? `&request=${encodeURIComponent(`${source}:${n.related_entity_id}`)}` : '';
+    return `${base}/admin/office-approvals?agencyId=${n.agency_id}&tab=requests${key}`;
+  }
   if (n.type === 'school_availability_request_pending') return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=school`;
   if (['school_provider_availability_confirmed', 'school_provider_availability_updated', 'school_provider_slot_verification_completed'].includes(n.type)) {
     return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=school`;

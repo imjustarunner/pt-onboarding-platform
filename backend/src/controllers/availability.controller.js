@@ -1,3 +1,4 @@
+import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import {resolveOfficeRequestPreferences,readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import {assertOfficeRequestNotExpired} from '../utils/roomBookingWindow.js';
 import {distinctOfficeRequestWindows,insertOfficeRequestWindows,splitPendingOfficeRequest} from '../services/officeRequestWindows.service.js';
@@ -1494,36 +1495,10 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     conn.release();
     conn = null;
 
-    // Notify admin/CPA/provider_plus/staff who can approve
     try {
-      const [userRows] = await pool.execute(
-        `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
-        [providerId]
-      );
-      const providerName = userRows?.[0]
-        ? `${userRows[0].first_name || ''} ${userRows[0].last_name || ''}`.trim() || `Provider #${providerId}`
-        : `Provider #${providerId}`;
-      await Notification.create({
-        type: 'office_availability_request_pending',
-        severity: 'info',
-        title: 'Office request pending',
-        message: `${providerName} requested office availability. Assign or deny in Office & availability approvals.`,
-        audienceJson: {
-          admin: true,
-          clinicalPracticeAssistant: true,
-          schoolStaff: false,
-          provider: false,
-          supervisor: false
-        },
-        userId: null,
-        agencyId,
-        relatedEntityType: 'provider_office_availability_request',
-        relatedEntityId: requestId,
-        actorUserId: providerId
-      });
-    } catch {
-      /* non-blocking */
-    }
+      const {notifyOfficeRequestPending}=await import('../services/officeApprovalWorkflow.service.js');
+      for(const id of requestIds) await notifyOfficeRequestPending({source:'intake',id,providerId,agencyId});
+    } catch(error) { console.error('[office-request] Pending alert failed',error.message); }
 
     res.status(201).json({
       ok: true,
@@ -2737,7 +2712,8 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
   }
 };
 
-export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
+export const assignTemporaryOfficeFromRequest = (req,res,next) => runOfficeDecision(req,res,next,{source:'intake',action:'approve',handler:assignTemporaryOfficeFromRequestImpl});
+const assignTemporaryOfficeFromRequestImpl = async (req, res, next) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Authentication required' } });
     const agencyId = await resolveAgencyId(req);
@@ -2818,7 +2794,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       const reqFreq = String(requestRecurrence.recurrence || 'ONCE').toUpperCase();
       freq = recurringFreqs.includes(reqFreq) ? reqFreq : 'WEEKLY';
     }
-    const requestStartDate = normalizeYmd(reqRow.requested_start_date) || toYmd(new Date());
+    const requestStartDate = req.officeApprovalWindow?.startDate || normalizeYmd(reqRow.requested_start_date) || toYmd(new Date());
     const recurrenceName = String(requestRecurrence.recurrence || 'ONCE').toUpperCase();
     // Weekly intake approvals are open-ended standing slots. The old UI defaulted
     // "weekly × 6" which wrote temporary_until_date and made Gini/Grace fall off
@@ -2829,6 +2805,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     if (recurrenceName === 'WEEKLY') {
       requestOccurrenceCount = null;
     }
+    if (req.officeApprovalWindow) requestOccurrenceCount=req.officeApprovalWindow.occurrenceCount;
     const stepDays = officeSlotSeriesService.stepDaysForRecurrence(recurrenceName) || 7;
     let untilDate = null;
     if (recurrenceName === 'ONCE') {
@@ -3134,37 +3111,8 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       }
     }
 
-    // Resolve related notifications for everyone so they disappear from all feeds
-    await Notification.markAllAsResolvedForFilter(agencyId, {
-      relatedEntityType: 'provider_office_availability_request',
-      relatedEntityId: requestId
-    });
 
-    try {
-      const [officeRows] = await pool.execute(
-        `SELECT name FROM office_locations WHERE id = ? LIMIT 1`,
-        [officeId]
-      );
-      const officeName = String(officeRows?.[0]?.name || `Office ${officeId}`);
-      const roomLabel = `${roomRow?.room_number ? `#${roomRow.room_number} ` : ''}${roomRow?.label || roomRow?.name || `Room ${roomId}`}`.trim();
-      const dayLabel = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(weekday)] || `Day ${weekday}`;
-      const startLabel = hourLabel(hour);
-      const endLabel = hourLabel(endHour);
-      const freqLabel = String(freq || '').toUpperCase() === 'BIWEEKLY' ? 'biweekly' : 'weekly';
-      await Notification.create({
-        type: 'office_availability_request_approved',
-        severity: 'info',
-        title: 'Office request approved',
-        message: `Your office slot has been approved and booked: ${officeName} (${roomLabel}), ${dayLabel} ${startLabel}–${endLabel} (${freqLabel}). It now appears on the schedule.`,
-        userId: providerId,
-        agencyId,
-        relatedEntityType: 'provider_office_availability_request',
-        relatedEntityId: requestId,
-        actorUserId: req.user.id
-      });
-    } catch {
-      // non-blocking notification
-    }
+    // The shared office approval workflow sends the decision notification.
 
     res.json({
       ok: true,
@@ -3199,7 +3147,8 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
   }
 };
 
-export const denyOfficeAvailabilityRequest = async (req, res, next) => {
+export const denyOfficeAvailabilityRequest = (req,res,next) => runOfficeDecision(req,res,next,{source:'intake',action:'deny',handler:denyOfficeAvailabilityRequestImpl});
+const denyOfficeAvailabilityRequestImpl = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
@@ -3229,11 +3178,6 @@ export const denyOfficeAvailabilityRequest = async (req, res, next) => {
       [req.user.id, requestId]
     );
 
-    // Resolve related notifications for everyone so they disappear from all feeds
-    await Notification.markAllAsResolvedForFilter(agencyId, {
-      relatedEntityType: 'provider_office_availability_request',
-      relatedEntityId: requestId
-    });
 
     res.json({ ok: true });
   } catch (e) {
