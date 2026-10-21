@@ -232,7 +232,7 @@ class ClientGuardian {
     const uid = Number(guardianUserId);
     if (!cid || !uid) return null;
     const [rows] = await pool.execute(
-      `SELECT client_id, guardian_user_id, relationship_title, access_enabled, permissions_json
+      `SELECT client_id, guardian_user_id, relationship_type, relationship_title, access_enabled, permissions_json
          FROM client_guardians
         WHERE client_id = ? AND guardian_user_id = ?
         LIMIT 1`,
@@ -245,4 +245,3 @@ class ClientGuardian {
 }
 
 export default ClientGuardian;
-
