@@ -12,6 +12,8 @@ import { getAgencyEmailSettings } from './emailSettings.service.js';
 import { sendEmailFromIdentity, sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.service.js';
+import { buildSecureMessageEmail } from './clientPortalEmailContent.js';
 
 const SECURE_MESSAGE_CLIENT_TYPES = new Set(['clinical', 'school']);
 
@@ -229,8 +231,9 @@ export async function sendSecureMessageNotification({
   const email = String(recipientEmail || '').trim().toLowerCase();
   if (!email) return { sent: false, reason: 'no_email' };
 
-  const mailboxes = await ensureSecureMessageMailboxes(agencyId);
-  if (!mailboxes.fromIdentity?.id) {
+  const portalContext = resolvedClientId ? await clientEmailContext({agencyId,clientId:resolvedClientId}) : null;
+  const mailboxes = portalContext ? null : await ensureSecureMessageMailboxes(agencyId);
+  if (!portalContext && !mailboxes?.fromIdentity?.id) {
     return { sent: false, reason: 'secure_message_identity_missing' };
   }
 
@@ -261,7 +264,7 @@ export async function sendSecureMessageNotification({
   const tenant = agency?.name || 'your care team';
   const slug = agency?.slug || '';
   const portalPrefix = slug ? `/${slug}` : '';
-  const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
+  const baseUrl = portalContext ? new URL(portalContext.url('')).origin : String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
   const deepPath = safeRedirectPath(
     chatThreadId
       ? `${portalPrefix}/messages?view=workspace&threadId=${chatThreadId}`
@@ -289,7 +292,14 @@ export async function sendSecureMessageNotification({
     `Click this link to sign in and access your message:\n${claimUrl}\n\n` +
     `If you have not set a password yet, you will create one and then sign in to read the message.`;
 
-  const sendResult = await sendEmailFromIdentity({
+  const delivery = {
+    to:email,source:'auto',generatedByUserId:senderUserId,templateType:'secure_message_notification',
+    userId:recipientUserId,clientId:resolvedClientId
+  };
+  const sendResult = portalContext ? await sendClientPortalEmail({
+    ...delivery,agencyId,context:portalContext,
+    ...buildSecureMessageEmail({agencyName:tenant,clinical:portalContext.clinical,url:claimUrl})
+  }) : await sendEmailFromIdentity({
     senderIdentityId: mailboxes.fromIdentity.id,
     to: email,
     subject,
@@ -310,7 +320,7 @@ export async function sendSecureMessageNotification({
     );
   }
 
-  const sent = !!sendResult && !sendResult?.blocked && !sendResult?.skipped && !sendResult?.pendingApproval;
+  const sent = !!sendResult?.id && !sendResult?.blocked && !sendResult?.skipped && !sendResult?.pendingApproval && !sendResult?.queued;
   if (sent) await pool.execute('UPDATE secure_message_notifications SET sent_at = NOW() WHERE id = ?', [ins.insertId]);
   await recordSecureMessageEvent({ agencyId, threadId: chatThreadId, messageId, notificationId: ins.insertId,
     userId: senderUserId, eventType: sent ? 'notification_sent' : 'notification_pending' });
@@ -319,8 +329,8 @@ export async function sendSecureMessageNotification({
     id: ins.insertId,
     claimUrl,
     deepPath,
-    fromEmail: mailboxes.fromIdentity.from_email,
-    replyTo: mailboxes.noreplyEmail,
+    fromEmail: portalContext ? (portalContext.clinical ? 'portal@auricwell.com' : `notifications@${portalContext.domain}`) : mailboxes.fromIdentity.from_email,
+    replyTo: portalContext ? portalContext.brand.replyTo : mailboxes.noreplyEmail,
     tokenShownOnce: rawToken
   };
 }
@@ -369,7 +379,8 @@ export async function buildSecureClaimRedirect(row) {
   const agency = await Agency.findById(row.agency_id);
   const slug = agency?.slug || '';
   const portalPrefix = slug ? `/${slug}` : '';
-  const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
+  const portalContext=row.client_id ? await clientEmailContext({agencyId:row.agency_id,clientId:row.client_id}) : null;
+  const baseUrl = portalContext ? new URL(portalContext.url('')).origin : String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
   let recipient = null;
   if (row.recipient_user_id) {
     recipient = await User.findById(row.recipient_user_id);
@@ -395,7 +406,8 @@ export async function buildSecureClaimRedirect(row) {
   }
   if (needsSetup) {
     // Issue setup token
-    const token = await User.generatePasswordlessToken(recipient.id, 48, 'setup');
+    const token = recipient.passwordless_token && recipient.passwordless_token_purpose==='setup' && new Date(recipient.passwordless_token_expires_at).getTime()>Date.now()
+      ? recipient.passwordless_token : await User.generatePasswordlessToken(recipient.id, 48, 'setup');
     return {
       mode: 'setup',
       setupUrl: `${baseUrl}${portalPrefix}/new_account/${encodeURIComponent(token)}?redirect=${encodeURIComponent(targetPath)}`,

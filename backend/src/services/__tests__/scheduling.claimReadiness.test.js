@@ -14,6 +14,7 @@ describe('clinical claim readiness', () => {
     note = { id: 4, clinical_session_id: 3, provider_signed_at: '2026-09-01', is_billable: 1 };
     getPrimaryClinicalDiagnosis.mockResolvedValue({ id: 5, icd10_code: 'F41.1' });
     clinicalPool.execute.mockImplementation(async (sql, params) => {
+      if (sql.includes("s.service_code='H0002'")) return [[]];
       if (sql.includes('claim_blocked_reason FROM clinical_sessions')) return [[session].filter(Boolean)];
       if (sql.includes('FROM clinical_notes') && sql.includes('is_deleted = 0')) {
         expect(sql).toContain('agency_id = ?');

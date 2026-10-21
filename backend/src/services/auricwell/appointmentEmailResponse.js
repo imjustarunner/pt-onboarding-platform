@@ -6,6 +6,7 @@ import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.
 import { renderPortalEmail, enrollmentMailBrand, escapePortalHtml as e } from '../portalEmailBranding.service.js';
 import { portalActionHtml } from '../clientPortalEmailContent.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../../utils/zonedWallTime.util.js';
+import { createSchoolSessionEmailOptOutLink, schoolSessionEmailOptOutContent, isSchoolSessionEmailOptedOut, SCHOOL_EMAIL_TEMPLATE } from '../schoolSessionEmailPreferences.service.js';
 const hash=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
 const emailHash=value=>hash(String(value||'').trim().toLowerCase());
 const fail=message=>Object.assign(new Error(message),{status:410});
@@ -47,17 +48,21 @@ export async function applyNativeResponse(current,action) {
 }
 
 export async function sendNativeAppointmentEmail(ctx,to,text,appointment) {
+  const school=appointment.data.serviceSetting==='school'||appointment.data.placeOfService==='03';
+  const scope={agencyId:ctx.agencyId,practiceId:ctx.practiceId,patientId:appointment.patientId,to};
+  if(school && await isSchoolSessionEmailOptedOut(scope)) return {skipped:true,reason:'school_session_email_opted_out'};
+  const schoolOptOut=school ? await createSchoolSessionEmailOptOutLink(scope) : null;
+  const optOut=schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};
   const token=crypto.randomBytes(32).toString('hex'),expires=new Date(Math.min(Date.parse(appointment.data.end),Date.now()+30*86400000));
   if(!Number.isFinite(+expires)||+expires<=Date.now()) throw fail('This appointment has ended.');
   if(!ctx.agencyId&&!/^notifications@[^@]+$/i.test(process.env.AURICWELL_ACCOUNT_EMAIL_FROM||'')) throw fail('Configure the AuricWell notifications sender before sending.');
   await sharedPool.execute(`INSERT INTO appointment_email_actions(token_hash,agency_id,product,practice_id,native_appointment_id,native_patient_id,recipient_hash,appointment_start,appointment_end,expires_at)
     VALUES(?,?,'auricwell',?,?,?,?,?,?,?)`,[hash(token),ctx.agencyId||null,ctx.practiceId,appointment.id,appointment.patientId,emailHash(to),dateToMysqlUtcDateTime(new Date(appointment.data.start)),dateToMysqlUtcDateTime(new Date(appointment.data.end)),dateToMysqlUtcDateTime(expires)]);
   const url=`https://plottwisthq.com/api/public/appointment-response/${token}`;
-  const school=appointment.data.serviceSetting==='school'||appointment.data.placeOfService==='03';
   const actions=school?[['My child will miss school','absence']]:[['Confirm appointment','confirm'],['Request cancellation','cancel'],['Request a new time','reschedule']];
   const body=String(text).replace(/For scheduling changes, contact your practice\./,school?'No confirmation is needed. Use the button to notify your care team if your child will miss school. Please also notify the school.':'Use the buttons below to confirm or request a change. No sign-in is needed.');
-  const html=`<h2>${school?'School session notice':'Your upcoming appointment'}</h2><p>${e(body).replaceAll('\n','<br>')}</p>${actions.map(([label,action])=>portalActionHtml(label,`${url}?action=${action}`)).join('')}`;
-  const message={to,subject:`${ctx.practiceName}: ${school?'School session notice':'Appointment reminder'}`,text:`${body}\n\n${actions.map(([label,action])=>`${label}: ${url}?action=${action}`).join('\n\n')}`,html,source:'auto',templateType:'auricwell_session_reminder'};
+  const html=`<h2>${school?'School session notice':'Your upcoming appointment'}</h2><p>${e(body).replaceAll('\n','<br>')}</p>${actions.map(([label,action])=>portalActionHtml(label,`${url}?action=${action}`)).join('')}${optOut.html}`;
+  const message={to,subject:`${ctx.practiceName}: ${school?'School session notice':'Appointment reminder'}`,text:`${body}\n\n${actions.map(([label,action])=>`${label}: ${url}?action=${action}`).join('\n\n')}${optOut.text}`,html,source:'auto',templateType:school?SCHOOL_EMAIL_TEMPLATE:'auricwell_session_reminder',schoolSessionScopeKey:schoolOptOut?.scopeKey};
   if(ctx.agencyId){const context=await clientEmailContext({agencyId:ctx.agencyId,clinical:true});return sendClientPortalEmail({agencyId:ctx.agencyId,context,...message});}
   const {default:Email}=await import('../email.service.js');
   const brand=enrollmentMailBrand({agency:{name:ctx.practiceName},domain:'auricwell.com',clinicalOverride:true});

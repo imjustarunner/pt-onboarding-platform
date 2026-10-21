@@ -15,6 +15,19 @@ beforeEach(()=>{
  row={practice_id:'practice',native_appointment_id:'appointment',native_patient_id:'patient',recipient_hash:crypto.createHash('sha256').update(patient.data.email).digest('hex'),appointment_start:'2030-01-02 20:00:00',appointment_end:'2030-01-02 21:00:00'};
  m.ctx.mockResolvedValue(ctx);m.get.mockImplementation(async(_ctx,kind)=>kind==='patient'?patient:appointment);m.list.mockResolvedValue([]);m.context.mockResolvedValue({tenant:{name:'ITSCO'},brand:{clinical:true}});m.send.mockResolvedValue({id:'sent'});
 });
+it('stops native school email only and keeps office reminders available',async()=>{
+ appointment.data.serviceSetting='school';
+ m.execute.mockImplementation(async sql=>sql.includes('FROM school_session_email_preferences')?[[{disabled_at:new Date()}]]:[{affectedRows:1}]);
+ expect(await sendNativeAppointmentEmail(ctx,patient.data.email,'School session',appointment)).toMatchObject({skipped:true,reason:'school_session_email_opted_out'});
+ expect(m.send).not.toHaveBeenCalled();
+ appointment.data.serviceSetting='office';await sendNativeAppointmentEmail(ctx,patient.data.email,'Office appointment',appointment);expect(m.send).toHaveBeenCalledTimes(1);
+});
+it('adds the scoped opt-out to native school mail before delivery',async()=>{
+ appointment.data.serviceSetting='school';m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
+ await sendNativeAppointmentEmail(ctx,patient.data.email,'School session',appointment);
+ const sent=m.send.mock.calls[0][0];expect(sent.templateType).toBe('school_session_notice');expect(sent.schoolSessionScopeKey).toMatch(/^[a-f0-9]{64}$/);
+ expect(sent.text).toContain('Stop in-school session emails for this child');expect(sent.html).toContain('/api/public/school-session-emails/');
+});
 it('validates the current patient, practice and appointment instead of trusting a stale email',async()=>{
  expect((await nativeResponseContext(row)).appointment.id).toBe('appointment');expect(m.update).not.toHaveBeenCalled();
  patient.data.email='changed@example.test';await expect(nativeResponseContext(row)).rejects.toThrow('access');

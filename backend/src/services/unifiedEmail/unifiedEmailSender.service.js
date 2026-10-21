@@ -1,4 +1,5 @@
 import { assertFreshCardEmail } from '../insuranceCards/scope.js';
+import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -333,7 +334,7 @@ export async function finalizeOutboundContent({
     agencyId: aid,
     userId,
     misdirectedReportUrl,
-    skipOptOutLink: isCredentialSecurityNotice(identity, templateType)
+    skipOptOutLink: isCredentialSecurityNotice(identity, templateType) || templateType==='school_session_notice'
   });
 }
 
@@ -1019,7 +1020,8 @@ export async function sendEmailFromIdentity({
   signatureIdentityId = null,
   internetMessageIdOverride = null,
   afterHoursReplyContext = null,
-  portalEmailBrand = null
+  portalEmailBrand = null,
+  schoolSessionScopeKey = null
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
@@ -1028,6 +1030,11 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const schoolEmailGate=await schoolSessionEmailDeliveryGate({templateType,schoolSessionScopeKey,existingCommunicationId,to,agencyId:identity.agency_id,clientId});
+  if(!schoolEmailGate.allowed) {
+    if(existingCommunicationId) await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=?",[schoolEmailGate.reason,existingCommunicationId]);
+    return {skipped:true,reason:schoolEmailGate.reason};
+  }
   await assertProviderUpdateReminderDelivery({templateType,existingCommunicationId,userId,agencyId:identity.agency_id});
   const eventDelivery=await priorityEventEmailRecipient({agencyId:identity.agency_id,userId,templateType,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
@@ -1278,6 +1285,7 @@ export async function sendEmailFromIdentity({
           senderIdentityId: identity.id,
           fromEmail: identity.from_email,
           replyTo: replyToOverride || identity.reply_to || null,
+          ...(schoolSessionScopeKey ? {schoolSessionScopeKey} : {}),
           ...(internetMessageIdOverride ? { internetMessageIdOverride } : {}),
           source,
           threadId,

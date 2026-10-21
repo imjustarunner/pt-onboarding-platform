@@ -870,6 +870,7 @@ export async function applyConfirmReply(appointmentId, {
 async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment}) {
   const {sendAppointmentEmail}=await import('./appointmentEmailActions.service.js');
   const result=await sendAppointmentEmail({to,clientId,kind,appointment});
+  if(result?.reason==='school_session_email_opted_out') return result;
   if(!result?.id || result.skipped || result.blocked || result.queued || result.pendingApproval) throw new Error('The appointment email was not confirmed as sent.');
   return result;
 }
@@ -1094,8 +1095,9 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       continue;
     }
     try {
+      let emailSent=false;
       if (consent.emailAddress) {
-        await sendSessionEmail({
+        const delivery=await sendSessionEmail({
           to: consent.emailAddress,
           appointment: appt,
           subject: serviceSetting.isSchool ? 'School session notice' : kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
@@ -1105,11 +1107,9 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           clientId: clientId || null,
           kind
         });
+        emailSent=!delivery?.skipped;
       }
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
-        [row.id]
-      );
+      if(emailSent) {
       await logCommunication({
         appointmentId: appt.id,
         agencyId: appt.agencyId,
@@ -1118,6 +1118,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
         bodyPreview: body.slice(0, 500),
         reminderId: row.id
       });
+      }
       try {
         const ClientContactAffiliation = (await import('../models/ClientContactAffiliation.model.js')).default;
         const contacts = clientId
@@ -1126,7 +1127,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
         for (const c of contacts || []) {
           if (!(await affiliatedRecipientAllowsChannel(appt, clientId, c, 'email'))) continue;
           if (!c.email_reminders_enabled || !c.contact_email || String(c.contact_email).toLowerCase() === String(consent.emailAddress).toLowerCase()) continue;
-          await sendSessionEmail({
+          const delivery=await sendSessionEmail({
             to: c.contact_email,
             appointment: appt,
             subject: 'Upcoming session reminder',
@@ -1136,6 +1137,8 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
             clientId: clientId || null,
             kind
           });
+          if(delivery?.skipped) continue;
+          emailSent=true;
           await logCommunication({
             appointmentId: appt.id,
             agencyId: appt.agencyId,
@@ -1149,7 +1152,13 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       } catch (fanErr) {
         console.warn('[sessionNotification] contact email fan-out:', fanErr?.message || fanErr);
       }
-      results.sent += 1;
+      if(emailSent) {
+        await pool.execute("UPDATE appointment_reminders SET status='sent',sent_at=NOW() WHERE id=?",[row.id]);
+        results.sent += 1;
+      } else {
+        await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='school_session_email_opted_out' WHERE id=?",[row.id]);
+        results.skipped += 1;
+      }
     } catch (e) {
       await pool.execute(
         `UPDATE appointment_reminders SET status = 'failed', error_message = ? WHERE id = ?`,

@@ -8,6 +8,7 @@ import { portalActionHtml } from './clientPortalEmailContent.js';
 import { escapePortalHtml as e } from './portalEmailBranding.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import { createSchoolSessionEmailOptOutLink, schoolSessionEmailOptOutContent, isSchoolSessionEmailOptedOut, SCHOOL_EMAIL_TEMPLATE } from './schoolSessionEmailPreferences.service.js';
 
 const hash = text => crypto.createHash('sha256').update(String(text)).digest('hex');
 const emailHash = email => hash(String(email || '').trim().toLowerCase());
@@ -85,9 +86,11 @@ export async function submitAppointmentEmailAction(token,action) {
   } finally {try {if(locked)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);} finally {db.release();}}
 }
 
-export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl}) {
+export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut}) {
   const context=await clientEmailContext({agencyId:appointment.agencyId,clientId});
   const setting=await resolveAppointmentServiceSetting(appointment);
+  if(setting.isSchool && schoolOptOut===undefined) schoolOptOut=await createSchoolSessionEmailOptOutLink({agencyId:appointment.agencyId,clientId,to});
+  const optOut=setting.isSchool && schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};
   if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to});
   const when=formatAppointmentTime(appointment),name=context.tenant.name;
   const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
@@ -95,12 +98,14 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const actions=appointmentEmailActions(setting.isSchool);
   const links=actionUrl?actions.map(action=>({label:actionLabels[action],url:`${actionUrl}?action=${action}`})):[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];
   const footer=setting.isSchool?'If your child will miss school, use the button to notify your care team. Please also report the absence directly to the school.':actionUrl?'Choose a response above. You can review and submit it without signing in. Any cancellation policy will still apply.':'Sign in to view your appointment or contact your team about a change.';
-  return {context,subject,text:`${intro}\n\n${links.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}\n\n${footer}`,
-    html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${links.map(l=>portalActionHtml(l.label,l.url)).join('')}<p>${e(footer)}</p>`};
+  return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${links.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}\n\n${footer}${optOut.text}`,
+    html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${links.map(l=>portalActionHtml(l.label,l.url)).join('')}<p>${e(footer)}</p>${optOut.html}`};
 }
 
 export async function sendAppointmentEmail(input) {
+  const setting=await resolveAppointmentServiceSetting(input.appointment);
+  if(setting.isSchool && await isSchoolSessionEmailOptedOut({agencyId:input.appointment.agencyId,clientId:input.clientId,to:input.to})) return {skipped:true,reason:'school_session_email_opted_out'};
   const {context,...content}=await buildAppointmentEmail(input);
-  return sendClientPortalEmail({agencyId:input.appointment.agencyId,clientId:input.clientId,context,to:input.to,...content,
-    userId:input.userId || null,templateType:input.kind?.startsWith('confirmation')?'session_confirmation':'session_reminder',source:'auto'});
+  return sendClientPortalEmail({agencyId:input.appointment.agencyId,clientId:input.clientId,context,to:input.to,
+    userId:input.userId || null,templateType:input.kind?.startsWith('confirmation')?'session_confirmation':'session_reminder',source:'auto',...content});
 }

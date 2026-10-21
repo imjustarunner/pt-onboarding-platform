@@ -6,7 +6,7 @@ vi.mock('../../models/Appointment.model.js',()=>({default:{findById:m.appointmen
 vi.mock('../appointmentReply.service.js',()=>({applyAppointmentReply:m.reply}));
 vi.mock('../appointmentServiceSetting.service.js',()=>({resolveAppointmentServiceSetting:m.setting,formatAppointmentTime:()=> 'Wednesday at 2 PM'}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:m.context,sendClientPortalEmail:m.send}));
-import {appointmentEmailActionContext,submitAppointmentEmailAction,buildAppointmentEmail} from '../appointmentEmailActions.service.js';
+import {appointmentEmailActionContext,submitAppointmentEmailAction,buildAppointmentEmail,sendAppointmentEmail} from '../appointmentEmailActions.service.js';
 const token='a'.repeat(64),email='guardian@example.test';
 const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
 let row,appt,access,db;
@@ -27,6 +27,18 @@ beforeEach(()=>{
  m.appointment.mockResolvedValue(appt);m.setting.mockResolvedValue({isSchool:false});
  m.context.mockResolvedValue({tenant:{name:'ITSCO'},brand:{},url:path=>'https://auricwell.com/itsco/'+path});
  m.reply.mockResolvedValue({ackMessage:'Your appointment is confirmed.'});
+});
+it('blocks opted-out school deliveries while allowing office reminders and another recipient',async()=>{
+ m.setting.mockResolvedValue({isSchool:true});
+ const execute=m.execute.getMockImplementation();
+ let disabled=true;
+ m.execute.mockImplementation((sql,args)=>sql.includes('FROM school_session_email_preferences')?Promise.resolve([[...(disabled?[{disabled_at:new Date()}]:[])]]):execute(sql,args));
+ expect(await sendAppointmentEmail({appointment:appt,clientId:22,to:email})).toMatchObject({skipped:true,reason:'school_session_email_opted_out'});
+ expect(m.send).not.toHaveBeenCalled();
+ disabled=false;
+ await sendAppointmentEmail({appointment:appt,clientId:22,to:'other@example.test',actionUrl:null});expect(m.send).toHaveBeenCalledTimes(1);
+ disabled=true;m.setting.mockResolvedValue({isSchool:false});
+ await sendAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:null});expect(m.send).toHaveBeenCalledTimes(2);
 });
 it('validates an opaque link without changing the appointment on read',async()=>{
  expect((await appointmentEmailActionContext(token)).appt.id).toBe(44);expect(m.reply).not.toHaveBeenCalled();
@@ -59,6 +71,7 @@ it('builds action buttons for email without SMS reply instructions or full names
  const message=await buildAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
  expect(message.text).not.toContain('Reply Y');expect(message.html).toContain('Confirm appointment');expect(message.html).toContain('action=cancel');expect(message.html).toContain('copy and paste');
  m.setting.mockResolvedValue({isSchool:true});
- const school=await buildAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
+ const school=await buildAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:'https://example.test/respond/opaque',schoolOptOut:{scopeKey:'a'.repeat(64),url:'https://auricwell.com/api/public/school-session-emails/example'}});
  expect(school.subject).toBe('ITSCO: School session notice');expect(school.html).toContain('My child will miss school');expect(school.html).not.toContain('action=confirm');
+ expect(school.html).toContain('Stop in-school session emails for this child');expect(school.templateType).toBe('school_session_notice');expect(message.html).not.toContain('school-session-emails');
 });

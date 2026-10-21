@@ -1,10 +1,15 @@
 import {it,expect} from 'vitest';
 import {simpleParser} from 'mailparser';
 import {buildMimeMessage} from '../unifiedEmail/mime.js';
-import {buildClientEnrollmentEmail,buildFamilyBillingEmail,buildTreatmentPlanEmail} from '../clientPortalEmailContent.js';
+import {buildClientEnrollmentEmail,buildFamilyBillingEmail,buildTreatmentPlanEmail,buildSecureMessageEmail} from '../clientPortalEmailContent.js';
 import {enrollmentMailBrand,renderPortalEmail} from '../portalEmailBranding.service.js';
 import {validateOutboundEmailQuality} from '../outboundEmailQuality.service.js';
 const url='https://auricwell.com/itsco/guardian';
+it('offers a branded secure message button without message contents or a billing sender',()=>{
+ const message=buildSecureMessageEmail({agencyName:'ITSCO',url:'https://auricwell.com/secure-message/example'});
+ expect(message.subject).toContain('AuricWell');expect(message.html).toContain('Read secure message');expect(message.text).toContain('Please reply in the portal');
+ expect(message.text).toContain('Messages by Conversa within AuricWell');expect(message.html).toContain('copy and paste');
+});
 it('welcomes two dependents into one portal without exposing their full names',()=>{
  const message=buildClientEnrollmentEmail({firstName:'Alex',agencyName:'ITSCO',clients:[{full_name:'Riley Bennett — DEMO'},{full_name:'Avery Bennett — DEMO'}],url});
  expect(message.text).toContain('Your 2 dependents (RIBE, AVBE)');expect(message.text).toContain('one AuricWell portal account');

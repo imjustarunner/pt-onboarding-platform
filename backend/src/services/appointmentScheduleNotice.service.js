@@ -191,6 +191,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             if (channel === 'email') {
               attempted = true;
               result = await d.sendEmail({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,to:recipient,
+                entries,
                 subject:message.subject,text:message.text,html:message.html,triggerKey:'session_change',templateType:'session_change',
                 generatedByUserId:seed.created_by_user_id,source:'auto',existingCommunicationId:communication.id});
             } else {
@@ -201,6 +202,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             if (result) {
               externalId = result.id || result.sid || result.messageId || result.messageUuid || result.messageUUID || null;
               status = externalId && !result.skipped && !result.blocked && !result.redirected && !result.pendingApproval && !result.queued ? 'sent' : 'held';
+              if(result.reason==='school_session_email_opted_out') status='skipped';
               reason = status === 'sent' ? null : result.reason || 'Transport held the message. Review before resending.';
             } else if (attempted) { status='review'; reason='Transport did not confirm acceptance. Verify before resending.'; }
           }

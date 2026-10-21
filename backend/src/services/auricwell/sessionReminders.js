@@ -22,6 +22,7 @@ export function deliveryKey(appointment, kind, channel, recipient, room) {
 async function sendEmail(ctx, to, text, appointment) {
   const {sendNativeAppointmentEmail}=await import('./appointmentEmailResponse.js');
   const result=await sendNativeAppointmentEmail(ctx,to,text,appointment);
+  if(result?.reason==='school_session_email_opted_out') return {status:'cancelled',reason:result.reason};
   if (!result?.id || result.skipped || result.blocked || result.redirected || result.queued || result.pendingApproval)
     throw fail(503, 'Email was not confirmed as sent.');
   return { provider: 'email', status: 'submitted', id: result.id };
@@ -63,6 +64,9 @@ export async function deliverAppointment(ctx, appointment, settings, deps = {}) 
       await pool.execute("UPDATE auricwell_session_deliveries SET status='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [id]); return;
     }
     const receipt = await (deps.sendEmail || sendEmail)(ctx, patient.data.email, `${body}\n\n${video ? 'Use Chrome for your video visit. Keep this appointment link private.\n' : ''}For scheduling changes, contact your practice.`, appointment);
+    if(receipt?.status==='cancelled') {
+      await pool.execute("UPDATE auricwell_session_deliveries SET status='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?",[id]); return;
+    }
     await pool.execute("UPDATE auricwell_session_deliveries SET status='submitted',payload=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [seal(receipt, `auricwell:delivery:${id}`), id]);
   } catch {
     await pool.execute("UPDATE auricwell_session_deliveries SET status='needs_review',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [id]);

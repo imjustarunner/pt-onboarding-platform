@@ -37,6 +37,8 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   hub_portal_invite: ['clinical_enrollment_portal', 'enrollment_portal', 'notifications'],
   guardian_plan_review: ['clinical_enrollment_portal', 'notifications'],
   session_reminder: ['clinical_appointment_reminders', 'notifications'],
+  school_session_notice: ['clinical_enrollment_portal', 'clinical_appointment_reminders', 'notifications'],
+  secure_message_notification: ['clinical_enrollment_portal', 'secure_message', 'notifications'],
   session_confirmation: ['clinical_appointment_reminders', 'notifications'],
   manual: ['notifications'],
   job_applications: ['people_operations', 'job_applications', 'notifications'],

@@ -131,6 +131,7 @@ export function createCancellationNotificationService({ database = pool, appoint
       if (row.channel === 'email') {
         attempted = true;
         result = await sendEmail({ agencyId: row.agency_id, clientId: row.client_id, userId: contact.guardianUserId || null,
+          appointment,
           to: recipient, subject: message.subject, text: message.text, html: message.html, triggerKey: 'session_cancellation',
           templateType: 'session_cancellation', generatedByUserId: row.created_by_user_id, source: 'auto', existingCommunicationId: audit.id });
       } else {
@@ -141,6 +142,7 @@ export function createCancellationNotificationService({ database = pool, appoint
       }
       const externalId = result?.id || result?.sid || result?.messageId || result?.messageUuid || result?.messageUUID || null;
       acceptedExternalId = externalId;
+      if(result?.reason==='school_session_email_opted_out') {await finish('skipped',result.reason);return;}
       const sent = externalId && !result?.skipped && !result?.blocked && !result?.redirected && !result?.pendingApproval && !result?.queued;
       await finish(sent ? 'sent' : 'held', sent ? null : result?.reason || 'Delivery held; review the client communications record before resending.', externalId);
     } catch (error) {
