@@ -8,7 +8,7 @@ import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.
 export function buildProviderCopayDigest({ agencyName, firstName, count, date, url }) {
   const intro = `Hi ${firstName || 'there'},`;
   const body = `${count} ${count === 1 ? 'session needs' : 'sessions need'} your attendance confirmation for ${date}. Sign in to review each session and select “Occurred” or “Did not occur.”`;
-  const terms = 'For an eligible session marked Occurred, the verified copay will be collected from the authorized card. A session marked Did not occur will not trigger a copay. Confirming attendance does not replace your session note. Your billing team handles payment questions.';
+  const terms = 'Please update attendance on the day of the session so families see the copay on the same day as care. After the session ends, selecting Occurred or saving an authored session draft confirms attendance and can collect the authorized, verified copay. Opening the Note Workspace alone does not. Did not occur starts the missed-appointment flow, with a cancel option, and holds the service copay. Late confirmations go to billing review and do not automatically charge on a later day. You can finish your note separately; your billing team handles payment questions.';
   return { subject: `${agencyName}: confirm today’s completed sessions`,
     text: `${intro}\n\n${body}\n\n${terms}\n\nReview sessions:\n${url}`,
     html: `<p>${e(intro)}</p><h2>Confirm your sessions</h2><p>${e(body)}</p>${portalActionHtml('Review sessions',url)}<p>${e(terms)}</p>`, linkUrl: url };
@@ -31,7 +31,8 @@ export async function sendProviderCopayDigests({ agencyId, now = new Date() }) {
     let pending;
     try { pending = await pendingProviderCopays({agencyId,providerUserId,serviceDate:date}); }
     catch (err) { if (err.status===403) continue; throw err; }
-    if (!pending.sessions.length) continue;
+    const unanswered = pending.sessions.filter(session=>!session.documentationRequired);
+    if (!unanswered.length) continue;
     const [future] = await clinicalPool.execute("SELECT scheduled_start_at FROM clinical_sessions WHERE agency_id=? AND provider_user_id=? AND scheduled_end_at>UTC_TIMESTAMP() AND scheduled_start_at<DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY) AND encounter_status='scheduled'",[agencyId,providerUserId]);
     if (future.some(s=>new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(s.scheduled_start_at))===date)) continue;
     const [[user]] = await pool.execute('SELECT first_name,email FROM users WHERE id=?',[providerUserId]);
@@ -41,7 +42,7 @@ export async function sendProviderCopayDigests({ agencyId, now = new Date() }) {
     try {
       const context = await clientEmailContext({agencyId,clinical:true});
       const url = context.url(`my-schedule?copayDate=${encodeURIComponent(date)}&agencyId=${agencyId}`);
-      const message = buildProviderCopayDigest({agencyName:agency.name,firstName:user.first_name,count:pending.sessions.length,date,url});
+      const message = buildProviderCopayDigest({agencyName:agency.name,firstName:user.first_name,count:unanswered.length,date,url});
       const sent = await sendClientPortalEmail({agencyId,context,to:user.email,...message,templateType:'provider_copay_attendance',source:'copay_attendance_digest',triggeringUserId:providerUserId});
       const delivered = !!(sent?.id || sent?.messageId || sent?.externalMessageId) && !sent?.skipped && !sent?.queued;
       await pool.execute('UPDATE family_copay_provider_digests SET status=?,communication_id=? WHERE agency_id=? AND provider_user_id=? AND service_date=?',[delivered?'sent':'review',sent?.communicationId||null,agencyId,providerUserId,date]);

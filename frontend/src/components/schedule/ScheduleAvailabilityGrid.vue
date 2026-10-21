@@ -151,10 +151,10 @@
               v-if="Number(effectiveAgencyId || 0) > 0"
               type="button"
               class="sched-command__outline"
-              title="Open Documentation Hub"
+              title="Open Note Workspace"
               @click="openScheduleNoteAid"
             >
-              Documentation Hub
+              Note Workspace
             </button>
             <button
               v-if="canOpenMyRoomLobby"
@@ -325,10 +325,10 @@
             v-if="Number(effectiveAgencyId || 0) > 0"
             class="sched-nav-btn"
             type="button"
-            title="Open Documentation Hub"
+            title="Open Note Workspace"
             @click="openScheduleNoteAid"
           >
-            Documentation Hub
+            Note Workspace
           </button>
           <div class="sched-span-switch" role="group" aria-label="Schedule view">
             <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'day' }" title="One-day timeline grid" @click="setScheduleSpanMode('day')">Day</button>
@@ -2446,6 +2446,7 @@
 
           <div v-show="editorWorkspaceTab === 'session'" class="appt-workspace-panel appt-workspace-panel--flush">
             <OfficeEventSessionNotePanel
+              ref="editorSessionNotePanel"
               :practice-category="editorPracticeCategory || 'mental_health'"
               v-if="editorIsClinical"
               :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
@@ -5278,7 +5279,7 @@
               <p v-if="item.therapyNoteAid" class="muted">External calendar entry. Viewing this does not start a session or create a claim. Use the linked app appointment for clinical documentation.</p>
               <div v-if="item.therapyNoteAid && !isViewingOtherUserSchedule" class="stack-details-actions" style="margin-top: 8px;">
                 <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
-                  Open Documentation Hub
+                  Open Note Workspace
                 </button>
               </div>
               <button
@@ -13575,7 +13576,7 @@ const submitActionLabel = computed(() => {
     intake_virtual_off: 'Disable virtual intake',
     intake_inperson_on: 'Enable in-person intake',
     intake_inperson_off: 'Disable in-person intake',
-    booked_note: 'Open Documentation Hub',
+    booked_note: 'Open Note Workspace',
     start_video: 'Start video session',
     booked_record: 'Open recorder',
     unbook_slot: 'Clear booking; keep office time'
@@ -13746,6 +13747,7 @@ const editorAddonServiceCodes = ref([]);
 const editorPackageEntitlementId = ref(0);
 const editorPackageEntitlements = ref([]);
 const editorQuickNote = ref('');
+const editorSessionNotePanel = ref(null);
 
 const editorLocationAddress = ref('');
 const editorRoomId = ref(0);
@@ -15575,7 +15577,7 @@ function openEditorClinicalClaim(linkedClaimId = null) {
   const role = String(authStore.user?.role || '').toLowerCase();
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   if (['provider', 'provider_plus'].includes(role) || (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid))) {
-    modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Documentation Hub.';
+    modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Note Workspace.';
     return;
   }
   const claimId = Number(linkedClaimId || editorClaimId.value || 0);
@@ -20747,7 +20749,13 @@ const onQuickActionSelect = (act) => {
   requestType.value = id;
 };
 
-const requestCloseModal = () => {
+const requestCloseModal = async () => {
+  try {
+    await editorSessionNotePanel.value?.savePendingDraft?.();
+  } catch (e) {
+    modalError.value = e?.response?.data?.error?.message || 'Your session note could not be saved. Keep this appointment open and retry.';
+    return;
+  }
   // After a successful create, the share panel is showing — X should behave like Done (reload),
   // not "discard" (which skipped refresh and made the new meeting look deleted).
   if (meetingCreatedShare.value) {
@@ -20913,12 +20921,12 @@ const openTherapyNoteAid = (item) => {
 const openNoteAidFromContext = (launchIntent = 'note') => {
   const ctx = modalContext.value || {};
   const officeEventId = Number(ctx.officeEventId || 0);
-  if (!officeEventId) throw new Error('Booked office event context is required for Documentation Hub.');
+  if (!officeEventId) throw new Error('Booked office event context is required for Note Workspace.');
   const officeId = Number(ctx.officeLocationId || 0) || null;
   const roomId = Number(ctx.roomId || 0) || null;
   const top = officeTopEvent(modalDay.value, modalHour.value, officeId, roomId) || null;
   const clientId = Number(top?.clientId || 0);
-  if (!clientId) throw new Error('Booked slot needs a client before opening Documentation Hub.');
+  if (!clientId) throw new Error('Booked slot needs a client before opening Note Workspace.');
   const intent = String(launchIntent || 'note');
   if (intent === 'record_session' || intent === 'record') {
     const query = new URLSearchParams({

@@ -498,7 +498,7 @@ select {
   flex-wrap: wrap;
 }
 
-/* Keep Documentation Hub controls compact if global .btn changes. */
+/* Keep Note Workspace controls compact if global .btn changes. */
 .content-card .btn {
   width: auto;
   min-width: 0;

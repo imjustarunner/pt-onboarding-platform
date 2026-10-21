@@ -1,5 +1,5 @@
 /**
- * Bridge Tasks hub Notes → Documentation Hub work queue.
+ * Bridge Tasks hub Notes → Note Workspace work queue.
  */
 
 import {

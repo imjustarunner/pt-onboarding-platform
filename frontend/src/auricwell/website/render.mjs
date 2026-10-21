@@ -32,7 +32,7 @@ const brand = `<span class="brand"><span class="brand-image"><img src="${AURICWE
 const feature = (i, title, text, gold = false) => `<article class="feature"><span class="icon ${gold ? 'gold' : ''}">${icon(i)}</span><h3>${title}</h3><p>${text}</p></article>`;
 const pill = (text) => `<span class="pill">${icon('check')}${text}</span>`;
 function preview() {
- return `<figure class="app-screenshot"><a href="/auricwell/examples/practice-notes.png" target="_blank" rel="noopener" aria-label="View the actual Practice Notes screen at full size"><img src="/auricwell/examples/practice-notes.png" alt="Actual Practice Notes workspace with its Note Library, note-writing area and Work queue, populated with synthetic records." width="1440" height="1000" fetchpriority="high"></a><figcaption>Actual Practice Notes screen · Synthetic example records · <a href="/auricwell/examples/practice-notes.png" target="_blank" rel="noopener">View full size ↗</a></figcaption></figure>`;
+ return `<figure class="app-screenshot"><a href="/auricwell/examples/practice-notes.png" target="_blank" rel="noopener" aria-label="View the actual Note Workspace screen at full size"><img src="/auricwell/examples/practice-notes.png" alt="Actual Note Workspace workspace with its Note Library, note-writing area and Work queue, populated with synthetic records." width="1440" height="1000" fetchpriority="high"></a><figcaption>Actual Note Workspace screen · Synthetic example records · <a href="/auricwell/examples/practice-notes.png" target="_blank" rel="noopener">View full size ↗</a></figcaption></figure>`;
 }
 
 export function renderWebsite(section = '', { base = '', email = '', origin = 'https://plottwisthq.com', canonicalBase = '/auricwell' } = {}) {
@@ -46,7 +46,7 @@ export function renderWebsite(section = '', { base = '', email = '', origin = 'h
  if (section === '') content = homeStory({hero,feature,link,pill,preview,availability});
  if (section === 'product') content = productStory({hero,feature,link,preview});
  if (['','product'].includes(section)) {
-   const demoSection = `<section class="section tinted" id="working-demo"><div class="section-heading"><div><p class="eyebrow">TAKE A LOOK AROUND</p><h2>A fictional practice.<br> The actual workspace.</h2></div><p>Try the same calendar, charts, provider directory, Practice Notes and billing components used in our app. Explore at your own pace—no account needed.</p></div><div data-actual-example="workspace"><p><a href="${url('demo')}">Open the working AuricWell demo →</a></p></div></section>`;
+   const demoSection = `<section class="section tinted" id="working-demo"><div class="section-heading"><div><p class="eyebrow">TAKE A LOOK AROUND</p><h2>A fictional practice.<br> The actual workspace.</h2></div><p>Try the same calendar, charts, provider directory, Note Workspace and billing components used in our app. Explore at your own pace—no account needed.</p></div><div data-actual-example="workspace"><p><a href="${url('demo')}">Open the working AuricWell demo →</a></p></div></section>`;
    const heroEnd = content.indexOf('</section>') + '</section>'.length;
    content = content.slice(0,heroEnd) + demoSection + content.slice(heroEnd);
  }

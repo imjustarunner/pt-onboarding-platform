@@ -3,7 +3,9 @@ import * as guardianDemographics from '../controllers/guardianDemographics.contr
 import * as notificationSetup from '../controllers/guardianNotificationSetup.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import express from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import rateLimit from 'express-rate-limit';
+import { authenticate,requireActiveStatus } from '../middleware/auth.middleware.js';
+import {guardianHelpUpload,submitHelp} from '../controllers/guardianPortalHelp.controller.js';
 import { listMyGuardianClients } from '../controllers/clientGuardian.controller.js';
 import {
   getGuardianPortalOverview,
@@ -107,6 +109,7 @@ router.post('/messages/:threadId', sendGuardianThreadMessage);
 router.get('/sms-audit', listGuardianSmsAudit);
 router.get('/support-tickets', listGuardianSupportTickets);
 router.post('/support-tickets', createGuardianSupportTicket);
+router.post('/technology-help',requireActiveStatus,rateLimit({windowMs:60*60*1000,max:10}),guardianHelpUpload.array('screenshots',3),submitHelp);
 router.get('/support-tickets/:ticketId', getGuardianSupportTicket);
 router.post('/support-tickets/:ticketId/messages', sendGuardianSupportTicketMessage);
 router.get('/clients/:clientId/intake-documents', listMyClientIntakeSignedDocuments);

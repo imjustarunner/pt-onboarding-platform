@@ -9,6 +9,7 @@ import {
 } from '../utils/supportTicketCrypto.js';
 import { isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { allowedTopicsForCreatorRole, normalizeTicketTopic } from '../utils/ticketTopics.js';
+import { technologyOwner } from '../services/technologySupport.service.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -117,7 +118,7 @@ function enrichTicket(ticket) {
 }
 
 function guardianCanViewTicket(guardianUserId, ticket) {
-  return normalizeTicketTopic(ticket?.topic) !== 'billing'
+  return !['billing','technology'].includes(normalizeTicketTopic(ticket?.topic))
     || Number(ticket?.created_by_user_id) === Number(guardianUserId);
 }
 
@@ -127,7 +128,9 @@ async function assertGuardianOwnsTicket(guardianUserId, ticketId) {
     [ticketId]
   );
   const ticket = rows?.[0];
-  if (!ticket || !guardianCanViewTicket(guardianUserId,ticket) || !await assertGuardianClientAccess(guardianUserId, ticket.client_id)) return null;
+  if (!ticket || !guardianCanViewTicket(guardianUserId,ticket)) return null;
+  const link=await assertGuardianClientAccess(guardianUserId,ticket.client_id);
+  if(!link||Number(link.agency_id)!==Number(ticket.agency_id))return null;
   return ticket;
 }
 
@@ -141,7 +144,10 @@ export const restrictGuardianBillingTicketAccess = async (req,res,next) => {
     if (!Number.isSafeInteger(ticketId)||ticketId<1) return res.status(400).json({error:{message:'Invalid ticket id'}});
     const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id = ? LIMIT 1',[ticketId]);
     if (!ticket) return res.status(404).json({error:{message:'Ticket not found'}});
-    if (normalizeTicketTopic(ticket.topic)==='billing' && (!guardianCanViewTicket(req.user.id,ticket)||!await assertGuardianClientAccess(req.user.id,ticket.client_id))) return res.status(404).json({error:{message:'Ticket not found'}});
+    if (['billing','technology'].includes(normalizeTicketTopic(ticket.topic))) {
+      const link=guardianCanViewTicket(req.user.id,ticket)?await assertGuardianClientAccess(req.user.id,ticket.client_id):null;
+      if(!link||Number(link.agency_id)!==Number(ticket.agency_id))return res.status(404).json({error:{message:'Ticket not found'}});
+    }
     next();
   } catch(error) {next(error);}
 };
@@ -161,6 +167,7 @@ export const listGuardianSupportTickets = async (req, res, next) => {
     }
     const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
     const ids = linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id));
+    const scopes=new Set(linked.filter(c=>!ClientGuardian.isNoView(c.permissions_json)).map(c=>`${Number(c.client_id)}:${Number(c.agency_id)}`));
     if (!ids.length) return res.json({ tickets: [] });
     const hasTopic=await hasSupportTicketTopicColumn();
     const [rows] = await pool.execute(
@@ -177,11 +184,11 @@ export const listGuardianSupportTickets = async (req, res, next) => {
        LEFT JOIN agencies a ON a.id = t.agency_id
        LEFT JOIN clients c ON c.id = t.client_id
        WHERE t.client_id IN (${ids.map(() => '?').join(',')})
-         ${hasTopic?"AND (LOWER(COALESCE(t.topic,'general')) <> 'billing' OR t.created_by_user_id = ?)":''}
+         ${hasTopic?"AND (LOWER(COALESCE(t.topic,'general')) NOT IN ('billing','technology') OR t.created_by_user_id = ?)":''}
        ORDER BY t.created_at DESC`,
       [...ids,...(hasTopic?[req.user.id]:[])]
     );
-    res.json({ tickets: (rows || []).filter(t=>guardianCanViewTicket(req.user.id,t)).map((t) => enrichTicket(t)) });
+    res.json({ tickets: (rows || []).filter(t=>scopes.has(`${Number(t.client_id)}:${Number(t.agency_id)}`)&&guardianCanViewTicket(req.user.id,t)).map((t) => enrichTicket(t)) });
   } catch (e) {
     next(e);
   }
@@ -231,7 +238,8 @@ export const createGuardianSupportTicket = async (req, res, next) => {
     if (!hasEnc && String(process.env.NODE_ENV || '').toLowerCase() === 'production') return res.status(503).json({ error: { message: 'Encrypted support ticket storage is required.' } });
     const hasPriority = await hasSupportTicketPriorityColumn();
     const hasTopic=await hasSupportTicketTopicColumn();
-    if(topic==='billing'&&!hasTopic)return res.status(503).json({error:{message:'Private billing tickets are not configured yet.'}});
+    if(['billing','technology'].includes(topic)&&!hasTopic)return res.status(503).json({error:{message:'Private support tickets are not configured yet.'}});
+    const technologyAssignee=topic==='technology'?await technologyOwner(agencyId):null;
     const topicColumn=hasTopic?', topic':'',topicValue=hasTopic?', ?':'',topicParams=hasTopic?[topic]:[];
     const qEnc = hasEnc
       ? prepareEncryptedTicketText(question)
@@ -299,6 +307,7 @@ export const createGuardianSupportTicket = async (req, res, next) => {
     }
 
     const ticketId = result.insertId;
+    if(ticketId&&technologyAssignee)await pool.execute("UPDATE support_tickets SET claimed_by_user_id=?,claimed_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=? AND topic='technology'",[technologyAssignee,ticketId,agencyId]);
     if (ticketId && (await hasSupportTicketMessagesTable())) {
       const hasEncMsg = await hasSupportTicketEncryptionColumns();
       const mEnc = hasEncMsg
@@ -344,8 +353,8 @@ export const createGuardianSupportTicket = async (req, res, next) => {
 
     try {
       if (created?.id && agencyId) {
-        const topicLabel = topic === 'billing' ? 'Billing' : 'Support';
-        const recipients = await listAgencyTopicRecipients({ agencyId, topic });
+        const topicLabel = topic === 'billing' ? 'Billing' : topic==='technology'?'Technology':'Support';
+        const recipients = technologyAssignee?[{id:technologyAssignee}]:await listAgencyTopicRecipients({ agencyId, topic });
         for (const r of recipients) {
           if (Number(r.id) === Number(req.user?.id)) continue;
           try {

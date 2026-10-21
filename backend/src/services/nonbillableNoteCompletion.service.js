@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
-import {maybeDecryptNotePayload,maybeEncryptNotePayload} from './clinicalNoteCrypto.service.js';
+import {maybeDecryptNotePayload} from './clinicalNoteCrypto.service.js';
 const parseObject=value=>typeof value==='string'?JSON.parse(value):value||{};
 const policyError=(status,message)=>Object.assign(new Error(message),{status});
 
@@ -35,7 +35,7 @@ export async function completeNonbillableReview({noteId,agencyId,actorUserId,con
   return {ok:true,noteId,reviewed:true,signedAt:note.provider_signed_at||null};
 }
 
-/** A single No decision creates one nonbillable chart note, never a signature or fee. */
+/** Apply the completed missed/cancellation documentation; never fabricate a chart note. */
 export async function completeMissedSessionDocumentation({session,providerUserId,noteId=null},database=clinicalPool) {
   const db=await database.getConnection();
   try {
@@ -45,16 +45,9 @@ export async function completeMissedSessionDocumentation({session,providerUserId
     if(!current.scheduled_end_at||new Date(current.scheduled_end_at)>new Date())throw policyError(409,'Record attendance after the session has ended.');
     const [signed]=await db.execute('SELECT id FROM clinical_notes WHERE clinical_session_id=? AND agency_id=? AND is_billable=1 AND provider_signed_at IS NOT NULL AND is_deleted=0 LIMIT 1',[session.id,session.agency_id]);
     if(signed.length)throw policyError(409,'A completed service note already exists. Review the conflicting attendance before changing it.');
-    if(!noteId){
-      const [existing]=await db.execute("SELECT id FROM clinical_notes WHERE clinical_session_id=? AND agency_id=? AND is_deleted=0 AND note_type='MISSED_APPOINTMENT' AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.source'))='provider_attendance' LIMIT 1",[session.id,session.agency_id]);
-      noteId=existing[0]?.id;
-      if(!noteId){
-        const text='The assigned provider confirmed that this scheduled session did not occur. A specific reason was not recorded. No service copay or missed-appointment fee is authorized by this entry.';
-        const hash=crypto.createHash('sha256').update(text).digest('hex'),review={status:'passed',source:'provider_review',reviewedAt:new Date().toISOString(),reviewedByUserId:providerUserId,contentHash:hash};
-        const [created]=await db.execute("INSERT INTO clinical_notes (clinical_session_id,agency_id,client_id,title,note_payload,metadata_json,created_by_user_id,note_type,is_billable,content_hash,content_review_status,content_review_source,content_review_json) VALUES (?,?,?,'Missed appointment',?,?,?,'MISSED_APPOINTMENT',0,?,'passed','provider_review',?)",[session.id,session.agency_id,current.client_id,maybeEncryptNotePayload(text),JSON.stringify({source:'provider_attendance',noteType:'MISSED_APPOINTMENT',nonBillable:true,documentationFlow:'review',eventType:'did_not_occur'}),providerUserId,hash,JSON.stringify(review)]);
-        noteId=created.insertId;
-      }
-    }
+    if(!noteId)throw policyError(409,'Complete the missed-appointment or cancellation note flow first.');
+    const [[note]]=await db.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND clinical_session_id=? AND is_deleted=0',[noteId,session.agency_id,session.id]);
+    if(!note||!missedNote(note)||(!note.provider_signed_at&&note.content_review_source!=='provider_review'))throw policyError(409,'Complete the missed-appointment or cancellation note review first.');
     await db.execute("UPDATE clinical_sessions SET encounter_status=CASE WHEN encounter_status='no_show' THEN 'no_show' ELSE 'cancelled' END,claim_blocked_reason='Session did not occur — nonbillable missed appointment',updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?",[session.id,session.agency_id]);
     await db.commit();return {noteId};
   }catch(e){await db.rollback();throw e;}finally{db.release();}

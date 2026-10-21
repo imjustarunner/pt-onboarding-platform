@@ -16,6 +16,7 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   MISDIRECTED_EMAIL: 'misdirected_email',
   INBOUND_EMAIL: 'inbound_email',
   PROVIDER_UPDATE: 'provider_update',
+  GUARDIAN_PORTAL: 'guardian_portal',
   PHONE_FOLLOWUP: 'phone_followup'
 });
 
@@ -31,6 +32,7 @@ export function supportTicketSourceLabel(value) {
     auricwell_records_request: 'AuricWell records follow-up',
     office_kiosk_support: 'Office kiosk',
     provider_update: 'Provider Update',
+    guardian_portal: 'AuricWell family portal',
     phone_followup: 'Phone follow-up',
     [SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME]: 'Forgot Username',
     [SUPPORT_TICKET_SOURCE_KEYS.PASSWORD_RECOVERY]: 'Password recovery',

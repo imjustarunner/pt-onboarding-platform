@@ -9,7 +9,7 @@
       <p><strong>Activity:</strong> {{ payload.ffsExcess.activity }}</p>
       <p><strong>Work performed:</strong> {{ payload.ffsExcess.workDescription }}</p>
       <p><strong>Why it took longer:</strong> {{ payload.ffsExcess.reason }}</p>
-      <p><strong>Documentation Hub:</strong> {{ payload.ffsExcess.workspaceUse }}. {{ payload.ffsExcess.workspaceReason }}</p>
+      <p><strong>Note Workspace:</strong> {{ payload.ffsExcess.workspaceUse }}. {{ payload.ffsExcess.workspaceReason }}</p>
       <p>Provider attested to complete period totals and exclusion of previously paid/submitted extra time. Verify the applicable allowance, actual work, and any other time claims before approval. Workspace use does not determine whether worked time is payable.</p>
     </section>
     <div class="itcdf-grid">
@@ -39,7 +39,7 @@
     </div>
 
     <div v-if="payload?.noteAidUsedDuringSession" class="field">
-      <label>Documentation Hub</label>
+      <label>Note Workspace</label>
       <div>Used during this session</div>
     </div>
   </div>

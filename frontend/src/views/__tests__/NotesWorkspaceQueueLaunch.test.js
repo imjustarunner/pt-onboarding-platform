@@ -59,7 +59,7 @@ async function workspace(query) {
   return { wrapper, router, state: wrapper.vm.$.setupState };
 }
 
-describe('Notes Workspace queue deep links', () => {
+describe('Note Workspace queue deep links', () => {
   it('opens the selected ToDo, persists Started, and includes it in the In progress library', async () => {
     const { wrapper, state } = await workspace({ workQueueId: 'import_one', agencyId: '7', launchIntent: 'work_queue' });
     expect(state.activeWorkQueueItemId).toBe('import_one');
@@ -70,7 +70,7 @@ describe('Notes Workspace queue deep links', () => {
     expect(buildLeftLibraryRows({ drafts, workQueueItems: loadWorkQueue(501) })).toEqual(expect.arrayContaining([
       expect.objectContaining({ docStatus: 'started', draftId: 22, workQueueId: 'import_one' })
     ]));
-    expect(wrapper.text()).toContain('Notes Workspace');
+    expect(wrapper.text()).toContain('Note Workspace');
     expect(wrapper.findAll('a').map((a) => [a.text(), a.attributes('href')])).toEqual(expect.arrayContaining([
       ['My Dashboard', '/clinic/dashboard'], ['Tasks', '/clinic/tasks']
     ]));

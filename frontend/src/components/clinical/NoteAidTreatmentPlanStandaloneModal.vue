@@ -236,7 +236,7 @@ async function parsePaste(raw) {
 }
 
 function generatedPlanText(data) {
-  // Generation returns outputJson.sections, matching the main Note Aid writer.
+  // Generation returns outputJson.sections, matching the main Note Workspace writer.
   return Object.entries(extractSections(data?.outputJson))
     .filter(([, text]) => typeof text === 'string' && text.trim())
     .map(([heading, text]) => `${heading}:\n${text.trim()}`)

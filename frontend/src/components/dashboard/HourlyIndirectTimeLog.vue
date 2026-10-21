@@ -166,7 +166,7 @@
                 </template>
               </div>
               <p v-if="isClockedIn && noteAidUsedDuringSession" class="itl-notes-session-hint">
-                Documentation Hub (Tools &amp; Aids → AI Tools) is part of this clocked session — your timer keeps running.
+                Note Workspace (Tools &amp; Aids → AI Tools) is part of this clocked session — your timer keeps running.
                 When you allocate time, include <strong>Clinical Documentation</strong> for documentation work.
               </p>
             </div>
@@ -1485,7 +1485,7 @@ function openDoMyNotes() {
   indirectSessionStore.markNoteAidOpened();
   ensureWritingNotesSelected();
   persistSelectedTypes();
-  success.value = 'Opening Documentation Hub — your Log Time clock keeps running.';
+  success.value = 'Opening Note Workspace — your Log Time clock keeps running.';
   router.push({
     path: noteAidPath(route),
     query: {

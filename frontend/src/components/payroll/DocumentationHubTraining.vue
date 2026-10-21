@@ -1,6 +1,6 @@
 <template>
   <details class="hub-training">
-    <summary>Learn Documentation Hub · current workflow and EHR workflow</summary>
+    <summary>Learn Note Workspace · current workflow and EHR workflow</summary>
     <p>Use the guide for the record system your agency currently uses. Completing this guide is not a condition of submitting worked time.</p>
     <div class="track-buttons" role="group" aria-label="Choose your documentation workflow">
       <button type="button" :aria-pressed="track==='current'" @click="track='current'">Before the EHR transition</button>
@@ -9,7 +9,7 @@
     <template v-if="track==='current'">
       <h4>Draft here, finish in your current record system</h4>
       <ol>
-        <li>Open <strong>Documentation Hub</strong>. Choose the appropriate note type, then the correct client or permitted initials. Confirm the service date and service details.</li>
+        <li>Open <strong>Note Workspace</strong>. Choose the appropriate note type, then the correct client or permitted initials. Confirm the service date and service details.</li>
         <li>Enter what actually occurred: the intervention, client response, progress toward goals, and next steps. For treatment planning, identify the goals and measurable objectives being created or revised.</li>
         <li>Generate a draft. Read and edit every section; correct unsupported statements, diagnoses, dates, and service details.</li>
         <li>Use <strong>Copy</strong> on the reviewed sections and transfer them to the appropriate fields in your current record system, such as Therapy Notes. Verify the client again and complete that system’s required review and signature.</li>
@@ -29,13 +29,13 @@
     </template>
     <div class="training-example">
       <strong>Practice example · fictional, no client information</strong>
-      <p>This is the actual session-summary component used in Documentation Hub, displaying sample data. Check these fields before generating or signing.</p>
+      <p>This is the actual session-summary component used in Note Workspace, displaying sample data. Check these fields before generating or signing.</p>
       <NoteAidQuickSessionBar client-label="DEMO — fictional client" :client-linked="track==='ehr'" date-of-service="2026-10-15" service-code="90837" service-label="Individual therapy" :duration-minutes="60" location-label="Sample office" clinician-label="Demo provider" :editable="false" :setup-complete="true" />
       <p><b>Progress note:</b> “Practiced paced breathing and a coping plan. Client identified two situations to try the skill. Review practice and barriers next session.”</p>
       <p><b>Treatment-plan revision:</b> “Reviewed progress toward the existing coping goal. Revised the objective to practice one selected skill three times before the next visit and review the result.”</p>
       <p>Check that the generated draft preserves those facts without inventing symptoms, risk findings, diagnoses, or interventions. Only enter facts that apply to the actual service.</p>
     </div>
-    <a :href="workspaceHref" target="_blank" rel="noopener">Open Documentation Hub in a new tab ↗</a>
+    <a :href="workspaceHref" target="_blank" rel="noopener">Open Note Workspace in a new tab ↗</a>
     <p>If the workspace cannot handle the task or is unavailable, use your agency’s approved documentation workflow and explain that in the time request. Keep client names and clinical details out of payroll explanations.</p>
   </details>
 </template>

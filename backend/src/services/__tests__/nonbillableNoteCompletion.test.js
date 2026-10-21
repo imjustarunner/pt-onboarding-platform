@@ -12,4 +12,14 @@ it.each([{actorUserId:46},{confirmed:false},{expectedHash:hash('stale')}])('reje
 it('does not convert a progress note into review-only',async()=>{const f=fixture({note_type:'PROGRESS_NOTE'});await expect(completeNonbillableReview(input,f.deps)).rejects.toThrow(/does not use/);});
 it('retries lifecycle after persisted review without recording a new review',async()=>{const f=fixture({content_review_source:'provider_review',content_review_json:{reviewedAt:'2026-10-21',reviewedByUserId:45}});await completeNonbillableReview(input,f.deps);expect(f.db.execute.mock.calls.filter(([q])=>q.startsWith('UPDATE'))).toHaveLength(0);expect(f.deps.finishTermination).toHaveBeenCalledTimes(1);});
 it('identifies only explicit nonattendance note types/events',()=>{expect(missedNote({note_type:'PROGRESS_NOTE'})).toBe(false);expect(missedNote({note_type:'APPOINTMENT_CHANGE',metadata_json:{eventType:'rescheduled'}})).toBe(false);expect(missedNote({note_type:'MISSED_APPOINTMENT'})).toBe(true);});
-it('creates one nonbillable missed note and reuses it on retry',async()=>{let id=null;const session={id:30,agency_id:2,client_id:12,provider_user_id:45,scheduled_end_at:'2026-01-01'};const db={beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release:()=>{},execute:vi.fn(async sql=>{if(sql.startsWith('SELECT *'))return [[session]];if(sql.includes('provider_signed_at'))return [[]];if(sql.startsWith('SELECT id'))return [id?[{id}]:[]];if(sql.startsWith('INSERT')){id=51;return [{insertId:id}];}return [{affectedRows:1}];})};const source={getConnection:async()=>db};expect(await completeMissedSessionDocumentation({session,providerUserId:45},source)).toEqual({noteId:51});expect(await completeMissedSessionDocumentation({session,providerUserId:45},source)).toEqual({noteId:51});const inserts=db.execute.mock.calls.filter(([q])=>q.startsWith('INSERT'));expect(inserts).toHaveLength(1);expect(inserts[0][0]).not.toContain('provider_signed_at');});
+it('requires the existing completed missed note flow and never fabricates a chart entry',async()=>{
+  const session={id:30,agency_id:2,client_id:12,provider_user_id:45,scheduled_end_at:'2026-01-01'};
+  const db={beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release:()=>{},execute:vi.fn(async sql=>{
+    if(sql.startsWith('SELECT * FROM clinical_sessions'))return [[session]];
+    if(sql.startsWith('SELECT * FROM clinical_notes'))return [[{id:51,note_type:'MISSED_APPOINTMENT',content_review_source:'provider_review'}]];
+    if(sql.startsWith('SELECT id'))return [[]];return [{affectedRows:1}];
+  })};const source={getConnection:async()=>db};
+  await expect(completeMissedSessionDocumentation({session,providerUserId:45},source)).rejects.toThrow(/note flow first/);
+  expect(await completeMissedSessionDocumentation({session,providerUserId:45,noteId:51},source)).toEqual({noteId:51});
+  expect(db.execute.mock.calls.filter(([q])=>q.startsWith('INSERT'))).toHaveLength(0);
+});

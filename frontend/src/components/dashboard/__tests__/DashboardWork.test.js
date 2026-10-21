@@ -20,5 +20,5 @@ describe('dashboard work',()=>{
   await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
   w=shallowMount(Home,{props:{agencyId:2,showNotes:true}});await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
  });
- it('opens the selected exact work queue item in Notes Workspace',async()=>{const w=shallowMount(Work);await flushPromises();w.findComponent({name:'NoteAidWorkQueuePanel'}).vm.$emit('select',{id:42,agencyId:2});await flushPromises();expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({workQueueId:'42',agencyId:'2',launchIntent:'work_queue'})}));w.unmount();});
+ it('opens the selected exact work queue item in Note Workspace',async()=>{const w=shallowMount(Work);await flushPromises();w.findComponent({name:'NoteAidWorkQueuePanel'}).vm.$emit('select',{id:42,agencyId:2});await flushPromises();expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({workQueueId:'42',agencyId:'2',launchIntent:'work_queue'})}));w.unmount();});
 });

@@ -87,9 +87,11 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
   });
   if(attempt.status==='succeeded')return {paid:true,alreadyPaid:true,paymentId:attempt.id};
   const snapshot=decryptFamilyBilling(attempt.snapshot_encrypted,context(agencyId,allocationId));
+  const {claimProcessorDispatch}=await import('./paymentDispatch.js');
+  const dispatch=await claimProcessorDispatch({attempt,agencyId,userId,allocationId,automatic,planId});
   let intent;
   try {
-    intent=attempt.processor_intent_id?await Stripe.retrievePaymentIntent(attempt.processor_intent_id,snapshot.accountId):await Stripe.chargePaymentMethod({customerId:snapshot.customerId,paymentMethodId:snapshot.paymentMethodId,connectedAccountId:snapshot.accountId,amountCents:snapshot.amountCents,currency:snapshot.currency,metadata:{agency_id:String(agencyId),family_ledger_payment_id:String(attempt.id)},idempotencyKey:`family-ledger:${agencyId}:${attempt.id}`});
+    intent=dispatch.intentId?await Stripe.retrievePaymentIntent(dispatch.intentId,snapshot.accountId):await Stripe.chargePaymentMethod({customerId:snapshot.customerId,paymentMethodId:snapshot.paymentMethodId,connectedAccountId:snapshot.accountId,amountCents:snapshot.amountCents,currency:snapshot.currency,metadata:{agency_id:String(agencyId),family_ledger_payment_id:String(attempt.id)},idempotencyKey:`family-ledger:${agencyId}:${attempt.id}`});
   } catch(e) {
     const pending=e.payment_intent||e.raw?.payment_intent;
     if(pending?.id)intent=await Stripe.retrievePaymentIntent(pending.id,snapshot.accountId);

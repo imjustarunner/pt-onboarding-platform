@@ -24,7 +24,8 @@ test('copay readiness, portal balances, automatic collection and reconciliation 
   const primary={memberId:'SYNTHETIC-COMMERCIAL',insurerName:'Synthetic commercial',relationshipToSubscriber:'self'};
   const setup=extra=>saveReadiness({...c,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'verified_copay',reason:'Verified synthetic plan and payment schedule',...extra});
   const rows=()=>listBalances({agencyId:1,userId:10,clientId:102});
-  const visit=async(id,status='completed')=>{await clinical.execute('INSERT INTO clinical_sessions(id,agency_id,client_id,scheduled_start_at,encounter_status) VALUES(?,1,102,?,?)',[id,'2026-09-20 15:00:00',status]);await clinical.execute('INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id) VALUES(?,1,102,?)',[id,id]);};
+  const currentVisitTime=new Date(),currentServiceDate=currentVisitTime.toISOString().slice(0,10);
+  const visit=async(id,status='completed')=>{await clinical.execute('INSERT INTO clinical_sessions(id,agency_id,client_id,scheduled_start_at,encounter_status) VALUES(?,1,102,?,?)',[id,currentVisitTime,status]);await clinical.execute('INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id) VALUES(?,1,102,?)',[id,id]);};
   const copay=id=>setClaimResponsibility({...c,claimId:id,amountCents:2500,responsibilityType:'copay',reason:'Verified benefit copay'});
   try {
     await pool.execute('DELETE FROM client_billing_readiness WHERE agency_id=1 AND client_id=102');
@@ -61,7 +62,7 @@ test('copay readiness, portal balances, automatic collection and reconciliation 
       const shown=(await rows()).find(b=>b.receivableId===r.id);assert.equal(shown.dueCents,0);assert.equal(shown.paidCents,2500);assert.equal(shown.billingState,'paid');
       await assert.rejects(recordCash({...c,allocationId:paidAllocation.id,payerUserId:10,amountCents:2500,idempotencyKey:'duplicate-cash-test',note:'Already paid card'}),e=>e.status===409);
       await assert.rejects(setClaimResponsibility({...c,claimId:8102,amountCents:3000,responsibilityType:'patient_balance',verificationBasis:'era',reason:'Changed EOB requires same balance adjustment'}),/audited adjustment/);
-      const receipt=await receiptFor({agencyId:1,paymentId:paidPayment,userId:10});assert.equal(receipt.clientName,'Child Two');assert.equal(receipt.serviceDate,'2026-09-20');assert.equal(receipt.responsibilityType,'Copay');assert.equal(receipt.remainingAtPaymentCents,0);assert.equal(receipt.shareCents,2500);
+      const receipt=await receiptFor({agencyId:1,paymentId:paidPayment,userId:10});assert.equal(receipt.clientName,'Child Two');assert.equal(receipt.serviceDate,currentServiceDate);assert.equal(receipt.responsibilityType,'Copay');assert.equal(receipt.remainingAtPaymentCents,0);assert.equal(receipt.shareCents,2500);
       assert.equal((await renderReceiptPdf(receipt)).subarray(0,4).toString(),'%PDF');
       await assert.rejects(receiptFor({agencyId:2,paymentId:paidPayment,userId:10}),e=>e.status===404);
     });

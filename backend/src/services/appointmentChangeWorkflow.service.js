@@ -65,6 +65,8 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
       await ensureAppointmentClinicalLink(appointmentId, actor.actorUserId);
       const preview = await previewChange(appointmentId, facts, actor);
       await assertAppointmentChangeDocumentation(await Appointment.findById(appointmentId));
+      const {suppressAppointmentAttendanceCopays}=await import('./familyLedger/copayAttendance.js');
+      await suppressAppointmentAttendanceCopays(await Appointment.findById(appointmentId),actor.actorUserId,{checkOnly:true});
       const signedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
       // Reserve an optional payroll benefit and persist the signature together.
       // Insufficient funds must leave the cancellation editable, before side effects.
@@ -84,6 +86,8 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
     }
     // Persist the decision before side effects. Retries finish the same decision and signature.
     const linked = await Appointment.findById(appointmentId);
+    const {suppressAppointmentAttendanceCopays}=await import('./familyLedger/copayAttendance.js');
+    await suppressAppointmentAttendanceCopays(linked,actor.actorUserId);
     await blockAppointmentChangeClaims(linked, workflow.facts.eventType);
     let result = workflow.result;
     if (!result) {
@@ -93,6 +97,8 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
     }
     const notes = await attachAppointmentChangeNotes({ appointment: linked, narrative: result.narrative,
       eventType: workflow.facts.eventType, actorUserId: workflow.signed_by_user_id, signedAt: workflow.signed_at });
+    const {completeAppointmentAttendanceDocumentation}=await import('./familyLedger/copayAttendance.js');
+    await completeAppointmentAttendanceDocumentation(linked,notes);
     if (linked.officeEventId) {
       for (const note of notes) await ClinicalRecordRef.upsert({ agencyId: linked.agencyId, clientId: note.clientId,
         officeEventId: linked.officeEventId, clinicalSessionId: note.clinicalSessionId, recordType: 'note', clinicalRecordId: note.id });

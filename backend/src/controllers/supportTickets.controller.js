@@ -4205,6 +4205,8 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     if (!row) return res.status(404).json({ error: { message: 'Attachment not found' } });
     const buffer = await readTicketAttachmentBuffer(row);
     const filename = String(row.file_name || 'attachment').replace(/[\r\n"]/g, '');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length);
@@ -4213,4 +4215,3 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     next(e);
   }
 };
-

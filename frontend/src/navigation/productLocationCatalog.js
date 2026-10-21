@@ -396,10 +396,10 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'note-aid',
     routeName: 'NoteAid',
-    label: 'Documentation Hub',
+    label: 'Note Workspace',
     description: 'Clinical note generator.',
     group: 'admin',
-    howToFind: 'Admin → Documentation Hub',
+    howToFind: 'Admin → Note Workspace',
     keywords: ['note aid', 'note generator', 'clinical note', 'generate note'],
     rolesAny: ['admin', 'support', 'staff', 'provider', 'super_admin']
   },

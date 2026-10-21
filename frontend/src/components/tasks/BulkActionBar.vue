@@ -11,7 +11,7 @@
           :disabled="busy"
           @click="$emit('open-notes')"
         >
-          Open in Documentation Hub
+          Open in Note Workspace
         </button>
 
         <button type="button" class="bulk-bar__btn bulk-bar__btn--complete" :disabled="busy" @click="$emit('complete')">

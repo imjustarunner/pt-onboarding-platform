@@ -3,7 +3,7 @@
     <h4>Screening documentation to do</h4>
     <p v-if="error" role="alert">{{ error }}</p>
     <button v-for="item in items" :key="item.clinical_session_id" type="button" @click="openClinicalNote({agencyId,clientId,row:item})">
-      H0002 screening · {{ item.note_status === 'draft' ? 'Draft — in progress' : 'Not started' }} · Open in Notes Workspace
+      H0002 screening · {{ item.note_status === 'draft' ? 'Draft — in progress' : 'Not started' }} · Open in Note Workspace
     </button>
     <p>Unsigned screening work stays here until documentation is completed. Claim readiness is tracked separately.</p>
   </section>

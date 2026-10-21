@@ -1,5 +1,5 @@
 /**
- * Documentation Hub documentation workflow statuses across left library + right work queue.
+ * Note Workspace documentation workflow statuses across left library + right work queue.
  *
  * - not_started: right queue only
  * - started: both panels (opened / in progress, not finished)

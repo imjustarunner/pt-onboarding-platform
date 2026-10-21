@@ -1,7 +1,7 @@
 import { BUSINESS_TYPE_ALIASES, DEFAULT_BUSINESS_TYPES_BY_ORG_TYPE } from './businessTypeCapabilities.js';
 
 /**
- * Documentation Hub / Tools & Aids access — shared across dashboard, router, and quick nav.
+ * Note Workspace / Tools & Aids access — shared across dashboard, router, and quick nav.
  * Employee roles only (excludes client / client_guardian).
  */
 export const NOTE_AID_EMPLOYEE_ROLES = [
@@ -48,16 +48,6 @@ export function workspaceNoteAidPath(orgSlug = '') {
   return slug ? `/${slug}${WORKSPACE_NOTE_AID_PATH}` : WORKSPACE_NOTE_AID_PATH;
 }
 
-const PRACTICE_NOTE_ROLES = new Set([
-  'provider',
-  'provider_plus',
-  'supervisor',
-  'clinical_practice_assistant',
-  'intern',
-  'intern_plus',
-  'clinician'
-]);
-
 const CLINICAL_FEATURE_FLAGS = [
   'clinicalChartEnabled',
   'clinicalNoteSigningEnabled',
@@ -101,14 +91,7 @@ export function isMentalHealthPractice(tenant = null) {
   return CLINICAL_FEATURE_FLAGS.some((key) => isTruthyFeatureFlag(flags?.[key]));
 }
 
-/**
- * Visible name for the shared note surface. AuricWell is always clinical; elsewhere
- * only provider-facing clinical tenants receive the clinical name.
- */
-export function noteAidWorkspaceLabel({ role = '', tenant = null, auricwell = false } = {}) {
-  const normalizedRole = String(role || '').trim().toLowerCase();
-  if (auricwell || (PRACTICE_NOTE_ROLES.has(normalizedRole) && isMentalHealthPractice(tenant))) {
-    return 'Notes Workspace';
-  }
-  return 'Notes Workspace';
+/** One stable product name across roles, tenants, and the dedicated AuricWell portal. */
+export function noteAidWorkspaceLabel() {
+  return 'Note Workspace';
 }

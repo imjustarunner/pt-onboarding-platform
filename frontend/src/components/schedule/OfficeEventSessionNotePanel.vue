@@ -1,5 +1,5 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="practiceCategory === 'mental_health'" compact :tenant-id="agencyId" :show-back="false" context-label="Documentation Hub · Session note">
+  <ClinicalWorkspaceFrame :enabled="practiceCategory === 'mental_health'" compact :tenant-id="agencyId" :show-back="false" context-label="Note Workspace · Session note">
   <div class="oesn" data-testid="office-event-session-note">
     <div v-if="hipaaBannerVisible" class="oesn-hipaa" role="status">
       HIPAA: Session notes contain protected health information. Viewing is logged for the assigned provider, supervisor, and admins.
@@ -19,6 +19,7 @@
       <textarea
         v-if="inputMode === 'type'"
         v-model="inputText"
+        :disabled="loadingDraft || activeDraftState?.loadFailed"
         class="oesn-textarea"
         rows="8"
         maxlength="12000"
@@ -27,6 +28,7 @@
       <template v-else>
         <textarea
           v-model="inputText"
+          :disabled="loadingDraft || activeDraftState?.loadFailed"
           class="oesn-textarea"
           rows="6"
           maxlength="12000"
@@ -54,7 +56,7 @@
         :disabled="!agencyId || !clientId"
         @click="openInNoteAid"
       >
-        Open in Documentation Hub
+        Open in Note Workspace
       </button>
       <button
         type="button"
@@ -68,7 +70,9 @@
         {{ generating ? 'Generating…' : 'Generate Note' }}
       </button>
     </div>
-    <p class="oesn-hint">Add session notes in the box above or record dictation. This text is the same blurb Documentation Hub uses for this session.</p>
+    <p class="oesn-hint">Add session notes in the box above or record dictation. This text is saved automatically and becomes the source text in Note Workspace for this appointment.</p>
+    <p class="oesn-hint">After the scheduled end, saving session content confirms attendance and may collect the authorized copay today. Opening this panel alone does not confirm attendance. For a session that did not occur, use Missed appointment or Cancel instead.</p>
+    <p v-if="attendanceNotice" class="oesn-hint" role="status">{{ attendanceNotice }}</p>
     <p v-if="statusMsg" class="oesn-status">{{ statusMsg }}</p>
     <p v-if="errorMsg" class="oesn-error">{{ errorMsg }}</p>
 
@@ -87,9 +91,10 @@
 
 <script setup>
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
+import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import NoteAidObjectiveRatings from '../clinical/NoteAidObjectiveRatings.vue';
 import {
@@ -115,6 +120,7 @@ const props = defineProps({
 const emit = defineEmits(['open-note-aid']);
 
 const router = useRouter();
+const route = useRoute();
 const inputText = defineModel('inputText', { type: String, default: '' });
 const inputMode = ref('type');
 
@@ -124,6 +130,7 @@ const draftId = ref(null);
 const listening = ref(false);
 const dictationError = ref('');
 const statusMsg = ref('');
+const attendanceNotice = ref('');
 const errorMsg = ref('');
 const previousRatings = ref([]);
 const sessionRatings = ref([]);
@@ -132,6 +139,21 @@ const hasSavedPhi = ref(false);
 const hipaaBannerVisible = ref(true);
 let recognition = null;
 let saveTimer = null;
+const loadingDraft = ref(false);
+let activeDraftState = null;
+
+function sessionContext() {
+  return {
+    agencyId: Number(props.agencyId || 0),
+    clientId: Number(props.clientId || 0) || null,
+    officeEventId: Number(props.officeEventId || 0) || null,
+    clinicalSessionId: Number(props.clinicalSessionId || 0) || null,
+    dateOfService: String(props.dateOfService || '').slice(0, 10) || null,
+    serviceCode: String(props.serviceCode || '').trim() || null,
+    initials: String(props.initials || '').trim() || null
+  };
+}
+
 
 const speechSupported = computed(() => (
   typeof window !== 'undefined' && !!(privateSpeechRecognition())
@@ -168,36 +190,33 @@ async function revealPhi() {
   await logSessionNoteView({ reveal: true });
 }
 
-async function loadExistingDraft() {
-  const agencyId = Number(props.agencyId || 0);
-  const clientId = Number(props.clientId || 0);
-  if (!agencyId) return;
+async function loadExistingDraft(state) {
+  const { agencyId, clientId, officeEventId, clinicalSessionId } = state.context;
+  if (!agencyId || !clientId) return;
   try {
     const res = await api.get('/clinical-notes/recent', {
-      params: { agencyId, clientIds: clientId || undefined, days: 120 },
-      skipGlobalLoading: true
+      params: { agencyId, clientIds: clientId, days: 120 }, skipGlobalLoading: true
     });
-    const drafts = Array.isArray(res.data?.drafts) ? res.data.drafts : [];
-    const oe = Number(props.officeEventId || 0);
-    const cs = Number(props.clinicalSessionId || 0);
-    const dos = String(props.dateOfService || '').slice(0, 10);
-    const hit = drafts.find((d) => oe && Number(d.office_event_id || 0) === oe)
-      || drafts.find((d) => cs && Number(d.clinical_session_id || 0) === cs)
-      || drafts.find((d) => clientId && Number(d.client_id) === clientId && String(d.date_of_service || '').slice(0, 10) === dos);
-    if (hit) {
-      draftId.value = hit.id;
-      const saved = String(hit.input_text || '').trim();
-      if (saved) {
-        hasSavedPhi.value = true;
-        revealed.value = false;
-        inputText.value = saved;
-        await logSessionNoteView({ mode: 'tab_open_redacted' });
-      } else if (!String(inputText.value || '').trim()) {
-        inputText.value = '';
-      }
-    }
-  } catch {
-    // ignore — clinician can still type a new blurb
+    if (state !== activeDraftState) return;
+    const drafts = (Array.isArray(res.data?.drafts) ? res.data.drafts : [])
+      .filter(d => Number(d.client_id) === clientId && !d.archived_at);
+    // A same-day draft can belong to another appointment. Only reuse this exact session.
+    const hit = drafts.find(d => clinicalSessionId && Number(d.clinical_session_id) === clinicalSessionId)
+      || drafts.find(d => officeEventId && Number(d.office_event_id) === officeEventId
+        && (!clinicalSessionId || !Number(d.clinical_session_id) || Number(d.clinical_session_id) === clinicalSessionId));
+    if (!hit) return;
+    state.id = hit.id;
+    draftId.value = hit.id;
+    try { state.outputJson = typeof hit.output_json === 'string' ? JSON.parse(hit.output_json) : hit.output_json; } catch { state.outputJson = null; }
+    state.lastSavedInput = String(hit.input_text || '');
+    state.text = state.lastSavedInput;
+    inputText.value = state.text;
+    hasSavedPhi.value = !!state.text.trim();
+    revealed.value = false;
+    if (hasSavedPhi.value) await logSessionNoteView({ mode: 'tab_open_redacted' });
+  } catch (e) {
+    if (state === activeDraftState) errorMsg.value = 'Could not load this session’s saved note. Retry before writing to avoid a duplicate draft.';
+    state.loadFailed = true;
   }
 }
 
@@ -216,46 +235,69 @@ async function loadRatings() {
   }
 }
 
-async function persistDraft() {
-  const agencyId = Number(props.agencyId || 0);
-  const clientId = Number(props.clientId || 0);
-  if (!agencyId) return;
-  const payload = {
-    agencyId,
-    clientId: clientId || null,
-    officeEventId: Number(props.officeEventId || 0) || null,
-    clinicalSessionId: Number(props.clinicalSessionId || 0) || null,
-    dateOfService: String(props.dateOfService || '').slice(0, 10) || null,
-    serviceCode: String(props.serviceCode || '').trim() || null,
-    initials: String(props.initials || '').trim() || null,
-    inputText: String(inputText.value || '')
-  };
-  if (!draftId.value && !String(payload.inputText || '').trim()) {
-    // Still create an empty draft when session context exists so Open in Documentation Hub
-    // can always start documentation for this appointment.
-    const hasContext = !!(
-      payload.officeEventId
-      || payload.clinicalSessionId
-      || (payload.clientId && payload.dateOfService)
-    );
-    if (!hasContext) return;
+async function persistDraft({ allowEmpty = false, state = activeDraftState } = {}) {
+  if (!state || state.loadFailed || !state.context.agencyId || !state.context.clientId) {
+    throw new Error('This session’s draft is not ready. Reopen the appointment and retry.');
   }
-  try {
-    if (!draftId.value) {
+  const text = state.text;
+  if (!text.trim() && !state.id && !allowEmpty) return;
+  const request = async () => {
+    if (state.id && text === state.lastSavedInput) return;
+    const payload = { ...state.context, inputText: text };
+    // Never replace a generated note's sections when updating its source text.
+    if (!state.id) payload.outputJson = { meta: { quickNote: true } };
+    else if (state.outputJson && typeof state.outputJson === 'object') {
+      payload.outputJson = { ...state.outputJson, meta: { ...state.outputJson.meta, quickNote: true } };
+    }
+    if (text.trim() && text !== state.lastSavedInput) payload.attendanceIntent = 'authored_session_draft';
+    let attendance;
+    if (!state.id) {
       const res = await api.post('/clinical-notes/drafts', payload, { skipGlobalLoading: true });
-      draftId.value = res?.data?.draft?.id || null;
+      attendance = res?.data?.attendance;
+      state.id = res?.data?.draft?.id || null;
+      if (!state.id) throw new Error('The session draft was not saved. Please retry.');
     } else {
-      await api.patch(`/clinical-notes/drafts/${draftId.value}`, payload, { skipGlobalLoading: true });
+      const res = await api.patch(`/clinical-notes/drafts/${state.id}`, payload, { skipGlobalLoading: true });
+      attendance = res?.data?.attendance;
     }
-    if (String(payload.inputText || '').trim()) {
-      hasSavedPhi.value = true;
-      // Keep editor open while the clinician is actively writing this session.
-      revealed.value = true;
+    state.lastSavedInput = text;
+    if (state === activeDraftState) {
+      draftId.value = state.id;
+      hasSavedPhi.value = !!text.trim();
+      if (text.trim()) revealed.value = true;
+      statusMsg.value = 'Draft saved.';
+      if (payload.attendanceIntent) attendanceNotice.value = noteDraftAttendanceNotice(attendance);
+      errorMsg.value = '';
     }
-  } catch {
-    // keep typing even if autosave fails
+  };
+  // Autosave and Open/Generate may overlap. Serialize them so a new draft is created once.
+  state.saving = state.saving.catch(() => {}).then(request);
+  try {
+    await state.saving;
+  } catch (e) {
+    if (state === activeDraftState) {
+      statusMsg.value = '';
+      errorMsg.value = e?.response?.data?.error?.message || 'Draft could not be saved. Keep this appointment open and retry.';
+    }
+    throw e;
   }
 }
+
+function flushPendingDraft(state = activeDraftState) {
+  clearTimeout(saveTimer);
+  if (state && !state.loadFailed && state.text !== state.lastSavedInput) {
+    return persistDraft({ state }).catch(() => {});
+  }
+}
+
+async function savePendingDraft() {
+  clearTimeout(saveTimer);
+  const state = activeDraftState;
+  if (!state || loadingDraft.value) return;
+  await state.saving.catch(() => {});
+  if (state.text !== state.lastSavedInput) await persistDraft({ state });
+}
+defineExpose({ savePendingDraft });
 
 async function persistRatings() {
   const agencyId = Number(props.agencyId || 0);
@@ -285,8 +327,10 @@ async function persistRatings() {
 async function openInNoteAid() {
   errorMsg.value = '';
   try {
-    await persistDraft();
+    clearTimeout(saveTimer);
+    await persistDraft({ allowEmpty: true });
     const ctx = {
+      agencyId: Number(props.agencyId || 0),
       practiceCategory: props.practiceCategory,
       clientId: Number(props.clientId || 0),
       officeEventId: Number(props.officeEventId || 0) || undefined,
@@ -300,13 +344,13 @@ async function openInNoteAid() {
     };
     emit('open-note-aid', ctx);
     try {
-      await navigateToNoteAid(router, ctx);
+      await navigateToNoteAid(router, ctx, { organizationSlug: route.params.organizationSlug });
     } catch {
       const q = new URLSearchParams(buildNoteAidQuery(ctx));
-      window.location.href = `${noteAidPath()}?${q.toString()}`;
+      window.location.href = `${noteAidPath({ organizationSlug: route.params.organizationSlug })}?${q.toString()}`;
     }
   } catch (e) {
-    errorMsg.value = e?.response?.data?.error?.message || e?.message || 'Could not open Documentation Hub';
+    errorMsg.value = e?.response?.data?.error?.message || e?.message || 'Could not open Note Workspace';
   }
 }
 
@@ -336,9 +380,14 @@ async function generateNote() {
     const ratingsCtx = buildObjectiveRatingsContextText(sessionRatings.value);
     if (ratingsCtx) fd.append('objectiveRatingsContext', ratingsCtx);
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
-    if (res.data?.draft?.id) draftId.value = res.data.draft.id;
+    if (res.data?.draft?.id) {
+      draftId.value = res.data.draft.id;
+      activeDraftState.id = res.data.draft.id;
+      const generated = res.data.draft.output_json ?? res.data.outputJson;
+      try { activeDraftState.outputJson = typeof generated === 'string' ? JSON.parse(generated) : generated; } catch { /* preserve the prior output */ }
+    }
     await persistRatings();
-    statusMsg.value = 'Note generated. Open Documentation Hub to copy SOAP sections or keep documenting here.';
+    statusMsg.value = 'Note generated. Open Note Workspace to copy SOAP sections or keep documenting here.';
   } catch (e) {
     errorMsg.value = e?.response?.data?.error?.message || 'Failed to generate note';
   } finally {
@@ -388,31 +437,36 @@ function toggleDictation() {
 }
 
 watch(inputText, () => {
-  if (!revealed.value && hasSavedPhi.value) return;
+  if (loadingDraft.value || !activeDraftState) return;
+  activeDraftState.text = String(inputText.value || '');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { persistDraft(); }, 700);
-});
+  saveTimer = setTimeout(() => { persistDraft().catch(() => {}); }, 700);
+}, { flush: 'sync' });
 
 watch(
-  () => [props.officeEventId, props.clientId, props.agencyId],
-  () => {
+  () => [props.officeEventId, props.clinicalSessionId, props.clientId, props.agencyId, props.dateOfService],
+  async () => {
+    flushPendingDraft();
+    loadingDraft.value = true;
+    const state = { context: sessionContext(), id: null, text: '', lastSavedInput: '', saving: Promise.resolve(), loadFailed: false };
+    activeDraftState = state;
     draftId.value = null;
     inputText.value = '';
     hasSavedPhi.value = false;
     revealed.value = false;
+    statusMsg.value = '';
+    errorMsg.value = '';
     hipaaBannerVisible.value = true;
-    loadExistingDraft();
+    attendanceNotice.value = '';
+    await loadExistingDraft(state);
+    if (state === activeDraftState) loadingDraft.value = false;
     loadRatings();
-  }
+  },
+  { immediate: true }
 );
 
-onMounted(() => {
-  loadExistingDraft();
-  loadRatings();
-});
-
 onBeforeUnmount(() => {
-  clearTimeout(saveTimer);
+  flushPendingDraft();
   try { recognition?.stop?.(); } catch { /* ignore */ }
 });
 </script>

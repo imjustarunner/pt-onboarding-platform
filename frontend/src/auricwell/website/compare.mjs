@@ -36,7 +36,7 @@ export function comparisonSection({product='auricwell'}={}) {
    cell('Public appointment requests', 'TherapyPortal can let anyone view and request appointments without signing in. Portal forms support intake.', 'tnPortal'),
    cell('Public appointment requests', 'Prospective clients can request appointments. An external website widget is documented for the Plus plan.', 'spWidget')],
   ['AI documentation and transcription',
-   cell('Inside Practice Notes', 'Guided sections, treatment context and AI drafting in the note workspace. Authorized transcription supports drafts; clinicians review the result.'),
+   cell('Inside Note Workspace', 'Guided sections, treatment context and AI drafting in the note workspace. Authorized transcription supports drafts; clinicians review the result.'),
    cell('TherapyFuel', 'AI progress notes from summaries or transcripts, treatment plans and other documentation tools.', 'tnAI'),
    cell('Note Taker', 'Session transcription and AI-assisted documentation. Review the current plan and consent requirements.', 'spAI')],
   ['Office kiosk and provider arrival alerts',
@@ -52,7 +52,7 @@ export function comparisonSection({product='auricwell'}={}) {
 }
 
 export const faqs = [
- ['What makes AuricWell different?', 'The focus is the connected workflow: guided Practice Notes, treatment-goal history, supervision queues, configurable enrollment, provider availability and office check-in. Try the examples to see how those pieces fit your practice. We do not claim to be the only EHR with AI, reminders or online requests.'],
+ ['What makes AuricWell different?', 'The focus is the connected workflow: guided Note Workspace, treatment-goal history, supervision queues, configurable enrollment, provider availability and office check-in. Try the examples to see how those pieces fit your practice. We do not claim to be the only EHR with AI, reminders or online requests.'],
  ['Can clients confirm appointments by text?', 'The shared scheduling workflow supports confirmation replies and shows client-confirmed status on the schedule. Practice settings govern reminder timing, templates and enabled email or text channels, subject to recipient preferences and consent. Confirm these integrations for your AuricWell rollout.'],
  ['What happens when a client checks in at the kiosk?', 'The client selects their provider and scheduled visit. The office workflow creates an in-app arrival alert, with a pending email fallback if it is not acknowledged and email is enabled. Optional feedback can capture connection and treatment progress. The provider SMS shown here is a preview, not an active kiosk delivery channel.'],
  ['Can clients start enrollment from our website?', 'The shared platform supports configurable public enrollment links, intake forms and signed acknowledgements, plus provider profiles and published availability. Your practice reviews placement and configures the information and forms it needs. An appointment request is not automatically a confirmed placement.'],
@@ -69,7 +69,7 @@ export const faqs = [
 
 export const hqFaqs = faqs.map(([question,answer],index) => {
  const adapted = {
-  0: ['What makes Plot Twist HQ different?', 'Plot Twist HQ brings client care and business operations together: guided Practice Notes, treatment-goal history, supervision, enrollment, scheduling and office check-in, alongside people operations, payroll workflows and public websites. We do not claim to be the only platform with AI, reminders or online requests.'],
+  0: ['What makes Plot Twist HQ different?', 'Plot Twist HQ brings client care and business operations together: guided Note Workspace, treatment-goal history, supervision, enrollment, scheduling and office check-in, alongside people operations, payroll workflows and public websites. We do not claim to be the only platform with AI, reminders or online requests.'],
   9: ['Can a new practice start without migration files?', 'A new practice can begin with its team, locations, services, fees, forms and agreements. Historical imports are for practices bringing existing records; they are not a prerequisite for starting fresh. Confirm the workflows and integrations your team needs before launch.'],
   11: ['Which features are included, and what does it cost?', 'Feature access follows your organization’s plan, permissions and enabled integrations. We agree on software access, management support and commercial terms before contracting. This website does not publish prices or require payment details.'],
   12: ['Who provides care when we use Plot Twist HQ?', 'Your treating practice and its providers deliver care. The software and management support do not change the legal parties identified in patient agreements. Plot Twist Co. and your organization agree separately on business support and responsibilities.']

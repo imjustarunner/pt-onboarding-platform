@@ -1296,7 +1296,7 @@ const quickActionsCatalog = computed(() => {
     {
       id: 'tools_aids',
       title: 'Tools & Aids',
-      description: 'Documentation Hub and upcoming clinical tools',
+      description: 'Note Workspace and upcoming clinical tools',
       to: `${p}/admin/tools-aids`,
       emoji: '🩺',
       iconKey: 'tools_aids',
@@ -1306,7 +1306,7 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'clinical_note_generator',
-      title: 'Documentation Hub',
+      title: 'Note Workspace',
       description: 'Clinical Director Agent (audio + text)',
       to: `${p}/admin/note-aid`,
       emoji: '🩺',

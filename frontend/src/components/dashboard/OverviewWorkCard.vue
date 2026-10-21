@@ -23,7 +23,7 @@ async function load() {
     const [, response] = await Promise.all([fetchWorkQueueFromApi(auth.user.id), api.get('/me/notes-to-sign', { skipGlobalLoading: true })]);
     cosigns.value = normalizeCosignQueueItems(response.data?.notes);
     isSupervisor.value = !!response.data?.isSupervisor || cosigns.value.length > 0;
-  } catch { error.value = 'Could not load all work. Open Notes Workspace to retry.'; }
+  } catch { error.value = 'Could not load all work. Open Note Workspace to retry.'; }
   finally { loading.value = false; }
 }
 function launch(query = {}) { return navigateToNoteAid(router, query, { organizationSlug: route.params.organizationSlug }); }

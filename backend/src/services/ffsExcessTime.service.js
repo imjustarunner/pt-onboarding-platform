@@ -63,8 +63,8 @@ export async function validateFfsExcess({ agencyId, userId, claimDate, payload, 
     if (typeof x[key] !== 'string' || x[key].trim().length < 5 || x[key].length > 2000) fail(label + ' (5–2,000 characters).');
   }
   if (!['progress_notes','treatment_planning','chart_review','care_coordination','mixed','other'].includes(x.activity)) fail('Select the work you performed.');
-  if (!['yes','partly','no','unavailable','not_applicable'].includes(x.workspaceUse)) fail('Indicate whether you used Documentation Hub.');
-  if (x.workspaceUse !== 'yes' && (typeof x.workspaceReason !== 'string' || x.workspaceReason.trim().length < 5 || x.workspaceReason.length > 2000)) fail('Explain the workflow you used or why Documentation Hub was not appropriate or available.');
+  if (!['yes','partly','no','unavailable','not_applicable'].includes(x.workspaceUse)) fail('Indicate whether you used Note Workspace.');
+  if (x.workspaceUse !== 'yes' && (typeof x.workspaceReason !== 'string' || x.workspaceReason.trim().length < 5 || x.workspaceReason.length > 2000)) fail('Explain the workflow you used or why Note Workspace was not appropriate or available.');
   if (calc.allowanceNeedsReview && (typeof x.allowanceExplanation !== 'string' || x.allowanceExplanation.trim().length < 5 || x.allowanceExplanation.length > 2000)) fail('Explain how you estimated the extra minutes so payroll can verify the allowance.');
   await assertNoOtherFfsClaim({ agencyId, userId, periodId: period.id, claimId }, db);
   payload.ffsExcess = { version: 1, periodId: period.id, periodStart: period.start, periodEnd: period.end,

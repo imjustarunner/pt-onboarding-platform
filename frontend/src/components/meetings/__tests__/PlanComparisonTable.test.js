@@ -14,8 +14,8 @@ describe('approved public feature comparison', () => {
     }
     expect(labels('hiringEnabled')).toEqual(['Not included', 'Not included', 'Included']);
     expect(labels('schoolPortals')).toEqual(['Not included', 'Not included', 'Not included']);
-    expect(wrapper.text()).toContain('Documentation Hub');
-    expect(wrapper.text()).not.toContain('AI Note Aid');
+    expect(wrapper.text()).toContain('Note Workspace');
+    expect(wrapper.text()).not.toContain('AI Note Workspace');
     expect(wrapper.text()).not.toContain('published after review');
   });
   it('filters by product without advertising platform-only features as AuricWell features', async () => {

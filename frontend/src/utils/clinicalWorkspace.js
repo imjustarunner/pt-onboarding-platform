@@ -25,7 +25,12 @@ export function clinicalReturnPath({ previous, current, slug = '', guardian = fa
 export function isMentalHealthWorkspace({ client, practiceCategory, learningAid = false, tenant, auricwell = false } = {}) {
   const category = String(practiceCategory || '').trim().toLowerCase();
   if (learningAid || (category && category !== 'mental_health')) return false;
-  if (client) return isClinicalClient(client);
+  if (client) {
+    const clientType = String(client.client_type || client.organization_type || '').trim().toLowerCase();
+    // Linked session/client stubs hydrate asynchronously. They must not hide the
+    // established clinical branding while their demographics are loading.
+    if (clientType && clientType !== 'unknown') return isClinicalClient(client);
+  }
   if (category === 'mental_health') return true;
   if (auricwell) return true;
   const type = String(tenant?.organization_type || tenant?.organizationType || '').trim().toLowerCase();

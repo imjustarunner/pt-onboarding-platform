@@ -1,5 +1,6 @@
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+import { hasAuthoredDraftChange } from '../services/clinicalDraftAttendanceIntent.js';
 import { ageAtServiceDate, intakeAgeInstruction, applyIntakeIdentifyingAge } from '../services/noteAidAge.service.js';
 import { parseNoteSections, intakeOutputError } from '../services/clinicalNoteSections.service.js';
 import pool from '../config/database.js';
@@ -159,7 +160,7 @@ function isTruthyFlag(v) {
 function requireNotSchoolStaff(req, res) {
   if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
     res.status(403).json({
-      error: { message: 'Clinical Documentation Hub is not available for school staff accounts.' }
+      error: { message: 'Note Workspace is not available for school staff accounts.' }
     });
     return false;
   }
@@ -547,7 +548,7 @@ export const listClinicalNotePrograms = async (req, res, next) => {
 };
 
 /**
- * Create a consent signing task for Documentation Hub workflow.
+ * Create a consent signing task for Note Workspace workflow.
  * Clinicians (provider, intern, intern_plus, etc.) can create this without admin.
  * MUST work regardless of whether a client is present: provider can always open the form,
  * sign/download, and upload manually to EHR.
@@ -608,7 +609,7 @@ export const createConsentTask = async (req, res, next) => {
 
     const task = await TaskAssignmentService.assignDocumentTask({
       title,
-      description: 'Auto-created by Documentation Hub consent workflow before audio recording.',
+      description: 'Auto-created by Note Workspace consent workflow before audio recording.',
       documentTemplateId: templateId,
       assignedByUserId: userId,
       assignedToUserId,
@@ -660,6 +661,20 @@ async function resolveDraftAgencyId(req, { preferredAgencyId, clientId, preferLe
     error: null,
     memberships: coerced.memberships || []
   };
+}
+
+// A draft is saved even if its attendance collection needs review. Opening the
+// workspace and metadata/template-only saves never enter this hook.
+async function savedDraftAttendance(req, draft, previousDraft = null) {
+  if (!hasAuthoredDraftChange({ body: req.body, draft, previousDraft })) return null;
+  const explicitClinicalSessionId=safeInt(req.body?.clinicalSessionId),explicitOfficeEventId=safeInt(req.body?.officeEventId);
+  if(!explicitClinicalSessionId&&!explicitOfficeEventId)return null;
+  try {
+    const {onSavedDraftCopay}=await import('../services/familyLedger/copayAttendance.js');
+    return await onSavedDraftCopay({agencyId:draft.agency_id,draftId:draft.id,providerUserId:req.user.id,attendanceIntent:req.body.attendanceIntent,explicitClinicalSessionId,explicitOfficeEventId});
+  } catch {
+    return {needsReview:true,message:'Your draft was saved. Attendance or payment needs billing review.'};
+  }
 }
 
 export const createClinicalNoteDraft = async (req, res, next) => {
@@ -799,7 +814,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       inputText: encryptedInputText,
       outputJson
     });
-    res.status(201).json({ draft: sanitizeDraftRow(draft) });
+    res.status(201).json({ draft: sanitizeDraftRow(draft), attendance: await savedDraftAttendance(req,draft) });
     await logNoteAidChartEvent(req, {
       clientId,
       agencyId,
@@ -904,7 +919,7 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       patch
     });
     if (!updated) return res.status(404).json({ error: { message: 'Draft not found' } });
-    res.json({ draft: sanitizeDraftRow(updated) });
+    res.json({ draft: sanitizeDraftRow(updated), attendance: await savedDraftAttendance(req,updated,existing) });
   } catch (e) {
     next(e);
   }
@@ -1192,7 +1207,7 @@ export const generateClinicalNote = async (req, res, next) => {
       : tierCodes;
     const requestedToolId = req.body?.toolId ? String(req.body.toolId).trim() : '';
     const effectiveAutoSelect = !requestedToolId && (autoSelectCode || tier === 'unknown');
-    // Billing code optional when an explicit Documentation Hub tool (gem) is selected (plans / termination / diagnosis).
+    // Billing code optional when an explicit Note Workspace tool (gem) is selected (plans / termination / diagnosis).
     if (!effectiveAutoSelect && !serviceCode && !requestedToolId) {
       return res.status(400).json({
         error: { message: 'serviceCode or toolId is required unless autoSelectCode is true' }
@@ -1291,7 +1306,7 @@ export const generateClinicalNote = async (req, res, next) => {
       ? objectiveRatingsContext
       : '';
 
-    // Explicit toolId (Documentation Hub category → gem) wins over service-code routing.
+    // Explicit toolId (Note Workspace category → gem) wins over service-code routing.
     const toolId = effectiveAutoSelect
       ? 'clinical_code_decider'
       : (requestedToolId || resolveClinicalToolId({ serviceCode, programId }));
@@ -1303,7 +1318,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const agencyRow = await Agency.findById(agencyId);
     const featureFlags = parseFlags(agencyRow?.feature_flags);
 
-    // Tenant custom Documentation Hubs: instructions + reference folders (PDF/TXT learning materials).
+    // Tenant custom Note Workspaces: instructions + reference folders (PDF/TXT learning materials).
     let customAidRow = null;
     const aidIdRaw = String(req.body?.aidId || '').trim();
     const customAidMatch = aidIdRaw.match(/^custom_(\d+)$/);
@@ -1311,11 +1326,11 @@ export const generateClinicalNote = async (req, res, next) => {
       const customId = Number(customAidMatch[1]);
       customAidRow = await NoteAidAgencyCatalog.findCustomAid(customId, agencyId);
       if (!customAidRow || !customAidRow.enabled) {
-        return res.status(404).json({ error: { message: 'Custom Documentation Hub not found for this organization' } });
+        return res.status(404).json({ error: { message: 'Custom Note Workspace not found for this organization' } });
       }
       const allowed = await NoteAidAgencyCatalog.userCanAccessCustomAid(agencyId, req.user.id, customId);
       if (!allowed) {
-        return res.status(403).json({ error: { message: 'You are not assigned to this custom Documentation Hub' } });
+        return res.status(403).json({ error: { message: 'You are not assigned to this custom Note Workspace' } });
       }
     }
 
@@ -1328,7 +1343,7 @@ export const generateClinicalNote = async (req, res, next) => {
       ].filter(Boolean);
       if (customBits.length) {
         prompt = [
-          'Organization custom Documentation Hub training / learning directions (follow these for this tool):',
+          'Organization custom Note Workspace training / learning directions (follow these for this tool):',
           ...customBits,
           '',
           prompt

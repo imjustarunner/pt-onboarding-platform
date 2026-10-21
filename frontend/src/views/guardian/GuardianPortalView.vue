@@ -18,6 +18,7 @@
       </section>
 
       <PortalMigrationChecklist v-if="!isSuperadminPreview && activePanel === 'overview'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
+      <AuricWellPortalGuide v-if="!isSuperadminPreview && clinicalGuardianContext && activePanel === 'overview'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
       <GuardianInvitations v-if="!isSuperadminPreview" :agency-id="selectedChildAgencyId || currentAgencyId" />
 
       <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" :organization-name="careAgencyName || currentAgencyName" @contact="navigatePortal('messages')" />
@@ -648,6 +649,7 @@ import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosure
 import GuardianBillingNeeds from '../../components/billing/GuardianBillingNeeds.vue';
 import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
 import PortalMigrationChecklist from '../../components/guardian/PortalMigrationChecklist.vue';
+import AuricWellPortalGuide from '../../components/guardian/AuricWellPortalGuide.vue';
 import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';
 import HistoricalBillingRequest from '../../components/billing/HistoricalBillingRequest.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';

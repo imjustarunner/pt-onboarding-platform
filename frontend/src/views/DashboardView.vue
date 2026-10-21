@@ -4094,7 +4094,7 @@ const dashboardCards = computed(() => {
             toolsTab: 'ai',
             badgeCount: 0,
             iconUrl,
-            description: 'Documentation Hub and other AI documentation aids.'
+            description: 'Note Workspace and other AI documentation aids.'
           }
         ];
         if (caps.canViewLibrary !== false && !isSchoolStaff.value) {
@@ -4164,7 +4164,7 @@ const dashboardCards = computed(() => {
           toolsTab: 'ai',
           badgeCount: 0,
           iconUrl,
-          description: 'Documentation Hub and other AI documentation aids.'
+          description: 'Note Workspace and other AI documentation aids.'
         }
       ];
       if (caps.canViewLibrary !== false && !isSchoolStaff.value) {

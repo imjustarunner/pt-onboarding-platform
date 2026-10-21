@@ -2,8 +2,8 @@
   <div class="kb-settings">
     <div class="kb-header">
       <div>
-        <h2>Documentation Hub Knowledge Base</h2>
-        <p class="muted">Manage KB folders and upload PDFs for Documentation Hub tools.</p>
+        <h2>Note Workspace Knowledge Base</h2>
+        <p class="muted">Manage KB folders and upload PDFs for Note Workspace tools.</p>
       </div>
       <button class="btn btn-primary" :disabled="saving || !canSave" @click="saveSettings">
         {{ saving ? 'Saving…' : 'Save settings' }}
@@ -11,8 +11,8 @@
     </div>
 
     <div v-if="!noteAidEnabled" class="empty-state">
-      <strong>Documentation Hub is disabled for this agency</strong>
-      <div class="muted">Enable Documentation Hub to manage KB settings.</div>
+      <strong>Note Workspace is disabled for this agency</strong>
+      <div class="muted">Enable Note Workspace to manage KB settings.</div>
     </div>
 
     <div v-else>

@@ -15,11 +15,12 @@ test('attendance copays use real SQL locks and one payment through note retries 
     const fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');await setup.query(fixture.slice(fixture.indexOf('CREATE TABLE agencies')));
     for(const file of ['613_guardian_insurance_payment.sql','665_guardian_payment_cards_stripe.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1485_client_billing_readiness.sql','1486_client_coverage_verification.sql','1494_management_collections.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1673_attendance_copays.sql'])await setup.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
     for(const file of ['family-ledger-workflows.sql','patient-service-billing.sql'])await setup.query(await readFile(new URL(`../../../fixtures/${file}`,import.meta.url),'utf8'));
-    await setup.query(`ALTER TABLE agencies ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD timezone VARCHAR(80) DEFAULT 'America/Denver';
+    await setup.query(`ALTER TABLE agencies ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
       ALTER TABLE users ADD is_demo BOOLEAN DEFAULT 0,ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD status_expires_at DATETIME;
       ALTER TABLE user_agencies ADD is_active BOOLEAN DEFAULT 1;
-      ALTER TABLE clinical_sessions ADD scheduled_end_at DATETIME,ADD provider_user_id INT,ADD office_event_id INT,ADD claim_blocked_reason VARCHAR(255),ADD updated_at DATETIME;
+      ALTER TABLE clinical_sessions ADD scheduled_end_at DATETIME,ADD provider_user_id INT,ADD office_event_id INT,ADD appointment_id INT,ADD claim_blocked_reason VARCHAR(255),ADD updated_at DATETIME;
       CREATE TABLE clinical_notes(id BIGINT PRIMARY KEY AUTO_INCREMENT,clinical_session_id BIGINT,agency_id INT,client_id INT,created_by_user_id INT,note_type VARCHAR(50),title VARCHAR(255),note_payload LONGTEXT,metadata_json JSON,content_hash VARCHAR(64),content_review_status VARCHAR(32),content_review_source VARCHAR(32),content_review_json JSON,updated_at DATETIME,provider_signed_by_user_id INT,provider_signed_at DATETIME,is_billable BOOLEAN DEFAULT 1,is_deleted BOOLEAN DEFAULT 0);
+      CREATE TABLE clinical_note_drafts(id BIGINT PRIMARY KEY,user_id INT,agency_id INT,client_id INT,clinical_session_id BIGINT,archived_at DATETIME,input_text LONGTEXT,output_json LONGTEXT);
       CREATE TABLE claimmd_responsibility_jobs(id BIGINT PRIMARY KEY,clinical_claim_id BIGINT,agency_id INT,status VARCHAR(30));
       CREATE TABLE claimmd_remittances(id BIGINT PRIMARY KEY,status VARCHAR(30));
       CREATE TABLE claimmd_remittance_items(id BIGINT PRIMARY KEY,clinical_claim_id BIGINT,agency_id INT,remittance_id BIGINT,status VARCHAR(30));
@@ -34,7 +35,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
     const {writeClientInsurance,readClientInsurance}=await import('../clientInsurance.service.js');
     const {saveReadiness,insuranceFingerprint}=await import('../familyLedger/readiness.js');
     const {encryptFamilyBilling}=await import('../familyBillingEncryption.service.js');
-    const {recordCopayAttendance,onSignedNoteCopay,pendingProviderCopays,collectAttendanceCopay}=await import('../familyLedger/copayAttendance.js');
+    const {recordCopayAttendance,onSignedNoteCopay,onSavedDraftCopay,suppressAppointmentAttendanceCopays,resetPendingAttendance,pendingProviderCopays,collectAttendanceCopay}=await import('../familyLedger/copayAttendance.js');
     const {setClaimResponsibility}=await import('../familyLedger/sources.js');
     const {runDueCopays}=await import('../familyLedger/copays.js');
     const {sourcePayload}=await import('../familyLedger/receivables.js');
@@ -57,7 +58,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
     await writeClientInsurance({...c,primary});
     await saveReadiness({...c,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'verified_copay',reason:'Synthetic verified commercial copay'});
     await setup.execute("UPDATE client_billing_readiness SET automatic_from=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 DAY) WHERE agency_id=1 AND client_id=102");
-    const date=new Date(Date.now()-3600000).toISOString().slice(0,10);
+    const date=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()-7200000));
     const term={clientId:102,serviceCode:'90834',paymentBasis:'copay',amountCents:2500,totalCents:2500,priceBasis:'visit',units:1,effectiveFrom:'2026-01-01',effectiveThrough:'2099-12-31',insuranceFingerprint:insuranceFingerprint(await readClientInsurance(102,1)),evidence:'Synthetic verified benefit reference'};
     const evidence=encryptFamilyBilling({waiver:{serviceTerms:[term]},signatureName:'Synthetic Parent'},'billing-task:1:10');
     await setup.execute("INSERT INTO family_billing_tasks(agency_id,guardian_user_id,client_ids_json,status,token_hash,expires_at,terms_version,waiver_encrypted,signed_evidence_encrypted,created_by_user_id,completed_at) VALUES(1,10,'[102]','completed',?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY),?,?,?,99,UTC_TIMESTAMP())",['a'.repeat(64),BILLING_TERMS_VERSION,evidence,evidence]);
@@ -96,7 +97,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
       const before=processorCharges;
       await recordCopayAttendance({...input(9002),occurred:false});
       const [[missed]]=await setup.execute("SELECT COUNT(*) n,MAX(provider_signed_at) signature,MAX(is_billable) billable FROM clinical_notes WHERE clinical_session_id=9002 AND note_type='MISSED_APPOINTMENT'");
-      assert.equal(missed.n,1);assert.equal(missed.signature,null);assert.equal(missed.billable,0);assert.equal(processorCharges,before);
+      assert.equal(missed.n,0);assert.equal(missed.signature,null);assert.equal(missed.billable,null);assert.equal(processorCharges,before);
       await visit(9003,{future:true});await assert.rejects(recordCopayAttendance(input(9003)),/session has ended/);
       await visit(9004);await assert.rejects(recordCopayAttendance({...input(9004),providerUserId:99}),/provider access/);
       await setup.execute("UPDATE clinical_sessions SET service_code='90837',effective_service_code='90837' WHERE id=9004");
@@ -173,6 +174,47 @@ test('attendance copays use real SQL locks and one payment through note retries 
       const result=await runDueCopays({agencyId:1});
       assert.ok(result.some(r=>r.paid===false&&/not occurring|canceled|cancelled|did not occur|visit or claim needs review/.test(r.message)),JSON.stringify(result));
       assert.equal(processorCharges,before);
+    });
+    await t.test('saved encrypted session draft collects once and a later note does not collect again',async()=>{
+      const {maybeEncryptNotePayload}=await import('../clinicalNoteCrypto.service.js');
+      await visit(9060,{signed:false});const before=processorCharges;
+      await setup.execute('INSERT INTO clinical_note_drafts(id,user_id,agency_id,client_id,clinical_session_id,input_text,output_json) VALUES(9060,45,1,102,9060,?,?)',[maybeEncryptNotePayload('Practiced grounding during the completed session.'),maybeEncryptNotePayload(JSON.stringify({meta:{quickNote:true}}))]);
+      assert.deepEqual(await onSavedDraftCopay({agencyId:1,draftId:9060,providerUserId:45}),{eligible:false});
+      const saved=await onSavedDraftCopay({agencyId:1,draftId:9060,providerUserId:45,attendanceIntent:'authored_session_draft',explicitClinicalSessionId:9060});
+      assert.equal(saved.collection.paid,true);assert.equal(processorCharges,before+1);
+      await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,provider_signed_by_user_id,provider_signed_at) VALUES(9060,9060,1,102,45,'PROGRESS_NOTE',45,UTC_TIMESTAMP())");
+      await onSignedNoteCopay({agencyId:1,noteId:9060,providerUserId:45});assert.equal(processorCharges,before+1);
+      const [[audit]]=await setup.execute('SELECT decision_source,clinical_draft_id FROM family_copay_attendance WHERE clinical_session_id=9060');
+      assert.deepEqual(audit,{decision_source:'saved_draft',clinical_draft_id:9060});
+    });
+    await t.test('late attendance routes to review and creates no surprise next-day charge',async()=>{
+      await visit(9061,{signed:false});const before=processorCharges;
+      await setup.execute('UPDATE clinical_sessions SET scheduled_start_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY),scheduled_end_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 23 HOUR) WHERE id=9061');
+      const late=await recordCopayAttendance(input(9061));assert.equal(late.collection.needsReview,true);assert.equal(processorCharges,before);
+      const [[row]]=await setup.execute('SELECT collection_status,collection_review_reason,receivable_id FROM family_copay_attendance WHERE clinical_session_id=9061');
+      assert.deepEqual(row,{collection_status:'review',collection_review_reason:'late_attendance',receivable_id:null});
+      await assert.rejects(collectAttendanceCopay({agencyId:1,sessionId:9061}),/later day/);assert.equal(processorCharges,before);
+    });
+    await t.test('unfinished negative choice can reset but a paid visit cannot silently be canceled',async()=>{
+      await visit(9062,{signed:false});await recordCopayAttendance({...input(9062),occurred:false});
+      assert.equal((await resetPendingAttendance({agencyId:1,sessionId:9062,providerUserId:45})).reset,true);
+      const [[negative]]=await setup.execute('SELECT COUNT(*) n FROM family_copay_attendance WHERE clinical_session_id=9062');assert.equal(negative.n,0);
+      await assert.rejects(suppressAppointmentAttendanceCopays({id:999,agencyId:1,clinicalSessionId:9060},45),/payment has already started/);
+      const [[paid]]=await setup.execute('SELECT attendance,collection_status FROM family_copay_attendance WHERE clinical_session_id=9060');assert.deepEqual(paid,{attendance:'occurred',collection_status:'paid'});
+      await suppressAppointmentAttendanceCopays({id:999,agencyId:1,clinicalSessionId:9062},45);
+      const [[held]]=await setup.execute('SELECT attendance,collection_status FROM family_copay_attendance WHERE clinical_session_id=9062');assert.deepEqual(held,{attendance:'did_not_occur',collection_status:'suppressed'});
+    });
+    await t.test('midnight before processor dispatch cancels only the known unsent attempt',async()=>{
+      const {claimProcessorDispatch}=await import('../familyLedger/paymentDispatch.js');
+      const [[allocation]]=await setup.execute('SELECT id FROM family_receivable_allocations WHERE receivable_id=?',[paidBalance.id]);
+      const snapshot=encryptFamilyBilling({synthetic:true},`ledger-payment:1:${allocation.id}`);
+      const [inserted]=await setup.execute("INSERT INTO family_ledger_payments(agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id) VALUES(1,?,10,'STRIPE',2500,'USD','midnight-no-dispatch',?,10)",[allocation.id,snapshot]);
+      const checkDate=async()=>{throw Object.assign(new Error('Service date passed'),{code:'COPAY_AFTER_SERVICE_DATE'});};
+      const before=processorCharges;
+      await assert.rejects(claimProcessorDispatch({attempt:{id:inserted.insertId},agencyId:1,userId:10,allocationId:allocation.id,automatic:true},{database:setup,checkDate}),error=>error.code==='COPAY_AFTER_SERVICE_DATE');
+      const [[row]]=await setup.execute('SELECT status,processor_intent_id,processor_dispatch_started_at FROM family_ledger_payments WHERE id=?',[inserted.insertId]);
+      assert.equal(row.status,'cancelled');assert.equal(row.processor_intent_id,null);assert.ok(row.processor_dispatch_started_at);assert.equal(processorCharges,before);
+      const [[audit]]=await setup.execute("SELECT COUNT(*) n FROM family_billing_audit WHERE agency_id=1 AND action='automatic_copay_stopped_before_dispatch' AND object_id=?",[inserted.insertId]);assert.equal(audit.n,1);
     });
   } finally {await setup.end();if(pool)await pool.end();if(clinical)await clinical.end();}
 });

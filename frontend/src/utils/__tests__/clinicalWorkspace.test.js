@@ -25,7 +25,9 @@ describe('clinical workspace presentation boundaries', () => {
     expect(isMentalHealthWorkspace({ practiceCategory: 'mental_health' })).toBe(true);
     expect(isMentalHealthWorkspace({ tenant: { organization_type: 'learning' } })).toBe(false);
     expect(isMentalHealthWorkspace({})).toBe(false);
-    expect(isMentalHealthWorkspace({ client: { client_type: 'unknown' }, tenant: { organization_type: 'clinical' } })).toBe(false);
+    expect(isMentalHealthWorkspace({ client: { client_type: 'unknown' }, tenant: { organization_type: 'clinical' } })).toBe(true);
+    expect(isMentalHealthWorkspace({ client: { id: 123 }, auricwell: true })).toBe(true);
+    expect(isMentalHealthWorkspace({ client: { id: 123 }, tenant: { business_type: 'tutoring' } })).toBe(false);
   });
   it('preserves schedule session and tutoring context in documentation links', () => {
     expect(buildNoteAidQuery({ clientId: 7, clinicalSessionId: 8, draftId: 9, practiceCategory: 'tutoring' }))

@@ -31,7 +31,7 @@
       </div>
       <div class="tasks-hub__actions">
         <router-link v-if="!embedded" class="hub-chip-btn" :to="myDashboardPath">My Dashboard</router-link>
-        <router-link v-if="!embedded && canUseNotesWorkspace" class="hub-chip-btn" :to="notesWorkspacePath">Notes Workspace</router-link>
+        <router-link v-if="!embedded && canUseNotesWorkspace" class="hub-chip-btn" :to="notesWorkspacePath">Note Workspace</router-link>
         <router-link v-if="!embedded" class="hub-chip-btn" :to="mySchedulePath">My Schedule</router-link>
         <div class="view-toggle">
           <button type="button" class="view-btn" :class="{ active: layout === 'list' }" @click="layout = 'list'">List</button>
@@ -41,7 +41,7 @@
             class="view-btn"
             v-if="canUseNotesWorkspace"
             :class="{ active: notesTodoOpen }"
-            title="Show your Notes Workspace work queue"
+            title="Show your Note Workspace work queue"
             @click="notesTodoOpen = !notesTodoOpen"
           >
             Work<span v-if="pendingSessionNoteCount"> ({{ pendingSessionNoteCount }})</span>
@@ -1471,7 +1471,7 @@ const displayTasks = computed(() => {
   return list;
 });
 
-// The Notes tab and right rail both read the user's saved Notes Workspace queue.
+// The Notes tab and right rail both read the user's saved Note Workspace queue.
 const pendingSessionNoteCount = computed(() => filterWorkQueueForRightPanel(workQueueItems.value).length);
 const cosignNotesCount = computed(() => cosignNotes.value.length);
 

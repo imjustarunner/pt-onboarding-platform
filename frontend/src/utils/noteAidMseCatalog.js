@@ -1,5 +1,5 @@
 /**
- * Mental Status Exam + risk option catalog for Documentation Hub.
+ * Mental Status Exam + risk option catalog for Note Workspace.
  * Nested-hover UI: domain → options → description.
  */
 

@@ -13,7 +13,7 @@ async function mountView(component, options={}) {
 }
 describe('clinical workspace frame', () => {
   it('takes over the page and restores app navigation when returning to the tenant dashboard', async () => {
-    const notes = defineComponent({ components: { Frame }, template: '<Frame immersive return-label="Back to app">Practice Notes</Frame>' });
+    const notes = defineComponent({ components: { Frame }, template: '<Frame immersive return-label="Back to app">Note Workspace</Frame>' });
     const router = createRouter({ history: createMemoryHistory(), routes: [
       { path: '/:organizationSlug/note-aid', component: notes },
       { path: '/:organizationSlug/dashboard', component: { template: '<p>My Dashboard</p>' } }
@@ -59,7 +59,7 @@ describe('clinical workspace frame', () => {
     wrapper.unmount();
   });
   it('shows one workspace header for nested chart documentation', async () => {
-    const wrapper=await mountView(defineComponent({components:{Frame},template:'<Frame><Frame context-label="Documentation Hub"><textarea /></Frame></Frame>'}));
+    const wrapper=await mountView(defineComponent({components:{Frame},template:'<Frame><Frame context-label="Note Workspace"><textarea /></Frame></Frame>'}));
     expect(wrapper.findAll('header')).toHaveLength(1);
     expect(wrapper.find('textarea').exists()).toBe(true);
     wrapper.unmount();

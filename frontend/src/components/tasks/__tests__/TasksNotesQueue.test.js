@@ -49,7 +49,7 @@ async function hub(props = {}) {
   return { wrapper, router, state: wrapper.vm.$.setupState };
 }
 
-describe('Tasks and Notes Workspace share the ToDo Queue', () => {
+describe('Tasks and Note Workspace share the ToDo Queue', () => {
   it('shows shared work items in the right rail without task-interface note filters', async () => {
     const { wrapper, state } = await hub();
     state.notesTodoOpen = true;
@@ -71,7 +71,7 @@ describe('Tasks and Notes Workspace share the ToDo Queue', () => {
     await panels[0].find('select').setValue('client');
     expect(panels[0].find('select').element.value).toBe('client');
     expect(wrapper.findAll('a').map((a) => [a.text(), a.attributes('href')])).toEqual(expect.arrayContaining([
-      ['My Dashboard', '/clinic/dashboard'], ['Notes Workspace', '/clinic/note-aid']
+      ['My Dashboard', '/clinic/dashboard'], ['Note Workspace', '/clinic/note-aid']
     ]));
     wrapper.unmount();
   });

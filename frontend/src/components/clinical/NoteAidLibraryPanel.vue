@@ -1,8 +1,8 @@
 <template>
   <div class="nal">
     <aside class="nal-nav">
-      <h2 class="nal-nav-title">Documentation Hub Library</h2>
-      <p v-if="hasCareGuide" class="nal-empty"><router-link :to="{ path: '/library', query: { companyDocument: 'clinical-note-aid-guide' } }">Clinical Note Aid &amp; Care Continuity Guide ↗</router-link></p>
+      <h2 class="nal-nav-title">Note Workspace Library</h2>
+      <p v-if="hasCareGuide" class="nal-empty"><router-link :to="{ path: '/library', query: { companyDocument: 'clinical-note-aid-guide' } }">Clinical Note Workspace &amp; Care Continuity Guide ↗</router-link></p>
       <nav class="nal-cats" aria-label="Aid families">
         <button
           type="button"

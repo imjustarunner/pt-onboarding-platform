@@ -110,6 +110,10 @@ export async function readTicketAttachmentBuffer(row) {
   const [exists] = await file.exists();
   if (!exists) throw new Error(`Attachment file not found: ${row.file_path}`);
   const [buffer] = await file.download();
+  if(String(row.file_path).endsWith('.guardian.enc')){
+    const {decryptGuardianScreenshot}=await import('../guardianPortalScreenshotEncryption.service.js');
+    return decryptGuardianScreenshot(buffer,{ticketId:row.ticket_id});
+  }
   return buffer;
 }
 

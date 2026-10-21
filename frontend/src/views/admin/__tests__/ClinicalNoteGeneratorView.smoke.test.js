@@ -1,3 +1,4 @@
+import { webcrypto } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, shallowMount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
@@ -35,6 +36,7 @@ vi.mock('../../../store/auth', () => ({
 
 describe('ClinicalNoteGeneratorView smoke', () => {
   beforeEach(() => {
+    vi.stubGlobal('crypto', webcrypto);
     setActivePinia(createPinia());
     vi.mocked(api.post).mockReset().mockResolvedValue({ data: {} });
     vi.mocked(api.get).mockReset().mockResolvedValue({ data: {} });
@@ -421,6 +423,50 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it('marks only edited saved progress content as attendance, not a loaded draft or an unchanged autosave', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      await state.loadDraftIntoWorkspace({ id: 42, agency_id: 7, clinical_session_id: 9, service_code: '90834', input_text: 'Saved source', output_json: { meta: { toolId: 'clinical_psychotherapy_note' } } });
+      vi.mocked(api.patch).mockClear();
+      await state.autosave();
+      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1].attendanceIntent).toBeUndefined();
+      state.inputText = 'Added clinical observations after this session.';
+      await state.autosave();
+      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1]).toMatchObject({ inputText: 'Added clinical observations after this session.', attendanceIntent: 'authored_session_draft', clinicalSessionId: 9 });
+      await state.autosave();
+      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1].attendanceIntent).toBeUndefined();
+    } finally { wrapper.unmount(); }
+  });
+
+  it('replaces the previous session context when switching between drafts in the library', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      await state.loadDraftIntoWorkspace({ id: 42, agency_id: 7, clinical_session_id: 9, office_event_id: 90, service_code: '90834', input_text: 'First session' });
+      await flushPromises();
+      await state.loadDraftIntoWorkspace({ id: 43, agency_id: 7, clinical_session_id: 10, office_event_id: 100, service_code: '90834', input_text: 'Second session' });
+      await flushPromises();
+      state.inputText = 'Edited second session';
+      await state.autosave();
+      expect(vi.mocked(api.patch).mock.calls.at(-1)).toEqual(['/clinical-notes/drafts/43', expect.objectContaining({ clinicalSessionId: 10, officeEventId: 100, inputText: 'Edited second session' }), expect.anything()]);
+      await state.loadDraftIntoWorkspace({ id: 44, agency_id: 7, service_code: '90834', input_text: 'Unlinked note' });
+      await flushPromises();
+      expect(state.bookingContext.clinicalSessionId).toBeNull();
+      expect(state.bookingContext.officeEventId).toBeNull();
+    } finally { wrapper.unmount(); }
+  });
+
+  it('does not mark a termination narrative as session attendance', async () => {
+    const { wrapper, state } = await workspace('termination');
+    try {
+      state.inputText = 'Termination summary for completed care.';
+      vi.mocked(api.post).mockClear();
+      await state.autosave();
+      const save = vi.mocked(api.post).mock.calls.find(([url]) => url === '/clinical-notes/drafts');
+      expect(save?.[1].toolId).toBe('clinical_termination');
+      expect(save?.[1].attendanceIntent).toBeUndefined();
+    } finally { wrapper.unmount(); }
+  });
+
   it('creates a deferred termination to-do immediately', async () => {
     const { wrapper, state } = await workspace();
     state.selectedClientId = 22;
@@ -437,7 +483,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
-  it('signs termination as a non-billable chart note with content review', async () => {
+  it('completes termination review without requesting a signature or claim', async () => {
     const { wrapper, state } = await workspace('termination');
     state.selectedClientId = 22;
     state.selectedClient = { id: 22, agency_id: 7 };
@@ -456,8 +502,10 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await state.approveNoteOutput({ afterSign: 'close' });
     const create = vi.mocked(api.post).mock.calls.find(([url]) => url === '/clinical-data/sessions/9/notes');
     expect(create?.[1]).toMatchObject({ noteType: 'TERMINATION', serviceCode: null, metadata: { termination: { reason: 'goals_achieved' }, prescribedFrequency: null } });
-    const sign = vi.mocked(api.post).mock.calls.find(([url]) => url === '/medical-billing/notes/77/sign');
-    expect(sign?.[1]).toMatchObject({ accurateAndComplete: true, medicalNecessityAttested: false, contentReviewConfirmed: true });
+    const review = vi.mocked(api.post).mock.calls.find(([url]) => url === '/medical-billing/notes/77/review');
+    expect(review?.[1]).toMatchObject({ contentReviewConfirmed: true });
+    expect(review?.[1].contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url.endsWith('/sign'))).toBe(false);
     expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/medical-billing/claims')).toBe(false);
     wrapper.unmount();
   });
@@ -543,6 +591,6 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       throw captured;
     }
     expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toMatch(/Documentation Hub|Practice Notes|Notes Workspace|Not available|AI Note/i);
+    expect(wrapper.text()).toMatch(/Note Workspace|Not available|AI Note/i);
   });
 });

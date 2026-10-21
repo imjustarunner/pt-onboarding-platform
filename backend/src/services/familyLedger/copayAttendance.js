@@ -1,5 +1,6 @@
 import {missedNote,completeMissedSessionDocumentation} from '../nonbillableNoteCompletion.service.js';
 import pool from '../../config/database.js';
+import { maybeDecryptNotePayload } from '../clinicalNoteCrypto.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { billingError, positiveId, auditBilling, BILLING_TERMS_VERSION } from '../familyBillingPolicy.service.js';
 import { decryptFamilyBilling, encryptFamilyBilling } from '../familyBillingEncryption.service.js';
@@ -36,6 +37,51 @@ export function assertCopayCard(card, now = new Date()) {
 }
 export function copayServiceDate(session, timezone = 'UTC') {
   return new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(session.scheduled_start_at));
+}
+export function assertSameDayCopay(session, timezone, now = new Date()) {
+  if (copayServiceDate(session, timezone) !== copayServiceDate({ scheduled_start_at: now }, timezone))
+    throw Object.assign(billingError(409, 'The service date has passed. Billing must review this copay; it will not run automatically on a later day.'),{code:'COPAY_AFTER_SERVICE_DATE'});
+}
+// Session context or opening a workspace is not proof of attendance. Only a
+// real author save passes this boundary; the server re-reads the persisted text.
+export function meaningfulSavedSessionDraft(draft) {
+  let output;
+  try { output = JSON.parse(maybeDecryptNotePayload(draft?.output_json) || '{}'); } catch { return false; }
+  const meta = output?.meta || {};
+  if (meta.nonBillable || meta.documentationFlow === 'review') return false;
+  const serviceTools=['clinical_psychotherapy_note','clinical_family_note','clinical_h0004_note','clinical_h2014_group','clinical_h2014_individual','clinical_cs_note_build','clinical_90791_note_aid','clinical_90791_intake_plan'];
+  if (meta.toolId && !serviceTools.includes(meta.toolId)) return false;
+  if (!meta.toolId && meta.quickNote !== true) return false;
+  return /[\p{L}\p{N}]/u.test(maybeDecryptNotePayload(draft?.input_text) || '');
+}
+async function validateSavedDraft({ agencyId, session, providerUserId, draftId }) {
+  const [[draft]] = await pool.execute('SELECT * FROM clinical_note_drafts WHERE id=? AND user_id=? AND agency_id=? AND client_id=? AND clinical_session_id=? AND archived_at IS NULL', [positiveId(draftId), providerUserId, agencyId, session.client_id, session.id]);
+  if (!draft || !meaningfulSavedSessionDraft(draft)) throw billingError(409, 'Save your session draft before confirming attendance through documentation.');
+  return draft;
+}
+export async function onSavedDraftCopay({ agencyId, draftId, providerUserId, attendanceIntent, explicitClinicalSessionId=null, explicitOfficeEventId=null }) {
+  if (attendanceIntent !== 'authored_session_draft' || (!explicitClinicalSessionId && !explicitOfficeEventId)) return { eligible: false };
+  if (!await attendanceCopaysEnabled(agencyId)) return { disabled: true };
+  const [[draft]] = await pool.execute('SELECT * FROM clinical_note_drafts WHERE id=? AND user_id=? AND agency_id=? AND archived_at IS NULL', [positiveId(draftId), providerUserId, agencyId]);
+  if (!draft || !meaningfulSavedSessionDraft(draft)) return { eligible: false };
+  if(explicitClinicalSessionId && Number(draft.clinical_session_id)!==Number(explicitClinicalSessionId))return {eligible:false};
+  if(!explicitClinicalSessionId && Number(draft.office_event_id)!==Number(explicitOfficeEventId))return {eligible:false};
+  if (!draft.clinical_session_id && draft.office_event_id && draft.client_id) {
+    const [sessions]=await clinicalPool.execute('SELECT id FROM clinical_sessions WHERE agency_id=? AND office_event_id=? AND client_id=? AND provider_user_id=?',[agencyId,draft.office_event_id,draft.client_id,providerUserId]);
+    if(sessions.length!==1)return {eligible:false,needsReview:true,message:'The draft is saved. Confirm the linked scheduled session before collecting a copay.'};
+    await pool.execute('UPDATE clinical_note_drafts SET clinical_session_id=? WHERE id=? AND user_id=? AND agency_id=? AND client_id=? AND clinical_session_id IS NULL',[sessions[0].id,draft.id,providerUserId,agencyId,draft.client_id]);
+    draft.clinical_session_id=sessions[0].id;
+  }
+  if(!draft.clinical_session_id)return {eligible:false};
+  if(!explicitClinicalSessionId){
+    const linked=await sessionFor(agencyId,draft.clinical_session_id);
+    if(Number(linked.office_event_id)!==Number(explicitOfficeEventId))return {eligible:false,needsReview:true,message:'Select the scheduled session before confirming its attendance.'};
+  }
+  try { return await recordCopayAttendance({ agencyId, sessionId: draft.clinical_session_id, providerUserId, occurred: true, source: 'saved_draft', draftId }); }
+  catch (error) {
+    if ([403,404,409].includes(error.status)) return { eligible: false, needsReview: true, message: error.message };
+    throw error;
+  }
 }
 export function chooseCopayTerm(terms, session, timezone = 'UTC') {
   const code = session.effective_service_code || session.service_code, date = copayServiceDate(session, timezone);
@@ -84,8 +130,8 @@ export async function attendanceCopayTerms(session, db = pool) {
   if (selected.term.totalCents > Number(payer.recurring_limit_cents || 0)) throw billingError(409, 'The verified copay exceeds the payer’s authorization.');
   return { ...selected, payerUserId: userId, serviceDate:copayServiceDate(session,timezone), timezone };
 }
-export async function recordCopayAttendance({ agencyId, sessionId, providerUserId, occurred, noteId = null, source = 'provider' }) {
-  if (typeof occurred !== 'boolean' || !['provider','signed_note','reviewed_note'].includes(source)) throw billingError(400, 'Choose whether this session occurred.');
+export async function recordCopayAttendance({ agencyId, sessionId, providerUserId, occurred, noteId = null, draftId = null, source = 'provider' }) {
+  if (typeof occurred !== 'boolean' || !['provider','signed_note','reviewed_note','saved_draft'].includes(source)) throw billingError(400, 'Choose whether this session occurred.');
   if (!await attendanceCopaysEnabled(agencyId)) throw billingError(409, 'Attendance copays are not enabled for this organization.');
   await requireAttendanceProvider(agencyId, providerUserId);
   const session = await sessionFor(agencyId, sessionId);
@@ -100,8 +146,12 @@ export async function recordCopayAttendance({ agencyId, sessionId, providerUserI
     const [[note]]=await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND clinical_session_id=? AND created_by_user_id=? AND is_deleted=0',[positiveId(noteId),agencyId,session.id,providerUserId]);
     if(occurred||!note||!missedNote(note)||(!note.provider_signed_at&&note.content_review_source!=='provider_review'))throw billingError(409,'Complete the missed appointment note review first.');
   }
+  if (source === 'saved_draft') {
+    if (!occurred) throw billingError(400, 'A session draft records an occurred session.');
+    await validateSavedDraft({agencyId,session,providerUserId,draftId});
+  }
   if (source === 'signed_note') {
-    const [[note]] = await clinicalPool.execute('SELECT id FROM clinical_notes WHERE id=? AND clinical_session_id=? AND agency_id=? AND client_id=? AND provider_signed_by_user_id=? AND provider_signed_at IS NOT NULL AND is_billable=1 AND is_deleted=0', [positiveId(noteId), session.id, agencyId, session.client_id, providerUserId]);
+    const [[note]] = await clinicalPool.execute('SELECT id FROM clinical_notes WHERE id=? AND clinical_session_id=? AND agency_id=? AND client_id=? AND provider_signed_by_user_id=? AND provider_signed_at IS NOT NULL AND provider_signed_at>=? AND is_billable=1 AND is_deleted=0', [positiveId(noteId), session.id, agencyId, session.client_id, providerUserId,session.scheduled_end_at]);
     if (!note || !occurred) throw billingError(409, 'A signed completed service note is required.');
   }
   // Validate before recording a new occurred decision. A negative answer must
@@ -111,7 +161,7 @@ export async function recordCopayAttendance({ agencyId, sessionId, providerUserI
   const result = await transaction(async db => {
     await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [session.client_id, agencyId]);
     const [[previous]] = await db.execute('SELECT * FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=? FOR UPDATE', [agencyId, session.id]);
-    if (previous?.attendance === attendance) return { alreadyRecorded: true, attendance, receivableId: previous.receivable_id };
+    if (previous?.attendance === attendance) return { alreadyRecorded: true, attendance, receivableId: previous.receivable_id, collectionStatus:previous.collection_status };
     if (previous?.attendance === 'did_not_occur') throw billingError(409, 'This session was marked as not occurring. Ask billing to review the correction before any charge.');
     if (!occurred) {
       // A claim balance can precede this workflow. Find it even when no earlier
@@ -127,24 +177,84 @@ export async function recordCopayAttendance({ agencyId, sessionId, providerUserI
       for(const receivableId of ids){
         const [payments] = await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status NOT IN ('failed','cancelled') LIMIT 1", [receivableId]);
         if (payments.length) throw billingError(409, 'A payment has already started. Billing must reconcile it before changing attendance.');
-        await db.execute("UPDATE family_receivables SET status='review',hold_reason='attendance_not_occurred' WHERE id=? AND agency_id=? AND status<>'void'", [receivableId, agencyId]);
+        await db.execute("UPDATE family_receivables SET status='review',hold_reason='attendance_not_occurred' WHERE id=? AND agency_id=? AND status='open' AND hold_reason IS NULL", [receivableId, agencyId]);
       }
     }
-    await db.execute('INSERT INTO family_copay_attendance (agency_id,clinical_session_id,client_id,provider_user_id,attendance,decision_source,clinical_note_id,decided_by_user_id,collection_status) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE attendance=VALUES(attendance),decision_source=VALUES(decision_source),clinical_note_id=VALUES(clinical_note_id),decided_by_user_id=VALUES(decided_by_user_id),decided_at=CURRENT_TIMESTAMP(6),collection_status=VALUES(collection_status)', [agencyId, session.id, session.client_id, providerUserId, attendance, source, noteId, providerUserId, occurred ? 'pending' : 'suppressed']);
+    await db.execute('INSERT INTO family_copay_attendance (agency_id,clinical_session_id,client_id,provider_user_id,attendance,decision_source,clinical_note_id,clinical_draft_id,decided_by_user_id,collection_status) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE attendance=VALUES(attendance),decision_source=VALUES(decision_source),clinical_note_id=VALUES(clinical_note_id),clinical_draft_id=VALUES(clinical_draft_id),decided_by_user_id=VALUES(decided_by_user_id),decided_at=CURRENT_TIMESTAMP(6),collection_status=VALUES(collection_status)', [agencyId, session.id, session.client_id, providerUserId, attendance, source, noteId, draftId, providerUserId, occurred ? 'pending' : 'suppressed']);
     await db.execute('INSERT INTO family_copay_attendance_events (agency_id,clinical_session_id,actor_user_id,attendance,decision_source) VALUES (?,?,?,?,?)', [agencyId, session.id, providerUserId, attendance, source]);
     await auditBilling({ agencyId, clientId: session.client_id, userId: providerUserId, action: occurred ? 'session_occurred_confirmed' : 'session_not_occurred_confirmed', objectId: session.id }, db);
     return { attendance };
   });
   if (!occurred) {
-    const documented=await completeMissedSessionDocumentation({session,providerUserId,noteId});
-    return { ...result, ...documented, charged: false };
+    // A provider's No begins documentation and blocks collection immediately.
+    // Only completing the existing missed/cancelled note flow finalizes the chart.
+    if (source === 'reviewed_note') {
+      const documented = await completeMissedSessionDocumentation({session,providerUserId,noteId});
+      await pool.execute("UPDATE family_copay_attendance SET clinical_note_id=?,decision_source='reviewed_note' WHERE agency_id=? AND clinical_session_id=? AND attendance='did_not_occur'",[noteId,agencyId,session.id]);
+      return {...result,...documented,charged:false};
+    }
+    return { ...result, charged: false, documentationRequired: true, sessionId: session.id, clientId: session.client_id, officeEventId: session.office_event_id || null };
   }
+  if (result.collectionStatus === 'paid') return {...result,collection:{paid:true,alreadyPaid:true}};
   // Encounter attendance is independent of documentation completion. This does
   // not create/sign a clinical note or submit an insurance claim.
   await clinicalPool.execute("UPDATE clinical_sessions SET encounter_status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=? AND provider_user_id=? AND encounter_status='scheduled' AND scheduled_end_at<=UTC_TIMESTAMP()", [session.id,agencyId,providerUserId]);
   // A collection error does not undo the provider's attendance or signed note.
   try { return { ...result, collection: await collectAttendanceCopay({ agencyId, sessionId }) }; }
-  catch (e) { await pool.execute("UPDATE family_copay_attendance SET collection_status='review' WHERE agency_id=? AND clinical_session_id=? AND attendance='occurred'", [agencyId, sessionId]); return { ...result, collection: { paid: false, needsReview: true } }; }
+  catch (e) { await pool.execute("UPDATE family_copay_attendance SET collection_status='review',collection_review_reason=? WHERE agency_id=? AND clinical_session_id=? AND attendance='occurred' AND collection_status<>'paid'", [e.code==='COPAY_AFTER_SERVICE_DATE'?'late_attendance':'collection_needs_review',agencyId, sessionId]); return { ...result, collection: { paid: false, needsReview: true, reason:e.code==='COPAY_AFTER_SERVICE_DATE'?'late_attendance':'collection_needs_review' } }; }
+}
+// The appointment workflow already authorizes its actor. Hold every linked
+// session before finalizing a non-occurring appointment, using the same client
+// lock as the payment writer; never pretend an accepted payment was reversed.
+export async function suppressAppointmentAttendanceCopays(appointment, actorUserId, {checkOnly=false}={}) {
+  const [sessions]=await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE agency_id=? AND (appointment_id=? OR id=? OR office_event_id=?) ORDER BY client_id,id',[appointment.agencyId,appointment.id,appointment.clinicalSessionId||null,appointment.officeEventId||null]);
+  return transaction(async db=>{
+    for(const session of sessions){
+      if(!session.provider_user_id)continue;
+      await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[session.client_id,appointment.agencyId]);
+      const [[previous]]=await db.execute('SELECT * FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=? FOR UPDATE',[appointment.agencyId,session.id]);
+      const ids=new Set(previous?.receivable_id?[Number(previous.receivable_id)]:[]);
+      const [direct]=await db.execute("SELECT id FROM family_receivables WHERE agency_id=? AND client_id=? AND source_type='clinical_copay' AND source_key=? FOR UPDATE",[appointment.agencyId,session.client_id,String(session.id)]);
+      direct.forEach(row=>ids.add(Number(row.id)));
+      const [claims]=await clinicalPool.execute('SELECT id,parent_claim_id FROM clinical_claims WHERE agency_id=? AND clinical_session_id=? AND client_id=?',[appointment.agencyId,session.id,session.client_id]);
+      for(const claim of claims){const [balances]=await db.execute("SELECT id FROM family_receivables WHERE agency_id=? AND client_id=? AND source_type='claim_responsibility' AND source_key=? FOR UPDATE",[appointment.agencyId,session.client_id,String(claim.parent_claim_id||claim.id)]);balances.forEach(row=>ids.add(Number(row.id)));}
+      for(const id of ids){
+        const [payments]=await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status NOT IN ('failed','cancelled') LIMIT 1",[id]);
+        if(payments.length)throw billingError(409,'A copay payment has already started for this session. Billing must reconcile it before completing this appointment change.');
+        if(!checkOnly)await db.execute("UPDATE family_receivables SET status='review',hold_reason='attendance_not_occurred' WHERE id=? AND agency_id=? AND status='open' AND hold_reason IS NULL",[id,appointment.agencyId]);
+      }
+      if(checkOnly || previous?.attendance==='did_not_occur')continue;
+      await db.execute("INSERT INTO family_copay_attendance (agency_id,clinical_session_id,client_id,provider_user_id,attendance,decision_source,decided_by_user_id,collection_status) VALUES (?,?,?,?,'did_not_occur','appointment_change',?,'suppressed') ON DUPLICATE KEY UPDATE attendance='did_not_occur',decision_source='appointment_change',decided_by_user_id=VALUES(decided_by_user_id),collection_status='suppressed'",[appointment.agencyId,session.id,session.client_id,session.provider_user_id,actorUserId]);
+      await db.execute("INSERT INTO family_copay_attendance_events (agency_id,clinical_session_id,actor_user_id,attendance,decision_source) VALUES (?,?,?,'did_not_occur','appointment_change')",[appointment.agencyId,session.id,actorUserId]);
+      await auditBilling({agencyId:appointment.agencyId,clientId:session.client_id,userId:actorUserId,action:'appointment_change_copay_suppressed',objectId:session.id},db);
+    }
+    return {charged:false};
+  });
+}
+export async function completeAppointmentAttendanceDocumentation(appointment, notes) {
+  for(const note of notes)await pool.execute("UPDATE family_copay_attendance SET clinical_note_id=?,decision_source='appointment_change' WHERE agency_id=? AND clinical_session_id=? AND client_id=? AND attendance='did_not_occur'",[note.id,appointment.agencyId,note.clinicalSessionId,note.clientId]);
+}
+export async function resetPendingAttendance({agencyId,sessionId,providerUserId}) {
+  await requireAttendanceProvider(agencyId,providerUserId);
+  const session=await sessionFor(agencyId,sessionId);
+  if(Number(session.provider_user_id)!==Number(providerUserId))throw billingError(403,'Only the assigned provider can correct this selection.');
+  assertOccurrence(session);
+  return transaction(async db=>{
+    await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[session.client_id,agencyId]);
+    const [[decision]]=await db.execute('SELECT * FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=? FOR UPDATE',[agencyId,sessionId]);
+    if(!decision)return {reset:true};
+    if(decision.attendance!=='did_not_occur'||decision.decision_source!=='provider'||decision.clinical_note_id)throw billingError(409,'Completed attendance or documentation must be corrected through billing review.');
+    const [completed]=await clinicalPool.execute("SELECT id FROM clinical_notes WHERE clinical_session_id=? AND agency_id=? AND is_deleted=0 AND (provider_signed_at IS NOT NULL OR content_review_source='provider_review') LIMIT 1",[sessionId,agencyId]);
+    if(completed.length)throw billingError(409,'Completed documentation must be reviewed before changing attendance.');
+    if(decision.receivable_id){
+      const [payments]=await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status NOT IN ('failed','cancelled') LIMIT 1",[decision.receivable_id]);
+      if(payments.length)throw billingError(409,'A payment has already started. Billing must reconcile it before changing attendance.');
+    }
+    await db.execute('DELETE FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=?',[agencyId,sessionId]);
+    await db.execute("INSERT INTO family_copay_attendance_events (agency_id,clinical_session_id,actor_user_id,attendance,decision_source) VALUES (?,?,?,'pending','provider')",[agencyId,sessionId,providerUserId]);
+    await auditBilling({agencyId,clientId:session.client_id,userId:providerUserId,action:'session_attendance_selection_reset',objectId:sessionId},db);
+    return {reset:true,charged:false,balanceHoldsRetained:true};
+  });
 }
 export async function assertSessionAttendanceNotSuppressed({agencyId,clientId,sessionId},db=pool){
   // Serialize against a first negative decision, including when no attendance
@@ -172,6 +282,7 @@ export async function collectAttendanceCopay({ agencyId, sessionId }) {
   const session = await sessionFor(agencyId, sessionId);
   assertOccurrence(session);
   const terms = await attendanceCopayTerms(session);
+  assertSameDayCopay(session, terms.timezone);
   const receivable = await transaction(async db => {
     await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [session.client_id, agencyId]);
     const [[decision]] = await db.execute('SELECT * FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=? FOR UPDATE', [agencyId, sessionId]);
@@ -219,19 +330,21 @@ export async function pendingProviderCopays({ agencyId, providerUserId, serviceD
   await requireAttendanceProvider(agencyId, providerUserId);
   if (!await attendanceCopaysEnabled(agencyId)) return { enabled: false, sessions: [] };
   if (serviceDate) dateOnly(serviceDate);
-  const [sessions] = await clinicalPool.execute("SELECT s.*,EXISTS(SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.agency_id=s.agency_id AND n.client_id=s.client_id AND n.provider_signed_at IS NOT NULL AND n.is_billable=1 AND n.is_deleted=0) AS signed_note FROM clinical_sessions s WHERE s.agency_id=? AND s.provider_user_id=? AND s.scheduled_end_at<=UTC_TIMESTAMP() AND s.scheduled_start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY) AND s.encounter_status IN ('scheduled','completed') ORDER BY s.scheduled_start_at DESC", [agencyId, providerUserId]);
+  const [sessions] = await clinicalPool.execute("SELECT s.*,EXISTS(SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.agency_id=s.agency_id AND n.client_id=s.client_id AND n.provider_signed_at IS NOT NULL AND n.provider_signed_at>=s.scheduled_end_at AND n.is_billable=1 AND n.is_deleted=0) AS signed_note FROM clinical_sessions s WHERE s.agency_id=? AND s.provider_user_id=? AND s.scheduled_end_at<=UTC_TIMESTAMP() AND s.scheduled_start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY) AND s.encounter_status IN ('scheduled','completed') ORDER BY s.scheduled_start_at DESC", [agencyId, providerUserId]);
   const [[agency]] = await pool.execute('SELECT timezone FROM agencies WHERE id=?', [agencyId]);
   const zone = agency?.timezone || 'America/Denver';
   const result = [];
   for (const session of sessions) {
     if (serviceDate && new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(session.scheduled_start_at)) !== serviceDate) continue;
     const [[decision]] = await pool.execute('SELECT attendance FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=?', [agencyId, session.id]);
-    if (decision || session.signed_note) continue;
+    const documentationRequired = decision?.attendance === 'did_not_occur';
+    if ((decision && !documentationRequired) || session.signed_note) continue;
     try {
       assertOccurrence(session);
-      const terms = await attendanceCopayTerms(session);
+      const terms = documentationRequired ? null : await attendanceCopayTerms(session);
+      const [[appointment]] = await pool.execute('SELECT id FROM appointments WHERE agency_id=? AND (clinical_session_id=? OR (? IS NOT NULL AND office_event_id=?)) ORDER BY id DESC LIMIT 1',[agencyId,session.id,session.office_event_id||null,session.office_event_id||null]);
       const [[client]] = await pool.execute('SELECT initials FROM clients WHERE id=? AND agency_id=?', [session.client_id, agencyId]);
-      result.push({ sessionId: session.id, clientId: session.client_id, clientLabel: client?.initials || 'Client', startAt: session.scheduled_start_at, endAt: session.scheduled_end_at, copayCents: terms.term.totalCents, officeEventId: session.office_event_id || null });
+      result.push({ sessionId: session.id, clientId: session.client_id, clientLabel: client?.initials || 'Client', startAt: session.scheduled_start_at, endAt: session.scheduled_end_at, copayCents: terms?.term.totalCents || null, appointmentId: appointment?.id || session.appointment_id || null, documentationRequired, serviceCode: session.effective_service_code || session.service_code, sameDay: copayServiceDate(session,zone) === copayServiceDate({scheduled_start_at:new Date()},zone), officeEventId: session.office_event_id || null });
     } catch (e) { if (![403,409].includes(e.status)) throw e; }
   }
   return { enabled: true, sessions: result, timezone: zone };
@@ -240,7 +353,7 @@ export async function runAttendanceCopays({ agencyId }) {
   if (!await attendanceCopaysEnabled(agencyId)) return [];
   // Recover a signed-note hook interrupted after the clinical signature committed.
   // The readiness effective date still prevents a launch from charging old visits.
-  const [signed]=await clinicalPool.execute("SELECT n.id,n.clinical_session_id,n.provider_signed_by_user_id FROM clinical_notes n JOIN clinical_sessions s ON s.id=n.clinical_session_id AND s.agency_id=n.agency_id AND s.client_id=n.client_id WHERE n.agency_id=? AND n.provider_signed_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY) AND n.provider_signed_at IS NOT NULL AND n.is_billable=1 AND n.is_deleted=0 AND s.scheduled_end_at<=UTC_TIMESTAMP() AND s.encounter_status IN ('scheduled','completed') ORDER BY n.provider_signed_at DESC LIMIT 100",[agencyId]);
+  const [signed]=await clinicalPool.execute("SELECT n.id,n.clinical_session_id,n.provider_signed_by_user_id FROM clinical_notes n JOIN clinical_sessions s ON s.id=n.clinical_session_id AND s.agency_id=n.agency_id AND s.client_id=n.client_id WHERE n.agency_id=? AND n.provider_signed_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY) AND n.provider_signed_at IS NOT NULL AND n.provider_signed_at>=s.scheduled_end_at AND n.is_billable=1 AND n.is_deleted=0 AND s.scheduled_end_at<=UTC_TIMESTAMP() AND s.encounter_status IN ('scheduled','completed') ORDER BY n.provider_signed_at DESC LIMIT 100",[agencyId]);
   for(const note of signed) {
     const [[existing]]=await pool.execute('SELECT attendance FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=?',[agencyId,note.clinical_session_id]);
     if(!existing)await onSignedNoteCopay({agencyId,noteId:note.id,providerUserId:note.provider_signed_by_user_id});
@@ -248,6 +361,6 @@ export async function runAttendanceCopays({ agencyId }) {
   const [rows] = await pool.execute("SELECT clinical_session_id FROM family_copay_attendance WHERE agency_id=? AND attendance='occurred' AND collection_status='pending' ORDER BY decided_at LIMIT 100", [agencyId]);
   const result = [];
   for (const row of rows) try { result.push(await collectAttendanceCopay({ agencyId, sessionId: row.clinical_session_id })); }
-  catch { await pool.execute("UPDATE family_copay_attendance SET collection_status='review' WHERE agency_id=? AND clinical_session_id=?", [agencyId, row.clinical_session_id]); result.push({ needsReview: true }); }
+  catch (error) { await pool.execute("UPDATE family_copay_attendance SET collection_status='review',collection_review_reason=? WHERE agency_id=? AND clinical_session_id=? AND collection_status<>'paid'", [error.code==='COPAY_AFTER_SERVICE_DATE'?'late_attendance':'collection_needs_review',agencyId, row.clinical_session_id]); result.push({ needsReview: true }); }
   return result;
 }

@@ -278,7 +278,7 @@
             v-model="addendum"
             class="na-textarea"
             rows="3"
-            placeholder="Tell Documentation Hub what to add or revise on this treatment plan…"
+            placeholder="Tell Note Workspace what to add or revise on this treatment plan…"
           />
           <button
             type="button"

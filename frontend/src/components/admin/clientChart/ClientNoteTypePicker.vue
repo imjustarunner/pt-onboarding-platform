@@ -85,7 +85,7 @@ const options = computed(() => {
     {
       id: 'progress',
       label: 'Progress note',
-      hint: 'Documentation Hub tools for your credential tier — must attach to a session.',
+      hint: 'Note Workspace tools for your credential tier — must attach to a session.',
       tone: 'aid',
       path: 'note-aid',
       kind: 'progress'

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../familyLedger/copayAttendance.js',()=>({suppressAppointmentAttendanceCopays:vi.fn(),completeAppointmentAttendanceDocumentation:vi.fn()}));
+import {suppressAppointmentAttendanceCopays} from '../familyLedger/copayAttendance.js';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../../models/ClinicalRecordRef.model.js', () => ({ default: { upsert: vi.fn() } }));
@@ -36,6 +38,11 @@ beforeEach(() => {
   pool.getConnection.mockResolvedValue(conn);
 });
 describe('durable appointment change', () => {
+  it('requires billing reconciliation before applying an appointment change with a started copay',async()=>{
+    suppressAppointmentAttendanceCopays.mockRejectedValueOnce(Object.assign(new Error('A copay payment has already started'),{status:409}));
+    await expect(run()).rejects.toMatchObject({status:409});
+    expect(applyChange).not.toHaveBeenCalled();expect(attachAppointmentChangeNotes).not.toHaveBeenCalled();expect(row).toBe(null);
+  });
   it('cannot apply a guardian request when the assigned provider has not approved',async()=>{
     requireAppointmentRequestProvider.mockRejectedValueOnce(Object.assign(new Error('Assigned provider required'),{status:403}));
     await expect(run()).rejects.toMatchObject({status:403});
@@ -98,6 +105,7 @@ describe('durable appointment change', () => {
 it('does not sign or cancel when reserving the support hour fails', async () => {
   const prepareChange = vi.fn().mockRejectedValue(new Error('Insufficient support hours'));
   await expect(runSignedAppointmentChange(1, facts, actor, {previewChange, applyChange, prepareChange})).rejects.toThrow('Insufficient');
+  expect(suppressAppointmentAttendanceCopays.mock.calls.every(args=>args[2]?.checkOnly===true)).toBe(true);
   expect(conn.rollback).toHaveBeenCalledOnce(); expect(conn.commit).not.toHaveBeenCalled();
   expect(row).toBeNull(); expect(applyChange).not.toHaveBeenCalled();
 });

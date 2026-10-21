@@ -5,41 +5,41 @@ import {
 } from '../noteAidAccess.js';
 
 describe('note workspace labels', () => {
-  it('uses Notes Workspace for provider roles in mental-health practices', () => {
+  it('uses Note Workspace for provider roles in mental-health practices', () => {
     expect(noteAidWorkspaceLabel({
       role: 'provider',
       tenant: { business_type: 'mental_health' }
-    })).toBe('Notes Workspace');
+    })).toBe('Note Workspace');
     expect(noteAidWorkspaceLabel({
       role: 'supervisor',
       tenant: { organization_type: 'clinical' }
-    })).toBe('Notes Workspace');
+    })).toBe('Note Workspace');
   });
 
-  it('uses Notes Workspace for shared non-clinical work', () => {
+  it('uses Note Workspace for shared non-clinical work', () => {
     expect(noteAidWorkspaceLabel({
       role: 'provider',
       tenant: { business_type: 'tutoring' }
-    })).toBe('Notes Workspace');
+    })).toBe('Note Workspace');
     expect(noteAidWorkspaceLabel({
       role: 'provider',
       tenant: { organization_type: 'life_coach' }
-    })).toBe('Notes Workspace');
+    })).toBe('Note Workspace');
     expect(noteAidWorkspaceLabel({
       role: 'provider',
       tenant: { organization_type: 'consultant' }
-    })).toBe('Notes Workspace');
+    })).toBe('Note Workspace');
   });
 
   it('keeps administrative users on the shared name outside AuricWell', () => {
     expect(noteAidWorkspaceLabel({
       role: 'super_admin',
       tenant: { business_type: 'mental_health' }
-    })).toBe('Notes Workspace');
+    })).toBe('Note Workspace');
   });
 
-  it('always names the dedicated AuricWell surface Notes Workspace', () => {
-    expect(noteAidWorkspaceLabel({ role: 'super_admin', auricwell: true })).toBe('Notes Workspace');
+  it('always names the dedicated AuricWell surface Note Workspace', () => {
+    expect(noteAidWorkspaceLabel({ role: 'super_admin', auricwell: true })).toBe('Note Workspace');
   });
 
   it('recognizes clinical feature flags when business types are not present', () => {

@@ -880,7 +880,7 @@ const quickActions = computed(() => {
   {
     id: 'tools_aids',
     title: 'Tools & Aids',
-    description: 'Documentation Hub and upcoming clinical tools',
+    description: 'Note Workspace and upcoming clinical tools',
     to: '/admin/tools-aids',
     emoji: '🩺',
     iconKey: 'tools_aids',
@@ -890,7 +890,7 @@ const quickActions = computed(() => {
   },
   {
     id: 'clinical_note_generator',
-    title: 'Documentation Hub',
+    title: 'Note Workspace',
     description: 'Clinical Director Agent (audio + text)',
     to: '/admin/note-aid',
     emoji: '🩺',

@@ -146,7 +146,7 @@
 
         <section class="gmsg-chat">
           <template v-if="creatingTicket">
-            <p class="muted pad">This support request is shared with all authorized guardians and the support team. Use secure messages for care conversations.</p>
+            <p class="muted pad">{{ ['billing','technology'].includes(newTicket.topic) ? 'Only you and authorized support staff can view this request.' : 'This support request is shared with all authorized guardians and the support team.' }} Use secure messages for care conversations.</p>
             <div class="gmsg-chat-head">
               <strong>New support request</strong>
               <span class="muted">Agency staff will reply here</span>
@@ -186,7 +186,7 @@
             </div>
           </template>
           <template v-else-if="selectedTicket">
-            <p class="muted pad">This support request is shared with all authorized guardians and the support team. Use secure messages for care conversations.</p>
+            <p class="muted pad">{{ ['billing','technology'].includes(selectedTicket?.topic) ? 'Only you and authorized support staff can view this request.' : 'This support request is shared with all authorized guardians and the support team.' }} Use secure messages for care conversations.</p>
             <div class="gmsg-chat-head">
               <strong>#{{ selectedTicket.id }} {{ selectedTicket.subject || 'Support' }}</strong>
               <span class="muted">{{ selectedTicket.display_status || selectedTicket.status }}</span>

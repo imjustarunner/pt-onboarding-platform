@@ -497,7 +497,7 @@ async function importAll() {
       try {
         const planResult = await importPlan();
         if (planResult === 'needs_review') {
-          // Demog/intake already applied; wait for Documentation Hub review Confirm & save.
+          // Demog/intake already applied; wait for Note Workspace review Confirm & save.
           return;
         }
       } catch (e) {

@@ -1,5 +1,5 @@
 /**
- * Documentation Hub billing add-ons and duration-driven code switches.
+ * Note Workspace billing add-ons and duration-driven code switches.
  * Rules for 90839/90840 crisis, 90837→90834×2 extended, 90785 IC, 99051 after-hours.
  */
 

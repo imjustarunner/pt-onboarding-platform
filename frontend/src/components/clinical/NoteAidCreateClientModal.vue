@@ -69,7 +69,7 @@ import {
 } from '../../utils/noteAidTreatmentHelpers.js';
 
 const ALLOWED_ORG_TYPES = new Set([
-  // Documentation Hub chart clients: clinical / coaching portals only — never schools.
+  // Note Workspace chart clients: clinical / coaching portals only — never schools.
   'program',
   'learning',
   'clinical',
@@ -131,7 +131,7 @@ function clientTypeFromOrgType(orgType) {
   const t = String(orgType || '').toLowerCase();
   if (t === 'learning') return 'learning';
   if (t === 'clinical' || t === 'program') return 'clinical';
-  // life_coach / consultant: chart still uses clinical-ish baseline for Documentation Hub today
+  // life_coach / consultant: chart still uses clinical-ish baseline for Note Workspace today
   return 'clinical';
 }
 

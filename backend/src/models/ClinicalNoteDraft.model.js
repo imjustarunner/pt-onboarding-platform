@@ -69,7 +69,11 @@ class ClinicalNoteDraft {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [uid, aid, cid, oeid, csid, svc, pid, dos, init, input, out]
     );
-    return this.findByIdForUser({ draftId: result.insertId, userId: uid });
+    const created = await this.findByIdForUser({ draftId: result.insertId, userId: uid });
+    // Only a real insert is new authored-save evidence. Reusing a draft must
+    // never make its old content count as attendance after the session ends.
+    if (created) Object.defineProperty(created, '_createdForThisRequest', { value: true });
+    return created;
   }
 
   static async findByIdForUser({ draftId, userId }) {

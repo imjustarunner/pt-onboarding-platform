@@ -1,3 +1,5 @@
+import { AURICWELL_MARK_URL } from '../constants/auricwellBrand.js';
+import { isMentalHealthPractice } from '../config/noteAidAccess.js';
 import { PLATFORM_BRAND, normalizePlatformBranding } from '../config/platformBrand.js';
 import { defineStore } from 'pinia';
 import { resolveTenantPalette } from '../utils/tenantPalette';
@@ -1573,6 +1575,7 @@ export const useBrandingStore = defineStore('branding', () => {
     if (cardId === 'momentum_list') {
       return getDashboardCardIconUrl('checklist', organization);
     }
+    if (cardId === 'clinical_note_generator' && isMentalHealthPractice(orgBase)) return AURICWELL_MARK_URL;
     return null;
   };
 
@@ -1628,7 +1631,7 @@ export const useBrandingStore = defineStore('branding', () => {
       progress_dashboard: 'progress_dashboard_icon_path',
       manage_clients: 'manage_clients_icon_path',
       manage_agencies: 'manage_agencies_icon_path',
-      // Reuse the "My Dashboard" icon for Documentation Hub / Tools & Aids quick action.
+      // Reuse the "My Dashboard" icon for Note Workspace / Tools & Aids quick action.
       clinical_note_generator: 'my_dashboard_clinical_note_generator_icon_path',
       tools_aids: 'my_dashboard_clinical_note_generator_icon_path',
       school_overview: 'school_overview_icon_path',
@@ -1671,6 +1674,7 @@ export const useBrandingStore = defineStore('branding', () => {
       const url = iconUrlById(platformBranding.value[idField]);
       if (url) return url;
     }
+    if (actionKey === 'clinical_note_generator' && isMentalHealthPractice(agencyOverride || dashboardIconOrganization.value)) return AURICWELL_MARK_URL;
     return null;
   };
 

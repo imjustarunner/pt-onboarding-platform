@@ -3,15 +3,9 @@
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
     <header v-if="!isEmbedded" class="na-topbar">
       <div class="na-brand">
-        <span class="na-brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
-            <path d="M12 3c.8 2.4 2.2 4 4.2 5.2C14.2 9.4 12.8 11 12 13.4 11.2 11 9.8 9.4 7.8 8.2 9.8 7 11.2 5.4 12 3Z" fill="currentColor"/>
-            <path d="M7 14.5c.5 1.5 1.4 2.5 2.7 3.3C8.4 18.6 7.5 19.6 7 21.1 6.5 19.6 5.6 18.6 4.3 17.8 5.6 17 6.5 16 7 14.5Z" fill="currentColor" opacity=".75"/>
-            <path d="M17 14.5c.5 1.5 1.4 2.5 2.7 3.3-1.3.8-2.2 1.8-2.7 3.3-.5-1.5-1.4-2.5-2.7-3.3 1.3-.8 2.2-1.8 2.7-3.3Z" fill="currentColor" opacity=".55"/>
-          </svg>
-        </span>
+        <img v-if="clinicalWorkspaceBranding" class="na-brand-mark" :src="AURICWELL_MARK_URL" alt="AuricWell" />
         <div>
-          <div class="na-brand-title">Notes Workspace</div>
+          <div class="na-brand-title">Note Workspace</div>
           <div class="na-brand-sub">Note Assistant</div>
         </div>
       </div>
@@ -71,7 +65,7 @@
         <strong>Not available</strong>
         <p>
           This tool is not enabled for your current organization.
-          Ask an admin to enable <strong>Clinical Note Generator</strong> or <strong>Documentation Hub</strong> in Organization Settings.
+          Ask an admin to enable <strong>Clinical Note Generator</strong> or <strong>Note Workspace</strong> in Organization Settings.
         </p>
       </div>
     </div>
@@ -328,7 +322,7 @@
               Skip AI aid — write sections manually
             </label>
             <p v-else-if="manualWriteDisabledByProfile" class="na-field-hint">
-              Manual-only writing is disabled on this profile — use Documentation Hub generate.
+              Manual-only writing is disabled on this profile — use Note Workspace generate.
             </p>
           </div>
           <div class="na-aid-bar-actions">
@@ -829,6 +823,11 @@
           <p class="hint">Generation loads all available signed chart notes, historical treatment plans, and objective ratings. Paste, type, or speak any missing therapy history below, including goals achieved or changed over time.</p>
           <p v-if="outputObj?.meta?.terminationHistory" class="hint">History loaded: {{ outputObj.meta.terminationHistory.notes }} notes, {{ outputObj.meta.terminationHistory.plans }} plans, {{ outputObj.meta.terminationHistory.ratings }} objective ratings.</p>
         </div>
+        <p v-if="!isReviewOnlyAid && (bookingContext.clinicalSessionId || bookingContext.officeEventId || sessionClinicalSessionId || sessionOfficeEventId)" class="na-attendance-hint">
+          Saving session content after the scheduled end confirms the session occurred and may collect its authorized copay today.
+          Opening this workspace alone does not confirm attendance. If the session did not occur, use the appointment’s missed-session or cancellation flow.
+        </p>
+        <p v-if="draftAttendanceNotice" class="na-attendance-hint" role="status">{{ draftAttendanceNotice }}</p>
         <NoteAidCsNoteBuildPanel
           v-if="useCsNoteBuildPathway"
           ref="csNoteBuildPanelRef"
@@ -1185,7 +1184,7 @@
               v-model="revisionInstruction"
               class="na-textarea na-textarea--compact"
               rows="2"
-              placeholder="Tell Documentation Hub what to add or revise while keeping the same transcript…"
+              placeholder="Tell Note Workspace what to add or revise while keeping the same transcript…"
             />
             <div class="na-revision-actions">
               <button
@@ -1579,6 +1578,8 @@
 
 <script setup>
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
@@ -1751,7 +1752,7 @@ const props = defineProps({
   embedAgencyId: { type: [Number, String], default: null },
   /** When false, embedded new notes do not auto-open the aid library. */
   embedOpenLibrary: { type: Boolean, default: true },
-  /** Prefers Documentation Hub library filter to this kind (progress, intake, termination, …). */
+  /** Prefers Note Workspace library filter to this kind (progress, intake, termination, …). */
   embedInitialKind: { type: String, default: '' },
   /** Optional launch intent (e.g. update_treatment_plan). */
   embedLaunchIntent: { type: String, default: '' },
@@ -2788,7 +2789,7 @@ function onQuickSessionServiceCode(code) {
   selectedServiceCode.value = next;
   otherServiceCode.value = '';
   applyParticipantsDefaultForServiceCode(next);
-  // Autoselect matching Documentation Hub when the clinician changes the service code.
+  // Autoselect matching Note Workspace when the clinician changes the service code.
   let hit = findNoteAidByToolOrCode({ serviceCode: next === '90834' && extended ? '90837' : next });
   if (hit?.aid && !aidIsEligible(hit.aid)) {
     hit = ['90832', '90834', '90837', EXTENDED_ENCOUNTER_CODE].includes(raw)
@@ -3023,7 +3024,7 @@ function resolveDraftClientIdOnLoad(d) {
   return Number(d?.client_id || d?.clientId || 0) || null;
 }
 
-function syncRouteNoteClient(clientId) {
+function syncRouteNoteClient(clientId, sessionContext = null) {
   const nextQuery = { ...route.query };
   const cid = Number(clientId || 0);
   if (cid) {
@@ -3032,6 +3033,12 @@ function syncRouteNoteClient(clientId) {
   } else {
     delete nextQuery.clientId;
     delete nextQuery.client_id;
+  }
+  if (sessionContext) {
+    for (const key of ['clinicalSessionId', 'clinical_session_id', 'officeEventId', 'office_event_id', 'noteId', 'clinicalNoteId', 'clinical_note_id', 'draftId', 'draft_id']) delete nextQuery[key];
+    if (sessionContext.clinicalSessionId) nextQuery.clinicalSessionId = String(sessionContext.clinicalSessionId);
+    if (sessionContext.officeEventId) nextQuery.officeEventId = String(sessionContext.officeEventId);
+    if (sessionContext.draftId) nextQuery.draftId = String(sessionContext.draftId);
   }
   router.replace({ query: nextQuery }).catch(() => {});
 }
@@ -3136,7 +3143,7 @@ const selectedAudioAgreementTemplateId = ref('');
 const recordingConsentError = ref('');
 const downloadingAudioAgreementTemplate = ref(false);
 const recordingPurpose = ref('dictation');
-/** Session capture lives in Session Recording tool; Documentation Hub speak mode is dictation-only. */
+/** Session capture lives in Session Recording tool; Note Workspace speak mode is dictation-only. */
 const isSessionRecording = computed(() => false);
 const recordSessionModalOpen = ref(false);
 const recordSessionIntentHandled = ref(false);
@@ -3182,6 +3189,7 @@ async function openSignedClinicalNote(noteId, { agencyId = null, preserveWorkQue
   return true;
 }
 const lastSavedAt = ref('');
+const draftAttendanceNotice = ref('');
 let autosaveTimer = null;
 let autosaveBusy = false;
 let workQueueActivateSeq = 0;
@@ -3189,6 +3197,7 @@ let clientHydrateSeq = 0;
 let autosaveDebounceTimer = null;
 let workspaceHydrateDepth = 0;
 let persistClientUnlink = false;
+let lastSavedAttendanceInput = '';
 
 function isWorkspaceHydrating() {
   return workspaceHydrateDepth > 0;
@@ -3197,10 +3206,12 @@ function isWorkspaceHydrating() {
 function beginWorkspaceHydration() {
   cancelPendingAutosave();
   workspaceHydrateDepth += 1;
+  draftAttendanceNotice.value = '';
 }
 
 function endWorkspaceHydration() {
   workspaceHydrateDepth = Math.max(0, workspaceHydrateDepth - 1);
+  if (!workspaceHydrateDepth) lastSavedAttendanceInput = String(inputText.value || '');
   cancelPendingAutosave();
 }
 
@@ -3821,7 +3832,7 @@ async function promoteNoteAidClientIfSetupComplete() {
     }
   } catch (e) {
     noteAidSetupPromotedIds.delete(cid);
-    console.warn('Documentation Hub setup promote failed:', e?.response?.data?.error?.message || e.message);
+    console.warn('Note Workspace setup promote failed:', e?.response?.data?.error?.message || e.message);
   }
 }
 
@@ -3833,7 +3844,7 @@ async function claimUnassignedNoteAidClients() {
       { skipGlobalLoading: true }
     );
   } catch (e) {
-    console.warn('Documentation Hub claim unassigned failed:', e?.response?.data?.error?.message || e.message);
+    console.warn('Note Workspace claim unassigned failed:', e?.response?.data?.error?.message || e.message);
   }
 }
 
@@ -5103,6 +5114,9 @@ const autosave = async () => {
   // Always persist typed or dictated session notes. On patch, omit when empty so we never wipe saved text.
   if (rawInput.trim()) {
     payload.inputText = rawInput;
+    if (rawInput !== lastSavedAttendanceInput && !isReviewOnlyAid.value) {
+      payload.attendanceIntent = 'authored_session_draft';
+    }
   } else if (!targetDraftId) {
     payload.inputText = null;
   }
@@ -5118,6 +5132,7 @@ const autosave = async () => {
     if (!targetDraftId) {
       const res = await api.post('/clinical-notes/drafts', payload, { skipGlobalLoading: true });
       if (seq !== workQueueActivateSeq || isWorkspaceHydrating()) return;
+      if (payload.attendanceIntent) draftAttendanceNotice.value = noteDraftAttendanceNotice(res?.data?.attendance);
       const created = res?.data?.draft || null;
       draftId.value = created?.id || null;
       currentDraftCreatedAt.value = created?.created_at || new Date().toISOString();
@@ -5144,8 +5159,9 @@ const autosave = async () => {
       }
     } else {
       if (String(draftId.value || '') !== String(targetDraftId)) return;
-      await api.patch(`/clinical-notes/drafts/${targetDraftId}`, payload, { skipGlobalLoading: true });
+      const res = await api.patch(`/clinical-notes/drafts/${targetDraftId}`, payload, { skipGlobalLoading: true });
       if (seq !== workQueueActivateSeq || String(draftId.value || '') !== String(targetDraftId)) return;
+      if (payload.attendanceIntent) draftAttendanceNotice.value = noteDraftAttendanceNotice(res?.data?.attendance);
       recentDrafts.value = (recentDrafts.value || []).map((d) =>
         String(d.id) === String(targetDraftId)
           ? {
@@ -5164,12 +5180,15 @@ const autosave = async () => {
           : d
       );
     }
+    lastSavedAttendanceInput = rawInput;
     lastSavedAt.value = new Date().toLocaleString();
   } catch (e) {
     const status = Number(e?.response?.status || 0);
     if (status === 404 && targetDraftId) {
       dropMissingDraftFromUi(targetDraftId);
     }
+    approvalError.value = e?.response?.data?.error?.message || 'Draft could not be saved. Keep this page open and retry.';
+    lastSavedAt.value = '';
   } finally {
     autosaveBusy = false;
   }
@@ -5225,7 +5244,7 @@ function formatCreatedDisplay(raw) {
 
 const canDeleteCurrentDraft = computed(() => {
   if (!draftId.value) return false;
-  // Documentation Hub drafts are never provider-signed clinical notes; signed session notes live elsewhere.
+  // Note Workspace drafts are never provider-signed clinical notes; signed session notes live elsewhere.
   const row = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
   if (row?.provider_signed_at || row?.signed_at || row?.content_review_source === 'provider_review') return false;
   return true;
@@ -5961,7 +5980,7 @@ const generateNote = async () => {
     }
     if (selectedAid.value?.isCustom && (selectedAid.value.systemPrompt || selectedAid.value.trainingNotes)) {
       const customBits = [
-        'Custom Documentation Hub training directions for this organization:',
+        'Custom Note Workspace training directions for this organization:',
         selectedAid.value.systemPrompt || '',
         selectedAid.value.trainingNotes || ''
       ].filter(Boolean).join('\n');
@@ -6875,7 +6894,7 @@ const loadClientIntakeSummary = async (clientId) => {
     const data = blocksRes?.data || {};
     // API returns { demographics, clinicalDeidentified, intakeNarrative } — not blocks[]
     if (data.clinicalDeidentified || data.intakeNarrative) {
-      // Never put demographics PHI into the Documentation Hub intake preview / paste path.
+      // Never put demographics PHI into the Note Workspace intake preview / paste path.
       intakeSummary.value = [
         data.clinicalDeidentified ? `Clinical (de-identified)\n${data.clinicalDeidentified}` : '',
         data.intakeNarrative ? `Intake narrative\n${data.intakeNarrative}` : ''
@@ -8558,6 +8577,13 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   viewingChartNote.value = null;
   clearSignedNoteViewer();
   draftId.value = d.id || null;
+  sessionClinicalSessionId.value = Number(d.clinical_session_id || d.clinicalSessionId || 0) || (preserveWorkQueue ? sessionClinicalSessionId.value : null);
+  sessionOfficeEventId.value = Number(d.office_event_id || d.officeEventId || 0) || (preserveWorkQueue ? sessionOfficeEventId.value : null);
+  const loadedSessionContext = preserveWorkQueue ? null : {
+    clinicalSessionId: sessionClinicalSessionId.value,
+    officeEventId: sessionOfficeEventId.value,
+    draftId: draftId.value
+  };
   sessionObjectiveRatings.value = [];
   noteAidAgencyChoiceId.value = null;
   currentDraftArchivedAt.value = d.archived_at || null;
@@ -8619,7 +8645,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     };
     await hydrateSelectedClient(draftClientId);
     if (!isCurrentLoad()) return;
-    syncRouteNoteClient(draftClientId);
+    syncRouteNoteClient(draftClientId, loadedSessionContext);
     await loadClientAgencyContext(draftClientId);
     if (!isCurrentLoad()) return;
     await Promise.all([
@@ -8634,7 +8660,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     clientAgencyMembershipIds.value = [];
     learningSponsorAgencyIds.value = [];
     resetClientClinicalContext();
-    if (!expectedClientId) syncRouteNoteClient(null);
+    if (!expectedClientId) syncRouteNoteClient(null, loadedSessionContext);
   }
 
   // Prefer client-owned tenant over a workspace-misattributed draft stamp.
@@ -8982,9 +9008,9 @@ const draftSections = (draftRow) => {
 
 onMounted(async () => {
   speechSupported.value = !!(privateSpeechRecognition());
-  // Scrub any pre-fix PHI left in browser storage from older Note Aid builds.
+  // Scrub any pre-fix PHI left in browser storage from older Note Workspace builds.
   scrubLegacyWorkQueueSessionStash();
-  // Always open library + work queue when Documentation Hub loads (user can still hide).
+  // Always open library + work queue when Note Workspace loads (user can still hide).
   libraryCollapsed.value = false;
   libraryExpanded.value = false;
   workQueueCollapsed.value = false;

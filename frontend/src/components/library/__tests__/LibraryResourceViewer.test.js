@@ -4,7 +4,7 @@ vi.mock('../LibraryPdfWorkspace.vue', () => ({ default: { name: 'LibraryPdfWorks
 import Viewer from '../LibraryResourceViewer.vue';
 vi.mock('../../../services/library.js',()=>({fetchLibraryGooglePreview:vi.fn(),fetchLibraryFileContent:vi.fn()}));
 import {fetchLibraryGooglePreview,fetchLibraryFileContent} from '../../../services/library.js';
-const resource={id:1,agencyId:2,name:'Clinical Documentation Hub Guide',resourceType:'google_doc',externalUrl:'https://docs.google.com/document/d/doc_123/edit',previewUrl:'https://docs.google.com/document/d/doc_123/preview'};
+const resource={id:1,agencyId:2,name:'Clinical Note Workspace Guide',resourceType:'google_doc',externalUrl:'https://docs.google.com/document/d/doc_123/edit',previewUrl:'https://docs.google.com/document/d/doc_123/preview'};
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();URL.createObjectURL=vi.fn(()=> 'blob:portal-preview');URL.revokeObjectURL=vi.fn();fetchLibraryGooglePreview.mockResolvedValue(new Blob(['%PDF-example'],{type:'application/pdf'}));});
 afterEach(()=>wrapper?.unmount());

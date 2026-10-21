@@ -2309,7 +2309,7 @@ const openRecordSessionFromModal = () => {
 
 const openNoteAidForModalSlot = (launchIntent = 'note') => {
   if (!canOpenNoteAidFromModal.value) {
-    error.value = 'Booked slot must be linked to both an event and a client before opening Documentation Hub.';
+    error.value = 'Booked slot must be linked to both an event and a client before opening Note Workspace.';
     return;
   }
   const slot = modalSlot.value || {};

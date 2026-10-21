@@ -98,7 +98,7 @@ export async function generateDraft(ctx, input) {
   const aid = catalog.aids.find((a) => a.id === input.aidId);
   const tool = aid && CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === aid.id);
   if (!tool)
-    throw fail(403, "This Note Aid is not available to your provider profile.");
+    throw fail(403, "This Note Workspace is not available to your provider profile.");
   const facts = text(input.facts, "Clinician-provided session facts", 40000);
   const result = await generateClinicalText({
     tool,

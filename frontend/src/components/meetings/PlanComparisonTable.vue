@@ -3,7 +3,7 @@
     <header>
       <p class="eyebrow">Basic · Premium · Premium Plus</p>
       <h2 id="plans-title">A plan for your practice</h2>
-      <p>Documentation Hub is included in every plan. Premium includes Basic; Premium Plus includes both.</p>
+      <p>Note Workspace is included in every plan. Premium includes Basic; Premium Plus includes both.</p>
     </header>
     <AuricwellPricingTable />
     <div class="plan-tools">
