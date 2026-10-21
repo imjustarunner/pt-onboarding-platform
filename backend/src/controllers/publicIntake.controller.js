@@ -5914,6 +5914,8 @@ const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
 
 export const getPublicIntakeLink = async (req, res, next) => {
   try {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     const publicKey = String(req.params.publicKey || '').trim();
     const resolved = await resolvePublicIntakeContext(publicKey);
     let link = resolved.link;

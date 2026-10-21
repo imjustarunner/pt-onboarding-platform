@@ -162,7 +162,8 @@ class IntakeSubmissionDocument {
               isd.signed_pdf_path,
               isd.pdf_hash,
               isd.signed_at,
-              COALESCE(dt.name, 'Signed enrollment agreement') AS document_template_name,
+              CASE WHEN il.form_type = 'smart_school_roi' THEN 'Release of Information'
+                   ELSE COALESCE(dt.name, 'Signed enrollment agreement') END AS document_template_name,
               il.title AS intake_link_title
        FROM intake_submission_documents isd
        LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
