@@ -89,6 +89,7 @@ jobs:
           --config backend/vitest.scheduling.config.js
           backend/src/services/__tests__/scheduling.officeApprovalWorkflow.test.js
           backend/src/services/__tests__/scheduling.officeApprovalInventory.test.js
+          backend/src/services/__tests__/scheduling.officeRequestEmails.test.js
           backend/src/controllers/__tests__/scheduling.officeApprovalDecision.test.js
       - name: Unified office approvals on mobile
         run: npm exec --prefix frontend -- vitest run --config frontend/vitest.office-approvals.config.js
@@ -233,6 +234,7 @@ jobs:
           backend/src/services/__tests__/scheduling.providerOffboarding.mysql.test.js
           backend/src/services/__tests__/scheduling.mysql.test.js
           backend/src/services/__tests__/scheduling.officeReconciliation.mysql.test.js
+          backend/src/services/__tests__/scheduling.officeRequestEmails.mysql.test.js
           backend/src/services/__tests__/scheduling.supervisionTimeCorrection.mysql.test.js
           backend/src/services/__tests__/scheduling.supervisionScheduleActions.mysql.test.js
           backend/src/services/__tests__/scheduling.schoolSupport.mysql.test.js

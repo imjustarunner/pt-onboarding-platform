@@ -137,7 +137,8 @@ export async function runOfficeDecision(
             selected,
             actorId: req.user.id,
             comment: req.body?.approverComment,
-            agencyId
+            agencyId,
+            result: payload
           });
         } catch (error) {
           console.error(

@@ -344,6 +344,7 @@ import api from '../../services/api';
 import OfficeCoverageFlagsView from './OfficeCoverageFlagsView.vue';
 const route = useRoute(),
   router = useRouter();
+const emit = defineEmits(['decided']);
 const requests = ref([]),
   loading = ref(false),
   saving = ref(false),
@@ -521,6 +522,7 @@ async function decide() {
       'Decision saved. The office schedule and approval queue are updated.';
     clearSelection();
     await load();
+    emit('decided');
   } catch (e) {
     error.value =
       e.response?.data?.error?.message ||

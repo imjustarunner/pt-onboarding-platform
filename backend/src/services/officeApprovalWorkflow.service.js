@@ -617,6 +617,8 @@ export async function notifyOfficeRequestPending({
 }) {
   const entity = entities[source];
   if (!entity) throw fail('Invalid request source.', 400);
+  const { queueOfficeRequestReview } = await import('./officeRequestEmails.service.js');
+  await queueOfficeRequestReview({ source, id, providerId, officeId, agencyId });
   const agencies = agencyId
     ? [{ id: agencyId }]
     : await OfficeLocationAgency.listAgenciesForOffice(officeId);
@@ -678,9 +680,12 @@ export async function notifyOfficeDecision({
   selected,
   actorId,
   comment,
-  agencyId
+  agencyId,
+  result
 }) {
   if (!agencyId || !request.roomRequest) return;
+  const { queueOfficeDecisionEmail } = await import('./officeRequestEmails.service.js');
+  await queueOfficeDecisionEmail({ request, action, selected, comment, agencyId, result });
   const description = selected
     ? `${selected.officeName} · ${selected.roomLabel}, starting ${selected.window.startDate}, ${selected.window.startHour}:00–${selected.window.endHour}:00 (${selected.timezone}), ${request.frequencyLabel}`
     : `${request.frequencyLabel}, starting ${request.startDate}`;

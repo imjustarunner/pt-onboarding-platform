@@ -2552,6 +2552,17 @@ if (!isBootstrap) {
   setInterval(summaryTick, 30000).unref();
   setInterval(scheduleMeetingInvitations, 60 * 1000);
 
+  let officeEmailInFlight = false;
+  const officeEmailTick = async () => {
+    if (officeEmailInFlight) return;
+    officeEmailInFlight = true;
+    try { await (await import('./services/officeRequestEmails.service.js')).sendDueOfficeRequestEmails(); }
+    catch (error) { console.warn('[office emails] Worker unavailable', error.code || 'error'); }
+    finally { officeEmailInFlight = false; }
+  };
+  void officeEmailTick();
+  setInterval(officeEmailTick, 60000).unref();
+
   let meetingExpiryInFlight = false;
   const closeEmptyPastMeetings = async () => {
     if (meetingExpiryInFlight) return;

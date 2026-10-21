@@ -12,6 +12,8 @@ export const FALLBACK_SENDER_FLAG = {
 };
 
 export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
+  office_request_review: ['notifications'],
+  office_request_decision: ['notifications'],
   password_reset: ['technology', 'login_recovery', 'notifications'],
   account_login_help: ['technology'],
   admin_initiated_password_reset: ['technology', 'login_recovery', 'notifications'],

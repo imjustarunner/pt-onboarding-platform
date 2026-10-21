@@ -1,4 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+vi.mock('../officeRequestEmails.service.js', () => ({ queueOfficeRequestReview: vi.fn(), queueOfficeDecisionEmail: vi.fn() }));
 const m = vi.hoisted(() => ({
   execute: vi.fn(),
   getConnection: vi.fn(),

@@ -3,8 +3,9 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import OfficeScheduleView from '../OfficeScheduleView.vue';
 import api from '../../services/api';
+const navigation = vi.hoisted(() => ({query:{officeId:'1'},replace:vi.fn()}));
 vi.mock('../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: { officeId: '1' }, params: { organizationSlug: 'one' } }), useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('vue-router', () => ({ useRoute: () => ({ path:'/one/buildings/schedule', query: navigation.query, params: { organizationSlug: 'one' } }), useRouter: () => ({ push: vi.fn(), replace:navigation.replace }) }));
 vi.mock('../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 10, role: 'super_admin' } }) }));
 vi.mock('../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 6, feature_flags: {} } }) }));
 const days = ['2026-11-15', '2026-11-16'];
@@ -20,11 +21,23 @@ let directoryPeople;
 let responseGrid;
 beforeEach(() => {
   vi.clearAllMocks();
+  navigation.query={officeId:'1'};
   directoryPeople = people.map(p => ({ ...p, agencyIds: [...p.agencyIds] }));
   responseGrid = grid;
   api.get.mockImplementation(async url => ({ data: url.endsWith('weekly-grid') ? responseGrid : url.endsWith('assignment-options')
     ? { agencies: [{ id: 6, name: 'One' }, { id: 8, name: 'Two' }], people: directoryPeople } : [] }));
   api.post.mockResolvedValue({ data: { ok: true } });
+});
+it('opens an emailed request inside Building Master and keeps conflict review available', async () => {
+  navigation.query={officeId:'1',approvals:'1',request:'booking:4',weekStart:'2026-11-16'};
+  const request={key:'booking:4',providerName:'Pat',officeName:'Windchime',roomRequest:true,startDate:'2026-11-16',slots:[{startHour:17,endHour:19}],frequencyLabel:'Weekly'};
+  api.get.mockImplementation(async url=>({data:url.endsWith('/context')?{request,rooms:[],warnings:[],window:{startDate:'2026-11-16'},horizon:'Next 12 dates'}:url==='/office-schedule/approvals'?{requests:[request],total:1}:url.endsWith('weekly-grid')?grid:[]}));
+  await setup();
+  expect(wrapper.get('.building-approval-workspace').text()).toContain('Pat');
+  expect(api.get).toHaveBeenCalledWith('/office-schedule/approvals/booking%3A4/context');
+  expect(wrapper.get('.grid-wrap').isVisible()).toBe(false);
+  await wrapper.get('.building-approval-workspace > button').trigger('click');
+  expect(navigation.replace).toHaveBeenCalledWith({query:expect.objectContaining({officeId:'1',approvals:undefined,request:undefined})});
 });
 afterEach(() => wrapper?.unmount());
 async function setup() {

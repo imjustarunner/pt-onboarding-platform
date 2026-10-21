@@ -1,8 +1,13 @@
 <template>
   <div class="office-schedule">
+    <section v-if="showOfficeApprovals && canManageSchedule" class="building-approval-workspace">
+      <button class="btn btn-secondary" @click="closeOfficeApprovals">← Building Master grid</button>
+      <OfficeApprovalsView @decided="loadGrid" />
+    </section>
+    <div v-show="!showOfficeApprovals || !canManageSchedule">
     <div class="header" data-tour="buildings-schedule-header">
       <div>
-        <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Schedule</h3>
+        <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Master</h3>
         <div class="subtitle" data-tour="buildings-schedule-subtitle">
           Weekly office grid (7am–9pm)
           <span v-if="officeTimezoneLabel"> · Times are in {{ officeTimezoneLabel }}</span>
@@ -870,11 +875,13 @@
       @close="closeOfficeRoomPhotoGallery"
       @updated="loadGrid"
     />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { confirmOneTimeRoom } from '../utils/officeRequestConfirmation';
+import OfficeApprovalsView from './admin/OfficeApprovalsView.vue';
 import UnassignedOfficeRequests from '../components/schedule/UnassignedOfficeRequests.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -895,8 +902,14 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
 const officeApprovalCount = ref(null);
+const showOfficeApprovals = computed(() => route.query.approvals === '1' || !!route.query.request);
+function closeOfficeApprovals() {
+  router.replace({ query: { ...route.query, approvals: undefined, request: undefined, tab: undefined } });
+  loadGrid();
+}
 const officeApprovalsTo = computed(() => ({
-  path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/office-approvals`
+  path: route.path,
+  query: { ...route.query, approvals: '1' }
 }));
 async function loadOfficeApprovalCount() {
   if (!canManageSchedule.value) return;
@@ -2893,6 +2906,12 @@ watch(() => officeId.value, async () => {
   await loadGrid();
   if (canManageSchedule.value) await loadProviders();
 }, { immediate: true });
+
+watch(() => route.query.weekStart || route.query.date, (date) => {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  weekStart.value = date;
+  void loadGrid();
+});
 
 let officeRefreshTimer;
 let lastVisibleRefresh = 0;
