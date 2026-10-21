@@ -30,7 +30,7 @@ try {
    }
    assert.equal(Math.round((await page.locator('main').boundingBox()).width), width, 'Main should fill the viewport');
    assert(await page.locator('meta[name=description]').getAttribute('content'));
-   assert.equal(await page.locator('a.sign-in').getAttribute('href'),'/auricwell/app/login');
+   assert.equal(await page.locator('a.sign-in').getAttribute('href'),'https://auricwell.com/login');
    assert(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth), `Overflow at ${width}: ${section}`);
    if (width === 1440 || width === 390) await page.screenshot({path:`/private/tmp/auricwell-website-${section || 'home'}-${width}.png`,fullPage:true});
   }
@@ -122,9 +122,10 @@ try {
  await page.locator('.mobile-menu summary').click();
  await page.getByRole('navigation',{name:'Mobile navigation',exact:true}).getByRole('link',{name:'Product',exact:true}).click();
  assert.match(page.url(),/\/auricwell\/product$/);
+ await page.route('https://auricwell.com/login', route => route.fulfill({status:200,contentType:'text/html',body:'<h1>Portal sign-in</h1>'}));
  await page.locator('.sign-in').click();
- await page.getByRole('heading',{name:'A clear place for your clinical work.'}).waitFor();
- assert.equal(await page.getByRole('link',{name:'Continue to secure sign-in'}).getAttribute('href'),'/login?redirect=%2Fauricwell%2Fapp');
+ await page.getByRole('heading',{name:'Portal sign-in'}).waitFor();
+ assert.equal(page.url(),'https://auricwell.com/login');
  assert.equal(apiRequests.length,0,'The public login landing must not fetch practice data');
  assert.equal(errors.length,0, errors.join('\n'));
  console.log('Website: 30 responsive page checks; provider profiles, scheduling, goals, kiosk/arrival states, email suppression, labeled SMS preview, sourced EHR comparison, FAQs, keyboard access, contact/login and zero clinical requests passed.');
