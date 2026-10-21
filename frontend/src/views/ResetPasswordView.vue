@@ -243,6 +243,7 @@ const handleReset = async () => {
       return;
     }
     await completePasswordTokenLogin(resp.data, router, {
+      portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug,
       destination: isSchoolCareBridgePath(route.path) ? loginTo.value : null
     });
   } catch (err) {

@@ -15,5 +15,5 @@ it.each([['setup',Setup],['reset',Reset]])('%s preserves password case and gives
  await w.find('#password').setValue('Ocean-Forest-47!');await w.find('#confirmPassword').setValue('Ocean-Forest-47!');
  expect(w.find('#password').attributes('autocapitalize')).toBe('none');
  await w.find('form').trigger('submit');await flushPromises();
- expect(m.post.mock.calls[0][1].password).toBe('Ocean-Forest-47!');expect(m.login).toHaveBeenCalled();w.unmount();
+ expect(m.post.mock.calls[0][1].password).toBe('Ocean-Forest-47!');expect(m.login).toHaveBeenCalledWith(expect.any(Object),expect.any(Object),expect.objectContaining({portalSlug:'itsco'}));w.unmount();
 });
