@@ -1,3 +1,5 @@
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
+import { overlappingRequest,pendingOfficeWindows } from './officeRoomAllocation.service.js';
 import pool from '../config/database.js';
 
 /**
@@ -101,7 +103,7 @@ export async function hasPendingSoftHoldAt({
   roomId,
   weekdayIndex,
   startHour,
-  endHour
+  endHour, date = null, timeZone = 'America/Denver'
 }) {
   const officeId = Number(officeLocationId || 0);
   const rid = Number(roomId || 0);
@@ -110,6 +112,10 @@ export async function hasPendingSoftHoldAt({
   const eh = Number(endHour);
   if (!officeId || !rid || !(wd >= 0 && wd <= 6) || !(eh > sh)) return false;
 
+  if(date) {
+    const pending=await pendingOfficeWindows(pool,{officeId,timeZone});
+    return pending.some(row=>row.roomId===rid && overlappingRequest({startDate:date,startHour:sh,endHour:eh,recurrence:'ONCE'},row));
+  }
   const [rows] = await pool.execute(
     `SELECT r.id, r.preferred_office_ids_json
      FROM provider_office_availability_requests r
@@ -128,6 +134,14 @@ export async function hasPendingSoftHoldAt({
       ? prefIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
       : [];
     if (prefList.length === 0 || prefList.includes(officeId)) return true;
+  }
+  const [bookings] = await pool.execute(`SELECT start_at,end_at,recurrence,booked_occurrence_count FROM office_booking_requests
+    WHERE office_location_id=? AND room_id=? AND status='PENDING' AND request_type IN ('PROVIDER_REQUEST','INTAKE_REQUEST')`,[officeId,rid]);
+  for (const row of bookings) {
+    const start=utcToZonedMysqlWall(row.start_at,timeZone),end=utcToZonedMysqlWall(row.end_at,timeZone);
+    if (date ? overlappingRequest({startDate:date,startHour:sh,endHour:eh,recurrence:'ONCE'},
+      {startDate:start.slice(0,10),startHour:Number(start.slice(11,13)),endHour:end.slice(0,10)>start.slice(0,10)?24:Number(end.slice(11,13)),recurrence:row.recurrence,occurrenceCount:row.booked_occurrence_count})
+      : new Date(`${start.slice(0,10)}T12:00:00Z`).getUTCDay()===wd && Number(start.slice(11,13))<eh && Number(end.slice(11,13))>sh) return true;
   }
   return false;
 }

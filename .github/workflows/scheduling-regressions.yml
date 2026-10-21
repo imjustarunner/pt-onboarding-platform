@@ -89,6 +89,9 @@ jobs:
           --config backend/vitest.scheduling.config.js
           backend/src/services/__tests__/scheduling.officeApprovalWorkflow.test.js
           backend/src/services/__tests__/scheduling.officeApprovalInventory.test.js
+          backend/src/services/__tests__/scheduling.officeRoomAllocation.test.js
+          backend/src/services/__tests__/scheduling.officeCheckinUsage.test.js
+          backend/src/services/__tests__/scheduling.officeMoveEmail.test.js
           backend/src/services/__tests__/scheduling.officeRequestEmails.test.js
           backend/src/controllers/__tests__/scheduling.officeApprovalDecision.test.js
           backend/src/controllers/__tests__/scheduling.officeBuildingPhoto.test.js

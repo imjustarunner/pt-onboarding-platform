@@ -41,7 +41,7 @@ it('opens an emailed request inside Building Master and keeps conflict review av
 });
 afterEach(() => wrapper?.unmount());
 async function setup() {
-  wrapper = mount(OfficeScheduleView, { global: { stubs: { RouterLink: true, ClinicalArtifactRetentionPanel: true, OfficeRoomPhotoButton: true, OfficeRoomPhotoGalleryModal: true } } });
+  wrapper = mount(OfficeScheduleView, { global: { stubs: { Teleport: true, RouterLink: true, ClinicalArtifactRetentionPanel: true, OfficeRoomPhotoButton: true, OfficeRoomPhotoGalleryModal: true } } });
   await flushPromises();
 }
 async function drag(first = 0, last = 6) {
@@ -163,5 +163,36 @@ it.each(['2027-10-14', ''])('submits a seven-hour weekly assignment with end dat
 
 it('shows an any-room request once above the master grid without marking every room requested',async()=>{
  responseGrid={...grid,rooms:[...grid.rooms,{id:5,name:'Counseling'}],slots:[...grid.slots,...grid.slots.map(s=>({...s,roomId:5}))],unassignedRoomRequests:[{id:867,providerName:'Randy Menegatti',date:days[0],startHour:17,endHour:18,frequency:'ONCE',preferredRooms:[]}]};
- await setup();expect(wrapper.findAll('.room-request-queue li')).toHaveLength(1);expect(wrapper.get('.room-request-queue').text()).toContain('Any open room');expect(wrapper.findAll('.cell.slot.requested')).toHaveLength(0);
+ await setup();expect(wrapper.findAll('.room-request-queue li')).toHaveLength(1);expect(wrapper.get('.room-request-queue').text()).toContain('No room selected');expect(wrapper.findAll('.cell.slot.requested')).toHaveLength(0);
+});
+it('opens the full pending multi-hour request directly from any requested cell',async()=>{
+ const request={key:'booking:36',providerName:'Chase Blackwood',roomRequest:true,startDate:days[0],slots:[{startHour:13,endHour:16}],frequencyLabel:'Weekly'};
+ responseGrid={...grid,slots:grid.slots.map(s=>({...s,state:'requested',pendingRequests:[{...request,startHour:13,endHour:16}]}))};
+ const prior=api.get.getMockImplementation();
+ api.get.mockImplementation(url=>url.endsWith('/context')?Promise.resolve({data:{request,rooms:[],warnings:[],window:{startDate:days[0]},horizon:'All dates'}}):url==='/office-schedule/approvals'?Promise.resolve({data:{requests:[request],total:1}}):prior(url));
+ await setup();await wrapper.get('.cell.slot').trigger('click');await flushPromises();
+ expect(wrapper.get('.approval-modal').text()).toContain('Chase Blackwood');expect(wrapper.get('.approval-modal').text()).toMatch(/1.*PM.*4.*PM/i);
+ expect(wrapper.find('.slot-assignment-form').exists()).toBe(false);
+});
+it('shows compact reservation details and moves one occurrence with its reason',async()=>{
+ responseGrid={...grid,slots:grid.slots.map(s=>({...s,state:'assigned_booked',eventId:22,standingAssignmentId:8,providerId:2,assignedProviderFullName:'Michael Mendez',frequencyLabel:'Weekly'}))};
+ await setup();expect(wrapper.get('.avail-search').attributes('open')).toBeUndefined();
+ await wrapper.get('.cell.slot').trigger('click');await flushPromises();
+ const text=wrapper.get('.modal').text();expect(text).toContain('Michael Mendez');
+ for(const legacy of ['2-week','Purge future','Clinical retention','Session outcome','Intake availability'])expect(text).not.toContain(legacy);
+ await wrapper.findAll('.modal button').find(b=>b.text()==='Move reservation').trigger('click');
+ await wrapper.get('.reservation-form textarea').setValue('Provider requested a new room');
+ await wrapper.get('.reservation-form').trigger('submit');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/office-slots/1/events/22/reschedule',expect.objectContaining({scope:'occurrence',reason:'Provider requested a new room',startAt:`${days[1]} 13:00:00`,endAt:`${days[1]} 14:00:00`}));
+});
+
+it('moves a multi-hour reservation from its true start when the second hour is clicked',async()=>{
+ const date='2026-11-16';
+ responseGrid={...grid,days:[date],slots:[13,14].map(hour=>({roomId:4,date,hour,state:'assigned_booked',eventId:22,standingAssignmentId:8,eventStartAt:'2026-11-16 20:00:00',eventEndAt:'2026-11-16 22:00:00'}))};
+ await setup(); await wrapper.findAll('.cell.slot')[1].trigger('click'); await flushPromises();
+ expect(wrapper.get('.modal').text()).toMatch(/1\s?PM–3\s?PM · 2 hours/);
+ await wrapper.findAll('.modal button').find(b=>b.text()==='Move reservation').trigger('click');
+ await wrapper.get('.reservation-form textarea').setValue('Requested move');
+ await wrapper.get('.reservation-form').trigger('submit');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/office-slots/1/events/22/reschedule',expect.objectContaining({startAt:`${date} 13:00:00`,endAt:`${date} 15:00:00`}));
 });

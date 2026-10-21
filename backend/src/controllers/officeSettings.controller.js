@@ -457,6 +457,7 @@ export const listRoomTypes = async (req, res, next) => {
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
     const ok = await requireOfficeAccess(req, officeId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    await OfficeRoomType.ensureDefaults(officeId);
     const rows = await OfficeRoomType.listByOffice(officeId);
     res.json(rows);
   } catch (e) {
@@ -514,11 +515,15 @@ export const createRoom = async (req, res, next) => {
     const sortOrder = parseInt(req.body?.sortOrder || 0, 10);
     const roomTypeIds = Array.isArray(req.body?.roomTypeIds) ? req.body.roomTypeIds : [];
 
-    const name = label || (Number.isFinite(roomNumber) ? `Room ${roomNumber}` : 'Room');
+    if (!Number.isInteger(roomNumber) || roomNumber < 1) return res.status(400).json({error:{message:'Enter a positive office number.'}});
+    const types = await OfficeRoomType.listByOffice(officeId);
+    if (!roomTypeIds.length || roomTypeIds.some(id => !types.some(t => Number(t.id)===Number(id)))) return res.status(400).json({error:{message:'Select at least one office type from this building.'}});
+    if ((await OfficeRoom.findByLocation(officeId)).some(r=>Number(r.room_number)===roomNumber)) return res.status(409).json({error:{message:'That office number already exists in this building.'}});
+    const name = `Office #${roomNumber}`;
     const room = await OfficeRoom.create({
       locationId: officeId,
       roomNumber: Number.isFinite(roomNumber) ? roomNumber : null,
-      label,
+      label: name,
       name,
       svgRoomId,
       googleResourceEmail,
@@ -551,17 +556,22 @@ export const updateRoom = async (req, res, next) => {
       : (req.body?.photoUrl ? String(req.body.photoUrl).trim().slice(0, 512) : null);
     const roomTypeIds = req.body?.roomTypeIds;
 
-    const patch = {};
+    const current = await OfficeRoom.findById(roomId);
+    if (!current || Number(current.location_id)!==officeId) return res.status(404).json({error:{message:'Office not found in this building.'}});
+    const number = roomNumber === undefined ? Number(current.room_number) : roomNumber;
+    if (!Number.isInteger(number) || number < 1) return res.status(400).json({error:{message:'Enter a positive office number.'}});
+    if ((await OfficeRoom.findByLocation(officeId)).some(r=>Number(r.id)!==roomId && Number(r.room_number)===number)) return res.status(409).json({error:{message:'That office number already exists in this building.'}});
+    if (Array.isArray(roomTypeIds)) {
+      const types=await OfficeRoomType.listByOffice(officeId);
+      if (!roomTypeIds.length || roomTypeIds.some(id=>!types.some(t=>Number(t.id)===Number(id)))) return res.status(400).json({error:{message:'Select at least one office type from this building.'}});
+    }
+    const patch = {name:`Office #${number}`,label:`Office #${number}`};
     if (roomNumber !== undefined) patch.room_number = Number.isFinite(roomNumber) ? roomNumber : null;
-    if (label !== undefined) patch.label = label;
+
     if (svgRoomId !== undefined) patch.svg_room_id = svgRoomId;
     if (googleResourceEmail !== undefined) patch.google_resource_email = googleResourceEmail;
     if (sortOrder !== undefined) patch.sort_order = Number.isFinite(sortOrder) ? sortOrder : 0;
     if (photoUrl !== undefined) patch.photo_url = photoUrl;
-
-    // Keep name aligned when label changes (best effort; don’t overwrite if explicitly provided)
-    if (req.body?.name !== undefined) patch.name = req.body?.name;
-    else if (label !== undefined) patch.name = label || patch.name;
 
     const updated = await OfficeRoom.update(roomId, patch);
     if (Array.isArray(roomTypeIds)) {

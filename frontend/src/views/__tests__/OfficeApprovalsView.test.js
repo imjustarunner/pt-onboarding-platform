@@ -152,3 +152,15 @@ it('requires acknowledgment of an existing provider reservation and supports dir
   expect(w.find('.workspace').classes()).not.toContain('detail-open');
   w.unmount();
 });
+it('requires a typed denial reason and sends it with the decision from an embedded review',async()=>{
+ const w=mount(View,{props:{embedded:true,requestKey:'intake:878'},global:{stubs:{RouterLink:true}}});
+ await flushPromises();
+ expect(w.find('.queue').exists()).toBe(false);
+ await w.findAll('button').find(b=>b.text()==='Deny request').trigger('click');
+ const confirm=w.get('.confirmation .btn-danger');
+ expect(confirm.attributes('disabled')).toBeDefined();
+ await w.get('textarea').setValue('Requested times need to be changed; please contact the CPA.');
+ expect(confirm.attributes('disabled')).toBeUndefined();await confirm.trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/office-schedule/approvals/intake%3A878/decision',expect.objectContaining({action:'deny',approverComment:'Requested times need to be changed; please contact the CPA.'}));
+ expect(w.emitted('decided')).toBeTruthy();w.unmount();
+});

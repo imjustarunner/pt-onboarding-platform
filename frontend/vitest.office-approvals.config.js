@@ -6,6 +6,6 @@ export default defineConfig({
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname } },
   test: {
     environment: 'jsdom',
-    include: ['src/views/__tests__/OfficeApprovalsView.test.js', 'src/views/__tests__/OfficeSettingsPhoto.test.js']
+    include: ['src/views/__tests__/OfficeScheduleView.test.js','src/views/__tests__/OfficeApprovalsView.test.js', 'src/views/__tests__/OfficeSettingsPhoto.test.js']
   }
 });

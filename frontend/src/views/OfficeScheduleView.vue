@@ -36,7 +36,7 @@
     <div v-else-if="loading && !grid" class="loading">Loading…</div>
     <div v-if="successToast" class="success-toast">{{ successToast }}</div>
 
-    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? officeApprovalsTo : ''" />
+    <UnassignedOfficeRequests v-if="grid" :requests="grid.unassignedRoomRequests || []" :review-path="canManageSchedule ? officeApprovalsTo : ''" @review="openRequestReview" />
 
     <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="office-schedule-legend" data-tour="buildings-schedule-legend">
@@ -47,8 +47,6 @@
         <div class="legend-item"><span class="dot assigned_booked"></span> Booked</div>
         <div class="legend-item"><span class="dot company_hold"></span> Company hold</div>
         <div class="legend-item"><span class="dot conflict"></span> Conflict</div>
-        <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
-        <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
       </div>
       <div v-if="gridConflictCount > 0" class="schedule-conflict-banner">
@@ -157,12 +155,13 @@
         </div>
       </div>
 
-      <div v-if="canManageSchedule" class="card avail-search" data-tour="buildings-schedule-avail-search">
+      <details v-if="canManageSchedule" class="card avail-search" data-tour="buildings-schedule-avail-search">
+        <summary class="avail-search-title">Find availability <span class="muted">· date and time</span></summary>
         <div class="avail-search-head">
           <div>
             <div class="avail-search-title">Find availability</div>
             <div class="muted">
-              Search for open or assigned-available rooms in this building at a given day/time. Shows up to 2 hours before/after if contiguous slots are also available.
+              Find a room for your time window.
             </div>
           </div>
           <button class="btn btn-secondary btn-sm" type="button" @click="runAvailabilitySearch" :disabled="searching">
@@ -230,13 +229,13 @@
         <div v-else class="muted" style="margin-top: 10px;">
           No matching availability for this time.
         </div>
-      </div>
+      </details>
 
       <div class="room-nav" data-tour="buildings-schedule-room-nav">
         <label style="font-weight: 800;">Room</label>
         <select v-model.number="selectedRoomId" class="select" :disabled="!grid">
           <option v-for="r in sortedRooms" :key="`room-opt-${r.id}`" :value="Number(r.id)">
-            {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name }}
+            {{ officeRoomTitle(r) }}
           </option>
         </select>
         <div class="btn-group">
@@ -258,12 +257,12 @@
       <div v-for="room in displayedRooms" :key="room.id" class="room-card" data-tour="buildings-schedule-room-card">
         <div class="room-head">
           <div class="room-title" style="display:flex; align-items:center; gap:8px;">
-            <strong>{{ room.roomNumber ? `#${room.roomNumber}` : '' }} {{ room.label || room.name }}</strong>
+            <strong>{{ officeRoomTitle(room) }}</strong><small v-if="room.roomType" class="muted">{{ room.roomType }}</small>
             <OfficeRoomPhotoButton
               :room-id="Number(room.id)"
               :office-id="Number(officeId || 0)"
               :photo-url="String(room.photoUrl || room.photo_url || '')"
-              :room-label="`${room.roomNumber ? `#${room.roomNumber} ` : ''}${room.label || room.name || ''}`.trim()"
+              :room-label="officeRoomTitle(room)"
               @open="openOfficeRoomPhotoGallery"
             />
           </div>
@@ -272,7 +271,7 @@
         <div class="week-table" data-tour="buildings-schedule-week-table">
           <div class="cell corner"></div>
           <div v-for="d in displayedDays" :key="d" class="cell day-head" :class="{ today: isTodayDate(d) }">
-            {{ formatDay(d) }}
+            <span>{{ new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' }) }}</span><small>{{ d.slice(5).replace('-', '/') }}</small>
           </div>
 
           <template v-for="h in grid.hours" :key="h">
@@ -280,7 +279,7 @@
             <div
               v-for="d in displayedDays"
               :key="`${room.id}-${d}-${h}`"
-              class="cell slot"
+              class="cell slot" role="button" tabindex="0" @keydown.enter.prevent="onSlotClick(room.id, d, h)" @keydown.space.prevent="onSlotClick(room.id, d, h)"
               :class="[
                 slotClass(room.id, d, h),
                 {
@@ -297,9 +296,6 @@
               @click="onSlotClick(room.id, d, h)"
             >
               <span class="slot-label">{{ slotDisplayLabel(room.id, d, h) }}</span>
-              <span v-if="slotHasLearningLink(room.id, d, h)" class="lp-pill" title="Linked learning billing session">LP</span>
-              <span v-if="slotHasInPersonIntake(room.id, d, h)" class="ip-pill" title="In-person intake enabled">IP</span>
-              <span v-if="slotHasVirtualIntake(room.id, d, h)" class="vi-pill" title="Virtual intake enabled">VI</span>
               <span
                 v-if="showIcsGaps && slotHasIcsGap(room.id, d, h)"
                 class="ics-pill"
@@ -317,12 +313,13 @@
     </div>
 
     <!-- Slot actions modal -->
-    <div v-if="showModal" class="modal-overlay" @click="closeModal">
+    <Teleport to="body"><div v-if="showModal" class="modal-overlay" @click="closeModal">
       <div class="modal" @click.stop>
-        <h3 style="margin-top: 0;">Slot</h3>
+        <h3 style="margin-top: 0;">{{ modalRoomLabel }}</h3>
+        <button class="modal-close" aria-label="Close office details" @click="closeModal">×</button>
         <div v-if="error" class="error-box" style="margin-bottom: 10px;">{{ error }}</div>
         <div class="muted" style="margin-bottom: 10px;">
-          {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)}–${formatHour(assignEndHour)} · ${assignEndHour - modalSlot.hour} hour${assignEndHour - modalSlot.hour === 1 ? '' : 's'} — ${modalSlot.state}` : '' }}
+          {{ modalSlot ? `${modalSlot.date} ${formatHour(reservationStartHour)}–${formatHour(reservationEndHour)} · ${reservationEndHour - reservationStartHour} hour${reservationEndHour - reservationStartHour === 1 ? '' : 's'} — ${slotStateLabel(modalSlot.state)}` : '' }}
           <template v-if="officeTimezoneLabel"> · {{ officeTimezoneLabel }}</template>
         </div>
         <div class="recurrence-summary" v-if="modalSlot" aria-live="polite">
@@ -339,30 +336,20 @@
             <div v-if="modalSlot.bookingOccurrenceCount"><strong>Booked occurrences:</strong> {{ modalSlot.bookingOccurrenceCount }}</div>
           </template>
         </div>
-        <div class="slot-details" v-if="modalSlot && modalSlot.state === 'company_hold'">
-          <div><strong>Company hold:</strong> {{ modalSlot.holdTitle || 'Company hold' }}</div>
-          <div><strong>Event ID:</strong> {{ modalSlot.eventId || 'n/a' }}</div>
+        <section v-if="modalSlot?.pendingRequests?.length" class="pending-slot-review">
+          <strong>Pending office request</strong>
+          <button v-for="r in modalSlot.pendingRequests" :key="r.key" class="btn btn-primary" @click="openRequestReview(r.key)" v-if="canManageSchedule">
+            Review {{ r.providerName }} · {{ formatHour(r.startHour) }}–{{ formatHour(r.endHour) }}
+          </button>
+          <p v-else>Awaiting office approval.</p>
+        </section>
+        <div v-if="modalSlot?.state !== 'open'" class="slot-details">
+          <strong>{{ modalSlot?.holdTitle || providerDisplayName(modalSlot?.bookedProviderFullName || modalSlot?.assignedProviderFullName || modalSlot?.bookedProviderName || modalSlot?.assignedProviderName, modalSlot?.providerInitials, 'Office reservation') }}</strong>
+          <p>{{ slotStateLabel(modalSlot?.state) }}</p>
+          <router-link v-if="modalSlot?.appointmentId" :to="linkedAppointmentTo">Open linked appointment →</router-link>
+          <p v-else class="muted">Office reservation · no linked app appointment</p>
         </div>
-        <div class="slot-details" v-else-if="modalSlot && modalSlot.state !== 'open'">
-          <div><strong>Assigned to:</strong> {{ providerDisplayName(modalSlot.assignedProviderFullName || modalSlot.assignedProviderName || modalSlot.bookedProviderFullName || modalSlot.bookedProviderName, modalSlot.providerInitials, 'Unassigned') }}</div>
-          <div v-if="modalSlot.bookedProviderFullName || modalSlot.bookedProviderName"><strong>Booked for:</strong> {{ providerDisplayName(modalSlot.bookedProviderFullName || modalSlot.bookedProviderName, modalSlot.providerInitials, 'Unassigned') }}</div>
-          <div><strong>Event ID:</strong> {{ modalSlot.eventId || 'n/a' }}</div>
-          <div><strong>Standing assignment:</strong> {{ modalSlot.standingAssignmentId || 'n/a' }}</div>
-          <div v-if="modalSlot.assignmentCreatedAt"><strong>Assigned on:</strong> {{ formatDateTime(modalSlot.assignmentCreatedAt) }}</div>
-          <div v-if="modalSlot.assignmentCreatedByName"><strong>Assigned by:</strong> {{ modalSlot.assignmentCreatedByName }}</div>
-          <div v-if="modalSlot.assignmentAvailableSinceDate"><strong>Available since:</strong> {{ formatDateOnly(modalSlot.assignmentAvailableSinceDate) }}</div>
-          <div v-if="modalSlot.assignmentLastTwoWeekConfirmedAt"><strong>Last 2-week confirmation:</strong> {{ formatDateTime(modalSlot.assignmentLastTwoWeekConfirmedAt) }}</div>
-          <div v-if="modalSlot.assignmentConfirmationExpiresAt"><strong>Falls off after:</strong> {{ formatDateOnly(modalSlot.assignmentConfirmationExpiresAt) }}</div>
-          <div v-if="Number.isInteger(Number(modalSlot.assignmentTwoWeekWindowsRemaining))">
-            <strong>2-week windows remaining:</strong> {{ modalSlot.assignmentTwoWeekWindowsRemaining }} / 3
-          </div>
-          <div v-if="modalSlot.bookingCreatedAt"><strong>Booking plan created:</strong> {{ formatDateTime(modalSlot.bookingCreatedAt) }}</div>
-          <div v-if="modalSlot.bookingCreatedByName"><strong>Booking plan set by:</strong> {{ modalSlot.bookingCreatedByName }}</div>
-          <div v-if="modalSlot.bookingLastConfirmedAt"><strong>Last booked confirmation:</strong> {{ formatDateTime(modalSlot.bookingLastConfirmedAt) }}</div>
-          <div class="muted">Rule reminder: every 6 weeks ops reviews standing assignments. Snooze keeps them; ignore also keeps them until the next cycle. Downgrade or release when needed.</div>
-        </div>
-
-        <div v-if="modalSlot?.state === 'open'">
+        <div v-if="modalSlot?.state === 'open' && !modalSlot?.pendingRequests?.length">
           <div v-if="canManageSchedule" class="section">
             <div class="section-title">Staff/admin action</div>
             <div class="muted" style="margin-bottom: 8px;">
@@ -422,13 +409,7 @@
                   </option>
                 </select>
               </div>
-              <label class="office-slot-choice slot-assignment-wide" v-if="assignMode === 'provider'">
-                <input type="checkbox" v-model="assignTemporary4Weeks" :disabled="assignRecurrenceFreq === 'ONCE'" />
-                <span>Temporary 4-week hold</span>
-              </label>
-              <div v-if="assignMode === 'provider' && assignTemporary4Weeks && assignRecurrenceFreq !== 'ONCE'" class="muted slot-assignment-wide">
-                Temporary hold while trying to place a client. If booked during hold, this converts to regular assigned office.
-              </div>
+
               <div v-if="assignRecurrenceFreq !== 'ONCE'" class="slot-assignment-field">
                 <label for="assignment-until">Recurring until</label>
                 <input id="assignment-until" v-model="assignRecurringUntilDate" type="date" class="input" :disabled="!modalSlot" />
@@ -506,366 +487,36 @@
           </div>
         </div>
 
-        <template v-else-if="modalSlot?.state === 'company_hold'">
-          <div class="section">
-            <div class="section-title">Company hold</div>
-            <div class="muted" style="margin-bottom: 8px;">
-              This time is blocked for company use and is not assigned to a provider.
-            </div>
-            <div class="row">
-              <select v-model="cancelScope" class="select" :disabled="saving || !modalSlot?.eventId">
-                <option value="occurrence">This occurrence only</option>
-                <option value="future_set" :disabled="!modalSlot?.recurrenceGroupId">This and all future recurring</option>
-              </select>
-              <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || !modalSlot?.eventId">
-                Remove hold
-              </button>
-            </div>
+        <template v-else-if="['assigned_booked','assigned_available','assigned_temporary','company_hold'].includes(modalSlot?.state) && canSelfManageModalSlot">
+          <div class="reservation-actions">
+            <button v-if="modalSlot?.state !== 'company_hold' && (modalSlot?.eventId || modalSlot?.standingAssignmentId)" class="btn btn-secondary" @click="startReservationMove">Move reservation</button>
+            <button class="btn btn-secondary" @click="releaseExpanded = !releaseExpanded">Release to open</button>
+          </div>
+          <form v-if="moveExpanded" class="reservation-form" @submit.prevent="saveReservationMove">
+            <h4>Move office reservation</h4>
+            <label>Office<select v-model.number="moveDraft.roomId" required><option v-for="r in sortedRooms" :key="r.id" :value="Number(r.id)">{{ officeRoomTitle(r) }}</option></select></label>
+            <label>Date<input type="date" v-model="moveDraft.date" required /></label>
+            <label>Start<select v-model.number="moveDraft.hour"><option v-for="h in grid.hours" :key="h" :value="h">{{ formatHour(h) }}</option></select></label>
+            <label>Apply to<select v-model="moveDraft.scope"><option value="occurrence" :disabled="!modalSlot?.eventId">This occurrence only</option><option v-if="modalSlot?.standingAssignmentId" value="future">All upcoming occurrences of this office time</option></select></label>
+            <label>Reason for the move<textarea v-model="moveDraft.reason" required rows="2" maxlength="500" /></label>
+            <p class="muted">The provider receives the previous and new office, day and time, and which occurrences changed. Linked appointments move with the reservation.</p>
+            <button class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Check conflicts and save' }}</button>
+          </form>
+          <div v-if="releaseExpanded" class="reservation-form">
+            <label>Release<select v-model="forfeitScope"><option value="occurrence">This occurrence only</option><option v-if="modalSlot?.standingAssignmentId" value="future">This and future occurrences</option></select></label>
+            <label class="office-slot-choice"><input v-model="ackForfeit" type="checkbox" /> Make this office time available to others. Linked appointments must be handled in their appointment.</label>
+            <button class="btn btn-danger" :disabled="saving || !ackForfeit" @click="forfeit">Release office time</button>
           </div>
         </template>
-
-        <template v-else>
-          <div class="section" v-if="canToggleVirtualIntake">
-            <div class="section-title">Intake availability</div>
-            <div class="muted" style="margin-bottom: 8px;">
-              In-person intake:
-              <strong>{{ modalInPersonIntakeEnabled ? 'Enabled' : 'Disabled' }}</strong>
-              <span> (this hour only)</span>
-            </div>
-            <div class="row" style="margin-bottom: 8px;">
-              <button
-                class="btn btn-secondary"
-                @click="enableInPersonIntake"
-                :disabled="saving || !canToggleInPersonIntake || modalInPersonIntakeEnabled"
-              >
-                Enable in-person intake
-              </button>
-              <button
-                class="btn btn-secondary"
-                @click="disableInPersonIntake"
-                :disabled="saving || !canToggleInPersonIntake || !modalInPersonIntakeEnabled"
-              >
-                Disable in-person intake
-              </button>
-            </div>
-            <div class="muted" style="margin: 8px 0 6px;">
-              Virtual intake (this hour only):
-              <strong>{{ modalVirtualIntakeEnabled ? 'Enabled' : 'Disabled' }}</strong>
-            </div>
-            <div class="row">
-              <button
-                class="btn btn-secondary"
-                @click="enableVirtualIntake"
-                :disabled="saving || !modalSlot?.eventId || modalVirtualIntakeEnabled"
-                title="Enable virtual intake for this hour."
-              >
-                Enable virtual intake
-              </button>
-              <button
-                class="btn btn-secondary"
-                @click="disableVirtualIntake"
-                :disabled="saving || !modalSlot?.eventId || !modalVirtualIntakeEnabled"
-                title="Removes intake designation but keeps the slot virtually available."
-              >
-                Disable virtual intake (keep virtual available)
-              </button>
-            </div>
-          </div>
-
-          <div class="section" v-if="canSelfManageModalSlot">
-            <div class="section-title">Provider actions</div>
-            <div class="status-chip" :class="modalSlot?.state === 'assigned_booked' ? 'status-booked' : 'status-assigned'">
-              {{ modalSlot?.state === 'assigned_booked' ? 'Currently booked' : 'Currently assigned (not booked)' }}
-            </div>
-            <div class="row" v-if="isModalBooked" style="margin-bottom: 10px;">
-              <button class="btn btn-primary" @click="openNoteAidFromModal" :disabled="saving || !canOpenNoteAidFromModal">
-                Write note
-              </button>
-              <button class="btn btn-secondary" @click="openRecordSessionFromModal" :disabled="saving || !canOpenNoteAidFromModal">
-                Record session
-              </button>
-              <div class="muted" v-if="canOpenNoteAidFromModal">Preload: {{ noteAidLaunchContextLabel }}</div>
-              <div class="muted" v-else>Requires booked slot with linked client context.</div>
-            </div>
-
-            <div v-if="showClinicalSessionControls" class="row" style="margin-bottom: 10px;">
-              <label style="font-weight: 700;">Appointment type</label>
-              <select v-model="bookingAppointmentType" class="select" :disabled="saving || bookingMetadataLoading">
-                <option value="">Select type…</option>
-                <option v-for="opt in bookingTypeOptions" :key="`type-${opt.code}`" :value="opt.code">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Subtype</label>
-              <select v-model="bookingAppointmentSubtype" class="select" :disabled="saving || bookingMetadataLoading || !bookingSubtypeOptions.length">
-                <option value="">Optional subtype…</option>
-                <option v-for="opt in bookingSubtypeOptions" :key="`sub-${opt.code}`" :value="opt.code">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </div>
-            <div v-if="showClinicalSessionControls" class="row" style="margin-bottom: 10px;">
-              <label style="font-weight: 700;">Service code</label>
-              <select v-model="bookingServiceCode" class="select" :disabled="saving || bookingMetadataLoading">
-                <option value="">Select service code…</option>
-                <option v-for="opt in bookingServiceCodeOptions" :key="`svc-${opt.code}`" :value="opt.code">
-                  {{ opt.code }}{{ opt.label ? ` - ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Modality</label>
-              <select v-model="bookingModality" class="select" :disabled="saving || bookingMetadataLoading">
-                <option value="">Optional modality…</option>
-                <option value="IN_PERSON">In person</option>
-                <option value="TELEHEALTH">Telehealth</option>
-              </select>
-            </div>
-            <div v-if="showClinicalSessionControls" class="row" style="margin-bottom: 10px;">
-              <label style="font-weight: 700;">Service location</label>
-              <select v-model="bookingServiceLocationId" class="select" :disabled="saving || bookingMetadataLoading">
-                <option :value="0">Select location…</option>
-                <option v-for="loc in bookingServiceLocationOptions" :key="`loc-${loc.id}`" :value="loc.id">
-                  {{ loc.name }} (POS {{ loc.placeOfService }}){{ loc.billingOfficeName ? ` · bills under ${loc.billingOfficeName}` : '' }}
-                </option>
-              </select>
-            </div>
-            <div class="muted" v-if="showClinicalSessionControls && bookingUnitPreview">{{ bookingUnitPreview }}</div>
-            <div class="muted" v-if="showClinicalSessionControls && bookingMetadataLoading">Loading taxonomy and service code eligibility…</div>
-            <div class="muted" v-else-if="showClinicalSessionControls && bookingMetadataError">{{ bookingMetadataError }}</div>
-            <div class="muted" v-if="showClinicalSessionControls && bookingClassificationInvalidReason">{{ bookingClassificationInvalidReason }}</div>
-
-            <div class="row">
-              <label style="font-weight: 700;">Book frequency</label>
-              <select v-model="bookFreq">
-                <option value="">Select…</option>
-                <option
-                  v-for="opt in RECURRENCE_OPTIONS.filter((o) => o.value !== 'ONCE')"
-                  :key="`book-freq-${opt.value}`"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Occurrences</label>
-              <input v-model.number="bookOccurrenceCount" type="number" min="1" max="104" class="input" style="width: 90px;" />
-              <button class="btn btn-primary" @click="bookSlot" :disabled="saving || !bookFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
-                Book
-              </button>
-            </div>
-
-            <div class="row" style="margin-top: 10px;">
-              <div class="muted">Every 6 weeks, ops reviews standing assignments. Snooze keeps the slot; downgrade moves booked→assigned or assigned→open.</div>
-              <button class="btn btn-secondary" @click="keepAvailable" :disabled="saving || !modalSlot?.standingAssignmentId">
-                Confirm / keep assigned
-              </button>
-              <button
-                v-if="canManageSchedule"
-                class="btn btn-secondary"
-                @click="snoozeStandingReview"
-                :disabled="saving || !modalSlot?.standingAssignmentId"
-              >
-                Snooze 6 weeks
-              </button>
-            </div>
-
-            <div class="row" style="margin-top: 10px;">
-              <button class="btn btn-secondary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
-                Set booked (this occurrence)
-              </button>
-              <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId || isAssignedUnbooked">
-                Set unbooked (this occurrence)
-              </button>
-              <button
-                v-if="canManageSchedule && isModalBooked"
-                class="btn btn-secondary"
-                @click="downgradeStanding('assigned')"
-                :disabled="saving || !modalSlot?.standingAssignmentId"
-              >
-                Downgrade booked → assigned
-              </button>
-              <button
-                v-if="canManageSchedule && (isModalBooked || modalSlot?.standingAssignmentId)"
-                class="btn btn-secondary"
-                @click="downgradeStanding('open')"
-                :disabled="saving || !modalSlot?.standingAssignmentId"
-              >
-                Release to open
-              </button>
-            </div>
-
-            <div class="row" style="margin-top: 10px;">
-              <select v-model="forfeitScope" class="select" :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
-                <option value="occurrence">Forfeit this occurrence only</option>
-                <option value="future" :disabled="!isRecurringSlot">Forfeit this and all future recurring</option>
-              </select>
-              <label class="office-slot-choice">
-                <input type="checkbox" v-model="ackForfeit" />
-                <span>I understand this slot's day/time/frequency is forfeit at this time and available to others.</span>
-              </label>
-              <button class="btn btn-danger" @click="forfeit" :disabled="saving || !ackForfeit || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
-                Forfeit
-              </button>
-            </div>
-            <div class="row" style="margin-top: 10px;" v-if="isModalBooked">
-              <label style="font-weight: 700;">Session outcome</label>
-              <select v-model="selectedOutcome" class="select" :disabled="saving || !modalSlot?.eventId">
-                <option value="">Select outcome…</option>
-                <option value="MISSED">Missed</option>
-                <option value="NO_SHOW">No-show</option>
-                <option value="CANCELED">Canceled</option>
-                <option value="COMPLETED">Completed</option>
-              </select>
-              <input
-                v-if="outcomeRequiresReason"
-                v-model="outcomeCancellationReason"
-                type="text"
-                maxlength="255"
-                class="input"
-                style="min-width: 280px;"
-                placeholder="Cancellation reason (required)"
-                :disabled="saving || !modalSlot?.eventId"
-              />
-              <button class="btn btn-secondary" @click="setOutcomeForEvent" :disabled="saving || !canSubmitOutcome || !modalSlot?.eventId">
-                Save outcome
-              </button>
-            </div>
-          </div>
-          <div class="section" v-else>
-            <div class="muted">This slot can only be edited by the assigned provider or schedule managers.</div>
-          </div>
-
-          <div class="section" v-if="canManageSchedule">
-            <div class="section-title">Staff/admin action</div>
-            <div class="muted" style="margin-bottom: 8px;">
-              Edit recurrence for this slot.
-            </div>
-            <div class="row" style="margin-bottom: 8px;">
-              <button class="btn btn-secondary" @click="setTemporary" :disabled="saving || !modalSlot?.standingAssignmentId">
-                Set temporary (4 weeks)
-              </button>
-              <div class="muted">
-                Temporary hold while trying to place a client. If booked, it converts to regular assigned office.
-              </div>
-            </div>
-            <div class="row">
-              <label style="font-weight: 700;">Recurrence</label>
-              <select v-model="editRecurrenceFreq" class="select" :disabled="saving || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)">
-                <option value="">Select…</option>
-                <option
-                  v-for="opt in RECURRENCE_OPTIONS.filter((o) => o.value !== 'ONCE')"
-                  :key="`edit-rec-${opt.value}`"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Until</label>
-              <input
-                v-model="editRecurrenceUntil"
-                type="date"
-                class="input"
-                :disabled="saving || !editRecurrenceFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)"
-              />
-              <button
-                class="btn btn-secondary"
-                @click="saveRecurrence"
-                :disabled="saving || !editRecurrenceFreq || (!modalSlot?.standingAssignmentId && !modalSlot?.eventId)"
-              >
-                Save recurrence
-              </button>
-            </div>
-            <div class="muted" style="margin-bottom: 8px;">
-              Booking converts this occurrence to assigned_booked immediately (no approval gate).
-            </div>
-            <div class="row">
-              <button class="btn btn-primary" @click="staffBook(true)" :disabled="saving || !modalSlot?.eventId">
-                Mark booked (this occurrence)
-              </button>
-            </div>
-            <div class="muted" style="margin: 14px 0 6px;">
-              Link this booked office event to a learning billing session.
-            </div>
-            <div class="row">
-              <label style="font-weight: 700;">Client</label>
-              <select v-model.number="selectedLearningClientId" class="select" :disabled="saving || creatingLearningSession || !learningClients.length">
-                <option :value="0">Select client…</option>
-                <option v-for="c in learningClients" :key="`lcli-${c.id}`" :value="Number(c.id)">
-                  {{ c.label }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Service</label>
-              <select v-model.number="selectedLearningServiceId" class="select" :disabled="saving || creatingLearningSession || !learningServices.length">
-                <option :value="0">Optional service…</option>
-                <option v-for="s in learningServices" :key="`lsvc-${s.id}`" :value="Number(s.id)">
-                  {{ s.name }}
-                </option>
-              </select>
-              <label style="font-weight: 700;">Payment mode</label>
-              <select v-model="learningPaymentMode" class="select" :disabled="saving || creatingLearningSession">
-                <option value="PAY_PER_EVENT">Pay per event</option>
-                <option value="TOKEN">Token</option>
-                <option value="SUBSCRIPTION">Subscription</option>
-              </select>
-              <button
-                class="btn btn-secondary"
-                type="button"
-                @click="createLearningSessionFromModal"
-                :disabled="!canCreateLearningSession"
-              >
-                {{ creatingLearningSession ? 'Linking…' : (modalSlot?.learningLinked ? 'Re-link check' : 'Create learning session + charge') }}
-              </button>
-            </div>
-            <div class="muted" v-if="modalSlot?.learningLinked">
-              This slot is already linked to learning session #{{ modalSlot?.learningSessionId || '?' }}.
-            </div>
-            <div class="muted" style="margin: 14px 0 6px;">
-              Remove from schedule.
-            </div>
-            <div class="row">
-              <select v-model="cancelScope" class="select" :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
-                <option value="occurrence">This occurrence only</option>
-                <option value="future_day" :disabled="!isRecurringSlot">This day only, future occurrences</option>
-                <option value="week" :disabled="!isRecurringSlot">This week only</option>
-                <option value="future_set" :disabled="!isRecurringSlot">This and all future recurring (entire set)</option>
-                <option value="until" :disabled="!isRecurringSlot">Pause until date (e.g., holiday break)</option>
-              </select>
-              <input
-                v-if="cancelScope === 'until'"
-                v-model="cancelUntilDate"
-                type="date"
-                class="input"
-                :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)"
-              />
-              <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || (!modalSlot?.eventId && !modalSlot?.standingAssignmentId)">
-                Delete event
-              </button>
-            </div>
-            <div class="row" v-if="isSuperAdmin" style="margin-top: 10px;">
-              <button class="btn btn-danger" type="button" @click="purgeFutureBookedSlot" :disabled="purgingFuture || !modalSlot?.eventId">
-                {{ purgingFuture ? 'Purging…' : 'Purge future booked (provider + slot)' }}
-              </button>
-              <div class="muted">Emergency cleanup for this provider + room + day/time from this date forward.</div>
-            </div>
-          </div>
-        </template>
-
-        <div class="section" v-if="isModalBooked">
-          <div class="section-title">Clinical retention artifacts</div>
-          <ClinicalArtifactRetentionPanel
-            v-if="canMountModalRetentionContext"
-            :agencyId="Number(currentAgencyId || 0)"
-            :clientId="Number(modalRetentionClientId || 0)"
-            :officeEventId="Number(modalRetentionOfficeEventId || 0)"
-          />
-          <div v-else class="muted">
-            Retention context needs a booked event linked to a client.
-          </div>
-        </div>
 
         <div class="actions">
           <button class="btn btn-secondary" @click="closeModal" :disabled="saving">Close</button>
         </div>
       </div>
     </div>
+
+    </Teleport>
+    <Teleport to="body"><div v-if="inlineRequestKey" class="modal-overlay" @click.self="inlineRequestKey = ''"><div class="modal approval-modal" role="dialog" aria-modal="true" aria-label="Review office request"><button class="modal-close" aria-label="Close request" @click="inlineRequestKey = ''">×</button><OfficeApprovalsView embedded :request-key="inlineRequestKey" @decided="requestDecided" /></div></div></Teleport>
 
     <OfficeRoomPhotoGalleryModal
       :open="officeRoomPhotoGallery.open"
@@ -880,6 +531,7 @@
 </template>
 
 <script setup>
+import { officeRoomTitle } from '../utils/officeRoomTitle.js';
 import { confirmOneTimeRoom } from '../utils/officeRequestConfirmation';
 import OfficeApprovalsView from './admin/OfficeApprovalsView.vue';
 import UnassignedOfficeRequests from '../components/schedule/UnassignedOfficeRequests.vue';
@@ -893,7 +545,6 @@ import { isMedicalBillingEnabled } from '../config/medicalBillingAccess.js';
 import { RECURRENCE_OPTIONS, RECURRING_FREQUENCIES } from '../utils/scheduleRecurrence.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
-import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
 import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
 import OfficeRoomPhotoGalleryModal from '../components/schedule/OfficeRoomPhotoGalleryModal.vue';
 const route = useRoute();
@@ -901,6 +552,48 @@ const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
+const inlineRequestKey = ref('');
+function openRequestReview(key) { if (!canManageSchedule.value || !key) return; closeModal(); inlineRequestKey.value = key; }
+async function requestDecided() { inlineRequestKey.value = ''; await loadGrid(); await loadOfficeApprovalCount(); }
+const moveExpanded = ref(false), releaseExpanded = ref(false);
+const moveDraft = ref({ roomId: 0, date: '', hour: 9, scope: 'occurrence', reason: '' });
+const slotStateLabel = state => ({open: 'Open', requested: 'Pending approval', assigned_booked: 'Booked', assigned_available: 'Assigned', assigned_temporary: 'Temporary hold', company_hold: 'Company hold', conflict: 'Conflict'})[state] || state;
+const modalRoomLabel = computed(() => { const r = grid.value?.rooms?.find(r => Number(r.id) === Number(modalSlot.value?.roomId)); return r ? officeRoomTitle(r) : 'Office details'; });
+const linkedAppointmentTo = computed(() => ({ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-schedule`, query: { scheduleAction: 'appointment', scheduleAppointmentId: modalSlot.value?.appointmentId, date: modalSlot.value?.date } }));
+function eventLocalHour(value) {
+  if (!value) return null;
+  const raw = String(value).replace(' ', 'T');
+  const date = new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(raw) ? raw : `${raw}Z`);
+  if (!Number.isFinite(+date)) return null;
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: officeTimezoneIana.value, hour: 'numeric', hourCycle: 'h23' }).formatToParts(date);
+  return Number(parts.find(p => p.type === 'hour').value);
+}
+const reservationStartHour = computed(() => eventLocalHour(modalSlot.value?.eventStartAt) ?? Number(modalSlot.value?.hour));
+const reservationEndHour = computed(() => {
+  const end = eventLocalHour(modalSlot.value?.eventEndAt);
+  return end === 0 ? 24 : end ?? Number(assignEndHour.value);
+});
+function startReservationMove() {
+  const s = modalSlot.value;
+  moveDraft.value = { roomId: Number(s.roomId), date: s.date, hour: reservationStartHour.value, scope: s.eventId ? 'occurrence' : 'future', reason: '' };
+  moveExpanded.value = true; releaseExpanded.value = false;
+}
+async function saveReservationMove() {
+  if (!moveDraft.value.reason.trim()) return;
+  saving.value = true; error.value = '';
+  try {
+    const s = modalSlot.value, d = moveDraft.value;
+    const wall = h => `${d.date} ${String(h).padStart(2, '0')}:00:00`;
+    const parse = value => new Date(String(value).replace(' ', 'T').replace(/Z$/, '') + 'Z');
+    const duration = s.eventStartAt && s.eventEndAt ? (parse(s.eventEndAt) - parse(s.eventStartAt)) / 3600000 : 1;
+    if (!Number.isInteger(duration) || duration < 1 || d.hour + duration > 24) throw new Error('Open the linked appointment to change this appointment’s time.');
+    const { data } = s.eventId
+      ? await api.post(`/office-slots/${officeId.value}/events/${s.eventId}/reschedule`, { roomId: d.roomId, startAt: wall(d.hour), endAt: wall(d.hour + duration), scope: d.scope, reason: d.reason })
+      : await api.post(`/office-slots/${officeId.value}/assignments/${s.standingAssignmentId}/reschedule`, { newRoomId: d.roomId, newWeekday: new Date(`${d.date}T12:00:00Z`).getUTCDay(), newHour: d.hour, reason: d.reason, notifyProvider: true });
+    closeModal(); await loadGrid(); setSuccessToast(data.pendingApproval ? data.message : 'Reservation moved. The provider will receive an email update.');
+  } catch (e) { error.value = e.response?.data?.error?.message || e.message || 'Unable to move this reservation.'; }
+  finally { saving.value = false; }
+}
 const officeApprovalCount = ref(null);
 const showOfficeApprovals = computed(() => route.query.approvals === '1' || !!route.query.request);
 function closeOfficeApprovals() {
@@ -1091,8 +784,7 @@ const isAssignedAvailableState = (state) => {
 const roomLabel = (roomId) => {
   const r = (grid.value?.rooms || []).find((x) => Number(x.id) === Number(roomId));
   if (!r) return `Room ${roomId}`;
-  const num = r.roomNumber ? `#${r.roomNumber} ` : '';
-  return `${num}${r.label || r.name || ''}`.trim();
+  return officeRoomTitle(r);
 };
 
 const stateLabel = (state) => {
@@ -1967,6 +1659,7 @@ watch([bookingServiceCode, modalSlotDurationMinutes, currentAgencyId, showClinic
 
 const closeModal = () => {
   showModal.value = false;
+  moveExpanded.value = false; releaseExpanded.value = false;
   modalSlot.value = null;
   error.value = '';
   bookingMetadataLoading.value = false;
@@ -2042,6 +1735,7 @@ const onSlotClick = (roomId, date, hour) => {
   }
   const s = getSlot(roomId, date, hour);
   if (!s) return;
+  if (s.pendingRequests?.length === 1 && canManageSchedule.value) { openRequestReview(s.pendingRequests[0].key); return; }
   modalSlot.value = s;
   bookFreq.value = String(s?.bookedFrequency || '').toUpperCase();
   bookOccurrenceCount.value = Number(s?.bookingOccurrenceCount || 6);
@@ -2059,11 +1753,8 @@ const onSlotClick = (roomId, date, hour) => {
   outcomeCancellationReason.value = String(s?.cancellationReason || '').trim();
   const clickedWeekday = weekdayFromYmd(String(date || ''));
   assignWeekdays.value = Number.isInteger(clickedWeekday) ? [clickedWeekday] : [];
-  hydrateBookingSelectionFromSlot(s);
-  const metadataProviderId = Number(s?.bookedProviderId || s?.assignedProviderId || s?.providerId || 0) || 0;
-  void loadBookingMetadataForProvider(metadataProviderId);
-  void loadProviders();
-  void loadLearningBillingOptions();
+  moveExpanded.value = false; releaseExpanded.value = false;
+  if (s.state === 'open' && !s.pendingRequests?.length) void loadProviders();
 };
 
 const dragSelectionKeys = (anchor, current) => {
@@ -2642,7 +2333,7 @@ const forfeit = async () => {
     } else {
       return;
     }
-    setSuccessToast('Slot forfeited.');
+    setSuccessToast('Office time released.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -2947,6 +2638,34 @@ watch([() => selectedSlots.value.length, draggingSelection, showModal], ([count,
 </script>
 
 <style scoped>
+.day-head span, .day-head small { display: block; }
+.day-head small { font-size: 10px; font-weight: 500; }
+.avail-search > summary { cursor: pointer; min-height: 28px; }
+.modal-overlay { z-index: 2147483000 !important; }
+.modal { position: relative; }
+.modal-close { position: absolute; right: 8px; top: 8px; min-width: 44px; min-height: 44px; border: 0; background: transparent; font-size: 26px; cursor: pointer; }
+.reservation-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+.reservation-form { display: grid; gap: 12px; margin-top: 16px; }
+.reservation-form label { display: grid; gap: 5px; }
+.reservation-form input, .reservation-form select, .reservation-form textarea { width: 100%; min-width: 0; padding: 10px; box-sizing: border-box; font: inherit; }
+.approval-modal { padding-top: 48px !important; }
+.pending-slot-review { display: grid; gap: 8px; }
+@media (max-width: 600px) {
+  .office-schedule .header { display: block; }
+  .office-schedule .controls { margin-top: 10px; width: 100%; min-width: 0; }
+  .office-schedule .controls .btn-group { max-width: 100%; }
+  .office-schedule .controls .btn { min-width: 0; padding-inline: 9px; }
+  .office-schedule .grid-wrap, .office-schedule .room-card { padding: 8px; }
+  .office-schedule .week-table { gap: 2px; grid-template-columns: 36px repeat(7, minmax(0, 1fr)); }
+  .office-schedule .cell { min-width: 0; overflow: hidden; padding: 3px 1px; font-size: 10px; border-radius: 5px; }
+  .office-schedule .hour-head { background: transparent; border: 0; box-shadow: none; display: flex; align-items: center; }
+  .office-schedule .slot { min-height: 38px; box-sizing: border-box; }
+  .modal-overlay { padding: 8px !important; }
+  .modal-overlay .modal { width: 100%; max-height: calc(100dvh - 16px); padding: 18px 14px; border-radius: 16px; box-sizing: border-box; }
+  .modal h3 { padding-right: 36px; }
+  .office-schedule .avail-search { padding: 10px 12px; }
+}
+
 .selection-preview {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   z-index: 2000; pointer-events: none; display: grid; gap: 4px;
@@ -2955,7 +2674,7 @@ watch([() => selectedSlots.value.length, draggingSelection, showModal], ([count,
 }
 .selection-preview span { font-size: 13px; }
 
-.office-schedule {
+.office-schedule, .modal-overlay {
   --sched-bg-0: #f4f7fb;
   --sched-bg-1: #eef3f9;
   --sched-surface: rgba(255, 255, 255, 0.7);
@@ -2967,6 +2686,8 @@ watch([() => selectedSlots.value.length, draggingSelection, showModal], ([count,
   --sched-accent: #2563eb;
   --sched-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
   --sched-shadow-strong: 0 22px 60px rgba(15, 23, 42, 0.16);
+}
+.office-schedule {
   background:
     radial-gradient(circle at 10% -10%, rgba(37, 99, 235, 0.08), transparent 38%),
     radial-gradient(circle at 90% -20%, rgba(20, 184, 166, 0.09), transparent 34%),
@@ -3297,7 +3018,7 @@ input[type='date'] {
 
 .week-table {
   display: grid;
-  grid-template-columns: 90px repeat(7, minmax(0, 1fr));
+  grid-template-columns: 48px repeat(7, minmax(34px, 1fr));
   gap: 5px;
 }
 .cell {

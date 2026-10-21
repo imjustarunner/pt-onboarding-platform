@@ -6,7 +6,7 @@ const db=()=>({execute:vi.fn(async()=>[rooms])});
 const slot={weekday:2,startHour:17,endHour:18,roomId:null};
 it('saves the preferred room from the My Schedule field even when the slot has no room',async()=>{
  const result=await resolveOfficeRequestPreferences(db(),{agencyId:2,officeIds:[1],preferredRoomId:5,slots:[slot]});
- expect(result.slots[0].roomId).toBe(5);expect(result.preferredRooms).toEqual([{id:5,officeId:1,officeName:'Windchime',label:'#10 Counseling'}]);
+ expect(result.slots[0].roomId).toBe(5);expect(result.preferredRooms).toEqual([{id:5,officeId:1,officeName:'Windchime',label:'Office #10'}]);
 });
 it('keeps ranked alternatives as one request without claiming each room',async()=>{
  const result=await resolveOfficeRequestPreferences(db(),{agencyId:2,officeIds:[1],preferredRoomIds:[7,5],slots:[slot]});

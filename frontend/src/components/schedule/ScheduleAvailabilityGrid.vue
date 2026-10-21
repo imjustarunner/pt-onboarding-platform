@@ -3923,6 +3923,7 @@
               Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
             </div>
             <template v-else>
+              <label class="lbl">Office type<select v-model="requestedOfficeRoomType" class="input"><option value="counseling">Counseling office</option><option value="play">Play room</option><option value="tutoring">Tutoring room</option><option value="group">Group room</option></select></label>
               <div v-if="requestType === 'office_request_only'" class="modern-help">
                 Request permission to use office space. Staff will assign you when available. Use the End time dropdown to select multiple hours.
               </div>
@@ -3971,7 +3972,7 @@
               <div v-else-if="viewMode === 'office_layout' && (requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session')" class="office-room-picker">
                 <label class="office-room-option">
                   <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
-                  <span class="office-room-label">Any open room</span>
+                  <span class="office-room-label">Choose a suitable office for me</span>
                 </label>
                 <label
                   v-for="opt in modalOfficeRoomOptions"
@@ -3989,7 +3990,7 @@
                 v-else-if="(requestType === 'office' || requestType === 'group_session' || (requestType === 'individual_session' && bookingModality === 'IN_PERSON')) && viewMode === 'open_finder'"
                 class="muted"
               >
-                Any open room will be used. Switch to Office layout for specific room selection.
+                We’ll choose an available room of your selected type, preferring offices you have used before.
               </div>
               <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
             </template>
@@ -4443,7 +4444,7 @@
                   :key="`aa-room-${r.id}`"
                   :value="Number(r.id)"
                 >
-                  {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name || `Room ${r.id}` }}
+                  {{ officeRoomTitle(r) }}{{ r.roomType ? ` · ${r.roomType}` : '' }}
                 </option>
               </select>
               <div v-if="adminAssignOfficeLocationId && !adminAssignRoomsLoading && !adminAssignRooms.length" class="muted" style="margin-top: 4px; font-size: 12px;">
@@ -5666,7 +5667,7 @@
               <select v-model.number="officeAssignRoomId" class="input" :disabled="officeAssignLoading || !officeAssignBuildingId">
                 <option :value="0">Select…</option>
                 <option v-for="r in officeRooms" :key="`room-${r.id}`" :value="Number(r.id)">
-                  {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name }}
+                  {{ officeRoomTitle(r) }}{{ r.roomType ? ` · ${r.roomType}` : '' }}
                 </option>
               </select>
             </div>
@@ -5792,6 +5793,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
+import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import SupervisionScheduleHistory from './SupervisionScheduleHistory.vue';
 import SupervisionScheduleActionDialog from './SupervisionScheduleActionDialog.vue';
 import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
@@ -7515,6 +7517,7 @@ const clearScheduleActionQuery = () => {
   delete nextQuery.scheduleAction;
   delete nextQuery.scheduleSuperviseeId;
   delete nextQuery.scheduleAgencyId;
+  delete nextQuery.scheduleAppointmentId;
   router.replace({ query: nextQuery }).catch(() => {});
 };
 
@@ -7561,12 +7564,25 @@ const waitForScheduleReady = async (timeoutMs = 4500) => {
 
 const consumeScheduleActionQuery = async () => {
   const action = String(route.query?.scheduleAction || '').trim().toLowerCase();
-  if (!['book', 'book_virtual', 'supervision'].includes(action)) return;
+  if (!['book', 'book_virtual', 'supervision', 'appointment'].includes(action)) return;
+  const appointmentId = Number(route.query?.scheduleAppointmentId || 0);
   const superviseeId = Number(route.query?.scheduleSuperviseeId || 0);
   const agencyId = Number(route.query?.scheduleAgencyId || 0);
   clearScheduleActionQuery();
   // Wait for schedule/office locations so session booking can preselect an office when possible.
   await waitForScheduleReady();
+  if (action === 'appointment' && appointmentId) {
+    try {
+      const {data} = await api.get(`/appointments/${appointmentId}`);
+      const a = data.appointment;
+      const when = toZonedDatetimeLocalValue(a.startAt, a.sourceTimezone || 'America/Denver');
+      await openAppointmentEditInScheduleModal({ item: { ...a, appointmentId:a.id, eventId:a.providerScheduleEventId,
+        eventKind:'SESSION', label:a.title || 'Client appointment',providerId:a.providerUserId,timeZone:a.sourceTimezone,
+        clientId:a.participants?.find(p=>p.clientId)?.clientId, isClientSession:true },
+        dayName:dayNameForDateYmd(when.slice(0,10)),hour:Number(when.slice(11,13)),minute:Number(when.slice(14,16)) });
+    } catch(error) { officeReminderToast.value = error.response?.data?.error?.message || 'Unable to open this appointment.'; }
+    return;
+  }
   if (action === 'supervision') {
     const dateYmd = String(todayLocalYmd.value || weekStart.value).slice(0, 10);
     await openSlotActionModal({ dayName: dayNameForDateYmd(dateYmd), hour: Math.max(7, Math.min(20, new Date().getHours())),
@@ -11338,7 +11354,7 @@ const officeTitle = (dayName, hour, topEvent = null) => {
   if (!top) return `Office — ${dayName} ${hourLabel(hour)}`;
   const roomNumber = String(top.roomNumber || '').trim();
   const roomLabel = String(top.roomLabel || '').trim();
-  const room = roomNumber ? `#${roomNumber}${roomLabel ? ` (${roomLabel})` : ''}` : (roomLabel || 'Office');
+  const room = officeRoomTitle({roomNumber, roomLabel});
   const bld = top.buildingName || 'Office location';
   const st = String(top.slotState || '').toUpperCase();
   const borrow = officeBorrowMeta(top);
@@ -12455,7 +12471,8 @@ const DEFAULT_BOOKING_TYPE = 'SESSION';
 // Office booking request (office-schedule/booking-requests)
 const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
 const officeBookingOccurrenceCount = ref(7); // 1–104 when recurrence is WEEKLY/BIWEEKLY/MONTHLY
-const selectedOfficeRoomId = ref(0); // 0 = any open room
+const requestedOfficeRoomType = ref('counseling');
+const selectedOfficeRoomId = ref(0); // 0 = automatically select a suitable room
 const intakeConfirmStep = ref(null); // 'ask_inperson' | 'ask_virtual' | null – confirmation before intake submit
 const intakeConfirmChoice = ref(null); // 'both' | 'ip_only' | 'vi_yes' – set by confirm buttons, read by submit
 const forfeitScope = ref('occurrence'); // 'occurrence' | 'future'
@@ -16343,7 +16360,7 @@ const modalOfficeRoomOptions = computed(() => {
 
   const out = (g.rooms || []).map((r) => {
     const roomId = Number(r.id);
-    const label = `${r.roomNumber ? `#${r.roomNumber} ` : ''}${r.label || r.name || `Room ${roomId}`}`.trim();
+    const label = officeRoomTitle(r);
     let firstState = null;
     let requestable = true;
     let representativeSlot = null;
@@ -19737,7 +19754,7 @@ const quickGlanceRows = computed(() => {
               : 'Open';
     if (pending > 0) statusLabel = statusLabel === 'Open' ? 'Requested (pending)' : `Requested (${statusLabel})`;
     const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
-    const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
+    const roomLabel = officeRoomTitle(r || {});
     const bookedByMe = st === 'assigned_booked' && currentUserId > 0 && Number(slot?.bookedProviderId || 0) === currentUserId;
     // Non-admin without office management rights clicking someone else's booked slot → view-only info panel.
     const isViewOnlySlot = st === 'assigned_booked' && !bookedByMe && !isAdminMode.value && !canManageOffices.value;
@@ -21345,6 +21362,7 @@ const completePlatformVirtualSessionBooking = async ({
     await withdrawEditorPriorOfficeRequests();
     const series = editorOfficeSeriesParams();
     const r = await api.post('/office-schedule/booking-requests', {
+        roomType: requestedOfficeRoomType.value,
       agencyId,
       appointmentId: canonicalBooking.recurrenceSeriesId ? undefined : appointmentId,
       appointmentSeriesId: canonicalBooking.recurrenceSeriesId || undefined,
@@ -22132,6 +22150,7 @@ const submitRequest = async () => {
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
         const r = await api.post('/office-schedule/booking-requests', {
+        roomType: requestedOfficeRoomType.value,
           officeLocationId: officeId,
           roomId: preferred,
           startAt,
@@ -22151,7 +22170,7 @@ const submitRequest = async () => {
           refreshInBackground = true;
           needsOfficeRefresh = true;
         } else if (r?.data?.kind === 'request') {
-          officeReminderToast.value = 'Office request submitted (pending approval) — the room was not booked yet.';
+          officeReminderToast.value = 'Your office is held while the CPA reviews your request.';
           setTimeout(() => { officeReminderToast.value = ''; }, 7000);
         }
       }
@@ -22220,6 +22239,7 @@ const submitRequest = async () => {
           : (editorOfficeLocations.value || []).map((l) => Number(l.id || 0)).filter((n) => n > 0).slice(0, 1);
         await withdrawEditorPriorOfficeRequests();
         const reqRes = await api.post('/availability/office-requests', {
+          roomType: requestedOfficeRoomType.value,
           providerId: scheduleActorUserId.value,
           agencyId,
           notes: requestNotes.value || 'Linked to open slot / portal intake (unified editor).',
@@ -22283,6 +22303,7 @@ const submitRequest = async () => {
         : baseNotes;
       await withdrawEditorPriorOfficeRequests();
       await api.post('/availability/office-requests', {
+        roomType: requestedOfficeRoomType.value,
         providerId: scheduleActorUserId.value,
         agencyId: effectiveAgencyId.value,
         notes: [notesWithTime, editorPreferredRoomIds.value.length ? '' : ANY_ROOM_NOTE].filter(Boolean).join('\n'),

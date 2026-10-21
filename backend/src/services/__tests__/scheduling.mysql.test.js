@@ -46,14 +46,22 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     }
     const mainDdl = [
       `CREATE TABLE provider_schedule_event_attendees (event_id INT, user_id INT)`,
-      `CREATE TABLE office_rooms (id INT PRIMARY KEY)`,
+      `CREATE TABLE office_locations (id INT PRIMARY KEY,name VARCHAR(100),agency_id INT)`,
+      `CREATE TABLE office_rooms (id INT PRIMARY KEY,location_id INT DEFAULT 2,room_number INT,label VARCHAR(100),name VARCHAR(100))`,
+      `CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOLEAN)`,
+      `CREATE TABLE office_location_agencies (office_location_id INT,agency_id INT)`,
+      `CREATE TABLE office_request_email_queue (id INT AUTO_INCREMENT PRIMARY KEY,kind VARCHAR(30),agency_id INT,user_id INT,request_key VARCHAR(100),payload_json JSON,ready_at DATETIME)`,
+      `CREATE TABLE office_assignment_checkin_usage (assignment_id INT PRIMARY KEY,monitoring_started_at DATETIME,unused_occurrences INT)`,
+      `CREATE TABLE office_room_requests (id INT,location_id INT,room_id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME)`,
+      `CREATE TABLE provider_office_availability_requests (id INT,provider_id INT,status VARCHAR(30),preferred_office_ids_json JSON,requested_start_date DATE,requested_frequency VARCHAR(30),requested_occurrence_count INT)`,
+      `CREATE TABLE provider_office_availability_request_slots (request_id INT,weekday INT,start_hour INT,end_hour INT,room_id INT)`,
       `CREATE TABLE provider_virtual_slot_availability (id INT PRIMARY KEY, source_event_id INT, is_active BOOLEAN)`,
       `CREATE TABLE provider_in_person_slot_availability (id INT PRIMARY KEY, source_event_id INT, is_active BOOLEAN)`,
       `CREATE TABLE office_events (id INT AUTO_INCREMENT PRIMARY KEY, created_by_user_id INT, google_sync_status VARCHAR(30), office_location_id INT, room_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), status_outcome VARCHAR(30), standing_assignment_id INT, booking_plan_id INT, assigned_provider_id INT, booked_provider_id INT, client_id INT, clinical_session_id INT, updated_at DATETIME)`,
       `CREATE TABLE appointments (id INT PRIMARY KEY, agency_id INT, provider_user_id INT, office_event_id INT, provider_schedule_event_id INT, package_entitlement_id INT, room_id INT, start_at DATETIME, end_at DATETIME, title VARCHAR(200), cancellation_fee_cents INT, status VARCHAR(30), updated_by_user_id INT, updated_at DATETIME)`,
       `CREATE TABLE provider_schedule_events (id INT PRIMARY KEY, all_day BOOLEAN DEFAULT FALSE, start_date DATE, end_date DATE, event_timezone VARCHAR(80), provider_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), updated_at DATETIME)`,
       `CREATE TABLE office_booking_plans (id INT PRIMARY KEY, standing_assignment_id INT, booking_start_date DATE, active_until_date DATE, skipped_dates_json JSON, is_active BOOLEAN DEFAULT TRUE)`,
-      `CREATE TABLE office_booking_requests (id INT PRIMARY KEY)`,
+      `CREATE TABLE office_booking_requests (id INT PRIMARY KEY,requested_provider_id INT,room_id INT,start_at DATETIME,end_at DATETIME,recurrence VARCHAR(30),booked_occurrence_count INT,office_location_id INT,status VARCHAR(30),request_type VARCHAR(30))`,
       `CREATE TABLE office_standing_assignments (id INT PRIMARY KEY, office_location_id INT DEFAULT 2, is_active BOOLEAN DEFAULT TRUE, availability_mode VARCHAR(32), room_id INT, weekday INT, hour INT, provider_id INT, available_since_date DATE, temporary_until_date DATE, last_two_week_confirmed_at DATETIME)`,
       `CREATE TABLE booking_packages (id INT PRIMARY KEY, name VARCHAR(100), consume_on VARCHAR(20), allowed_tenant_service_ids_json JSON, package_type VARCHAR(30), price_cents INT, domain_config_json JSON)`,
       `CREATE TABLE booking_package_entitlements (id INT PRIMARY KEY AUTO_INCREMENT, agency_id INT, package_id INT, client_id INT, business_type VARCHAR(64), learning_program_class_id INT, sessions_purchased INT, payment_status VARCHAR(30), practitioner_entitlement_id INT, purchaser_user_id INT, stripe_payment_intent_id VARCHAR(200), activated_at DATETIME, created_by_user_id INT, sessions_remaining INT, sessions_reserved INT, status VARCHAR(30))`,
@@ -121,7 +129,11 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     for (const table of ['provider_school_assignments','client_status_history','client_provider_assignments','supervision_schedule_actions','client_schedule_termination_items','client_schedule_termination_jobs','appointment_participants','appointment_reminders','supervision_session_attendees','supervision_sessions']) await pool.query(`DELETE FROM ${table}`);
     await pool.query(`INSERT INTO users (id,first_name,last_name) VALUES (9, 'Test', 'Provider')`);
     await pool.query('DELETE FROM office_rooms');
-    await pool.query('INSERT INTO office_rooms VALUES (4), (5)');
+    await pool.query("INSERT INTO office_rooms (id,room_number,name) VALUES (4,4,'Office #4'),(5,5,'Office #5')");
+    await pool.query("REPLACE INTO office_locations VALUES (2,'Test building',2)");
+    await pool.query('DELETE FROM user_agencies'); await pool.query('INSERT INTO user_agencies VALUES (9,2,1)');
+    await pool.query('DELETE FROM office_location_agencies'); await pool.query('INSERT INTO office_location_agencies VALUES (2,2)');
+    await pool.query('DELETE FROM office_request_email_queue');
     await clinicalPool.query('DELETE FROM clinical_claims');
     await clinicalPool.query('DELETE FROM clinical_notes');
     await clinicalPool.query('DELETE FROM clinical_sessions');

@@ -229,7 +229,7 @@ export async function enrichOfficeEmailItems(
     if (!item.officeId) continue;
     const [[room]] = await pool.execute(
       `SELECT l.name AS office_name,l.street_address,l.city,l.state,l.postal_code,l.building_photo_url,
-      r.id,r.name,r.room_number,r.photo_url FROM office_locations l
+      r.id,r.name,r.room_number,r.photo_url,(SELECT GROUP_CONCAT(t.name ORDER BY t.sort_order SEPARATOR ' · ') FROM office_room_type_links k JOIN office_room_types t ON t.id=k.room_type_id AND t.is_active=1 WHERE k.room_id=r.id) room_type FROM office_locations l
       LEFT JOIN office_rooms r ON r.location_id=l.id AND r.id=? WHERE l.id=?`,
       [item.roomId || 0, item.officeId],
     );
@@ -243,13 +243,8 @@ export async function enrichOfficeEmailItems(
     ]
       .filter(Boolean)
       .join(", ");
-    if (room.id)
-      item.roomLabel = [
-        room.room_number != null ? `Office #${room.room_number}` : "",
-        room.name,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+    if (room.id) item.roomLabel = room.room_number != null ? `Office #${room.room_number}` : room.name;
+    if (room.room_type) item.roomType = room.room_type;
     // Hosted images keep combined emails small and survive the normal email approval queue.
     // Only controlled office photo paths are allowed; never embed arbitrary uploaded URLs.
     if (!includePhotos || !base) continue;

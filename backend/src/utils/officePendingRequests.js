@@ -12,7 +12,7 @@ export function pendingBookingOccurrences(requests, days, fallbackTimeZone = 'Am
     const startHour = Number(start.slice(11,13)) + Number(start.slice(14,16))/60;
     const endHour = Number(end.slice(11,13)) + Number(end.slice(14,16))/60 + (end.slice(0,10)>start.slice(0,10)?24:0);
     return dates.filter(date => days.includes(date)).map(date => ({ ...request, id: `booking-${request.id}`,
-      date, startHour, endHour, source: 'booking', preferredRooms: request.roomId ? [{id:request.roomId,label:[request.roomNumber?`#${request.roomNumber}`:'',request.roomLabel].filter(Boolean).join(' ')}] : [] }));
+      date, startHour, endHour, key: `booking:${request.id}`, source: 'booking', preferredRooms: request.roomId ? [{id:request.roomId,label:request.roomNumber ? `Office #${request.roomNumber}` : request.roomLabel}] : [] }));
   });
 }
 

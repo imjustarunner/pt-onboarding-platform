@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { runOfficeUsageReviews } from './officeAssignmentUsage.service.js';
+import { runOfficeCheckinUsageReviews } from './officeCheckinUsage.service.js';
 import NotificationEvent from '../models/NotificationEvent.model.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
@@ -295,7 +295,7 @@ export class OfficeScheduleWatchdogService {
    * Admins snooze (+6 weeks), downgrade booked→assigned, or release assigned→open manually.
    */
   static async autoForfeitStaleAvailableSlots() {
-    return runOfficeUsageReviews();
+    return runOfficeCheckinUsageReviews();
   }
 
   static async run() {
