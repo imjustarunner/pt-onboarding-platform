@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../clientSecureConversation.service.js', () => ({ clientSecureAudience: vi.fn(), ensureClientSecureConversation: vi.fn() }));
+vi.mock('../dependentPortalMessages.service.js', () => ({ assertDependentThreadAccess: vi.fn(async () => null) }));
 import pool from '../../config/database.js';
 import { clientSecureAudience, ensureClientSecureConversation } from '../clientSecureConversation.service.js';
 import { sharedChildParticipants, ensureSharedChildThread, assertSharedChildThreadAccess, assertSharedGuardianSend } from '../guardianSharedMessages.service.js';

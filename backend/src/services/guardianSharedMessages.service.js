@@ -14,6 +14,8 @@ export async function ensureSharedChildThread({ clientId, agencyId, userId, serv
 }
 
 export async function assertSharedChildThreadAccess(userId, threadId) {
+  const {assertDependentThreadAccess}=await import('./dependentPortalMessages.service.js');
+  const personal=await assertDependentThreadAccess(userId,threadId);if(personal)return personal;
   const [[thread]] = await pool.execute('SELECT client_id, agency_id,service_enrollment_id FROM chat_threads WHERE id = ?', [threadId]);
   if (!thread?.client_id) return null;
   await ensureClientSecureConversation({ clientId: thread.client_id, agencyId: thread.agency_id,serviceId:thread.service_enrollment_id, actorUserId: userId });

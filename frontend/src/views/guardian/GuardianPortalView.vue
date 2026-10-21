@@ -1887,6 +1887,14 @@ const closeComingSoon = () => {
 };
 
 onMounted(async () => {
+  try {
+    const access=await api.get('/dependent-portal/status');
+    if(access.data?.personalPortal){await router.replace('/my-portal');return;}
+  } catch {
+    error.value='Your portal could not be opened. Please reload to try again.';
+    loading.value=false;
+    return;
+  }
   await fetchOverview();
   fetchGenEvents();
 });

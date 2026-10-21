@@ -1,10 +1,11 @@
 import pool from '../config/database.js';
 
 export async function resolveSecureMessageClient({ agencyId, threadId, clientId = null }) {
-  const [threads] = await pool.execute("SELECT client_id FROM chat_threads WHERE id = ? AND agency_id = ? AND message_channel = 'secure'", [threadId, agencyId]);
-  if (threads[0]?.client_id) {
-    if (clientId && Number(clientId) !== Number(threads[0].client_id)) throw Object.assign(new Error('This message belongs to another client record'), { status: 400 });
-    return Number(threads[0].client_id);
+  const [threads] = await pool.execute("SELECT t.client_id,d.client_id AS personal_client_id FROM chat_threads t LEFT JOIN dependent_portal_threads d ON d.thread_id=t.id WHERE t.id = ? AND t.agency_id = ? AND t.message_channel = 'secure'", [threadId, agencyId]);
+  const recordedClient = threads[0]?.personal_client_id || threads[0]?.client_id;
+  if (recordedClient) {
+    if (clientId && Number(clientId) !== Number(recordedClient)) throw Object.assign(new Error('This message belongs to another client record'), { status: 400 });
+    return Number(recordedClient);
   }
   const [participants] = await pool.execute(
     `SELECT u.id, u.role FROM chat_thread_participants p JOIN users u ON u.id = p.user_id WHERE p.thread_id = ?`, [threadId]);

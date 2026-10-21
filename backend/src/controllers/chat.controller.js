@@ -887,6 +887,7 @@ export const listMyThreads = async (req, res, next) => {
               t.thread_type${teamCol}${channelCols},
               t.message_channel,
               t.client_id,
+              EXISTS(SELECT 1 FROM dependent_portal_threads dp WHERE dp.thread_id=t.id) AS personal_portal,
               t.updated_at,
               lm.id AS last_message_id,
               CASE WHEN t.message_channel = 'secure' THEN 'Secure message — open to read' ELSE lm.body END AS last_message_body,
@@ -927,7 +928,7 @@ export const listMyThreads = async (req, res, next) => {
 
     const visibleRows = [];
     for (const row of rows || []) {
-      try { if (row.client_id) await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
+      try { if (row.client_id || row.personal_portal) await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
       catch (e) { if (![403, 404].includes(e.status)) throw e; }
     }
 
@@ -1024,7 +1025,7 @@ export const listMyThreads = async (req, res, next) => {
         label = 'Group chat';
       }
       const isDirect = tType === 'direct' || tType === 'client_secure';
-      if (tType === 'client_secure') label = 'Shared care';
+      if (tType === 'client_secure') label = r.personal_portal ? 'Personal portal' : 'Shared care';
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,

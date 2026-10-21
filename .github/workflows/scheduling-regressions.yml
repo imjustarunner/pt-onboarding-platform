@@ -44,6 +44,10 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.tutoring-services.config.js
           npm test --prefix frontend -- --run src/components/meetings/__tests__/PrivateVirtualOffice.test.js src/components/meetings/__tests__/OfficeDayList.test.js src/components/meetings/__tests__/PrivateOfficeGuest.test.js src/components/meetings/__tests__/OfficeWaitingMessages.test.js src/components/guardian/__tests__/FamilyPortalExpansion.test.js src/components/guardian/__tests__/TutorOfficeStatus.test.js src/views/tutoring/__tests__/VirtualTutoringEntry.test.js
+      - name: Dependent personal portal isolation and invitations
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.dependent-portal.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.dependent-portal.config.js
       - name: Enrollment consent loading and guardian contact editing
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-contact.config.js

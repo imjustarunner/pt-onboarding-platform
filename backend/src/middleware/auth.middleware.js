@@ -1,4 +1,5 @@
 import { assertFullSuitePrincipal } from '../services/productIdentity.service.js';
+import { enforceDependentPortalScope } from '../services/dependentPortalPolicy.service.js';
 import { assertPasskeySession } from '../services/passkeys.service.js';
 import { requireUnexpiredGuardianTestAccess } from '../services/guardianTestAccess.service.js';
 import { assertHireStaffAccess } from '../services/hireStaffAccess.service.js';
@@ -20,7 +21,7 @@ const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
 ]);
 
-const finishAuthentication = (req,res,next) => requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next)));
+const finishAuthentication = (req,res,next) => requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next))));
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {

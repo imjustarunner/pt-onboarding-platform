@@ -1,0 +1,1 @@
+export default {root:new URL('.',import.meta.url).pathname,test:{environment:'node',env:{SKIP_DB_CONNECT:'1'},restoreMocks:true,include:['src/services/__tests__/dependentPortal*.test.js','src/services/__tests__/messaging.sharedSecureAudience.test.js']}};

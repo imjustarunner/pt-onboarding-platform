@@ -24,6 +24,12 @@ export function effectiveClinicalAccess({grant,link,dob,asOf=today()}){
 export async function clinicalAccess({agencyId,clientId,userId},db=pool){
   const [rows]=await db.execute('SELECT cg.*,c.date_of_birth,c.agency_id FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE cg.client_id=? AND cg.guardian_user_id=? AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))',[clientId,userId,agencyId,agencyId]);
   const [grants]=await db.execute('SELECT * FROM guardian_clinical_grants WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,userId]);
+  if(rows[0]?.relationship_type==='self'&&parseJson(rows[0].permissions_json,{}).dependentSelfAccess){
+    const {dependentClinicalScopes}=await import('./dependentPortalPolicy.service.js');
+    const permissions=parseJson(rows[0].permissions_json,{});
+    const scopes=Number(rows[0].access_enabled)===1&&!permissions.noView&&!permissions.noViewOtherGuardian?await dependentClinicalScopes(userId,clientId,agencyId,db):[];
+    return {level:'personal_portal',scopes:scopes||[],reviewRequired:false};
+  }
   return effectiveClinicalAccess({grant:grants[0],link:rows[0],dob:rows[0]?.date_of_birth});
 }
 export async function requireClinicalScope({agencyId,clientId,userId,scope}){const access=await clinicalAccess({agencyId,clientId,userId});if(!access.scopes.includes(scope))throw billingError(403,'This clinical information is not authorized for this relationship. Contact the care team for an access review.');return access;}

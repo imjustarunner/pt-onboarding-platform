@@ -1,5 +1,6 @@
 <script setup>
 import {computed,ref,watch} from 'vue';
+import DependentPortalInvitation from './DependentPortalInvitation.vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,required:true}});
@@ -14,5 +15,5 @@ watch(()=>props.clientId,load,{immediate:true});
 <form v-if="data" @submit.prevent="save"><div class="detail-grid"><label v-for="(label,key) in data.fields" :key="key">{{label}}<input v-model="draft[key]" :type="key==='date_of_birth'?'date':key==='email'?'email':key==='contact_phone'?'tel':'text'" maxlength="255" :disabled="busy" /></label></div>
 <button type="submit" :disabled="!canSave">{{busy?'Saving…':'Save updated details'}}</button><p v-if="data.requests.some(r=>r.status==='pending')" role="status">Your update is waiting for support review.</p></form>
 <p v-if="message" role="status">{{message}}</p><p v-if="error" role="alert">{{error}} <button type="button" @click="load">Reload</button></p>
-<details v-if="data?.requests.length"><summary>Your previous updates</summary><div v-for="r in data.requests" :key="r.id"><p>{{new Date(r.createdAt).toLocaleDateString()}} · {{r.status==='pending'?'Waiting for review':'Reviewed'}}</p><ul><li v-for="(value,key) in r.proposed" :key="key">{{data.fields[key]}}: {{value||'Not provided'}} <span v-if="r.review">· {{r.review.acceptedFields.includes(key)?'Applied':'Kept current value'}}</span></li></ul></div></details></section></template>
+<details v-if="data?.requests.length"><summary>Your previous updates</summary><div v-for="r in data.requests" :key="r.id"><p>{{new Date(r.createdAt).toLocaleDateString()}} · {{r.status==='pending'?'Waiting for review':'Reviewed'}}</p><ul><li v-for="(value,key) in r.proposed" :key="key">{{data.fields[key]}}: {{value||'Not provided'}} <span v-if="r.review">· {{r.review.acceptedFields.includes(key)?'Applied':'Kept current value'}}</span></li></ul></div></details><DependentPortalInvitation :client-id="clientId" /></section></template>
 <style scoped>.client-details-update{padding:16px;border:1px solid #d7e3dd;border-radius:12px;margin:16px 0}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}label{display:grid;gap:6px}input{min-width:0;width:100%;box-sizing:border-box;padding:9px;font:inherit;border:1px solid #b9cbc2;border-radius:6px}button{font:inherit;padding:9px 14px;cursor:pointer}p[role=alert]{color:#a12727}details{margin-top:16px}@media(max-width:560px){.detail-grid{grid-template-columns:1fr}}</style>

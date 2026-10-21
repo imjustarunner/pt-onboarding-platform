@@ -34,6 +34,7 @@ export async function clientSecureAudience(clientId, db = pool, context = {}) {
   const participants = [];
   for (const link of links) {
     const permissions = ClientGuardian.parsePermissions(link.permissions_json);
+    if (permissions?.dependentSelfAccess) continue; // Personal conversations never inherit family history.
     if (!client.guardian_portal_enabled || ClientGuardian.isNoView(permissions) || permissions?.canMessage === false) continue;
     if (['clinical', 'mental_health', 'school'].includes(String(client.client_type).toLowerCase())) {
       const access = await clinicalAccess({ agencyId: client.agency_id, clientId, userId: link.guardian_user_id }, db);
@@ -105,6 +106,8 @@ export async function ensureClientSecureConversation({ clientId, actorUserId, ag
 }
 
 export async function refreshClientSecureAccess(threadId, actorUserId) {
+  const {assertDependentThreadAccess}=await import('./dependentPortalMessages.service.js');
+  if(await assertDependentThreadAccess(actorUserId,threadId))return;
   const [rows] = await pool.execute('SELECT client_id,agency_id,service_enrollment_id FROM chat_threads WHERE id = ?', [threadId]);
   if (!rows[0]?.client_id) return;
   await ensureClientSecureConversation({ clientId: rows[0].client_id,agencyId:rows[0].agency_id,serviceId:rows[0].service_enrollment_id, actorUserId });

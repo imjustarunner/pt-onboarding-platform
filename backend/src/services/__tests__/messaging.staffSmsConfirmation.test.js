@@ -38,7 +38,9 @@ it('confirms both selected types once and does not resend on a repeated review',
   const result = await review();
   expect(send).toHaveBeenCalledTimes(1);
   expect(send.mock.calls[0][0]).toMatchObject({purpose:'workforce',confirmationPurposes:['workforce','polling']});
-  expect(send.mock.calls[0][0].body).toContain('workforce notifications and optional polls and surveys');
+  expect(send.mock.calls[0][0].body).toContain('Selected texts are on');
+  expect(send.mock.calls[0][0].body).toContain('STOP to stop, HELP for help');
+  expect(send.mock.calls[0][0].body.length).toBeLessThanOrEqual(160);
   expect(result.results.workforce.confirmationMessageId).toBe('one-confirmation');
   expect(result.results.polling.confirmationMessageId).toBe('one-confirmation');
   await review();

@@ -1,0 +1,12 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
+vi.mock('../dependentPortal.service.js',()=>({personalContext:vi.fn()}));
+vi.mock('../guardianClinicalAccess.service.js',()=>({requireClinicalScope:vi.fn()}));
+import pool from '../../config/database.js';import {personalContext} from '../dependentPortal.service.js';
+import {assertDependentThreadAccess,personalConversation} from '../dependentPortalMessages.service.js';
+const mapping={thread_id:22,user_id:4,client_id:8,agency_id:2,service_id:5};
+beforeEach(()=>{vi.resetAllMocks();personalContext.mockResolvedValue({clientId:8,agencyId:2,serviceId:5,selected:{permissions_json:{},service:{provider_user_id:9,provider_name:'Tutor',service_kind:'tutoring'}}});pool.execute.mockImplementation(async sql=>sql.includes('dependent_portal_threads')?[[mapping]]:sql.includes('dependent_portal_access')?[[{user_id:4,client_id:8}]]:sql.includes('JOIN user_agencies')?[[{id:9}]]:[[]]);});
+it('denies parents and unrelated providers even if they know the personal thread ID',async()=>{await expect(assertDependentThreadAccess(3,22)).rejects.toMatchObject({status:403});await expect(assertDependentThreadAccess(10,22)).rejects.toMatchObject({status:403});});
+it('accepts only the child and current assigned tutor',async()=>{expect(await assertDependentThreadAccess(4,22)).toEqual(mapping);expect(await assertDependentThreadAccess(9,22)).toEqual(mapping);});
+it('blocks the old conversation when personal access is revoked',async()=>{pool.execute.mockResolvedValueOnce([[mapping]]).mockResolvedValueOnce([[{client_id:8,revoked_at:new Date()}]]);await expect(assertDependentThreadAccess(4,22)).rejects.toMatchObject({status:403});});
+it('creates separate history and never adds a guardian participant',async()=>{const db={execute:vi.fn(async sql=>sql.startsWith('INSERT INTO chat_threads')?[{insertId:22}]:[[]]),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};pool.getConnection.mockResolvedValue(db);const r=await personalConversation(4,{agencyId:2,serviceId:5});expect(r.threadId).toBe(22);const additions=db.execute.mock.calls.filter(([q])=>q.includes('INSERT IGNORE INTO chat_thread_participants'));expect(additions.map(([,p])=>p)).toEqual([[22,4],[22,9]]);expect(db.execute.mock.calls.find(([q])=>q.startsWith('INSERT INTO chat_threads'))[0]).not.toContain('client_id');expect(r.audience).toContain('separate from your guardian');});

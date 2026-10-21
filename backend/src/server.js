@@ -1,3 +1,4 @@
+import dependentPortalRoutes from './routes/dependentPortal.routes.js';
 import publicAppointmentResponseRoutes from './routes/publicAppointmentResponse.routes.js';
 import publicSchoolSessionEmailPreferencesRoutes from './routes/publicSchoolSessionEmailPreferences.routes.js';
 import publicFamilyNotificationsRoutes from './routes/publicFamilyNotifications.routes.js';
@@ -1030,6 +1031,7 @@ app.use('/api/referral-directory', referralDirectoryRoutes); // External referra
 app.use('/api/fax-intake', faxIntakeRoutes);
 app.use('/api/client-referral-links', clientReferralLinksRoutes);
 app.use('/api/clients', clientRoutes); // Client management routes
+app.use('/api/dependent-portal', dependentPortalRoutes);
 app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);

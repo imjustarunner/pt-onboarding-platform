@@ -1,2 +1,2 @@
-<template><p class="room-use-notice" role="note"><strong>For non-clinical conversations only.</strong> My Room is not approved for HIPAA-protected care or scheduled client sessions at this time. Do not share client health information here. Use the scheduled session workflow when your practice enables it.</p></template>
+<template><p class="room-use-notice" role="note"><strong>Tutoring and non-clinical conversations.</strong> Admit your student, then open their learning materials. Use your agency’s approved counseling session link for clinical care.</p></template>
 <style scoped>.room-use-notice{margin:16px;padding:12px 16px;background:#fff7df;border:1px solid #e5c777;border-radius:10px;color:#624d16;font-size:14px;line-height:1.5}</style>

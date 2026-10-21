@@ -1080,6 +1080,7 @@ const routes = [
     meta: { requiresGuest: false }
   },
   { path: '/plans', name: 'PlatformPlans', component: () => import('../views/public/PlatformPlansView.vue'), meta: { requiresAuth: false } },
+  { path: '/my-portal', name: 'DependentPortal', component: () => import('../views/guardian/DependentPortalView.vue'), meta: { requiresAuth: true } },
   { path: '/my-virtual-office', name: 'PrivateVirtualOffice', component: () => import('../views/PrivateVirtualOfficeView.vue'), meta: { requiresAuth: true } },
   { path: '/:organizationSlug/my-virtual-office', name: 'OrganizationPrivateVirtualOffice', component: () => import('../views/PrivateVirtualOfficeView.vue'), meta: { requiresAuth: true, organizationSlug: true } },
   // Provider My Room public lobby join (photo required; never auto-admits)
@@ -5816,6 +5817,7 @@ router.beforeEach(async (to, from, next) => {
     !allowUnscopedDashboard &&
     !allowUnscopedNotifications &&
     !allowUnscopedDocumentSigning &&
+    to.name !== 'DependentPortal' &&
     !to.meta.fundthred
   ) {
     const slug = getDefaultOrganizationSlug();
@@ -6350,7 +6352,7 @@ router.beforeEach(async (to, from, next) => {
     // Guardians should not roam general employee surfaces
     if (String(authStore.user?.role || '').toLowerCase() === 'client_guardian') {
       const p = String(to.path || '');
-      const isGuardianPath = p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
+      const isGuardianPath = p === '/my-portal' || p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
       const isPractitionerClientDashboard = p.endsWith('/client-dashboard') || p.includes('/client-dashboard');
       const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/', '/billing/complete'];
       const pathOk =

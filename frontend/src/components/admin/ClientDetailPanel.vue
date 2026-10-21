@@ -1577,6 +1577,7 @@
 
         <!-- Guardians Tab -->
         <div v-if="showPanel('guardians')" class="detail-section">
+          <DependentPortalSharing :client-id="Number(client.id)" :agency-id="Number(selectedAgencyId || client.agency_id)" />
           <div class="phi-warning" style="margin-bottom: 12px;">
             <strong>Non-clinical portal access:</strong> Guardians can be given access to docs, links, and program materials.
           </div>
@@ -2773,6 +2774,7 @@
 </template>
 
 <script setup>
+import DependentPortalSharing from './DependentPortalSharing.vue';
 import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
