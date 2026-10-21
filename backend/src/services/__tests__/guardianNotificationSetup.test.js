@@ -43,6 +43,19 @@ it('does not read contacts or create consent after authorization fails', async (
   expect(ClientGuardian.listForClient).not.toHaveBeenCalled(); expect(createSmsConsentRequest).not.toHaveBeenCalled();
 });
 it('shows signed consent awaiting review as pending', async () => {
-  pool.execute.mockResolvedValue([[{ id: 3 }]]);
+  pool.execute.mockImplementation(async sql=>[sql.includes('family_notification_choices')?[]:[{id:3}]]);
   expect(await guardianNotificationSetup(args)).toMatchObject({ complete: false, smsStatus: 'awaiting_review' });
+});
+
+it('allows explicit document texts without enabling appointment texts', async () => {
+  guardianReminderPreferences.mockResolvedValue({agencyId:2,isDefault:false,channels:{sms:false}});
+  pool.execute.mockImplementation(async sql => [sql.includes('family_notification_choices') ? [{choices_json:{documents:'both',appointments:'email'}}] : []]);
+  expect(await guardianNotificationSetup(args)).toMatchObject({complete:false,smsStatus:'needs_consent'});
+  await beginGuardianSmsConsent(args);
+  expect(createSmsConsentRequest).toHaveBeenCalledTimes(1);
+});
+it('does not use old reminder preference when all saved text choices are declined', async () => {
+  pool.execute.mockResolvedValue([[{choices_json:{documents:'email',appointments:'off'}}]]);
+  await expect(beginGuardianSmsConsent(args)).rejects.toMatchObject({status:409});
+  expect(createSmsConsentRequest).not.toHaveBeenCalled();
 });

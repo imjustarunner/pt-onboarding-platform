@@ -20,6 +20,7 @@ async function resolveAssignedProvider(clientId, organizationId) {
        INNER JOIN users u ON u.id = cpa.provider_user_id
        WHERE cpa.client_id = ?
          AND cpa.is_active = TRUE
+         AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND LOWER(u.status) IN ('active','active_employee')
          ${oid ? 'AND cpa.organization_id = ?' : ''}
        ORDER BY cpa.id ASC
        LIMIT 1`,
@@ -34,7 +35,7 @@ async function resolveAssignedProvider(clientId, organizationId) {
       `SELECT c.provider_id AS id, u.first_name, u.last_name, u.email, u.role
        FROM clients c
        INNER JOIN users u ON u.id = c.provider_id
-       WHERE c.id = ? AND c.provider_id IS NOT NULL
+       WHERE c.id = ? AND c.provider_id IS NOT NULL AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND LOWER(u.status) IN ('active','active_employee')
        LIMIT 1`,
       [cid]
     );
@@ -142,47 +143,6 @@ export const listGuardianMessageThreads = async (req, res, next) => {
         shared: true,
         available: !!threadId
       });
-    }
-
-    if (!threads.length) {
-      try {
-        const [selfRows] = await pool.execute(
-          `SELECT c.id AS client_id, c.agency_id, c.organization_id, c.full_name, c.initials
-           FROM clients c
-           WHERE c.user_id = ?
-           LIMIT 1`,
-          [req.user.id]
-        );
-        const self = selfRows?.[0];
-        if (self?.client_id) {
-          const provider = await resolveAssignedProvider(self.client_id, self.organization_id);
-          if (provider?.id) {
-            let threadId = null;
-            try {
-              threadId = (await ensureClientSecureConversation({ clientId: self.client_id, actorUserId: req.user.id, agencyId: self.agency_id })).threadId;
-            } catch {
-              threadId = null;
-            }
-            threads.push({
-              client_id: self.client_id,
-              client_label: self.full_name || self.initials || 'You',
-              organization_name: null,
-              agency_id: self.agency_id,
-              organization_id: self.organization_id,
-              provider: {
-                id: provider.id,
-                first_name: provider.first_name,
-                last_name: provider.last_name,
-                email: provider.email
-              },
-              thread_id: threadId,
-              available: !!threadId
-            });
-          }
-        }
-      } catch {
-        /* clients.user_id may be unset */
-      }
     }
 
     let emails = [];

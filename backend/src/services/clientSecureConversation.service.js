@@ -10,17 +10,17 @@ export async function resolveClientForSecureRecipients({ agencyId, actorUserId, 
   const ids = family.map((u) => Number(u.id));
   const [clients] = await pool.execute(
     `SELECT DISTINCT c.id FROM clients c LEFT JOIN client_guardians cg ON cg.client_id = c.id AND cg.access_enabled = 1
-     WHERE c.agency_id = ? AND (c.user_id IN (${ids.map(() => '?').join(',')}) OR cg.guardian_user_id IN (${ids.map(() => '?').join(',')}))`, [agencyId, ...ids, ...ids]);
+     WHERE c.agency_id = ? AND cg.guardian_user_id IN (${ids.map(() => '?').join(',')})`, [agencyId, ...ids]);
   if (clients.length !== 1) throw Object.assign(new Error('Select the client to open the correct shared secure conversation'), { status: 400 });
   return Number(clients[0].id);
 }
 
 export async function clientSecureAudience(clientId, db = pool) {
-  const [clients] = await db.execute('SELECT id, agency_id, organization_id, user_id, provider_id, client_type, guardian_portal_enabled FROM clients WHERE id = ?', [clientId]);
+  const [clients] = await db.execute('SELECT id, agency_id, organization_id, provider_id, client_type, guardian_portal_enabled FROM clients WHERE id = ?', [clientId]);
   const client = clients[0];
   if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
   const [links] = await db.execute(
-    `SELECT cg.guardian_user_id, cg.permissions_json, u.first_name, u.last_name
+    `SELECT cg.guardian_user_id, cg.relationship_type, cg.permissions_json, u.first_name, u.last_name
      FROM client_guardians cg JOIN users u ON u.id = cg.guardian_user_id
      WHERE cg.client_id = ? AND cg.access_enabled = 1 AND LOWER(u.status) IN ('active', 'active_employee')`, [clientId]);
   const participants = [];
@@ -31,18 +31,14 @@ export async function clientSecureAudience(clientId, db = pool) {
       const access = await clinicalAccess({ agencyId: client.agency_id, clientId, userId: link.guardian_user_id }, db);
       if (!access.scopes.includes('clinical_messages')) continue;
     }
-    participants.push({ id: Number(link.guardian_user_id), name: [link.first_name, link.last_name].filter(Boolean).join(' '), role: 'guardian' });
+    participants.push({ id: Number(link.guardian_user_id), name: [link.first_name, link.last_name].filter(Boolean).join(' '), role: link.relationship_type === 'self' ? 'client' : 'guardian' });
   }
-  const guardians = participants.map(p => p.id);
+  const guardians = participants.filter(p => p.role === 'guardian').map(p => p.id);
   const [providers] = await db.execute(
     `SELECT DISTINCT u.id, u.first_name, u.last_name FROM users u
      WHERE LOWER(u.status) IN ('active', 'active_employee') AND
        (u.id = ? OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id = ? AND is_active = 1))`, [client.provider_id || null, clientId]);
   for (const provider of providers) participants.push({ id: Number(provider.id), name: [provider.first_name, provider.last_name].filter(Boolean).join(' '), role: 'provider' });
-  if (client.user_id) {
-    const [selves] = await db.execute("SELECT id, first_name, last_name FROM users WHERE id = ? AND LOWER(status) IN ('active', 'active_employee')", [client.user_id]);
-    for (const self of selves) participants.push({ id: Number(self.id), name: [self.first_name, self.last_name].filter(Boolean).join(' '), role: 'client' });
-  }
   const unique = [...new Map(participants.map(p => [p.id, p])).values()];
   return { client, guardians, participants: unique, userIds: unique.map(p => p.id) };
 }

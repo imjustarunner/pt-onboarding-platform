@@ -1,3 +1,4 @@
+import {familyAccount,updateFamilyAccount} from '../services/familyPortalAccount.service.js';
 import * as guardianInvitations from '../controllers/guardianInvitation.controller.js';
 import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
 import * as notificationSetup from '../controllers/guardianNotificationSetup.controller.js';
@@ -87,6 +88,8 @@ router.use((req, res, next) => {
 // to retrieve their own signed forms. Clinical chart documents retain their
 // separate disclosure checks on the clinical routes.
 
+router.get('/account',requireActiveStatus,async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access account details'}});res.set('Cache-Control','no-store').json(await familyAccount(req.user.id));}catch(e){next(e);}});
+router.put('/account',requireActiveStatus,rateLimit({windowMs:60000,max:10}),async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot edit account details'}});res.json(await updateFamilyAccount({userId:req.user.id,agencyId:Number(req.body.agencyId),input:req.body}));}catch(e){next(e);}});
 router.get('/clients/:clientId/appointments', guardianAppointments.list);
 router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
 router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);

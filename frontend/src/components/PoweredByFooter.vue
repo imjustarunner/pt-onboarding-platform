@@ -11,8 +11,9 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <a v-if="includeLegal && !isSummitStatsChrome" href="https://plottwisthq.com/records-request" class="legal-link">Request my records</a>
-    <div v-if="includeLegal && legalLinksToRender.length" class="legal-links">
+    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome" href="https://plottwisthq.com/records-request" class="legal-link">Request my records</a>
+    <ServiceUseNotice v-if="includeLegal && scopedFamilyLegal" :organization-slug="brandingStore.activeRouteSlug" :role="auth.user?.role" />
+    <div v-else-if="includeLegal && legalLinksToRender.length" class="legal-links">
       <span v-if="legalTitleToRender" class="legal-title">{{ legalTitleToRender }}</span>
       <span v-if="legalTitleToRender" class="legal-sep">|</span>
       <template v-for="(item, i) in legalLinksToRender" :key="'legal-' + i">
@@ -32,6 +33,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import ServiceUseNotice from './legal/ServiceUseNotice.vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { serviceLegalContext } from '../utils/serviceLegalContext.js';
@@ -77,6 +79,7 @@ const props = defineProps({
 const brandingStore = useBrandingStore();
 const route = useRoute();
 const auth = useAuthStore();
+const scopedFamilyLegal = computed(() => ['client','client_guardian'].includes(auth.user?.role) || /^(www\.)?auricwell\.com$/i.test(window.location.hostname));
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 const isSummitStatsChrome = useSummitStatsChallengeChrome();
 
@@ -178,6 +181,7 @@ const platformLogoUrl = computed(() => {
   // Priority 2: Uploaded file path (stored under organization_logo_path)
   if (pb?.organization_logo_path) {
     let p = String(pb.organization_logo_path);
+    if (p.startsWith('/assets/')) return p;
     if (p.startsWith('/uploads/')) {
       p = p.substring('/uploads/'.length);
     } else if (p.startsWith('/')) {

@@ -1,0 +1,34 @@
+<template>
+  <section class="family-notification-choices" aria-label="Notification choices">
+    <p v-if="loading" role="status">Loading your notification choices…</p>
+    <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
+    <form v-if="data" @submit.prevent="save">
+      <p>Choose updates for this profile and agency. Texts are optional; insurance-card requests use email only.</p>
+      <div class="choice-table"><table><thead><tr><th scope="col">Update</th><th v-for="channel in channels" :key="channel.key" scope="col">{{ channel.label }}</th></tr></thead><tbody><tr v-for="category in data.categories" :key="category.key"><th scope="row">{{ category.label }}<small>{{ category.detail }}</small></th><td v-for="channel in channels" :key="channel.key"><input v-if="!category.emailOnly || ['email','off'].includes(channel.key)" v-model="choices[category.key]" type="radio" :name="category.key" :value="channel.key" :aria-label="`${category.label}: ${channel.label}`" :disabled="busy" required/><span v-else aria-label="Unavailable">—</span></td></tr></tbody></table></div>
+      <p v-if="wantsTexts" class="text-disclosure">You are requesting text updates for the choices above. Texts remain off until your number and text permission are verified. Message and data rates may apply. STOP stops texts; HELP requests help; START requests a restart where supported.</p>
+      <details><summary>About these choices</summary><p>{{ data.disclosure }}</p></details>
+      <label class="confirm"><input v-model="confirmed" type="checkbox" required :disabled="busy"/> I confirm these notification choices.</label>
+      <button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Confirm my choices' }}</button>
+      <p v-if="saved" role="status">Your choices are saved.{{ wantsTexts ? ' Text preferences will apply when enrollment is active.' : '' }}</p>
+    </form>
+    <div v-if="saved && wantsTexts" class="text-disclosure"><h3>Text enrollment</h3><p>{{smsMessage}}</p><button v-if="setup?.smsStatus==='needs_phone'" type="button" @click="editContact=!editContact">Update my phone number</button><FamilyAccountSettings v-if="editContact" :agency-id="agencyId" @notifications="editContact=false;checkSms()"/><button v-if="setup?.smsStatus==='needs_consent'" type="button" :disabled="busy" @click="beginConsent">Review text consent</button><a v-if="consentPath" :href="consentPath" target="_blank" rel="noopener noreferrer">Open text consent form →</a><button type="button" :disabled="busy" @click="checkSms">Check text enrollment</button><button type="button" @click="$emit('saved')">{{ setup?.smsStatus==='enrolled' ? 'Continue' : 'Continue with text enrollment pending' }}</button></div>
+  </section>
+</template>
+<script setup>
+import FamilyAccountSettings from './FamilyAccountSettings.vue';
+import {computed,ref,watch} from 'vue';import api from '../../services/api';
+const props=defineProps({agencyId:[Number,String],clientId:[Number,String]});const emit=defineEmits(['saved']);
+const channels=[{key:'email',label:'Email'},{key:'sms',label:'Text'},{key:'both',label:'Both'},{key:'off',label:'Off'}];
+const setup=ref(null),consentPath=ref(''),editContact=ref(false);
+const smsMessage=computed(()=>({needs_phone:'Add your phone number in Settings, then return here to enroll.',needs_consent:'Your choices are saved. Review and sign the text consent form to request enrollment.',enrolled:'Text enrollment is active for this number. Your saved choices control which updates you receive.',awaiting_review:'Your signed text consent is waiting for care-team review.',stopped:'Texts are stopped for this number. Your care team can help you restart them.',unavailable:'Text enrollment is not available for this agency yet. Your email choices are saved.'}[setup.value?.smsStatus]||'Checking text enrollment…'));
+async function checkSms(){try{const r=await api.get(`/guardian-portal/clients/${props.clientId}/notification-setup`);setup.value=r.data;}catch{error.value='Text enrollment could not be checked. Your saved notification choices are unchanged.';}}
+async function beginConsent(){busy.value=true;error.value='';try{const r=await api.post(`/guardian-portal/clients/${props.clientId}/notification-setup/sms-consent`);consentPath.value=r.data.path;}catch(e){error.value=e.response?.status<500?e.response?.data?.error?.message:'Text consent could not be opened.';}finally{busy.value=false;}}
+const data=ref(null),choices=ref({}),loading=ref(false),busy=ref(false),error=ref(''),confirmed=ref(false),saved=ref(false);let seq=0;
+const wantsTexts=computed(()=>Object.values(choices.value).some(v=>['sms','both'].includes(v)));
+async function load(){const own=++seq;data.value=null;error.value='';confirmed.value=false;saved.value=false;setup.value=null;consentPath.value='';editContact.value=false;if(!props.agencyId||!props.clientId)return;loading.value=true;try{const r=await api.get(`/portal-migration/clients/${props.clientId}/notification-choices`,{params:{agencyId:props.agencyId}});if(own===seq){data.value=r.data;choices.value={...r.data.choices};}}catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Notification choices could not be loaded.';}finally{if(own===seq)loading.value=false;}}
+async function save(){if(busy.value||!confirmed.value)return;const own=seq;busy.value=true;error.value='';try{const r=await api.put(`/portal-migration/clients/${props.clientId}/notification-choices`,{agencyId:props.agencyId,token:data.value.token,preferences:{choices:choices.value,revision:data.value.revision,version:data.value.version,confirm:'yes'}});if(own===seq){saved.value=true;data.value.revision=r.data.revision;if(wantsTexts.value)await checkSms();else emit('saved');}}catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Your choices could not be saved.';}finally{busy.value=false;}}
+watch(()=>[props.agencyId,props.clientId],load,{immediate:true});
+</script>
+<style scoped>
+.family-notification-choices{padding:18px;border:1px solid #d6e3ef;border-radius:12px;background:white;color:#173451}.choice-table{max-width:100%;overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:12px 5px;border-bottom:1px solid #dfe7ef;text-align:center}th:first-child{text-align:left}th small{display:block;font-weight:400;color:#52647c;font-size:11px;margin-top:4px}input[type=radio],input[type=checkbox]{width:18px;height:18px;accent-color:#16457c}.confirm{display:flex;gap:10px;align-items:center;margin:20px 0}button{padding:12px 16px;background:#16457c;color:white;border:0;border-radius:8px;font:600 14px system-ui;cursor:pointer}p{line-height:1.6}details{margin-top:16px}p[role=alert]{color:#a12727}.text-disclosure{padding:14px;background:#f2f6fc;border-radius:8px}@media(max-width:440px){.family-notification-choices{padding:12px}table{font-size:12px}th small{display:none}th:first-child{width:42%}}
+</style>

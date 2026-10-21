@@ -1,7 +1,14 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" :mode="guardianWorkspaceMode" :immersive="clinicalGuardianContext" :tenant-id="selectedChildAgencyId" :tenant-name="careAgencyName" :tenant-logo="selectedChild?.agency_logo_url || tenantAgencyLogoUrl || programLogoUrl || ''" :context-label="schoolWorkspaceActive ? 'SchoolCareBridge' : 'Family care'" :overview-label="hasSchoolAffiliations ? 'SchoolCareBridge' : 'Family overview'" clinical-label="AuricWell care" switchable :return-label="'Family overview'" @update:mode="changeGuardianWorkspaceMode" @back="returnToFamilyOverview">
-  <FamilyPortalShell :logo-is-symbol="clinicalGuardianContext && !schoolWorkspaceActive" :brand-name="schoolWorkspaceActive ? 'SchoolCareBridge' : clinicalGuardianContext ? 'AuricWell' : selectedChild?.agency_name || currentAgencyName || tenantAgencyName" :brand-subtitle="schoolWorkspaceActive ? schoolWorkspaceLabel : clinicalGuardianContext ? careAgencyName : dualBranding ? tenantAgencyName : ''" :logo-url="schoolWorkspaceActive ? 'https://mh4kidz.org/assets/schoolcarebridge/logo.png' : clinicalGuardianContext ? AURICWELL_MARK_URL : selectedChild?.agency_logo_url || programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
-    <router-link :to="`/my-records${selectedChildAgencyId ? '?agencyId=' + selectedChildAgencyId : ''}`" class="btn btn-secondary">Request my records</router-link>
+  <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
+  <FamilyPortalShell :logo-is-symbol="clinicalGuardianContext" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="clinicalGuardianContext ? 'Family portal · Beta' : 'Family portal'" :logo-url="clinicalGuardianContext ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="clinicalGuardianContext ? careAgencyName : ''" :agency-logo="clinicalGuardianContext ? careAgencyLogo : ''" :primary-color="clinicalGuardianContext ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+    <template #context>
+      <div v-if="allFamilyProfiles.length" class="family-context">
+        <label>Agency<select :value="currentAgencyId" @change="chooseAgency($event.target.value)" aria-label="Choose agency"><option v-for="agency in familyAgencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
+        <label v-if="children.length > 1">Viewing<select :value="selectedChildId" @change="chooseFamilyProfile($event.target.value)" aria-label="Choose profile"><option v-for="child in children" :key="child.client_id" :value="child.client_id">{{ profileLabel(child) }}</option></select></label>
+        <div v-else class="single-profile"><small>Viewing · 1 profile here</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
+        <button class="more-family" type="button" @click="navigatePortal('family')">My family <span>{{ allFamilyProfiles.length }}</span></button>
+      </div>
+    </template>
     <PlatformPreviewBanner
       v-if="isSuperadminPreview"
       :title="`Previewing ${currentAgencyName || 'tenant'} guardian portal`"
@@ -11,18 +18,12 @@
     <div v-else-if="loading" class="loading">Loading your dashboard…</div>
 
     <div v-else class="layout guardian-layout">
-      <section class="portal-client-summary">
-        <div class="portal-client-identity"><span class="client-portrait">{{ selectedChild ? initialsFromLabel(childDisplayName(selectedChild)) : '—' }}</span><div><h2>{{ selectedChild ? childDisplayName(selectedChild) : 'Your family' }}</h2><p>{{ selectedChild?.organization_name || currentAgencyName }}</p><span v-if="selectedChild" class="client-status">{{ formatClientStatus(selectedChild.status) }} · {{ selectedChild.relationship_title || 'Linked client' }}</span></div></div>
-        <label class="portal-client-picker">Dependents<select v-model="selectedChildId"><option :value="null" disabled>Select a client</option><option v-for="child in children" :key="child.client_id" :value="child.client_id">{{ childDisplayName(child) }}</option></select></label>
-        <div class="portal-program-picker"><GuardianProgramSelector :programs="programs" /><button class="btn btn-secondary btn-sm" @click="refreshAll" :disabled="loading">Refresh</button></div>
-      </section>
-
-      <PortalMigrationChecklist v-if="!isSuperadminPreview && activePanel === 'overview'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
-      <AuricWellPortalGuide v-if="!isSuperadminPreview && clinicalGuardianContext && activePanel === 'overview'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
-      <GuardianInvitations v-if="!isSuperadminPreview" :agency-id="selectedChildAgencyId || currentAgencyId" />
-
-      <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" :organization-name="careAgencyName || currentAgencyName" @contact="navigatePortal('messages')" />
-      <GuardianBillingNeeds v-if="!isSuperadminPreview && ['overview','tutoring'].includes(activePanel)" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
+      <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
+      <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
+      <PortalMigrationChecklist v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
+      <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
+      <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" />
+      <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
@@ -32,14 +33,23 @@
       <template v-else>
         <div class="detail guardian-detail">
           <div class="panel guardian-panel">
-            <GuardianSchoolCareBridge v-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
+            <section v-if="activePanel === 'family'" class="family-overview" aria-label="All family profiles">
+              <p>Choose a family member to see their care, appointments, and next steps.</p>
+              <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
+                <img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" alt=""/><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}</span>
+                <details><summary>Profile details</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? 'Tutoring' : 'Counseling and care' }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? 'Your own client profile' : 'Dependent linked to your account' }}</p></details>
+                <button type="button" @click="chooseFamilyProfile(person.client_id)">Open profile →</button>
+              </article></div>
+            </section>
+
+            <GuardianSchoolCareBridge v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
             <template v-else-if="activePanel === 'tutoring'">
               <GuardianTutoringDashboard embedded
                 :key="`${currentAgencyId}-${selectedChildId}`"
                 v-if="selectedChildId"
                 :client-id="selectedChildId"
                 :student-name="selectedChild ? childDisplayName(selectedChild) : 'your student'"
-                :guardian-first-name="String(authStore.user?.first_name || '').trim()"
+                :guardian-first-name="String(authStore.user?.first_name || authStore.user?.firstName || '').trim()"
                 :organization-slug="guardianPathSlug"
               />
               <p v-else class="hint">Select a child to view their tutoring dashboard.</p>
@@ -90,23 +100,14 @@
             </template>
             <template v-else-if="activePanel === 'appointments'"><p v-if="isSuperadminPreview">Appointment details are available in the signed-in guardian account.</p><GuardianAppointmentsPanel v-else :client-id="selectedChildId" /></template>
             <template v-else-if="activePanel === 'documents'">
-              <div class="panel-head">
-                <div class="panel-title">AuricWell documents &amp; forms</div>
-                <div class="panel-subtitle">Enrollment documents, shared forms, and your signed copies for the selected client.</div>
-              </div>
-              <div v-if="isSuperadminPreview" class="guardian-preview-surface">
-                <p class="hint" style="margin: 0;">
-                  In the live guardian portal, this panel lists program-scoped documents and signatures. Platform preview does
-                  not load guardian document queues.
-                </p>
-              </div>
-              <template v-else><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" /><GuardianIntakeDocuments :client-id="selectedChildId" /><DocumentsTab /></template>
+              <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
+              <template v-else><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :client-id="selectedChildId" /><details class="account-documents"><summary>Other forms assigned to your account</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
               <div class="panel-head">
-                <div class="panel-title">Child</div>
-                <div class="panel-subtitle">Details and daily notes for the selected child.</div>
+                <div class="panel-title">Client details</div>
+                <div class="panel-subtitle">Review and update information for this profile.</div>
               </div>
               <div v-if="!selectedChild" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
@@ -121,7 +122,7 @@
                   This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
                   not available for privacy and compliance.
                 </div>
-                <div class="child-details">
+                <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="child-details">
                   <div v-if="selectedChildFullName" class="row">
                     <div class="label">Name</div>
                     <div class="value">{{ selectedChildFullName }}</div>
@@ -366,13 +367,13 @@
                 </div>
 
                 <GuardianPlanProgressPanel
-                  :visible="planProgressVisible && portalPlanAllowed"
+                  :visible="standardsLearningVisible && planProgressVisible && portalPlanAllowed"
                   :client-id="selectedChildId"
                   :agency-id="selectedChildAgencyId"
                   :client-type="selectedChildClientType"
                 />
 
-                <div v-if="!selectedChild.guardian_portal_locked" class="intake-docs-block">
+                <div v-if="!clinicalGuardianContext && !standardsLearningVisible && !selectedChild.guardian_portal_locked" class="intake-docs-block">
                   <h4 style="margin: 20px 0 8px;">Intake documents</h4>
                   <p class="hint" style="margin-bottom: 10px;">
                     PDFs you signed on a digital intake form for this child (when the submission is tied to your guardian
@@ -398,12 +399,12 @@
                   <p v-else class="hint">No intake-signed documents found for this child yet.</p>
                 </div>
 
-                <div class="guardian-checkin-hint">
+                <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="guardian-checkin-hint">
                   <p class="hint" style="margin: 0; padding: 8px 10px; background: var(--bg-muted, #f0f4f8); border-radius: 6px;">
                     <strong>Program check-in:</strong> Use the kiosk at the front desk when you drop off or pick up.
                   </p>
                 </div>
-                <div class="guardian-daily-notes">
+                <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="guardian-daily-notes">
                   <h4 style="margin: 16px 0 8px;">Daily Notes</h4>
                   <p class="hint" style="margin-bottom: 10px;">Staff notes for {{ selectedChild.initials }}. Use initials only.</p>
                   <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 10px;">
@@ -425,36 +426,13 @@
             </template>
 
             <template v-else-if="activePanel === 'messages'">
-              <GuardianMessagesPanel v-if="!isSuperadminPreview" />
-              <ClientNotificationHistory v-if="!isSuperadminPreview && selectedChildId" :client-id="selectedChildId" guardian />
+              <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="selectedChildId" :client-id="selectedChildId" />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 
+            <template v-else-if="activePanel === 'notification_history'"><ClientNotificationHistory v-if="!isSuperadminPreview && selectedChildId" :client-id="selectedChildId" guardian /></template>
             <template v-else-if="activePanel === 'account'">
-              <div class="panel-head">
-                <div class="panel-title">Your Account</div>
-                <div class="panel-subtitle">Basic account details.</div>
-              </div>
-              <div class="child-details">
-                <div class="row">
-                  <div class="label">Name</div>
-                  <div class="value">{{ userName }}</div>
-                </div>
-                <div class="row">
-                  <div class="label">Email</div>
-                  <div class="value">{{ userEmail }}</div>
-                </div>
-                <div class="row">
-                  <div class="label">Password</div>
-                  <div class="value">
-                    <router-link class="link" :to="changePasswordTo">Change password</router-link>
-                    <router-link class="link" to="/account-security">Security &amp; sign-in</router-link>
-                    <button class="btn btn-secondary" type="button" @click="authStore.logout()">Sign out</button>
-                  </div>
-                </div>
-              </div>
-              <ClinicalDisclosurePanel v-if="!isSuperadminPreview" :agency-id="currentAgencyId" />
-              <p class="hint">Protect your own account with a passkey, an authenticator app, or optional email verification in Security &amp; sign-in.</p>
+              <FamilyAccountSettings :agency-id="selectedChildAgencyId" @notifications="navigatePortal('notifications')" />
             </template>
 
             <template v-else-if="activePanel === 'billing'">
@@ -487,6 +465,7 @@
                 v-else
                 :agency-id="currentAgencyId"
                 :guardian-user-id="authStore.user?.id"
+                :client-id="selectedChildId"
               />
             </template>
 
@@ -501,6 +480,7 @@
                 v-else
                 :agency-id="selectedChildAgencyId"
                 :guardian-user-id="authStore.user?.id"
+                :client-id="selectedChildId"
               />
             </template>
 
@@ -627,10 +607,10 @@ import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import { isClinicalClient } from '../../utils/clinicalWorkspace';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import FamilyPortalShell from '../../components/portal/FamilyPortalShell.vue';
 import FamilyPortalHome from '../../components/portal/FamilyPortalHome.vue';
-import PortalNotificationSetup from '../../components/portal/PortalNotificationSetup.vue';
+import FamilyAccountSettings from '../../components/guardian/FamilyAccountSettings.vue';
 import { useBrandingStore } from '../../store/branding';
 const brandingStore = useBrandingStore();
 import { useAuthStore } from '../../store/auth';
@@ -648,6 +628,8 @@ import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.
 import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosurePanel.vue';
 import GuardianBillingNeeds from '../../components/billing/GuardianBillingNeeds.vue';
 import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
+import { tenantLegalProfiles } from '../../content/tenantLegalProfiles.js';
+import FamilyNotificationChoices from '../../components/guardian/FamilyNotificationChoices.vue';
 import PortalMigrationChecklist from '../../components/guardian/PortalMigrationChecklist.vue';
 import AuricWellPortalGuide from '../../components/guardian/AuricWellPortalGuide.vue';
 import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';
@@ -709,7 +691,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['overview','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications'].includes(route.query.panel) ? route.query.panel : 'overview');
+const activePanel = ref(['overview','family','onboarding','help','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -746,11 +728,12 @@ const formatOrgType = (t) => {
 };
 
 const programs = computed(() => Array.isArray(overview.value?.programs) ? overview.value.programs : []);
-const children = computed(() => {
+const allFamilyProfiles = computed(() => {
   const linked = Array.isArray(overview.value?.children) ? [...overview.value.children] : [];
   if (overview.value?.me && !linked.some(c => Number(c.client_id) === Number(overview.value.me.client_id))) linked.unshift(overview.value.me);
-  return familyPortalClients(linked, agencyStore.currentAgency);
+  return linked;
 });
+const children = computed(() => familyPortalClients(allFamilyProfiles.value, agencyStore.currentAgency));
 watch(children, (list) => {
   if (!list.some(c => Number(c.client_id) === Number(selectedChildId.value))) selectedChildId.value = Number(list[0]?.client_id || 0) || null;
 });
@@ -809,26 +792,9 @@ const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSc
 const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
 const clinicalGuardianContext = computed(() => !!selectedChild.value && !standardsLearningVisible.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
 const guardianWorkspaceMode = ref('clinical');
-const schoolWorkspaceActive = computed(() => clinicalGuardianContext.value && hasSchoolAffiliations.value && guardianWorkspaceMode.value === 'overview');
-function changeGuardianWorkspaceMode(mode) {
-  if (mode === 'overview' && hasSchoolAffiliations.value) navigatePortal('schoolcarebridge');
-  else if (activePanel.value === 'schoolcarebridge') navigatePortal('overview');
-  guardianWorkspaceMode.value = mode;
-}
-function openAuricWellPanel(panel) {
-  navigatePortal(panel);
-  guardianWorkspaceMode.value = 'clinical';
-}
-function returnToFamilyOverview() {
-  navigatePortal('overview');
-  guardianWorkspaceMode.value = 'clinical';
-}
-watch(selectedChildId, (id, previousId) => {
-  selectedSchoolId.value = null;
-  if (previousId && activePanel.value === 'schoolcarebridge') navigatePortal('overview');
-  guardianWorkspaceMode.value = activePanel.value === 'schoolcarebridge' && hasSchoolAffiliations.value ? 'overview' : 'clinical';
-});
-watch(activePanel, panel => { if (panel === 'schoolcarebridge') guardianWorkspaceMode.value = 'overview'; else if (['overview','messages','plan','appointments','documents','billing','payment_methods','child'].includes(panel)) guardianWorkspaceMode.value = 'clinical'; });
+const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge');
+function openAuricWellPanel(panel) { navigatePortal(panel); }
+watch(selectedChildId, () => { selectedSchoolId.value = null; migrationState.value = null; onboardingBillingNotice.value = false; });
 
 const selectedChildClientType = computed(() => {
   const explicit = String(selectedChild.value?.client_type || '').toLowerCase();
@@ -893,6 +859,40 @@ const dualBranding = computed(() => {
   return Boolean(progId && billId && billId !== progId);
 });
 
+const familyAgencies = computed(() => {
+  const map = new Map();
+  for (const profile of allFamilyProfiles.value) {
+    const id = Number(profile.agency_id);
+    const member = [...(agencyStore.userAgencies || []), ...programs.value].find(a => Number(a.id) === id);
+    if (id) map.set(id, {...member, id, name:profile.agency_name || member?.name, slug:profile.agency_slug || member?.slug, organization_type:member?.organization_type || 'agency'});
+  }
+  return [...map.values()];
+});
+function profileAgencyLogo(profile) { return profile?.agency_logo_url || tenantLegalProfiles[profile?.agency_slug]?.logo || ''; }
+const careAgencyLogo = computed(() => profileAgencyLogo(selectedChild.value) || programLogoUrl.value || tenantAgencyLogoUrl.value || '');
+function profileLabel(profile) { return profile ? `${childDisplayName(profile)}${profile.relationship_type === 'self' ? ' (you)' : ''}` : 'Choose a profile'; }
+async function chooseFamilyProfile(id) {
+  const profile = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(id));
+  const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(profile.agency_id));
+  if (!profile || !agency?.slug) return;
+  agencyStore.setCurrentAgency(agency); selectedChildId.value = Number(profile.client_id);
+  activePanel.value = ['learning','tutoring'].includes(profile.client_type) ? 'tutoring' : 'overview';
+  await router.replace({path:`/${encodeURIComponent(agency.slug)}/guardian`,query:{portal:agency.slug,clientId:profile.client_id,panel:activePanel.value}});
+  scrollPortalTop();
+}
+function chooseAgency(id) {
+  const profile = allFamilyProfiles.value.find(p => Number(p.agency_id) === Number(id) && Number(p.client_id) === Number(selectedChildId.value))
+    || allFamilyProfiles.value.find(p => Number(p.agency_id) === Number(id));
+  if (profile) return chooseFamilyProfile(profile.client_id);
+}
+const migrationState = ref(null), onboardingBillingNotice = ref(false);
+const onboardingRequired = computed(() => migrationState.value?.enrolled && migrationState.value.items?.some(item => !item.complete && !item.waiting));
+function onMigrationState(data) {
+  migrationState.value = data;
+  if (onboardingRequired.value && activePanel.value === 'billing') navigatePortal('onboarding');
+}
+async function scrollPortalTop() { await nextTick(); const main = document.getElementById('family-portal-content'); main?.scrollIntoView?.({block:'start',behavior:'instant'}); main?.focus?.({preventScroll:true}); }
+
 const dashboardTabs = computed(() => {
   const preview = isSuperadminPreview.value;
   const pm = (normal, shell) => (preview ? shell : normal);
@@ -906,12 +906,12 @@ const dashboardTabs = computed(() => {
     });
   }
   tabs.push(
-    { key: 'overview', label: standardsLearningVisible.value ? 'Family' : 'Overview', meta: pm('Home base', 'Preview shell') },
+    { key: 'overview', label: 'Dashboard', meta: pm('Home base', 'Preview shell') },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
     { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') },
     { key: 'appointments', label: 'Appointments', meta: pm('Schedule and change requests', 'Appointments') }
   );
-  if (hasSchoolAffiliations.value) tabs.push({ key:'schoolcarebridge', label:'SchoolCareBridge', meta:schoolWorkspaceLabel.value });
+  if (hasSchoolAffiliations.value) tabs.push({ key:'schoolcarebridge', label:schoolWorkspaceLabel.value || 'School', meta:schoolWorkspaceLabel.value });
   if (selectedChild.value) {
     tabs.push({
       key: 'child',
@@ -929,15 +929,15 @@ const dashboardTabs = computed(() => {
     });
   }
   tabs.push(
-    { key: 'messages', label: 'Messages by Conversa', meta: pm('Provider chat', 'Messaging shell') },
-    { key: 'dependents', label: 'Dependents', meta: pm('Health and emergency info', 'Health shell (preview)') },
+    { key: 'messages', label: 'Secure messages', meta: pm('Provider chat', 'Messaging shell') },
+
     {
       key: 'payment_methods',
       label: 'Payment & insurance',
       meta: pm('Cards and coverage', 'Cards & coverage (live data)')
     },
     { key: 'notifications', label: 'Notification setup', meta: pm('Reminders and text enrollment', 'Notification setup') },
-    { key: 'account', label: 'Account', meta: pm('Profile and security', 'Profile and security shell') }
+    { key: 'account', label: 'Settings', meta: pm('Profile and security', 'Profile and security shell') }
   );
   return tabs;
 });
@@ -947,17 +947,31 @@ let portalGrantRequest = 0;
 const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks'};
-  const labels = {overview:standardsLearningVisible.value ? 'Family overview' : 'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value?.relationship_type === 'self' ? 'My profile' : 'My client'};
-  const items = dashboardTabs.value.map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
+  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · information` : 'Client information'};
+  const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:standardsLearningVisible.value?'Learning plan':'Treatment plan',icon:'plan'});
-  if(selectedChild.value && !selectedChild.value.guardian_portal_locked && !isSuperadminPreview.value && authStore.user?.role==='client_guardian')items.push({key:'waivers',label:'Waivers & safety',icon:'documents'});
-  items.push({key:'contact',label:'Reminder contacts',icon:'support'});
+
+  if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
+  items.unshift({key:'family',label:'My family',icon:'child'});
+  items.push( {key:'records',label:'Request my records',icon:'documents'}, {key:'help',label:'Portal help & feedback',icon:'support'});
+  items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'notification_history',label:'Notification history',icon:'tasks'},{key:'signout',label:'Sign out',icon:'account'});
   return items;
 });
-const portalTitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Welcome${authStore.user?.first_name ? ', ' + authStore.user.first_name : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
+const portalTitle = computed(() => activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? 'Your family' : ['overview','tutoring'].includes(activePanel.value) ? `Welcome${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
 const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Your ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps in one place.` : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
-function navigatePortal(key) { if(!portalNavigation.value.some(item => item.key === key))return;if(key==='waivers'){router.push(guardianWaiversLink.value);return;}activePanel.value=key;selectedInlineEvent.value=null;router.replace({query:{...route.query,panel:key}}); }
-watch(() => route.query.panel, key => { if(portalNavigation.value.some(item => item.key === key))activePanel.value=key; });
+function navigatePortal(key) {
+  if (key === 'signout') { authStore.logout(); return; }
+  if (key === 'dependents') key = 'family';
+  if (key === 'records') { router.push({path:'/my-records',query:{agencyId:selectedChildAgencyId.value}}); return; }
+  if (!['onboarding','overview'].includes(key) && !portalNavigation.value.some(item => item.key === key)) return;
+  if (key === 'waivers') { router.push(guardianWaiversLink.value); return; }
+  onboardingBillingNotice.value = key === 'billing' && onboardingRequired.value;
+  if (onboardingBillingNotice.value) key = 'onboarding';
+  if (key === 'overview' && standardsLearningVisible.value) key = 'tutoring';
+  activePanel.value = key; selectedInlineEvent.value = null;
+  router.replace({query:{...route.query,clientId:selectedChildId.value,panel:key}}); scrollPortalTop();
+}
+watch(() => route.query.panel, key => { if (['onboarding','family','help','overview'].includes(key) || portalNavigation.value.some(item => item.key === key)) { if(key==='billing' && onboardingRequired.value)navigatePortal('billing');else activePanel.value=key; } });
 watch(() => [currentAgencyId.value,selectedChildId.value,isSuperadminPreview.value], async () => {
   const request=++portalGrantRequest;portalGrants.value=[];
   if(!currentAgencyId.value||isSuperadminPreview.value)return;
@@ -980,7 +994,7 @@ const docStatusTone = (status) => {
 
 const userName = computed(() => {
   const u = authStore.user || {};
-  const n = `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim();
+  const n = `${String(u.first_name || u.firstName || '').trim()} ${String(u.last_name || u.lastName || '').trim()}`.trim();
   return n || '—';
 });
 
@@ -1303,26 +1317,15 @@ const openProgramWorkspace = async (program) => {
 };
 
 const initProgramContext = async () => {
-  const requestedPortal = route.params.organizationSlug || route.query.portal || brandingStore.portalHostPortalUrl;
-  const invitedOrganization = resolveFamilyPortalOrganization(agencyStore.userAgencies, requestedPortal);
-  if (invitedOrganization) {
-    agencyStore.setCurrentAgency(invitedOrganization);
-    return;
-  }
-  const list = programs.value || [];
-  if (list.length === 0) return;
-
-  const routeSlug = String(route.params.organizationSlug || '').trim().toLowerCase();
-  const match = routeSlug ? list.find((p) => String(resolveTargetSlug(p) || '').toLowerCase() === routeSlug) : null;
-  if (match) {
-    agencyStore.setCurrentAgency(match);
-    return;
-  }
-
-  const curId = Number(agencyStore.currentAgency?.id || 0);
-  const hasCur = curId && list.some((p) => Number(p?.id) === curId);
-  if (!hasCur) {
-    agencyStore.setCurrentAgency(list[0]);
+  const slug = String(route.query.portal || route.params.organizationSlug || '').toLowerCase();
+  const requestedPerson = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(route.query.clientId));
+  const target = (requestedPerson && familyAgencies.value.find(a => Number(a.id) === Number(requestedPerson.agency_id)))
+    || familyAgencies.value.find(a => String(a.slug).toLowerCase() === slug)
+    || familyAgencies.value.find(a => Number(a.id) === Number(agencyStore.currentAgency?.id)) || familyAgencies.value[0];
+  if (!target) return;
+  agencyStore.setCurrentAgency(target);
+  if (String(route.params.organizationSlug || '').toLowerCase() !== String(target.slug).toLowerCase()) {
+    await router.replace({path:`/${encodeURIComponent(target.slug)}/guardian`,query:{...route.query,portal:target.slug,panel:route.query.panel || 'family'}});
   }
 };
 
@@ -1833,6 +1836,7 @@ watch(
     allowedKeys.add('messages');
     allowedKeys.add('account');
     allowedKeys.add('notifications');
+    for(const key of ['onboarding','family','help','plan','notification_history']) allowedKeys.add(key);
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'
@@ -1874,6 +1878,8 @@ watch(
 </script>
 
 <style scoped>
+.family-context{display:flex;align-items:end;gap:12px;margin-top:12px}.family-context label{display:grid;gap:3px;font-size:11px;color:#52647c;flex:1;min-width:0}.family-context select{font:600 14px system-ui;background:#f5f8fc;color:#173451;border:1px solid #c9d8e7;border-radius:8px;padding:9px;width:100%;min-width:0}.single-profile{flex:1;min-width:0}.single-profile small,.single-profile strong{display:block}.single-profile small{font-size:11px;color:#52647c}.single-profile strong{font-size:14px}.more-family{padding:10px;border:1px solid #c9d8e7;border-radius:8px;color:#173451;background:white;cursor:pointer;white-space:nowrap}.more-family span{background:#e9f1fa;border-radius:20px;padding:2px 5px}.family-profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.family-profile-card{display:grid;gap:9px;text-align:left;padding:22px;background:#fff;border:1px solid #c9d8e7;border-radius:14px;color:#173451;cursor:pointer;font:inherit}.family-profile-card button{padding:12px;background:#16457c;color:white;border:0;border-radius:8px;font:600 14px system-ui;cursor:pointer}.family-profile-card details{font-size:13px}.account-documents{margin:20px 0;padding:16px;background:white;border:1px solid #dce5ef;border-radius:12px}.account-documents summary{cursor:pointer;font-weight:600}.family-profile-card img{width:100px;height:50px;object-fit:contain;object-position:left}.family-profile-card strong{font-size:18px}.family-profile-card small{color:#52647c}.onboarding-prompt{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px;border:1px solid #b9cfe6;border-radius:12px;background:#eef5fc;color:#173451}.onboarding-prompt button{padding:10px;border-radius:8px;background:#16457c;border:0;color:#fff;cursor:pointer}.onboarding-dot{width:10px;height:10px;flex-shrink:0;border-radius:50%;background:#2467a7;animation:onboarding-pulse 2s ease-in-out infinite}.onboarding-billing-notice{padding:14px;background:#fff5dc;border-radius:10px;color:#644d1a}.guardian-layout{scroll-margin-top:160px}#family-portal-content{scroll-margin-top:160px}@keyframes onboarding-pulse{50%{box-shadow:0 0 0 6px #2467a720}}@media(prefers-reduced-motion:reduce){.onboarding-dot{animation:none}}@media(max-width:560px){.family-context{gap:8px}.more-family{font-size:12px}.family-context select{font-size:13px;padding:8px}.family-profile-grid{grid-template-columns:1fr}}
+
 .portal-client-summary{display:flex;align-items:center;gap:28px;padding:26px;background:white;border:1px solid #e2eaf4;border-radius:12px;margin-bottom:24px;box-shadow:0 3px 14px #193e7310;flex-wrap:wrap}.portal-client-identity{display:flex;align-items:center;gap:20px;flex:1;min-width:220px}.client-portrait{width:78px;height:78px;border-radius:50%;background:var(--portal-tint);color:var(--portal-accent);display:grid;place-items:center;font-size:27px;font-weight:700;flex-shrink:0}.portal-client-identity h2{font-size:23px;letter-spacing:-.5px;margin:0}.portal-client-identity p{color:#596d87;margin:5px 0 10px}.client-status{font-size:12px;padding:5px 10px;background:#edf5f2;color:#24614e;border-radius:20px}.portal-client-picker{font-size:12px;color:#526784;display:grid;gap:7px}.portal-client-picker select{padding:10px 12px;border:1px solid #d7e2ee;border-radius:7px;max-width:250px;color:#233957;background:white;font:inherit;font-size:14px}.portal-program-picker{display:grid;gap:10px;max-width:220px;min-width:0}.portal-program-picker :deep(.program-selector){min-width:0;width:100%}.portal-program-picker :deep(.selector-group){min-width:0;width:100%}.portal-program-picker :deep(select){min-width:0;max-width:100%;width:100%}.guardian-layout{display:block!important}.guardian-detail{display:block!important}.guardian-panel{border:0!important;background:transparent!important;padding:0!important;box-shadow:none!important}.guardian-panel :deep(.family-billing),.guardian-panel :deep(.family-ledger){color:#233653}.guardian-panel :deep(h3){color:#162b4b}.guardian-panel :deep(.billing-card){border-color:#e2eaf4;border-radius:12px;box-shadow:0 3px 14px #193e7310}.guardian-panel :deep(button){border-radius:8px}.guardian-panel :deep(.btn-primary){background:var(--portal-accent);color:var(--portal-on-accent);border-color:var(--portal-accent)}
 @media(max-width:760px){.portal-client-summary{padding:18px;gap:18px}.portal-client-identity{min-width:0;flex-basis:100%}.client-portrait{width:60px;height:60px;font-size:22px}.portal-client-identity h2{font-size:21px}.portal-client-picker{flex:1;min-width:0}.portal-client-picker select{width:100%;max-width:100%}.portal-program-picker{max-width:100%;flex:1;min-width:130px}}
 

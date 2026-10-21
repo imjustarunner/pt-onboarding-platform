@@ -42,12 +42,12 @@
       <div class="gpp-overview"><span class="gpp-goal-count">{{ goals.length }}<small>{{ goals.length === 1 ? 'goal' : 'goals' }}</small></span><div><h3>Your goals, one step at a time</h3><p>These scales show recorded ratings and targets. A higher score is not always the goal.</p><p v-if="plan?.effectiveDate">Plan started {{ formatDate(plan.effectiveDate) }}</p></div></div>
       <article v-for="g in goals" :key="g.id" class="gpp-goal">
         <header>
-          <span class="gpp-pill">G{{ g.goalIndex }}</span>
+          <span class="gpp-pill">Goal {{ g.goalIndex }}</span>
           <strong>{{ g.goalText }}</strong>
         </header>
         <div v-for="o in g.objectives || []" :key="o.id" class="gpp-obj">
           <div class="gpp-obj__text">
-            <span class="gpp-pill gpp-pill--obj">O{{ o.objectiveIndex }}</span>
+            <span class="gpp-pill gpp-pill--obj">Objective {{ o.objectiveIndex }}</span>
             <span>{{ o.objectiveText }}</span>
           </div>
           <div v-if="plan.kind !== 'learning'" class="gpp-obj__scale">

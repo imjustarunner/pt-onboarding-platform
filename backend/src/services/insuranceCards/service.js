@@ -8,7 +8,7 @@ import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncrypt
 import {coverageFingerprint} from '../coverageVerification.service.js';
 import StorageService from '../storage.service.js';
 import DocumentEncryptionService from '../documentEncryption.service.js';
-import {CARD_SLOTS,cardUrlKey,cardCycle,cardProgress,cardCoverageVerified,parse,validCardFile} from './policy.js';
+import {CARD_SLOTS,cardUrlKey,cardCycle,cardProgress,encouragedCardSlots,cardCoverageVerified,parse,validCardFile} from './policy.js';
 
 export async function cardContext({agencyId,profileId,userId,staff=false},db=pool) {
   const [[row]]=await db.execute(`SELECT p.*,a.name AS agency_name,a.slug,a.portal_url,u.email,u.first_name,u.last_name,u.status AS user_status,u.is_active AS user_is_active,u.is_archived AS user_is_archived,u.is_demo AS user_is_demo FROM guardian_insurance_profiles p JOIN agencies a ON a.id=p.agency_id JOIN users u ON u.id=p.guardian_user_id WHERE p.id=? AND p.agency_id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`,[positiveId(profileId),positiveId(agencyId)]);
@@ -65,7 +65,7 @@ export async function listCardTasks({agencyId,userId,clientId=null}) {
       const context=await cardContext({agencyId,userId,profileId:row.id});
       if(clientId&&!context.clients.some(c=>Number(c.id)===Number(clientId)))continue;
       const progress=await refreshCardFollowup(context);
-      tasks.push({profileId:row.id,cycle:progress.cycle_hash,clients:context.clients.map(c=>({id:c.id,name:c.full_name||c.initials})),state:progress.state,coverageVerified:progress.coverageVerified,slots:progress.slots,missingSlots:progress.missingSlots,emailEnabled:!!progress.email_enabled});
+      tasks.push({profileId:row.id,uploadSlots:encouragedCardSlots(context.profile),cycle:progress.cycle_hash,clients:context.clients.map(c=>({id:c.id,name:c.full_name||c.initials})),state:progress.state,coverageVerified:progress.coverageVerified,slots:progress.slots,missingSlots:progress.missingSlots,emailEnabled:!!progress.email_enabled});
     }catch(e){if(e.status!==404)throw e;}
   }
   return tasks;

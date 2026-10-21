@@ -2,7 +2,7 @@
   <Teleport to="body">
     <div
       v-if="isLocked"
-      :class="{ 'session-checking': isChecking }"
+      :class="{ 'session-checking': isChecking, 'session-lock-auricwell': auricWell }"
       class="session-lock-overlay"
       :style="cardStyle"
       :role="isChecking && !showRecovery ? 'status' : 'dialog'"
@@ -128,7 +128,8 @@ const tenantKey = computed(() => {
 });
 // Initial verification is not an inactivity timeout; use the neutral branded
 // background until a real lock policy is known instead of the timeout artwork.
-const isPlatformBrand = computed(() => !!fundthredBrowserBrand.value || (!agencyStore.currentAgency && (!brandingStore.activeRouteSlug || agencyStore.platformMode)));
+const auricWell = /^(www\.)?auricwell\.com$/i.test(window.location.hostname);
+const isPlatformBrand = computed(() => auricWell || !!fundthredBrowserBrand.value || (!agencyStore.currentAgency && (!brandingStore.activeRouteSlug || agencyStore.platformMode)));
 const showTenantVideo = computed(() => !isPlatformBrand.value && !isMobile.value && !!sessionLockStore.lockConfig);
 const posterUrl = computed(() => getTimedownPosterUrl(tenantKey.value));
 const videoUrl = computed(() => getTimedownVideoUrl(tenantKey.value));
@@ -145,10 +146,10 @@ const error = ref('');
 const verifying = ref(false);
 const pinInputRef = ref(null);
 
-const agencyLogoUrl = computed(() => fundthredBrowserBrand.value ? '/assets/fundthred/wordmark.svg' : brandingStore.displayLogoUrl || null);
+const agencyLogoUrl = computed(() => auricWell ? '/auricwell/mark.svg' : fundthredBrowserBrand.value ? '/assets/fundthred/wordmark.svg' : brandingStore.displayLogoUrl || null);
 
 const cardStyle = computed(() => {
-  const primary = fundthredBrowserBrand.value ? '#087d76' : brandingStore.effectivePrimaryColor || '#B80016';
+  const primary = auricWell ? '#16457c' : fundthredBrowserBrand.value ? '#087d76' : brandingStore.effectivePrimaryColor || '#B80016';
   return {
     '--lock-accent': primary
   };
@@ -203,6 +204,8 @@ watch(() => props.isLocked, (locked) => {
 </script>
 
 <style scoped>
+.session-lock-overlay.session-lock-auricwell{background:#eef3f8;color:#173451}.session-lock-auricwell .session-lock-card{background:#fff;border:1px solid #d7e3ef;border-radius:20px}
+
 .session-lock-overlay {
   position: fixed;
   inset: 0;

@@ -3,14 +3,15 @@
     <Transition name="iw-fade">
       <div
         v-if="sessionLockStore.warningActive && !sessionLockStore.isLocked"
-        class="iw-overlay"
+        class="iw-overlay" :class="{ 'iw-auricwell': auricWell }"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="iw-title"
         aria-describedby="iw-desc"
       >
         <p v-if="resumeError" class="iw-resume-error" role="alert">{{ resumeError }}</p>
-        <div class="iw-stage" :class="{ 'iw-stage--clocked': isClockedIn }">
+        <section v-if="auricWell" class="iw-auricwell-card"><AuricWellAuthBrand /><h2 id="iw-title">Are you still here?</h2><p id="iw-desc">To protect your information, your portal will sign out after inactivity.</p><p class="iw-auricwell-clock">Signing out in <strong>{{ clock }}</strong></p><button v-if="!suppressActions" type="button" :disabled="clockOutBusy" @click="stayLoggedIn">Stay signed in</button></section>
+        <div v-else class="iw-stage" :class="{ 'iw-stage--clocked': isClockedIn }">
           <!-- Clocked-in: overt status banner (desktop + mobile) -->
           <div v-if="isClockedIn" class="iw-clocked-banner" role="status">
             <span class="iw-clocked-dot" aria-hidden="true" />
@@ -137,6 +138,8 @@
 
 <script setup>
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import AuricWellAuthBrand from './AuricWellAuthBrand.vue';
+const auricWell = /^(www\.)?auricwell\.com$/i.test(window.location.hostname);
 import { useRouter, useRoute } from 'vue-router';
 import { useSessionLockStore } from '../store/sessionLock.js';
 import { useIndirectTimeSessionStore } from '../store/indirectTimeSession.js';
@@ -262,7 +265,7 @@ watch(
       return;
     }
     useVideo.value = true;
-    if (!isMobile.value && !isClockedIn.value) {
+    if (!auricWell && !isMobile.value && !isClockedIn.value) {
       randomStayPosition();
       scheduleReshuffle();
     }
@@ -282,6 +285,8 @@ watch(
 </script>
 
 <style scoped>
+.iw-overlay.iw-auricwell{display:grid;place-items:center;background:#eef3f8;padding:24px;color:#173451}.iw-auricwell-card{width:min(440px,100%);background:white;border:1px solid #d7e3ef;border-radius:20px;padding:32px;text-align:center;box-shadow:0 18px 60px #17345114}.iw-auricwell-card h2{font:700 26px/1.3 system-ui;margin:24px 0 12px}.iw-auricwell-card p{line-height:1.6}.iw-auricwell-clock strong{display:block;font-size:38px;font-variant-numeric:tabular-nums}.iw-auricwell-card button{width:100%;padding:14px;border:0;border-radius:10px;background:#16457c;color:white;font:600 16px system-ui;cursor:pointer}
+
 .iw-resume-error { position: fixed; bottom: 24px; left: 24px; z-index: 2; background: #fff; color: #b91c1c; padding: 12px; border-radius: 8px; }
 .iw-overlay {
   position: fixed;

@@ -13,11 +13,15 @@ async function setupContext(userId, clientId) {
   const agencyId = preferences.agencyId;
   const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'reminders' });
   const sender = from ? await getSmsSender(from) : null;
-  return { preferences, contact, phone, agencyId, sender };
+  const [[saved]] = await pool.execute('SELECT choices_json FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=?', [agencyId, clientId, userId]);
+  let choices = saved?.choices_json || {};
+  if (typeof choices === 'string') { try { choices = JSON.parse(choices); } catch { choices = {}; } }
+  const wantsTexts = saved ? Object.values(choices).some(choice => ['sms', 'both'].includes(choice)) : preferences.channels?.sms === true;
+  return { preferences, contact, phone, agencyId, sender, wantsTexts };
 }
 
 export async function guardianNotificationSetup({ userId, clientId }) {
-  const { preferences, phone, agencyId, sender } = await setupContext(userId, clientId);
+  const { preferences, phone, agencyId, sender, wantsTexts } = await setupContext(userId, clientId);
   let smsStatus = 'needs_consent';
   if (!phone) smsStatus = 'needs_phone';
   else if (!sender) smsStatus = 'unavailable';
@@ -31,12 +35,12 @@ export async function guardianNotificationSetup({ userId, clientId }) {
     if (rows.length) smsStatus = 'awaiting_review';
   }
   return { preferences, smsStatus, phoneLastFour: phone?.slice(-4) || null,
-    complete: preferences.isDefault === false && (preferences.channels?.sms !== true || smsStatus === 'enrolled') };
+    complete: preferences.isDefault === false && (!wantsTexts || smsStatus === 'enrolled') };
 }
 
 export async function beginGuardianSmsConsent({ userId, clientId }) {
-  const { preferences, contact, phone, agencyId, sender } = await setupContext(userId, clientId);
-  if (preferences.channels?.sms !== true) throw Object.assign(new Error('Save your text reminder preference first.'), { status: 409 });
+  const { contact, phone, agencyId, sender, wantsTexts } = await setupContext(userId, clientId);
+  if (!wantsTexts) throw Object.assign(new Error('Choose which text updates you want and save your choices first.'), { status: 409 });
   if (!phone || !sender) throw Object.assign(new Error('Ask your care team to check your phone number and text enrollment availability.'), { status: 409 });
   if (await isSmsSuppressed(sender, phone)) throw Object.assign(new Error('Texts are stopped. Contact your care team for help with the program’s re-enrollment instructions.'), { status: 409 });
   return createSmsConsentRequest({ agencyId, numberId: sender.id, phone,

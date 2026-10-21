@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),links:vi.fn(),audit:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listClientsForGuardian:m.links}}));
+vi.mock('../familyLedger/policy.js',()=>({transaction:fn=>fn({execute:m.execute})}));
+vi.mock('../familyBillingPolicy.service.js',()=>({auditBilling:m.audit,billingError:(status,message)=>Object.assign(new Error(message),{status})}));
+import {familyAccount,updateFamilyAccount} from '../familyPortalAccount.service.js';
+const input={firstName:'Demo',lastName:'Parent',phone:'7195550102',timezone:'America/Denver'};
+beforeEach(()=>{vi.clearAllMocks();m.links.mockResolvedValue([{agency_id:2,relationship_type:'self',date_of_birth:'1987-02-10'}]);m.execute.mockResolvedValue([[{first_name:'Demo',last_name:'Parent'}]]);});
+it('uses the self profile date of birth when the account has no demographic copy',async()=>{expect((await familyAccount(10)).dateOfBirth).toBe('1987-02-10');});
+it('saves only the signed-in person and does not create SMS consent',async()=>{await updateFamilyAccount({userId:10,agencyId:2,input:{...input,userId:99,role:'admin'}});expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE users SET first_name'),['Demo','Parent','+17195550102','+17195550102','America/Denver',10]);expect(m.audit).toHaveBeenCalled();expect(m.execute.mock.calls).toHaveLength(1);});
+it('rejects an unrelated agency and malformed contact data',async()=>{await expect(updateFamilyAccount({userId:10,agencyId:3,input})).rejects.toMatchObject({status:403});await expect(updateFamilyAccount({userId:10,agencyId:2,input:{...input,phone:'abc'}})).rejects.toMatchObject({status:400});expect(m.execute).not.toHaveBeenCalled();});

@@ -1,12 +1,12 @@
 <template>
-  <section class="guardian-intake-docs" aria-label="Signed intake documents">
-    <h3>Signed intake documents</h3>
-    <p>Copies you signed for the selected child. Each guardian’s private intake answers stay separate.</p>
-    <p v-if="!clientId">Select a child to view their documents.</p>
+  <section class="guardian-intake-docs" aria-label="Your signed copies">
+    <h3>Your signed copies</h3>
+    <p>Download documents you signed for this profile.</p>
+    <p v-if="!clientId">Select a profile to view their documents.</p>
     <p v-else-if="loading" role="status">Loading documents…</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
     <ul v-else-if="documents.length"><li v-for="document in documents" :key="document.id"><span>{{ document.document_template_name || 'Signed document' }}<small>{{ document.intake_link_title }}</small></span><button :disabled="downloading" @click="download(document)">Download PDF</button></li></ul>
-    <p v-else>No signed intake documents are available for this child yet.</p>
+    <p v-else>No signed copies for this profile yet.</p>
   </section>
 </template>
 <script setup>

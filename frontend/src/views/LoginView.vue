@@ -696,7 +696,7 @@
       </div>
     </div>
     <ServiceUseNotice :school-portal="isSchoolCareBridge || isSchoolPortalOrg" />
-    <PoweredByFooter v-if="!isAppLike && !isPlatformLogin" />
+    <PoweredByFooter v-if="!isAppLike && !isPlatformLogin" :include-legal="false" />
   </component>
 </template>
 

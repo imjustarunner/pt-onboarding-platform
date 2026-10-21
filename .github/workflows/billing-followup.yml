@@ -24,6 +24,12 @@ on:
       - 'frontend/src/components/schedule/__tests__/OfficeEventSessionNotePanel.test.js'
       - 'frontend/src/views/admin/ClinicalNoteGeneratorView.vue'
       - 'frontend/vitest.guardian-onboarding.config.js'
+      - 'frontend/vitest.family-refinement.config.js'
+      - 'frontend/src/components/guardian/**'
+      - 'frontend/src/components/portal/**'
+      - 'backend/src/services/guardianNotificationSetup.service.js'
+      - 'backend/src/services/clientSecureConversation.service.js'
+      - 'backend/src/controllers/guardianMessages.controller.js'
       - 'frontend/vitest.note-workspace.config.js'
       - 'backend/src/services/billingBenefitsEmail*.js'
       - 'backend/src/services/coverageVerification.service.js'
@@ -105,6 +111,12 @@ on:
       - 'frontend/src/components/schedule/__tests__/OfficeEventSessionNotePanel.test.js'
       - 'frontend/src/views/admin/ClinicalNoteGeneratorView.vue'
       - 'frontend/vitest.guardian-onboarding.config.js'
+      - 'frontend/vitest.family-refinement.config.js'
+      - 'frontend/src/components/guardian/**'
+      - 'frontend/src/components/portal/**'
+      - 'backend/src/services/guardianNotificationSetup.service.js'
+      - 'backend/src/services/clientSecureConversation.service.js'
+      - 'backend/src/controllers/guardianMessages.controller.js'
       - 'frontend/vitest.note-workspace.config.js'
       - 'backend/src/services/billingBenefitsEmail*.js'
       - 'backend/src/services/coverageVerification.service.js'
@@ -226,6 +238,8 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
       - name: Portal welcome and private issue reports
         run: npm --prefix frontend test -- --config vitest.guardian-onboarding.config.js
+      - name: Family portal navigation, onboarding, and secure messages
+        run: npm --prefix frontend test -- --config vitest.family-refinement.config.js
       - name: Note Workspace session draft and work queue navigation
         run: npm --prefix frontend test -- --config vitest.note-workspace.config.js
       - name: Guardian and billing workspace screens

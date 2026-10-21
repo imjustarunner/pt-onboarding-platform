@@ -12,6 +12,7 @@ import {previewClientPortalInvites} from './clientPortalInvites.service.js';
 import {sendHubPortalInvitation} from './messagesHub.service.js';
 import {decodeInsuranceProfile} from '../models/GuardianInsuranceProfile.model.js';
 import {cardProgress} from './insuranceCards/policy.js';
+import {isGuardianTestAccount,guardianTestAccessAllowed} from './guardianTestAccess.service.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
 
 export function usableMigrationCard(card,now=new Date(),connectedAccountId=null){
@@ -44,12 +45,24 @@ export async function portalMigrationOverview(input){
  const readiness=billingAllowed?await getReadiness(agencyId,clientId):{};
  const paymentReady=billingAllowed?await migrationPaymentReady({agencyId,userId:user.id}):false;
  const [[consent]]=billingAllowed?await pool.execute("SELECT id FROM guardian_billing_consents WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND purpose='responsible_payer' AND revoked_at IS NULL ORDER BY id DESC LIMIT 1",[agencyId,clientId,user.id]):[[]];
- let insuranceCardMissing=billingAllowed&&!!insurance;
- if(billingAllowed&&insurance?.profileId){const [[row]]=await pool.execute('SELECT * FROM guardian_insurance_profiles WHERE id=? AND agency_id=?',[insurance.profileId,agencyId]);if(row)insuranceCardMissing=cardProgress(decodeInsuranceProfile(row),{}).missingSlots.length>0;}
+ let insuranceCardMissing=billingAllowed&&!!insurance,insuranceWaiting=false;
+ if(billingAllowed&&insurance?.profileId){const [[row]]=await pool.execute('SELECT * FROM guardian_insurance_profiles WHERE id=? AND agency_id=?',[insurance.profileId,agencyId]);if(row){const [[followup]]=await pool.execute('SELECT * FROM insurance_card_followups WHERE profile_id=? AND agency_id=?',[insurance.profileId,agencyId]);const progress=cardProgress(decodeInsuranceProfile(row),followup||{});insuranceCardMissing=progress.missingSlots.length>0&&!['waived','not_required'].includes(progress.state);insuranceWaiting=progress.state==='help'||Number(row.guardian_user_id)!==Number(user.id);}}
  const [[choices]]=await pool.execute('SELECT updated_at FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,user.id]);
  const [providers]=await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.title FROM users u WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND (u.id=(SELECT provider_id FROM clients WHERE id=? AND agency_id=?) OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id=? AND is_active=1))`,[clientId,agencyId,clientId]);
- const items=migrationChecklist({self:link.relationship_type==='self',notificationsConfirmed:!!choices&&new Date(choices.updated_at)>=new Date(enrollment.created_at),insurance,coverageKnown:billingAllowed&&(!!insurance?.primary?.memberId||readiness.coverage_mode==='self_pay'),paymentReady,authorizationReady:!!consent,insuranceCardMissing,demographicsConfirmed:!!demographic&&enrollment.information_revision===demographic.revision,planAvailable:!!plan?.hasActivePlan,planAcknowledged:!!plan?.acknowledgments?.some(a=>a.status==='signed')});
- return {enrolled:true,profile:{name:link.full_name||link.initials,relationship:link.relationship_type,agencyName:link.agency_name,agencyLogo:link.agency_logo_url,school:link.organization_type==='school'?{name:link.organization_name,logo:link.organization_logo_url}:null,providers:providers.map(p=>({id:p.id,name:[p.first_name,p.last_name].filter(Boolean).join(' '),title:p.title||null}))},cohort:enrollment.cohort_label,informationRevision:demographic?.revision||null,items:items.filter(i=>(i.key!=='information'||demographic)&&(i.key!=='plan'||plan)),historyNotice:'Payment cards and earlier billing history do not transfer automatically. Request prior receipts or balances in Billing.'};
+ const learning=['learning','tutoring'].includes(link.client_type);
+ const items=migrationChecklist({self:link.relationship_type==='self',notificationsConfirmed:!!choices&&new Date(choices.updated_at)>=new Date(enrollment.created_at),insurance:learning?null:insurance,coverageKnown:learning||billingAllowed&&(!!insurance?.primary?.memberId||readiness.coverage_mode==='self_pay'),paymentReady,authorizationReady:!!consent,insuranceCardMissing:!learning&&insuranceCardMissing,demographicsConfirmed:!!demographic&&enrollment.information_revision===demographic.revision,planAvailable:!!plan?.hasActivePlan,planAcknowledged:!!plan?.acknowledgments?.some(a=>a.status==='signed')});
+ const [[account]]=await pool.execute('SELECT email,role,is_demo,is_active,status_expires_at FROM users WHERE id=?',[user.id]);const demo=isGuardianTestAccount(account);
+ const [demoRows]=demo?await pool.execute('SELECT step_key FROM family_portal_onboarding_demo_steps WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,user.id]):[[]];
+ const [paymentAccounts]=billingAllowed?await pool.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id=? AND stripe_connect_status='active'",[agencyId]):[[]];
+ const availableItems=items.filter(i=>(i.key!=='information'||demographic)&&(i.key!=='plan'||plan));
+ for(const item of availableItems){
+   if(learning&&item.key==='plan'){item.title='Review your learning plan';item.detail='Review the learning goals shared by your tutor and acknowledge them when available.';}
+   if(item.key==='plan'&&!item.complete&&!plan?.acknowledgments?.some(a=>a.status!=='signed')){item.waiting=true;item.detail='Your care team will let you know when a plan is ready for your acknowledgment.';}
+   if(item.key==='insurance'&&insuranceWaiting&&!item.complete){item.waiting=true;item.detail='Your billing team is helping with this insurance card. You can finish the other steps now.';}
+   if(item.key==='payment'&&!item.complete&&!demo&&!paymentAccounts.length){item.waiting=true;item.detail='Your billing team is preparing secure payment setup. You can finish the other steps now.';}
+   if(demo&&demoRows.some(r=>r.step_key===item.key)){item.complete=true;item.demoComplete=true;}
+ }
+ return {enrolled:true,demo,complete:availableItems.every(i=>i.complete||i.waiting),profile:{name:link.full_name||link.initials,relationship:link.relationship_type,agencyName:link.agency_name,agencyLogo:link.agency_logo_url,school:link.organization_type==='school'?{name:link.organization_name,logo:link.organization_logo_url}:null,providers:providers.map(p=>({id:p.id,name:[p.first_name,p.last_name].filter(Boolean).join(' '),title:p.title||null}))},cohort:enrollment.cohort_label,informationRevision:demographic?.revision||null,items:availableItems,historyNotice:'Payment cards and earlier billing history do not transfer automatically. Request prior receipts or balances in Billing.'};
 }
 export async function confirmMigrationInformation(input){
  const {enrollment}=await migrationAccess(input);if(!enrollment)throw billingError(404,'Portal onboarding is not assigned');
@@ -111,4 +124,32 @@ export async function migrationNotificationSettings(input) {
   const {createFamilyNotificationInvitation}=await import('./familyNotificationChoices.service.js');
   const invitation=await createFamilyNotificationInvitation({agencyId:input.agencyId,clientId:input.clientId,guardianUserId:input.user.id,actorUserId:input.user.id,forAccountSettings:true});
   return {url:invitation.url};
+}
+
+export async function migrationNotificationChoices(input) {
+ await migrationAccess(input);
+ const {createFamilyNotificationInvitation,familyNotificationInvitationContext}=await import('./familyNotificationChoices.service.js');
+ const {FAMILY_ACCOUNT_UPDATE_CATEGORIES,FAMILY_CHOICE_VERSION,FAMILY_CHOICE_DISCLOSURE,accountUpdateChoices}=await import('../utils/familyNotificationChoices.js');
+ const invitation=await createFamilyNotificationInvitation({agencyId:input.agencyId,clientId:input.clientId,guardianUserId:input.user.id,actorUserId:input.user.id,forAccountSettings:true});
+ const token=new URL(invitation.url).pathname.split('/').pop();
+ const context=await familyNotificationInvitationContext(token);
+ return {token,version:FAMILY_CHOICE_VERSION,disclosure:FAMILY_CHOICE_DISCLOSURE,categories:FAMILY_ACCOUNT_UPDATE_CATEGORIES,revision:context.revision,choices:accountUpdateChoices(context.choices,{isSchool:context.recipient.client_type==='school'})};
+}
+export async function saveMigrationNotificationChoices(input) {
+ await migrationAccess(input);
+ const {familyNotificationInvitationContext,saveFamilyNotificationChoices}=await import('./familyNotificationChoices.service.js');
+ const context=await familyNotificationInvitationContext(input.token),scope=context.scope;
+ if(Number(scope.agency_id)!==input.agencyId||Number(scope.client_id)!==input.clientId||Number(scope.guardian_user_id)!==Number(input.user.id))throw billingError(403,'These notification choices belong to a different profile.');
+ return saveFamilyNotificationChoices({token:input.token,input:input.choices});
+}
+export async function completeDemoMigrationStep(input) {
+ const {enrollment}=await migrationAccess(input);const [[account]]=await pool.execute('SELECT email,role,is_demo,is_active,status_expires_at FROM users WHERE id=?',[input.user.id]);
+ const [[client]]=await pool.execute('SELECT is_demo FROM clients WHERE id=? AND agency_id=?',[input.clientId,input.agencyId]);
+ if(!enrollment||!isGuardianTestAccount(account)||!guardianTestAccessAllowed(account)||Number(client?.is_demo)!==1)throw billingError(403,'Sample completion is available only for fictional test profiles.');
+ if(!['insurance','authorization','payment'].includes(input.step))throw billingError(400,'This step requires its actual review action.');
+ const overview=await portalMigrationOverview(input);
+ if(!overview.items.some(i=>i.key===input.step))throw billingError(400,'This step does not apply to this profile.');
+ await pool.execute('INSERT IGNORE INTO family_portal_onboarding_demo_steps (agency_id,client_id,guardian_user_id,step_key) VALUES (?,?,?,?)',[input.agencyId,input.clientId,input.user.id,input.step]);
+ await auditBilling({agencyId:input.agencyId,clientId:input.clientId,userId:input.user.id,action:'demo_onboarding_'+input.step});
+ return {completed:true,demo:true};
 }

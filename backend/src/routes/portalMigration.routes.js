@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import {authenticate,requireActiveStatus} from '../middleware/auth.middleware.js';
 import {positiveId} from '../services/familyBillingPolicy.service.js';
 import {requireBillingStaff} from '../services/familyLedger/policy.js';
-import {portalMigrationOverview,migrationNotificationSettings,confirmMigrationInformation,prepareMigrationCohort,inviteMigrationFamily} from '../services/portalMigration.service.js';
+import {portalMigrationOverview,migrationNotificationSettings,migrationNotificationChoices,saveMigrationNotificationChoices,completeDemoMigrationStep,confirmMigrationInformation,prepareMigrationCohort,inviteMigrationFamily} from '../services/portalMigration.service.js';
 import {prepareGuardianAccountsForClients} from '../services/guardianAccountPreparation.service.js';
 const router=express.Router();router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
 const run=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){next(e);}};
@@ -11,6 +11,9 @@ const context=req=>({user:req.user,clientId:positiveId(req.params.clientId),agen
 router.get('/clients/:clientId',run(async(req,res)=>res.json(await portalMigrationOverview(context(req)))));
 router.post('/clients/:clientId/notifications',run(async(req,res)=>res.json(await migrationNotificationSettings(context(req)))));
 router.post('/clients/:clientId/information',run(async(req,res)=>res.json(await confirmMigrationInformation({...context(req),revision:req.body.revision,confirmed:req.body.confirmed}))));
+router.get('/clients/:clientId/notification-choices',run(async(req,res)=>res.json(await migrationNotificationChoices(context(req)))));
+router.put('/clients/:clientId/notification-choices',run(async(req,res)=>res.json(await saveMigrationNotificationChoices({...context(req),token:req.body.token,choices:req.body.preferences}))));
+router.post('/clients/:clientId/demo-step',run(async(req,res)=>res.json(await completeDemoMigrationStep({...context(req),step:req.body.step}))));
 router.use('/staff',rateLimit({windowMs:60000,max:20}),async(req,res,next)=>{try{await requireBillingStaff(req.user,positiveId(req.body.agencyId));next();}catch(e){next(e);}});
 router.post('/staff/prepare-accounts',run(async(req,res)=>res.json(await prepareGuardianAccountsForClients({actor:req.user,agencyId:positiveId(req.body.agencyId),clientIds:req.body.clientIds,dryRun:req.body.apply!==true}))));
 router.post('/staff/preview',run(async(req,res)=>res.json(await prepareMigrationCohort({actor:req.user,agencyId:positiveId(req.body.agencyId),clientIds:req.body.clientIds,cohortLabel:req.body.cohortLabel}))));

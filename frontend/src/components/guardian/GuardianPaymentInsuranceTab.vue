@@ -1,18 +1,19 @@
 <template>
   <div class="family-billing">
-    <header><h3>Insurance &amp; payment methods</h3><p>Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.</p></header>
+    <header><h3>{{ section === 'authorization' ? 'Payment authorization' : section === 'payment' ? 'Payment method' : 'Insurance & payment methods' }}</h3><p>Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.</p></header>
     <p v-if="loading" role="status">Loading billing…</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <InsuranceCardTasks :key="insuranceRevision" :agency-id="agencyId" />
+    <InsuranceCardTasks v-if="section === 'all'" :key="insuranceRevision" :agency-id="agencyId" :client-id="clientId" />
     <template v-if="data">
       <p v-if="!data.clients.length">No clients are linked to this account in this organization.</p>
       <section class="client-grid">
-        <article v-for="client in data.clients" :key="client.clientId" class="billing-card">
+        <article v-for="client in scopedClients" :key="client.clientId" class="billing-card">
           <h4>{{ client.clientName }}</h4>
           <p><strong>Responsible payer:</strong> {{ client.responsiblePayers.map(p => p.name).join(', ') || 'Not yet designated' }}</p>
-          <p v-if="client.insuranceOnFile">Insurance information is on file. The office confirms benefits and primary or secondary coverage. Another parent’s policy details stay private.</p>
-          <template v-if="client.canManageBilling">
+          <p v-if="client.insuranceOnFile">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
+          <button v-if="section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
+          <template v-else-if="client.canManageBilling">
             <p class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : 'Payment method required before paid services' }}</p>
             <label>Your card for this client<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
             <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this client</button>
@@ -32,19 +33,19 @@
         <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">Sign authorization</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">Cancel</button></div>
       </form>
       <template v-if="manageableClients.length || insurableClients.length">
-        <section v-if="manageableClients.length" class="billing-card wallet-section">
+        <section v-if="manageableClients.length && section !== 'authorization'" class="billing-card wallet-section">
           <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : 'Add a card' }}</button></div>
           <p v-if="!data.stripe.enabled">Card collection is not enabled for this organization yet. The office will need to arrange payment before paid services.</p>
           <p v-if="!data.cards.length">No payment method on file.</p>
-          <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} · expires {{ card.card_exp_month }}/{{ card.card_exp_year }}</span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
-          <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for all your clients.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
+          <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} · {{ expired(card) ? 'Expired' : 'Expires' }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
+          <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for your clients at this agency.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
           <SecureCardSetup v-if="showCard" :key="agencyId" :agency-id="agencyId" @saved="cardSaved" />
         </section>
-        <section v-if="insurableClients.length" class="billing-card insurance-section">
+        <section v-if="insurableClients.length && section === 'all'" class="billing-card insurance-section">
           <div class="section-head"><h4>Your insurance policies</h4><button class="btn btn-secondary" type="button" @click="editInsurance()">Add insurance</button></div>
           <p>You may add coverage you hold for your child without accepting payment responsibility. Additional coverage is submitted for office review and does not replace another parent’s policy.</p>
-          <p v-if="!data.profiles.length">No insurance policy has been assigned from your account.</p>
-          <article v-for="profile in data.profiles" :key="profile.id" class="policy-summary">
+          <p v-if="!scopedProfiles.length">No insurance policy has been assigned from your account.</p>
+          <article v-for="profile in scopedProfiles" :key="profile.id" class="policy-summary">
             <h5>{{ profile.primary.insurerName || 'Policy awaiting review' }}</h5>
             <p>Member ID: {{ profile.primary.memberId || 'Missing' }} · Subscriber: {{ profile.primary.subscriberName || 'Missing' }}</p>
             <p>Coverage submitted for: {{ profile.clientIds.map(id => data.clients.find(c => Number(c.clientId) === id)?.clientName).filter(Boolean).join(', ') || 'No client selected' }}</p>
@@ -54,7 +55,7 @@
             <button class="btn btn-secondary" type="button" @click="editInsurance(profile)">Review coverage / apply to clients</button>
           </article>
         </section>
-        <form v-if="insuranceDraft" class="billing-card" @submit.prevent="saveInsurance">
+        <form v-if="insuranceDraft" ref="insuranceForm" class="billing-card" @submit.prevent="saveInsurance">
           <h4>Insurance coverage</h4>
           <label>Policy scope<select v-model="insuranceDraft.coverageScope"><option value="client">One client</option><option value="account_holder">Account holder and covered dependents</option></select></label>
           <fieldset><legend>Clients covered by this policy</legend><label v-for="client in insurableClients" :key="client.clientId" class="check"><input v-model="insuranceDraft.clientIds" type="checkbox" :value="Number(client.clientId)" /> {{ client.clientName }}</label></fieldset>
@@ -70,15 +71,18 @@
 </template>
 <script setup>
 import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import SecureCardSetup from '../billing/SecureCardSetup.vue';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
 const insuranceRevision = ref(0);
-const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,String] });
+const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,String], clientId:[Number,String], section:{type:String,default:'all'} });
 const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''), busy = ref(false), showCard = ref(false), removingCard = ref(null), authorization = ref(null), signature = ref(''), accepted = ref(false), limitDollars = ref(''), cardSelections = ref({}), insuranceDraft = ref(null), hasSecondary = ref(false), coverageConfirmed = ref(false);
-const manageableClients = computed(() => (data.value?.clients || []).filter(c => c.canManageBilling));
-const insurableClients = computed(() => (data.value?.clients || []).filter(c => c.canManageInsurance ?? c.canManageBilling));
+const scopedClients = computed(() => (data.value?.clients || []).filter(c => !props.clientId || Number(c.clientId) === Number(props.clientId)));
+const scopedProfiles = computed(() => (data.value?.profiles || []).filter(p => !props.clientId || p.clientIds?.some(id => Number(id) === Number(props.clientId))));
+const manageableClients = computed(() => scopedClients.value.filter(c => c.canManageBilling));
+const insurableClients = computed(() => scopedClients.value.filter(c => c.canManageInsurance ?? c.canManageBilling));
+const expired = card => Number(card.card_exp_year) < new Date().getFullYear() || (Number(card.card_exp_year) === new Date().getFullYear() && Number(card.card_exp_month) < new Date().getMonth() + 1);
 const money = cents => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents || 0)/100);
 let generation = 0;
 async function load() {
@@ -100,13 +104,14 @@ function assign(client) { return perform(() => api.post(`/guardian-billing/clien
 function revoke(client) { return perform(() => api.delete(`/guardian-billing/clients/${client.clientId}/recurring`,{params:{agencyId:props.agencyId}}),'Recurring authorization revoked.'); }
 function removeCard() { const id=removingCard.value.id; return perform(async () => {await api.delete(`/guardian-billing/payment-cards/${id}`,{params:{agencyId:props.agencyId}});removingCard.value=null;},'Card removed and its authorizations revoked.'); }
 function cardSaved() { showCard.value=false; notice.value='Card saved. Select which clients will use it.'; void load(); }
-function editInsurance(profile) { insuranceDraft.value={profileId:profile?.id,coverageScope:profile?.coverageScope || 'client',clientIds:[...(profile?.clientIds || [])],primary:{...(profile?.primary || {})},secondary:{...(profile?.secondary || {})}}; hasSecondary.value=!!profile?.secondary; coverageConfirmed.value=false; }
+const insuranceForm = ref(null);
+async function editInsurance(profile) { insuranceDraft.value={profileId:profile?.id,coverageScope:profile?.coverageScope || 'client',clientIds:[...(profile?.clientIds || (props.clientId ? [Number(props.clientId)] : []))],primary:{...(profile?.primary || {})},secondary:{...(profile?.secondary || {})}}; hasSecondary.value=!!profile?.secondary; coverageConfirmed.value=false; await nextTick(); insuranceForm.value?.scrollIntoView?.({block:"start",behavior:"smooth"}); insuranceForm.value?.querySelector("input,select")?.focus({preventScroll:true}); }
 function saveInsurance() { const payload={...insuranceDraft.value,agencyId:props.agencyId,coverageConfirmed:coverageConfirmed.value,secondary:hasSecondary.value ? insuranceDraft.value.secondary : null}; return perform(async()=>{await api.post('/guardian-billing/insurance',payload);insuranceRevision.value++;insuranceDraft.value=null;},'Your insurance was saved for office review. Upload your card sides below when requested.'); }
-watch(()=>[props.agencyId,props.guardianUserId],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
+watch(()=>[props.agencyId,props.guardianUserId,props.clientId,props.section],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
 </script>
 <style scoped>
 .family-billing{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.family-billing>header,.family-billing>.client-grid,.family-billing>p,.family-billing>form{grid-column:1/-1}.family-billing>header p{font-size:14px;color:#566b84;margin-top:6px}.family-billing .section-head h4{font-size:18px;color:#1d3554}.family-billing .saved-row{background:var(--portal-tint,#f2f6fb);padding:18px;border:1px solid #e0e8f3}.family-billing .policy-summary{border-color:#dfe8f1;padding:20px}.family-billing .policy-summary h5{color:var(--portal-accent,#2459ad);font-size:20px}.family-billing .billing-card{box-shadow:0 3px 14px #193e7310}.family-billing input,.family-billing select{font:inherit}.family-billing :deep(.btn-primary){background:var(--portal-accent,#2459ad);color:var(--portal-on-accent,#fff)}
 @media(max-width:1100px){.family-billing{grid-template-columns:minmax(0,1fr)}}
 
-.family-billing { display:grid; gap:20px; color:var(--text-primary,#0f172a); } header p { max-width:850px; } h3,h4,h5 { margin:0 0 10px; } h5 {font-size:16px} p {line-height:1.5} .client-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px} .billing-card {padding:22px;border:1px solid var(--border,#cbd5e1);border-radius:14px;background:white;display:grid;gap:12px;align-content:start} .billing-card p {margin:0} .section-head,.saved-row,.actions {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap} .saved-row {padding:12px;background:#f8fafc;border-radius:8px} label {display:grid;gap:6px} input:not([type=checkbox]),select {padding:10px;border:1px solid #94a3b8;border-radius:7px;max-width:100%;color:#0f172a;background:white} .check {display:flex;align-items:flex-start;gap:10px}.check input {margin-top:4px}.authorization {border-color:#2563eb}.notice {padding:14px;background:#eff6ff;border-radius:8px}.error {color:#b91c1c}.status {color:#334155;font-weight:600}.policy-summary {padding:16px;border:1px solid #cbd5e1;border-radius:10px;display:grid;gap:10px} fieldset {border:1px solid #cbd5e1;border-radius:8px;display:grid;gap:10px}button {white-space:normal;text-align:left}
+.family-billing { display:grid; gap:20px; color:var(--text-primary,#0f172a); } header p { max-width:850px; } h3,h4,h5 { margin:0 0 10px; } h5 {font-size:16px} p {line-height:1.5} .client-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px} .billing-card {padding:22px;border:1px solid var(--border,#cbd5e1);border-radius:14px;background:white;display:grid;gap:12px;align-content:start} .billing-card p {margin:0} .section-head,.saved-row,.actions {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap} .saved-row {padding:12px;background:#f8fafc;border-radius:8px} label {display:grid;gap:6px} input:not([type=checkbox]),select {padding:10px;border:1px solid #94a3b8;border-radius:7px;max-width:100%;color:#0f172a;background:white} .check {display:flex;align-items:flex-start;gap:10px}.check input {margin-top:4px}form.billing-card {scroll-margin-top:190px}.authorization {border-color:#2563eb}.notice {padding:14px;background:#eff6ff;border-radius:8px}.error {color:#b91c1c}.status {color:#334155;font-weight:600}.policy-summary {padding:16px;border:1px solid #cbd5e1;border-radius:10px;display:grid;gap:10px} fieldset {border:1px solid #cbd5e1;border-radius:8px;display:grid;gap:10px}button {white-space:normal;text-align:left}
 </style>

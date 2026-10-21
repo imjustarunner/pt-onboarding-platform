@@ -1600,6 +1600,16 @@ if (!isBootstrap) {
   };
   processAdminUpdates();
   setInterval(processAdminUpdates, 60 * 1000);
+  let portalOnboardingBusy = false;
+  const processPortalOnboarding = async () => {
+    if (portalOnboardingBusy) return;
+    portalOnboardingBusy = true;
+    try { const {processPortalOnboardingReminders}=await import('./services/portalOnboardingReminders.service.js'); await processPortalOnboardingReminders(); }
+    catch(error) { if(error.code!=='ER_NO_SUCH_TABLE') console.error('[portal onboarding]',error.code||'processing_failed'); }
+    finally {portalOnboardingBusy=false;}
+  };
+  void processPortalOnboarding();
+  setInterval(processPortalOnboarding, 60*60*1000).unref();
   let trainingNoticesBusy = false;
   let credentialNoticesBusy = false;
   const processCredentialNotices = async () => {

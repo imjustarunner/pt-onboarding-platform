@@ -7,13 +7,13 @@ import { clinicalAccess } from '../guardianClinicalAccess.service.js';
 import { resolveClientRecordAccess } from '../clientRecordAccess.service.js';
 import { clientSecureAudience, ensureClientSecureConversation, resolveClientForSecureRecipients } from '../clientSecureConversation.service.js';
 import ClientGuardian from '../../models/ClientGuardian.model.js';
-const client = { id: 4, agency_id: 2, user_id: 8, provider_id: 3, client_type: 'clinical', guardian_portal_enabled: 1 };
+const client = { id: 4, agency_id: 2, provider_id: 3, client_type: 'clinical', guardian_portal_enabled: 1 };
 let db;
 beforeEach(() => {
   vi.clearAllMocks();
   pool.execute.mockImplementation(async (sql) => {
     if (sql.includes('FROM clients WHERE id')) return [[client]];
-    if (sql.includes('SELECT cg.guardian_user_id')) return [[{ guardian_user_id: 9 }, { guardian_user_id: 10 }]];
+    if (sql.includes('SELECT cg.guardian_user_id')) return [[{ guardian_user_id: 9 }, { guardian_user_id: 10 }, { guardian_user_id: 8, relationship_type: 'self' }]];
     if (sql.includes('SELECT DISTINCT u.id')) return [[{ id: 3 }, { id: 11 }]];
     if (sql.includes('SELECT id, first_name')) return [[{ id: 8 }]];
     if (sql.includes('SELECT role')) return [[{ role: 'client_guardian' }]];
@@ -73,3 +73,5 @@ it('removes a revoked actor before rejecting the read so stale inbox membership 
   expect(deletion[1]).not.toContain(9); expect(deletion[1]).toContain(10);
   expect(db.commit).toHaveBeenCalled();
 });
+
+it("resolves self access through the authorized relationship, without a nonexistent clients.user_id column",async()=>{const audience=await clientSecureAudience(4);expect(audience.participants.find(p=>p.id===8).role).toBe("client");expect(audience.guardians).not.toContain(8);expect(pool.execute.mock.calls.some(([sql])=>/c\.user_id|organization_id, user_id/.test(sql))).toBe(false);});

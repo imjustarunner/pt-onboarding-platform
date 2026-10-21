@@ -21,8 +21,7 @@ async function userEmails(userId) {
 
 async function sharedEmailScope(userId, emails) {
   const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope: 'clinical_messages' });
-  const [self] = await pool.execute('SELECT id FROM clients WHERE user_id = ?', [userId]);
-  const ids = [...new Set([...linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id)), ...self.map(c => Number(c.id))])];
+  const ids = [...new Set([...linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id))])];
   return {
     sql: `((EXISTS (SELECT 1 FROM communication_links cl WHERE cl.conversation_id = c.id AND cl.entity_type = 'client' AND cl.entity_id IN (${ids.map(() => '?').join(',') || 'NULL'})))
       OR (NOT EXISTS (SELECT 1 FROM communication_links cl WHERE cl.conversation_id = c.id AND cl.entity_type = 'client')

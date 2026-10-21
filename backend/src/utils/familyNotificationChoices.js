@@ -52,7 +52,7 @@ export function familyNotificationCategory(templateType) {
   if(['session_change','session_cancellation'].includes(type))return 'schedule_changes';
   if(type==='school_session_notice')return 'school_sessions';
   if(['secure_message_notification','learning_client_message'].includes(type))return 'messages';
-  if(['guardian_plan_review','school_roi_signing','school_roi_signer_completion','smart_school_roi','intake_packet_completion','intake_summary_pdf_copy'].includes(type))return 'documents';
+  if(['portal_onboarding_reminder','guardian_plan_review','school_roi_signing','school_roi_signer_completion','smart_school_roi','intake_packet_completion','intake_summary_pdf_copy'].includes(type))return 'documents';
   if(type.startsWith('enrollment_unfinished_reminder')||['adaptive_full_intake_invite','client_renewal','family_notification_invitation','portal_migration_invite'].includes(type))return 'enrollment';
   if(['family_cost_estimate','family_benefits_update','family_balance_due','family_payment_setup','family_collections','family_statement','family_billing_statement','family_payment_authorization'].includes(type))return 'billing';
   if(type==='insurance_card_followup')return 'insurance';

@@ -1,6 +1,6 @@
 <template>
   <section class="clinical-workspace" :class="{ 'auricwell-surface': clinical, 'clinical-workspace--compact': compact }" :data-workspace="enabled ? (clinical ? 'auricwell' : 'tenant') : undefined">
-    <header v-if="enabled && !nested" class="clinical-workspace__header">
+    <header v-if="enabled && !nested && !hideHeader" class="clinical-workspace__header">
       <div class="clinical-workspace__identity">
         <img v-if="logo && !tenantLogoFailed" :src="logo" :alt="`${tenantLabel} logo`" class="clinical-workspace__tenant-logo" @error="tenantLogoFailed = true" />
         <div><strong class="clinical-workspace__tenant">{{ tenantLabel }}</strong><span class="clinical-workspace__context">{{ contextLabel }}</span></div>
@@ -30,7 +30,7 @@ import { clinicalReturnPath } from '../../utils/clinicalWorkspace';
 import '../../styles/clinicalWorkspace.css';
 const props = defineProps({
   enabled: { type: Boolean, default: true }, mode: { type: String, default: 'clinical' },
-  switchable: Boolean, immersive: Boolean, compact: Boolean,
+  hideHeader: Boolean, switchable: Boolean, immersive: Boolean, compact: Boolean,
   overviewLabel: { type: String, default: 'Tenant view' }, clinicalLabel: { type: String, default: 'AuricWell EHR' },
   tenantId: { type: [Number, String], default: null }, tenantName: { type: String, default: '' }, tenantLogo: { type: String, default: '' },
   contextLabel: { type: String, default: 'Client record' }, returnLabel: { type: String, default: '' },

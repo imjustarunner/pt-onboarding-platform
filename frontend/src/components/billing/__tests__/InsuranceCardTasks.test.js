@@ -32,5 +32,5 @@ it('requests only the commercial card sides when secondary Medicaid is present',
  const w=mount(InsuranceCardTasks,{props:{agencyId:1}});await flushPromises();
  expect(w.findAll('input[type=file]')).toHaveLength(2);
  expect(w.findAll('.side').filter(side=>side.isVisible()).map(side=>side.find('strong').text())).toEqual(['Primary card · front','Primary card · back']);
- expect(w.text()).toContain('Medicaid cards are never requested.');w.unmount();
+ expect(w.text()).toContain('Medicaid cards are not needed.');w.unmount();
 });

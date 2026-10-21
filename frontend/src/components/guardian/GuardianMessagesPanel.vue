@@ -2,27 +2,25 @@
   <div class="gmsg conversa-surface">
     <div class="panel-head">
       <ConversaBrand compact />
-      <div class="panel-subtitle">Messaging managed by Conversa. Connect with your care team, read updates, and keep your conversations together.</div>
+      <div class="panel-subtitle">Choose “Message your care team” to read or send a secure message.</div>
     </div>
 
     <div class="gmsg-tabs">
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'provider' }" @click="mode = 'provider'">
-        Messages
+        Secure messages
       </button>
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'support' }" @click="switchToSupport">
         Support
       </button>
-      <button type="button" class="gmsg-tab" :class="{ active: mode === 'sms' }" @click="switchToSms">
-        Text history
-      </button>
+
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
 
     <template v-if="mode === 'provider'">
       <div v-if="loading" class="muted">Loading conversations…</div>
-      <div v-else class="gmsg-body">
-        <aside class="gmsg-list">
+      <div v-else class="gmsg-body gmsg-provider-body" :class="{'has-conversation': selectedKey}">
+        <aside class="gmsg-list" :class="{'conversation-picked': selectedKey}">
           <button
             v-for="item in mailboxItems"
             :key="item.key"
@@ -36,14 +34,15 @@
               <ConversaBadge :type="item.type" />
               {{ item.title }}
             </div>
-            <div class="gmsg-row-meta">{{ item.subtitle }}</div>
+            <div class="gmsg-row-meta">{{ item.subtitle }}</div><span class="message-action">{{ item.provider || item.available ? 'Message your care team →' : 'Waiting for a provider assignment' }}</span>
           </button>
-          <div v-if="!mailboxItems.length" class="muted pad">No messages yet. When your team emails you or sends a secure message, it will show here.</div>
+          <div v-if="!mailboxItems.length" class="muted pad">No care conversations are available for this profile yet. You can use Support for account questions.</div>
         </aside>
 
         <section class="gmsg-chat">
-          <div v-if="!selectedKey" class="muted pad">Select a conversation to read and reply.</div>
+          <div v-if="!selectedKey" class="muted pad message-placeholder">Open your care conversation using the button above.</div>
           <template v-else>
+            <button class="back-conversations" type="button" @click="selected=null;selectedEmail=null;messages=[]">← Back to conversations</button>
             <SecureMessageBanner v-if="selectedType === 'secure'" :thread-id="selected?.thread_id" />
             <div class="gmsg-chat-head">
               <strong>{{ selectedTitle }}</strong>
@@ -58,11 +57,11 @@
                 :class="{ mine: m.isMine }"
               >
                 <div class="gmsg-meta">{{ m.senderName || (m.isMine ? 'You' : 'Care conversation') }} · {{ formatTime(m.created_at) }}</div>
-                <div class="gmsg-body">{{ m.body }}</div>
+                <div class="gmsg-message-text">{{ m.body }}</div>
               </div>
               <div v-if="!messages.length" class="muted">No messages yet. Say hello.</div>
             </div>
-            <p v-if="selectedType === 'secure'" class="muted pad" role="note">Messages about your child are shared with all authorized parents or guardians and the assigned care team. Please use this conversation for child-related messages.</p>
+            <p v-if="selectedType === 'secure'" class="muted pad" role="note">Only the authorized people listed above can access this care conversation. For emergencies, contact emergency services.</p>
             <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.</p>
             <div v-else class="gmsg-composer">
               <textarea
@@ -76,46 +75,11 @@
                 :disabled="sending || !draft.trim()"
                 @click="send"
               >
-                {{ sending ? 'Sending…' : 'Reply' }}
+                {{ sending ? 'Sending…' : 'Send secure message' }}
               </button>
             </div>
           </template>
         </section>
-      </div>
-    </template>
-
-    <template v-else-if="mode === 'sms'">
-      <div class="gmsg-sms-panel">
-        <p class="muted pad-sm">
-          Texts sent to or from your phone (or your child’s contact phone) with this organization.
-          This is a history view only — reply in Provider or Support above.
-        </p>
-        <div class="gmsg-sms-filters pad-sm">
-          <label>
-            <span class="muted">Child</span>
-            <select v-model="smsClientFilter" @change="loadSmsAudit">
-              <option value="">All</option>
-              <option v-for="c in childOptions" :key="c.client_id" :value="String(c.client_id)">
-                {{ c.client_label }}
-              </option>
-            </select>
-          </label>
-          <button type="button" class="btn btn-secondary" :disabled="smsLoading" @click="loadSmsAudit">
-            {{ smsLoading ? 'Loading…' : 'Refresh' }}
-          </button>
-        </div>
-        <div v-if="smsLoading && !smsItems.length" class="muted pad">Loading text history…</div>
-        <div v-else-if="!smsItems.length" class="muted pad">No text messages in your history yet.</div>
-        <ul v-else class="gmsg-sms-list">
-          <li v-for="row in smsItems" :key="row.id" class="gmsg-sms-row">
-            <div class="gmsg-sms-meta">
-              <span>{{ row.direction === 'INBOUND' ? 'Received' : 'Sent' }}</span>
-              <span class="muted">{{ formatTime(row.occurredAt) }}</span>
-            </div>
-            <div class="gmsg-sms-body">{{ row.body || '—' }}</div>
-            <div class="muted gmsg-sms-nums">{{ row.fromNumber }} → {{ row.toNumber }}</div>
-          </li>
-        </ul>
       </div>
     </template>
 
@@ -200,7 +164,7 @@
                 :class="{ mine: m.author_user_id === meId }"
               >
                 <div class="gmsg-meta">{{ formatTime(m.created_at) }}</div>
-                <div class="gmsg-body">{{ m.body }}</div>
+                <div class="gmsg-message-text">{{ m.body }}</div>
               </div>
               <div v-if="!ticketMessages.length" class="muted">No replies yet.</div>
             </div>
@@ -241,6 +205,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { GUARDIAN_TICKET_TOPICS, ticketTopicLabel } from '../../utils/ticketTopics';
 
+const props=defineProps({clientId:[Number,String]});
 const authStore = useAuthStore();
 const meId = computed(() => authStore.user?.id || null);
 const guardianTopics = GUARDIAN_TICKET_TOPICS;
@@ -276,14 +241,14 @@ const ticketThreadEl = ref(null);
 const newTicket = ref({ clientId: '', topic: 'general', subject: '', question: '' });
 
 const childOptions = computed(() =>
-  (threads.value || []).map((t) => ({
+  (threads.value || []).filter(t=>!props.clientId||Number(t.client_id)===Number(props.clientId)).map((t) => ({
     client_id: t.client_id,
     client_label: t.client_label
   }))
 );
 
 const mailboxItems = computed(() => {
-  const secure = (threads.value || []).map((t) => ({
+  const secure = (threads.value || []).filter(t=>!props.clientId||Number(t.client_id)===Number(props.clientId)).map((t) => ({
     key: `secure-${t.client_id || t.thread_id}`,
     type: 'secure',
     title: t.client_label || 'Secure message',
@@ -304,7 +269,7 @@ const mailboxItems = computed(() => {
     conversationId: e.conversationId,
     email: e
   }));
-  return [...mail, ...secure];
+  return secure;
 });
 
 const selectedKey = computed(() => {
@@ -344,7 +309,7 @@ async function loadThreads() {
     threads.value = Array.isArray(r.data?.threads) ? r.data.threads : [];
     emails.value = Array.isArray(r.data?.emails) ? r.data.emails : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load messages';
+    error.value = 'Messages could not be loaded. Please try again or use Support.';
     threads.value = [];
     emails.value = [];
   } finally {
@@ -385,7 +350,7 @@ async function selectEmail(item) {
     await nextTick();
     if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load email';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load email';
     messages.value = [];
   } finally {
     messagesLoading.value = false;
@@ -433,7 +398,7 @@ async function selectThread(t) {
     await nextTick();
     if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load thread';
+    error.value = 'The conversation could not be opened. Please try again or use Support.';
     messages.value = [];
   } finally {
     messagesLoading.value = false;
@@ -460,7 +425,7 @@ async function send() {
     draft.value = '';
     await selectThread(selected.value);
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Send failed';
   } finally {
     sending.value = false;
   }
@@ -473,7 +438,7 @@ async function loadTickets() {
     const r = await api.get('/guardian-portal/support-tickets', { skipGlobalLoading: true });
     tickets.value = Array.isArray(r.data?.tickets) ? r.data.tickets : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load tickets';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load tickets';
     tickets.value = [];
   } finally {
     ticketsLoading.value = false;
@@ -494,7 +459,7 @@ async function loadSmsAudit() {
     const r = await api.get('/guardian-portal/sms-audit', { params, skipGlobalLoading: true });
     smsItems.value = Array.isArray(r.data?.items) ? r.data.items : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load text history';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load text history';
     smsItems.value = [];
   } finally {
     smsLoading.value = false;
@@ -534,7 +499,7 @@ async function openTicket(t) {
     await nextTick();
     if (ticketThreadEl.value) ticketThreadEl.value.scrollTop = ticketThreadEl.value.scrollHeight;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load ticket';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load ticket';
     ticketMessages.value = [];
   } finally {
     ticketMessagesLoading.value = false;
@@ -556,7 +521,7 @@ async function createTicket() {
     await loadTickets();
     if (r.data?.ticket) await openTicket(r.data.ticket);
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Could not create ticket';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Could not create ticket';
   } finally {
     ticketSending.value = false;
   }
@@ -572,7 +537,7 @@ async function sendTicketReply() {
     ticketDraft.value = '';
     await openTicket(selectedTicket.value);
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Reply failed';
+    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Reply failed';
   } finally {
     ticketSending.value = false;
   }
@@ -582,6 +547,8 @@ onMounted(loadThreads);
 </script>
 
 <style scoped>
+.message-action{display:inline-block;padding:10px 12px;margin-top:12px;border-radius:8px;background:#16457c;color:white;font-size:13px;font-weight:600}.gmsg-message-text{white-space:pre-wrap;overflow-wrap:anywhere}.back-conversations{display:none}.gmsg-chat{min-height:220px}@media(max-width:700px){.conversation-picked{display:none}.has-conversation .back-conversations{display:block;padding:12px;border:0;border-bottom:1px solid #dce4ee;background:#f5f8fc;color:#16457c;text-align:left}.message-placeholder{display:none}.gmsg-provider-body:not(.has-conversation){min-height:0}.gmsg-provider-body:not(.has-conversation) .gmsg-chat{display:none}}
+
 .gmsg { display: flex; flex-direction: column; gap: 12px; min-height: 420px; }
 .panel-head { margin-bottom: 4px; }
 .panel-title { font-weight: 800; font-size: 1.15rem; }

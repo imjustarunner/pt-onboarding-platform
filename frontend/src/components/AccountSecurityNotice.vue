@@ -1,5 +1,5 @@
 <template>
-  <aside class="account-security-notice" v-if="auth.user?.id && !auth.user?.demoMode">
+  <aside class="account-security-notice" v-if="auth.user?.id && !auth.user?.demoMode && (needsVerification || protectionRequired || summaryUnavailable || summary.alerts || summary.requests)">
     <p v-if="needsVerification">{{ state?.enabled ? 'Verify your sign-in to open protected client information.' : 'Protect client privacy: set up two-step verification to view full names and open client documents.' }}</p>
     <p v-else-if="state?.guardianAccount && !state?.enabled">Protect your family’s portal with a passkey, authenticator, or email verification. Each parent sets up their own sign-in protection.</p>
     <p v-if="protectionRequired">Additional access is paused for security review. Open Security & sign-in activity to request access.</p>
