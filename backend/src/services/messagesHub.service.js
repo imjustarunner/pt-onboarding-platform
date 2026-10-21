@@ -3943,7 +3943,7 @@ export async function sendHubPortalInvitation({
     }
   }
   const built = migration
-    ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({firstName:firstName || guardian.first_name,
+    ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({username:guardian.username || guardian.personal_email || guardian.email,firstName:firstName || guardian.first_name,
       agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
       portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school')})
     : buildClientEnrollmentEmail({firstName:firstName || guardian.first_name,

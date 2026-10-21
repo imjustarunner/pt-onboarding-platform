@@ -7,7 +7,7 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdent
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.user,generatePasswordlessToken:m.setup}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:2,name:'ITSCO',slug:'itsco'})}}));
 vi.mock('../secureMessageBoundary.service.js',()=>({recordSecureMessageEvent:m.event}));
-import {sendSecureMessageNotification,buildSecureClaimRedirect} from '../secureMessageNotify.service.js';
+import {sendSecureMessageNotification,buildSecureClaimRedirect,resolveClientContextForMessageNotify} from '../secureMessageNotify.service.js';
 const input={agencyId:2,senderUserId:1001,recipientUserId:1411,recipientEmail:'guardian@example.com',clientId:2240,chatThreadId:44,messageId:77};
 beforeEach(()=>{
  vi.resetAllMocks();m.settings.mockResolvedValue({secureClientMessageEmailEnabled:true});
@@ -33,4 +33,11 @@ it('keeps claim login on AuricWell and preserves an already-issued setup link',a
  expect((await buildSecureClaimRedirect(row)).loginUrl).toMatch(/^https:\/\/auricwell.com\/itsco\/login\?/);
  m.user.mockResolvedValue({id:1411,passwordless_token:'existing-setup',passwordless_token_purpose:'setup',passwordless_token_expires_at:new Date(Date.now()+86400000)});
  const result=await buildSecureClaimRedirect(row);expect(result.setupUrl).toContain('/itsco/new_account/existing-setup');expect(result.targetPath).toContain('threadId=44');expect(m.setup).not.toHaveBeenCalled();
+});
+
+it('resolves a message recipient through active guardian/self links without a nonexistent client user column',async()=>{
+ m.execute.mockResolvedValue([[{id:2240,client_type:'clinical'}]]);
+ expect(await resolveClientContextForMessageNotify({agencyId:2,recipientUserId:1411})).toEqual({clientId:2240,clientType:'clinical'});
+ const [sql,values]=m.execute.mock.calls[0];expect(sql).toContain('cg.access_enabled = 1');expect(sql).not.toContain('c.user_id');expect(values).toEqual([1411,2]);
+ m.execute.mockResolvedValue([[]]);expect(await resolveClientContextForMessageNotify({agencyId:2,recipientUserId:1411})).toEqual({clientId:null,clientType:null});
 });

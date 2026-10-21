@@ -24,3 +24,12 @@ it('records first password creation separately and preserves password case',asyn
  expect(m.notice).toHaveBeenCalledWith({userId:7,kind:'password',initialSetup:true});
  const bcrypt=(await import('bcrypt')).default;expect(bcrypt.hash).toHaveBeenCalledWith('Orange-Moon-Demo!',10);
 });
+it('loads the registered timezone for account security notices',async()=>{
+ User.findById.mockRestore();
+ m.execute.mockImplementation(async sql=>{
+  if(sql.includes('INFORMATION_SCHEMA.COLUMNS'))return [[{COLUMN_NAME:'timezone'}]];
+  if(sql.includes('FROM users WHERE id'))return [[{id:7,...(/, timezone\b/.test(sql)?{timezone:'America/New_York'}:{})}]];
+  return [[]];
+ });
+ expect(await User.findById(7)).toMatchObject({timezone:'America/New_York'});
+});

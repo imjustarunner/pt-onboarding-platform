@@ -43,7 +43,7 @@ export function isSecureMessageEligibleClientType(clientType) {
 
 /**
  * Resolve client id + type for a notify recipient (guardian or client user).
- * Prefer an explicit clientId; otherwise look up guardianship / clients.user_id.
+ * Prefer an explicit clientId; otherwise use an active guardian or self link.
  * When multiple clients exist, prefer clinical/school over learning.
  */
 export async function resolveClientContextForMessageNotify({
@@ -73,9 +73,9 @@ export async function resolveClientContextForMessageNotify({
   const [rows] = await pool.execute(
     `SELECT c.id, LOWER(COALESCE(c.client_type, '')) AS client_type
      FROM clients c
-     LEFT JOIN client_guardians cg ON cg.client_id = c.id AND cg.guardian_user_id = ?
+     INNER JOIN client_guardians cg ON cg.client_id = c.id AND cg.guardian_user_id = ? AND cg.access_enabled = 1
      WHERE c.agency_id = ?
-       AND (c.user_id = ? OR cg.guardian_user_id = ?)
+
      ORDER BY
        CASE LOWER(COALESCE(c.client_type, ''))
          WHEN 'clinical' THEN 0
@@ -85,7 +85,7 @@ export async function resolveClientContextForMessageNotify({
        END,
        c.id ASC
      LIMIT 1`,
-    [uid, aid, uid, uid]
+    [uid, aid]
   );
   if (!rows?.[0]) return { clientId: null, clientType: null };
   return { clientId: Number(rows[0].id), clientType: rows[0].client_type || null };
