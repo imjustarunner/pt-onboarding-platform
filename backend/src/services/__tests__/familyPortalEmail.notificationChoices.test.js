@@ -169,3 +169,10 @@ it('respects billing preferences for generated cost estimates and does not affec
   expect(await familyNotificationDeliveryGate(input,db)).toMatchObject({allowed:false});
   expect(await familyNotificationDeliveryGate({...input,templateType:'guardian_plan_review'},db)).toEqual({allowed:true});
 });
+
+it('lets an authenticated account manage its scoped preferences after declining optional invitations without changing them',async()=>{
+ saved={choices_json:all('off')};m.intake.mockResolvedValue({emailPreference:'no',email});
+ const result=await createFamilyNotificationInvitation({agencyId:2,clientId:22,guardianUserId:50,actorUserId:50,forAccountSettings:true},db);
+ expect(result.url).toContain('notification');
+ expect(db.execute.mock.calls.some(([sql])=>/UPDATE family_notification_choices|INSERT INTO family_notification_choices/.test(sql))).toBe(false);
+});

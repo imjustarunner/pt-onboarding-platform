@@ -42,3 +42,16 @@ describe('benefits recipient revalidation',()=>{
  it('holds a recipient whose account no longer qualifies or whose address changed',async()=>{await expect(activeBillingBenefitRecipient({agencyId:2,clientId:8,guardianUserId:10,expectedEmail:recipient.email})).rejects.toMatchObject({status:409});m.execute.mockResolvedValue([[{id:10,email:'changed@example.com'}]]);await expect(activeBillingBenefitRecipient({agencyId:2,clientId:8,guardianUserId:10,expectedEmail:recipient.email})).rejects.toMatchObject({status:409});});
  it('requires the current authorized billing relationship immediately before sending',async()=>{m.execute.mockResolvedValue([[{id:10,email:recipient.email}]]);m.billingLink.mockRejectedValue(Object.assign(new Error('Revoked'),{status:403}));await expect(activeBillingBenefitRecipient({agencyId:2,clientId:8,guardianUserId:10,expectedEmail:recipient.email})).rejects.toMatchObject({status:403});});
 });
+
+it('scopes branded onboarding to the selected self profile and reuses the account card',async()=>{
+ m.links.mockResolvedValue([{client_id:8,agency_id:2,relationship_type:'self',full_name:'Synthetic Parent',agency_name:'ITSCO',agency_logo_url:'/itsco.png',organization_type:'school',organization_name:'Demo School',permissions_json:{}}]);
+ m.cards.mockResolvedValue([{stripe_payment_method_id:'pm_synthetic',connected_account_id:'acct_current',is_active:1,card_exp_year:2099,card_exp_month:12}]);
+ m.execute.mockImplementation(async sql=>sql.includes('family_portal_migration_enrollments')?[[{created_at:'2026-01-01',cohort_label:'Demo'}]]:sql.includes('agency_billing_accounts')?[[{stripe_connect_account_id:'acct_current'}]]:sql.includes('family_notification_choices')?[[{updated_at:'2026-10-21'}]]:sql.startsWith('SELECT DISTINCT u.id')?[[{id:45,first_name:'Demo',last_name:'Provider'}]]:[[]]);
+ const result=await portalMigrationOverview({user:{id:10,role:'client'},agencyId:2,clientId:8});
+ expect(result.profile).toMatchObject({name:'Synthetic Parent',agencyName:'ITSCO',school:{name:'Demo School'},providers:[{id:45,name:'Demo Provider',title:null}]});
+ expect(result.items.find(i=>i.key==='information').title).toBe('Verify your information');
+ expect(result.items.find(i=>i.key==='notifications').complete).toBe(true);
+ expect(result.items.find(i=>i.key==='payment').complete).toBe(true);
+ expect(result.items.find(i=>i.key==='authorization').complete).toBe(false);
+ expect(m.cards).toHaveBeenCalledWith(10,2,expect.anything());
+});

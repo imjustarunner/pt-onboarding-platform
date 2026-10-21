@@ -818,6 +818,7 @@
             <option value="client_choice">Client elected to end treatment</option>
             <option value="lost_contact">Lost contact / discontinued attendance</option>
             <option value="transfer">Transfer to another provider or level of care</option>
+            <option value="client_exchange">Referred to the Client Exchange — keep client active</option>
             <option value="lack_of_progress">Lack of progress</option>
             <option value="other">Other</option>
           </select>
@@ -1266,12 +1267,12 @@
           <div v-if="isTerminationAid && !chartNoteReadOnly" class="na-plan-fields">
             <label for="na-termination-recommendation">Provider recommendation</label>
             <textarea id="na-termination-recommendation" v-model="terminationRecommendation" class="na-textarea" rows="3" placeholder="Recommendations tied to the reason for termination" />
-            <small class="hint">Review or edit this recommendation before signing. It is included in the completed termination note.</small>
+            <small class="hint">Review or edit this recommendation before completing review. It is included in the completed termination note.</small>
           </div>
           <div v-if="canApproveToClinicalRecord && !chartNoteReadOnly" class="na-sign-attest">
             <p class="na-sign-attest-lead">
               <template v-if="isReviewOnlyAid">
-                Completing this note saves it to the client chart. Termination notes require your signature and remain non-billable.
+                Completing this review saves the note to the client chart with your name and review date. No signature is required; this note is nonbillable.
               </template>
               <template v-else-if="isTreatmentSummaryAid">
                 Saving writes the Treatment Summary to the client chart as a printable document (packet footer, no cover/version). Provider and clinical supervisor both sign.
@@ -1369,7 +1370,7 @@
                 {{ approvingNote
                   ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
                   : (isReviewOnlyAid
-                    ? (isTerminationAid ? 'Sign and complete termination note' : 'Complete review')
+                    ? (isTerminationAid ? 'Complete termination review' : 'Complete review')
                     : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
               </button>
               <button
@@ -1883,7 +1884,7 @@ async function onTerminationNextStepChange() {
     const { merged } = await appendWorkQueueToApi(authStore.user?.id, [{
       id: key, clientKey: key, clientId, agencyId, noteKind: 'termination',
       clientName: selectedClient.value?.full_name || '',
-      action: 'Write and sign termination note', status: 'not_started',
+      action: 'Write and review termination note', status: 'not_started',
       date: dateOfService.value || todayIsoDate()
     }]);
     workQueueItems.value = merged.map(normalizeWorkQueueItemStatus);
@@ -2168,7 +2169,8 @@ const skipAiAid = ref(false);
 const noteAidAllowManualWrite = ref(true);
 const noteAidAutosignAfterReview = ref(false);
 
-const isReviewOnlyAid = computed(() => aidUsesContentReview(selectedAid.value));
+const isMissedAppointmentAid = computed(() => /missed|no[_ -]?show/i.test([aidKind(selectedAid.value),selectedAid.value?.toolId,selectedAid.value?.label,bookingContext.value?.noteType].filter(Boolean).join(' ')));
+const isReviewOnlyAid = computed(() => aidUsesContentReview(selectedAid.value) || isMissedAppointmentAid.value);
 const isClientChartAid = computed(() => aidAttachesToClientChart(selectedAid.value));
 const isTerminationAid = computed(() => aidKind(selectedAid.value) === 'termination');
 const isTreatmentSummaryAid = computed(() => aidRequiresProviderSupervisorSign(selectedAid.value));
@@ -4522,7 +4524,7 @@ const mergedSectionEntries = computed(() =>
 const displayPanels = computed(() => {
   const sections = Object.fromEntries(mergedSectionEntries.value || []);
   if (isTerminationAid.value && Object.keys(sections).length) {
-    const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', lack_of_progress: 'Lack of progress', other: 'Other' };
+    const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', client_exchange: 'Referred to the Client Exchange for a new provider', lack_of_progress: 'Lack of progress', other: 'Other' };
     if (terminationReason.value) sections['Reason for Termination'] = [labels[terminationReason.value], terminationDetails.value].filter(Boolean).join('. ');
     if (terminationRecommendation.value.trim()) sections.Recommendations = terminationRecommendation.value.trim();
   }
@@ -5225,7 +5227,7 @@ const canDeleteCurrentDraft = computed(() => {
   if (!draftId.value) return false;
   // Documentation Hub drafts are never provider-signed clinical notes; signed session notes live elsewhere.
   const row = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
-  if (row?.provider_signed_at || row?.signed_at) return false;
+  if (row?.provider_signed_at || row?.signed_at || row?.content_review_source === 'provider_review') return false;
   return true;
 });
 
@@ -6138,7 +6140,7 @@ const buildApprovedPayloadText = () => {
     diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value
   });
   if (isTerminationAid.value) {
-    const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', lack_of_progress: 'Lack of progress', other: 'Other' };
+    const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', client_exchange: 'Referred to the Client Exchange for a new provider', lack_of_progress: 'Lack of progress', other: 'Other' };
     sections['Reason for Termination'] = [labels[terminationReason.value], terminationDetails.value].filter(Boolean).join('. ');
     sections.Recommendations = terminationRecommendation.value.trim();
   }
@@ -6178,7 +6180,7 @@ const ensureClinicalSessionForApproval = async () => {
       serviceDate: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null,
       serviceCode: isClientChartAid.value ? null : (actualServiceCode.value || null),
       noteType: isReviewOnlyAid.value
-        ? 'TERMINATION'
+        ? (isTerminationAid.value ? 'TERMINATION' : (isMissedAppointmentAid.value ? 'MISSED_APPOINTMENT' : 'CONTACT_NOTE'))
         : (isTreatmentSummaryAid.value
           ? 'TREATMENT_SUMMARY'
           : (bookingContext.value?.noteType || 'PROGRESS_NOTE')),
@@ -6266,13 +6268,13 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
     const serviceCodeForMetadata = isClientChartAid.value ? null : (actualServiceCode.value || null);
     const noteType = isReviewOnlyAid.value
-      ? 'TERMINATION'
+      ? (isTerminationAid.value ? 'TERMINATION' : (isMissedAppointmentAid.value ? 'MISSED_APPOINTMENT' : 'CONTACT_NOTE'))
       : (isTreatmentSummaryAid.value
         ? 'TREATMENT_SUMMARY'
         : (isIntakeOutput.value ? 'INTAKE' : (bookingContext.value?.noteType || 'PROGRESS_NOTE')));
     const dos = dateOfService.value ? String(dateOfService.value).slice(0, 10) : new Date().toISOString().slice(0, 10);
     const title = isReviewOnlyAid.value
-      ? `Termination note ${dos}`.trim()
+      ? `${isTerminationAid.value ? 'Termination note' : (isMissedAppointmentAid.value ? 'Missed appointment' : 'Contact note')} ${dos}`.trim()
       : (isTreatmentSummaryAid.value
         ? `Treatment Summary ${dos}`.trim()
         : `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim());
@@ -6377,9 +6379,14 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     // Autosign after review / normal progress notes: apply provider signature.
     const shouldAutosign = noteId && (
       isReviewOnlyAid.value
-        ? (isTerminationAid.value || (noteAidAutosignAfterReview.value && reviewPassed))
+        ? false
         : true
     );
+    if (noteId && (isTerminationAid.value || isMissedAppointmentAid.value)) {
+      const digest=await window.crypto.subtle.digest('SHA-256',new TextEncoder().encode(approvedPayload));
+      const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+      await api.post(`/medical-billing/notes/${noteId}/review`,{agencyId:Number(noteAidAgencyId.value||currentAgencyId.value),contentReviewConfirmed:true,contentHash:hash},{skipGlobalLoading:true});
+    }
     let terminationTodo = null;
     const openTerminationAfterSign = ['now', 'after_progress'].includes(terminationNextStep.value);
     if (shouldAutosign) {
@@ -6424,7 +6431,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     aiContentGenerated.value = false;
     const signedMsg = terminationTodo && !openTerminationAfterSign
       ? 'Progress note signed. A termination note to-do has been added.'
-      : isTerminationAid.value ? 'Termination note signed and completed.'
+      : isTerminationAid.value ? (terminationReason.value === 'client_exchange' ? 'Review completed. Client remains active for Client Exchange reassignment.' : 'Termination review completed. Client is now inactive.')
       : isReviewOnlyAid.value
       ? (shouldAutosign
         ? 'Review complete — note saved to client chart and signed.'
@@ -6448,7 +6455,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
 
     if (terminationTodo && openTerminationAfterSign) {
       await activateWorkQueueItem(terminationTodo);
-      approvalMessage.value = 'Progress note signed. Complete and sign the termination note.';
+      approvalMessage.value = 'Progress note signed. Complete the termination review.';
       return;
     }
     if (terminationTodo) approvalMessage.value = 'Progress note signed. A termination note to-do has been added.';

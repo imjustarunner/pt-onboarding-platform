@@ -177,6 +177,7 @@ export async function createCoGuardianInvite({
 
   await silentlyLinkMatchingGuardian({
     email: person.email,
+    firstName: person.firstName, lastName: person.lastName, agencyId,
     clientIds: ids,
     relationshipTitle: person.relationship || 'Guardian',
     inviteId,
@@ -186,7 +187,7 @@ export async function createCoGuardianInvite({
 
   const inviteUrl = invitePublicUrl({ agency, token, publicKey, serviceType: enrollmentChannel || 'counseling' });
   let delivery = { sent: false, queued: false, deliveryStatus: 'not_requested' };
-  if (sendEmail !== false && person.sendInvite !== false) {
+  if (process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED === 'true' && sendEmail !== false && person.sendInvite !== false) {
     delivery = await deliverCoGuardianInvite({
       inviteId, agency, enrollmentChannel, school: source === 'school',
       to: person.email,
@@ -209,7 +210,7 @@ export async function createCoGuardianInvite({
 }
 
 async function silentlyLinkMatchingGuardian({
-  email,
+  email, firstName, lastName, agencyId,
   clientIds,
   relationshipTitle,
   inviteId,
@@ -217,11 +218,16 @@ async function silentlyLinkMatchingGuardian({
   enablePortal = true
 }) {
   try {
-    const user = await User.findByEmail(email);
+    let user = await User.findByEmail(email);
+    if (!user) {
+      try { user = await User.create({email,firstName:firstName||'Guardian',lastName:lastName||'',passwordHash:null,role:'client_guardian',status:'PENDING_SETUP'}); }
+      catch(error){if(error.code!=='ER_DUP_ENTRY')throw error;user=await User.findByEmail(email);}
+    }
     if (!user?.id) return;
     if (invitedByUserId && Number(user.id) === Number(invitedByUserId)) return;
     const role = String(user.role || '').toLowerCase();
-    if (role !== 'client_guardian' && role !== 'guardian') return;
+    if (!['client_guardian','guardian','client'].includes(role)) return;
+    await User.assignToAgency(user.id,Number(agencyId));
     const title = String(relationshipTitle || 'Guardian').trim() || 'Guardian';
     for (const clientId of clientIds) {
       const existing = await ClientGuardian.getLink({ clientId, guardianUserId: user.id });
@@ -230,7 +236,7 @@ async function silentlyLinkMatchingGuardian({
         guardianUserId: user.id,
         relationshipType: 'guardian',
         relationshipTitle: existing?.relationship_title || title,
-        accessEnabled: true,
+        accessEnabled: existing ? Number(existing.access_enabled)===1 : true,
         permissionsJson: noViewPermissionsForInvite(inviteId, existing?.permissions_json)
       });
       if (enablePortal === false) continue;
@@ -594,43 +600,14 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
     throw new Error('Email is required to complete this intake.');
   }
 
-  const isSchool = String(row.source || '').toLowerCase() === 'school';
-  const wantPortal = createPortal === true || (!isSchool && createPortal !== false);
   const clients = await loadInviteClients(row.id);
-
-  if (!wantPortal) {
-    const responseJson = answers && typeof answers === 'object' ? JSON.stringify(answers) : row.response_json;
-    await pool.execute(
-      `UPDATE co_guardian_invites
-          SET status = 'accepted',
-              accepted_at = NOW(),
-              invited_email = ?,
-              invited_first_name = ?,
-              invited_last_name = ?,
-              invited_phone = ?,
-              response_json = ?
-        WHERE id = ?`,
-      [email, firstName, lastName, phone, responseJson, row.id]
-    );
-    return {
-      accepted: true,
-      created: false,
-      portalAccess: null,
-      dependents: clients.map((c) => ({
-        id: c.id,
-        firstName: firstNameOnly(c.full_name)
-      })),
-      publicKey: row.public_key || null,
-      source: row.source
-    };
-  }
 
   let user = await User.findByEmail(email);
   let password = null;
   let created = false;
   if (user?.id) {
     const role = String(user.role || '').toLowerCase();
-    if (role !== 'client_guardian' && role !== 'guardian') {
+    if (!['client_guardian','guardian','client'].includes(role)) {
       const err = new Error('This email cannot be used for the parent/guardian portal. Enter a different email.');
       err.statusCode = 400;
       throw err;
@@ -640,14 +617,14 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
       [firstName, lastName, phone, user.id]
     );
   } else {
-    password = isSchool ? null : await User.generateTemporaryPassword();
+    password = null; // Password setup happens only through the later portal invitation.
     user = await User.create({
       email,
       role: 'client_guardian',
       firstName,
       lastName,
       phoneNumber: phone,
-      status: 'active'
+      status: 'PENDING_SETUP'
     });
     if (password) await User.changePassword(user.id, password);
     created = true;
@@ -702,12 +679,13 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
   return {
     accepted: true,
     created,
-    portalAccess: {
+    acceptedUserId: user.id,
+    portalAccess: process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED === 'true' ? {
       email,
       password,
       existingAccount: !created,
       portalPath: buildPublicPortalLoginUrl(agency)
-    },
+    } : null,
     dependents: clients.map((c) => ({
       id: c.id,
       firstName: firstNameOnly(c.full_name)

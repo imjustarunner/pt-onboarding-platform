@@ -19,7 +19,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
       ALTER TABLE users ADD is_demo BOOLEAN DEFAULT 0,ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD status_expires_at DATETIME;
       ALTER TABLE user_agencies ADD is_active BOOLEAN DEFAULT 1;
       ALTER TABLE clinical_sessions ADD scheduled_end_at DATETIME,ADD provider_user_id INT,ADD office_event_id INT,ADD claim_blocked_reason VARCHAR(255),ADD updated_at DATETIME;
-      CREATE TABLE clinical_notes(id BIGINT PRIMARY KEY,clinical_session_id BIGINT,agency_id INT,client_id INT,provider_signed_by_user_id INT,provider_signed_at DATETIME,is_billable BOOLEAN DEFAULT 1,is_deleted BOOLEAN DEFAULT 0);
+      CREATE TABLE clinical_notes(id BIGINT PRIMARY KEY AUTO_INCREMENT,clinical_session_id BIGINT,agency_id INT,client_id INT,created_by_user_id INT,note_type VARCHAR(50),title VARCHAR(255),note_payload LONGTEXT,metadata_json JSON,content_hash VARCHAR(64),content_review_status VARCHAR(32),content_review_source VARCHAR(32),content_review_json JSON,updated_at DATETIME,provider_signed_by_user_id INT,provider_signed_at DATETIME,is_billable BOOLEAN DEFAULT 1,is_deleted BOOLEAN DEFAULT 0);
       CREATE TABLE claimmd_responsibility_jobs(id BIGINT PRIMARY KEY,clinical_claim_id BIGINT,agency_id INT,status VARCHAR(30));
       CREATE TABLE claimmd_remittances(id BIGINT PRIMARY KEY,status VARCHAR(30));
       CREATE TABLE claimmd_remittance_items(id BIGINT PRIMARY KEY,clinical_claim_id BIGINT,agency_id INT,remittance_id BIGINT,status VARCHAR(30));
@@ -61,9 +61,9 @@ test('attendance copays use real SQL locks and one payment through note retries 
     const term={clientId:102,serviceCode:'90834',paymentBasis:'copay',amountCents:2500,totalCents:2500,priceBasis:'visit',units:1,effectiveFrom:'2026-01-01',effectiveThrough:'2099-12-31',insuranceFingerprint:insuranceFingerprint(await readClientInsurance(102,1)),evidence:'Synthetic verified benefit reference'};
     const evidence=encryptFamilyBilling({waiver:{serviceTerms:[term]},signatureName:'Synthetic Parent'},'billing-task:1:10');
     await setup.execute("INSERT INTO family_billing_tasks(agency_id,guardian_user_id,client_ids_json,status,token_hash,expires_at,terms_version,waiver_encrypted,signed_evidence_encrypted,created_by_user_id,completed_at) VALUES(1,10,'[102]','completed',?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY),?,?,?,99,UTC_TIMESTAMP())",['a'.repeat(64),BILLING_TERMS_VERSION,evidence,evidence]);
-    const visit=async(id,{future=false,status='scheduled'}={})=>{
+    const visit=async(id,{future=false,status='scheduled',signed=true}={})=>{
       await setup.execute('INSERT INTO clinical_sessions(id,agency_id,client_id,provider_user_id,service_code,effective_service_code,scheduled_start_at,scheduled_end_at,encounter_status) VALUES(?,1,102,45,\'90834\',\'90834\',?,?,?)',[id,new Date(Date.now()+(future?3600000:-7200000)),new Date(Date.now()+(future?7200000:-3600000)),status]);
-      await setup.execute('INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,provider_signed_by_user_id,provider_signed_at) VALUES(?,?,1,102,45,UTC_TIMESTAMP())',[id,id]);
+      if(signed)await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,provider_signed_by_user_id,provider_signed_at) VALUES(?,?,1,102,45,'PROGRESS_NOTE',45,UTC_TIMESTAMP())",[id,id]);
     };
     const input=id=>({agencyId:1,sessionId:id,providerUserId:45,occurred:true});
     let paidBalance;
@@ -91,13 +91,31 @@ test('attendance copays use real SQL locks and one payment through note retries 
       const [[count]]=await setup.query('SELECT COUNT(*) n FROM family_receivables');assert.equal(count.n,1);assert.equal(processorCharges,1);
     });
     await t.test('did-not-occur, early sessions, wrong providers, and missing exact terms never reach Stripe',async()=>{
-      await visit(9002);await recordCopayAttendance({...input(9002),occurred:false});
-      await assert.rejects(recordCopayAttendance(input(9002)),/marked as not occurring/);
+      await visit(9002,{signed:false});await recordCopayAttendance({...input(9002),occurred:false});
+      await assert.rejects(recordCopayAttendance(input(9002)),/canceled|cancelled|not occurring/);
+      const before=processorCharges;
+      await recordCopayAttendance({...input(9002),occurred:false});
+      const [[missed]]=await setup.execute("SELECT COUNT(*) n,MAX(provider_signed_at) signature,MAX(is_billable) billable FROM clinical_notes WHERE clinical_session_id=9002 AND note_type='MISSED_APPOINTMENT'");
+      assert.equal(missed.n,1);assert.equal(missed.signature,null);assert.equal(missed.billable,0);assert.equal(processorCharges,before);
       await visit(9003,{future:true});await assert.rejects(recordCopayAttendance(input(9003)),/session has ended/);
       await visit(9004);await assert.rejects(recordCopayAttendance({...input(9004),providerUserId:99}),/provider access/);
       await setup.execute("UPDATE clinical_sessions SET service_code='90837',effective_service_code='90837' WHERE id=9004");
       await assert.rejects(recordCopayAttendance(input(9004)),/signed agreement/);
       assert.equal(processorCharges,1);
+    });
+    await t.test('a reviewed missed note supplies attendance without a second confirmation or another chart note',async()=>{
+      await visit(9007,{signed:false});const before=processorCharges;
+      const payload=JSON.stringify({sections:{Summary:'Synthetic missed appointment'}});
+      const {createHash}=await import('node:crypto');
+      const {maybeEncryptNotePayload}=await import('../clinicalNoteCrypto.service.js');
+      const {completeNonbillableReview}=await import('../nonbillableNoteCompletion.service.js');
+      await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,note_payload,is_billable) VALUES(9007,9007,1,102,45,'MISSED_APPOINTMENT',?,0)",[maybeEncryptNotePayload(payload)]);
+      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')});
+      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')});
+      const [[decision]]=await setup.execute('SELECT attendance,decision_source FROM family_copay_attendance WHERE clinical_session_id=9007');
+      assert.deepEqual(decision,{attendance:'did_not_occur',decision_source:'reviewed_note'});
+      const [[notes]]=await setup.execute('SELECT COUNT(*) n,MAX(provider_signed_at) signature FROM clinical_notes WHERE clinical_session_id=9007');
+      assert.equal(notes.n,1);assert.equal(notes.signature,null);assert.equal(processorCharges,before);
     });
     await t.test('guardian roles, inactive, archived and expired provider accounts cannot confirm sessions',async()=>{
       await visit(9006);
@@ -122,7 +140,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
     await t.test('a concurrent did-not-occur decision cannot succeed while its payment is accepted',async()=>{
       await assignCard({...c,userId:10,cardId,recurring:true,limitCents:5000,consent});
       for(let id=9020;id<9025;id++){
-        await visit(id);
+        await visit(id,{signed:false});
         const responses=await Promise.allSettled([recordCopayAttendance(input(id)),recordCopayAttendance({...input(id),occurred:false})]);
         const [[decision]]=await setup.execute('SELECT attendance,receivable_id FROM family_copay_attendance WHERE agency_id=1 AND clinical_session_id=?',[id]);
         const [[money]]=await setup.execute("SELECT COUNT(*) n FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('succeeded','pending','unknown','requires_action')",[decision.receivable_id||0]);
@@ -141,7 +159,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
     });
     await t.test('a new negative decision holds a preexisting claim balance without attendance metadata',async()=>{
       await setup.execute("UPDATE agencies SET feature_flags=JSON_SET(feature_flags,'$.attendanceCopaysEnabled',true) WHERE id=1");
-      await visit(9050,{status:'completed'});
+      await visit(9050,{status:'completed',signed:false});
       await setup.execute("INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id,destination_payer_id) VALUES(9150,1,102,9050,'FAKE-PAYER')");
       const balance=await setClaimResponsibility({...c,claimId:9150,amountCents:2500,responsibilityType:'copay',verificationBasis:'benefit',reason:'Synthetic existing verified claim'});
       assert.equal(sourcePayload(balance).attendanceSessionId,undefined);
@@ -153,7 +171,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
       // Even manually removing the visible hold cannot bypass the attendance gate.
       await setup.execute("UPDATE family_receivables SET status='open',hold_reason=NULL WHERE id=?",[balance.id]);
       const result=await runDueCopays({agencyId:1});
-      assert.ok(result.some(r=>r.paid===false&&/not occurring/.test(r.message)));
+      assert.ok(result.some(r=>r.paid===false&&/not occurring|canceled|cancelled|did not occur|visit or claim needs review/.test(r.message)),JSON.stringify(result));
       assert.equal(processorCharges,before);
     });
   } finally {await setup.end();if(pool)await pool.end();if(clinical)await clinical.end();}

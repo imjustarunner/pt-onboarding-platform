@@ -48,9 +48,15 @@ export const updateClientGuardianContact = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Enter a guardian name, email, or phone number.' } });
     }
     const saved = await ClientGuardianIntakeProfile.upsertForClient({ clientId, profile, source: 'staff_contact_update' });
+    let accountPreparation = { prepared: false, invitationSent: false };
+    if (saved?.email) {
+      const {prepareGuardianAccount}=await import('../services/guardianAccountPreparation.service.js');
+      const {default:Client}=await import('../models/Client.model.js');
+      accountPreparation=await prepareGuardianAccount({client:await Client.findById(clientId),profile:saved,actorUserId:req.user.id});
+    }
     await logClientAccess(req, clientId, 'guardian_contact_updated');
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ guardian_intake_profile: saved });
+    res.json({ guardian_intake_profile: saved, accountPreparation });
   } catch (error) {
     next(error);
   }

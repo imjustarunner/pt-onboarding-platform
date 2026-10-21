@@ -79,7 +79,7 @@ export function evaluateNoteContentReview({
 
 export function isReviewOnlyNoteType(noteType) {
   const nt = String(noteType || '').toUpperCase().replace(/\s+/g, '_');
-  return nt === 'APPOINTMENT_WAIVER' || nt === 'APPOINTMENT_CHANGE' || nt === 'TERMINATION' || nt === 'CONTACT_NOTE' || nt === 'CONTACT' || nt.includes('TERMINATION');
+  return ['MISSED_APPOINTMENT','NO_SHOW'].includes(nt) || nt === 'APPOINTMENT_WAIVER' || nt === 'APPOINTMENT_CHANGE' || nt === 'TERMINATION' || nt === 'CONTACT_NOTE' || nt === 'CONTACT' || nt.includes('TERMINATION');
 }
 
 export function shouldSkipSupervisorCosign({ noteType, metadata = {} } = {}) {

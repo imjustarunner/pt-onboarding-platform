@@ -1,5 +1,5 @@
 import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
-import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
+import { deferGuardianInvitation as shouldDeferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -390,8 +390,8 @@ class PublicIntakeClientService {
       : (payload?.client ? [payload.client] : []);
 
     const createdClients = [];
-    const createGuardian = !!link.create_guardian || !!options.forceGuardian;
-    const deferGuardianInvitation = deferSchoolGuardianInvitation({ ...link, organization_type: orgType });
+    const createGuardian = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(payload?.guardian?.email||'').trim());
+    const deferGuardianInvitation = shouldDeferGuardianInvitation({ ...link, organization_type: orgType });
     for (const clientPayload of rawClients) {
       const client = await provisionSingleIntakeClient({
         link,
@@ -422,6 +422,7 @@ class PublicIntakeClientService {
       const existingUser = await User.findByEmail(email);
       if (existingUser) {
         guardianUser = existingUser;
+      if(!['client_guardian','client','guardian'].includes(String(guardianUser.role).toLowerCase()))throw new Error('Guardian email belongs to another account type. Staff identity review is required.');
         const roleNorm = String(guardianUser.role || '').toLowerCase();
         if (roleNorm === 'client_guardian') {
           const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
@@ -448,7 +449,7 @@ class PublicIntakeClientService {
           phoneNumber,
           personalEmail: email,
           role: 'client_guardian',
-          status: 'ACTIVE_EMPLOYEE'
+          status: 'PENDING_SETUP'
         });
         newGuardianCreated = true;
 
@@ -471,12 +472,13 @@ class PublicIntakeClientService {
       await ensureGuardianAgencyAffiliation(guardianUser.id, agencyId);
 
       for (const client of createdClients) {
+        const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
         await ClientGuardian.upsertLink({
           clientId: client.id,
           guardianUserId: guardianUser.id,
           relationshipTitle: guardianPayload.relationship || 'Guardian',
-          accessEnabled: true,
-          permissionsJson: { intakeLink: link.id },
+          accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
+          permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
           createdByUserId: null
         });
       }
@@ -583,12 +585,12 @@ class PublicIntakeClientService {
    */
   static async provisionGuardianForIntakeClients({ link, agencyId, clients = [], payload = {} }) {
     const createdClients = Array.isArray(clients) ? clients.filter((c) => c && Number(c.id)) : [];
-    const deferGuardianInvitation = deferSchoolGuardianInvitation(link) || createdClients.some(deferSchoolGuardianInvitation);
+    const deferGuardianInvitation = shouldDeferGuardianInvitation(link) || createdClients.some(shouldDeferGuardianInvitation);
     let guardianUser = null;
     let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;
     let newGuardianPasswordlessLoginUrl = null;
-    if (!link.create_guardian || !createdClients.length) {
+    if (!payload?.guardian?.email || !createdClients.length) {
       return {
         clients: createdClients,
         guardianUser,
@@ -605,6 +607,7 @@ class PublicIntakeClientService {
     const existingUser = await User.findByEmail(email);
     if (existingUser) {
       guardianUser = existingUser;
+      if(!['client_guardian','client','guardian'].includes(String(guardianUser.role).toLowerCase()))throw new Error('Guardian email belongs to another account type. Staff identity review is required.');
       const roleNorm = String(guardianUser.role || '').toLowerCase();
       if (roleNorm === 'client_guardian') {
         const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
@@ -630,7 +633,7 @@ class PublicIntakeClientService {
         phoneNumber,
         personalEmail: email,
         role: 'client_guardian',
-        status: 'ACTIVE_EMPLOYEE'
+        status: 'PENDING_SETUP'
       });
       newGuardianCreated = true;
       const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
@@ -651,12 +654,13 @@ class PublicIntakeClientService {
     await ensureGuardianAgencyAffiliation(guardianUser.id, agencyId);
 
     for (const client of createdClients) {
-      await ClientGuardian.upsertLink({
+      const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
+        await ClientGuardian.upsertLink({
         clientId: client.id,
         guardianUserId: guardianUser.id,
         relationshipTitle: guardianPayload.relationship || 'Guardian',
-        accessEnabled: true,
-        permissionsJson: { intakeLink: link.id },
+        accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
+        permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
         createdByUserId: null
       });
     }

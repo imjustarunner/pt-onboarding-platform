@@ -1,4 +1,4 @@
-import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
+import { deferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -76,10 +76,10 @@ export const upsertClientGuardian = async (req, res, next) => {
     let created = false;
     if (guardian) {
       // If an existing user is not a client_guardian, we do not auto-convert.
-      if (String(guardian.role || '').toLowerCase() !== 'client_guardian') {
+      if (!['client_guardian','client'].includes(String(guardian.role || '').toLowerCase())) {
         return res.status(409).json({
           error: {
-            message: 'A user with this email already exists and is not a client guardian. Use a different email or convert the role intentionally.'
+            message: 'A user with this email already exists and belongs to a staff identity. Review the identity before creating a guardian link.'
           }
         });
       }
@@ -126,7 +126,7 @@ export const upsertClientGuardian = async (req, res, next) => {
 
     const Agency = (await import('../models/Agency.model.js')).default;
     const organization = client.organization_id ? await Agency.findById(Number(client.organization_id)) : null;
-    const invitationDeferred = deferSchoolGuardianInvitation({ ...client, organization_type: organization?.organization_type });
+    const invitationDeferred = deferGuardianInvitation({ ...client, organization_type: organization?.organization_type });
     let passwordlessTokenLink = null;
     let setupEmailSent = false;
     if (!invitationDeferred && accessEnabled && (created || !Number(priorLink?.access_enabled))) {

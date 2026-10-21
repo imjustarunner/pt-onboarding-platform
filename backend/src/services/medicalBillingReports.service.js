@@ -396,8 +396,9 @@ async function queryNotes(agencyId, filters, page, schema) {
   if (positiveInt(filters.providerId)) { where.push('n.created_by_user_id = ?'); params.push(positiveInt(filters.providerId)); }
   const hasSigning = hasColumn(schema, 'clinical', 'clinical_notes', 'provider_signed_at');
   const status = clean(filters.status).toLowerCase();
+  const unsignedCondition = "n.provider_signed_at IS NULL" + (hasColumn(schema, 'clinical', 'clinical_notes', 'content_review_source') ? " AND COALESCE(n.content_review_source,'') <> 'provider_review'" : '');
   if (hasSigning) {
-    if (status === 'unsigned') where.push('n.provider_signed_at IS NULL');
+    if (status === 'unsigned') where.push(unsignedCondition);
     else if (status === 'signed') where.push('n.provider_signed_at IS NOT NULL');
     else if (status === 'awaiting_cosign') where.push('n.provider_signed_at IS NOT NULL AND n.supervisor_cosigned_at IS NULL');
     else if (status === 'cosigned') where.push('n.supervisor_cosigned_at IS NOT NULL');
@@ -417,7 +418,7 @@ async function queryNotes(agencyId, filters, page, schema) {
       n.created_by_user_id, n.created_at, n.updated_at`,
     from: 'clinical_notes n', where, params, orderBy: 'n.created_at DESC, n.id DESC', ...page,
     summarySelect: `COUNT(*) AS record_count, COUNT(DISTINCT n.client_id) AS client_count,
-      ${hasSigning ? 'SUM(CASE WHEN n.provider_signed_at IS NULL THEN 1 ELSE 0 END)' : 'COUNT(*)'} AS unsigned_count,
+      ${hasSigning ? `SUM(CASE WHEN ${unsignedCondition} THEN 1 ELSE 0 END)` : 'COUNT(*)'} AS unsigned_count,
       ${hasSigning ? 'SUM(CASE WHEN n.provider_signed_at IS NOT NULL AND n.supervisor_cosigned_at IS NULL THEN 1 ELSE 0 END)' : '0'} AS awaiting_cosign_count,
       ${hasSigning ? 'SUM(CASE WHEN n.is_billable = 1 THEN 1 ELSE 0 END)' : '0'} AS billable_count`
   });

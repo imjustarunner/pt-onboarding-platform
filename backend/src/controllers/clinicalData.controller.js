@@ -336,7 +336,7 @@ export const createSessionNote = async (req, res, next) => {
           return res.status(403).json({ error: { message: 'This note belongs to another author or agency.' } });
         }
         // Signature retries must never replace the payload of an already signed note.
-        if (note.provider_signed_at) return res.json({ ok: true, note });
+        if (note.provider_signed_at || note.content_review_source === 'provider_review') return res.json({ ok: true, note });
         note = await ClinicalNote.updatePayload({
           noteId: note.id,
           title,

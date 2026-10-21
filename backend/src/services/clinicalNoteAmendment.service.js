@@ -22,7 +22,7 @@ export async function appendClinicalNoteAmendment({ noteId, agencyId, body, acto
     }
     const [[note]] = await db.execute('SELECT * FROM clinical_notes WHERE id = ? AND agency_id = ? FOR UPDATE', [noteId, agencyId]);
     if (!note || note.is_deleted) throw policyError(404, 'Note not found');
-    if (!note.provider_signed_at) throw policyError(409, 'Sign the original note before attaching an amendment');
+    if (!note.provider_signed_at && note.content_review_source !== 'provider_review') throw policyError(409, 'Complete the original note before attaching an amendment');
     const meta = parseObject(note.metadata_json);
     if (meta.supervisorCosign) {
       meta.supervisorCosignHistory = [...(meta.supervisorCosignHistory || []), meta.supervisorCosign];

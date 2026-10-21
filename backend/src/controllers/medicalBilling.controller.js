@@ -89,7 +89,7 @@ async function completeNoteAidSigningWorkflow(note) {
   const [items] = await NoteAidWorkQueueItem.appendForUser(note.created_by_user_id, [{
     id: key, agencyId: note.agency_id, clientId: note.client_id,
     clientName: clients[0]?.full_name || '',
-    noteKind: 'termination', action: 'Write and sign termination note',
+    noteKind: 'termination', action: 'Review and complete termination note',
     date: meta.dateOfService || new Date().toISOString().slice(0, 10), status: 'not_started'
   }]);
   return items;
@@ -891,7 +891,7 @@ export const listClientChart = async (req, res, next) => {
     const pendingCosign = await mapPendingSupervisorCosign(notes || []);
     const notesOut = (notes || []).map((n) => {
       const nt = String(n.note_type || n.title || '').toUpperCase();
-      const reviewOnly = nt.includes('TERMINATION') || nt.includes('CONTACT');
+      const reviewOnly = nt.includes('TERMINATION') || nt.includes('CONTACT') || ['MISSED_APPOINTMENT','NO_SHOW'].includes(nt);
       return {
         ...n,
         needs_supervisor_cosign: reviewOnly ? false : !!pendingCosign.get(Number(n.id)),
@@ -1554,6 +1554,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         officeEventId,
         standalone,
         providerSignedAt: note.provider_signed_at || null,
+        providerReview: note.content_review_source === 'provider_review' ? (typeof note.content_review_json === 'string' ? JSON.parse(note.content_review_json) : note.content_review_json) : null,
         providerSignedByUserId: note.provider_signed_by_user_id || null,
         supervisorCosignedAt: note.supervisor_cosigned_at || null,
         supervisorCosignedByUserId: note.supervisor_cosigned_by_user_id || null,
@@ -1751,6 +1752,15 @@ async function draftClaimAfterSignature(req, note) {
     console.warn('[claim-draft] Signed note awaits billing preparation', { noteId: note.id });
   }
 }
+
+export const reviewClinicalNote = async (req,res,next) => {
+  try {
+    const agencyId=parseIntValue(req.body?.agencyId);
+    await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
+    const {completeNonbillableReview}=await import('../services/nonbillableNoteCompletion.service.js');
+    return res.json(await completeNonbillableReview({noteId:parseIntValue(req.params.noteId),agencyId,actorUserId:req.user.id,confirmed:req.body.contentReviewConfirmed,expectedHash:req.body.contentHash}));
+  }catch(error){next(error);}
+};
 
 export const signClinicalNote = async (req, res, next) => {
   try {
@@ -2147,7 +2157,7 @@ export const listNotesForSigning = async (req, res, next) => {
       FROM clinical_notes n
       WHERE agency_id = ? AND is_deleted = 0`;
     if (mode === 'unsigned') {
-      sql += ` AND provider_signed_at IS NULL`;
+      sql += ` AND provider_signed_at IS NULL AND COALESCE(content_review_source,'') <> 'provider_review'`;
     } else {
       sql += ` AND provider_signed_at IS NOT NULL AND supervisor_cosigned_at IS NULL`;
     }

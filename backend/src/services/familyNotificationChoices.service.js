@@ -22,17 +22,17 @@ async function currentRecipient(scope,db) {
   return row;
 }
 /** Issuance never subscribes anyone, creates accounts, sends mail or clears a prior decline. */
-export async function createFamilyNotificationInvitation({agencyId,clientId,guardianUserId,actorUserId},db=pool) {
+export async function createFamilyNotificationInvitation({agencyId,clientId,guardianUserId,actorUserId,forAccountSettings=false},db=pool) {
   if([agencyId,clientId,guardianUserId,actorUserId].some(v=>!Number.isSafeInteger(Number(v))||Number(v)<1))throw fail('A specific agency, child, guardian and staff member are required.');
   const [[user]]=await db.execute('SELECT email FROM users WHERE id=?',[guardianUserId]);
   const scope={agency_id:Number(agencyId),client_id:Number(clientId),guardian_user_id:Number(guardianUserId),recipient_hash:familyContactHash(user?.email)};
   const recipient=await currentRecipient(scope,db);
   const [[saved]]=await db.execute('SELECT choices_json FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,guardianUserId]);
-  if(saved&&Object.values(parse(saved.choices_json)).every(choice=>!choiceAllows(choice,'email')))throw fail('This recipient declined optional emails. Do not send another enrollment invitation.',409);
+  if(!forAccountSettings&&saved&&Object.values(parse(saved.choices_json)).every(choice=>!choiceAllows(choice,'email')))throw fail('This recipient declined optional emails. Do not send another enrollment invitation.',409);
   const {latestIntakeCommunicationChoices}=await import('./intakeCommunicationChoices.service.js');
   const intake=await latestIntakeCommunicationChoices(clientId,agencyId);
   const own=Number(intake?.guardianUserId)===Number(guardianUserId)||familyContactHash(intake?.recipientEmail)===scope.recipient_hash;
-  if(own&&intake?.emailPreference==='no')throw fail('This recipient declined email during enrollment. Use their permitted contact method.',409);
+  if(!forAccountSettings&&own&&intake?.emailPreference==='no')throw fail('This recipient declined email during enrollment. Use their permitted contact method.',409);
   const token=crypto.randomBytes(32).toString('hex');
   await db.execute(`INSERT INTO family_notification_invitations
     (token_hash,agency_id,client_id,guardian_user_id,recipient_hash,created_by_user_id,expires_at) VALUES (?,?,?,?,?,?,?)`,

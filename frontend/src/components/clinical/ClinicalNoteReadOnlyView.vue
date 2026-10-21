@@ -282,8 +282,8 @@
           <dd>{{ providerNpi || '—' }}</dd>
         </div>
         <div>
-          <dt>Provider signed</dt>
-          <dd>{{ note.providerSignedAt ? formatTimestamp(note.providerSignedAt) : 'Not signed' }}</dd>
+          <dt>{{ note.providerReview ? 'Provider review' : 'Provider signed' }}</dt>
+          <dd>{{ note.providerReview ? `Reviewed ${formatTimestamp(note.providerReview.reviewedAt)}` : note.providerSignedAt ? formatTimestamp(note.providerSignedAt) : 'Not signed' }}</dd>
         </div>
         <div>
           <dt>Supervisor cosign</dt>
@@ -314,7 +314,7 @@
 
     <section v-if="!compact" :id="`post-signature-entries-${note.id}`" class="ccn-block" aria-label="Addenda and amendments">
       <h4 class="ccn-block-title">Addenda and amendments</h4>
-      <p class="ccn-field-hint">The original signed note stays unchanged. Each new entry is signed and dated separately and requires fresh supervisor approval, even when review for this note type is off.</p>
+      <p class="ccn-field-hint">The original completed note stays unchanged. Each new entry is signed and dated separately and requires fresh supervisor approval, even when review for this note type is off.</p>
       <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
         <strong>{{ entryLabel(item.entryKind) }}</strong>
         <p>{{ item.body }}</p>
@@ -646,6 +646,7 @@ const signStatusLabel = computed(() => {
   if (amendmentPending.value) return 'Awaiting supervisor amendment sign-off';
   if (props.note?.supervisorCosignedAt) return 'Supervisor signed';
   if (props.note?.providerSignedAt && props.note?.needsSupervisorCosign) return 'Awaiting supervisor';
+  if (props.note?.providerReview) return 'Review complete — no signature required';
   if (props.note?.providerSignedAt) return 'Provider signed';
   return 'Unsigned';
 });

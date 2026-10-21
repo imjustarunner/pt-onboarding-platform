@@ -59,6 +59,7 @@ import {
   updateObjectiveKioskPrompts,
   updateEncounter,
   signClinicalNote,
+  reviewClinicalNote,
   cosignClinicalNote,
   listNotesForSigning,
   getClinicalNoteById,
@@ -470,6 +471,8 @@ router.post(
   ],
   attachTreatmentSummaryPrintUpload
 );
+
+router.post('/notes/:noteId/review', requireClinicalNoteSigning, [param('noteId').isInt({ min:1 }),body('agencyId').isInt({ min:1 })], reviewClinicalNote);
 
 router.post(
   '/notes/:noteId/sign',

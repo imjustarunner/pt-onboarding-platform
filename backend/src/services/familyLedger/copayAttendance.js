@@ -1,3 +1,4 @@
+import {missedNote,completeMissedSessionDocumentation} from '../nonbillableNoteCompletion.service.js';
 import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { billingError, positiveId, auditBilling, BILLING_TERMS_VERSION } from '../familyBillingPolicy.service.js';
@@ -84,13 +85,21 @@ export async function attendanceCopayTerms(session, db = pool) {
   return { ...selected, payerUserId: userId, serviceDate:copayServiceDate(session,timezone), timezone };
 }
 export async function recordCopayAttendance({ agencyId, sessionId, providerUserId, occurred, noteId = null, source = 'provider' }) {
-  if (typeof occurred !== 'boolean' || !['provider','signed_note'].includes(source)) throw billingError(400, 'Choose whether this session occurred.');
+  if (typeof occurred !== 'boolean' || !['provider','signed_note','reviewed_note'].includes(source)) throw billingError(400, 'Choose whether this session occurred.');
   if (!await attendanceCopaysEnabled(agencyId)) throw billingError(409, 'Attendance copays are not enabled for this organization.');
   await requireAttendanceProvider(agencyId, providerUserId);
   const session = await sessionFor(agencyId, sessionId);
   if (Number(session.provider_user_id) !== Number(providerUserId)) throw billingError(403, 'Only the assigned provider can confirm this session.');
   assertSessionEnded(session);
   if (occurred) assertOccurrence(session);
+  else {
+    const [completed] = await clinicalPool.execute('SELECT id FROM clinical_notes WHERE clinical_session_id=? AND agency_id=? AND provider_signed_at IS NOT NULL AND is_billable=1 AND is_deleted=0 LIMIT 1',[session.id,agencyId]);
+    if (completed.length) throw billingError(409,'A completed service note already exists. Review the conflicting documentation before changing attendance.');
+  }
+  if (source === 'reviewed_note') {
+    const [[note]]=await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND clinical_session_id=? AND created_by_user_id=? AND is_deleted=0',[positiveId(noteId),agencyId,session.id,providerUserId]);
+    if(occurred||!note||!missedNote(note)||(!note.provider_signed_at&&note.content_review_source!=='provider_review'))throw billingError(409,'Complete the missed appointment note review first.');
+  }
   if (source === 'signed_note') {
     const [[note]] = await clinicalPool.execute('SELECT id FROM clinical_notes WHERE id=? AND clinical_session_id=? AND agency_id=? AND client_id=? AND provider_signed_by_user_id=? AND provider_signed_at IS NOT NULL AND is_billable=1 AND is_deleted=0', [positiveId(noteId), session.id, agencyId, session.client_id, providerUserId]);
     if (!note || !occurred) throw billingError(409, 'A signed completed service note is required.');
@@ -126,7 +135,10 @@ export async function recordCopayAttendance({ agencyId, sessionId, providerUserI
     await auditBilling({ agencyId, clientId: session.client_id, userId: providerUserId, action: occurred ? 'session_occurred_confirmed' : 'session_not_occurred_confirmed', objectId: session.id }, db);
     return { attendance };
   });
-  if (!occurred) return { ...result, charged: false };
+  if (!occurred) {
+    const documented=await completeMissedSessionDocumentation({session,providerUserId,noteId});
+    return { ...result, ...documented, charged: false };
+  }
   // Encounter attendance is independent of documentation completion. This does
   // not create/sign a clinical note or submit an insurance claim.
   await clinicalPool.execute("UPDATE clinical_sessions SET encounter_status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=? AND provider_user_id=? AND encounter_status='scheduled' AND scheduled_end_at<=UTC_TIMESTAMP()", [session.id,agencyId,providerUserId]);
@@ -190,8 +202,15 @@ export async function collectAttendanceCopay({ agencyId, sessionId }) {
   return result;
 }
 export async function onSignedNoteCopay({ agencyId, noteId, providerUserId }) {
+  const [[note]] = await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND is_deleted=0', [noteId, agencyId]);
+  if(note && missedNote(note) && (note.provider_signed_at||note.content_review_source==='provider_review')) {
+    if(Number(note.created_by_user_id)!==Number(providerUserId))throw billingError(403,'Only the author can complete this attendance entry.');
+    const session=await sessionFor(agencyId,note.clinical_session_id);
+    if(await attendanceCopaysEnabled(agencyId))return recordCopayAttendance({agencyId,sessionId:session.id,providerUserId,occurred:false,noteId,source:'reviewed_note'});
+    return completeMissedSessionDocumentation({session,providerUserId,noteId});
+  }
   if (!await attendanceCopaysEnabled(agencyId)) return { disabled: true };
-  const [[note]] = await clinicalPool.execute('SELECT clinical_session_id FROM clinical_notes WHERE id=? AND agency_id=? AND provider_signed_at IS NOT NULL AND is_billable=1 AND is_deleted=0', [noteId, agencyId]);
+  if(!note?.provider_signed_at||!Number(note.is_billable))return {eligible:false};
   if (!note?.clinical_session_id) return { eligible: false };
   try { return await recordCopayAttendance({ agencyId, sessionId: note.clinical_session_id, providerUserId, occurred: true, source: 'signed_note', noteId }); }
   catch (e) { if ([403,404,409].includes(e.status)) return { eligible: false }; throw e; }

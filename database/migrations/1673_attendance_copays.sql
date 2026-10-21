@@ -5,7 +5,7 @@ CREATE TABLE family_copay_attendance (
   client_id INT NOT NULL,
   provider_user_id INT NOT NULL,
   attendance ENUM('occurred','did_not_occur') NOT NULL,
-  decision_source ENUM('provider','signed_note') NOT NULL,
+  decision_source ENUM('provider','signed_note','reviewed_note') NOT NULL,
   clinical_note_id BIGINT NULL,
   decided_by_user_id INT NOT NULL,
   decided_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -26,7 +26,7 @@ CREATE TABLE family_copay_attendance_events (
   clinical_session_id BIGINT NOT NULL,
   actor_user_id INT NOT NULL,
   attendance ENUM('occurred','did_not_occur') NOT NULL,
-  decision_source ENUM('provider','signed_note') NOT NULL,
+  decision_source ENUM('provider','signed_note','reviewed_note') NOT NULL,
   created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   INDEX idx_copay_attendance_history(agency_id,clinical_session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

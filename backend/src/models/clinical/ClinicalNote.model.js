@@ -102,10 +102,10 @@ class ClinicalNote {
     values.push(nid);
     const changesContent=notePayload!==undefined||title!=null;
     const [result]=await clinicalPool.execute(
-      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? ${changesContent?'AND provider_signed_at IS NULL':''}`,
+      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? ${changesContent?'AND provider_signed_at IS NULL':''} AND COALESCE(content_review_source,'') <> 'provider_review'`,
       values
     );
-    if(changesContent&&!result.affectedRows)throw Object.assign(new Error('Signed notes must be changed through an amendment/addendum'),{status:409});
+    if(!result.affectedRows)throw Object.assign(new Error('Completed notes must be changed through an amendment/addendum'),{status:409});
     return this.findById(nid);
   }
 

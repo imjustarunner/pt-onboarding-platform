@@ -1,6 +1,6 @@
 <template>
   <section v-if="enabled && (sessions.length || notice || error)" class="copay-attendance" aria-labelledby="copay-attendance-title">
-    <h3 id="copay-attendance-title">Confirm completed sessions</h3>
+    <h3 id="copay-attendance-title">Confirm completed sessions</h3><p>A completed progress note already confirms attendance. Choosing “Did not occur” creates a nonbillable missed-appointment note; no separate note or second confirmation is needed.</p>
     <p>For these sessions, confirming attendance collects the verified copay from the authorized card. Please also complete your session note.</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>

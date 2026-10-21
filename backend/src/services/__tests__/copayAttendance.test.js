@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m=vi.hoisted(()=>({db:vi.fn(),clinical:vi.fn(),insurance:vi.fn(),readiness:vi.fn(),coverage:vi.fn(),currentTerms:vi.fn(),card:vi.fn(),pay:vi.fn(),create:vi.fn(),allocations:vi.fn(),testAccount:vi.fn(),events:[],decisions:new Map(),consent:true,terms:[],enabled:true,pendingPayment:false}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...a)=>m.db(...a)}}));
-vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:(...a)=>m.clinical(...a)}}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:(...a)=>m.clinical(...a),getConnection:async()=>({execute:(...a)=>m.clinical(...a),beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release:()=>{}})}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:(...a)=>m.insurance(...a)}));
 vi.mock('../familyBillingEncryption.service.js',()=>({decryptFamilyBilling:v=>v,encryptFamilyBilling:v=>v}));
 vi.mock('../familyLedger/readiness.js',()=>({getReadiness:(...a)=>m.readiness(...a),assertReady:(p)=>{if(p.setup_status!=='ready')throw Object.assign(new Error('not ready'),{status:409});}}));
@@ -26,7 +26,10 @@ beforeEach(()=>{
  m.create.mockResolvedValue({id:90});m.allocations.mockResolvedValue([{id:91,payer_user_id:22,amount_cents:2500,paid_cents:0}]);m.pay.mockResolvedValue({paid:true,paymentId:1});
  m.clinical.mockImplementation(async(sql)=>{
   if(sql.startsWith('SELECT * FROM clinical_sessions'))return [[{...session}]];
+  if(sql.startsWith('SELECT id FROM clinical_notes')&&sql.includes('LIMIT 1')&&sql.includes('provider_signed_at IS NOT NULL'))return [[]];
+  if(sql.startsWith('SELECT id FROM clinical_notes')&&sql.includes("note_type='MISSED_APPOINTMENT'"))return [[{id:51}]];
   if(sql.startsWith('SELECT id FROM clinical_notes'))return [[{id:50}]];
+  if(sql.startsWith('SELECT * FROM clinical_notes'))return [[{id:50,clinical_session_id:30,is_billable:1,provider_signed_at:'2026-01-20',created_by_user_id:45}]];
   if(sql.startsWith('SELECT clinical_session_id'))return [[{clinical_session_id:30}]];
   if(sql.startsWith('SELECT s.*'))return [[{...session}]];
   if(sql.startsWith('SELECT id,parent_claim_id'))return [[]];
@@ -83,7 +86,7 @@ describe('attendance collection boundary',()=>{
   await expect(recordCopayAttendance({agencyId:2,sessionId:30,providerUserId:45,occurred:true})).rejects.toThrow(/not enabled/);
   expect(await onSignedNoteCopay({agencyId:2,noteId:50,providerUserId:45})).toEqual({disabled:true});
   expect(await sendProviderCopayDigests({agencyId:2})).toEqual([]);
-  expect(m.clinical).not.toHaveBeenCalled();expect(m.pay).not.toHaveBeenCalled();
+  expect(m.clinical.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);expect(m.pay).not.toHaveBeenCalled();
  });
  it('blocks another provider and rejects string booleans',async()=>{
   await expect(recordCopayAttendance({agencyId:2,sessionId:30,providerUserId:46,occurred:true})).rejects.toThrow(/assigned provider/);
@@ -115,6 +118,12 @@ describe('attendance collection boundary',()=>{
   await recordCopayAttendance({agencyId:2,sessionId:30,providerUserId:45,occurred:false});
   await expect(recordCopayAttendance({agencyId:2,sessionId:30,providerUserId:45,occurred:true})).rejects.toThrow(/marked as not occurring/);
   expect(m.pay).not.toHaveBeenCalled();
+ });
+ it('rejects a negative decision conflicting with a signed progress note before changing attendance',async()=>{
+  const original=m.clinical.getMockImplementation();
+  m.clinical.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT id FROM clinical_notes')&&sql.includes('LIMIT 1')&&sql.includes('provider_signed_at IS NOT NULL')?[[{id:50}]]:original(sql,...args));
+  await expect(recordCopayAttendance({agencyId:2,sessionId:30,providerUserId:45,occurred:false})).rejects.toThrow(/completed service note/);
+  expect(m.decisions.size).toBe(0);expect(m.pay).not.toHaveBeenCalled();
  });
  it('holds a negative correction when a payment is already in flight',async()=>{
   m.decisions.set(30,{attendance:'occurred',receivable_id:90});m.pendingPayment=true;

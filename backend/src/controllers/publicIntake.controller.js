@@ -8902,7 +8902,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const guardian = accepted.portalAccess ? await User.findByEmail(accepted.portalAccess.email) : null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
         client_id: createdClients[0].id,
-        guardian_user_id: guardian?.id || coGuardianBinding.acceptedUserId || null
+        guardian_user_id: guardian?.id || accepted.acceptedUserId || coGuardianBinding.acceptedUserId || null
       });
       newGuardianCreated = accepted.created === true;
       newGuardianTemporaryPassword = accepted.portalAccess?.password || null;

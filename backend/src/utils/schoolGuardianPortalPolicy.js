@@ -7,3 +7,8 @@ export function deferSchoolGuardianInvitation(record = {}) {
     || Number(record.is_school_master || 0) === 1
     || Number(record.inherits_school_master || 0) === 1;
 }
+
+// Account creation and automatic invitations are independent rollout choices.
+export function deferGuardianInvitation(record={}) {
+  return process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED !== 'true' || deferSchoolGuardianInvitation(record);
+}

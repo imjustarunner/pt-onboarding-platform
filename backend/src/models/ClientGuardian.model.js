@@ -192,7 +192,7 @@ class ClientGuardian {
          cg.permissions_json
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
-       JOIN agencies o ON o.id = c.organization_id
+       LEFT JOIN agencies o ON o.id = c.organization_id
        JOIN agencies a ON a.id = c.agency_id
        WHERE cg.guardian_user_id = ?
          AND cg.access_enabled = 1

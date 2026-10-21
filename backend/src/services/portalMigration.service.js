@@ -34,7 +34,7 @@ async function migrationAccess({user,agencyId,clientId},db=pool){
  return {link,enrollment};
 }
 export async function portalMigrationOverview(input){
- const {enrollment}=await migrationAccess(input);if(!enrollment)return {enrolled:false};
+ const {link,enrollment}=await migrationAccess(input);if(!enrollment)return {enrolled:false};
  const {agencyId,clientId,user}=input;
  let demographic=null,plan=null,billingAllowed=false;
  try{demographic=await guardianDemographics.read({user,clientId});}catch(e){if(e.status!==403)throw e;}
@@ -46,8 +46,10 @@ export async function portalMigrationOverview(input){
  const [[consent]]=billingAllowed?await pool.execute("SELECT id FROM guardian_billing_consents WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND purpose='responsible_payer' AND revoked_at IS NULL ORDER BY id DESC LIMIT 1",[agencyId,clientId,user.id]):[[]];
  let insuranceCardMissing=billingAllowed&&!!insurance;
  if(billingAllowed&&insurance?.profileId){const [[row]]=await pool.execute('SELECT * FROM guardian_insurance_profiles WHERE id=? AND agency_id=?',[insurance.profileId,agencyId]);if(row)insuranceCardMissing=cardProgress(decodeInsuranceProfile(row),{}).missingSlots.length>0;}
- const items=migrationChecklist({insurance,coverageKnown:billingAllowed&&(!!insurance?.primary?.memberId||readiness.coverage_mode==='self_pay'),paymentReady,authorizationReady:!!consent,insuranceCardMissing,demographicsConfirmed:!!demographic&&enrollment.information_revision===demographic.revision,planAvailable:!!plan?.hasActivePlan,planAcknowledged:!!plan?.acknowledgments?.some(a=>a.status==='signed')});
- return {enrolled:true,cohort:enrollment.cohort_label,informationRevision:demographic?.revision||null,items:items.filter(i=>(i.key!=='information'||demographic)&&(i.key!=='plan'||plan)),historyNotice:'Payment cards and earlier billing history do not transfer automatically. Request prior receipts or balances in Billing.'};
+ const [[choices]]=await pool.execute('SELECT updated_at FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,user.id]);
+ const [providers]=await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.title FROM users u WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND (u.id=(SELECT provider_id FROM clients WHERE id=? AND agency_id=?) OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id=? AND is_active=1))`,[clientId,agencyId,clientId]);
+ const items=migrationChecklist({self:link.relationship_type==='self',notificationsConfirmed:!!choices&&new Date(choices.updated_at)>=new Date(enrollment.created_at),insurance,coverageKnown:billingAllowed&&(!!insurance?.primary?.memberId||readiness.coverage_mode==='self_pay'),paymentReady,authorizationReady:!!consent,insuranceCardMissing,demographicsConfirmed:!!demographic&&enrollment.information_revision===demographic.revision,planAvailable:!!plan?.hasActivePlan,planAcknowledged:!!plan?.acknowledgments?.some(a=>a.status==='signed')});
+ return {enrolled:true,profile:{name:link.full_name||link.initials,relationship:link.relationship_type,agencyName:link.agency_name,agencyLogo:link.agency_logo_url,school:link.organization_type==='school'?{name:link.organization_name,logo:link.organization_logo_url}:null,providers:providers.map(p=>({id:p.id,name:[p.first_name,p.last_name].filter(Boolean).join(' '),title:p.title||null}))},cohort:enrollment.cohort_label,informationRevision:demographic?.revision||null,items:items.filter(i=>(i.key!=='information'||demographic)&&(i.key!=='plan'||plan)),historyNotice:'Payment cards and earlier billing history do not transfer automatically. Request prior receipts or balances in Billing.'};
 }
 export async function confirmMigrationInformation(input){
  const {enrollment}=await migrationAccess(input);if(!enrollment)throw billingError(404,'Portal onboarding is not assigned');
@@ -102,4 +104,11 @@ export async function inviteMigrationFamily(input){
   await pool.execute("UPDATE family_portal_migration_deliveries SET status=IF(status='sending','unknown','held'),reason=? WHERE id=?",['This invitation needs review before any manual resend.',claim.insertId]);
   throw error;
  }
+}
+
+export async function migrationNotificationSettings(input) {
+  await migrationAccess(input);
+  const {createFamilyNotificationInvitation}=await import('./familyNotificationChoices.service.js');
+  const invitation=await createFamilyNotificationInvitation({agencyId:input.agencyId,clientId:input.clientId,guardianUserId:input.user.id,actorUserId:input.user.id,forAccountSettings:true});
+  return {url:invitation.url};
 }

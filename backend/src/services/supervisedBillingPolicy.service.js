@@ -6,7 +6,7 @@ import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import { getProviderClaimBillingMode } from './resolveClaimProviders.service.js';
 
 export const NPI_CHANGE_DATE = '2027-01-01';
-export const NONBILLABLE_TYPES = ['TERMINATION', 'TREATMENT_PLAN', 'CONTACT_NOTE', 'CONTACT', 'APPOINTMENT_WAIVER', 'APPOINTMENT_CHANGE'];
+export const NONBILLABLE_TYPES = ['MISSED_APPOINTMENT', 'NO_SHOW', 'TERMINATION', 'TREATMENT_PLAN', 'CONTACT_NOTE', 'CONTACT', 'APPOINTMENT_WAIVER', 'APPOINTMENT_CHANGE'];
 export const parseObject = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 export const policyError = (status, message) => Object.assign(new Error(message), { status });
 export const dateOnly = v => v instanceof Date ? v.toISOString().slice(0, 10) : String(v || '').slice(0, 10);

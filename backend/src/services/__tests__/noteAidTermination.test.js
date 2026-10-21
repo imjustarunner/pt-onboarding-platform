@@ -1,6 +1,8 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
+import clinicalPool from '../../config/clinicalDatabase.js';
+after(async()=>{await Promise.all([pool.end(),clinicalPool.end()]);});
 import ClinicalNoteDraft from '../../models/ClinicalNoteDraft.model.js';
 import { achievementAnnouncement, recordSignedTermination, treatmentHistoryText, validateTermination, validateTerminationContent } from '../noteAidTermination.service.js';
 
@@ -120,4 +122,30 @@ describe('signed termination outcomes', () => {
     assert.ok(f.calls.includes('rollback'));
     assert.ok(!f.calls.includes('commit'));
   });
+});
+
+
+describe('reviewed termination and continuity of care',()=>{
+ it('completes termination after author review without writing a provider signature',async()=>{
+  const f=fixture({signed:false,reason:'client_choice'});
+  f.note.content_review_source='provider_review';f.note.content_review_json={reviewedAt:'2026-10-21T01:00:00Z',reviewedByUserId:3};
+  await recordSignedTermination(f.note,f.deps);
+  assert.ok(f.calls.some(c=>c?.lifecycle?.statusKey==='terminated'));
+  assert.equal(f.note.provider_signed_at,null);
+ });
+ it('routes exchange referrals without terminating the agency episode',async()=>{
+  const f=fixture({reason:'client_exchange'});let referred;
+  await recordSignedTermination(f.note,{...f.deps,referToExchange:async note=>{referred=note.client_id;}});
+  assert.equal(referred,999);assert.ok(!f.calls.some(c=>c?.lifecycle));
+  assert.ok(!f.calls.some(c=>c?.sql?.includes('INSERT INTO kudos')));
+ });
+ it('rolls back an incomplete exchange outcome for a safe retry',async()=>{
+  const f=fixture({reason:'client_exchange'});
+  await assert.rejects(recordSignedTermination(f.note,{...f.deps,referToExchange:async()=>{throw new Error('exchange unavailable');}}));
+  assert.ok(f.calls.includes('rollback'));assert.ok(!f.calls.includes('commit'));
+ });
+ it('does not accept another person’s review timestamp as author completion',async()=>{
+  const f=fixture({signed:false});f.note.content_review_source='provider_review';f.note.content_review_json={reviewedAt:'2026-10-21',reviewedByUserId:99};
+  await recordSignedTermination(f.note,f.deps);assert.deepEqual(f.calls,[]);
+ });
 });

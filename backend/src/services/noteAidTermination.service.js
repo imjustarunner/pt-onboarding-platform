@@ -9,6 +9,7 @@ export const TERMINATION_REASONS = {
   client_choice: 'Client elected to end treatment',
   lost_contact: 'Lost contact / discontinued attendance',
   transfer: 'Transfer to another provider or level of care',
+  client_exchange: 'Referred to the Client Exchange for a new provider',
   lack_of_progress: 'Lack of progress',
   other: 'Other'
 };
@@ -32,7 +33,7 @@ export function validateTerminationContent(payload) {
   for (const title of ['Reason for Termination', 'Treatment Modality and Interventions', 'Treatment Goals and Outcome', 'Recommendations']) {
     const text = String(sections?.[title] || '').trim();
     if (!text || /^Write this section/i.test(text)) {
-      throw Object.assign(new Error(`Complete ${title} before signing the termination note.`), { status: 400 });
+      throw Object.assign(new Error(`Complete ${title} before completing the termination review.`), { status: 400 });
     }
   }
 }
@@ -81,13 +82,15 @@ export function achievementAnnouncement(providerName) {
   return `Congratulations, ${providerName}, on helping a client achieve their treatment goals and objectives. Thank you for your thoughtful care and commitment to meaningful clinical progress.`;
 }
 
-/** Called only for a provider-signed termination. The unique root note prevents repeat awards on retries/amendments. */
-export async function recordSignedTermination(note, { database = pool, clinicalDatabase = clinicalPool, updateLifecycle = setClientLifecycleStatus } = {}) {
-  if (!note.provider_signed_at || String(note.note_type).toUpperCase() !== 'TERMINATION') return;
+/** Called for an author-reviewed or legacy provider-signed termination. The unique root note prevents repeat awards on retries/amendments. */
+export async function recordSignedTermination(note, { database = pool, clinicalDatabase = clinicalPool, updateLifecycle = setClientLifecycleStatus, referToExchange = referTerminationToExchange } = {}) {
+  const review = typeof note.content_review_json === 'string' ? JSON.parse(note.content_review_json) : note.content_review_json;
+  const reviewedAt = note.content_review_source === 'provider_review' && Number(review?.reviewedByUserId) === Number(note.created_by_user_id) ? review.reviewedAt : null;
+  if ((!note.provider_signed_at && !reviewedAt) || String(note.note_type).toUpperCase() !== 'TERMINATION') return;
   const meta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
   if (!meta.termination) return; // Legacy notes remain readable/signable.
   const termination = validateTermination(meta.termination);
-  const signedAt = new Date(note.provider_signed_at);
+  const signedAt = new Date(reviewedAt || note.provider_signed_at);
   if (Number.isNaN(signedAt.getTime())) throw new Error('Termination signature date is invalid');
   let rootId = note.id;
   let parentId = meta.amendmentOfNoteId;
@@ -124,9 +127,12 @@ export async function recordSignedTermination(note, { database = pool, clinicalD
       [note.agency_id, note.created_by_user_id, message]);
     }
     if (result.affectedRows && !meta.amendmentOfNoteId) {
+      if (termination.reason === 'client_exchange') {
+        await referToExchange(note);
+      } else {
       const lifecycle = await updateLifecycle({
         clientId: note.client_id, statusKey: 'terminated', actorUserId: note.created_by_user_id,
-        note: 'Termination note signed and completed',
+        note: 'Termination note reviewed and completed',
         extraPatch: {
           termination_reason: TERMINATION_REASONS[termination.reason],
           terminated_at: signedAt,
@@ -134,10 +140,20 @@ export async function recordSignedTermination(note, { database = pool, clinicalD
         }
       });
       if (lifecycle?.skipped || !lifecycle?.statusId) throw new Error('Could not update the client termination status. Retry completion.');
+      }
     }
     await conn.commit();
   } catch (error) {
     await conn.rollback();
     throw error;
   } finally { conn.release(); }
+}
+
+async function referTerminationToExchange(note) {
+  const {createListing} = await import('./clientExchange.service.js');
+  // Existing exchange workflow retains the transferring provider until the
+  // handoff is accepted. The client's agency episode remains active.
+  await createListing({agencyId:note.agency_id,clientId:note.client_id,postedByUserId:note.created_by_user_id,referralKind:'transfer',notes:'Provider requested reassignment through a completed termination review.'});
+  const lifecycle = await setClientLifecycleStatus({clientId:note.client_id,statusKey:'other_transfer',actorUserId:note.created_by_user_id,note:'Provider episode ended; client remains active for Client Exchange reassignment.',extraPatch:{status:'ACTIVE'}});
+  if(lifecycle?.skipped || !lifecycle?.statusId) throw new Error('Client Exchange referral needs lifecycle review before completion.');
 }
