@@ -1,7 +1,6 @@
 import pool from "../config/database.js";
 import User from "../models/User.model.js";
 import OfficeLocationAgency from "../models/OfficeLocationAgency.model.js";
-import StorageService from "./storage.service.js";
 import { resolveMeetingRecipient } from "./meetingRecipientIdentity.service.js";
 import { tenantMeetingBase } from "../utils/tenantMeetingUrl.js";
 import { sendNotificationEmail } from "./unifiedEmail/unifiedEmailSender.service.js";
@@ -9,20 +8,18 @@ import { buildOfficeRequestEmail } from "./officeRequestEmailContent.js";
 import { parseUtcDate } from "../utils/officeEventDateTime.util.js";
 import { recurrenceLabel } from "../utils/scheduleRecurrence.js";
 
-const managers = new Set([
-  "super_admin",
-  "superadmin",
-  "admin",
-  "support",
-  "staff",
-  "clinical_practice_assistant",
-  "provider_plus",
-]);
 const active = (user) =>
   user &&
-  !["ARCHIVED", "TERMINATED", "TERMINATED_PENDING", "INACTIVE", "INACTIVE_EMPLOYEE", "DELETED"].includes(
-    String(user.status || "").toUpperCase(),
-  );
+  Number(user.is_active ?? 1) === 1 &&
+  Number(user.is_archived ?? 0) === 0 &&
+  ![
+    "ARCHIVED",
+    "TERMINATED",
+    "TERMINATED_PENDING",
+    "INACTIVE",
+    "INACTIVE_EMPLOYEE",
+    "DELETED",
+  ].includes(String(user.status || "").toUpperCase());
 const decode = (value) =>
   typeof value === "string" ? JSON.parse(value) : value;
 const lockName = (kind, agencyId, userId) =>
@@ -107,16 +104,20 @@ export async function queueOfficeRequestReview({
         .map((a) => Number(a.id));
   if (!agencyIds.length) return;
   const [reviewers] = await pool.query(
-    `SELECT DISTINCT u.id,u.role,u.status,ua.agency_id
-    FROM office_approval_email_reviewers r JOIN users u ON u.id=r.user_id
-    JOIN office_location_agencies ola ON ola.office_location_id=r.office_location_id
-    JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=ola.agency_id
-    WHERE ua.agency_id IN (?) ${officeId ? "AND r.office_location_id=?" : ""}`,
+    `SELECT DISTINCT u.id,u.role,u.status,u.is_active,u.is_archived,u.is_demo,ua.agency_id
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1
+    WHERE u.role='clinical_practice_assistant' AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+      AND ua.agency_id IN (?) ${officeId ? "AND EXISTS (SELECT 1 FROM office_location_agencies ola WHERE ola.agency_id=ua.agency_id AND ola.office_location_id=?)" : ""}`,
     officeId ? [agencyIds, officeId] : [agencyIds],
   );
   const seen = new Set();
   for (const user of reviewers) {
-    if (seen.has(Number(user.id)) || !active(user) || !managers.has(user.role))
+    if (
+      seen.has(Number(user.id)) ||
+      !active(user) ||
+      user.role !== "clinical_practice_assistant" ||
+      Number(user.is_demo || 0) === 1
+    )
       continue;
     seen.add(Number(user.id));
     await enqueueOfficeEmail({
@@ -206,10 +207,14 @@ export async function queueOfficeDecisionEmail(options) {
   });
 }
 
-export function officePhotoKey(path, roomId) {
+export function officePhotoKey(path, id, kind = "room") {
   const value = String(path || "").replace(/^\//, "");
+  const prefix =
+    kind === "building"
+      ? "office_building_photos/building"
+      : "office_room_photos/room";
   return new RegExp(
-    `^uploads/office_room_photos/room_${Number(roomId)}/[A-Za-z0-9_.-]+\\.(?:png|jpe?g|gif|webp)$`,
+    `^uploads/${prefix}_${Number(id)}/[A-Za-z0-9_.-]+\\.(?:png|jpe?g|gif|webp)$`,
     "i",
   ).test(value) && !value.includes("..")
     ? value
@@ -218,14 +223,12 @@ export function officePhotoKey(path, roomId) {
 
 export async function enrichOfficeEmailItems(
   items,
-  { includePhotos = false } = {},
+  { base, includePhotos = true } = {},
 ) {
-  const attachments = [],
-    photos = new Map();
   for (const item of items) {
     if (!item.officeId) continue;
     const [[room]] = await pool.execute(
-      `SELECT l.name AS office_name,l.street_address,l.city,l.state,l.postal_code,
+      `SELECT l.name AS office_name,l.street_address,l.city,l.state,l.postal_code,l.building_photo_url,
       r.id,r.name,r.room_number,r.photo_url FROM office_locations l
       LEFT JOIN office_rooms r ON r.location_id=l.id AND r.id=? WHERE l.id=?`,
       [item.roomId || 0, item.officeId],
@@ -247,42 +250,19 @@ export async function enrichOfficeEmailItems(
       ]
         .filter(Boolean)
         .join(" · ");
-    if (!includePhotos || item.action !== "approve" || !room.photo_url)
-      continue;
-    if (photos.has(room.id)) {
-      item.photoAttached = photos.get(room.id);
-      continue;
-    }
-    const key = officePhotoKey(room.photo_url, room.id);
-    if (!key) continue;
-    try {
-      const buffer = await StorageService.readObjectBuffer(key);
-      // One copy per room; larger galleries remain in the app instead of inflating email.
-      if (
-        buffer.length > 5 * 1024 * 1024 ||
-        attachments.reduce((n, a) => n + a.contentBase64.length, 0) +
-          (buffer.length * 4) / 3 >
-          15 * 1024 * 1024
-      )
-        continue;
-      const ext = key.split(".").at(-1).toLowerCase();
-      const filename = `office-${room.room_number ?? room.id}-photo.${ext}`;
-      attachments.push({
-        filename,
-        contentType: `image/${ext === "jpg" ? "jpeg" : ext}`,
-        contentBase64: buffer.toString("base64"),
-      });
-      photos.set(room.id, filename);
-      item.photoAttached = filename;
-    } catch (error) {
-      console.warn(
-        "[office emails] Photo unavailable",
-        room.id,
-        error.code || "storage_error",
-      );
-    }
+    // Hosted images keep combined emails small and survive the normal email approval queue.
+    // Only controlled office photo paths are allowed; never embed arbitrary uploaded URLs.
+    if (!includePhotos || !base) continue;
+    const building = officePhotoKey(
+      room.building_photo_url,
+      item.officeId,
+      "building",
+    );
+    const office = officePhotoKey(room.photo_url, room.id);
+    const url = (key) => `${new URL(base).origin}/api/${key}`;
+    if (building) item.buildingPhoto = url(building);
+    if (office) item.roomPhoto = url(office);
   }
-  return attachments;
 }
 
 async function currentItems(rows, user) {
@@ -298,15 +278,12 @@ async function currentItems(rows, user) {
     try {
       // Recheck authorization and pending state at send time, not just enqueue time.
       const request = await findOfficeApproval(user, row.request_key);
-      const [[reviewer]] = await pool.query(
-        `SELECT r.user_id FROM office_approval_email_reviewers r
-        JOIN office_location_agencies ola ON ola.office_location_id=r.office_location_id
-        WHERE r.user_id=? AND ola.agency_id=? ${request.officeId ? "AND r.office_location_id=?" : ""} LIMIT 1`,
-        request.officeId
-          ? [user.id, row.agency_id, request.officeId]
-          : [user.id, row.agency_id],
-      );
-      if (!reviewer) continue;
+      if (
+        user.role !== "clinical_practice_assistant" ||
+        Number(user.is_demo || 0) === 1 ||
+        !active(user)
+      )
+        continue;
       items.push({ row, item: request });
     } catch (error) {
       if (![403, 404].includes(error.status)) throw error;
@@ -358,9 +335,8 @@ export async function sendDueOfficeRequestEmails() {
             );
           if (!live.length) return;
           const items = live.map((l) => l.item);
-          const attachments = await enrichOfficeEmailItems(items, {
-            includePhotos: group.kind === "decision",
-          });
+          const base = await tenantMeetingBase(group.agency_id);
+          await enrichOfficeEmailItems(items, { base });
           const recipient = await resolveMeetingRecipient({
             agencyId: group.agency_id,
             user,
@@ -369,7 +345,7 @@ export async function sendDueOfficeRequestEmails() {
           const content = buildOfficeRequestEmail({
             kind: group.kind,
             items,
-            base: await tenantMeetingBase(group.agency_id),
+            base,
             name: user.first_name,
           });
           sendingIds = live.map((l) => l.row.id);
@@ -388,7 +364,6 @@ export async function sendDueOfficeRequestEmails() {
             userId: user.id,
             to: recipient.email,
             ...content,
-            attachments,
             source: "auto",
           });
           if (result?.skipped) {

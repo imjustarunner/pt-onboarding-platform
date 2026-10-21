@@ -573,6 +573,13 @@ class StorageService {
    * @param {string} filename
    * @param {string} contentType
    */
+  static async saveOfficeBuildingPhoto(officeId, fileBuffer) {
+    const key = `uploads/office_building_photos/building_${Number(officeId)}/${Date.now()}-${crypto.randomBytes(6).toString('hex')}.jpg`;
+    const bucket = await this.getGCSBucket();
+    await bucket.file(key).save(fileBuffer, { contentType: 'image/jpeg', metadata: { officeId: String(officeId) } });
+    return { relativePath: key };
+  }
+
   static async saveOfficeRoomPhoto(roomId, fileBuffer, filename, contentType = 'image/jpeg') {
     const sanitizedFilename = this.sanitizeFilename(filename);
     const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;

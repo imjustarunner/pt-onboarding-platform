@@ -52,6 +52,7 @@ import {
   officePhotoKey,
   enrichOfficeEmailItems,
 } from "../officeRequestEmails.service.js";
+import { validateOutboundEmailQuality } from "../outboundEmailQuality.service.js";
 import {
   buildOfficeRequestEmail,
   officeReviewUrl,
@@ -171,7 +172,7 @@ it("suppresses reviewer emails for already-resolved requests", async () => {
   await sendDueOfficeRequestEmails();
   expect(m.send).not.toHaveBeenCalled();
 });
-it("routes only to designated reviewers, once even if they share several agencies", async () => {
+it("routes to active CPAs in scope, once even if they share several agencies", async () => {
   m.officeAgencies.mockResolvedValue([{ id: 2 }, { id: 6 }]);
   m.agencies.mockResolvedValue([{ id: 2 }, { id: 6 }]);
   m.query.mockResolvedValue([
@@ -179,6 +180,24 @@ it("routes only to designated reviewers, once even if they share several agencie
       { id: 465, role: "clinical_practice_assistant", agency_id: 2 },
       { id: 465, role: "clinical_practice_assistant", agency_id: 6 },
       { id: 99, role: "provider", agency_id: 2 },
+      {
+        id: 100,
+        role: "clinical_practice_assistant",
+        agency_id: 2,
+        is_active: 0,
+      },
+      {
+        id: 101,
+        role: "clinical_practice_assistant",
+        agency_id: 2,
+        is_archived: 1,
+      },
+      {
+        id: 102,
+        role: "clinical_practice_assistant",
+        agency_id: 2,
+        is_demo: 1,
+      },
     ],
   ]);
   await queueOfficeRequestReview({
@@ -187,6 +206,9 @@ it("routes only to designated reviewers, once even if they share several agencie
     providerId: 12,
     officeId: 1,
   });
+  expect(m.query.mock.calls[0][0]).toContain("ua.is_active=1");
+  expect(m.query.mock.calls[0][0]).toContain("ola.office_location_id=?");
+  expect(m.query.mock.calls[0][1]).toEqual([[2, 6], 1]);
   const inserts = m.db.mock.calls.filter(([s]) => s.startsWith("INSERT"));
   expect(inserts).toHaveLength(1);
   expect(inserts[0][1]).toEqual(["review", 2, 465, "booking:7", null, 60]);
@@ -255,7 +277,7 @@ it("emails link directly into authenticated Building Master review and escape us
     "approve, deny, or choose another available room",
   );
 });
-it("attaches a room photo once for repeated reservations, retaining office number and address", async () => {
+it("embeds hosted building and room photos without inflating each email with attachments", async () => {
   m.execute.mockResolvedValue([
     [
       {
@@ -265,18 +287,32 @@ it("attaches a room photo once for repeated reservations, retaining office numbe
         room_number: 10,
         name: "Counseling",
         photo_url: "uploads/office_room_photos/room_10/photo.jpg",
+        building_photo_url:
+          "uploads/office_building_photos/building_1/photo.jpg",
       },
     ],
   ]);
   m.storage.mockResolvedValue(Buffer.from("image"));
   const items = [{ ...item }, { ...item }];
-  const attachments = await enrichOfficeEmailItems(items, {
-    includePhotos: true,
+  await enrichOfficeEmailItems(items, {
+    base: "https://app.example.test/agency",
   });
-  expect(attachments).toHaveLength(1);
-  expect(m.storage).toHaveBeenCalledOnce();
+  expect(m.storage).not.toHaveBeenCalled();
+  expect(items[0].roomPhoto).toBe(
+    "https://app.example.test/api/uploads/office_room_photos/room_10/photo.jpg",
+  );
+  expect(items[0].buildingPhoto).toBe(
+    "https://app.example.test/api/uploads/office_building_photos/building_1/photo.jpg",
+  );
+  const mail = buildOfficeRequestEmail({
+    kind: "decision",
+    items,
+    base: "https://app.example.test",
+  });
+  expect(mail.html.match(/building_1\/photo.jpg/g)).toHaveLength(1);
+  expect(mail.html).toContain('alt="Windchime"');
   expect(items[0].roomLabel).toContain("Office #10");
-  expect(items[1].photoAttached).toBe(items[0].photoAttached);
+  expect(items[1].roomPhoto).toBe(items[0].roomPhoto);
 });
 it("never fetches arbitrary URLs, traversal paths, or another room’s photo", () => {
   expect(officePhotoKey("https://private.example/photo.jpg", 10)).toBeNull();
@@ -289,4 +325,70 @@ it("never fetches arbitrary URLs, traversal paths, or another room’s photo", (
   expect(
     officePhotoKey("/uploads/office_room_photos/room_10/photo.png", 10),
   ).toBeTruthy();
+});
+
+it("removes pending reviewer mail when a former CPA changes role", async () => {
+  group.kind = "review";
+  rows = rows.map((r) => ({ ...r, kind: "review" }));
+  m.find.mockResolvedValue(item);
+  await sendDueOfficeRequestEmails();
+  expect(m.send).not.toHaveBeenCalled();
+});
+it("delivers pending requests to a current CPA with access", async () => {
+  group.kind = "review";
+  rows = rows.map((r) => ({ ...r, kind: "review" }));
+  m.user.mockResolvedValue({
+    id: 12,
+    role: "clinical_practice_assistant",
+    is_active: 1,
+    is_archived: 0,
+  });
+  m.find.mockResolvedValue(item);
+  await sendDueOfficeRequestEmails();
+  expect(m.send).toHaveBeenCalledOnce();
+  expect(m.send.mock.calls[0][0].triggerKey).toBe("office_request_review");
+});
+it("omits absent photos in production and labels preview placeholders and fictional data", () => {
+  const args = {
+    kind: "decision",
+    items: [item],
+    base: "https://app.example.test",
+  };
+  expect(buildOfficeRequestEmail(args).html).not.toContain("PHOTO PLACEHOLDER");
+  const preview = buildOfficeRequestEmail({ ...args, preview: true });
+  expect(preview.subject).toContain("PREVIEW");
+  expect(preview.html).toContain("Nothing has been booked");
+  expect(preview.html).toContain("Office interior photo");
+  expect(
+    officePhotoKey(
+      "uploads/office_building_photos/building_2/photo.jpg",
+      1,
+      "building",
+    ),
+  ).toBeNull();
+});
+
+it("does not confuse linked appointments with missing file attachments", () => {
+  for (const kind of ["review", "decision"]) {
+    const mail = buildOfficeRequestEmail({
+      kind,
+      items: [
+        {
+          ...item,
+          clientLinked: true,
+          sessions: [
+            { start: "2026-11-03T00:30:00Z", end: "2026-11-03T01:30:00Z" },
+          ],
+        },
+      ],
+      base: "https://app.example.test",
+    });
+    const result = validateOutboundEmailQuality({
+      ...mail,
+      templateType: "office_request_decision",
+    });
+    expect(result.flags.some((f) => f.code === "missing_attachment")).toBe(
+      false,
+    );
+  }
 });

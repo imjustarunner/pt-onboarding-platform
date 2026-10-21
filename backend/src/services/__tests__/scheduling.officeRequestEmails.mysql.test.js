@@ -24,6 +24,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('durable office email b
   await m.pool.query('CREATE TABLE notification_triggers (trigger_key VARCHAR(100) PRIMARY KEY,name TEXT,description TEXT,default_enabled BOOLEAN,default_channels_json JSON,default_recipients_json JSON)');
   const sql=await readFile(new URL('../../../../database/migrations/1674_office_request_emails.sql',import.meta.url),'utf8');
   for(const statement of splitSqlStatements(sql))await m.pool.query(statement);
+  const photoMigration=await readFile(new URL('../../../../database/migrations/1675_office_building_photo.sql',import.meta.url),'utf8');
+  for(const statement of splitSqlStatements(photoMigration))await m.pool.query(statement);
  });
  beforeEach(async()=>{await m.pool.query('TRUNCATE office_request_email_queue');m.send.mockReset();m.send.mockImplementation(async()=>{await new Promise(r=>setTimeout(r,20));return {id:'mail-1',communicationId:8};});});
  afterAll(async()=>{if(m.pool)await m.pool.end();if(admin){await admin.query(`DROP DATABASE ${database}`);await admin.end();}});
