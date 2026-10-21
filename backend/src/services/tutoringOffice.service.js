@@ -25,7 +25,7 @@ export async function tutoringVisit(room, { learningSessionId, tutoringAppointme
       JOIN learning_program_classes c ON c.id=s.learning_class_id WHERE s.id=? AND c.organization_id=? AND s.provider_user_id=?`, [id, room.agencyId, room.userId]);
     validateTutoringVisit(session, room);
     if(session.session_subtype!=='tutoring'&&session.mode!=='individual')throw fail(409,'Use the class room for this group class.');
-    [participants] = await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade FROM learning_class_sessions s
+    [participants] = await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade,c.is_demo FROM learning_class_sessions s
       JOIN tutoring_session_clients m ON m.session_id=s.id
       JOIN clients c ON c.id=m.client_id WHERE s.id=? AND (c.agency_id=? OR EXISTS
       (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`, [id, room.agencyId, room.agencyId]);
@@ -33,10 +33,11 @@ export async function tutoringVisit(room, { learningSessionId, tutoringAppointme
     [[session]] = await db.execute(`SELECT id,title,status,start_at AS starts_at,end_at AS ends_at,provider_user_id,modality,agency_id
       FROM appointments WHERE id=? AND agency_id=? AND provider_user_id=? AND business_type IN ('learning','tutoring')`, [id, room.agencyId, room.userId]);
     validateTutoringVisit(session, room);
-    [participants] = await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade FROM appointment_participants p
+    [participants] = await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade,c.is_demo FROM appointment_participants p
       JOIN clients c ON c.id=p.client_id WHERE p.appointment_id=? AND (c.agency_id=? OR EXISTS
       (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`, [id, room.agencyId, room.agencyId]);
   }
+  if (room.demoAccess && participants.some(c=>Number(c.is_demo)!==1)) throw fail(403,'Demo offices can only open fictional student visits.');
   if (!participants.length) throw fail(409, 'Assign the student to this appointment before opening their visit.');
   if (session.mode==='individual' && participants.length!==1) throw fail(409, 'Review the student assigned to this individual visit before opening it.');
   return { ...session, kind:'tutoring', learningSessionId:learningSessionId ? id : null, tutoringAppointmentId:tutoringAppointmentId ? id : null,
@@ -49,12 +50,12 @@ export async function tutoringOfficeLink(room, generation, db = pool) {
 }
 
 export async function assignedTutoringStudents(room,db=pool){
- const [students]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade FROM clients c
+ const [students]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.grade,c.is_demo FROM clients c
   WHERE (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
   AND (EXISTS(SELECT 1 FROM client_service_enrollments e WHERE e.client_id=c.id AND e.agency_id=? AND e.provider_user_id=? AND e.service_kind='tutoring' AND e.is_active=1)
    OR EXISTS(SELECT 1 FROM student_subjects s WHERE s.client_id=c.id AND s.agency_id=? AND s.primary_tutor_user_id=? AND s.status NOT IN ('completed','discharged','archived')))
   ORDER BY c.full_name,c.id`,[room.agencyId,room.agencyId,room.agencyId,room.userId,room.agencyId,room.userId]);
- return students.map(c=>({id:Number(c.id),displayName:c.full_name||c.initials||'Student',grade:c.grade}));
+ return students.filter(c=>!room.demoAccess||Number(c.is_demo)===1).map(c=>({id:Number(c.id),displayName:c.full_name||c.initials||'Student',grade:c.grade}));
 }
 
 export async function officeTutoringContext(room,office,db=pool){

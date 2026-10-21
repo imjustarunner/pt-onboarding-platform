@@ -42,7 +42,9 @@ export const getOfficeScheduleScopes = respond(async req => {
  const agencies=await User.getAgencies(req.user.id);
  // The selected tenant may be outside a super-admin's explicit memberships.
  const candidates=[...(agencies || []).map(a=>a.id),req.query.agencyId];
- return {agencyIds:await activeMeetingAgencyIds(candidates,req.user.id)};
+ const agencyIds=await activeMeetingAgencyIds(candidates,req.user.id);
+ if(!agencyIds.length){const {room}=await host(req);if(room.demoAccess)agencyIds.push(room.agencyId);}
+ return {agencyIds};
 });
 export const getOfficeSchedule = respond(async req => {
  const {room}=await host(req);

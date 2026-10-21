@@ -38,7 +38,7 @@ export async function officeSchedule(room,{from,to}={},req) {
  }
  items.sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
  await clinicalAudit({kind:'office',sessionId:room.id,agencyId:room.agencyId,role:'provider',req},'clinical_office_schedule_read',{count:items.length});
- return {items};
+ return {items:room.demoAccess?items.filter(item=>item.kind==='tutoring'):items};
 }
 export async function officeEncounterLink(roomId,generation,db=pool) {
  const [[link]]=await db.execute('SELECT * FROM virtual_office_encounters WHERE room_id=? AND generation=?',[roomId,generation]);return link||null;

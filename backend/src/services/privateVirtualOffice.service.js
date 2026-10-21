@@ -7,6 +7,7 @@ import {prepareTutoringOffice,linkTutoringOffice,tutoringOfficeLink,tutoringVisi
 import {attachTutoringBinder,officeTutoringContext} from './tutoringOffice.service.js';
 import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
+import { privateOfficeDemoAccess } from './privateOfficeDemoAccess.service.js';
 import { getMeetingPlan } from './meetingAccessPlan.service.js';
 import { encryptChatText, decryptChatText } from './chatEncryption.service.js';
 import Video from './vonageVideo.service.js';
@@ -25,7 +26,10 @@ export function snapshotDataUrl(value) {
  return `data:image/${m[1]};base64,${bytes.toString('base64')}`;
 }
 export async function assertOfficeAccess(room, db = pool) {
- if (!room?.isActive || !await hasActiveMeetingMembership(room.agencyId,room.userId)) throw fail(404,'This office is unavailable.');
+ if (!room?.isActive) throw fail(404,'This office is unavailable.');
+ const member=await hasActiveMeetingMembership(room.agencyId,room.userId);
+ room.demoAccess=!member && await privateOfficeDemoAccess(room,db);
+ if (!member && !room.demoAccess) throw fail(404,'This office is unavailable.');
  const [users] = await db.execute('SELECT role FROM users WHERE id=?',[room.userId]);
  if (!['provider','provider_plus','clinician','supervisor','admin','super_admin','superadmin','intern','intern_plus','clinical_practice_assistant'].includes(users[0]?.role)) throw fail(403,'A provider account is required for a private office.');
  const plan = await getMeetingPlan(room.userId,db);
@@ -177,6 +181,7 @@ export async function officeHostVideo(room,options={}) {
  }
  try{return await transaction(async db=>{
   const session = await lockOffice(db,room); await assertOfficeAccess(room,db);
+  if(room.demoAccess&&(options.appointmentId||options.sessionId))throw fail(403,'This demo office is limited to fictional tutoring visits.');
   if((options.learningSessionId||options.tutoringAppointmentId)&&(options.appointmentId||options.sessionId))throw fail(400,'Choose one appointment.');
   const tutoring=options.learningSessionId||options.tutoringAppointmentId?await prepareTutoringOffice(room,session,options,db):null;
   let sid = options.appointmentId||options.sessionId?await openScheduledOffice(db,room,session,options):session.video_session_id;
