@@ -1080,7 +1080,8 @@ const routes = [
     meta: { requiresGuest: false }
   },
   { path: '/plans', name: 'PlatformPlans', component: () => import('../views/public/PlatformPlansView.vue'), meta: { requiresAuth: false } },
-  { path: '/my-virtual-office', alias: '/:organizationSlug/my-virtual-office', name: 'PrivateVirtualOffice', component: () => import('../views/PrivateVirtualOfficeView.vue'), meta: { requiresAuth: true } },
+  { path: '/my-virtual-office', name: 'PrivateVirtualOffice', component: () => import('../views/PrivateVirtualOfficeView.vue'), meta: { requiresAuth: true } },
+  { path: '/:organizationSlug/my-virtual-office', name: 'OrganizationPrivateVirtualOffice', component: () => import('../views/PrivateVirtualOfficeView.vue'), meta: { requiresAuth: true, organizationSlug: true } },
   // Provider My Room public lobby join (photo required; never auto-admits)
   {
     path: '/join/my-room/:slug',
