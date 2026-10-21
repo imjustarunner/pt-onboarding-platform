@@ -1,3 +1,4 @@
+import { intakeClientPortal, clientPortalAppUrl } from './clientPortalContext.service.js';
 import { fullSuiteIdentityAllowed } from './productIdentity.service.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
@@ -160,7 +161,7 @@ function loginReminderLines(loginEmail) {
   };
 }
 
-async function buildMessage({ user, agency, orgSlug, token, loginEmail, req, expiresInHours = RESET_HOURS }) {
+async function buildMessage({ user, agency, orgSlug, token, loginEmail, req, enrollment, expiresInHours = RESET_HOURS }) {
   let resetLink = EmailTemplateService.buildResetTokenLink(
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
@@ -170,6 +171,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail, req, exp
     const schoolSlug = orgSlug || agency?.portal_url || agency?.slug;
     resetLink = `${deployment.origin}${deployment.basePath}/app/${encodeURIComponent(schoolSlug)}/reset-password/${encodeURIComponent(token)}`;
   }
+  if(enrollment){const portal=intakeClientPortal(agency,{channel:enrollment.channel,school:!!enrollment.schoolOrganizationId});if(portal.clinical_portal)resetLink=clientPortalAppUrl(portal,`reset-password/${encodeURIComponent(token)}`);}
   const firstSet = userNeedsFirstPasswordSet(user);
   const reminder = loginReminderLines(loginEmail);
   let subject = firstSet ? 'Set your password' : 'Reset your password';
@@ -321,6 +323,7 @@ export async function requestPasswordRecoveryEmail({
     orgSlug,
     token: tokenResult.token,
     expiresInHours: tokenResult.expiresInHours || RESET_HOURS,
+    enrollment,
     loginEmail
   });
 

@@ -7,7 +7,7 @@ vi.mock('../contactReminderToken.service.js', () => ({ publicAppBaseUrl: () => '
 import Agency from '../../models/Agency.model.js';
 import Affiliation from '../../models/OrganizationAffiliation.model.js';
 import { resolvePreferredSenderIdentityForAgency } from '../emailSenderIdentityResolver.service.js';
-import { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl } from '../clientPortalContext.service.js';
+import { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl, intakeClientPortal } from '../clientPortalContext.service.js';
 const tenant = { id: 1, name: 'ITSCO', slug: 'itsco', organization_type: 'agency' };
 const school = { id: 2, name: 'School', slug: 'school', organization_type: 'school' };
 const learning = { id: 3, name: 'Tutoring', slug: 'tutoring', organization_type: 'learning' };
@@ -51,4 +51,12 @@ it('routes clinical clients from every agency to AuricWell and leaves tutoring w
  for(const context of [clinical,schoolContext,counselingAtLearningOrg]) expect(clientPortalInviteUrl({portal:context.portal,token:'opaque',existingAccount:false})).toBe('https://auricwell.com/itsco/new_account/opaque?portal=itsco');
  const learningContext=await resolveClientPortalContext({agency_id:1,organization_id:1,client_type:'learning'});
  expect(learningContext.learning).toBe(true);expect(learningContext.clinical).toBe(false);
+});
+
+it('uses the counseling or tutoring enrollment context before a session exists',()=>{
+ const mixed={...tenant,name:'Mixed care and learning',feature_flags:{medicalBillingEnabled:true}};
+ expect(intakeClientPortal(mixed,{channel:'counseling'}).clinical_portal).toBe(true);
+ expect(intakeClientPortal(mixed,{channel:'tutoring'}).clinical_portal).toBe(false);
+ expect(intakeClientPortal(mixed,{channel:'tutoring',clients:[{client_type:'clinical'}]}).clinical_portal).toBe(true);
+ expect(intakeClientPortal(mixed,{channel:'office',clients:[{client_type:'learning'}]}).clinical_portal).toBe(false);
 });

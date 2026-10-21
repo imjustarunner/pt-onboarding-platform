@@ -1,6 +1,6 @@
 import User from '../models/User.model.js';
 import { requestPasswordRecoveryEmail } from './passwordRecovery.service.js';
-import { buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
+import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
 
 export async function enrollmentPortalAccess({ submission, agency, schoolOrganizationId, enrollmentChannel, sendSetupEmail, invitationDeferred, req }, { users = User, recover = requestPasswordRecoveryEmail } = {}) {
   const fail = message => Object.assign(new Error(message), { status:409 });
@@ -16,6 +16,6 @@ export async function enrollmentPortalAccess({ submission, agency, schoolOrganiz
     deliveryStatus = result.deliveryStatus || result.outcome;
   }
   // A session is not proof of email ownership. Never disclose tokens/passwords.
-  return { username:guardian.email,portalLoginUrl:buildPublicPortalLoginUrl(agency),needsPasswordSetup:!guardian.password_hash,deliveryStatus,
+  return { username:guardian.email,portalLoginUrl:clientPortalInviteUrl({portal:intakeClientPortal(agency,{channel:enrollmentChannel,school:!!schoolOrganizationId}),existingAccount:true}),needsPasswordSetup:!guardian.password_hash,deliveryStatus,
     note:'Open the setup link in your email to choose a password. Existing account passwords remain unchanged.' };
 }

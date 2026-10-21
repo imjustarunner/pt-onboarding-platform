@@ -1,3 +1,4 @@
+import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
@@ -65,4 +66,13 @@ export async function resolveClientPortalSender(tenantId) {
     throw fail('Configure an active portal invitation email sender for the client’s main tenant.');
   }
   return identity;
+}
+
+/** Public enrollment has client types before a guardian session exists. */
+export function intakeClientPortal(agency, {clients=[],channel,school=false}={}) {
+  const type=String(clients.find(c=>c?.client_type)?.client_type||'').toLowerCase();
+  const clinical=type?['clinical','mental_health','school'].includes(type):
+    ['tutoring','learning','coaching','consulting'].includes(channel)?false:
+      school||['counseling','clinical','office'].includes(channel)||getMedicalBillingFlags(agency?.feature_flags||{}).clinicalChartEnabled;
+  return {...agency,clinical_portal:!!clinical};
 }
