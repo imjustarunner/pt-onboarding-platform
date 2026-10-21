@@ -78,6 +78,7 @@ it('honors enrollment No and scheduling-only for the signer, never another guard
   expect(await familyNotificationDeliveryGate({...input,templateType:'session_reminder'},db)).toEqual({allowed:true});
   m.intake.mockResolvedValue({emailPreference:'no',recipientEmail:email});
   expect(await familyNotificationDeliveryGate({...input,templateType:'session_reminder'},db)).toMatchObject({allowed:false});
+  expect(await familyNotificationDeliveryGate({...input,templateType:'family_notification_invitation'},db)).toMatchObject({allowed:false});
   expect(await familyNotificationDeliveryGate({...input,to:'other@example.test'},db)).toEqual({allowed:true});
   expect(await familyNotificationDeliveryGate({...input,templateType:'password_reset'},db)).toEqual({allowed:true});
 });
