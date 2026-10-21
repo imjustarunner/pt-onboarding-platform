@@ -2,6 +2,7 @@ import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
+import {guardianServiceContext,serviceMatchesAppointment} from './clientServiceEnrollment.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import Appointment from '../models/Appointment.model.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
@@ -14,14 +15,15 @@ export function validateGuardianAppointmentRequest(input) {
   if (!reason || reason.length > 2000) throw fail('Please give a reason, up to 2,000 characters.');
   return { type: input.type, reason };
 }
-export async function authorizedClient(userId, clientId, requiredClinicalScope = 'session_frequency') {
+export async function authorizedClient(userId, clientId, requiredClinicalScope = 'session_frequency', careContext = {}) {
+  if(careContext.agencyId||careContext.serviceId)return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:careContext.agencyId,serviceId:careContext.serviceId});
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope });
   const client = clients.find(c => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json));
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
   return client;
 }
 export async function requireGuardianCancellation({ userId, clientId, appointment }) {
-  const client = await authorizedClient(userId, clientId);
+  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId:appointment.agencyId});
   if (Number(client.agency_id) !== Number(appointment.agencyId)) throw fail('Appointment not found.', 404);
   const participants = await Appointment.listParticipants(appointment.id);
   const clientIds = [...new Set(participants.map(p => Number(p.clientId)).filter(Boolean))];
@@ -29,11 +31,11 @@ export async function requireGuardianCancellation({ userId, clientId, appointmen
   return client;
 }
 
-export async function cancelGuardianAppointments({ userId, clientId, appointmentId, scope = 'single', reason, confirmed }) {
+export async function cancelGuardianAppointments({ userId, clientId, appointmentId, scope = 'single', reason, confirmed, agencyId,serviceId }) {
   if (confirmed !== true) throw fail('Confirm cancellation. Existing cancellation-fee rules still apply.');
   if (!['single', 'future'].includes(scope)) throw fail('Choose this appointment or all future sessions in this series.');
   const clean = validateGuardianAppointmentRequest({ type: 'cancel', reason }).reason;
-  const client = await authorizedClient(userId, clientId);
+  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
   const db = await pool.getConnection();
   const lock = `guardian-cancel:${client.agency_id}:${clientId}`;
   let locked = false;
@@ -42,7 +44,7 @@ export async function cancelGuardianAppointments({ userId, clientId, appointment
     if (Number(result?.acquired) !== 1) throw fail('Another cancellation is being processed. Please retry.', 409);
     locked = true;
     const anchor = await Appointment.findById(appointmentId);
-    if (!anchor) throw fail('Appointment not found.', 404);
+    if (!anchor || Number(anchor.agencyId)!==Number(client.agency_id) || (client.service&&!serviceMatchesAppointment(client.service,anchor))) throw fail('Appointment not found.', 404);
     await requireGuardianCancellation({ userId, clientId, appointment: anchor });
     let ids = [appointmentId];
     let series = null;
@@ -107,16 +109,24 @@ export async function appointmentRequests(appointmentId, db = pool) {
     reason: decryptFamilyBilling(row.reason_encrypted, context(row.agency_id, appointmentId))?.reason || '',
     decisionReason: row.decision_reason_encrypted ? decryptFamilyBilling(row.decision_reason_encrypted, context(row.agency_id, appointmentId))?.reason || '' : '' }));
 }
-export async function listGuardianAppointments({ userId, clientId }) {
-  const client = await authorizedClient(userId, clientId);
-  const selection = `SELECT DISTINCT a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'`;
+export async function listGuardianAppointments({ userId, clientId, agencyId, serviceId }) {
+  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
+  const params=[clientId,client.agency_id];
+  let serviceFilter='';
+  if(client.service){
+    if(client.service.provider_user_id){serviceFilter+=' AND a.provider_user_id=?';params.push(client.service.provider_user_id);}
+    if(client.service.service_kind==='tutoring')serviceFilter+=" AND a.business_type IN ('learning','tutoring')";
+    else if(client.service.service_kind==='counseling')serviceFilter+=" AND (a.business_type IS NULL OR a.business_type IN ('mental_health','healthcare'))";
+    else{serviceFilter+=' AND a.business_type=?';params.push(client.service.service_kind);}
+  }
+  const selection = `SELECT DISTINCT a.business_type AS businessType,a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'${serviceFilter}`;
   // This is a display window only: keep the provider's future reservation intact.
   // Query upcoming and history independently, so far-future rows cannot crowd out either.
   const [upcoming] = await pool.execute(`${selection} AND a.start_at>=UTC_TIMESTAMP()
-    AND a.status IN ('scheduled','confirmed','client_confirmed') ORDER BY a.start_at ASC,a.id ASC LIMIT 6`, [clientId, client.agency_id]);
+    AND a.status IN ('scheduled','confirmed','client_confirmed') ORDER BY a.start_at ASC,a.id ASC LIMIT 6`, params);
   const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR a.status IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
-    AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, [clientId, client.agency_id]);
-  const rows = [...upcoming, ...history];
+    AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, params);
+  const rows = [...upcoming, ...history].filter(a=>!client.service||serviceMatchesAppointment(client.service,a));
   const [offers] = await pool.execute('SELECT appointment_id FROM appointment_replacement_offers WHERE client_id=? AND agency_id=?', [clientId, client.agency_id]);
   const offerIds = new Set(offers.map(o => Number(o.appointment_id)));
   for (const row of rows) {
@@ -131,9 +141,9 @@ export async function listGuardianAppointments({ userId, clientId }) {
   }
   return rows;
 }
-export async function requestGuardianAppointmentChange({ userId, clientId, appointmentId, ...input }) {
+export async function requestGuardianAppointmentChange({ userId, clientId, appointmentId, agencyId,serviceId, ...input }) {
   const request = validateGuardianAppointmentRequest(input);
-  const client = await authorizedClient(userId, clientId);
+  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
   const encrypted = encryptFamilyBilling({ reason: request.reason }, context(client.agency_id, appointmentId));
   const db = await pool.getConnection();
   try {

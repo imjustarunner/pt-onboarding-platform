@@ -117,7 +117,8 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import api from '../../services/api';
+import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const api=usePortalCareApi();
 
 const props = defineProps({
   clientId: { type: [Number, String], default: null },

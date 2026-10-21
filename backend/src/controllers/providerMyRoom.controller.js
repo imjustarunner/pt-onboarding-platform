@@ -33,7 +33,7 @@ export const getMyRoomPlan = respond(async req => ({plan:await getMeetingPlan(re
 export const putMyRoomPlan = respond(async req => ({plan:await setMeetingPlan(Number(req.params.userId),req.body.tier,req.user.id)}));
 export const getMyRoomMe = respond(async req => { const {room,plan}=await host(req); return {room:await virtualOfficePresentation(room,req),plan}; });
 export const getMyRoomLobby = respond(async req => { const {room}=await host(req); return office.officeLobby(room,req); });
-export const getMyRoomHostVideo = respond(async req => office.officeHostVideo((await host(req)).room,{appointmentId:req.body?.appointmentId,sessionId:req.body?.sessionId,req}));
+export const getMyRoomHostVideo = respond(async req => office.officeHostVideo((await host(req)).room,{appointmentId:req.body?.appointmentId,sessionId:req.body?.sessionId,learningSessionId:req.body?.learningSessionId,tutoringAppointmentId:req.body?.tutoringAppointmentId,req}));
 export const getOfficeScheduleScopes = respond(async req => {
  const agencies=await User.getAgencies(req.user.id);
  // The selected tenant may be outside a super-admin's explicit memberships.

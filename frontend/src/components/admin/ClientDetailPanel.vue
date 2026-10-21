@@ -1887,6 +1887,7 @@
             </div>
           </div>
 
+          <ClientServiceEnrollments :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliations" />
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
           <div class="casg-grid">
@@ -2772,6 +2773,7 @@
 </template>
 
 <script setup>
+import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } from 'vue';

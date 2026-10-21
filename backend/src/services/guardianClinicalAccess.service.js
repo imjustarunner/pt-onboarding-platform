@@ -22,13 +22,13 @@ export function effectiveClinicalAccess({grant,link,dob,asOf=today()}){
   return {level:grant.access_level==='full'&&scopes.length<CLINICAL_SCOPES.length?'restricted':grant.access_level,scopes,reviewRequired:false,reviewDueDate:grant.review_due_date};
 }
 export async function clinicalAccess({agencyId,clientId,userId},db=pool){
-  const [rows]=await db.execute('SELECT cg.*,c.date_of_birth,c.agency_id FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE cg.client_id=? AND cg.guardian_user_id=? AND c.agency_id=?',[clientId,userId,agencyId]);
+  const [rows]=await db.execute('SELECT cg.*,c.date_of_birth,c.agency_id FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE cg.client_id=? AND cg.guardian_user_id=? AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))',[clientId,userId,agencyId,agencyId]);
   const [grants]=await db.execute('SELECT * FROM guardian_clinical_grants WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,userId]);
   return effectiveClinicalAccess({grant:grants[0],link:rows[0],dob:rows[0]?.date_of_birth});
 }
 export async function requireClinicalScope({agencyId,clientId,userId,scope}){const access=await clinicalAccess({agencyId,clientId,userId});if(!access.scopes.includes(scope))throw billingError(403,'This clinical information is not authorized for this relationship. Contact the care team for an access review.');return access;}
 export async function requireClinicalAccessManager(user,agencyId){
- const [members]=await pool.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=?',[user.id,agencyId]);
+ const [members]=await pool.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND COALESCE(is_active,1)=1',[user.id,agencyId]);
  if(user.role==='super_admin')return;
  if(!members.length||!['admin','agency_admin','clinical_practice_assistant'].includes(user.role))throw billingError(403,'Clinical access review requires an authorized care-team member');
  // Provider roles must also have a client assignment in the route's existing
@@ -37,7 +37,7 @@ export async function requireClinicalAccessManager(user,agencyId){
 export async function setClinicalGrant({agencyId,clientId,guardianUserId,accessLevel,medicalRightsVerified,consentBasis,scopes,reviewDueDate,reason,actorUserId}){
  if(!['full','limited','payer_only'].includes(accessLevel)||!['legal_representative','minor_independent_consent','client_authorization','payer_only'].includes(consentBasis)||!String(reason||'').trim())throw billingError(400,'Record the access level, verified consent basis and supporting authority');
  return transaction(async db=>{
-  const [links]=await db.execute('SELECT cg.*,c.date_of_birth FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE c.id=? AND c.agency_id=? AND cg.guardian_user_id=? AND cg.access_enabled=1 FOR UPDATE',[clientId,agencyId,guardianUserId]);const link=links[0];if(!link||link.relationship_type==='self')throw billingError(400,'Select an active guardian relationship');
+  const [links]=await db.execute('SELECT cg.*,c.date_of_birth FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE c.id=? AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1)) AND cg.guardian_user_id=? AND cg.access_enabled=1 FOR UPDATE',[clientId,agencyId,agencyId,guardianUserId]);const link=links[0];if(!link||link.relationship_type==='self')throw billingError(400,'Select an active guardian relationship');
   const age=ageOn(link.date_of_birth);if(accessLevel!=='payer_only'&&(!medicalRightsVerified||age===null))throw billingError(400,'Verify medical rights and date of birth before granting clinical access');
   if(age>=18&&accessLevel!=='payer_only'&&consentBasis!=='client_authorization')throw billingError(400,'An adult client’s authorization is required');
   if(accessLevel!=='payer_only'&&!reviewDueDate)throw billingError(400,'Set the next clinical access review date');
@@ -52,7 +52,7 @@ export async function setClinicalGrant({agencyId,clientId,guardianUserId,accessL
 }
 export async function revokeClinicalGrant({agencyId,clientId,guardianUserId,userId,reason,scopes}){
  return transaction(async db=>{
-  const [links]=await db.execute('SELECT cg.*,c.date_of_birth FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE c.id=? AND c.agency_id=? AND cg.guardian_user_id=? AND cg.access_enabled=1',[clientId,agencyId,userId]);const link=links[0];
+  const [links]=await db.execute('SELECT cg.*,c.date_of_birth FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE c.id=? AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1)) AND cg.guardian_user_id=? AND cg.access_enabled=1',[clientId,agencyId,agencyId,userId]);const link=links[0];
   if(!link||link.relationship_type!=='self'||ageOn(link.date_of_birth)<12||ageOn(link.date_of_birth)===null)throw billingError(403,'Only this client’s account can request this privacy restriction');
   const removed=Array.isArray(scopes)?scopes.filter(s=>CLINICAL_SCOPES.includes(s)):CLINICAL_SCOPES;
   if(!removed.length)throw billingError(400,'Select the clinical disclosures to restrict');

@@ -5,8 +5,8 @@ import { readSubmissionAnswers } from './officeClientSubmissions.service.js';
 import { scoreOfficeFeedback } from './officeFeedbackForms.js';
 import { summarizeFeedback } from './officeFeedbackSummary.service.js';
 
-export async function guardianCheckins({userId,clientId}) {
-  const client=await authorizedClient(userId,clientId,'clinical_documents');
+export async function guardianCheckins({userId,clientId,agencyId,serviceId}) {
+  const client=await authorizedClient(userId,clientId,'clinical_documents',{agencyId,serviceId});
   if(client.permissions_json?.canViewDocs===false)throw Object.assign(new Error('Documents are not shared with this account.'),{status:403});
   if(!['learning','tutoring'].includes(String(client.client_type).toLowerCase())) await requireClinicalScope({agencyId:client.agency_id,clientId,userId,scope:'clinical_documents'});
   // A kiosk visit must already be attached to the correct chart. Unmatched
@@ -18,11 +18,11 @@ export async function guardianCheckins({userId,clientId}) {
     JOIN users u ON u.id=s.provider_id WHERE s.client_id=? AND s.agency_id=? AND s.completed_at IS NOT NULL
       AND JSON_UNQUOTE(JSON_EXTRACT(s.forms_json,'$.respondentType')) IN ('adult_self','youth_self')
     ORDER BY s.scheduled_start_at DESC,s.id DESC LIMIT 200`,[clientId,client.agency_id]);
-  const visits=rows.map(r=>{
+  const visits=rows.filter(r=>!client.service?.provider_user_id||Number(r.provider_id)===Number(client.service.provider_user_id)).map(r=>{
     const envelope=typeof r.forms_json==='string'?JSON.parse(r.forms_json):r.forms_json;
     const feedback=readSubmissionAnswers(r.answers_json);
     const forms=(envelope.forms||[]).filter(f=>f.scoring==='office_feedback_v1');
     return {id:r.id,clientId:Number(clientId),providerId:r.provider_id,providerName:r.provider_name,scheduledStartAt:r.scheduled_start_at,completedAt:r.completed_at,timezone:r.timezone,respondentType:envelope.respondentType,serviceType:envelope.serviceType||'counseling',score:scoreOfficeFeedback(forms,feedback.answers,feedback.skippedFormIds)};
-  });
+  }).filter(v=>!client.service||v.serviceType===client.service.service_kind);
   return {visits,trends:summarizeFeedback(visits),limit:200};
 }

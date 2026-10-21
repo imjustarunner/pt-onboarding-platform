@@ -1,5 +1,6 @@
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
+import {ensureClientService} from '../services/clientServiceEnrollment.service.js';
 import { withAppointmentWindow, appointmentOccupiesTime, assertAppointmentWindowAvailable } from '../services/appointmentConflict.service.js';
 
 const LIVE_STATUSES = new Set([
@@ -476,10 +477,12 @@ class Appointment {
       );
       i += 1;
     }
-    const [scheduled]=await executor.execute("SELECT created_by_user_id FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
+    const [scheduled]=await executor.execute("SELECT created_by_user_id,agency_id,provider_user_id,business_type FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
     if(scheduled.length) {
       for(const clientId of new Set(participants.map(p=>Number(p.clientId || p.client_id || 0)).filter(Boolean))) {
         await resolveClientProviderHolds(executor,{clientId,userId:scheduled[0].created_by_user_id,reason:'PLACED_ON_SCHEDULE'});
+        const a=scheduled[0],serviceKind=['learning','tutoring'].includes(a.business_type)?'tutoring':['mental_health','healthcare'].includes(a.business_type)?'counseling':a.business_type;
+        if(a.agency_id)await ensureClientService({clientId,agencyId:a.agency_id,providerUserId:a.provider_user_id,serviceKind},executor);
       }
     }
     return this.listParticipants(aid, { executor });

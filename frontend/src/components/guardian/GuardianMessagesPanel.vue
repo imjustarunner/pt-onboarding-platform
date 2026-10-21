@@ -34,7 +34,7 @@
               <ConversaBadge :type="item.type" />
               {{ item.title }}
             </div>
-            <div class="gmsg-row-meta">{{ item.subtitle }}</div><span class="message-action">{{ item.provider || item.available ? 'Message your care team →' : 'Waiting for a provider assignment' }}</span>
+            <div class="gmsg-row-meta">{{ item.subtitle }}<small v-if="item.thread?.service_label"> · {{item.thread.agency_name}} · {{item.thread.service_label}}</small></div><span class="message-action">{{ item.provider || item.available ? 'Message your care team →' : 'Waiting for a provider assignment' }}</span>
             <small v-if="item.type === 'secure'" class="group-label">Shared care conversation</small>
           </button>
           <div v-if="!mailboxItems.length" class="muted pad">No care conversations are available for this profile yet. You can use Support for account questions.</div>
@@ -206,7 +206,10 @@ import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
 import { computed, nextTick, onMounted, ref } from 'vue';
-import api from '../../services/api';
+import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const careApi=usePortalCareApi();
+import baseApi from '../../services/api';
+const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
 import { useAuthStore } from '../../store/auth';
 import { GUARDIAN_TICKET_TOPICS, ticketTopicLabel } from '../../utils/ticketTopics';
 
@@ -255,7 +258,7 @@ const childOptions = computed(() =>
 
 const mailboxItems = computed(() => {
   const secure = (threads.value || []).filter(t=>!props.clientId||Number(t.client_id)===Number(props.clientId)).map((t) => ({
-    key: `secure-${t.client_id || t.thread_id}`,
+    key: `secure-${t.thread_id || `${t.client_id}-${t.agency_id}-${t.service_id || 0}`}`,
     type: 'secure',
     title: t.client_label || 'Secure message',
     subtitle: t.provider
@@ -282,7 +285,7 @@ const selectedKey = computed(() => {
   if (selectedType.value === 'email' && selectedEmail.value?.conversationId) {
     return `email-${selectedEmail.value.conversationId}`;
   }
-  if (selected.value) return `secure-${selected.value.client_id || selected.value.thread_id}`;
+  if (selected.value) return `secure-${selected.value.thread_id || `${selected.value.client_id}-${selected.value.agency_id}-${selected.value.service_id || 0}`}`;
   return null;
 });
 
@@ -311,7 +314,7 @@ async function loadThreads() {
   loading.value = true;
   error.value = '';
   try {
-    const r = await api.get('/guardian-portal/messages', { skipGlobalLoading: true });
+    const r = await api.get('/guardian-portal/messages', { params:{clientId:props.clientId||undefined},skipGlobalLoading: true });
     threads.value = Array.isArray(r.data?.threads) ? r.data.threads : [];
     emails.value = Array.isArray(r.data?.emails) ? r.data.emails : [];
   } catch (e) {
@@ -375,7 +378,7 @@ async function selectThread(t) {
     if (!thread.thread_id) {
       const opened = await api.post(
         '/guardian-portal/messages/open',
-        { clientId: t.client_id },
+        { clientId: t.client_id,agencyId:t.agency_id,serviceId:t.service_id },
         { skipGlobalLoading: true }
       );
       thread = {
@@ -393,7 +396,7 @@ async function selectThread(t) {
     selectedType.value = 'secure';
     selectedEmail.value = null;
     selected.value = thread;
-    const [r, audience] = await Promise.all([api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true }), api.get(`/guardian-portal/clients/${thread.client_id}/care-access`, { skipGlobalLoading:true })]);
+    const [r, audience] = await Promise.all([api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true }), api.get(`/guardian-portal/clients/${thread.client_id}/care-access`, { params:{agencyId:thread.agency_id,serviceId:thread.service_id},skipGlobalLoading:true })]);
     selected.value = {...thread, participants:audience.data.participants || []};
     audienceReady.value = selected.value.participants.length > 0;
     const raw = Array.isArray(r.data?.messages) ? r.data.messages : (Array.isArray(r.data) ? r.data : []);

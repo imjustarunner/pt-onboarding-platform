@@ -2,6 +2,7 @@ import {scheduledAttendance} from './virtualOfficeAttendance.service.js';
 import crypto from 'node:crypto';
 import {officeEncounterLink,openScheduledOffice,scheduledParticipants,markOfficeAttendance} from './virtualOfficeSchedule.service.js';
 import pool from '../config/database.js';
+import {prepareTutoringOffice,linkTutoringOffice,tutoringOfficeLink,tutoringVisit,confirmTutoringGuest,finishTutoringOffice} from './tutoringOffice.service.js';
 import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
 import { getMeetingPlan } from './meetingAccessPlan.service.js';
@@ -98,7 +99,10 @@ export async function officeLobby(room,req) {
   [[previous]]=await pool.execute('SELECT COUNT(admitted_at) total,MIN(admitted_at) started_at FROM counseling_session_visits WHERE session_id=?',[session.id]);
   scheduledVisits=scheduledVisits.filter(v=>!v.office_visit_id).map(v=>({...v,guestDisplayName:participants.find(p=>p.id===Number(v.client_id))?.displayName||'Invited client',entryMethod:v.entryMethod||'session_link'}));
  }
- const encounter={scheduled,state:media?.state||'idle',hasParticipants:Number(previous.total)>0,generation:current?.generation||0,providerReady:!!providerReady,startedAt:previous.started_at||null};
+ const tutoringLink=current && media?.session_kind==='office' && media.state==='active' ? await tutoringOfficeLink(room,current.generation) : null;
+ let tutoring=null;
+ if(tutoringLink) { try { tutoring=await tutoringVisit(room,tutoringLink.learning_session_id?{learningSessionId:tutoringLink.learning_session_id}:{tutoringAppointmentId:tutoringLink.appointment_id}); } catch(e) { if(![404,409].includes(e.status))throw e; tutoring={unavailable:true,title:'Tutoring visit unavailable',participants:[]}; } }
+ const encounter={scheduled,tutoring,state:media?.state||'idle',hasParticipants:Number(previous.total)>0,generation:current?.generation||0,providerReady:!!providerReady,startedAt:previous.started_at||null};
  const [rows] = await pool.execute(`SELECT id,display_name,status,photo_envelope,admitted_at,ip_address,counseling_visit_id,generation FROM private_virtual_office_visits WHERE room_id=? AND status IN ('waiting','admitted') AND expires_at>UTC_TIMESTAMP() ORDER BY created_at`,[room.id]);
  if(rows.length)await clinicalAudit({kind:'office',sessionId:room.id,generation:current?.generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req},'clinical_lobby_read',{visitIds:rows.map(r=>r.id)});
  return {plan,encounter,scheduledWaiting:scheduledVisits.filter(v=>v.status==='waiting'),scheduledAdmitted:scheduledVisits.filter(v=>v.status==='admitted'),waiting:rows.filter(r=>r.status==='waiting').map(r=>({id:r.id,guestDisplayName:r.display_name,guestPhotoUrl:r.photo_envelope?decryptChatText(JSON.parse(r.photo_envelope)):null,returning:!!r.admitted_at&&Number(r.generation)===Number(current?.generation)})),admitted:rows.filter(r=>r.status==='admitted').map(r=>({id:r.id,guestDisplayName:r.display_name,admittedAt:r.admitted_at,ipAddress:r.ip_address}))};
@@ -129,10 +133,11 @@ export async function admitOfficeGuest(room,id,{sameEncounter=false,clientId=nul
    await markOfficeAttendance(current.id,db);
    await clinicalAudit({kind:'counseling',sessionId:current.id,agencyId:room.agencyId,role:'provider',req},'clinical_office_client_confirmed',{officeVisitId:id,visitId:visit.insertId,clientId:Number(clientId),basis:'provider_confirmation'},db);
   }
+  const tutoring=await confirmTutoringGuest(room,session,rows[0],{clientId,confirmIdentity,sameEncounter:sameEncounter&&plan.multipleOfficeGuests},db);
   const [counts] = await db.execute(`SELECT COUNT(*) total,SUM(status='admitted') present FROM private_virtual_office_visits WHERE room_id=? AND generation=?`,[room.id,session.generation]);
   const returning=!!rows[0].admitted_at&&Number(rows[0].generation)===Number(session.generation);
-  if (!link && !returning && Number(counts[0].total)>0 && !(sameEncounter===true && Number(counts[0].present)>0 && plan.multipleOfficeGuests)) throw fail(409,'End this session before admitting a new client. Only intended couples or family participants may join the current session.');
-  if (!link && !returning && !plan.multipleOfficeGuests && Number(counts[0].total)>=1) throw fail(409,'Premium includes one guest. End this visit first, or use Premium Plus for couples and families.');
+  if (!link && !tutoring && !returning && Number(counts[0].total)>0 && !(sameEncounter===true && Number(counts[0].present)>0 && plan.multipleOfficeGuests)) throw fail(409,'End this session before admitting a new client. Only intended couples or family participants may join the current session.');
+  if (!returning && !plan.multipleOfficeGuests && Number(counts[0].total)>=1) throw fail(409,'Premium includes one guest. End this visit first, or use Premium Plus for couples and families.');
   await db.execute(`UPDATE private_virtual_office_visits SET status='admitted',generation=?,admitted_at=COALESCE(admitted_at,UTC_TIMESTAMP()),ended_at=NULL,duration_seconds=NULL,last_seen_at=UTC_TIMESTAMP(),expires_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 12 HOUR) WHERE id=?`,[session.generation,id]);
   await clinicalAudit({kind:'office',sessionId:room.id,generation:session.generation,agencyId:room.agencyId,role:'provider',actor:`user-${room.userId}`,req},'clinical_guest_admitted',{visitId:id,sameEncounter},db);
   return {ok:true};
@@ -158,6 +163,8 @@ export async function officeHostVideo(room,options={}) {
  }
  try{return await transaction(async db=>{
   const session = await lockOffice(db,room); await assertOfficeAccess(room,db);
+  if((options.learningSessionId||options.tutoringAppointmentId)&&(options.appointmentId||options.sessionId))throw fail(400,'Choose one appointment.');
+  const tutoring=options.learningSessionId||options.tutoringAppointmentId?await prepareTutoringOffice(room,session,options,db):null;
   let sid = options.appointmentId||options.sessionId?await openScheduledOffice(db,room,session,options):session.video_session_id;
   if (sid) {
    const media=await clinical.clinicalMedia(sid,db,true);
@@ -171,6 +178,7 @@ export async function officeHostVideo(room,options={}) {
    await clinical.registerClinicalMedia(sid,{kind:'office',sessionId:room.id,generation:Number(session.generation)+1,agencyId:room.agencyId},db);
    await db.execute('UPDATE private_virtual_office_sessions SET video_session_id=?,generation=generation+1 WHERE room_id=?',[sid,room.id]);
   }
+  if(tutoring){const [[current]]=await db.execute('SELECT generation FROM private_virtual_office_sessions WHERE room_id=?',[room.id]);await linkTutoringOffice(room,current.generation,tutoring,db,options.req);}
   await db.execute('UPDATE private_virtual_office_sessions SET host_seen_at=UTC_TIMESTAMP() WHERE room_id=?',[room.id]);
   return videoCredentials(sid,`user-${room.userId}`,room.displayName || 'Provider',true,db);
  });}finally{if(creationLock){try{if(locked)await creationLock.execute('SELECT RELEASE_LOCK(?)',[lockName]);}finally{creationLock.release();}}}
@@ -189,8 +197,9 @@ export async function officeGuestVideo(room,id,credential) {
  });
 }
 export async function endOffice(room,req) {
+ let tutoringGeneration=null;
  const sid=await transaction(async db=>{
-  const session=await lockOffice(db,room);
+  const session=await lockOffice(db,room);tutoringGeneration=session.generation;
   if (!session.video_session_id) return null;
   const media=await clinical.clinicalMedia(session.video_session_id,db);
   if(media?.session_kind==='counseling')await db.execute('SELECT id FROM counseling_sessions WHERE id=? FOR UPDATE',[media.session_id]);
@@ -200,10 +209,13 @@ export async function endOffice(room,req) {
    await db.execute("UPDATE counseling_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND status IN ('waiting','admitted')",[media.session_id]);
    await markOfficeAttendance(media.session_id,db);
   }
+  await db.execute('UPDATE tutoring_office_encounters SET ended_at=COALESCE(ended_at,UTC_TIMESTAMP()) WHERE room_id=? AND generation=? AND agency_id=?',[room.id,session.generation,room.agencyId]);
   await db.execute(`UPDATE private_virtual_office_visits SET status='ended',photo_envelope=NULL,ended_at=UTC_TIMESTAMP(),duration_seconds=GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP())) WHERE room_id=? AND (status='admitted' OR (status='waiting' AND generation=?))`,[room.id,session.generation]);
   return session.video_session_id;
  });
- return sid ? clinical.finishClinicalEnd(sid) : {ok:true,state:'ended'};
+ const result=sid?await clinical.finishClinicalEnd(sid):{ok:true,state:'ended'};
+ if(tutoringGeneration&&result.state==='ended')await finishTutoringOffice(room,tutoringGeneration);
+ return result;
 }
 
 export async function leaveOffice(room,id,credential) {

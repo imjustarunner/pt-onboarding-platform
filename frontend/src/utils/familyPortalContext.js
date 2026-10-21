@@ -22,7 +22,19 @@ export function familyPortalClients(clients, organization) {
   const id = Number(organization?.id || 0);
   if (!id) return list;
   const childOrganization = ['school', 'program', 'learning', 'clinical'].includes(typeOf(organization));
-  return list.filter(client => Number(childOrganization ? client.organization_id : client.agency_id) === id);
+  return list.flatMap(client=>{
+    const context=client.care_contexts?.find(c=>Number(c.agency_id)===id);
+    if(context)return [{...client,...context,organization_type:client.organization_type,services:context.services||[]}];
+    return (childOrganization?Number(client.organization_id)===id:Number(client.agency_id)===id)?[client]:[];
+  });
+}
+
+export function familyCareAgencies(profiles){
+ const agencies=new Map();
+ for(const profile of profiles||[])for(const c of profile.care_contexts?.length?profile.care_contexts:[profile]){
+  const id=Number(c.agency_id);if(id)agencies.set(id,{id,name:c.agency_name,slug:c.agency_slug,logo_url:c.agency_logo_url,organization_type:c.organization_type==='learning'?'learning':'agency'});
+ }
+ return [...agencies.values()];
 }
 
 // The AuricWell /app entry currently serves the administrator preview. Family

@@ -1,6 +1,7 @@
 <script setup>
 import {computed,ref,watch} from 'vue';
-import api from '../../services/api';
+import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,required:true}});
 const data=ref(null),draft=ref({}),error=ref(''),busy=ref(false),message=ref('');let generation=0;
 const changedValues=computed(()=>Object.fromEntries(Object.entries(draft.value).filter(([key,value])=>String(value||'').trim()!==String(data.value?.values?.[key]||'')).map(([key,value])=>[key,String(value||'').trim()])));

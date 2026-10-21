@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {clientAgencyMembership} from '../services/clientServiceEnrollment.service.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import { decryptChatText } from '../services/chatEncryption.service.js';
 import { recordSecureMessageEvent } from '../services/secureMessageBoundary.service.js';
@@ -9,19 +10,25 @@ async function requireRecordAccess(req) {
   }
   const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, clientId: req.params.id });
   if (!access.ok) throw Object.assign(new Error(access.message), { status: access.status });
-  return access.client;
+  const agencyId=Number(req.query.agencyId||access.client.agency_id);
+  if(!await clientAgencyMembership(access.client.id,agencyId))throw Object.assign(new Error('Client agency access denied'),{status:403});
+  if(req.user.role!=='super_admin'){
+    const [[member]]=await pool.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND COALESCE(is_active,1)=1',[req.user.id,agencyId]);
+    if(!member)throw Object.assign(new Error('Agency record access required'),{status:403});
+  }
+  return {...access.client,agency_id:agencyId};
 }
 
 export async function listClientSecureMessages(req, res, next) {
   try {
-    await requireRecordAccess(req);
+    const client=await requireRecordAccess(req);
     const before = Number(req.query.beforeId) || 2147483647;
     const [records] = await pool.execute(
       `SELECT r.id, r.message_id, r.thread_id, r.sender_user_id, m.created_at,
         CONCAT_WS(' ', u.first_name, u.last_name) AS sender_name
-       FROM client_secure_message_records r JOIN chat_messages m ON m.id = r.message_id
+       FROM client_secure_message_records r JOIN chat_messages m ON m.id = r.message_id JOIN chat_threads t ON t.id=r.thread_id
        LEFT JOIN users u ON u.id = r.sender_user_id
-       WHERE r.client_id = ? AND r.id < ? ORDER BY r.id DESC LIMIT 50`, [req.params.id, before]);
+       WHERE r.client_id = ? AND t.agency_id=? AND r.id < ? ORDER BY r.id DESC LIMIT 50`, [req.params.id,client.agency_id, before]);
     res.set('Cache-Control', 'no-store');
     res.json({ records, hasMore: records.length === 50 });
   } catch (e) { next(e); }
@@ -32,9 +39,9 @@ export async function getClientSecureMessage(req, res, next) {
     const client = await requireRecordAccess(req);
     const [rows] = await pool.execute(
       `SELECT m.*, r.client_id, r.audience_json, CONCAT_WS(' ', u.first_name, u.last_name) AS sender_name
-       FROM client_secure_message_records r JOIN chat_messages m ON m.id = r.message_id
-       LEFT JOIN users u ON u.id = m.sender_user_id WHERE r.client_id = ? AND r.message_id = ? LIMIT 1`,
-      [client.id, req.params.messageId]);
+       FROM client_secure_message_records r JOIN chat_messages m ON m.id = r.message_id JOIN chat_threads t ON t.id=r.thread_id
+       LEFT JOIN users u ON u.id = m.sender_user_id WHERE r.client_id = ? AND t.agency_id=? AND r.message_id = ? LIMIT 1`,
+      [client.id,client.agency_id, req.params.messageId]);
     if (!rows.length) return res.status(404).json({ error: { message: 'Secure message record not found' } });
     const message = rows[0];
     const body = message.body_ciphertext ? decryptChatText({ ciphertextB64: message.body_ciphertext, ivB64: message.body_iv,

@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import LearningClassSession from '../models/LearningClassSession.model.js';
+import {clientAgencyMembership} from '../services/clientServiceEnrollment.service.js';
 
 const MANAGE_ROLE_ALLOWLIST = new Set([
   'super_admin',
@@ -54,13 +55,12 @@ export async function assertLearningClassAccess(req, classId) {
   }
 
   const klass = await LearningProgramClass.findById(cid);
-  await assertGroupSessionFeatureFlagEnabled(klass.organization_id);
-
   if (!klass) {
     const err = new Error('Class not found');
     err.status = 404;
     throw err;
   }
+  await assertGroupSessionFeatureFlagEnabled(klass.organization_id);
 
   const actorId = Number(req.user.id);
   const role = String(req.user.role || '').toLowerCase();
@@ -69,7 +69,7 @@ export async function assertLearningClassAccess(req, classId) {
   // Provider-side access via org membership
   const agencies = await User.getAgencies(actorId);
   const orgIds = new Set((agencies || []).map((a) => Number(a.id)).filter((n) => n > 0));
-  if (orgIds.has(Number(klass.organization_id || 0))) {
+  if (MANAGE_ROLE_ALLOWLIST.has(role) && orgIds.has(Number(klass.organization_id || 0))) {
     const canManage = MANAGE_ROLE_ALLOWLIST.has(role);
     return { klass, actorRole: canManage ? 'presenter' : 'participant', canManage };
   }
@@ -114,6 +114,19 @@ export async function assertLearningSessionAccess(req, sessionId) {
     err.status = 404;
     throw err;
   }
+  const individual=session.session_subtype==='tutoring'||session.mode==='individual';
+  if(individual&&['guardian','client_guardian','client'].includes(req.user?.role)){
+    const [students]=await pool.execute('SELECT client_id FROM tutoring_session_clients WHERE session_id=?',[sid]);
+    const links=await ClientGuardian.listClientsForGuardian({guardianUserId:req.user.id});
+    const klass=await LearningProgramClass.findById(session.learning_class_id);
+    const permitted=[];
+    for(const student of students){
+      const link=links.find(l=>Number(l.client_id)===Number(student.client_id));
+      if(link&&!ClientGuardian.isNoView(link.permissions_json)&&link.permissions_json?.canViewAppointments!==false&&klass&&await clientAgencyMembership(student.client_id,klass.organization_id))permitted.push(student.client_id);
+    }
+    if(!permitted.length)throw Object.assign(new Error('This tutoring visit is not shared with your account.'),{status:403});
+    return {session,klass,actorRole:'participant',canManage:false,canModerate:false};
+  }
   const { klass, actorRole, canManage } = await assertLearningClassAccess(req, session.learning_class_id);
 
   // Session-level role override
@@ -137,15 +150,19 @@ export async function canWriteEvidenceForClass(req, classId) {
 }
 
 export async function getGuardianJoinInfoForClassAndSession(guardianUserId, classId, sessionId) {
-  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId });
-  const linkedIds = new Set((linked || []).map((r) => Number(r.client_id)).filter((n) => n > 0));
-  const classMembers = await LearningProgramClass.listClientMembers(classId);
-  const childIds = (classMembers || [])
-    .filter((m) => linkedIds.has(Number(m.client_id)) && String(m.membership_status || '').toLowerCase() !== 'removed')
-    .map((m) => Number(m.client_id));
-  if (!childIds.length) return null;
   const session = await LearningClassSession.findById(sessionId);
   if (!session || Number(session.learning_class_id) !== Number(classId)) return null;
+  const klass=await LearningProgramClass.findById(classId);
+  if(!klass)return null;
+  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId });
+  const linkedIds = new Set((linked || []).filter(r=>!ClientGuardian.isNoView(r.permissions_json)&&r.permissions_json?.canViewAppointments!==false).map((r) => Number(r.client_id)).filter((n) => n > 0));
+  const classMembers = session.session_subtype==='tutoring'||session.mode==='individual' ? (await pool.execute('SELECT client_id FROM tutoring_session_clients WHERE session_id=?',[sessionId]))[0] : await LearningProgramClass.listClientMembers(classId);
+  const candidates = (classMembers || [])
+    .filter((m) => linkedIds.has(Number(m.client_id)) && String(m.membership_status || '').toLowerCase() !== 'removed')
+    .map((m) => Number(m.client_id));
+  const childIds=[];
+  for(const id of candidates)if(await clientAgencyMembership(id,klass.organization_id))childIds.push(id);
+  if (!childIds.length) return null;
   return {
     classId: Number(classId),
     sessionId: Number(sessionId),

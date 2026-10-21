@@ -6,6 +6,7 @@
         <label>Agency<select :value="currentAgencyId" @change="chooseAgency($event.target.value)" aria-label="Choose agency"><option v-for="agency in familyAgencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
         <label v-if="children.length > 1">Viewing<select :value="selectedChildId" @change="chooseFamilyProfile($event.target.value)" aria-label="Choose profile"><option v-for="child in children" :key="child.client_id" :value="child.client_id">{{ profileLabel(child) }}</option></select></label>
         <div v-else class="single-profile"><small>Viewing · 1 profile here</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
+        <label v-if="selectedServices.length > 1">Service &amp; provider<select :value="selectedServiceId" @change="chooseService($event.target.value)"><option v-for="service in selectedServices" :key="service.id" :value="service.id">{{service.label}} · {{service.provider_name || 'Provider being assigned'}}</option></select></label><div v-else-if="selectedService" class="single-profile"><small>Service &amp; provider</small><strong>{{selectedService.label}} · {{selectedService.provider_name || 'Provider being assigned'}}</strong></div>
         <button class="more-family" type="button" @click="navigatePortal('family')">{{ familyHomeLabel }} <span>{{ allFamilyProfiles.length }}</span></button>
       </div>
     </template>
@@ -17,7 +18,7 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading your dashboard…</div>
 
-    <div v-else class="layout guardian-layout">
+    <div v-else :key="`${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" class="layout guardian-layout">
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
       <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
@@ -38,7 +39,7 @@
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
                 <details><summary>Profile details</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? 'Tutoring' : 'Counseling and care' }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? 'Your own client profile' : 'Dependent linked to your account' }}</p></details>
-                <button type="button" @click="chooseFamilyProfile(person.client_id)">Open profile →</button>
+                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{service.label}}<small>{{service.provider_name || 'Provider being assigned'}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">Open profile →</button>
               </article></div>
             </section>
 
@@ -604,12 +605,13 @@
 </template>
 
 <script setup>
+import {provide} from 'vue';
 import PortalSafetyPlans from '../../components/safetyPlans/PortalSafetyPlans.vue';
 import GuardianSharedFiles from '../../components/guardian/GuardianSharedFiles.vue';
 import GuardianProgressRecords from '../../components/guardian/GuardianProgressRecords.vue';
 import FamilyDashboard from '../../components/guardian/FamilyDashboard.vue';
 import FamilyPayments from '../../components/guardian/FamilyPayments.vue';
-import { resolveFamilyPortalOrganization, familyPortalClients } from '../../utils/familyPortalContext.js';
+import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import { isClinicalClient } from '../../utils/clinicalWorkspace';
@@ -772,8 +774,13 @@ const parseFeatureFlags = (raw) => {
   return {};
 };
 
+const selectedServiceId=ref(Number(route.query.serviceId)||null);
+const selectedServices=computed(()=>children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value))?.services?.filter(s=>s.is_active)||[]);
+const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||selectedServices.value[0]||null);
+watch(selectedServices,services=>{if(!services.some(s=>Number(s.id)===Number(selectedServiceId.value)))selectedServiceId.value=Number(services[0]?.id)||null;});
+provide('portalCareContext',computed(()=>({clientId:selectedChildId.value,agencyId:currentAgencyId.value,serviceId:selectedService.value?.id})));
 const standardsLearningVisible = computed(() => {
-  const selected = children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value));
+  const selected = selectedChild.value;
   if (selected?.client_type) return ['learning','tutoring'].includes(String(selected.client_type).toLowerCase());
   const orgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags);
@@ -783,7 +790,8 @@ const standardsLearningVisible = computed(() => {
 const selectedChild = computed(() => {
   const id = Number(selectedChildId.value);
   if (!id) return null;
-  return (children.value || []).find((c) => Number(c?.client_id) === id) || null;
+  const child=(children.value || []).find((c) => Number(c?.client_id) === id);
+  return child?{...child,client_type:selectedService.value?({tutoring:'learning',counseling:'clinical'}[selectedService.value.service_kind]||selectedService.value.service_kind):child.client_type}:null;
 });
 
 const selectedChildAgencyId = computed(() => {
@@ -792,7 +800,7 @@ const selectedChildAgencyId = computed(() => {
   return Number(agencyStore.currentAgency?.id || 0) || null;
 });
 
-const schoolAffiliations = computed(() => selectedChild.value?.school_affiliations || []);
+const schoolAffiliations = computed(() => {const profile=allFamilyProfiles.value.find(p=>Number(p.client_id)===Number(selectedChildId.value));if(Number(profile?.agency_id)!==Number(currentAgencyId.value)&&!selectedService.value?.organization_id)return [];return (selectedChild.value?.school_affiliations||[]).filter(s=>!selectedService.value?.organization_id||Number(s.organization_id)===Number(selectedService.value.organization_id));});
 const hasSchoolAffiliations = computed(() => schoolAffiliations.value.length > 0);
 const selectedSchoolId = ref(null);
 const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(s.organization_id) === Number(selectedSchoolId.value)) || schoolAffiliations.value[0] || null);
@@ -867,15 +875,7 @@ const dualBranding = computed(() => {
   return Boolean(progId && billId && billId !== progId);
 });
 
-const familyAgencies = computed(() => {
-  const map = new Map();
-  for (const profile of allFamilyProfiles.value) {
-    const id = Number(profile.agency_id);
-    const member = [...(agencyStore.userAgencies || []), ...programs.value].find(a => Number(a.id) === id);
-    if (id) map.set(id, {...member, id, name:profile.agency_name || member?.name, slug:profile.agency_slug || member?.slug, organization_type:member?.organization_type || 'agency'});
-  }
-  return [...map.values()];
-});
+const familyAgencies = computed(() => familyCareAgencies(allFamilyProfiles.value).map(a=>({...([...(agencyStore.userAgencies||[]),...programs.value].find(m=>Number(m.id)===a.id)||{}),...a})));
 function profileAgencyLogo(profile) { return profile?.agency_logo_url || tenantLegalProfiles[profile?.agency_slug]?.logo || ''; }
 const portalAccountLabel = computed(() => allFamilyProfiles.value.some(p => p.relationship_type !== 'self') ? 'Family portal' : 'Wellness portal');
 const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family portal' ? 'My family / dashboard' : 'My dashboard');
@@ -884,20 +884,26 @@ const selectedPrograms = computed(() => programs.value.filter(p => [Number(selec
 function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:school.name,logo:school.logo_url} : person?.organization_type==='school' ? {name:person.organization_name,logo:person.organization_logo_url} : null; }
 const careAgencyLogo = computed(() => profileAgencyLogo(selectedChild.value) || programLogoUrl.value || tenantAgencyLogoUrl.value || '');
 function profileLabel(profile) { return profile ? `${childDisplayName(profile)}${profile.relationship_type === 'self' ? ' (you)' : ''}` : 'Choose a profile'; }
-async function chooseFamilyProfile(id, panel = null) {
+async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId = null) {
   const profile = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(id));
-  const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(profile.agency_id));
+  const contexts=profile?.care_contexts||[];
+  const aid=agencyId||(contexts.some(c=>Number(c.agency_id)===currentAgencyId.value)?currentAgencyId.value:profile?.agency_id);
+  const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(aid));
   if (!profile || !agency?.slug) return;
   agencyStore.setCurrentAgency(agency); selectedChildId.value = Number(profile.client_id);
-  activePanel.value = panel || (['learning','tutoring'].includes(profile.client_type) ? 'tutoring' : 'overview');
-  await router.replace({path:`/${encodeURIComponent(agency.slug)}/guardian`,query:{portal:agency.slug,clientId:profile.client_id,panel:activePanel.value}});
+  selectedServiceId.value=Number(serviceId)||null;
+  const services=contexts.find(c=>Number(c.agency_id)===Number(aid))?.services||[];
+  const service=services.find(s=>Number(s.id)===Number(serviceId))||services[0];selectedServiceId.value=Number(service?.id)||null;
+  activePanel.value = panel || ((service?service.service_kind==='tutoring':['learning','tutoring'].includes(profile.client_type)) ? 'tutoring' : 'overview');
+  await router.replace({path:`/${encodeURIComponent(agency.slug)}/guardian`,query:{portal:agency.slug,clientId:profile.client_id,serviceId:selectedServiceId.value||undefined,panel:activePanel.value}});
   scrollPortalTop();
 }
 function chooseAgency(id) {
-  const profile = allFamilyProfiles.value.find(p => Number(p.agency_id) === Number(id) && Number(p.client_id) === Number(selectedChildId.value))
-    || allFamilyProfiles.value.find(p => Number(p.agency_id) === Number(id));
-  if (profile) return chooseFamilyProfile(profile.client_id);
+  const profiles=familyPortalClients(allFamilyProfiles.value,{id,organization_type:'agency'});
+  const profile=profiles.find(p=>Number(p.client_id)===Number(selectedChildId.value))||profiles[0];
+  if(profile)return chooseFamilyProfile(profile.client_id,null,Number(id));
 }
+function chooseService(id){return chooseFamilyProfile(selectedChildId.value,null,currentAgencyId.value,Number(id));}
 const migrationState = ref(null), onboardingBillingNotice = ref(false);
 const onboardingRequired = computed(() => migrationState.value?.enrolled && migrationState.value.items?.some(item => !item.complete && !item.waiting));
 function onMigrationState(data) {
@@ -1335,8 +1341,8 @@ const openProgramWorkspace = async (program) => {
 const initProgramContext = async () => {
   const slug = String(route.query.portal || route.params.organizationSlug || '').toLowerCase();
   const requestedPerson = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(route.query.clientId));
-  const target = (requestedPerson && familyAgencies.value.find(a => Number(a.id) === Number(requestedPerson.agency_id)))
-    || familyAgencies.value.find(a => String(a.slug).toLowerCase() === slug)
+  const target = familyAgencies.value.find(a => String(a.slug).toLowerCase() === slug)
+    || (requestedPerson && familyAgencies.value.find(a => Number(a.id) === Number(requestedPerson.agency_id)))
     || familyAgencies.value.find(a => Number(a.id) === Number(agencyStore.currentAgency?.id)) || familyAgencies.value[0];
   if (!target) return;
   agencyStore.setCurrentAgency(target);
@@ -1711,7 +1717,7 @@ const loadSelectedChildLearningProgress = async () => {
   }
 
   try {
-    const feed = await fetchGuardianLearningFeed(clientId);
+    const feed = await fetchGuardianLearningFeed(clientId,{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value});
     const subjects = Array.isArray(feed?.subjects) ? feed.subjects : [];
     const reports = [];
     const practice = [];
@@ -1894,6 +1900,8 @@ watch(
 </script>
 
 <style scoped>
+.family-service-links{display:grid;gap:8px}.family-service-links small{display:block;font-weight:400;margin-top:4px}
+
 .family-context{display:flex;align-items:end;gap:12px;margin-top:12px}.family-context label{display:grid;gap:3px;font-size:11px;color:#52647c;flex:1;min-width:0}.family-context select{font:600 14px system-ui;background:#f5f8fc;color:#173451;border:1px solid #c9d8e7;border-radius:8px;padding:9px;width:100%;min-width:0}.single-profile{flex:1;min-width:0}.single-profile small,.single-profile strong{display:block}.single-profile small{font-size:11px;color:#52647c}.single-profile strong{font-size:14px}.more-family{padding:10px;border:1px solid #c9d8e7;border-radius:8px;color:#173451;background:white;cursor:pointer;white-space:nowrap}.more-family span{background:#e9f1fa;border-radius:20px;padding:2px 5px}.family-profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.family-profile-card{display:grid;gap:9px;text-align:left;padding:22px;background:#fff;border:1px solid #c9d8e7;border-radius:14px;color:#173451;cursor:pointer;font:inherit}.family-profile-card button{padding:12px;background:#16457c;color:white;border:0;border-radius:8px;font:600 14px system-ui;cursor:pointer}.family-profile-card details{font-size:13px}.account-documents{margin:20px 0;padding:16px;background:white;border:1px solid #dce5ef;border-radius:12px}.account-documents summary{cursor:pointer;font-weight:600}.profile-logos{display:flex;align-items:center;gap:20px}.family-profile-card img{width:100px;height:50px;object-fit:contain;object-position:left}.family-profile-card strong{font-size:18px}.family-profile-card small{color:#52647c}.onboarding-prompt{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px;border:1px solid #b9cfe6;border-radius:12px;background:#eef5fc;color:#173451}.onboarding-prompt button{padding:10px;border-radius:8px;background:#16457c;border:0;color:#fff;cursor:pointer}.onboarding-dot{width:10px;height:10px;flex-shrink:0;border-radius:50%;background:#2467a7;animation:onboarding-pulse 2s ease-in-out infinite}.onboarding-billing-notice{padding:14px;background:#fff5dc;border-radius:10px;color:#644d1a}.guardian-layout{scroll-margin-top:160px}#family-portal-content{scroll-margin-top:160px}@keyframes onboarding-pulse{50%{box-shadow:0 0 0 6px #2467a720}}@media(prefers-reduced-motion:reduce){.onboarding-dot{animation:none}}@media(max-width:560px){.family-context{gap:8px}.more-family{font-size:12px}.family-context select{font-size:13px;padding:8px}.family-profile-grid{grid-template-columns:1fr}}
 
 .portal-client-summary{display:flex;align-items:center;gap:28px;padding:26px;background:white;border:1px solid #e2eaf4;border-radius:12px;margin-bottom:24px;box-shadow:0 3px 14px #193e7310;flex-wrap:wrap}.portal-client-identity{display:flex;align-items:center;gap:20px;flex:1;min-width:220px}.client-portrait{width:78px;height:78px;border-radius:50%;background:var(--portal-tint);color:var(--portal-accent);display:grid;place-items:center;font-size:27px;font-weight:700;flex-shrink:0}.portal-client-identity h2{font-size:23px;letter-spacing:-.5px;margin:0}.portal-client-identity p{color:#596d87;margin:5px 0 10px}.client-status{font-size:12px;padding:5px 10px;background:#edf5f2;color:#24614e;border-radius:20px}.portal-client-picker{font-size:12px;color:#526784;display:grid;gap:7px}.portal-client-picker select{padding:10px 12px;border:1px solid #d7e2ee;border-radius:7px;max-width:250px;color:#233957;background:white;font:inherit;font-size:14px}.portal-program-picker{display:grid;gap:10px;max-width:220px;min-width:0}.portal-program-picker :deep(.program-selector){min-width:0;width:100%}.portal-program-picker :deep(.selector-group){min-width:0;width:100%}.portal-program-picker :deep(select){min-width:0;max-width:100%;width:100%}.guardian-layout{display:block!important}.guardian-detail{display:block!important}.guardian-panel{border:0!important;background:transparent!important;padding:0!important;box-shadow:none!important}.guardian-panel :deep(.family-billing),.guardian-panel :deep(.family-ledger){color:#233653}.guardian-panel :deep(h3){color:#162b4b}.guardian-panel :deep(.billing-card){border-color:#e2eaf4;border-radius:12px;box-shadow:0 3px 14px #193e7310}.guardian-panel :deep(button){border-radius:8px}.guardian-panel :deep(.btn-primary){background:var(--portal-accent);color:var(--portal-on-accent);border-color:var(--portal-accent)}

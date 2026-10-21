@@ -228,6 +228,8 @@ export const createClassSession = async (req, res, next) => {
   }
 };
 
+import {tutoringOfficeDestination} from '../services/tutoringOffice.service.js';
+
 export const getClassSession = async (req, res, next) => {
   try {
     const sessionId = asInt(req.params.sessionId);
@@ -244,10 +246,9 @@ export const getClassSession = async (req, res, next) => {
       const pool = (await import('../config/database.js')).default;
       const [memRows] = await pool.execute(
         `SELECT m.client_id
-         FROM learning_class_client_memberships m
-         JOIN learning_class_sessions s ON s.learning_class_id = m.learning_class_id
-         WHERE s.id = ? AND m.membership_status IN ('active','completed')
-         ORDER BY m.id ASC
+         FROM tutoring_session_clients m
+         WHERE m.session_id = ?
+         ORDER BY m.client_id ASC
          LIMIT 1`,
         [sessionId]
       );
@@ -265,6 +266,7 @@ export const getClassSession = async (req, res, next) => {
       state,
       handRaises,
       primaryClientId,
+      officeDestination:await tutoringOfficeDestination(session,req.user.id),
       studentSubjectId: session?.student_subject_id || null,
       learningPlanId: session?.learning_plan_id || null
     });
@@ -360,14 +362,12 @@ async function triggerPostSessionCharge(session) {
   }
 }
 
-export const endClassSession = async (req, res, next) => {
-  try {
-    const sessionId = asInt(req.params.sessionId);
-    const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
-    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
-
+export async function completeLearningSession(sessionId,actorUserId,transcript=null) {
+    const session=await LearningClassSession.findById(sessionId);
+    if(!session)throw Object.assign(new Error('Session not found'),{status:404});
+    if(session.status==='ended')return {session,message:'Session ended.'};
     // Support optional transcript submission from frontend or Vonage webhook
-    let transcriptText = req.body?.transcript || req.body?.transcript_text || null;
+    let transcriptText = transcript || null;
     if (!transcriptText && String(session?.delivery_context || '').toLowerCase() === 'in_person') {
       transcriptText = await buildInPersonTranscriptSummaryText(sessionId);
     }
@@ -378,7 +378,7 @@ export const endClassSession = async (req, res, next) => {
     const updated = await LearningClassSession.update(sessionId, {
       status: 'ended',
       endsAt: session.status === 'ended' ? session.ends_at : new Date(),
-      endedByUserId: req.user.id
+      endedByUserId: actorUserId
     });
 
     // If this is a tutoring session, trigger AI transcript analysis for strengths/needs, standards mapping,
@@ -397,17 +397,26 @@ export const endClassSession = async (req, res, next) => {
     }
 
     let payrollDraft = null, payrollWarning = null;
-    try { payrollDraft = await createTutoringPayrollDraft(sessionId, req.user.id); }
+    try { payrollDraft = await createTutoringPayrollDraft(sessionId, actorUserId); }
     catch (error) { payrollWarning = error.message; }
-    await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: req.user.id });
-    res.json({ 
+    await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: actorUserId });
+    return {
       session: updated, payrollDraft, payrollWarning,
       message: freshSession?.session_subtype === 'tutoring'
         ? (String(freshSession?.delivery_context || '').toLowerCase() === 'in_person'
             ? 'In-person tutoring session ended. AI is analyzing tutor notes and saved responses for the progress summary and homework.'
             : 'Tutoring session ended. AI analyzing transcript for progress summary, strengths, needs work, and standards alignment. Guardian portal updated with homework.')
         : 'Session ended successfully.' 
-    });
+    };
+}
+
+export const endClassSession = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+
+    res.json(await completeLearningSession(sessionId,req.user.id,req.body?.transcript||req.body?.transcript_text));
   } catch (e) {
     next(e);
   }

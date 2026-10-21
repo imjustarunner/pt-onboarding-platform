@@ -239,6 +239,7 @@ import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';
 
 const props = defineProps({
+  agencyId: { type: [Number,String], default:null },
   clientId: { type: [Number, String], required: true },
   sessionId: { type: [Number, String], default: null },
   sessionType: { type: String, default: 'virtual' },
@@ -334,8 +335,9 @@ function formatDate(d) {
 }
 
 async function loadSubjects() {
-  const data = await los.fetchLearningOverview(props.clientId);
-  subjects.value = (data.subjects || []).map((r) => r.subject);
+  const data = await los.fetchLearningOverview(props.clientId,{agencyId:props.agencyId});
+  subjects.value = (data.subjects || []).map((r) => r.subject).filter(s=>!props.agencyId||Number(s.agency_id)===Number(props.agencyId));
+  if(studentSubjectId.value&&!subjects.value.some(s=>Number(s.id)===Number(studentSubjectId.value)))studentSubjectId.value=null;
   if (!studentSubjectId.value && subjects.value.length) {
     const active = subjects.value.find((s) => s.status === 'active_tutoring') || subjects.value[0];
     studentSubjectId.value = active.id;
@@ -346,7 +348,7 @@ async function loadPackageBalance() {
   if (!props.clientId) return;
   try {
     const data = await unifiedPackages.listGuardianEntitlements(props.clientId, {
-      businessType: 'tutoring'
+      businessType: 'tutoring',agencyId:props.agencyId
     });
     packageEntitlements.value = data?.entitlements || [];
     packageTotals.value = data?.totals || {

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {ensureClientService} from '../services/clientServiceEnrollment.service.js';
 
 const parseJson = (value, fallback = null) => {
   if (value == null) return fallback;
@@ -59,6 +60,7 @@ class StudentSubject {
         actorUserId || null
       ]
     );
+    await ensureClientService({clientId,agencyId,providerUserId:primaryTutorUserId,serviceKind:'tutoring'});
     return this.findById(result.insertId);
   }
 

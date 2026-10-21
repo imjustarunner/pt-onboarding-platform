@@ -25,13 +25,17 @@ export async function officeSchedule(room,{from,to}={},req) {
   WHERE agency_id=? AND provider_user_id=? AND appointment_id IS NULL AND COALESCE(started_at,created_at)>=? AND COALESCE(started_at,created_at)<? ORDER BY created_at LIMIT 100`,[room.agencyId,room.userId,start,end]);
  const [learning]=await pool.execute(`SELECT s.id,s.title,s.description,s.status,s.starts_at,s.ends_at FROM learning_class_sessions s
   JOIN learning_program_classes c ON c.id=s.learning_class_id
-  WHERE c.organization_id=? AND s.provider_user_id=? AND s.delivery_context='virtual'
-   AND s.starts_at>=? AND s.starts_at<? ORDER BY s.starts_at LIMIT 100`,[room.agencyId,room.userId,start,end]);
+  WHERE c.organization_id=? AND s.provider_user_id=? AND s.delivery_context='virtual' AND (s.session_subtype='tutoring' OR s.mode='individual')
+   AND s.starts_at>=? AND s.starts_at<? AND NOT EXISTS (SELECT 1 FROM tutoring_appointment_sessions bridge WHERE bridge.session_id=s.id) ORDER BY s.starts_at LIMIT 100`,[room.agencyId,room.userId,start,end]);
  const items=rows.filter(a=>String(a.modality).toUpperCase()==='TELEHEALTH'&&(!a.business_type||['mental_health','healthcare'].includes(a.business_type))).map(a=>({key:`appointment-${a.id}`,appointmentId:a.id,sessionId:a.counseling_session_id,title:a.title||'Scheduled session',startAt:a.start_at,endAt:a.end_at,status:a.status,
   canOpen:!canceled(a.status)&&String(a.modality).toUpperCase()==='TELEHEALTH'&&(!a.business_type||['mental_health','healthcare'].includes(a.business_type)),kind:a.business_type||'mental_health',modality:a.modality}));
  for(const s of standalone)items.push({key:`session-${s.id}`,sessionId:s.id,title:s.title||'Counseling session',startAt:s.started_at||s.created_at,status:s.status,canOpen:s.status!=='ended',kind:'mental_health',modality:'TELEHEALTH'});
  for(const item of items){const arrival=arrivals.find(a=>Number(a.id)===Number(item.sessionId));item.waitingCount=Number(arrival?.waiting_count)||0;if(arrival?.status==='ended'){item.status='ended';item.canOpen=false;}item.participants=participants.filter(p=>Number(p.appointment_id)===Number(item.appointmentId)).map(p=>({id:Number(p.id),displayName:p.full_name||p.initials||'Client'}));}
- for(const s of learning)items.push({key:`learning-${s.id}`,type:'meeting',title:s.title||'Tutoring session',details:s.description||'',startAt:s.starts_at,endAt:s.ends_at,status:s.status,canOpen:!['ended','cancelled'].includes(s.status),kind:'tutoring',url:`/tutoring-session/${s.id}`});
+ for(const s of learning)items.push({key:`learning-${s.id}`,learningSessionId:s.id,type:'tutoring',title:s.title||'Tutoring session',details:s.description||'',startAt:s.starts_at,endAt:s.ends_at,status:s.status,canOpen:!['ended','cancelled'].includes(s.status),kind:'tutoring',url:`/tutoring-session/${s.id}`});
+ for(const a of rows.filter(a=>['learning','tutoring'].includes(a.business_type)&&['VIRTUAL','ONLINE','TELEHEALTH','VIDEO'].includes(String(a.modality).toUpperCase()))){
+  // Keep distinct bookings visible, even when two records have the same time.
+  items.push({key:`tutoring-appointment-${a.id}`,type:'tutoring',tutoringAppointmentId:a.id,title:a.title||'Tutoring appointment',startAt:a.start_at,endAt:a.end_at,status:a.status,canOpen:!canceled(a.status),kind:'tutoring'});
+ }
  items.sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
  await clinicalAudit({kind:'office',sessionId:room.id,agencyId:room.agencyId,role:'provider',req},'clinical_office_schedule_read',{count:items.length});
  return {items};
@@ -71,6 +75,8 @@ export async function openScheduledOffice(db,room,office,{appointmentId,sessionI
  if(current?.state==='active'&&current.session_kind==='counseling'&&Number(current.session_id)!==Number(session?.id))throw fail(409,'End the current session before opening another appointment.');
  let adoptEmptyOffice=false;
  if(current?.state==='active'&&current.session_kind==='office') {
+  const [[tutoring]]=await db.execute('SELECT room_id FROM tutoring_office_encounters WHERE room_id=? AND generation=?',[room.id,office.generation]);
+  if(tutoring)throw fail(409,'End the tutoring visit before opening another appointment.');
   const [[used]]=await db.execute(`SELECT
    (SELECT COUNT(*) FROM private_virtual_office_visits WHERE room_id=? AND generation=?) visits,
    (SELECT COUNT(*) FROM clinical_video_grants WHERE media_id=? AND participant_role='client') clients,

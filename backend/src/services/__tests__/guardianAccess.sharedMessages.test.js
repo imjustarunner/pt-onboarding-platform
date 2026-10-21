@@ -12,7 +12,7 @@ beforeEach(() => {
 });
 it('uses the same authorized audience in the guardian portal and Messages by Conversa', async () => {
   expect((await sharedChildParticipants(8, 2)).participants.map(p => p.id)).toEqual([1, 2, 9]);
-  expect(clientSecureAudience).toHaveBeenCalledWith(8, pool);
+  expect(clientSecureAudience).toHaveBeenCalledWith(8, pool, {agencyId:2});
 });
 it('rejects a request for the wrong tenant', async () => {
   await expect(sharedChildParticipants(8, 3)).rejects.toMatchObject({ status: 403 });

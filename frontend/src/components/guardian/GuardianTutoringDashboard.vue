@@ -192,6 +192,8 @@
 </template>
 
 <script setup>
+import {inject,unref} from 'vue';
+const careContext=inject('portalCareContext',null);
 import PackagePriceChoice from '../learning/PackagePriceChoice.vue';
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -375,7 +377,7 @@ async function loadPackages() {
   if (!props.clientId) return;
   try {
     const data = await unifiedPackages.listGuardianEntitlements(props.clientId, {
-      businessType: 'tutoring'
+      businessType: 'tutoring', agencyId:careContext?.value?.agencyId,serviceId:careContext?.value?.serviceId
     });
     entitlements.value = data?.entitlements || [];
     packageTotals.value = data?.totals || {
@@ -398,7 +400,7 @@ async function openBuyDrawer() {
   catalogLoading.value = true;
   try {
     const data = await unifiedPackages.listGuardianPackages(props.clientId, {
-      businessType: 'tutoring'
+      businessType: 'tutoring', agencyId:careContext?.value?.agencyId,serviceId:careContext?.value?.serviceId
     });
     catalog.value = data?.packages || [];
     if (catalog.value[0]) {
@@ -431,7 +433,7 @@ async function prepareCheckout() {
   paymentIntentId.value = null;
   try {
     const res = await unifiedPackages.checkoutGuardianPackage(props.clientId, selectedPackageId.value, {
-      paymentMode: 'PAY_IN_FULL',providerId:packageChoice.value?.providerId,tenantServiceId:packageChoice.value?.tenantServiceId
+      agencyId:careContext?.value?.agencyId,serviceId:careContext?.value?.serviceId,paymentMode: 'PAY_IN_FULL',providerId:packageChoice.value?.providerId,tenantServiceId:packageChoice.value?.tenantServiceId
     });
     if(version!==checkoutVersion)return;
     if (res.free) {
@@ -480,7 +482,7 @@ async function purchaseSelected() {
         return;
       }
       await unifiedPackages.confirmGuardianPackage(props.clientId, selectedPackageId.value, {
-        paymentIntentId: paymentIntent?.id || paymentIntentId.value
+        agencyId:careContext?.value?.agencyId,serviceId:careContext?.value?.serviceId,paymentIntentId: paymentIntent?.id || paymentIntentId.value
       });
       await loadPackages();
       closeBuyDrawer();
@@ -500,7 +502,7 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const result = await los.fetchGuardianTutoringDashboard(props.clientId);
+    const result = await los.fetchGuardianTutoringDashboard(props.clientId,{agencyId:unref(careContext)?.agencyId,serviceId:unref(careContext)?.serviceId});
     if (version !== loadVersion) return;
     dashboard.value = result;
     await loadPackages();

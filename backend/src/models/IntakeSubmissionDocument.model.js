@@ -142,7 +142,7 @@ class IntakeSubmissionDocument {
   /**
    * Signed intake PDFs for a client where the submission is tied to this guardian.
    */
-  static async listSignedForGuardianClient({ guardianUserId, clientId }) {
+  static async listSignedForGuardianClient({ guardianUserId, clientId,agencyId=null }) {
     const gid = Number(guardianUserId);
     const cid = Number(clientId);
     if (!gid || !cid) return [];
@@ -172,8 +172,9 @@ class IntakeSubmissionDocument {
        WHERE isd.client_id = ?
          AND isd.signed_pdf_path IS NOT NULL
          AND s.guardian_user_id = ?
+         AND (? IS NULL OR il.agency_id=?)
        ORDER BY isd.signed_at DESC, isd.id DESC`,
-      [cid, gid]
+      [cid, gid,agencyId,agencyId]
     );
     return rows || [];
   }

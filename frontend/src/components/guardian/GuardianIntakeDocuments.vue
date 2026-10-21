@@ -11,7 +11,8 @@
 </template>
 <script setup>
 import {ref,watch,onUnmounted} from 'vue';
-import api from '../../services/api';
+import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const api=usePortalCareApi();
 const props=defineProps({clientId:[String,Number]});
 const documents=ref([]),loading=ref(false),error=ref(''),downloading=ref(false);let version=0;
 watch(()=>props.clientId,async id=>{const request=++version;documents.value=[];error.value='';loading.value=false;if(!id)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${id}/intake-documents`);if(request===version)documents.value=data.documents||[];}catch(e){if(request===version)error.value=e.response?.status===403?'These documents are not shared with this account. Contact your care team if you need help.':'Documents could not be loaded. Please try again.';}finally{if(request===version)loading.value=false;}},{immediate:true});

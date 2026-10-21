@@ -1,6 +1,7 @@
 import { attachGuardianSchoolAffiliations } from '../services/guardianSchoolAffiliations.service.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import pool from '../config/database.js';
+import {guardianCareContexts} from '../services/clientServiceEnrollment.service.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import Agency from '../models/Agency.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -150,6 +151,7 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       ClientGuardian.listClientsForGuardian({guardianUserId:uid,requiredClinicalScope:'clinical_documents'})
     ]);
     const guardianClients = await attachGuardianSchoolAffiliations((linkedClients || []).map(enrichGuardianClientRow), { guardianUserId: uid, providerClientIds: eventVisibleClients.map(c => Number(c.client_id)), documentClientIds: documentVisibleClients.map(c => Number(c.client_id)) });
+    await Promise.all(guardianClients.map(async client=>{client.care_contexts=await guardianCareContexts(client,uid);}));
     const meRaw = guardianClients.find((c) => String(c?.relationship_type || '').toLowerCase() === 'self') || null;
     const me = meRaw || null;
     const dependents = guardianClients.filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self');
@@ -1276,7 +1278,7 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
     }
     const rows = await IntakeSubmissionDocument.listSignedForGuardianClient({
       guardianUserId: uid,
-      clientId
+      clientId,agencyId:parsePositiveInt(req.query.agencyId)
     });
     res.json({ documents: rows || [] });
   } catch (e) {
@@ -1314,10 +1316,10 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
     }
 
     const [srows] = await pool.execute(
-      'SELECT guardian_user_id FROM intake_submissions WHERE id = ? LIMIT 1',
+      'SELECT s.guardian_user_id,il.agency_id FROM intake_submissions s JOIN intake_links il ON il.id=s.intake_link_id WHERE s.id = ? LIMIT 1',
       [doc.intake_submission_id]
     );
-    if (Number(srows?.[0]?.guardian_user_id) !== Number(uid)) {
+    if ((req.query.agencyId&&Number(srows?.[0]?.agency_id)!==Number(req.query.agencyId))||Number(srows?.[0]?.guardian_user_id) !== Number(uid)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -1600,7 +1602,7 @@ function guardianPlanRequestContext(req) {
   const clientId = parsePositiveInt(req.params.clientId);
   const agencyId = parsePositiveInt(req.query.agencyId || req.body?.agencyId);
   if (!userId || !clientId || !agencyId) throw Object.assign(new Error('Account, client and agency context are required.'), { status: 400 });
-  return { userId, clientId, agencyId, learningPlanId: parsePositiveInt(req.query.learningPlanId), ip: req.ip, userAgent: req.get('user-agent') };
+  return { userId, clientId, agencyId, serviceId:parsePositiveInt(req.query.serviceId||req.body?.serviceId), learningPlanId: parsePositiveInt(req.query.learningPlanId), ip: req.ip, userAgent: req.get('user-agent') };
 }
 
 export const postGuardianPlanRating = async (req, res, next) => {

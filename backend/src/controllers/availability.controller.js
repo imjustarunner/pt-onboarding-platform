@@ -11,7 +11,7 @@ import User from '../models/User.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
-import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
+import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned, toMysqlUtcDateTime } from '../utils/officeEventDateTime.util.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
@@ -334,7 +334,7 @@ async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeE
   const clientId = Number(requestRow?.created_client_id || requestRow?.matched_client_id || 0) || null;
   if (!providerId || !agencyId) return null;
 
-  const startWall = String(requestRow?.requested_start_at || '').slice(0, 19);
+  const startWall = toMysqlUtcDateTime(requestRow?.requested_start_at);
   const modality = String(requestRow?.modality || 'VIRTUAL').toUpperCase();
   const subjectArea = String(requestRow?.subject_area || '').trim() || null;
   const gradeLevel = String(requestRow?.client_grade_level || '').trim() || null;
@@ -387,14 +387,15 @@ async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeE
 
   const [sessionResult] = await pool.execute(
     `INSERT INTO learning_class_sessions
-       (learning_class_id, title, mode, session_subtype, delivery_context, starts_at,
+       (learning_class_id, title, mode, session_subtype, delivery_context, starts_at,ends_at,
         provider_user_id, office_event_id, created_by_user_id)
-     VALUES (?, ?, 'individual', 'tutoring', ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, 'individual', 'tutoring', ?, ?, ?, ?, ?, ?)`,
     [
       classId,
       title,
       deliveryContext,
       startWall || null,
+      requestRow.requested_end_at || null,
       providerId,
       linkedOfficeEventId || null,
       actorUserId || null
@@ -403,8 +404,9 @@ async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeE
   const sessionId = Number(sessionResult.insertId);
   if (!sessionId) return null;
 
-  // Step 3: Add client as class member if we have one
+  // Bind the individual visit before adding the reusable class membership.
   if (clientId) {
+    await pool.execute('INSERT IGNORE INTO tutoring_session_clients(session_id,client_id) VALUES (?,?)',[sessionId,clientId]);
     try {
       await pool.execute(
         `INSERT INTO learning_class_client_memberships

@@ -319,7 +319,7 @@ class ClinicalTreatmentPlan {
   static async listByClient({ agencyId, clientId }) {
     try {
       const [rows] = await clinicalPool.execute(
-        `SELECT id, agency_id, client_id, clinical_session_id, clinical_note_id, title, effective_date,
+        `SELECT id, agency_id, client_id, created_by_user_id, clinical_session_id, clinical_note_id, title, effective_date,
                 status, source_tool_id, primary_diagnosis_id, created_at, updated_at
          FROM clinical_treatment_plans
          WHERE agency_id = ? AND client_id = ?
@@ -330,7 +330,7 @@ class ClinicalTreatmentPlan {
     } catch (e) {
       if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [rows] = await clinicalPool.execute(
-        `SELECT id, agency_id, client_id, clinical_session_id, clinical_note_id, title, status, source_tool_id, created_at, updated_at
+        `SELECT id, agency_id, client_id, created_by_user_id, clinical_session_id, clinical_note_id, title, status, source_tool_id, created_at, updated_at
          FROM clinical_treatment_plans
          WHERE agency_id = ? AND client_id = ?
          ORDER BY created_at DESC`,

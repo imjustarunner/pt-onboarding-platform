@@ -2,21 +2,21 @@ import pool from '../config/database.js';
 import { clientSecureAudience, ensureClientSecureConversation } from './clientSecureConversation.service.js';
 
 export async function sharedChildParticipants(clientId, agencyId, db = pool) {
-  const { client, participants } = await clientSecureAudience(clientId, db);
+  const { client, participants } = await clientSecureAudience(clientId, db,{agencyId});
   if (Number(client.agency_id) !== Number(agencyId)) throw Object.assign(new Error('Client access denied'), { status: 403 });
   return { client, participants };
 }
 
 // Compatibility for guardian portal callers: one secure conversation per client.
-export async function ensureSharedChildThread({ clientId, agencyId, userId }) {
-  const conversation = await ensureClientSecureConversation({ clientId, agencyId, actorUserId: userId });
+export async function ensureSharedChildThread({ clientId, agencyId, userId, serviceId }) {
+  const conversation = await ensureClientSecureConversation({ clientId, agencyId,serviceId, actorUserId: userId });
   return { ...conversation, shared: true };
 }
 
 export async function assertSharedChildThreadAccess(userId, threadId) {
-  const [[thread]] = await pool.execute('SELECT client_id, agency_id FROM chat_threads WHERE id = ?', [threadId]);
+  const [[thread]] = await pool.execute('SELECT client_id, agency_id,service_enrollment_id FROM chat_threads WHERE id = ?', [threadId]);
   if (!thread?.client_id) return null;
-  await ensureClientSecureConversation({ clientId: thread.client_id, agencyId: thread.agency_id, actorUserId: userId });
+  await ensureClientSecureConversation({ clientId: thread.client_id, agencyId: thread.agency_id,serviceId:thread.service_enrollment_id, actorUserId: userId });
   return thread;
 }
 

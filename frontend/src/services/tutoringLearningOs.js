@@ -7,8 +7,8 @@ export async function fetchTutoringTaxonomy() {
   return data;
 }
 
-export async function fetchLearningOverview(clientId) {
-  const { data } = await api.get(`${BASE}/clients/${clientId}/overview`);
+export async function fetchLearningOverview(clientId, params={}) {
+  const { data } = await api.get(`${BASE}/clients/${clientId}/overview`,{params});
   return data;
 }
 
@@ -251,16 +251,16 @@ export async function updateAssessmentBlueprint(blueprintId, payload) {
   return data;
 }
 
-export async function fetchGuardianLearningFeed(clientId) {
+export async function fetchGuardianLearningFeed(clientId, params={}) {
   const { data } = await api.get(`${BASE}/clients/${clientId}/guardian-feed`, {
-    skipGlobalLoading: true
+    params,skipGlobalLoading: true
   });
   return data;
 }
 
-export async function fetchGuardianTutoringDashboard(clientId) {
+export async function fetchGuardianTutoringDashboard(clientId, params={}) {
   const { data } = await api.get(`${BASE}/clients/${clientId}/guardian-dashboard`, {
-    skipGlobalLoading: true
+    params,skipGlobalLoading: true
   });
   return data;
 }

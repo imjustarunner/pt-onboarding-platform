@@ -20,7 +20,8 @@
 </template>
 <script setup>
 import DOMPurify from 'dompurify';
-import {ref,watch,onBeforeUnmount} from 'vue';import api from '../../services/api';
+import {ref,watch,onBeforeUnmount} from 'vue';import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const api=usePortalCareApi();
 const props=defineProps({clientId:[Number,String],clientName:{type:String,default:'Client'},kind:{type:String,default:'checkins'},learning:Boolean});
 const academicReports=ref([]);const safeReport=html=>DOMPurify.sanitize(String(html||''),{USE_PROFILES:{html:true},FORBID_TAGS:['img','video','audio','iframe','style'],FORBID_ATTR:['style']});
 const loading=ref(false),error=ref(''),visits=ref([]),trends=ref([]),documents=ref([]),downloading=ref(false);let seq=0;

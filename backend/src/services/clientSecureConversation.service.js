@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {clientAgencyMembership,listClientServices} from './clientServiceEnrollment.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
 
@@ -15,10 +16,17 @@ export async function resolveClientForSecureRecipients({ agencyId, actorUserId, 
   return Number(clients[0].id);
 }
 
-export async function clientSecureAudience(clientId, db = pool) {
+export async function clientSecureAudience(clientId, db = pool, context = {}) {
   const [clients] = await db.execute('SELECT id, agency_id, organization_id, provider_id, client_type, guardian_portal_enabled FROM clients WHERE id = ?', [clientId]);
   const client = clients[0];
   if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
+  const agencyId=Number(context.agencyId||client.agency_id);
+  if(agencyId!==Number(client.agency_id)&&!await clientAgencyMembership(clientId,agencyId,db))throw Object.assign(new Error('Client is not enrolled with this agency'),{status:403});
+  const service=context.serviceId?(await listClientServices(clientId,agencyId,db)).find(e=>Number(e.id)===Number(context.serviceId)&&e.is_active):null;
+  if(context.serviceId&&!service)throw Object.assign(new Error('Service conversation is no longer active'),{status:403});
+  const owningAgency=Number(client.agency_id);client.agency_id=agencyId;
+  if(service)client.client_type=service.service_kind==='tutoring'?'learning':'clinical';
+  else if((await listClientServices(clientId,agencyId,db)).some(s=>s.is_active&&s.service_kind==='counseling'))client.client_type='clinical';
   const [links] = await db.execute(
     `SELECT cg.guardian_user_id, cg.relationship_type, cg.permissions_json, u.first_name, u.last_name
      FROM client_guardians cg JOIN users u ON u.id = cg.guardian_user_id
@@ -27,7 +35,7 @@ export async function clientSecureAudience(clientId, db = pool) {
   for (const link of links) {
     const permissions = ClientGuardian.parsePermissions(link.permissions_json);
     if (!client.guardian_portal_enabled || ClientGuardian.isNoView(permissions) || permissions?.canMessage === false) continue;
-    if (['clinical', 'mental_health'].includes(String(client.client_type).toLowerCase())) {
+    if (['clinical', 'mental_health', 'school'].includes(String(client.client_type).toLowerCase())) {
       const access = await clinicalAccess({ agencyId: client.agency_id, clientId, userId: link.guardian_user_id }, db);
       if (!access.scopes.includes('clinical_messages')) continue;
     }
@@ -37,18 +45,20 @@ export async function clientSecureAudience(clientId, db = pool) {
   const [providers] = await db.execute(
     `SELECT DISTINCT u.id, u.first_name, u.last_name FROM users u
      WHERE LOWER(u.status) IN ('active', 'active_employee') AND
-       (u.id = ? OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id = ? AND is_active = 1))`, [client.provider_id || null, clientId]);
+       (u.id = ? OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id = ? AND is_active = 1))
+       AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1)
+       AND (? IS NULL OR u.id=?)`, [service?.provider_user_id || (owningAgency===agencyId?client.provider_id:null), clientId,agencyId,service?Number(service.provider_user_id):null,service?Number(service.provider_user_id):null]);
   for (const provider of providers) participants.push({ id: Number(provider.id), name: [provider.first_name, provider.last_name].filter(Boolean).join(' '), role: 'provider' });
   const unique = [...new Map(participants.map(p => [p.id, p])).values()];
   return { client, guardians, participants: unique, userIds: unique.map(p => p.id) };
 }
 
-export async function ensureClientSecureConversation({ clientId, actorUserId, agencyId = null }) {
+export async function ensureClientSecureConversation({ clientId, actorUserId, agencyId = null, serviceId = null }) {
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
     await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [clientId]);
-    const audience = await clientSecureAudience(clientId, db);
+    const audience = await clientSecureAudience(clientId, db,{agencyId,serviceId});
     if (agencyId && Number(agencyId) !== Number(audience.client.agency_id)) throw Object.assign(new Error('Client does not belong to this agency'), { status: 403 });
     let actorAllowed = audience.userIds.includes(Number(actorUserId));
     const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
@@ -57,15 +67,16 @@ export async function ensureClientSecureConversation({ clientId, actorUserId, ag
       const role = actors[0]?.role;
       if (['admin', 'super_admin', 'staff', 'support', 'clinical_practice_assistant', 'supervisor'].includes(role)) {
         const access = await resolveClientRecordAccess({ userId: actorUserId, role, clientId });
-        if (access.ok) { audience.userIds.push(Number(actorUserId)); actorAllowed = true; }
+        const [[tenant]]=await db.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1',[actorUserId,audience.client.agency_id]);
+        if (access.ok && (role==='super_admin'||tenant)) { audience.userIds.push(Number(actorUserId)); actorAllowed = true; }
       }
     }
-    const [rows] = await db.execute("SELECT id FROM chat_threads WHERE client_id = ? AND thread_type = 'client_secure'", [clientId]);
+    const [rows] = await db.execute("SELECT id FROM chat_threads WHERE client_id = ? AND agency_id=? AND thread_type = 'client_secure' AND service_enrollment_id=?", [clientId,audience.client.agency_id,Number(serviceId)||0]);
     let threadId = rows[0]?.id;
     if (!threadId && !actorAllowed) throw Object.assign(new Error('Secure conversation access is not authorized'), { status: 403 });
     if (!threadId) {
       const [created] = await db.execute(
-        "INSERT INTO chat_threads (agency_id, client_id, thread_type, message_channel) VALUES (?, ?, 'client_secure', 'secure')", [audience.client.agency_id, clientId]);
+        "INSERT INTO chat_threads (agency_id, client_id, thread_type, message_channel,service_enrollment_id) VALUES (?, ?, 'client_secure', 'secure',?)", [audience.client.agency_id, clientId,Number(serviceId)||0]);
       threadId = created.insertId;
     }
     for (const userId of audience.userIds) await db.execute('INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?)', [threadId, userId]);
@@ -75,7 +86,8 @@ export async function ensureClientSecureConversation({ clientId, actorUserId, ag
       if (audience.userIds.includes(Number(member.user_id))) continue;
       if (['active', 'active_employee'].includes(String(member.status).toLowerCase()) && ['admin', 'super_admin', 'staff', 'support', 'clinical_practice_assistant', 'supervisor'].includes(member.role)) {
         const access = await resolveClientRecordAccess({ userId: member.user_id, role: member.role, clientId });
-        if (access.ok) audience.userIds.push(Number(member.user_id));
+        const [[tenant]]=await db.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1',[member.user_id,audience.client.agency_id]);
+        if (access.ok && (member.role==='super_admin'||tenant)) audience.userIds.push(Number(member.user_id));
       }
     }
     // Revoked relationships and assignments lose access. Reminder contacts are never participants.
@@ -93,7 +105,7 @@ export async function ensureClientSecureConversation({ clientId, actorUserId, ag
 }
 
 export async function refreshClientSecureAccess(threadId, actorUserId) {
-  const [rows] = await pool.execute('SELECT client_id FROM chat_threads WHERE id = ?', [threadId]);
+  const [rows] = await pool.execute('SELECT client_id,agency_id,service_enrollment_id FROM chat_threads WHERE id = ?', [threadId]);
   if (!rows[0]?.client_id) return;
-  await ensureClientSecureConversation({ clientId: rows[0].client_id, actorUserId });
+  await ensureClientSecureConversation({ clientId: rows[0].client_id,agencyId:rows[0].agency_id,serviceId:rows[0].service_enrollment_id, actorUserId });
 }

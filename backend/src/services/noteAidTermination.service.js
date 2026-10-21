@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {endProviderCounselingService} from './clientServiceEnrollment.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
@@ -130,6 +131,8 @@ export async function recordSignedTermination(note, { database = pool, clinicalD
       if (termination.reason === 'client_exchange') {
         await referToExchange(note);
       } else {
+      const services=await endProviderCounselingService({clientId:note.client_id,agencyId:note.agency_id,providerUserId:note.created_by_user_id},conn);
+      if(!services.remainingActive){
       const lifecycle = await updateLifecycle({
         clientId: note.client_id, statusKey: 'terminated', actorUserId: note.created_by_user_id,
         note: 'Termination note reviewed and completed',
@@ -140,6 +143,7 @@ export async function recordSignedTermination(note, { database = pool, clinicalD
         }
       });
       if (lifecycle?.skipped || !lifecycle?.statusId) throw new Error('Could not update the client termination status. Retry completion.');
+      }
       }
     }
     await conn.commit();

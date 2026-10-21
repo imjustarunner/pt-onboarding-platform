@@ -594,10 +594,7 @@ async function findNextTutoringSessionDueAt(clientId, excludeSessionId = null) {
     const [rows] = await pool.execute(
       `SELECT s.starts_at
        FROM learning_class_sessions s
-       JOIN learning_class_client_memberships m
-         ON m.learning_class_id = s.learning_class_id
-        AND m.client_id = ?
-        AND m.membership_status IN ('active','completed')
+       JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
        WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual')
          AND s.starts_at > NOW()
          AND (s.status IS NULL OR s.status IN ('scheduled','live'))
@@ -760,8 +757,8 @@ export async function matchTutorsForRequest({
 /**
  * Learning overview for chart hub.
  */
-export async function getLearningOverview(clientId) {
-  const subjects = await StudentSubject.listByClient(clientId);
+export async function getLearningOverview(clientId,{agencyId=null,providerId=null}={}) {
+  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>!providerId||Number(s.primary_tutor_user_id)===Number(providerId));
   const overview = [];
   for (const s of subjects) {
     const plan = await StudentLearningPlan.findActiveBySubject(s.id);
@@ -1604,8 +1601,8 @@ export async function buildAssessmentBlueprint(payload, actorUserId) {
 /**
  * Guardian-facing Learning OS snapshot: published reports, practice, subject progress.
  */
-export async function getGuardianLearningSnapshot(clientId) {
-  const subjects = await StudentSubject.listByClient(clientId);
+export async function getGuardianLearningSnapshot(clientId,{agencyId=null,providerId=null}={}) {
+  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>!providerId||Number(s.primary_tutor_user_id)===Number(providerId));
   const out = [];
   for (const s of subjects) {
     const workspaceLite = {
@@ -1657,8 +1654,8 @@ export async function getGuardianLearningSnapshot(clientId) {
 /**
  * Aggregated guardian tutoring dashboard payload.
  */
-export async function getGuardianTutoringDashboard(clientId) {
-  const feed = await getGuardianLearningSnapshot(clientId);
+export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null}={}) {
+  const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId});
   let upcomingSessions = [];
   let recentSessions = [];
   try {
@@ -1666,17 +1663,15 @@ export async function getGuardianTutoringDashboard(clientId) {
       `SELECT s.id, s.title, s.status, s.delivery_context, s.starts_at, s.ends_at, s.provider_user_id,
               CONCAT(u.first_name, ' ', u.last_name) AS provider_name
        FROM learning_class_sessions s
-       JOIN learning_class_client_memberships m
-         ON m.learning_class_id = s.learning_class_id
-        AND m.client_id = ?
-        AND m.membership_status IN ('active','completed')
+       JOIN learning_program_classes klass ON klass.id=s.learning_class_id
+       JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
        LEFT JOIN users u ON u.id = s.provider_user_id
-       WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual')
+       WHERE (? IS NULL OR klass.organization_id=?) AND (? IS NULL OR s.provider_user_id=?) AND (s.session_subtype = 'tutoring' OR s.mode = 'individual')
          AND s.starts_at > NOW()
          AND (s.status IS NULL OR s.status IN ('scheduled','live'))
        ORDER BY s.starts_at ASC
        LIMIT 8`,
-      [clientId]
+      [clientId,agencyId,agencyId,providerId||null,providerId||null]
     );
     upcomingSessions = upcoming || [];
   } catch {
@@ -1687,16 +1682,14 @@ export async function getGuardianTutoringDashboard(clientId) {
       `SELECT s.id, s.title, s.status, s.delivery_context, s.starts_at, s.ends_at, s.provider_user_id,
               CONCAT(u.first_name, ' ', u.last_name) AS provider_name
        FROM learning_class_sessions s
-       JOIN learning_class_client_memberships m
-         ON m.learning_class_id = s.learning_class_id
-        AND m.client_id = ?
-        AND m.membership_status IN ('active','completed')
+       JOIN learning_program_classes klass ON klass.id=s.learning_class_id
+       JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
        LEFT JOIN users u ON u.id = s.provider_user_id
-       WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual')
+       WHERE (? IS NULL OR klass.organization_id=?) AND (? IS NULL OR s.provider_user_id=?) AND (s.session_subtype = 'tutoring' OR s.mode = 'individual')
          AND s.starts_at < NOW()
        ORDER BY COALESCE(s.ends_at, s.starts_at) DESC
        LIMIT 5`,
-      [clientId]
+      [clientId,agencyId,agencyId,providerId||null,providerId||null]
     );
     recentSessions = past || [];
   } catch {
@@ -1708,10 +1701,10 @@ export async function getGuardianTutoringDashboard(clientId) {
   const [appointments] = await pool.execute(`SELECT DISTINCT a.id,a.agency_id,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality,
       a.source_timezone AS time_zone,CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name
     FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id
-    JOIN clients c ON c.id=ap.client_id AND c.agency_id=a.agency_id
+    JOIN clients c ON c.id=ap.client_id
     LEFT JOIN users u ON u.id=a.provider_user_id
-    WHERE ap.client_id=? AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR)
-      AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId]);
+    WHERE ap.client_id=? AND (? IS NULL OR a.agency_id=?) AND (? IS NULL OR a.provider_user_id=?) AND a.business_type IN ('learning','tutoring') AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR)
+      AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId,agencyId,agencyId,providerId||null,providerId||null]);
   const now = Date.now();
   const canonical = await Promise.all(appointments.map(async a => ({...a, source:'appointment', title:'Tutoring appointment', delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({modality:a.modality,status:a.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning'},pool)})));
   upcomingSessions=upcomingSessions.filter(r=>!canonical.some(a=>+new Date(a.starts_at)===+new Date(r.starts_at)&&a.provider_name===r.provider_name&&!['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)));
@@ -1722,7 +1715,7 @@ export async function getGuardianTutoringDashboard(clientId) {
   };
   upcomingSessions = merge(upcomingSessions, canonical.filter(a => +new Date(a.starts_at)>=now && ['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)),1,8);
   recentSessions = merge(recentSessions, canonical.filter(a => +new Date(a.starts_at)<now),-1,5);
-  const [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM clients c LEFT JOIN users u ON u.id=c.provider_id WHERE c.id=?`,[clientId]);
+  const [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM student_subjects s JOIN users u ON u.id=s.primary_tutor_user_id WHERE s.client_id=? AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId||null,providerId||null]);
 
   const allPractice = (feed.subjects || []).flatMap((s) =>
     (s.practice || []).map((a) => ({

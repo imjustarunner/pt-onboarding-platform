@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
+import {guardianServiceContext,listClientServices} from './clientServiceEnrollment.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
@@ -32,9 +33,9 @@ export function guardianPlanRevision(plan) {
   })).digest('hex');
 }
 
-export async function requireGuardianPlanAccess({ userId, clientId, agencyId, scope = 'treatment_plan', action = 'read' }) {
+export async function requireGuardianPlanAccess({ userId, clientId, agencyId, serviceId, scope = 'treatment_plan', action = 'read' }) {
   const links = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId });
-  const row = links.find(r => Number(r.client_id) === Number(clientId) && Number(r.agency_id) === Number(agencyId));
+  const row = (serviceId||agencyId)?await guardianServiceContext({userId,clientId,agencyId,serviceId,scope:null}):links.find(r => Number(r.client_id) === Number(clientId) && Number(r.agency_id) === Number(agencyId));
   if (!row || ClientGuardian.isNoView(row.permissions_json)) throw fail('Plan not available for this account.', 403);
   let permissions;
   try { permissions = typeof row.permissions_json === 'string' ? JSON.parse(row.permissions_json) : (row.permissions_json ?? {}); }
@@ -54,7 +55,9 @@ export async function requireGuardianPlanAccess({ userId, clientId, agencyId, sc
 
 async function activePlan(context) {
   const plans = await ClinicalTreatmentPlan.listByClient(context);
-  const active = plans.find(p => isSharedPlanStatus(p.status));
+  const services=context.serviceId?await listClientServices(context.clientId,context.agencyId):[];
+  const service=services.filter(e=>e.is_active&&e.service_kind==='counseling').length>1?services.find(e=>Number(e.id)===Number(context.serviceId)):null;
+  const active = plans.find(p => isSharedPlanStatus(p.status)&&(!service?.provider_user_id||Number(p.created_by_user_id)===Number(service.provider_user_id)));
   if (!active) return null;
   const full = await ClinicalTreatmentPlan.findById(active.id);
   if (!full || Number(full.agency_id) !== Number(context.agencyId) || Number(full.client_id) !== Number(context.clientId) || !isSharedPlanStatus(full.status)) return null;
@@ -79,7 +82,7 @@ export async function guardianPlanProgress(context) {
   if (client.learning) {
     const { guardianLearningPlanProgress } = await import('./guardianLearningPlan.service.js');
     const learning = await guardianLearningPlanProgress(context);
-    if (learning) return learning;
+    return learning || {hasActivePlan:false,clientType:'learning',plan:null,goals:[],ratings:[],acknowledgments:[]};
   }
   const full = await activePlan(context);
   if (!full) return { hasActivePlan: false, plan: null, goals: [], ratings: [], acknowledgments: [] };

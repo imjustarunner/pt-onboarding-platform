@@ -1,3 +1,4 @@
+import {guardianServiceContext,guardianCareContexts} from '../services/clientServiceEnrollment.service.js';
 import { refreshClientSecureAccess, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -100,10 +101,23 @@ export const listGuardianMessageThreads = async (req, res, next) => {
     if (req.guardianPreviewMode) {
       return res.json({ threads: [] });
     }
-    const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id, requiredClinicalScope: 'clinical_messages' });
+    let clients=[];
+    if(req.query.clientId)clients=[await guardianServiceContext({userId:req.user.id,clientId:Number(req.query.clientId),agencyId:req.query.agencyId,serviceId:req.query.serviceId,scope:'clinical_messages'})];
+    else {
+      const profiles=await ClientGuardian.listClientsForGuardian({guardianUserId:req.user.id});
+      for(const profile of profiles){
+        for(const context of await guardianCareContexts(profile,req.user.id))for(const service of context.services){
+          try{clients.push({...await guardianServiceContext({userId:req.user.id,clientId:profile.client_id,agencyId:context.agency_id,serviceId:service.id,scope:'clinical_messages'}),agency_name:context.agency_name});}catch(e){if(e.status!==403)throw e;}
+        }
+        // Keep earlier conversations accessible without moving their history
+        // into a different service or adding new recipients to that history.
+        const [[prior]]=await pool.execute("SELECT id FROM chat_threads WHERE client_id=? AND agency_id=? AND service_enrollment_id=0 AND thread_type='client_secure' AND EXISTS (SELECT 1 FROM chat_messages m WHERE m.thread_id=chat_threads.id) LIMIT 1",[profile.client_id,profile.agency_id]);
+        if(prior){try{clients.push({...await guardianServiceContext({userId:req.user.id,clientId:profile.client_id,agencyId:profile.agency_id,scope:'clinical_messages'}),legacy_conversation:true});}catch(e){if(e.status!==403)throw e;}}
+      }
+    }
     const threads = [];
     for (const c of clients || []) {
-      const provider = await resolveAssignedProvider(c.client_id, c.organization_id);
+      const provider = c.service ? (c.service.provider_user_id ? {id:c.service.provider_user_id,first_name:c.service.provider_name,last_name:''} : null) : await resolveAssignedProvider(c.client_id, c.organization_id);
       if (!provider?.id) {
         threads.push({
           client_id: c.client_id,
@@ -120,7 +134,7 @@ export const listGuardianMessageThreads = async (req, res, next) => {
       let threadId = null;
       let participants = [];
       try {
-        const shared = await ensureSharedChildThread({ clientId: c.client_id, agencyId: c.agency_id, userId: req.user.id });
+        const shared = await ensureSharedChildThread({ clientId: c.client_id, agencyId: c.agency_id,serviceId:c.service?.id, userId: req.user.id });
         threadId = shared.threadId;
         participants = shared.participants;
       } catch {
@@ -128,6 +142,7 @@ export const listGuardianMessageThreads = async (req, res, next) => {
       }
       const [[activity]] = threadId ? await pool.execute(`SELECT MAX(m.created_at) AS last_message_at FROM chat_messages m WHERE m.thread_id=? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[threadId,req.user.id]) : [[null]];
       threads.push({
+        service_id:c.service?.id||null,service_label:c.legacy_conversation?'Previous shared conversation':c.service?.label||null,agency_name:c.agency_name||null,
         last_message_at: activity?.last_message_at || null,
         client_id: c.client_id,
         client_label: c.full_name || c.initials || `Child #${c.client_id}`,
@@ -277,15 +292,15 @@ export const openGuardianClientThread = async (req, res, next) => {
     }
     const clientId = parseInt(req.body?.clientId, 10);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
-    const client = await assertGuardianClientAccess(req.user.id, clientId);
+    const client = req.query.agencyId||req.body?.agencyId||req.query.serviceId||req.body?.serviceId ? await guardianServiceContext({userId:req.user.id,clientId,agencyId:req.query.agencyId||req.body?.agencyId,serviceId:req.query.serviceId||req.body?.serviceId,scope:'clinical_messages'}) : await assertGuardianClientAccess(req.user.id, clientId);
     if (!client) return res.status(403).json({ error: { message: 'Access denied to this child' } });
 
-    const provider = await resolveAssignedProvider(clientId, client.organization_id);
+    const provider = client.service ? (client.service.provider_user_id ? {id:client.service.provider_user_id,first_name:client.service.provider_name,last_name:''} : null) : await resolveAssignedProvider(clientId, client.organization_id);
     if (!provider?.id) {
       return res.status(404).json({ error: { message: 'No assigned provider for this child yet' } });
     }
 
-    const shared = await ensureSharedChildThread({ clientId, agencyId: client.agency_id, userId: req.user.id });
+    const shared = await ensureSharedChildThread({ clientId, agencyId: client.agency_id,serviceId:client.service?.id, userId: req.user.id });
     const threadId = shared.threadId;
     res.json({
       shared: true,

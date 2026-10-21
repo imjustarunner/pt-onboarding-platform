@@ -2,6 +2,7 @@ import * as clientPortalInvites from '../controllers/clientPortalInvites.control
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
 import express from 'express';
+import * as serviceEnrollments from '../controllers/clientServiceEnrollment.controller.js';
 import { getClientCareBillingSummary } from '../controllers/clientCareBillingSummary.controller.js';
 import { body } from 'express-validator';
 import {
@@ -328,6 +329,9 @@ router.post('/:id/affiliations', upsertClientAffiliation);
 router.delete('/:id/affiliations/:organizationId', removeClientAffiliation);
 
 // Multi-agency affiliations (admin/staff/support/super_admin)
+router.get('/:id/service-enrollments', serviceEnrollments.list);
+router.post('/:id/service-enrollments', serviceEnrollments.save);
+router.delete('/:id/service-enrollments/:serviceId', serviceEnrollments.archive);
 router.get('/:id/agency-affiliations', listClientAgencyAffiliations);
 router.post('/:id/agency-affiliations', upsertClientAgencyAffiliation);
 router.delete('/:id/agency-affiliations/:agencyId', removeClientAgencyAffiliation);

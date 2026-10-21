@@ -15,6 +15,7 @@ const room={id:1,userId:5,agencyId:2,isActive:true,displayName:'Provider'};
 let db;
 beforeEach(()=>{vi.clearAllMocks();clinical.clinicalMedia.mockResolvedValue({state:'active'});clinical.clinicalVideoToken.mockResolvedValue('video-token');clinical.finishClinicalEnd.mockResolvedValue({ok:false,state:'ending'});mocks.membership.mockResolvedValue(true);mocks.plan.mockResolvedValue({privateOffice:true,multipleOfficeGuests:false});mocks.video.isVideoConfigured.mockReturnValue(true);mocks.video.generateToken.mockReturnValue('video-token');mocks.video.createSession.mockResolvedValue('new-session');mocks.video.endLiveSession.mockResolvedValue({ok:true});db={execute:mocks.execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};mocks.getConnection.mockResolvedValue(db);});
 function handler({guest={id:8,status:'waiting',generation:2,photo_envelope:'photo',display_name:'Guest'},count=0,present=count,session={video_session_id:'live',generation:2,host_seen_at:new Date()}}={}){mocks.execute.mockImplementation(async sql=>{
+ if(sql.includes('SELECT * FROM tutoring_office_encounters'))return [[]];
  if(sql.includes('SELECT role'))return [[{role:'provider'}]];
  if(sql.includes('SELECT * FROM private_virtual_office_sessions'))return [[session]];
  if(sql.includes('COUNT(*)'))return [[{total:count,present}]];

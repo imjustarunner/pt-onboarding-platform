@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
+import {listClientServices} from './clientServiceEnrollment.service.js';
 import StudentLearningPlan from '../models/StudentLearningPlan.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import Notification from '../models/Notification.model.js';
@@ -30,12 +31,18 @@ async function authorizedBundle(context, planId) {
   const bundle = await StudentLearningPlan.getPlanBundle(Number(planId));
   if (!bundle || Number(bundle.plan.agency_id) !== Number(context.agencyId) || Number(bundle.plan.client_id) !== Number(context.clientId)
     || bundle.plan.status !== 'active' || !bundle.plan.approved_at) throw fail('Learning plan not available.', 404);
+  if(context.serviceId){
+    const service=(await listClientServices(context.clientId,context.agencyId)).find(e=>Number(e.id)===Number(context.serviceId)&&e.is_active);
+    const [[subject]]=await pool.execute('SELECT primary_tutor_user_id FROM student_subjects WHERE id=? AND agency_id=?',[bundle.plan.student_subject_id,context.agencyId]);
+    if(!service||service.service_kind!=='tutoring'||(service.provider_user_id&&Number(subject?.primary_tutor_user_id)!==Number(service.provider_user_id)))throw fail('Learning plan not available for this service.',404);
+  }
   return bundle;
 }
 
 export async function guardianLearningPlanProgress(context) {
   await requireAccess(context);
-  const [plans] = await pool.execute(`SELECT id,title FROM student_learning_plans WHERE agency_id=? AND client_id=? AND status='active' AND approved_at IS NOT NULL ORDER BY approved_at DESC,id DESC`, [context.agencyId, context.clientId]);
+  const service=context.serviceId?(await listClientServices(context.clientId,context.agencyId)).find(e=>Number(e.id)===Number(context.serviceId)):null;
+  const [plans] = await pool.execute(`SELECT p.id,p.title FROM student_learning_plans p JOIN student_subjects s ON s.id=p.student_subject_id WHERE p.agency_id=? AND p.client_id=? AND p.status='active' AND p.approved_at IS NOT NULL AND (? IS NULL OR s.primary_tutor_user_id=?) ORDER BY p.approved_at DESC,p.id DESC`, [context.agencyId, context.clientId,service?.provider_user_id||null,service?.provider_user_id||null]);
   if (!plans.length) return null;
   const selectedId = Number(context.learningPlanId || plans[0].id);
   if (!plans.some(p => Number(p.id) === selectedId)) throw fail('Learning plan not available.', 404);

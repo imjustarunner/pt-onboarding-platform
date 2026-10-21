@@ -65,7 +65,8 @@
 </template>
 <script setup>
 import { ref, reactive, watch, nextTick } from 'vue';
-import api from '../../services/api.js';
+import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
 const editingId=ref(null),actionForm=ref(null);
 async function openAction(a,type){draft(a).type=type;draft(a).confirmed=false;editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}

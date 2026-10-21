@@ -11,6 +11,7 @@ import PrivateVirtualOffice from '../components/meetings/PrivateVirtualOffice.vu
 import { useAgencyStore } from '../store/agency';
 const agencies=useAgencyStore();
 const selectedAgencyId=ref(Number(agencies.currentAgency?.id||0)),pendingSelection=ref(null);
-function changeAgency(item){pendingSelection.value=item;selectedAgencyId.value=Number(item.agencyId);}
+function changeAgency(item){const agency=(agencies.userAgencies||[]).find(a=>Number(a.id)===Number(item.agencyId));if(agency)agencies.setCurrentAgency(agency);pendingSelection.value=item;selectedAgencyId.value=Number(item.agencyId);}
+if(route.query.learningSessionId||route.query.tutoringAppointmentId){const agencyId=Number(route.query.agencyId);if((agencies.userAgencies||[]).some(a=>Number(a.id)===agencyId)){selectedAgencyId.value=agencyId;agencies.setCurrentAgency(agencies.userAgencies.find(a=>Number(a.id)===agencyId));pendingSelection.value={type:'tutoring',agencyId,key:'invited-tutoring',learningSessionId:Number(route.query.learningSessionId)||undefined,tutoringAppointmentId:Number(route.query.tutoringAppointmentId)||undefined};}}
 </script>
 <style scoped>.office-page{width:100%;min-width:0;background:#fff;min-height:100vh}.office-back{display:block;width:fit-content;margin:16px 24px 0;color:#677d93;font:12px system-ui;text-decoration:none}.office-back:hover{text-decoration:underline}</style>

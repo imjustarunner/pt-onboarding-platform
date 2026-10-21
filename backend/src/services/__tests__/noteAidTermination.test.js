@@ -55,6 +55,7 @@ function fixture({ reason = 'goals_achieved', affectedRows = 1, failure = null, 
     execute: async (sql, params) => {
       calls.push({ sql, params });
       if (failure && sql.includes(failure)) throw new Error('database failure');
+      if (sql.includes('SELECT * FROM client_service_enrollments'))return [[]];
       if (sql.includes('INSERT IGNORE')) return [{ affectedRows }];
       if (sql.includes('SELECT first_name')) return [[{ first_name: 'Taylor', last_name: 'Morgan' }]];
       return [{ affectedRows: 1 }];
@@ -86,7 +87,7 @@ describe('signed termination outcomes', () => {
     assert.equal(sql.filter((c) => c.sql.includes('INSERT INTO kudos')).length, 1);
     assert.equal(sql.filter((c) => c.sql.includes('INSERT INTO agency_scheduled_announcements')).length, 1);
     assert.ok(sql.some((c) => c.sql.includes('points = points + 1')));
-    assert.ok(!JSON.stringify(sql).includes('999'));
+    assert.ok(!JSON.stringify(sql.filter(c=>/kudos|announcements/.test(c.sql))).includes('999'));
     assert.ok(f.calls.some((c) => c?.lifecycle?.statusKey === 'terminated'));
     assert.ok(f.calls.includes('commit'));
   });
@@ -107,7 +108,7 @@ describe('signed termination outcomes', () => {
   it('records other reasons without granting kudos', async () => {
     const f = fixture({ reason: 'lost_contact' });
     await recordSignedTermination(f.note, f.deps);
-    assert.equal(f.calls.filter((c) => c?.sql).length, 1);
+    assert.equal(f.calls.filter((c) => c?.sql && /kudos|announcements/.test(c.sql)).length, 0);
   });
 
   it('uses the original termination as the idempotency key for amendments', async () => {
