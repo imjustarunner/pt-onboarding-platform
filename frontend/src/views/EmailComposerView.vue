@@ -20,12 +20,12 @@
             <button type="button" @click="send({confirmMissingAttachment:true})">Send without an attachment</button>
             <button type="button" @click="confirmAttachment=false">Keep editing</button>
           </div>
-          <section v-if="filingChoices.length" role="alert" class="attachment-warning">
+          <section v-if="filingChoices.length" class="attachment-warning" aria-label="Client records for this email">
             <p>Which client or clients is this conversation about? Select every child discussed.</p>
             <label v-for="client in filingChoices" :key="client.id"><input type="checkbox" v-model="draft.clientIds" :value="client.id" /> {{ client.name }}</label>
             <button type="button" @click="draft.clientIds=filingChoices.map(c=>c.id)">Select all listed children</button>
-            <button type="button" :disabled="!draft.clientIds?.length" @click="send({confirmMissingAttachment:true})">Continue sending</button>
-            <button type="button" @click="deferFiling">Send and flag for filing review</button>
+            <button v-if="filingRequired" type="button" :disabled="!draft.clientIds?.length" @click="send({confirmMissingAttachment:true})">Continue sending</button>
+            <button v-if="filingRequired" type="button" @click="deferFiling">Send and flag for filing review</button>
           </section>
           <EmailDeliveryChoice :info="availabilityPrompt" :busy="busy" @choose="send({confirmMissingAttachment:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
           <label>Send delay<select v-model.number="draft.undoDelaySeconds"><option v-if="![5,10,20,30,60,120,300,600].includes(draft.undoDelaySeconds)" :value="draft.undoDelaySeconds">{{ draft.undoDelaySeconds }} seconds</option><option :value="5">5 seconds</option><option :value="10">10 seconds</option><option :value="20">20 seconds</option><option :value="30">30 seconds</option><option :value="60">1 minute</option><option :value="120">2 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option></select></label>
@@ -64,7 +64,15 @@ const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedTe
 const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null);
 const senderPreview=ref(null),senderPreviewUnavailable=ref(false);
 const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || context.mode] || 'Email draft');
-const filingChoices=ref([]);
+const filingChoices=ref([]),filingRequired=ref(false);
+let filingGeneration=0;
+async function loadFilingChoices(){
+ if(qv || !record.value?.agency_id || record.value.mode!=='new')return;
+ const generation=++filingGeneration;
+ try{const {data}=await request('get',`/client-filing-options?${new URLSearchParams({agencyId:record.value.agency_id,to:draft.value.to,cc:draft.value.cc,bcc:draft.value.bcc})}`);
+ if(generation===filingGeneration){filingChoices.value=data.clients||[];draft.value.clientIds=(draft.value.clientIds||[]).filter(id=>filingChoices.value.some(c=>c.id===id));}}
+ catch{/* send validates recipient access and required filing again */}
+}
 async function deferFiling(){draft.value.deferClientFiling=true;draft.value.clientIds=[];await send({confirmMissingAttachment:true});}
 const showCopyFields=ref(false),confirmAttachment=ref(false),availabilityPrompt=ref(null),confirmedDelivery=ref('');
 async function fetchDelivery(receipt){const {data}=await request('get',`/conversations/${receipt.conversationId}/messages/${receipt.messageId}/delivery`);return data.message;}
@@ -82,7 +90,7 @@ async function save() {
   saveTask=(async()=>{const {data}=await request('put',`/drafts/${record.value.id}`,{version:record.value.version,draft:JSON.parse(snapshot)});record.value.version=data.version;saved=snapshot;status.value='Draft saved';error.value='';notify();})();
   try { await saveTask; } catch(e) { status.value='Draft not saved';error.value=e.response?.data?.error?.message || 'Could not save. Keep this window open and retry.';throw e; } finally{saveTask=null;}
 }
-watch(()=>[draft.value.to,draft.value.cc,draft.value.bcc],(next,previous)=>{if(!loading.value && previous && next.some((v,i)=>v!==previous[i])){draft.value.clientIds=[];draft.value.deferClientFiling=false;filingChoices.value=[];}});
+watch(()=>[draft.value.to,draft.value.cc,draft.value.bcc],(next,previous)=>{if(!loading.value && previous && next.some((v,i)=>v!==previous[i])){draft.value.clientIds=[];draft.value.deferClientFiling=false;filingChoices.value=[];filingRequired.value=false;void loadFilingChoices();}});
 watch(draft,()=>{availabilityPrompt.value=null;confirmAttachment.value=false;if(loading.value||record.value?.state!=='editing')return;status.value='Unsaved changes';clearTimeout(timer);timer=setTimeout(()=>save().catch(()=>{}),500);},{deep:true});
 async function attach(event){try{draft.value.attachments.push(...await encodeEmailFiles(event.target.files || []));await save();}catch(e){error.value=e.message;}finally{event.target.value='';}}
 async function saveAndClose(){busy.value=true;try{await save();closeWindow();}catch{/* retain draft */}finally{busy.value=false;}}
@@ -91,7 +99,7 @@ function beforeUnload(event){if(record.value?.state==='editing' && JSON.stringif
 function onHidden(){if(document.visibilityState==='hidden')save().catch(()=>{});}
 function retrySave(){if(!busy.value)save().catch(()=>{});}
 async function discard(){busy.value=true;try{clearTimeout(timer);if(saveTask)await saveTask;await request('delete',`/drafts/${record.value.id}`);record.value.state='discarded';saved=JSON.stringify(draft.value);closeWindow();}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}finally{busy.value=false;}}
-async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':data.scheduled?'Email scheduled — not sent yet':'Delivery confirmation pending';notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
+async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':data.scheduled?'Email scheduled — not sent yet':'Delivery confirmation pending';notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingRequired.value=true;filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
 async function undo(){
   if(busy.value)return;
   busy.value=true;error.value='';
@@ -115,7 +123,7 @@ async function openDraft(){
   try{
     if(context.draftId){const {data}=await request('get',`/drafts/${context.draftId}`);record.value=data.draft;draft.value={...draft.value,...data.draft.draft};}
     else {
-      const mode=String(context.mode || 'new');let agencyId=Number(context.agencyId);const cid=Number(context.conversationId);draft.value.to=String(context.to || '');
+      const mode=String(context.mode || 'new');let agencyId=Number(context.agencyId);const cid=Number(context.conversationId);draft.value.to=String(context.to || '');draft.value.clientIds=String(context.clientIds || context.clientId || '').split(',').map(Number).filter(id=>Number.isSafeInteger(id)&&id>0);
       if(cid){const {data}=await request('get',`/conversations/${cid}?markRead=0`);const c=data.conversation;agencyId=c.agency_id;fromEmail.value=c.inbox_from_email || '';const addresses=emailReplyRecipients(data.messages,{mode,inboxEmail:fromEmail.value});draft.value.to=addresses.to.join(', ');draft.value.cc=addresses.cc.join(', ');draft.value.subject=`${mode==='forward'?'Fwd:':'Re:'} ${String(c.subject || '').replace(/^(?:(?:re|fwd?)\s*:\s*)+/i,'')}`;draft.value.quotedText=quoteEmailHistory(data.messages);draft.value.quotedHtml=quoteEmailHistoryHtml(data.messages);}
       // Creating a draft must not wait for Workspace mailbox provisioning.
       // Sender validation runs independently after the draft is editable.
@@ -125,7 +133,7 @@ async function openDraft(){
     if(String(record.value.id).startsWith('legacy-') && /<[^>]+>/.test(draft.value.text)){const doc=new DOMParser().parseFromString(draft.value.text,'text/html');doc.querySelectorAll('p,div,br').forEach(e=>e.append('\n'));draft.value.text=doc.body.textContent || '';}
     draft.value.undoDelaySeconds ??= 20;
     saved=JSON.stringify(draft.value);status.value=record.value.state==='editing'?(record.value.resumed?'Draft restored':'Draft saved'):'Submitted';
-    if(record.value.state==='editing')void loadSenderPreview(record.value.id);
+    if(record.value.state==='editing'){void loadSenderPreview(record.value.id);await loadFilingChoices();}
   }catch(e){error.value=e.response?.data?.error?.message || 'Could not open draft. Sign in again and retry.';}
   finally{await nextTick();loading.value=false;await nextTick();bodyInput.value?.focus();}
 }

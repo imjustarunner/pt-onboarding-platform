@@ -248,6 +248,7 @@
             <StaffBusinessCardsButton :user-id="userId" :agency-id="profileOverviewAgencyId" />
           </section>
           <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
+          <GuardianContactCard v-if="isViewingGuardian" :guardian-id="Number(userId)" />
 
           <!-- Guardian-specific info banner -->
           <div v-if="isViewingGuardian" style="background: #e8f4f8; border: 1px solid #b3d9ea; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; display: flex; align-items: flex-start; gap: 10px;">
@@ -2735,6 +2736,7 @@
 </template>
 
 <script setup>
+import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
 import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';

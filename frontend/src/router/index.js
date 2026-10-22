@@ -2259,6 +2259,18 @@ const routes = [
     redirect: (to) => ({ path: `/${to.params.organizationSlug}/admin/digital-forms` })
   },
   {
+    path: '/:organizationSlug/guardian-contacts/:guardianId',
+    name: 'OrganizationGuardianContact',
+    component: () => import('../views/GuardianContactView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/guardian-contacts/:guardianId',
+    name: 'GuardianContact',
+    component: () => import('../views/GuardianContactView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/:organizationSlug/admin/users/:userId',
     name: 'OrganizationUserProfile',
     component: () => import('../views/admin/UserProfileView.vue'),

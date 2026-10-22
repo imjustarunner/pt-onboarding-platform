@@ -152,3 +152,19 @@ it('cancels only once if restoring a draft fails, then retries restoring without
  expect(mock.api.mock.calls.filter(([c])=>c.url.endsWith('/undo'))).toHaveLength(1);
  expect(mock.api.mock.calls.filter(([c])=>c.url.endsWith('/send'))).toHaveLength(1);
 });
+
+it('preserves both client selections when opened from a guardian account and shows the filing choices before send',async()=>{
+ wrapper.unmount();
+ mock.api.mockImplementation(async({method,url,data})=>{
+  if(url.includes('/client-filing-options?'))return {data:{clients:[{id:1,name:'Child One'},{id:2,name:'Child Two'}]}};
+  if(url.endsWith('/sender'))return {data:{fromEmail:'messages@itsco.health',replyTo:'messages@itsco.health'}};
+  if(method==='post'&&url==='/communications/drafts')return {data:{draft:{id:'parent-draft',agency_id:2,mode:'new',version:1,state:'editing',draft:data.draft}}};
+  return {data:{version:2}};
+ });
+ wrapper=shallowMount(Composer,{props:{composeContext:{mode:'new',agencyId:2,to:'parent@example.test',clientIds:'1,2'}}});await flushPromises();
+ state=wrapper.vm.$.setupState;
+ expect(state.draft.clientIds).toEqual([1,2]);expect(state.draft.to).toBe('parent@example.test');
+ expect(wrapper.findAll('input[type=checkbox]')).toHaveLength(2);
+ expect(wrapper.text()).toContain('Replies to messages@itsco.health');
+ expect(mock.api.mock.calls.some(([r])=>r.url.endsWith('/send'))).toBe(false);
+});

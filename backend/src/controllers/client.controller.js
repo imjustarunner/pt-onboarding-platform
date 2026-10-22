@@ -4827,10 +4827,12 @@ export const getClientNotes = async (req, res, next) => {
       hasAgencyAccess = true;
     }
 
+    const {canAccessHubClient}=await import('../services/hubPeopleAccess.service.js');
+    const canViewContactEvents=!isGuardian && await canAccessHubClient({userId,clientId:Number(id),agencyId:currentClient.agency_id});
     // Get notes (filtered by permission)
     const notes = await ClientNotes.findByClientId(id, {
       hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess,
-      canViewInternalNotes
+      canViewInternalNotes, canViewContactEvents
     });
     logClientAccess(req, parseInt(id, 10), 'view_client_notes').catch(() => {});
     res.json(notes);

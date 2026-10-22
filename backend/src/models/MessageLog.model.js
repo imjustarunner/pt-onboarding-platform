@@ -3,6 +3,10 @@ import { smsThreadKey } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
 
 class MessageLog {
+  static async syncParentContact(id) {
+    try { const {syncSmsParentContact}=await import('../services/parentContact.service.js'); await syncSmsParentContact(id); }
+    catch(e) { console.warn('[parent contact SMS]', id, e.code || 'sync_failed'); }
+  }
   static normalizePhone(phone) {
     if (!phone) return null;
     const str = String(phone).trim();
@@ -47,6 +51,7 @@ class MessageLog {
         smsThreadKey({ clientId, contactId: agencyContactId, fromNumber, toNumber, direction: 'INBOUND' })
       ]
     );
+    await this.syncParentContact(result.insertId);
     return this.findById(result.insertId);
   }
 
@@ -86,6 +91,7 @@ class MessageLog {
         smsThreadKey({ clientId, contactId: agencyContactId, fromNumber, toNumber, direction: 'OUTBOUND' })
       ]
     );
+    await this.syncParentContact(result.insertId);
     return this.findById(result.insertId);
   }
 
@@ -98,6 +104,7 @@ class MessageLog {
        WHERE id = ?`,
       [sid, metadata ? JSON.stringify(metadata) : null, id]
     );
+    await this.syncParentContact(id);
     return this.findById(id);
   }
 

@@ -518,13 +518,16 @@ export async function ingestPersonalMailboxInbound({
   const { queuePersonalReminderReply } = await import('./personalThreadReminder.service.js');
   const reminderReply = allowAutomation && await queuePersonalReminderReply({ inbox, fromEmail, bodyText, gmailPayload, inReplyTo, referencesHeader, attachments, reminderId, to, cc, deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null) });
   if (reminderReply) return reminderReply;
+  const incomingHeaders=new Map((gmailPayload?.headers || []).map(h=>[String(h.name).toLowerCase(),String(h.value || '').toLowerCase()]));
+  const autoSubmitted=incomingHeaders.get('auto-submitted');
+  const isAutoReply=!!((autoSubmitted && autoSubmitted!=='no') || incomingHeaders.get('x-autoreply') || incomingHeaders.get('x-autorespond') || incomingHeaders.get('x-auto-response-suppress')?.includes('all'));
   const result = await persistInboundEmail({
     inboxId: inbox.id, agencyId: aid, conversationId, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
     threadId, fromEmail, replyToEmail, subject, bodyText,
     bodyHtml: await readGmailBodyHtml(gmailPayload, { gmail, gmailMessageId }),
     to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
-    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments, isGroupEmail: isDistributionMail(gmailPayload?.headers, inbox.from_email)
+    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments, isAutoReply, isGroupEmail: isDistributionMail(gmailPayload?.headers, inbox.from_email)
   });
   await (await import('./inboundEventInvitation.service.js')).forwardInboundEventInvitation({inbox,userId:Number(inbox.owner_user_id||ownerUserId),messageId:result.messageId,gmail,gmailMessageId,payload:gmailPayload,subject,bodyText,fromEmail,to,cc});
   const conv = { id: result.conversationId };

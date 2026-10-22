@@ -31,12 +31,12 @@ it('repairs a legacy shared Reply-To for a personal mailbox at send time', async
 });
 
 const managedAgency = { id: 2, slug: 'itsco', is_active: 1, organization_type: 'agency' };
-it('sends SSO mailbox mail through tenant messages with the work address as Reply-To', async () => {
+it('sends SSO mailbox mail through tenant messages with messages as Reply-To', async () => {
   User.getAgencies.mockResolvedValue([managedAgency]);
   workspaceMailboxType.mockResolvedValue('user');
   resolveMessagesSendMailbox.mockResolvedValue({ identity: { id: 8, agency_id: 2, is_active: 1 }, fromEmail: 'messages@itsco.health', inbox: { id: 99 } });
   const mailbox = await resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox });
-  expect(mailbox).toMatchObject({ identity: { id: 8 }, fromEmail: 'messages@itsco.health', replyTo: inbox.from_email, inbox: { id: 10, owner_user_id: 5 }, routing: 'workspace_user' });
+  expect(mailbox).toMatchObject({ identity: { id: 8 }, fromEmail: 'messages@itsco.health', replyTo: 'messages@itsco.health', inbox: { id: 10, owner_user_id: 5 }, routing: 'workspace_user' });
   expect(workspaceMailboxType).toHaveBeenCalledWith(inbox.from_email);
 });
 it('keeps a non-SSO Group sender and Reply-To unchanged', async () => {

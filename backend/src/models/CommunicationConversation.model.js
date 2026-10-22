@@ -827,7 +827,7 @@ class CommunicationConversation {
       );
     }
     if ((data.channel || 'email') === 'email' && !data.isInternalNote && !['cancelled','preparing'].includes(sendStatus)) {
-      try { const {autoFileEmailMessage}=await import('../services/clientConversationRecord.service.js'); await autoFileEmailMessage(result.insertId); }
+      try { const {autoFileEmailMessage}=await import('../services/clientConversationRecord.service.js'); await autoFileEmailMessage(result.insertId); const {syncEmailParentContact}=await import('../services/parentContact.service.js'); await syncEmailParentContact(result.insertId); }
       catch(e) { console.warn('[client email filing]', result.insertId, e.code || 'filing_failed'); }
     }
     return result.insertId;
@@ -870,7 +870,7 @@ class CommunicationConversation {
         WHERE m.id = ? AND m.direction = 'outbound'`, [messageId]);
     }
     if (['scheduled','sent'].includes(updates.sendStatus)) {
-      try { const {autoFileEmailMessage}=await import('../services/clientConversationRecord.service.js'); await autoFileEmailMessage(messageId); }
+      try { const {autoFileEmailMessage}=await import('../services/clientConversationRecord.service.js'); await autoFileEmailMessage(messageId); const {syncEmailParentContact}=await import('../services/parentContact.service.js'); await syncEmailParentContact(messageId); }
       catch(e) { console.warn('[client email filing]', messageId, e.code || 'filing_failed'); }
     }
     return this.findMessageById(messageId);

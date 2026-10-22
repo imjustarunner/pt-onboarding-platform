@@ -191,7 +191,9 @@ class ClientNotes {
 
     // Filter: non-backoffice only sees shared notes
     if (!canSeeInternal) {
-      query += ' AND n.is_internal_only = FALSE';
+      query += access?.canViewContactEvents
+        ? ' AND (n.is_internal_only = FALSE OR EXISTS (SELECT 1 FROM client_parent_contact_events e WHERE e.note_id=n.id AND e.client_id=n.client_id))'
+        : ' AND n.is_internal_only = FALSE';
     }
 
     query += ' ORDER BY n.created_at DESC';

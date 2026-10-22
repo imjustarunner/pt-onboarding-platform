@@ -262,7 +262,7 @@ export const listClientCommunications = async (req, res, next) => {
       UserCommunication.listForClient(clientId, { limit }),
       fetchSmsForClient(clientId),
       fetchClientGuardiansSummary(clientId),
-      listClientCommunicationThreads(clientId)
+      listClientCommunicationThreads(clientId,req.user.id)
     ]);
 
     const emailItems = (emailRows || []).map(shapeEmailRow);
@@ -403,7 +403,7 @@ export const getClientEmailConversation = async (req,res,next) => {
     const access=await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
     if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
     res.set('Cache-Control','private, no-store');
-    res.json(await clientCommunicationThread(clientId,conversationId));
+    res.json(await clientCommunicationThread(clientId,conversationId,req.user.id));
   }catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}
 };
 
@@ -413,11 +413,11 @@ export const exportClientCommunications = async (req,res,next) => {
     const access=await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
     if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
     let threads=[];
-    if(req.query.conversationId)threads=[await clientCommunicationThread(clientId,String(req.query.conversationId))];
+    if(req.query.conversationId)threads=[await clientCommunicationThread(clientId,String(req.query.conversationId),req.user.id)];
     else{
-      const linked=await listClientEmailThreads(clientId);
-      for(const thread of linked)threads.push(await clientEmailThread(clientId,thread.id));
-      threads.push(...await clientSecureThreads(clientId));
+      const linked=await listClientEmailThreads(clientId,req.user.id);
+      for(const thread of linked)threads.push(await clientEmailThread(clientId,thread.id,req.user.id));
+      threads.push(...await clientSecureThreads(clientId,req.user.id));
       const [automated]=await pool.execute(`SELECT uc.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id WHERE uc.client_id=? ORDER BY COALESCE(uc.sent_at,uc.generated_at),uc.id`,[clientId]);
       const messageIds=new Set(threads.flatMap(t=>t.messages.map(m=>m.internet_message_id)).filter(Boolean));
       for(const m of automated) if(!m.external_message_id || !messageIds.has(m.external_message_id)) threads.push({subject:m.subject || 'Notification',messages:[{...m,body_text:String(m.body || '').replace(/<[^>]*>/g,' '),recipientAddress:m.recipient_address,sentAt:m.sent_at || m.generated_at,deliveryStatus:m.delivery_status}]});

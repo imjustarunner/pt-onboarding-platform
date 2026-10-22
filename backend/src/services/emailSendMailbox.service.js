@@ -43,7 +43,7 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
       if (Number(sender.identity?.agency_id) !== Number(agencyId) || Number(sender.identity?.is_active) === 0) {
         throw Object.assign(new Error('The tenant messages sender is unavailable.'), { status: 400 });
       }
-      return { ...sender, inbox: ownInbox, replyTo: ownInbox.from_email, displayName: ownInbox.display_name || identity.display_name, routing: 'workspace_user' };
+      return { ...sender, inbox: ownInbox, replyTo: sender.fromEmail, displayName: ownInbox.display_name || identity.display_name, routing: 'workspace_user' };
     }
     if (!personal) return resolveEmailSendMailbox({ agencyId, userId, inbox: ownInbox });
   }

@@ -2457,6 +2457,8 @@ if (!isBootstrap) {
     try {
       const {reconcileClientEmailFiling} = await import('./services/clientConversationRecord.service.js');
       await reconcileClientEmailFiling({limit:50});
+      const {reconcileParentContacts}=await import('./services/parentContact.service.js');
+      await reconcileParentContacts({limit:50});
     } catch (e) { console.warn('[Client communication filing retry]', e.code || 'failed'); }
     finally { clientFilingBusy = false; }
   };

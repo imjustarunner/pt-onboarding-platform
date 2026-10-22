@@ -1567,6 +1567,8 @@ export const sendMessage = async (req, res, next) => {
     } finally {
       if (isSecureMessage) messageDb.release();
     }
+    try { const {syncSecureParentContact}=await import('../services/parentContact.service.js'); await syncSecureParentContact(insertedMessageId); }
+    catch(e) { console.warn('[parent contact secure]', insertedMessageId, e.code || 'sync_failed'); }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
     // Sending means this user has seen the thread — own outbound must never keep Unread.

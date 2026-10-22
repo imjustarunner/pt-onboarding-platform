@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 import Directory from './googleWorkspaceDirectory.service.js';
 
-// Older personal sends used the shared messages@ Reply-To. Recover only an
+// SSO personal sends use the shared messages@ Reply-To. Recover only an
 // unambiguous original conversation whose outbound recipients include this sender.
 export async function resolvePersonalReplyMailbox({ identityId, fromEmail, inReplyTo, referencesHeader, threadId }) {
   const [identities] = await pool.execute("SELECT agency_id FROM email_sender_identities WHERE id=? AND identity_key IN ('messages','messages_at_tenant') AND is_active=1", [identityId]);

@@ -25,6 +25,9 @@ import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.servic
 import pool from '../../config/database.js';
 import { replyToConversation, composeNewEmail, undoOutboundMessage } from '../unifiedInbox.service.js';
 import { resolveEmailSendMailbox } from '../emailSendMailbox.service.js';
+vi.mock('../clientRecordAccess.service.js', () => ({ resolveClientRecordAccess: vi.fn() }));
+import * as clientRecords from '../clientConversationRecord.service.js';
+import * as clientAccess from '../clientRecordAccess.service.js';
 const parent = { direction: 'outbound', internet_message_id: '<outbound@itsco.health>', to: [{ email: 'alice@example.org' }], cc: [], references_header: '<root@example.org>' };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -37,6 +40,16 @@ beforeEach(() => {
   sendEmailFromIdentity.mockResolvedValue({ id: 'gmail-id', internetMessageId: '<new@itsco.health>', threadId: 'gmail-thread' });
 });
 describe('email sending', () => {
+  it.each([{ clientIds: [41, 42], legacyClientId: null }, { clientIds: [41], legacyClientId: 41 }])('keeps immediate-send legacy logs scoped to $clientIds', async ({ clientIds, legacyClientId }) => {
+    const filing = vi.spyOn(clientRecords, 'resolveEmailClientFiling').mockResolvedValueOnce({ clientIds, deferred: false });
+    const access = vi.spyOn(clientAccess, 'resolveClientRecordAccess').mockResolvedValueOnce({ ok: true, client: { agency_id: 2 } });
+    try {
+      await composeNewEmail({ agencyId: 2, inboxId: 3, userId: 5, payload: {
+        to: 'parent@example.org', text: 'Family update', skipUndo: true, clientId: 41, clientIds
+      } });
+      expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ clientId: legacyClientId }));
+    } finally { filing.mockRestore(); access.mockRestore(); }
+  });
   it.each(['new', 'reply', 'reply_all', 'forward'])('preserves the SSO work Reply-To and staff signature author for %s', async mode => {
     resolveEmailSendMailbox.mockResolvedValue({ identity: { id: 8 }, inbox: { id: 3 }, fromEmail: 'messages@itsco.health', replyTo: 'thughes@itsco.health', displayName: 'Tatainya Hughes' });
     const payload = { text: 'Hello', html: '<p>Hello</p>', to: 'client@example.org', skipUndo: true, mode };

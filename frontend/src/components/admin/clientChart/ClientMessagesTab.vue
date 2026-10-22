@@ -84,15 +84,15 @@
       </section>
 
       <!-- Internal notes -->
-      <section v-if="isBackofficeRole" class="cc-messages-card">
+      <section v-if="isBackofficeRole || internalNotes.length" class="cc-messages-card">
         <div class="cc-messages-card__head">
           <div>
             <h3 class="cc-messages-card__title cc-messages-lock">
-              <span aria-hidden="true">🔒</span> Internal notes
+              <span aria-hidden="true">🔒</span> {{ isBackofficeRole ? 'Internal notes' : 'Contact documentation' }}
             </h3>
-            <p class="cc-messages-card__sub">Admin only — not client-facing</p>
+            <p class="cc-messages-card__sub">{{ isBackofficeRole ? 'Internal staff notes' : 'Parent contacts recorded for your client' }} · Not client-facing</p>
           </div>
-          <button type="button" class="cc-btn-primary" style="width: auto;" @click="openInternalComposer">
+          <button v-if="isBackofficeRole" type="button" class="cc-btn-primary" style="width: auto;" @click="openInternalComposer">
             New admin note
           </button>
         </div>

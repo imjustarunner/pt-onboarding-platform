@@ -933,7 +933,10 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     fromDisplayNameOverride: fromDisplayName,
     source: 'manual',
     generatedByUserId: userId,
-    clientId: payload.clientId || null,
+    // Shared messages stay in the conversation record, whose readers must have
+    // access to every selected client. A legacy single-client log must not expose
+    // a sibling's message through the originating client's record.
+    clientId: clientFiling.clientIds.length === 1 ? clientFiling.clientIds[0] : null,
     templateType: payload.templateType || 'hub_email'
   }));
   assertOutboundEmailDelivered(sendResult);

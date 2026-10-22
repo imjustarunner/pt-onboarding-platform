@@ -66,6 +66,8 @@
       </span>
     </div>
 
+    <GuardianContactCard v-for="guardian in guardians" :key="guardian.id" :guardian-id="Number(guardian.id)" :client-id="clientId" show-account-link />
+
     <section class="sms-audit-card">
       <div class="sms-audit-head">
         <h4 class="sms-audit-title">SMS audit</h4>
@@ -344,6 +346,7 @@
 </template>
 
 <script setup>
+import GuardianContactCard from './GuardianContactCard.vue';
 import ClientSecureMessageRecords from '../conversa/ClientSecureMessageRecords.vue';
 import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';

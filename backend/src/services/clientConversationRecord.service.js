@@ -3,6 +3,14 @@ import {canAccessHubClient} from './hubPeopleAccess.service.js';
 
 const parse = value => { if(typeof value !== 'string') return value; try{return JSON.parse(value);}catch{return null;} };
 const addresses = value => (Array.isArray(value) ? value : typeof value==='string' ? value.split(/[,;]/) : value ? [value] : []).map(v=>String(v?.email || v || '').trim().toLowerCase()).filter(v=>v.includes('@'));
+export async function canReadSharedClientConversation(userId, conversationId, channel='email') {
+  const [clients]=await pool.execute(channel==='email'
+    ? "SELECT c.id,c.agency_id FROM communication_links l JOIN clients c ON c.id=l.entity_id JOIN communication_conversations t ON t.id=l.conversation_id AND t.agency_id=c.agency_id WHERE l.conversation_id=? AND l.entity_type='client'"
+    : 'SELECT c.id,c.agency_id FROM guardian_client_threads l JOIN clients c ON c.id=l.client_id AND c.agency_id=l.agency_id WHERE l.thread_id=?',[conversationId]);
+  if(!clients.length)return false;
+  for(const c of clients)if(!await canAccessHubClient({userId,clientId:c.id,agencyId:c.agency_id}))return false;
+  return true;
+}
 export async function emailClientCandidates(agencyId, emails) {
   const values=[...new Set(addresses(emails))];
   if(!values.length) return [];
@@ -23,7 +31,7 @@ export async function resolveEmailClientFiling({agencyId,userId,to,cc,bcc,client
     for(const id of ids) if(!candidates.some(c=>Number(c.id)===id) || !await canAccessHubClient({userId,clientId:id,agencyId})) throw Object.assign(new Error('Choose a client linked to a recipient that you can access.'),{status:400});
     return {clientIds:ids,deferred:false};
   }
-  if(candidates.length===1) return {clientIds:[Number(candidates[0].id)],deferred:false};
+  if(candidates.length===1 && await canAccessHubClient({userId,clientId:candidates[0].id,agencyId})) return {clientIds:[Number(candidates[0].id)],deferred:false};
   if(candidates.length>1 && !defer){
     const choices=[];
     for(const c of candidates) if(await canAccessHubClient({userId,clientId:c.id,agencyId})) choices.push({id:c.id,name:c.full_name || c.initials || `Client #${c.id}`});
@@ -51,16 +59,19 @@ export async function autoFileEmailMessage(messageId) {
   else if(clients.length>1) await linkConversationClients(m.conversation_id,[],{deferred:true});
 }
 
-export async function listClientEmailThreads(clientId) {
+export async function listClientEmailThreads(clientId, userId=null) {
   const [rows]=await pool.execute(`SELECT c.id,c.subject,c.channel,c.last_message_at,
     (SELECT COUNT(*) FROM communication_messages m WHERE m.conversation_id=c.id AND COALESCE(m.is_internal_note,0)=0 AND COALESCE(m.send_status,'sent') NOT IN ('cancelled','preparing')) AS message_count
     FROM communication_conversations c JOIN communication_links l ON l.conversation_id=c.id AND l.entity_type='client' AND l.entity_id=?
     JOIN clients cl ON cl.id=l.entity_id AND cl.agency_id=c.agency_id
     WHERE c.channel='email' ORDER BY c.last_message_at DESC,c.id DESC`,[clientId]);
-  return rows.filter(r=>Number(r.message_count)>0);
+  const visible=[];
+  for(const r of rows)if(Number(r.message_count)>0 && (userId===null || await canReadSharedClientConversation(userId,r.id)))visible.push(r);
+  return visible;
 }
 
-export async function clientEmailThread(clientId,conversationId) {
+export async function clientEmailThread(clientId,conversationId,userId=null) {
+  if(userId!==null && !await canReadSharedClientConversation(userId,conversationId))throw Object.assign(new Error('Conversation not found'),{status:404});
   const [[linked]]=await pool.execute(`SELECT c.id,c.subject FROM communication_conversations c JOIN communication_links l ON l.conversation_id=c.id AND l.entity_type='client' AND l.entity_id=? JOIN clients cl ON cl.id=l.entity_id AND cl.agency_id=c.agency_id WHERE c.id=?`,[clientId,conversationId]);
   if(!linked) throw Object.assign(new Error('Conversation not found'),{status:404});
   const [messages]=await pool.execute(`SELECT m.id,m.direction,m.from_json,m.to_json,m.cc_json,m.bcc_json,m.subject,m.internet_message_id,m.body_text,m.body_html,m.sent_at,m.created_at,m.send_status,
@@ -72,11 +83,12 @@ export async function clientEmailThread(clientId,conversationId) {
   return {...linked,documentation,messages:messages.map(m=>({...m,from:parse(m.from_json),to:parse(m.to_json),cc:parse(m.cc_json),bcc:parse(m.bcc_json)}))};
 }
 
-export async function clientSecureThreads(clientId) {
+export async function clientSecureThreads(clientId,userId=null) {
   const [rows]=await pool.execute(`SELECT g.thread_id,t.name FROM guardian_client_threads g JOIN chat_threads t ON t.id=g.thread_id JOIN clients c ON c.id=g.client_id AND c.agency_id=g.agency_id WHERE g.client_id=?`,[clientId]);
   const {decryptChatText}=await import('./chatEncryption.service.js');
   const threads=[];
   for(const row of rows){
+    if(userId!==null && !await canReadSharedClientConversation(userId,row.thread_id,'secure'))continue;
     const [messages]=await pool.execute(`SELECT m.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM chat_messages m LEFT JOIN users u ON u.id=m.sender_user_id WHERE m.thread_id=? ORDER BY m.id`,[row.thread_id]);
     const {contactPurposeHistory}=await import('./contactDocumentation.service.js');
     const [participants]=await pool.execute('SELECT u.first_name,u.last_name FROM chat_thread_participants p JOIN users u ON u.id=p.user_id WHERE p.thread_id=?',[row.thread_id]);
@@ -103,6 +115,9 @@ export async function fileExistingConversation(conversationId,userId,clientIds) 
   if(!ids.length || ids.some(id=>!choices.clients.some(c=>Number(c.id)===id))) throw Object.assign(new Error('Choose at least one available client.'),{status:400});
   // Additive filing: never silently remove an existing medical record association.
   await linkConversationClients(conversationId,ids);
+  const {syncEmailParentContact}=await import('./parentContact.service.js');
+  const [messages]=await pool.execute("SELECT id FROM communication_messages WHERE conversation_id=? AND send_status IN ('sent','received','delivered') ORDER BY id",[conversationId]);
+  for(const m of messages)await syncEmailParentContact(m.id);
   return {ok:true};
 }
 
@@ -122,21 +137,23 @@ export async function reconcileClientEmailFiling({limit=50}={}) {
   return rows.length;
 }
 
-export async function listClientCommunicationThreads(clientId) {
-  const emails=await listClientEmailThreads(clientId);
+export async function listClientCommunicationThreads(clientId,userId=null) {
+  const emails=await listClientEmailThreads(clientId,userId);
   const [secure]=await pool.execute(`SELECT CONCAT('secure-',t.id) AS id,t.name AS subject,'secure' AS channel,
     COUNT(m.id) AS message_count,MAX(m.created_at) AS last_message_at
     FROM guardian_client_threads g JOIN clients c ON c.id=g.client_id AND c.agency_id=g.agency_id
     JOIN chat_threads t ON t.id=g.thread_id JOIN chat_messages m ON m.thread_id=t.id
     WHERE g.client_id=? GROUP BY t.id,t.name`,[clientId]);
-  return [...emails,...secure].sort((a,b)=>new Date(b.last_message_at)-new Date(a.last_message_at));
+  const visible=[];
+  for(const t of secure)if(userId===null || await canReadSharedClientConversation(userId,String(t.id).replace('secure-',''),'secure'))visible.push(t);
+  return [...emails,...visible].sort((a,b)=>new Date(b.last_message_at)-new Date(a.last_message_at));
 }
-export async function clientCommunicationThread(clientId,key) {
+export async function clientCommunicationThread(clientId,key,userId=null) {
   if(/^secure-[1-9][0-9]*$/.test(String(key))){
-    const thread=(await clientSecureThreads(clientId)).find(t=>t.id===key);
+    const thread=(await clientSecureThreads(clientId,userId)).find(t=>t.id===key);
     if(!thread)throw Object.assign(new Error('Conversation not found'),{status:404});
     return thread;
   }
   if(!/^[1-9][0-9]*$/.test(String(key)))throw Object.assign(new Error('Conversation not found'),{status:404});
-  return clientEmailThread(clientId,Number(key));
+  return clientEmailThread(clientId,Number(key),userId);
 }

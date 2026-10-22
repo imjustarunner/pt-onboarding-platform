@@ -16,7 +16,7 @@ it('does not mount family widgets before personal portal access is resolved',asy
  resolve({data:{personalPortal:true}});await flushPromises();expect(router.currentRoute.value.path).toBe('/my-portal');expect(api.get.mock.calls.some(([url])=>url==='/guardian-portal/overview')).toBe(false);w.unmount();
 });
 beforeEach(()=>{vi.clearAllMocks();useAgencyStore().currentAgency=agencies[0];useAgencyStore().userAgencies=agencies;useGuardianStore().selectedChildId=null;Element.prototype.scrollIntoView=vi.fn();api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:people.slice(0,3),me:people[3],programs:agencies}:url.includes('clinical-access')?{grants:people.map(p=>({clientId:p.client_id,guardianUserId:10,scopes:['treatment_plan']}))}:{events:[],items:[],documents:[],subjects:[],plans:[]}}));});
-async function setup(path='/itsco/guardian'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:organizationSlug/guardian',component:View}]});await router.push(path);await router.isReady();const w=shallowMount(View,{global:{plugins:[router],stubs:{FamilyPortalShell:false,ClinicalWorkspaceFrame:{template:'<div><slot/></div>'}}}});await flushPromises();return{w,router}}
+async function setup(path='/itsco/guardian'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:organizationSlug/guardian',component:View}]});await router.push(path);await router.isReady();const w=shallowMount(View,{global:{plugins:[router],stubs:{FamilyPortalShell:false,PortalContextPicker:false,ClinicalWorkspaceFrame:{template:'<div><slot/></div>'}}}});await flushPromises();return{w,router}}
 it('starts with all dependents and self; names the school menu',async()=>{const{w}=await setup();expect(w.findAll('.family-profile-card')).toHaveLength(4);expect(w.text()).toContain('Morgan (you)');expect(w.findComponent(Shell).props('active')).toBe('family');expect(w.findComponent(Shell).props('userName')).toBe('Morgan Bennett');await w.findAll('.family-profile-card').find(c=>c.text().includes('Avery')).find('button').trigger('click');await flushPromises();expect(w.findComponent(Shell).props('navigation').some(n=>n.key==='schoolcarebridge'&&n.label==='Hogwarts')).toBe(true);expect(w.findComponent(Shell).props('agencyName')).toBe('ITSCO');w.unmount()});
 it('switches person, agency, branding and content together',async()=>{const{w,router}=await setup();await w.findAll('.family-profile-card').find(c=>c.text().includes('Jordan')).find('button').trigger('click');await flushPromises();expect(router.currentRoute.value.path).toBe('/nlu/guardian');expect(useGuardianStore().selectedChildId).toBe(2);expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');expect(w.findComponent({name:'GuardianTutoringDashboard'}).props('clientId')).toBe(2);w.findComponent(Shell).vm.$emit('navigate','family');await flushPromises();await w.findAll('.family-profile-card').find(c=>c.text().includes('Morgan')).find('button').trigger('click');await flushPromises();expect(router.currentRoute.value.path).toBe('/tisi/guardian');expect(w.findComponent(Shell).props('brandName')).toBe('AuricWell');expect(w.text()).toContain('Morgan (you)');w.unmount()});
 it('corrects a school URL without losing the chosen client',async()=>{useAgencyStore().currentAgency={id:376,slug:'hogwarts',organization_type:'school'};const{w,router}=await setup('/hogwarts/guardian?clientId=3&panel=messages');expect(router.currentRoute.value.path).toBe('/itsco/guardian');expect(useGuardianStore().selectedChildId).toBe(3);expect(w.findComponent({name:'GuardianMessagesPanel'}).props('clientId')).toBe(3);w.unmount()});
@@ -27,11 +27,46 @@ it('keeps one child while switching between agencies and two services in one age
  api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[multi],programs:agencies}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
  const{w,router}=await setup();
  expect(w.findAll('.family-profile-card')).toHaveLength(1);
+ const profilePicker=w.find('.family-profile-picker');
+ await profilePicker.find('.picker-trigger').trigger('click');
+ expect(profilePicker.findAll('[role=option]')).toHaveLength(2);
+ expect(profilePicker.findAll('[aria-selected=true]')).toHaveLength(1);
+ await profilePicker.findAll('[role=group]')[1].find('[role=option]').trigger('click');await flushPromises();
+ expect(router.currentRoute.value.path).toBe('/nlu/guardian');
+ expect(useGuardianStore().selectedChildId).toBe(3);
+ w.findComponent(Shell).vm.$emit('navigate','family');await flushPromises();
  await w.findAll('.family-profile-card button').find(b=>b.text().includes('Reading tutoring')).trigger('click');await flushPromises();
  expect(router.currentRoute.value.path).toBe('/nlu/guardian');expect(router.currentRoute.value.query.serviceId).toBe('12');expect(useGuardianStore().selectedChildId).toBe(3);
  expect(w.findComponent({name:'GuardianTutoringDashboard'}).props('clientId')).toBe(3);expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');
- const selector=w.findAll('select').find(s=>s.findAll('option').some(o=>o.text().includes('Reading tutoring')));
- await selector.setValue('13');await flushPromises();
+ const selector=w.findAll('.context-picker').find(s=>s.text().includes('Service & provider'));
+ await selector.find('.picker-trigger').trigger('click');
+ await selector.findAll('[role=option]').find(o=>o.text().includes('Counseling')).trigger('click');await flushPromises();
  expect(router.currentRoute.value.query.serviceId).toBe('13');expect(useGuardianStore().selectedChildId).toBe(3);expect(w.findComponent({name:'GuardianTutoringDashboard'}).exists()).toBe(false);expect(w.findComponent(Shell).props('brandName')).toBe('AuricWell');
  w.findComponent(Shell).vm.$emit('navigate','messages');await flushPromises();expect(router.currentRoute.value.query.serviceId).toBe('13');w.unmount();
+});
+
+it('lists every linked profile in agency groups and switches context from the header', async () => {
+ const {w,router}=await setup();
+ const picker=w.find('.family-profile-picker');
+ expect(w.find('.family-context select').exists()).toBe(false);
+ await picker.find('.picker-trigger').trigger('click');
+ expect(picker.findAll('[role=group]').map(g=>g.find('.picker-group-label').text())).toEqual(['Inner Strength','ITSCO','Next Level Up']);
+ expect(picker.findAll('[role=option]')).toHaveLength(4);
+ expect(picker.findAll('[aria-selected=true]')).toHaveLength(1);
+ await picker.findAll('[role=option]').find(o=>o.text().includes('Jordan')).trigger('click');
+ await flushPromises();
+ expect(router.currentRoute.value.path).toBe('/nlu/guardian');
+ expect(router.currentRoute.value.query.clientId).toBe('2');
+ expect(useAgencyStore().currentAgency.id).toBe(6);
+ expect(useGuardianStore().selectedChildId).toBe(2);
+ expect(w.findComponent({name:'GuardianTutoringDashboard'}).props('clientId')).toBe(2);
+ expect(picker.find('.picker-trigger').attributes('aria-expanded')).toBe('false');
+ await picker.find('.picker-trigger').trigger('click');
+ expect(picker.findAll('[role=option]')).toHaveLength(4);
+ await picker.findAll('[role=option]').find(o=>o.text().includes('Avery')).trigger('click');
+ await flushPromises();
+ expect(router.currentRoute.value.path).toBe('/itsco/guardian');
+ expect(useGuardianStore().selectedChildId).toBe(3);
+ expect(w.findComponent(Shell).props('agencyName')).toBe('ITSCO');
+ w.unmount();
 });

@@ -1,3 +1,4 @@
+import {guardianContactContext,emailFilingOptions} from '../services/guardianContactContext.service.js';
 import clinicalMessagingBridge from './clinicalMessagingBridge.routes.js';
 import { getEmailDeliveryReceipt } from '../services/emailDeliveryReceipt.service.js';
 import {getCallBilling,listCallBilling,putCallBilling} from '../controllers/callBillingReview.controller.js';
@@ -74,6 +75,8 @@ router.get('/feed', getCommunicationsFeed);
 router.get('/center-summary', getCommunicationsCenterSummary);
 
 // Unified Communications Inbox (Phase 1–4)
+router.get('/guardian-contacts/:guardianId',async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json(await guardianContactContext({userId:req.user.id,guardianId:req.params.guardianId}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
+router.get('/client-filing-options',async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json(await emailFilingOptions({...req.query,userId:req.user.id}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.get('/inboxes', getUnifiedInboxes);
 router.post('/inboxes/personal/ensure', postEnsurePersonalInbox);
 router.get('/attention-summary', getUnifiedAttentionSummary);

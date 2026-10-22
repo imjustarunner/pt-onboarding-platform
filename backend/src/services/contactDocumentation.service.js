@@ -73,7 +73,7 @@ export async function contactDocumentationDetail(userId,agencyId,type,id) {
   if(!source)throw failure('Conversation not found',404);
   const clients=await linkedClients(source,userId);
   if(!clients.length)throw failure('Conversation not found',404);
-  const thread=type==='email' ? await clientEmailThread(clients[0].id,id) : (await clientSecureThreads(clients[0].id)).find(t=>t.id===`secure-${id}`);
+  const thread=type==='email' ? await clientEmailThread(clients[0].id,id,userId) : (await clientSecureThreads(clients[0].id,userId)).find(t=>t.id===`secure-${id}`);
   return {...reviewState(source,await latestReview(userId,type,id)),clients,thread};
 }
 export async function saveContactDocumentation(userId,agencyId,type,id,{purpose,revision,reviewedThroughId,complete=false}={}) {

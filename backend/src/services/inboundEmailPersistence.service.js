@@ -13,7 +13,7 @@ export async function restoreMissingInboundHtml(db, messageId, bodyHtml) {
 }
 
 /** Inbox row lock serializes thread creation; receipt+message+attachments commit together. */
-export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conversationId = null, threadId = null, ownerUserId = null, fromEmail, replyToEmail = null, subject, bodyText, bodyHtml = null, to = [], cc = [], inReplyTo = null, referencesHeader = null, receivedAt = new Date(), attachments = [], isGroupEmail = false, internalNote = false }) {
+export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conversationId = null, threadId = null, ownerUserId = null, fromEmail, replyToEmail = null, subject, bodyText, bodyHtml = null, to = [], cc = [], inReplyTo = null, referencesHeader = null, receivedAt = new Date(), attachments = [], isGroupEmail = false, internalNote = false, isAutoReply = false }) {
   if (!deliveryId) throw new Error('Inbound email is missing a delivery identifier');
   const hash = createHash('sha256').update(String(deliveryId)).digest('hex');
   const db = await pool.getConnection();
@@ -57,12 +57,18 @@ export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conve
       const [created] = await db.execute(`INSERT INTO communication_conversations (agency_id, inbox_id, channel, subject, status, owner_user_id, external_thread_id, is_unknown_sender) VALUES (?, ?, 'email', ?, 'needs_reply', ?, ?, 1)`, [agencyId, inboxId, subject || '(no subject)', ownerUserId, threadId]);
       cid = created.insertId;
     }
-    const [msg] = await db.execute(`INSERT INTO communication_messages (conversation_id, channel, direction, from_json, to_json, cc_json, subject, body_text, body_html, internet_message_id, in_reply_to, references_header, is_group_email, is_internal_note, send_status, sent_at) VALUES (?, 'email', 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)`, [cid, JSON.stringify({ email: fromEmail, ...(replyToEmail ? {replyTo:replyToEmail} : {}) }), JSON.stringify(to), JSON.stringify(cc), subject || null, bodyText || '', bodyHtml || null, deliveryId, inReplyTo, referencesHeader, isGroupEmail ? 1 : 0, internalNote ? 1 : 0, receivedAt]);
+    const [msg] = await db.execute(`INSERT INTO communication_messages (conversation_id, channel, direction, from_json, to_json, cc_json, subject, body_text, body_html, internet_message_id, in_reply_to, references_header, is_group_email, is_internal_note, is_auto_reply, send_status, sent_at) VALUES (?, 'email', 'inbound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)`, [cid, JSON.stringify({ email: fromEmail, ...(replyToEmail ? {replyTo:replyToEmail} : {}) }), JSON.stringify(to), JSON.stringify(cc), subject || null, bodyText || '', bodyHtml || null, deliveryId, inReplyTo, referencesHeader, isGroupEmail ? 1 : 0, internalNote ? 1 : 0, isAutoReply ? 1 : 0, receivedAt]);
     for (const att of attachments) await db.execute('INSERT INTO communication_attachments (message_id, filename, content_type, size_bytes, storage_key) VALUES (?, ?, ?, ?, ?)', [msg.insertId, att.filename, att.contentType, att.sizeBytes, att.storageKey]);
     await db.execute(`INSERT INTO communication_participants (conversation_id, kind, email, display_name, is_primary) SELECT ?, 'email', ?, ?, NOT EXISTS (SELECT 1 FROM communication_participants p WHERE p.conversation_id = ? AND p.is_primary = 1) WHERE NOT EXISTS (SELECT 1 FROM communication_participants p WHERE p.conversation_id = ? AND LOWER(p.email) = LOWER(?))`, [cid, fromEmail, fromEmail, cid, cid, fromEmail]);
     await db.execute(`UPDATE communication_conversations SET status = 'needs_reply', archived_at = NULL, last_message_preview = IF(last_message_at IS NULL OR last_message_at <= ?, ?, last_message_preview), last_message_at = GREATEST(COALESCE(last_message_at, ?), ?) WHERE id = ?`, [receivedAt, String(bodyText || subject || '').replace(/\s+/g, ' ').slice(0, 240), receivedAt, receivedAt, cid]);
     await db.execute('INSERT INTO communication_email_receipts (inbox_id, delivery_hash, message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)', [inboxId, hash, msg.insertId]);
     await db.commit();
+    try {
+      const {autoFileEmailMessage}=await import('./clientConversationRecord.service.js');
+      await autoFileEmailMessage(msg.insertId);
+      const {syncEmailParentContact}=await import('./parentContact.service.js');
+      await syncEmailParentContact(msg.insertId);
+    } catch(e) { console.warn('[inbound parent contact]', msg.insertId, e.code || 'sync_failed'); }
     return { ingested: true, conversationId: cid, messageId: msg.insertId, agencyId, inboxId };
   } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
 }
