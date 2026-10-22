@@ -4,7 +4,7 @@
       <div>
         <h1>Digital Enrollment Hub</h1>
         <p class="muted srh-sub">
-          Manage each school’s shareable digital and printable links. Individual packet documents are maintained in the library.
+          Edit the agency printable packet (EN/ES) and manage each school’s shareable digital + printable links.
           The questionnaire itself lives on Master School Form (agency-wide, live inheritance).
         </p>
       </div>
@@ -53,7 +53,7 @@
       <template v-if="selectedSchoolId">
         <section class="srh-card">
           <div class="srh-card-head">
-            <h2>Enrollment documents (agency-wide)</h2>
+            <h2>Packet template (agency-wide)</h2>
             <p class="muted">
               Legal text is shared across schools for this agency. School name/staff merge when the packet is generated.
               Spanish is a first-pass translation — review before production use.

@@ -162,7 +162,7 @@
                 type="button"
                 @click="showPacketEditor = true"
               >
-                Source documents
+                Edit
               </button>
             </div>
           </li>
@@ -416,7 +416,7 @@
                     type="button"
                     @click="showPacketEditor = true"
                   >
-                    Source documents
+                    Edit
                   </button>
                 </template>
                 <template v-else>
@@ -465,7 +465,7 @@
                     type="button"
                     @click="startEdit(d)"
                   >
-                    Source documents
+                    Edit
                   </button>
                   <button
                     v-if="editingId === d.id"

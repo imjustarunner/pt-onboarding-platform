@@ -8,7 +8,7 @@ export const MASTER_FORM_CHANNELS = {
     hasPrintable: true,
     status: 'live',
     adminPath: '/admin/master-school-form',
-    paperAdminPath: '/library?section=enrollment&setting=school&service=counseling'
+    paperAdminPath: '/admin/school-referral-hub'
   },
   office: {
     key: 'office',

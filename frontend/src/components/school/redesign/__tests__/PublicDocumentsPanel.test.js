@@ -214,11 +214,11 @@ describe('PublicDocumentsPanel', () => {
     expect(labels).toContain('View');
     expect(labels).toContain('Print');
     expect(labels).toContain('Download');
-    expect(labels).not.toContain('Source documents');
+    expect(labels).not.toContain('Edit');
     expect(labels).not.toContain('Delete');
   });
 
-  it('shows Source documents for smart packets only to administrators', async () => {
+  it('shows Edit for smart packet only to admin/super_admin and opens editor', async () => {
     api.get.mockImplementation((url) => {
       if (String(url).includes('/public-documents')) {
         return Promise.resolve({
@@ -243,7 +243,7 @@ describe('PublicDocumentsPanel', () => {
     const wrapper = mountPanel('admin');
     await flush();
 
-    const editBtn = wrapper.findAll('button').find((b) => b.text().trim() === 'Source documents');
+    const editBtn = wrapper.findAll('button').find((b) => b.text().trim() === 'Edit');
     expect(editBtn).toBeTruthy();
     await editBtn.trigger('click');
     await flush();

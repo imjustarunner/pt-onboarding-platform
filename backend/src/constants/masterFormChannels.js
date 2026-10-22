@@ -13,7 +13,7 @@ export const MASTER_FORM_CHANNELS = {
     status: 'live',
     joinServiceTypes: [],
     adminPath: '/admin/master-school-form',
-    paperAdminPath: '/library?section=enrollment&setting=school&service=counseling'
+    paperAdminPath: '/admin/school-referral-hub'
   },
   office: {
     key: 'office',

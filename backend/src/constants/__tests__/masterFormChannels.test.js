@@ -6,8 +6,10 @@ import {
   isTutoringMasterFormType
 } from '../masterFormChannels.js';
 
-test('supported printable channels open their individual enrollment documents in the library', () => {
-  for (const channel of ['school','office','tutoring']) {
+test('school paper packets use the referral hub while office channels retain the library', () => {
+  assert.equal(MASTER_FORM_CHANNELS.school.hasPrintable, true);
+  assert.equal(MASTER_FORM_CHANNELS.school.paperAdminPath, '/admin/school-referral-hub');
+  for (const channel of ['office','tutoring']) {
     assert.equal(MASTER_FORM_CHANNELS[channel].hasPrintable, true);
     assert.ok(MASTER_FORM_CHANNELS[channel].paperAdminPath.startsWith('/library?section=enrollment&'));
   }
