@@ -4,7 +4,6 @@ import { exchangeSafeValue, exchangeSafeText } from '../utils/clientExchangePriv
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import { insertExchangeListing } from './clientExchangePosting.service.js';
 import pool from '../config/database.js';
-import { notifyExchangeMatches } from './clientExchangeNotifications.service.js';
 import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
 import { mergeExchangeSummary, summaryItems } from '../utils/clientExchangeSummary.js';
 import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from './clientExchangeClaims.service.js';
@@ -301,12 +300,7 @@ export async function createListing({
   // Broadcasting into Office Available bypassed matching and generated unrelated
   // unread-message reminder emails for every member of that channel.
   const listing = await getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
-  try {
-    listing.notifications = await notifyExchangeMatches({ listing, client });
-  } catch (error) {
-    console.error('[clientExchange] Match notification setup failed', { listingId: listing.id, error: error?.message });
-    listing.notifications = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 1 };
-  }
+  listing.notifications = { pending: true };
   return listing;
 }
 

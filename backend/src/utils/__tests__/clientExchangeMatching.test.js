@@ -89,3 +89,20 @@ test('a different presenting concern cannot bypass a known diagnosis specialty m
  assert.equal(matchesExchangeListing({...base,listing}),false);
  assert.equal(matchesExchangeListing({...base,listing,facets:{specialties:['Depression','Anxiety']}}),true);
 });
+
+test('commercial category is unverified coverage, not a literal payer mismatch; credential limits still apply', async()=>{
+  const {evaluateExchangeMatch}=await import('../clientExchangeMatching.js');
+  const input={user:{sees_clients:1,provider_accepting_new_clients:1},profile:{details:{virtualEnabled:true},insurances:['Aetna'],insuranceCredential:{credential:'LPC'}},listing:{preferences:{modality:'virtual',insurance:'Commercial / Other'}}};
+  const result=evaluateExchangeMatch(input);
+  assert.equal(result.matched,true);
+  assert.equal(result.checks.find(c=>c.field==='insurance').status,'unknown');
+  assert.equal(evaluateExchangeMatch({...input,profile:{...input.profile,insuranceCredential:{credential:'BA'}}}).matched,false);
+  assert.equal(evaluateExchangeMatch({...input,listing:{preferences:{modality:'virtual',insurance:'Cigna'}}}).matched,false);
+});
+test('audits expose multiple reasons and do not treat unknown fields as verified',async()=>{
+  const {evaluateExchangeMatch}=await import('../clientExchangeMatching.js');
+  const result=evaluateExchangeMatch({user:{sees_clients:0,provider_accepting_new_clients:0},profile:{details:{gender:'male'}},facets:{ageGroups:['Adults (18+)']},listing:{demographics:{ageBand:'9'},preferences:{modality:'virtual',providerGender:'female'}}});
+  assert.equal(result.matched,false);
+  for(const field of ['accepting','format','age','provider_gender'])assert.equal(result.checks.find(c=>c.field===field).status,'fail');
+  assert.equal(result.checks.find(c=>c.field==='schedule').status,'unknown');
+});

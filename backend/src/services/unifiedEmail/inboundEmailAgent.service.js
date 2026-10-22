@@ -955,6 +955,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     );
     const subject = hdrs.get('subject') || '';
 
+    const {handleUnmonitoredMailboxReply}=await import('../unmonitoredMailbox.service.js');
+    const unmonitored=await handleUnmonitoredMailboxReply({headers:hdrs,fromEmail,gmailMessageId:id});
+    if(unmonitored.handled){
+      await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
+      continue;
+    }
     const routed = await routeSenderIdentityFromHeaders(hdrs);
     if (await isSchoolWelcomeSupportReply({ addresses: [...routed.to, ...routed.cc, ...routed.deliveredTo], inReplyTo: hdrs.get('in-reply-to'), references: hdrs.get('references') })) {
       const support = await EmailSenderIdentity.findByAgencyAndIdentityKey(2, 'support');

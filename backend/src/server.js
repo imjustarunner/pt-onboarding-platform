@@ -2858,3 +2858,17 @@ if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true' || process.en
   },5*60*1000);
   timer.unref();
 }
+
+// Exchange delivery receipts survive restarts; the monitor resumes unfinished pilot evaluations.
+if (process.env.NODE_ENV !== 'test') {
+  let exchangeMonitorRunning=false;
+  const exchangeTick=async()=>{
+    if(exchangeMonitorRunning)return;
+    exchangeMonitorRunning=true;
+    try {const {monitorClientExchange}=await import('./services/clientExchangeMonitor.service.js');await monitorClientExchange();}
+    catch(error){console.warn('[clientExchange] Audit monitor needs retry',error?.code||'monitor_failed');}
+    finally{exchangeMonitorRunning=false;}
+  };
+  setTimeout(exchangeTick,90_000).unref();
+  setInterval(exchangeTick,60*1000).unref();
+}

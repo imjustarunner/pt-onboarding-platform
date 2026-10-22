@@ -15,6 +15,7 @@ router.put('/clients/:clientId/matching-preferences', ctrl.saveClientMatchingPre
 router.get('/providers', authenticate, ctrl.listReferralProviders);
 router.get('/listings', authenticate, ctrl.listListings);
 router.post('/listings', authenticate, ctrl.createListing);
+router.get('/listings/:id/audit', ctrl.getListingAudit);
 router.get('/listings/:id', authenticate, ctrl.getListing);
 router.post('/listings/:id/withdraw', authenticate, ctrl.withdrawListing);
 router.post('/listings/:id/requests', authenticate, ctrl.createRequest);

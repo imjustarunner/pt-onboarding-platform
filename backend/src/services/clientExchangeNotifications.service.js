@@ -3,74 +3,100 @@ import { buildExchangeEmail, exchangeNotificationSummary } from '../utils/client
 import Agency from '../models/Agency.model.js';
 import Notification from '../models/Notification.model.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
-import { listProviderAcceptedInsurancesForDisplay } from './providerAcceptedInsurance.service.js';
-import Profile from '../models/ProviderPublicProfile.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
-import { listClinicalFacetsForUsers } from './providerClinicalFacets.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
-import { matchesExchangeListing } from '../utils/clientExchangeMatching.js';
 
-export async function notifyExchangeMatches({ listing, client }) {
-  const agencyId = Number(listing.agencyId);
-  const [users] = await pool.execute(`SELECT DISTINCT u.* FROM users u
-    JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-    WHERE COALESCE(ua.is_active, 1) = 1
-      AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
-      AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
-      AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access = 1)`, [agencyId]);
-  const facets = await listClinicalFacetsForUsers(users.map(u => u.id), { agencyId });
-  const agency = await Agency.findById(agencyId);
-  const identities = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: false, onlyActive: true });
-  const sender = identities.find(row => row.identity_key === 'notifications')
-    || identities.find(row => /^notifications@/i.test(row.from_email || ''));
-  const link = `${buildPublicAppUrl(agency, 'client-exchange')}?listingId=${listing.id}&agencyId=${agencyId}`;
-  const noReply=identities.find(row=>/^(no-?reply)@/i.test(row.from_email||''))?.from_email || (sender?.from_email?.includes('@')?`no-reply@${sender.from_email.split('@')[1]}`:null);
-  const summary = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 0 };
-  for (const user of users) {
-    if (Number(user.id) === Number(listing.currentProviderUserId)) continue;
-    if (listing.targetProviderUserId && Number(user.id) !== Number(listing.targetProviderUserId)) continue;
+export async function notifyExchangeMatches({ listing, client, send = true, report = true }) {
+  const { withExchangeLock, startExchangeRun, finishExchangeRun, saveExchangeDecision, saveExchangeDelivery,
+    exchangeDeliveryHistory, isExchangeListingOpen, terminalDelivery, enrollExchangeAuditClient, parseAuditJson } = await import('./clientExchangeAudit.service.js');
+  const { loadExchangeCandidates, evaluateExchangeCandidate } = await import('./clientExchangeCandidates.service.js');
+  return withExchangeLock(listing.id, async () => {
+    await startExchangeRun(listing);
+    const summary = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 0 };
     try {
-      const profile = await Profile.getForProvider({ providerUserId: user.id, agencyId });
-      const coverage = await listProviderAcceptedInsurancesForDisplay({userId:user.id,agencyId,forMatching:true});
-      const matchingProfile = {...profile,
-        insurances: coverage.known ? coverage.accepted.map(i=>i.name) : profile?.insurances || [],
-        insuranceEligibilityKnown: coverage.accepted.length > 0,
-        insuranceCredential: coverage.credential,
-        excludedInsurances: coverage.excluded
-      };
-      if (!matchesExchangeListing({ user, profile:matchingProfile, facets: facets.get(Number(user.id)), listing, client })) continue;
-      summary.matched++;
-      const notification=await Notification.create({
-        type: 'client_exchange_match', severity: 'info', title: 'New client added to the exchange',
-        message: 'A client matches your care preferences and you are open for scheduling. Open Client Exchange to review the requested care and request the client.',
-        userId: user.id, agencyId, relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id,
-        actorUserId: listing.postedByUserId, actorSource: 'client_exchange',
-        audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
-      });
-      // SMS is independently optional: an email opt-out must not suppress a chosen text.
-      await NotificationDispatcher.dispatchForNotification(notification,{context:{exchangeSummary:exchangeNotificationSummary({listing,client}).join(' · ')}}).catch(error=>console.warn('[clientExchange] SMS delivery failed',{listingId:listing.id,userId:user.id,code:error.code||'delivery_failed'}));
-      const enabled = await isNotificationChannelEnabled({ userId: user.id, userRole: user.role, agencyId, type: 'client_exchange_match', channel: 'email' });
-      if (!enabled) { summary.skipped++; continue; }
-      const to = user.work_email || user.email;
-      if (!sender?.id || !to || !noReply) { summary.failed++; continue; }
-      const result = await sendEmailFromIdentity({
-        senderIdentityId: sender.id, to, userId: user.id, source: 'auto',
-        subject: 'New client added to the exchange',
-        replyToOverride:noReply,
-        ...buildExchangeEmail({ listing, link, client }),
-        templateType: 'client_exchange_match', linkUrl: link, fromDisplayNameOverride: 'Notifications'
-      });
-      if (result?.skipped || result?.blocked) summary.failed++;
-      else if (result?.queued) summary.queued++;
-      else summary.sent++;
-    } catch (error) {
-      summary.failed++;
-      console.error('[clientExchange] Match notification failed', { listingId: listing.id, userId: user.id, error: error?.message });
-    }
-  }
-  return summary;
+      const agencyId = Number(listing.agencyId);
+      const agency = await Agency.findById(agencyId);
+      const config = parseAuditJson(agency?.feature_flags)?.clientExchangeAudit;
+      await enrollExchangeAuditClient(listing, config);
+      const identities = await EmailSenderIdentity.list({agencyId,includePlatformDefaults:false,onlyActive:true});
+      const sender = identities.find(row=>row.identity_key==='client_exchange') || identities.find(row=>row.identity_key==='notifications') || identities.find(row=>/^notifications@/i.test(row.from_email||''));
+      const noReply = sender?.identity_key==='client_exchange' ? sender.reply_to : identities.find(row=>/^(no-?reply)@/i.test(row.from_email||''))?.from_email || sender?.reply_to;
+      const link = `${buildPublicAppUrl(agency, 'client-exchange')}?listingId=${listing.id}&agencyId=${agencyId}`;
+      const {users,facets}=await loadExchangeCandidates(agencyId);
+      const history=await exchangeDeliveryHistory(listing);
+      for(const user of users) {
+        const previous=history.get(Number(user.id))||{};
+        let decision;
+        try { decision=await evaluateExchangeCandidate({user,listing,client,facets:facets.get(Number(user.id))}); }
+        catch(error) { decision={matched:false,checks:[{field:'evaluation',status:'error',reason:'Provider data could not be evaluated; retry required.'}]};summary.failed++; }
+        await saveExchangeDecision(listing.id,user.id,decision);
+        await saveExchangeDelivery(listing.id,user.id,previous);
+        if(!decision.matched) {
+          await saveExchangeDelivery(listing.id,user.id,{
+            email:previous.email||{status:'not_sent',reason:'Provider did not match this evaluation.'},
+            sms:previous.sms||{status:'not_sent',reason:'Provider did not match this evaluation.'}
+          });continue;
+        }
+        summary.matched++;
+        if(!send)continue;
+        if(!await isExchangeListingOpen(listing)) {
+          await saveExchangeDelivery(listing.id,user.id,{email:previous.email||{status:'not_sent',reason:'Listing or client is no longer available.'},sms:previous.sms||{status:'not_sent',reason:'Listing or client is no longer available.'}});
+          summary.skipped++;continue;
+        }
+        try {
+          let notification=previous.notificationId ? {id:previous.notificationId,user_id:user.id,agency_id:agencyId,type:'client_exchange_match',related_entity_id:listing.id,related_entity_type:'client_exchange_listing'} : null;
+          if(!notification) {
+            notification=await Notification.create({type:'client_exchange_match',severity:'info',title:'New client added to the exchange',
+              message:'A client is a possible match for your care preferences. Open Client Exchange to review the requested care and request the client.',
+              userId:user.id,agencyId,relatedEntityType:'client_exchange_listing',relatedEntityId:listing.id,
+              actorUserId:listing.postedByUserId,actorSource:'client_exchange',audienceJson:{agencySlug:agency?.slug||agency?.portal_url}});
+            await saveExchangeDelivery(listing.id,user.id,{notificationId:notification.id});
+          }
+          if(!terminalDelivery(previous.sms)) {
+            await saveExchangeDelivery(listing.id,user.id,{sms:{status:'sending',attemptedAt:new Date().toISOString()}});
+            try {
+              const result=await NotificationDispatcher.dispatchForNotification(notification,{context:{exchangeSummary:exchangeNotificationSummary({listing,client}).join(' · ')}});
+              await saveExchangeDelivery(listing.id,user.id,{sms:{status:result?.dispatched?'sent':result?.reason==='send_failed'?'failed':'skipped',reason:result?.reason||null,messageId:result?.providerRef||null}});
+            }catch(error){await saveExchangeDelivery(listing.id,user.id,{sms:{status:'unknown',reason:'Text attempt did not return a confirmed result; verify before retrying.'}});}
+          }
+          if(terminalDelivery(previous.email)) {
+            if(['sent','delivered'].includes(previous.email.status))summary.sent++;
+            else if(previous.email.status==='queued')summary.queued++;
+            else summary.failed++;
+            continue;
+          }
+          const enabled=await isNotificationChannelEnabled({userId:user.id,userRole:user.role,agencyId,type:'client_exchange_match',channel:'email'});
+          if(!enabled){summary.skipped++;await saveExchangeDelivery(listing.id,user.id,{email:{status:'skipped',reason:'Exchange email notifications are disabled in recipient preferences.'}});continue;}
+          const to=user.work_email||user.email;
+          if(!sender?.id||!to||!noReply){summary.failed++;await saveExchangeDelivery(listing.id,user.id,{email:{status:'failed',reason:!to?'No recipient email address.':'Sender or reply mailbox is not configured.'}});continue;}
+          await saveExchangeDelivery(listing.id,user.id,{email:{status:'sending',from:sender.from_email,to,attemptedAt:new Date().toISOString()}});
+          let result;
+          try {
+            result=await sendEmailFromIdentity({senderIdentityId:sender.id,to,userId:user.id,source:'auto',subject:'New client added to the exchange',
+              replyToOverride:noReply,...buildExchangeEmail({listing,link,client}),templateType:'client_exchange_match',linkUrl:link,fromDisplayNameOverride:'Client Exchange',
+              internetMessageIdOverride:`<client-exchange-${listing.id}-${user.id}@auricwell.com>`});
+          }catch(error){summary.failed++;await saveExchangeDelivery(listing.id,user.id,{email:{status:'unknown',reason:'Email attempt did not return a confirmed result; check delivery records before retrying.',from:sender.from_email,to}});continue;}
+          const status=result?.redirected?'redirected':result?.queued?'queued':result?.blocked||result?.failed?'failed':result?.skipped?'skipped':result?.id||result?.sent?'sent':'unknown';
+          await saveExchangeDelivery(listing.id,user.id,{email:{status,communicationId:result?.communicationId||null,messageId:result?.id||null,reason:result?.reason||null,from:sender.from_email,to}});
+          if(status==='sent')summary.sent++;else if(status==='queued')summary.queued++;else if(status==='skipped')summary.skipped++;else summary.failed++;
+        }catch(error){summary.failed++;console.error('[clientExchange] Match delivery needs review',{listingId:listing.id,userId:user.id,code:error?.code||'delivery_failed'});}
+      }
+      const candidateIds=new Set(users.map(user=>Number(user.id)));
+      for(const [userId,previous] of history)if(!candidateIds.has(userId)){
+        await saveExchangeDecision(listing.id,userId,{matched:false,checks:[{field:'eligibility',status:'fail',reason:'Previous recipient is no longer an eligible provider in this agency.'}]});
+        await saveExchangeDelivery(listing.id,userId,previous);
+      }
+      await finishExchangeRun(listing.id,summary.failed?'delivery_needs_review':null);
+      if(report){
+        try {const {sendExchangeAuditReport}=await import('./clientExchangeAuditReport.service.js');const result=await sendExchangeAuditReport({listing,agency,identities});
+          if(result?.status&&!['sent'].includes(result.status))await finishExchangeRun(listing.id,'audit_delivery_needs_review');
+        }catch(error){await finishExchangeRun(listing.id,'audit_send_failed');console.error('[clientExchange] Support audit needs retry',{listingId:listing.id,code:error?.code||'audit_send_failed'});}
+      }
+      return summary;
+    }catch(error){await finishExchangeRun(listing.id,'evaluation_failed');throw error;}
+  });
 }
 
 async function exchangeActivityNotification({ listing, userId, type, title, message, actorUserId }) {

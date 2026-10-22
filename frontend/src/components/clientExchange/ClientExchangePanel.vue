@@ -205,6 +205,7 @@
 
         <section class="cep-detail-section">
           <ClientExchangeSummary :listing="selectedListing" />
+          <ClientExchangeAuditPanel v-if="isBackoffice" :listing-id="selectedListing.id" />
           <router-link v-if="selectedListing.clientId && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-btn cep-btn--ghost cep-btn--sm" :to="clientRecordPath(selectedListing)">Open client record</router-link>
         </section>
 
@@ -298,6 +299,7 @@
 </template>
 
 <script setup>
+import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
 import { computed, watch, ref, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClientExchangeAgency } from '../../composables/useClientExchangeAgency';
@@ -421,9 +423,7 @@ function canWithdraw(listing) {
 
 function selectListing(listing) {
   selectedListingId.value = listing.id;
-  if (!requestsByListing.value[listing.id]) {
-    onExpand(listing.id);
-  }
+  onExpand(listing.id);
 }
 
 let loadVersion = 0;

@@ -10,16 +10,25 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromI
 vi.mock('../notificationPreferences.service.js', () => ({ isNotificationChannelEnabled: mocks.enabled }));
 vi.mock('../notificationDispatcher.service.js', () => ({ default: { dispatchForNotification: mocks.dispatch } }));
 vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAcceptedInsurancesForDisplay: mocks.accepted }));
+vi.mock('../clientExchangeAudit.service.js',()=>({
+  withExchangeLock:vi.fn((id,fn)=>fn()),startExchangeRun:vi.fn(),finishExchangeRun:vi.fn(),saveExchangeDecision:vi.fn(),saveExchangeDelivery:vi.fn(),
+  exchangeDeliveryHistory:vi.fn().mockResolvedValue(new Map()),isExchangeListingOpen:vi.fn().mockResolvedValue(true),terminalDelivery:value=>['sent','delivered','queued','sending','unknown'].includes(value?.status),
+  enrollExchangeAuditClient:vi.fn(),parseAuditJson:value=>value||{}
+}));
+vi.mock('../clientExchangeAuditReport.service.js',()=>({sendExchangeAuditReport:vi.fn().mockResolvedValue({status:'sent'})}));
+import {exchangeDeliveryHistory,isExchangeListingOpen,saveExchangeDecision,saveExchangeDelivery} from '../clientExchangeAudit.service.js';
 import { notifyExchangeMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
 const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual' } };
 beforeEach(() => {
   vi.clearAllMocks();
+  exchangeDeliveryHistory.mockResolvedValue(new Map());
+  isExchangeListingOpen.mockResolvedValue(true);
   mocks.execute.mockImplementation(async sql => sql.includes('provider_insurance_overrides') ? [[]] : [[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
   mocks.accepted.mockResolvedValue({accepted:[],known:false,excluded:[]}); mocks.dispatch.mockResolvedValue({dispatched:false});
   mocks.profile.mockResolvedValue({ details: { virtualEnabled: true } });
   mocks.facets.mockResolvedValue(new Map([[10, { ageGroups: ['Children (6-10)'] }], [11, { ageGroups: ['Adults (18+)'] }]]));
   mocks.enabled.mockResolvedValue(true);
-  mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email: 'notifications@itsco.health' }]);
+  mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email: 'notifications@itsco.health',reply_to:'support@itsco.health' },{id:78,identity_key:'noreply',from_email:'noreply@itsco.health'}]);
   mocks.notify.mockResolvedValue({ id: 1 }); mocks.send.mockResolvedValue({ sent: true });
 });
 it('sends to every matched provider except current provider, with an agency-scoped private link', async () => {
@@ -38,7 +47,7 @@ it('preserves in-app notification when the recipient opts out of email', async (
 it('reports missing sender and held mail rather than claiming delivery', async () => {
   mocks.identities.mockResolvedValue([]);
   expect((await notifyExchangeMatches({ listing })).failed).toBe(1);
-  mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email:'notifications@itsco.health' }]);
+  mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email:'notifications@itsco.health',reply_to:'support@itsco.health' }]);
   mocks.send.mockResolvedValue({ queued: true });
   const result = await notifyExchangeMatches({ listing }); expect(result.queued).toBe(1); expect(result.sent).toBe(0);
 });
@@ -76,7 +85,7 @@ it('clearly identifies available clients instead of calling them unread messages
   await notifyExchangeMatches({ listing });
   expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
     subject: 'New client added to the exchange',
-    replyToOverride:'no-reply@itsco.health',
+    replyToOverride:'noreply@itsco.health',
     text: expect.stringContaining('possible match'),
     html: expect.stringContaining('Review and request')
   }));
@@ -93,4 +102,39 @@ it('only notifies providers offering the requested visit format', async () => {
   expect(mocks.send).not.toHaveBeenCalled();
   await notifyExchangeMatches({listing:{...listing, preferences:{modality:'in_person'}}});
   expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+
+it('records all nonmatches with reasons and keeps unknown fields distinct',async()=>{
+  await notifyExchangeMatches({listing});
+  expect(saveExchangeDecision).toHaveBeenCalledWith(44,11,expect.objectContaining({matched:false,checks:expect.arrayContaining([expect.objectContaining({field:'age',status:'fail'})])}));
+  expect(saveExchangeDecision).toHaveBeenCalledWith(44,9,expect.objectContaining({matched:false,checks:expect.arrayContaining([expect.objectContaining({field:'assigned'})])}));
+});
+it('does not resend existing successful email or text receipts',async()=>{
+  exchangeDeliveryHistory.mockResolvedValue(new Map([[10,{notificationId:9,email:{status:'sent',communicationId:2},sms:{status:'sent'}}]]));
+  await notifyExchangeMatches({listing});
+  expect(mocks.send).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
+});
+it('records SMS opt-out independently from successful email',async()=>{
+  mocks.dispatch.mockResolvedValue({dispatched:false,reason:'exchange_sms_not_consented'});
+  await notifyExchangeMatches({listing});
+  expect(saveExchangeDelivery).toHaveBeenCalledWith(44,10,{sms:expect.objectContaining({status:'skipped',reason:'exchange_sms_not_consented'})});
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+it('does not count redirected or missing transport responses as sent',async()=>{
+  mocks.send.mockResolvedValue({redirected:true,id:'test'});
+  expect((await notifyExchangeMatches({listing})).sent).toBe(0);
+  mocks.send.mockResolvedValue({});expect((await notifyExchangeMatches({listing})).sent).toBe(0);
+});
+it('audit-only evaluation does not send messages',async()=>{
+  await notifyExchangeMatches({listing,send:false,report:false});
+  expect(saveExchangeDecision).toHaveBeenCalled();expect(mocks.send).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
+});
+it('uses the configured Exchange group and its actual reply mailbox',async()=>{
+  mocks.identities.mockResolvedValue([{id:80,identity_key:'client_exchange',from_email:'clientexchange@auricwell.com',reply_to:'no-reply@auricwell.com'}]);
+  await notifyExchangeMatches({listing});
+  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:80,replyToOverride:'no-reply@auricwell.com'}));
+});
+
+it('does not send when the client is assigned or the listing closes during evaluation',async()=>{
+  isExchangeListingOpen.mockResolvedValue(false);await notifyExchangeMatches({listing});expect(mocks.send).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
 });

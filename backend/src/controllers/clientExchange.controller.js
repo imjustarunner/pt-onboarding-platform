@@ -77,6 +77,8 @@ export async function getListing(req, res, next) {
       viewerUserId: req.user.id,
       viewerRole: req.user.role
     });
+    const { recordExchangeView } = await import('../services/clientExchangeAudit.service.js');
+    await recordExchangeView({listingId,userId:req.user.id}).catch(error=>console.warn('[clientExchange] View tracking failed',{listingId,code:error?.code||'view_failed'}));
     res.json({ listing, requests });
   } catch (e) {
     next(e);
@@ -460,4 +462,18 @@ export async function listReferralProviders(req, res, next) {
     if (!(await assertAgencyAccess(req, agencyId))) return res.status(403).json({ error: { message: 'Forbidden' } });
     res.json({ providers: await ClientExchange.listReferralProviders(agencyId) });
   } catch (error) { next(error); }
+}
+
+/** Support-only delivery explanations; ordinary browsing providers cannot inspect colleagues' preferences. */
+export async function getListingAudit(req,res,next) {
+  try {
+    if(!['admin','super_admin','support','staff'].includes(String(req.user?.role)))return res.status(403).json({error:{message:'Agency support or admin access required'}});
+    const id=safeInt(req.params.id);
+    if(!id)return res.status(400).json({error:{message:'Invalid listing id'}});
+    const [[row]]=await pool.execute('SELECT agency_id FROM client_exchange_listings WHERE id=?',[id]);
+    if(!row)return res.status(404).json({error:{message:'Listing not found'}});
+    if(!await assertAgencyAccess(req,row.agency_id))return res.status(403).json({error:{message:'Forbidden'}});
+    const {getExchangeAudit}=await import('../services/clientExchangeAudit.service.js');
+    res.json(await getExchangeAudit(id));
+  }catch(error){next(error);}
 }

@@ -5,6 +5,24 @@
 
 export const AUTOMATED_EMAIL_CATALOG = [
   {
+    key: 'client_exchange_match', kind: 'template', category: 'Client Exchange', label: 'Matching client referral',
+    description: 'Alerts eligible providers who match an open referral and have Exchange email enabled. Uses saved delivery receipts to avoid duplicates.',
+    trigger: 'A client is posted to the Exchange or an unfinished delivery is retried.', triggerKind: 'Automatic · Queued after posting',
+    preferredKeys: ['client_exchange', 'notifications'], sourceLinks: [{label:'Client Exchange',path:'/client-exchange'}]
+  },
+  {
+    key: 'client_exchange_audit', kind: 'template', category: 'Client Exchange', label: 'First 50 client audits',
+    description: 'Emails agency support the per-provider matching reasons, delivery outcomes, and tracked detail views for enrolled pilot clients.',
+    trigger: 'The first evaluation and daily while an enrolled client remains open.', triggerKind: 'Automatic · Pilot monitoring',
+    preferredKeys: ['client_exchange', 'notifications'], sourceLinks: [{label:'Client Exchange',path:'/client-exchange'}]
+  },
+  {
+    key: 'unmonitored_mailbox_auto_reply', kind: 'template', category: 'Email replies', label: 'Unmonitored mailbox response',
+    description: 'Explains that no-reply mail is not monitored and directs the sender to agency support. Automatic replies and repeated messages are suppressed.',
+    trigger: 'A person emails a configured no-reply address.', triggerKind: 'Automatic · Inbound email',
+    preferredKeys: ['exchange_noreply', 'noreply']
+  },
+  {
     key: 'account_login_help',
     kind: 'template',
     category: 'Login & accounts',

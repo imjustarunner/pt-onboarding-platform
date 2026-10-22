@@ -49,3 +49,9 @@ it('saves fit selections for future referrals in the posting transaction',async(
  await insertExchangeListing({...args,summary:{...args.summary,preferences:{matchingPreferences}}});
  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.matchingPreferences'"),[JSON.stringify(matchingPreferences),12,2]);expect(mocks.commit).toHaveBeenCalledOnce();
 });
+
+it('queues notifications atomically so posting does not wait for a provider-by-provider email run',async()=>{
+  await insertExchangeListing(args);expect(mocks.execute).toHaveBeenCalledWith('INSERT INTO client_exchange_delivery_runs (listing_id,agency_id) VALUES (?,?)',[5,2]);
+  const normal=mocks.execute.getMockImplementation();mocks.commit.mockClear();mocks.execute.mockImplementation(async(sql,params)=>{if(sql.includes('INSERT INTO client_exchange_delivery_runs'))throw Error('queue unavailable');return normal(sql,params);});
+  await expect(insertExchangeListing(args)).rejects.toThrow('queue unavailable');expect(mocks.commit).not.toHaveBeenCalled();expect(mocks.rollback).toHaveBeenCalled();
+});
