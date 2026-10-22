@@ -7,6 +7,30 @@ const fixture=()=>({clientCode:'SAMPLE',clientId:5,clientType:'school',schoolNam
 async function open(overrides={}){api.get.mockResolvedValue({data:{...fixture(),...overrides}});const w=mount(Review,{props:{sessionId:12,agencyId:2},global:{stubs:{Teleport:true}}});await flushPromises();return w;}
 const label=(w,text)=>w.findAll('label').find(node=>node.text().startsWith(text));
 beforeEach(()=>{vi.clearAllMocks();api.put.mockImplementation(async(url,body)=>({data:{review:{...body,revision:body.revision+1},noteId:99}}));api.post.mockResolvedValue({data:{ok:true}});});
+describe('ROI disposition and source documents',()=>{
+ it('offers ROI closure without a screening signature or automatic draft rewrite',async()=>{
+  const w=await open({roiOnly:true,psc:{complete:false,answered:0}});
+  expect(w.text()).toContain('Release of Information');expect(w.find('.btn-primary').exists()).toBe(false);
+  expect(api.put).not.toHaveBeenCalled();
+  await w.findAll('button').find(b=>b.text()==='Close ROI task without signing').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/close-roi',expect.objectContaining({sourceHash:'v1'}),expect.anything());
+  expect(w.emitted('signed')).toBeUndefined();expect(w.emitted('close')).toHaveLength(1);w.unmount();
+ });
+ it('opens the matching packet beside an incomplete screening and keeps other client documents available',async()=>{
+  api.get.mockImplementation(async url=>({data:url.endsWith('/review')?{...fixture(),submissionId:22,psc:{complete:false,answered:0},pscItems:[],clinicalFields:[]}:url.endsWith('/view')?{url:'https://example.test/packet.pdf'}:[{id:1,intake_submission_id:22,document_type:'Intake Packet',document_title:'Current packet'},{id:2,intake_submission_id:21,document_title:'Earlier paper scan'}]}));
+  const w=mount(Review,{props:{sessionId:12,agencyId:2},global:{stubs:{Teleport:true}}});await flushPromises();
+  expect(w.get('iframe').attributes('src')).toBe('https://example.test/packet.pdf');expect(w.text()).toContain('Earlier paper scan');
+  expect(w.findAll('details').find(d=>d.text().includes('Find client intake documents')).attributes('open')).toBeDefined();w.unmount();
+ });
+ it('requires the paper source confirmation as well as all answers before signing',async()=>{
+  const w=await open({pscItems:Array.from({length:17},(_,i)=>({key:`psc_${i+1}`,label:`Question ${i+1}`})),clinicalFields:[]});
+  await label(w,'Transcribe a paper').get('input').setValue(true);
+  for(let i=1;i<=17;i++)await label(w,`Question ${i}`).get('select').setValue(0);
+  await label(w,'Clinical assessment').get('textarea').setValue('Reviewed actual paper responses.');
+  for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);
+  expect(w.get('.btn-primary').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();
+ });
+});
 describe('screening review and saved work',()=>{
  it('opens as a saved draft without signing or requesting the reviewer address',async()=>{const w=await open();expect(w.text()).toContain('Example School');expect(w.text()).not.toContain('Setting of your professional review');expect(api.put).toHaveBeenCalled();expect(w.find('.btn-primary').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();});
  it('restores saved edits and resets signature attestations',async()=>{const w=await open({savedReview:{revision:3,assessment:'Saved assessment',followUp:'Saved follow-up',presentingProblem:'Saved concern',safetyConcern:'',placeOfService:'03',paperResponses:{}}});expect(label(w,'Clinical assessment').get('textarea').element.value).toBe('Saved assessment');expect(label(w,'Client service location').get('select').element.value).toBe('03');expect(label(w,'The note is accurate').get('input').element.checked).toBe(false);expect(api.put).not.toHaveBeenCalled();w.unmount();});

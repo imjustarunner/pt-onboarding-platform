@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { screeningResponseBags, screeningSourceFields, screeningSourceKind } from './h0002SourceEvidence.js';
+import { buildPsc17Fields } from '../data/validatedClinicalScreens.en.js';
 import { applyScreeningTranscription, screeningPresentingProblem, screeningLocation, validateScreeningDraft } from './h0002ReviewDetails.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -36,9 +38,9 @@ export async function loadScreeningSource(taskId) {
   const link = await IntakeLink.findById(submission.intake_link_id);
   const intakeData = json(submission.intake_data);
   const responses = intakeData.responses || intakeData;
-  const bags = [responses.clients?.[clientIndex] || {}, responses.submission || {}, responses.guardian || {}, responses.submission?.clinicalResponses || {}];
-  const steps = json(link.intake_steps);
-  const fields = (Array.isArray(steps) ? steps : steps.steps || []).flatMap(step => step.fields || []);
+  const bags = screeningResponseBags(intakeData, clientIndex);
+  const fields = screeningSourceFields(link);
+  const sourceKind = screeningSourceKind(link, intakeData, clientIndex);
   const byKey = new Map(fields.map(field => [field.key, field]));
   const items = Array.from({ length: 17 }, (_, index) => {
     const key = `psc_${index + 1}`;
@@ -59,23 +61,24 @@ export async function loadScreeningSource(taskId) {
       || Object.entries(bag).some(([key, value]) => /harm|suicid|abuse|neglect/i.test(key) && /^(yes|true|1)$/i.test(String(value)));
   });
   const { buildClinicalSummaryText } = await import('../controllers/publicIntake.controller.js');
-  const summary = buildClinicalSummaryText({ link, intakeData, clientIndex });
+  const summary = buildClinicalSummaryText({ link: { ...link, intake_fields: fields, intake_steps: [{ fields }] }, intakeData, clientIndex });
   const submittedAt = new Date(submission.submitted_at).toISOString();
   const sourceHash = hash(JSON.stringify({ submissionId: submission.id, clientIndex, intakeData, fields }));
   const suggestedOutcome = suggestScreeningOutcome(psc, { noConcernsReported });
   const clientType = String(link.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
   const packetMethod = /paper|upload|scan/i.test(String(responses.submission?.submissionMethod || intakeData.submissionMethod || submission.source || '')) ? 'paper' : 'digital';
-  return { task, taskMeta: meta, client, psc, summary, submittedAt, sourceHash, suggestedOutcome, reportedConcerns, safetyFlag,
+  return { task, taskMeta: meta, ...sourceKind, client, psc, summary, submittedAt, sourceHash, suggestedOutcome, reportedConcerns, safetyFlag,
     identifiers: [client.initials, client.identifier_code, client.organization_name, client.full_name, client.first_name, client.last_name, client.email, client.phone_number, client.date_of_birth, client.address, meta.h0002Code, meta.schoolName, ...bags.flatMap(bag => Object.entries(bag).filter(([key]) => /name|address|phone|email|birth|medicaid|insurance.*id/i.test(key)).map(([,value]) => typeof value === 'string' ? value : ''))].filter(Boolean),
     submissionId: submission.id, clientType, schoolName: clientType === 'school' ? meta.schoolName || client.organization_name || 'School not recorded' : null,
     sourceLanguage: /^es/i.test(link.language_code || intakeData.locale || '') ? 'es' : 'en', packetMethod,
-    pscItems: items.map(item => ({ ...item, label: byKey.get(item.key)?.label || item.key })),
+    pscItems: items.map(item => ({ ...item, label: byKey.get(item.key)?.label || buildPsc17Fields().find(f => f.key === item.key)?.label || item.key })),
     clinicalFields: fields.filter(field => supplementalKeys.test(field.key) && !/^psc_/.test(field.key)).map(field => ({ key: field.key, label: field.label || field.key, value: bags.find(bag => bag[field.key] != null)?.[field.key] ?? '', options: field.options || [] })),
-    safetyConcerns: supplemental.filter(([key, value]) => /harm|suicid|abuse|neglect|trauma/i.test(key) && !isNegative(value) && value !== false).map(([key,value]) => `${byKey.get(key)?.label || key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+    safetyConcerns: supplemental.filter(([key, value]) => /harm|suicid|abuse|neglect|trauma/i.test(key) && !isNegative(value) && value !== false && !/^(not_sure|unsure|unknown)$/i.test(String(value))).map(([key,value]) => `${byKey.get(key)?.label || key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
   };
 }
 
 export function proposedScreeningReview(source) {
+  if (source.roiOnly) return { assessment: '', followUp: '', presentingProblem: '' };
   const result = source.psc.complete ? `The completed PSC-17 total is ${source.psc.total}/34 (overall cutoff 15).` : `The PSC-17 has ${source.psc.answered}/17 valid answers and needs completion before a determination.`;
   const assessment = source.suggestedOutcome === 'meets'
     ? `${result} The screening indicates a probability of behavioral health concerns and supports admission for further clinical assessment and treatment planning. The screening does not establish a disorder diagnosis.`
@@ -114,6 +117,7 @@ export async function prepareH0002ScreeningTask(taskId, { actorUserId = 501 } = 
     acquired = Number(got.acquired) === 1;
     if (!acquired) throw fail(409, 'Screening preparation is already running');
     const source = await loadScreeningSource(taskId);
+    if (source.roiOnly) return { prepared: false, reason: 'roi_only' };
     const agencyId = Number(source.task.assigned_to_agency_id), providerId = Number(source.task.assigned_to_user_id);
     const [[agency]] = await pool.execute('SELECT feature_flags FROM agencies WHERE id=?', [agencyId]);
     const config = json(agency?.feature_flags).h0002ScreeningWorkflow;
@@ -179,6 +183,10 @@ export async function writeScreeningDetermination({ sessionId, user, input }) {
   if (note.provider_signed_at) return note;
   if (input.sourceHash !== source.sourceHash) throw fail(409, 'The intake responses changed. Reopen and review the current screening.');
   validateScreeningDraft(input, source);
+  if (input.paperTranscription) {
+    const [[document]] = await pool.execute('SELECT id FROM client_phi_documents WHERE id=? AND client_id=? AND agency_id=? AND removed_at IS NULL AND (expires_at IS NULL OR expires_at>NOW())', [Number(input.paperDocumentId) || 0, session.client_id, session.agency_id]);
+    if (!document || input.paperSourceConfirmed !== true) throw fail(400, 'Select the source paper document and confirm the transcribed answers match it.');
+  }
   const reviewedSource = applyScreeningTranscription(source, input);
   const location = screeningLocation(source, input);
   const review = validateScreeningReview({ ...input, setting: location.label }, reviewedSource);
@@ -201,6 +209,7 @@ export async function writeScreeningDetermination({ sessionId, user, input }) {
     `Reviewing clinician: ${name}; NPI ${npi}. Signature and billing supervisor cosign are recorded separately.`].join('\n');
   const meta = { ...json(note.metadata_json), dateOfService, serviceCode: 'H0002', billingPrimaryUnits: 1,
     screeningPresentingProblemEnc: maybeEncryptNotePayload(presentingProblem),
+    screeningPaperSource: input.paperTranscription ? { documentId: Number(input.paperDocumentId), transcribedByUserId: Number(user.id), at: now.toISOString() } : null,
     screeningReview: { outcome: review.outcome, reviewedByUserId: Number(user.id), reviewedAt: now.toISOString(), sourceHash: source.sourceHash, diagnosisCode: 'R69', reviewConfirmed: true, safetyReviewed: review.safetyReviewed, noConcernsConfirmed: review.noConcernsConfirmed, contentHash: hash(payload) } };
   const [updated] = await clinicalPool.execute(`UPDATE clinical_notes SET note_payload=?, metadata_json=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=? AND provider_signed_at IS NULL AND is_deleted=0`, [maybeEncryptNotePayload(payload),JSON.stringify(meta),note.id]);

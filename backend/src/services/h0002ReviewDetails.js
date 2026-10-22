@@ -17,6 +17,8 @@ export function validateScreeningDraft(input, source) {
     result[key] = input[key] || '';
   }
   result.paperTranscription = input.paperTranscription === true;
+  if (input.paperDocumentId != null && (!Number.isSafeInteger(Number(input.paperDocumentId)) || Number(input.paperDocumentId) < 1)) fail('Invalid paper document.');
+  result.paperDocumentId = input.paperDocumentId ? Number(input.paperDocumentId) : null;
   result.paperResponses = {};
   const keys = new Set([...(source.pscItems || []).map(i => i.key), ...(source.clinicalFields || []).map(i => i.key)]);
   for (const [key, value] of Object.entries(input.paperResponses || {})) {

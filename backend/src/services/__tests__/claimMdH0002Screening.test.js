@@ -137,6 +137,22 @@ describe('H0002 preparation, signature and billing controls', () => {
     const update=mocks.clinical.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_sessions'));
     expect(update[0]).toContain("'$.locationLabel'");expect(update[0]).not.toContain('location_label');expect(update[1]).toEqual(['03',0,'School',400,2]);expect(result.note_payload).toContain('POS 03');
   });
+  it('rejects paper transcription without a source document belonging to the same client and agency',async()=>{
+    const session={id:400,agency_id:2,client_id:300,provider_user_id:8,metadata_json:{source:'h0002_digital_screening',screeningTaskId:100}};
+    const note={id:500,agency_id:2,created_by_user_id:8,metadata_json:{source:'h0002_digital_screening'}};
+    mocks.clinical.execute.mockImplementation(async sql=>sql.includes('SELECT * FROM clinical_sessions')?[[session]]:sql.includes('SELECT * FROM clinical_notes')?[[note]]:[{affectedRows:1}]);
+    const main=mocks.main.execute.getMockImplementation();
+    mocks.main.execute.mockImplementation((sql,args)=>sql.includes('FROM client_phi_documents')?[[]]:main(sql,args));
+    const {source}=await screeningReviewContext({sessionId:400,user:{id:8}});
+    await expect(writeScreeningDetermination({sessionId:400,user:{id:8},input:{...validReview,sourceHash:source.sourceHash,paperTranscription:true,paperDocumentId:99,paperSourceConfirmed:true}})).rejects.toThrow('source paper document');
+    const lookup=mocks.main.execute.mock.calls.find(([sql])=>sql.includes('FROM client_phi_documents'));
+    expect(lookup[0]).toContain('client_id=? AND agency_id=?');expect(lookup[1]).toEqual([99,300,2]);
+    expect(mocks.clinical.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+  });
+  it('does not create a screening encounter for an ROI-only source',async()=>{
+    const submission=await mocks.submission();mocks.submission.mockResolvedValue({...submission,intake_data:{smartSchoolRoi:{signed:true},responses:{submission:{hipaa_notice:true}}}});
+    expect(await prepareH0002ScreeningTask(100)).toEqual({prepared:false,reason:'roi_only'});expect(state.sessions).toHaveLength(0);expect(mocks.queueAppend).not.toHaveBeenCalled();
+  });
   it('requires today’s professional determination and an unchanged note to sign',()=>{
     const payload='Screening evaluation';const meta={source:'h0002_digital_screening',dateOfService:'2026-10-19',screeningReview:{reviewConfirmed:true,reviewedByUserId:8,outcome:'further_evaluation',diagnosisCode:'R69',contentHash:crypto.createHash('sha256').update(payload).digest('hex')}};
     const note={created_by_user_id:8,metadata_json:meta,note_payload:`encrypted:${payload}`};

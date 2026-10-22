@@ -54,6 +54,7 @@ export function suggestScreeningOutcome(psc, { noConcernsReported = false } = {}
 }
 export function validateScreeningReview(review, source) {
   const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
+  if (source.roiOnly) fail('This submission is a Release of Information, not a screening. Close the task without a clinical signature.');
   if (!source.psc.complete) fail(source.psc.invalid ? 'Invalid screening: too many missing items. Obtain a complete PSC-17 before signing this screening.' : 'Complete the missing PSC-17 items before signing this screening.');
   if (Object.values(source.psc.subscales).some(s => s.score == null)) fail('PSC-17 item mapping requires review before signing.');
   if (!SCREENING_OUTCOMES[review?.outcome]) fail('Choose an admission determination.');

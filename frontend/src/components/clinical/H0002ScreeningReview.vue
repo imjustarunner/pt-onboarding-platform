@@ -27,27 +27,32 @@
                 <button type="button" :disabled="!forwardProvider || saving" @click="forward">Save and forward screening</button>
               </details>
             </section>
-            <p v-if="!effectivePsc.complete" role="alert" class="error">{{ effectivePsc.invalid ? 'Invalid screening: too many missing items.' : 'The screening is incomplete.' }} {{ effectivePsc.answered }}/17 valid answers. Obtain missing answers before signing.</p>
-            <p v-if="needsSafetyReview" role="alert" class="error"><strong>Reported safety concern: {{ review.safetyConcern || 'Review the reported history below.' }}</strong> Describe it in the presenting problem and document the assessment and follow-up before confirming review.</p>
+            <section v-if="data.roiOnly" class="language-box"><strong>This is a Release of Information, not a screening.</strong><p>No screening signature is needed for this submission. Close this mistaken task without signing; the ROI and your saved work remain in the chart.</p><button v-if="!data.signedAt" type="button" :disabled="saving" @click="closeRoi">Close ROI task without signing</button></section>
+            <p v-if="!data.roiOnly && !effectivePsc.complete" role="alert" class="error">{{ effectivePsc.invalid ? 'Invalid screening: too many missing items.' : 'The screening is incomplete.' }} {{ effectivePsc.answered }}/17 valid answers. Check the source packet below. Transcribe answers only when they are present on paper; otherwise obtain the missing responses before signing.</p>
+            <p v-if="!data.roiOnly && needsSafetyReview" role="alert" class="error"><strong>Reported safety concern: {{ review.safetyConcern || 'Review the reported history below.' }}</strong> Describe it in the presenting problem and document the assessment and follow-up before confirming review.</p>
             <details open><summary>Screening results and reported history</summary>
               <pre v-if="data.sourceLanguage !== 'es' || answerLanguage !== 'es'">{{ englishText || (data.sourceLanguage === 'es' ? 'English translation is waiting for your review of the redacted text above.' : data.sourceText) }}</pre>
               <pre v-if="data.sourceLanguage === 'es' && answerLanguage !== 'en'" lang="es">{{ data.sourceText }}</pre>
             </details>
-            <details><summary>Source intake packet and paper responses</summary>
+            <details :open="data.roiOnly || !effectivePsc.complete || review.paperTranscription || data.packetMethod === 'paper'"><summary>Source intake packet and paper responses</summary>
               <button type="button" @click="loadPackets">Find client intake documents</button>
               <p v-if="packetError" role="alert">{{ packetError }}</p>
-              <button v-for="doc in packets" :key="doc.id" type="button" class="packet-link" @click="openPacket(doc)">{{ doc.document_title || doc.original_name || 'Intake document' }}</button>
-              <template v-if="!data.signedAt">
+              <button v-for="doc in packets" :key="doc.id" type="button" class="packet-link" @click="openPacket(doc)">{{ doc.document_title || doc.original_name || 'Intake document' }}{{ Number(doc.intake_submission_id) === Number(data.submissionId) ? ' · this submission' : ' · other client document' }}</button>
+              <template v-if="!data.signedAt && !data.roiOnly">
                 <label class="check"><input v-model="review.paperTranscription" type="checkbox" />Transcribe a paper packet</label>
                 <template v-if="review.paperTranscription">
+                  <p v-if="!review.paperDocumentId">Choose the source document above to open it beside the answers.</p>
                   <p>Read each response from the packet. Missing answers remain unanswered; scores are calculated from your selections.</p>
                   <label v-for="item in data.pscItems" :key="item.key">{{ item.label }}<select v-model="review.paperResponses[item.key]"><option :value="undefined">Unanswered</option><option :value="0">Never</option><option :value="1">Sometimes</option><option :value="2">Often</option></select></label>
                   <label v-for="field in data.clinicalFields" :key="field.key">{{ field.label }}<select v-if="field.options?.length" v-model="review.paperResponses[field.key]"><option value="">Unanswered</option><option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option></select><textarea v-else v-model="review.paperResponses[field.key]" rows="2" maxlength="10000" /></label>
+                  <label class="check"><input v-model="review.paperSourceConfirmed" type="checkbox" />I checked the question wording and transcribed these answers from the selected document.</label>
                   <button type="button" @click="buildPresentingProblem">Draft presenting problem from transcribed history</button>
                 </template>
               </template>
             </details>
-            <template v-if="!data.signedAt">
+            <template v-if="!data.signedAt && !data.roiOnly">
+              <p v-if="data.psc?.complete && /0\/17|needs completion/i.test(review.assessment)">The saved draft mentions missing answers, but the source now has all 17. Review the results and update the draft text before signing.</p>
+              <button v-if="!review.paperTranscription" type="button" @click="refreshProposal">Use current screening results in draft</button>
               <p><strong>Proposed outcome:</strong> {{ outcomes[suggestedOutcome] }}. Review and edit before signing.</p>
               <label>Admission determination<select v-model="review.outcome"><option value="meets">Does meet criteria</option><option value="does_not_meet" :disabled="effectivePsc.total !== 0 || data.reportedConcerns || review.paperTranscription">Does not meet criteria</option><option value="further_evaluation">Requires further evaluation</option></select></label>
               <label v-if="review.outcome === 'does_not_meet'" class="check"><input v-model="review.noConcernsConfirmed" type="checkbox" />I confirmed that no concerns or reasons for treatment were reported.</label>
@@ -67,7 +72,7 @@
               <label class="check"><input v-model="review.medicalNecessityAttested" type="checkbox" />This screening service was medically necessary.</label>
               <footer><button type="button" :disabled="saving" @click="close">Save and close</button><button class="btn btn-primary" type="button" :disabled="!canSign || saving" @click="sign()">{{ saving ? 'Saving…' : 'Sign and send for cosign' }}</button><button type="button" class="btn sign-next" :disabled="!canSign || saving || !hasNextInQueue" :title="hasNextInQueue ? 'Sign this screening, then open the next unfinished item' : 'No other unfinished items in your queue'" @click="sign(true)">Sign and open next in queue</button></footer>
             </template>
-            <template v-else><p>Signed {{ data.signedAt }}. Supervisor cosign and claim readiness are tracked separately.</p><pre>{{ data.draftText }}</pre></template>
+            <template v-else-if="data.signedAt"><p>Signed {{ data.signedAt }}. Supervisor cosign and claim readiness are tracked separately.</p><pre>{{ data.draftText }}</pre></template>
           </div>
           <aside v-if="packetUrl" class="packet-preview"><button type="button" @click="packetUrl = ''">Close packet</button><iframe :src="packetUrl" title="Source intake packet" /></aside>
         </div>
@@ -85,7 +90,7 @@ const data = ref(null), loading = ref(true), saving = ref(false), error = ref(''
 const englishText=ref(''),answerLanguage=ref('en'),translationText=ref(''),noIdentifiersConfirmed=ref(false),translating=ref(false),forwardProvider=ref('');
 const packets=ref([]),packetUrl=ref(''),packetError=ref('');
 const outcomes = { meets: 'Does meet criteria for admission', does_not_meet: 'Does not meet criteria for admission', further_evaluation: 'Further clinical evaluation is needed' };
-const review = reactive({ outcome:'further_evaluation',assessment:'',followUp:'',presentingProblem:'',safetyConcern:'',placeOfService:'10',paperTranscription:false,paperResponses:{},locationConfirmed:false,noConcernsConfirmed:false,reviewConfirmed:false,safetyReviewed:false,accurateAndComplete:false,medicalNecessityAttested:false });
+const review = reactive({ outcome:'further_evaluation',assessment:'',followUp:'',presentingProblem:'',safetyConcern:'',placeOfService:'10',paperTranscription:false,paperDocumentId:null,paperSourceConfirmed:false,paperResponses:{},locationConfirmed:false,noConcernsConfirmed:false,reviewConfirmed:false,safetyReviewed:false,accurateAndComplete:false,medicalNecessityAttested:false });
 let revision=0, timer, ready=false, savePromise=null;
 const savedSnapshot=ref('');
 if(inject(matchedRouteKey,null))onBeforeRouteLeave(async()=>{if(saving.value&&!savePromise)return false;return await saveDraft();});
@@ -98,7 +103,7 @@ const effectivePsc=computed(()=>{
 });
 const suggestedOutcome=computed(()=>review.paperTranscription?(effectivePsc.value.complete&&effectivePsc.value.total>=15?'meets':'further_evaluation'):data.value?.suggestedOutcome);
 const needsSafetyReview=computed(()=>data.value?.safetyFlag || !!review.safetyConcern.trim());
-const canSign = computed(() => effectivePsc.value.complete && !Object.values(effectivePsc.value.subscales || {}).some(s=>s.score==null)
+const canSign = computed(() => !data.value?.roiOnly && (!review.paperTranscription || (review.paperDocumentId && review.paperSourceConfirmed)) && effectivePsc.value.complete && !Object.values(effectivePsc.value.subscales || {}).some(s=>s.score==null)
   && review.assessment.trim().length>=3 && review.followUp.trim().length>=3 && review.presentingProblem.trim().length>=3 && review.locationConfirmed
   && review.reviewConfirmed && review.accurateAndComplete && review.medicalNecessityAttested
   && (!needsSafetyReview.value || (review.safetyReviewed && review.safetyConcern.trim()))
@@ -110,15 +115,17 @@ onMounted(async()=>{
     const {data:result}=await api.get(`${endpoint()}/review`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});data.value=result;
     Object.assign(review,{outcome:result.suggestedOutcome,assessment:result.proposedReview?.assessment||'',followUp:result.proposedReview?.followUp||'',placeOfService:result.location?.code||'10',safetyConcern:(result.safetyConcerns||[]).join('\n'),presentingProblem:result.sourceLanguage==='es'?'':result.proposedReview?.presentingProblem||result.sourceText||''},result.savedReview||{});
     revision=Number(result.savedReview?.revision||0);englishText.value=result.sourceEnglish||'';translationText.value=result.translationPreview||'';
-    savedSnapshot.value=result.savedReview?snapshot():'';await nextTick();ready=true;if(!result.signedAt)await saveDraft();
+    savedSnapshot.value=result.savedReview?snapshot():'';await nextTick();ready=true;if(!result.signedAt && !result.roiOnly)await saveDraft();
+    if(result.roiOnly || !result.psc?.complete || result.packetMethod==='paper' || review.paperTranscription)await loadPackets();
   }catch(e){error.value=e.response?.data?.error?.message||'Could not load the screening.';}
   finally{loading.value=false;}
 });
-watch(review,()=>{if(!ready||data.value?.signedAt)return;clearTimeout(timer);timer=setTimeout(()=>saveDraft(),800);},{deep:true});
+watch(review,()=>{if(!ready||data.value?.signedAt||data.value?.roiOnly)return;clearTimeout(timer);timer=setTimeout(()=>saveDraft(),800);},{deep:true});
 watch(()=>review.placeOfService,()=>{if(ready)review.locationConfirmed=false;});
 watch(()=>review.paperTranscription,()=>{if(!ready)return;review.locationConfirmed=false;if(review.paperTranscription){review.placeOfService=data.value?.clientType==='school'?'03':'11';review.assessment='';review.outcome='further_evaluation';}});
+watch(()=>review.paperResponses,()=>{if(ready)review.paperSourceConfirmed=false;},{deep:true});
 async function saveDraft(){
-  clearTimeout(timer);if(!data.value||data.value.signedAt)return true;
+  clearTimeout(timer);if(!data.value||data.value.signedAt||data.value.roiOnly)return true;
   if(savePromise){await savePromise;if(!dirty.value)return true;}
   if(!dirty.value)return true;
   const content=snapshot();saving.value=true;error.value='';saveNotice.value='Saving draft…';
@@ -132,10 +139,27 @@ async function close(){if(saving.value&&savePromise)await savePromise;if(await s
 async function sign(openNext=false){if(!canSign.value||saving.value||(openNext&&!props.hasNextInQueue))return;if(!await saveDraft())return;saving.value=true;error.value='';try{const r=await api.post(`${endpoint()}/sign`,{...review,agencyId:props.agencyId,sourceHash:data.value.sourceHash},{skipGlobalLoading:true});data.value.signedAt=new Date().toISOString();emit('signed',r.data,{openNext});}catch(e){error.value=e.response?.data?.error?.message||'Signing failed. Your saved draft is still available.';}finally{saving.value=false;}}
 async function translate(){if(!noIdentifiersConfirmed.value)return;translating.value=true;try{const {data:result}=await api.post(`${endpoint()}/translate`,{agencyId:props.agencyId,reviewedText:translationText.value,noIdentifiersConfirmed:true},{skipGlobalLoading:true});if(result.status==='unavailable')throw new Error('Translation unavailable');englishText.value=result.text;answerLanguage.value='en';if(!review.presentingProblem)review.presentingProblem=result.text;}catch(e){error.value=e.response?.data?.error?.message||'English translation is unavailable. The original Spanish answers remain available.';}finally{translating.value=false;}}
 async function forward(){if(!forwardProvider.value||!await saveDraft())return;saving.value=true;try{const r=await api.post(`${endpoint()}/forward`,{agencyId:props.agencyId,providerUserId:forwardProvider.value});emit('forwarded',r.data);emit('close');}catch(e){error.value=e.response?.data?.error?.message||'Could not forward this screening.';}finally{saving.value=false;}}
-async function loadPackets(){try{const r=await api.get(`/phi-documents/clients/${data.value.clientId}`,{params:{agencyId:props.agencyId}});packets.value=(Array.isArray(r.data)?r.data:[]).filter(doc=>!doc.intake_submission_id||Number(doc.intake_submission_id)===Number(data.value.submissionId));if(!packets.value.length)packetError.value='No linked packet document was found. Upload it to the client’s documents first.';}catch{packetError.value='Could not load client documents.';}}
-async function openPacket(doc){try{const r=await api.get(`/phi-documents/${doc.id}/view`);if(!r.data?.url)throw new Error('No document URL');packetUrl.value=r.data.url;}catch{packetError.value='Could not open this document.';}}
+async function loadPackets(){
+  packetError.value='';
+  try {
+    const r=await api.get(`/phi-documents/clients/${data.value.clientId}`,{params:{agencyId:props.agencyId}});
+    packets.value=(Array.isArray(r.data)?r.data:[]).sort((a,b)=>Number(Number(b.intake_submission_id)===Number(data.value.submissionId))-Number(Number(a.intake_submission_id)===Number(data.value.submissionId)));
+    if(!packets.value.length)packetError.value='No source document is stored for this client. Upload the completed paper packet to the client’s documents, then retry.';
+    const selected=packets.value.find(doc=>Number(doc.id)===Number(review.paperDocumentId));
+    const packet=selected||packets.value.find(doc=>Number(doc.intake_submission_id)===Number(data.value.submissionId)&&/intake packet/i.test(doc.document_type||doc.document_title||''));
+    if(packet)await openPacket(packet);
+  }catch{packetError.value='Could not load client documents.';}
+}
+async function openPacket(doc){try{const r=await api.get(`/phi-documents/${doc.id}/view`);if(!r.data?.url)throw new Error('No document URL');packetUrl.value=r.data.url;review.paperDocumentId=Number(doc.id);review.paperSourceConfirmed=false;}catch{packetError.value='Could not open this document.';}}
+async function closeRoi(){
+  saving.value=true;error.value='';
+  try{const r=await api.post(`${endpoint()}/close-roi`,{agencyId:props.agencyId,sourceHash:data.value.sourceHash},{skipGlobalLoading:true});ready=false;emit('saved',r.data);emit('close');}
+  catch(e){error.value=e.response?.data?.error?.message||'Could not close the ROI task.';}
+  finally{saving.value=false;}
+}
+function refreshProposal(){review.presentingProblem=data.value.proposedReview?.presentingProblem||'';review.assessment=data.value.proposedReview?.assessment||'';review.followUp=data.value.proposedReview?.followUp||'';review.outcome=data.value.suggestedOutcome;review.reviewConfirmed=false;review.accurateAndComplete=false;}
 function buildPresentingProblem(){review.presentingProblem=(data.value.clinicalFields||[]).filter(field=>/reason|concern|goal|harm|suicid|abuse|neglect|trauma|help/i.test(field.key)).map(field=>review.paperResponses[field.key]?`${field.label}: ${review.paperResponses[field.key]}`:'').filter(Boolean).join('\n');}
-function warnUnsaved(event){if(ready&&!data.value?.signedAt&&(dirty.value||saving.value)){event.preventDefault();event.returnValue='';}}
+function warnUnsaved(event){if(ready&&!data.value?.signedAt&&!data.value?.roiOnly&&(dirty.value||saving.value)){event.preventDefault();event.returnValue='';}}
 onBeforeUnmount(()=>{clearTimeout(timer);window.removeEventListener('beforeunload',warnUnsaved);});
 </script>
 <style scoped>

@@ -1,3 +1,4 @@
+import { closeRoiScreening } from '../services/h0002ScreeningDisposition.service.js';
 import { readScreeningDraft, saveScreeningDraft } from '../services/h0002ReviewDraft.service.js';
 import { screeningEnglish, redactedScreeningText } from '../services/h0002Translation.service.js';
 import { screeningLocation } from '../services/h0002ReviewDetails.js';
@@ -13,7 +14,7 @@ export async function getH0002ScreeningReview(req, res, next) {
     const handoff = source.sourceLanguage === 'es' && !note.provider_signed_at ? await screeningTransferOptions({session,note,source}) : {providers:[],supervisor:null};
     res.set('Cache-Control','no-store');
     res.json({ clientId: source.client.id, submissionId: source.submissionId, clientType: source.clientType, schoolName: source.schoolName,
-      sourceLanguage: source.sourceLanguage, packetMethod: source.packetMethod,
+      roiOnly: source.roiOnly, sourceLanguage: source.sourceLanguage, packetMethod: source.packetMethod,
       translationPreview: source.sourceLanguage === 'es' ? redactedScreeningText(source) : '',
       sourceEnglish: source.sourceLanguage === 'es' ? '' : source.summary,
       savedReview: readScreeningDraft(note), location: screeningLocation(source), pscItems: source.pscItems, clinicalFields: source.clinicalFields,
@@ -64,4 +65,9 @@ export async function translateH0002Screening(req,res,next) {
     const {source} = await screeningReviewContext({sessionId:Number(req.params.sessionId),user:req.user});
     res.set('Cache-Control','no-store'); res.json(await screeningEnglish(source,req.body));
   } catch(error) { next(error); }
+}
+
+export async function closeH0002RoiTask(req,res,next) {
+  try { res.json(await closeRoiScreening({sessionId:Number(req.params.sessionId),user:req.user,sourceHash:req.body?.sourceHash})); }
+  catch(error) { next(error); }
 }

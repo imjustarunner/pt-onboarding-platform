@@ -1,3 +1,4 @@
+import { screeningSourceKind } from './h0002SourceEvidence.js';
 /**
  * Creates shared-list tasks when a real ITSCO school digital packet intake
  * is submitted with PSC-17 questionnaire data (clinical summary for billing).
@@ -74,15 +75,6 @@ function countPscAnswers(intakeData, clientIndex = 0) {
   return answered;
 }
 
-function hasClinicalIntakeSignal(intakeData, clientIndex = 0, clinicalSummaryText = '') {
-  if (countPscAnswers(intakeData, clientIndex) > 0) return true;
-  const responses = intakeData?.responses || {};
-  const clinicalBag = responses?.submission?.clinicalResponses;
-  if (clinicalBag && typeof clinicalBag === 'object' && Object.keys(clinicalBag).length) return true;
-  const summary = String(clinicalSummaryText || '').trim();
-  if (summary && !/no clinical responses captured/i.test(summary) && summary.length > 80) return true;
-  return false;
-}
 
 export function h0002ClientCode(firstName = '', lastName = '') {
   const letters = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
@@ -288,7 +280,9 @@ export async function maybeCreateSchoolIntakeReviewTask({
   const { buildClinicalSummaryText } = await import('../controllers/publicIntake.controller.js');
   const clinicalSummaryText = buildClinicalSummaryText({ link, intakeData, clientIndex });
   const pscCount = countPscAnswers(intakeData, clientIndex);
-  if (!hasClinicalIntakeSignal(intakeData, clientIndex, clinicalSummaryText)) {
+  const sourceKind = screeningSourceKind(link, intakeData, clientIndex);
+  if (sourceKind.roiOnly) return { created: false, taskId: null, reason: 'roi_only' };
+  if (!sourceKind.hasClinicalResponses) {
     return { created: false, taskId: null, reason: 'no_clinical_signal' };
   }
 
