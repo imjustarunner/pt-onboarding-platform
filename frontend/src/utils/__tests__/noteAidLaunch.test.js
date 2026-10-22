@@ -8,6 +8,11 @@ import {
 } from '../noteAidLaunch.js';
 
 describe('noteAidLaunch', () => {
+  it('preserves the user-owned queue key and tenant when opening a ToDo', () => {
+    expect(buildNoteAidQuery({ workQueueId: 'import_123', agencyId: 7, launchIntent: 'work_queue' })).toEqual({
+      workQueueId: 'import_123', agencyId: '7', launchIntent: 'work_queue'
+    });
+  });
   it('normalizes progress-note launch params', () => {
     const q = buildNoteAidQuery({
       clientId: 42,

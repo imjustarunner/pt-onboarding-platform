@@ -25,6 +25,8 @@ export function normalizeUploadsPath(path) {
 
 export function toUploadsUrl(pathOrUrl) {
   if (!pathOrUrl) return null;
+  // Bundled branding belongs to the frontend, not the uploaded-file API.
+  if (/^\/?(?:assets|logos)\//.test(pathOrUrl)) return `/${pathOrUrl.replace(/^\//, '')}`;
   // Already absolute
   if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) return pathOrUrl;
 
@@ -34,4 +36,3 @@ export function toUploadsUrl(pathOrUrl) {
   const encodedPath = cleaned.split('/').map(seg => encodeURIComponent(seg)).join('/');
   return `${apiBase}/uploads/${encodedPath}`;
 }
-

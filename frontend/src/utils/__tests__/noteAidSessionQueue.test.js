@@ -27,6 +27,9 @@ describe('participantsLikelyIncludeOthers', () => {
 });
 
 describe('defaultDurationMinutesForServiceCode', () => {
+  it('does not invent a therapy duration for H0002 screening', () => {
+    expect(defaultDurationMinutesForServiceCode('H0002')).toBeNull();
+  });
   it('maps psychotherapy codes to band defaults', () => {
     expect(defaultDurationMinutesForServiceCode('90832')).toBe(30);
     expect(defaultDurationMinutesForServiceCode('90834')).toBe(45);
