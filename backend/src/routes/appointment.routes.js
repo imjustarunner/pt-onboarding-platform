@@ -1,7 +1,7 @@
 import { getClientSessionBookingAccess, getClientSessionBookingRollout, putClientSessionBookingRollout } from '../controllers/clientSessionBookingRollout.controller.js';
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
-import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, requestOffice as requestReplacementOffice, details as replacementSlotDetails } from '../controllers/appointmentReplacementOffer.controller.js';
+import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, openingWindow as replacementOpeningWindow, requestOffice as requestReplacementOffice, details as replacementSlotDetails, history as replacementHistory } from '../controllers/appointmentReplacementOffer.controller.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
 import express from 'express';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -80,7 +80,9 @@ router.post('/:id/settle', settleAppointmentHandler);
 router.post('/:id/change/waiver-decision', decideAppointmentWaiverHandler);
 router.get('/:id/change', getAppointmentChangeHandler);
 router.get('/:id/change/replacement-options', replacementOptions);
+router.get('/:id/replacement-history', replacementHistory);
 router.post('/:id/change/replacement-options/check', customReplacementSlot);
+router.post('/:id/change/replacement-options/range', replacementOpeningWindow);
 router.post('/:id/change/replacement-options/office-request', requestReplacementOffice);
 router.put('/:id/change/draft', saveAppointmentChangeDraftHandler);
 router.post('/:id/change/preview', previewAppointmentChangeHandler);

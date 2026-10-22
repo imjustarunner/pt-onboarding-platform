@@ -104,7 +104,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     for (const sql of lifecycleDdl) await pool.query(sql);
     await pool.query("CREATE TABLE user_communications (id INT AUTO_INCREMENT PRIMARY KEY, channel ENUM('email','sms') DEFAULT 'email')");
     await pool.query("CREATE TABLE public_appointment_requests (id INT PRIMARY KEY, status VARCHAR(24))");
-    for (const file of ['1636_private_cancellation_offers.sql','1637_schedule_notice_buffer.sql']) {
+    for (const file of ['1636_private_cancellation_offers.sql','1637_schedule_notice_buffer.sql','1690_reviewed_cancellation_outreach.sql']) {
       const sql = await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
       for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await pool.query(statement);
     }

@@ -35,10 +35,10 @@ it('opening a replacement link does not decline or select anything',async()=>{
   window.history.replaceState({},'', '/');
 });
 it('requires a selection and makes a one-time reservation request only after clicking',async()=>{
-  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[offeredAppointment()]}:prefs()}));api.post.mockResolvedValue({data:{status:'requested'}});
-  const w=mount(Panel,{props:{clientId:4}});await flushPromises();const reserve=()=>w.findAll('button').find(b=>b.text()==='Reserve selected time for confirmation');
+  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[offeredAppointment()]}:prefs()}));api.post.mockResolvedValue({data:{status:'confirmed'}});
+  const w=mount(Panel,{props:{clientId:4}});await flushPromises();const reserve=()=>w.findAll('button').find(b=>b.text()==='Reserve this time');
   expect(reserve().attributes('disabled')).toBeDefined();await w.find('input[type="radio"]').setValue(true);await reserve().trigger('click');await flushPromises();
-  expect(api.post).toHaveBeenCalledWith('/guardian-portal/clients/4/appointments/12/replacement-offer',{action:'select',selectedKey:'shared',selectedModality:'VIRTUAL'},expect.anything());expect(w.text()).toContain('Your other appointments stay scheduled');w.unmount();
+  expect(api.post).toHaveBeenCalledWith('/guardian-portal/clients/4/appointments/12/replacement-offer',{action:'select',selectedKey:'shared',selectedModality:'VIRTUAL'},expect.anything());expect(w.text()).toContain('Your other appointments stay scheduled');expect(w.text()).toContain('Your time has been reserved. Your provider will reach out');expect(w.text()).not.toContain('reserved for care-team confirmation');w.unmount();
 });
 it('keeps the next appointment only when the client explicitly chooses that action',async()=>{
   api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[offeredAppointment()]}:prefs()}));api.post.mockResolvedValue({data:{status:'declined'}});
@@ -48,16 +48,25 @@ it('keeps the next appointment only when the client explicitly chooses that acti
 
 it('requires the client to choose a format for a dual-format time',async()=>{
   const a=offeredAppointment();Object.assign(a.replacementOffer.slots[0],{modality:'BOTH',availableFormats:['IN_PERSON','VIRTUAL'],buildingName:'Windchime',roomLabel:'#7'});
-  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[a]}:prefs()}));api.post.mockResolvedValue({data:{status:'requested'}});
-  const w=mount(Panel,{props:{clientId:4}});await flushPromises();const reserve=()=>w.findAll('button').find(b=>b.text()==='Reserve selected time for confirmation');
+  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[a]}:prefs()}));api.post.mockResolvedValue({data:{status:'confirmed'}});
+  const w=mount(Panel,{props:{clientId:4}});await flushPromises();const reserve=()=>w.findAll('button').find(b=>b.text()==='Reserve this time');
   await w.find('input[type=radio]').setValue(true);expect(reserve().attributes('disabled')).toBeDefined();expect(w.text()).toContain('In office — Windchime #7');
   await w.find('input[value=VIRTUAL]').setValue(true);expect(reserve().attributes('disabled')).toBeUndefined();await reserve().trigger('click');await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/guardian-portal/clients/4/appointments/12/replacement-offer',{action:'select',selectedKey:'shared',selectedModality:'VIRTUAL'},expect.anything());w.unmount();
 });
 it('offers only virtual when the physical choice has become unavailable',async()=>{
   const a=offeredAppointment();Object.assign(a.replacementOffer.slots[0],{modality:'BOTH',availableFormats:['VIRTUAL']});
-  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[a]}:prefs()}));api.post.mockResolvedValue({data:{status:'requested'}});
+  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[a]}:prefs()}));api.post.mockResolvedValue({data:{status:'confirmed'}});
   const w=mount(Panel,{props:{clientId:4}});await flushPromises();await w.find('input[type=radio]').setValue(true);
-  expect(w.find('fieldset.offer-formats').exists()).toBe(false);await w.findAll('button').find(b=>b.text()==='Reserve selected time for confirmation').trigger('click');await flushPromises();
+  expect(w.find('fieldset.offer-formats').exists()).toBe(false);await w.findAll('button').find(b=>b.text()==='Reserve this time').trigger('click');await flushPromises();
   expect(api.post).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({selectedModality:'VIRTUAL'}),expect.anything());w.unmount();
+});
+
+
+it('allows a technical interruption to resume without provider approval',async()=>{
+  const a=offeredAppointment();a.replacementOffer.status='booking';a.replacementOffer.slots=[];
+  api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[a]}:prefs()}));api.post.mockResolvedValue({data:{status:'confirmed',appointmentId:22}});
+  const w=mount(Panel,{props:{clientId:4}});await flushPromises();expect(w.text()).toContain('No provider approval is needed');
+  await w.findAll('button').find(b=>b.text()==='Refresh reservation').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/guardian-portal/clients/4/appointments/12/replacement-offer',{action:'select'},expect.anything());expect(w.text()).toContain('Your time has been reserved');w.unmount();
 });

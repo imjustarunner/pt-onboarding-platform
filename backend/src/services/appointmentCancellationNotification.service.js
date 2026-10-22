@@ -50,7 +50,7 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   let followUpText = CANCELLATION_FOLLOW_UP[details.followUpAction];
   if (['keep_next', 'keep_next_or_support'].includes(details.followUpAction)) followUpText = nextText;
   if (['private_slots', 'portal_booking'].includes(details.followUpAction)) followUpText = resolved.offer?.status === 'open'
-    ? `${followUpText} Open Appointments in your signed-in client portal by ${appointmentTimeLabel(resolved.offer.expires_at, appointment.sourceTimezone)} (${appointment.sourceTimezone || 'America/Denver'}). These times are reserved for invited clients and may be offered to more than one person. The first completed selection reserves a time for care-team confirmation. The link shows only times still available. ${nextText} This offer does not change your recurring schedule.`
+    ? `${followUpText} Open Appointments in your signed-in client portal by ${appointmentTimeLabel(resolved.offer.expires_at, appointment.sourceTimezone)} (${appointment.sourceTimezone || 'America/Denver'}). These times are reserved for invited clients and may be offered to more than one person. The first completed reservation schedules your replacement appointment immediately. Your provider will reach out if there are any changes to their schedule. The link shows only times still available. ${nextText} This offer does not change your recurring schedule.`
     : `No replacement times are currently being offered. ${nextText}`;
   const moved = facts.eventType === 'rescheduled' && resolved.replacement;
   const paragraphs = [
@@ -63,9 +63,15 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   ];
   const portalUrl = resolved.portalUrl;
   const links = portalUrl ? `<p><a href="${escapeHtml(portalUrl)}">${resolved.offer?.status === 'open' ? 'View available reschedule options' : 'Review my appointments'}</a></p>${resolved.offer?.status === 'open' && resolved.nextAppointment ? `<p><a href="${escapeHtml(portalUrl + '&offerAction=keep_next')}">See you next session — ${escapeHtml(resolved.nextAppointment.displayWhen)}</a></p><p>Confirm this choice in your portal to decline the replacement offer and keep your next session.</p>` : ''}` : '';
+  const reviewed = facts.reviewedMessage;
+  if (reviewed) {
+    paragraphs.splice(0, paragraphs.length, reviewed.text);
+    paragraphs.push(followUpText);
+    if (!['keep_next','keep_next_or_support','private_slots','portal_booking'].includes(details.followUpAction)) paragraphs.push(nextText);
+  }
   const text = [...paragraphs, ...(portalUrl ? [`Review the latest options: ${portalUrl}`] : [])].join('\n\n');
-  return { ...details, when, followUpText, replacementAppointmentId: moved ? resolved.replacement.id : null, subject: moved ? 'Your appointment has moved' : 'Your appointment has been canceled', text,
-    html: paragraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('') + links,
+  return { ...details, when, followUpText, replacementAppointmentId: moved ? resolved.replacement.id : null, subject: reviewed?.subject || (moved ? 'Your appointment has moved' : 'Your appointment has been canceled'), text,
+    html: paragraphs.map(p => `<p>${escapeHtml(p).replaceAll('\n', '<br>')}</p>`).join('') + links,
     sms: `Your appointment schedule has been updated. Please review the latest details in your secure portal${portalUrl ? `: ${portalUrl}` : '.'}` };
 }
 
@@ -165,7 +171,7 @@ export function createCancellationNotificationService({ database = pool, appoint
     for (const clientId of new Set(participants.map(p => Number(p.clientId)).filter(Boolean))) {
       const resolved = {};
       if (facts.eventType === 'canceled') {
-        resolved.nextAppointment = await followUp.nextAppointment(appointment, clientId, { afterAt: facts.followUpAfterAt || null });
+        resolved.nextAppointment = await followUp.nextAppointment(appointment, clientId, { afterAt: facts.followUpAfterAt || null, excludeAppointmentIds: facts.followUpExcludedAppointmentIds || [] });
       }
       if (['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
         try { resolved.offer = await offers.ensure(appointment, clientId, facts, actorUserId); }

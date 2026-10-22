@@ -3,7 +3,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../appointment.controller.js',()=>({assertAppointmentChangeAccess:vi.fn()}));
 vi.mock('../availability.controller.js',()=>({createMyOfficeAvailabilityRequest:vi.fn(async(req,res)=>res.json(req.body))}));
-vi.mock('../../services/cancellationFollowUp.service.js',()=>({cancellationFollowUp:{customSlot:vi.fn(),context:vi.fn()}}));
+vi.mock('../../services/cancellationFollowUp.service.js',()=>({cancellationFollowUp:{customSlot:vi.fn(),openingWindow:vi.fn(),context:vi.fn()}}));
 vi.mock('../../services/appointmentReplacementOffer.service.js',()=>({replacementOffers:{respond:vi.fn(),releaseSlot:vi.fn()}}));
 vi.mock('../../services/guardianAppointments.service.js',()=>({authorizedClient:vi.fn()}));
 vi.mock('../../services/privateReplacementSlots.service.js',()=>({readReplacementSlotRecipients:vi.fn()}));
@@ -15,7 +15,7 @@ import {createMyOfficeAvailabilityRequest} from '../availability.controller.js';
 import {cancellationFollowUp} from '../../services/cancellationFollowUp.service.js';
 import {replacementOffers} from '../../services/appointmentReplacementOffer.service.js';
 import {authorizedClient} from '../../services/guardianAppointments.service.js';
-import {requestOffice,response,custom,details} from '../appointmentReplacementOffer.controller.js';
+import {requestOffice,response,custom,openingWindow,details,history} from '../appointmentReplacementOffer.controller.js';
 const room={id:8,buildingId:3,needsRequest:true,date:'2030-01-03',weekday:4,startHour:10,endHour:12,windowLabel:'One time'};
 const request=()=>({params:{id:'1',appointmentId:'1',clientId:'8'},query:{agencyId:99},user:{id:5},body:{localStart:'2030-01-03T10:15',roomId:8,confirmOneTime:true,requestedFrequency:'WEEKLY',providerId:99}});
 const responseMock=()=>({status:vi.fn().mockReturnThis(),json:vi.fn(),set:vi.fn()});
@@ -60,4 +60,34 @@ describe('private replacement authorization and one-time office requests',()=>{
   it('rejects an appointment in a different agency from the authorized client',async()=>{
     authorizedClient.mockResolvedValue({agency_id:99});const res=responseMock();await response(request(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(404);expect(replacementOffers.respond).not.toHaveBeenCalled();
   });
+});
+
+
+describe('replacement history on canceled and newly scheduled sessions',()=>{
+  it('requires staff scope before loading historical recipients',async()=>{
+    const req=request(),res=responseMock();req.user.role='client';await history(req,res,vi.fn());
+    expect(res.status).toHaveBeenCalledWith(403);expect(pool.execute).not.toHaveBeenCalled();
+  });
+  it('checks the appointment access and includes slots linked through its confirmed replacement',async()=>{
+    const req=request(),res=responseMock();pool.execute.mockResolvedValue([[{replacementSlotId:20,startAt:'2030-01-04 17:00:00',endAt:'2030-01-04 18:00:00'}]]);
+    await history(req,res,vi.fn());expect(assertAppointmentChangeAccess).toHaveBeenCalledWith(req,expect.objectContaining({agencyId:2,providerUserId:5}));
+    expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('o.linked_appointment_id=?'),[1,1,2,5]);
+    expect(res.json).toHaveBeenCalledWith({slots:[{replacementSlotId:20,startAt:'2030-01-04T17:00:00.000Z',endAt:'2030-01-04T18:00:00.000Z'}]});
+    expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');
+  });
+});
+
+
+it('authorizes range checking before accessing private availability',async()=>{
+  const denied=Object.assign(new Error('Denied'),{status:403});assertAppointmentChangeAccess.mockRejectedValue(denied);
+  const next=vi.fn();await openingWindow(request(),responseMock(),next);expect(next).toHaveBeenCalledWith(denied);expect(cancellationFollowUp.openingWindow).not.toHaveBeenCalled();
+});
+it('uses the authorized appointment for a private range preview',async()=>{
+  const req=request(),res=responseMock();req.body.localEnd='2030-01-03T12:00';cancellationFollowUp.openingWindow.mockResolvedValue({slots:[]});
+  await openingWindow(req,res,vi.fn());expect(cancellationFollowUp.openingWindow).toHaveBeenCalledWith(1,req.body);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');
+});
+it('bounds a range office request to the checked window and one occurrence',async()=>{
+  const req=request(),res=responseMock();req.body.localEnd='2030-01-03T12:00';cancellationFollowUp.openingWindow.mockResolvedValue({rooms:[room],requiresOfficeRequest:true,slots:[]});
+  await requestOffice(req,res,vi.fn());expect(cancellationFollowUp.customSlot).not.toHaveBeenCalled();
+  expect(createMyOfficeAvailabilityRequest).toHaveBeenCalledWith(expect.objectContaining({body:expect.objectContaining({agencyId:2,providerId:5,requestedFrequency:'ONCE',requestedOccurrenceCount:1,slots:[{weekday:4,startHour:10,endHour:12,roomId:8}]})}),res,expect.any(Function));
 });

@@ -11,7 +11,7 @@ vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeEncryptNotePayload: vi
 import { createDayCancellationService, dayBounds, dayCancellationFacts } from '../providerDayCancellation.service.js';
 
 const actor = { id: 9, role: 'provider' };
-const input = { providerId: 9, agencyIds: [2], date: '2026-11-04', clientFacingReason: 'Provider unavailable.', internalReason: 'Private staffing detail.' };
+const input = { providerId: 9, agencyIds: [2], date: '2026-11-04', clientFacingReason: 'Provider unavailable.', internalReason: 'Private staffing detail.', messagesReviewed: true };
 let service, database, dependencies, record, appointments, weekly, blocks, authorize, appointmentAccess, recipients;
 beforeEach(() => {
   record = null; blocks = []; weekly = [];
@@ -38,6 +38,9 @@ beforeEach(() => {
     participants: vi.fn(async () => structuredClone(recipients)), previewAppointment: vi.fn(async () => ({ narrative: 'Provider unavailable. No service rendered.' })),
     completeAppointment: vi.fn(async id => { appointments.find(a => a.id === id).status = 'canceled_by_provider'; return { notificationDelivery: { sent: 1, failed: 0 } }; }),
     editPublication: vi.fn(async options => { weekly.find(r => r.id === options.id).excluded_dates_json = JSON.stringify([options.occurrenceDate]); }),
+    contacts: vi.fn(async id => ({ clientId: id, clientName: 'Client One', mode:'guardian', channels:['email'], contacts:[], recipients:[] })),
+    schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
+    cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
     invalidate: vi.fn() };
   service = createDayCancellationService(dependencies); authorize = vi.fn(); appointmentAccess = vi.fn();
 });
@@ -137,5 +140,53 @@ describe('reviewed provider-day cancellation', () => {
     });
     const plan = await preview(); expect(plan.items).toHaveLength(0);
     expect(plan.unchanged[0].detail).toMatch(/multiple dates/);
+  });
+});
+
+
+describe('selected sessions, dates and reviewed outreach', () => {
+  it('requires the editable recipient/message review before any cancellation or school email', async () => {
+    const plan = await service.preview({ ...input, messagesReviewed: false }, actor, authorize, appointmentAccess);
+    await expect(apply(plan)).rejects.toThrow('editable emails');
+    expect(dependencies.completeAppointment).not.toHaveBeenCalled(); expect(dependencies.notifySchool).not.toHaveBeenCalled(); expect(blocks).toHaveLength(0);
+  });
+  it('cancels only selected sessions without blocking the whole day or removing its openings', async () => {
+    appointments.push({ ...appointments[0], id: 2 });
+    const plan = await service.preview({ ...input, scopeMode: 'sessions', appointmentIds: [2] }, actor, authorize, appointmentAccess);
+    expect(plan.items.map(i => i.id)).toEqual([2]);
+    await apply(plan); expect(blocks).toHaveLength(0);
+    expect(appointments[0].status).toBe('scheduled'); expect(appointments[1].status).toBe('canceled_by_provider');
+    expect(dependencies.editPublication).not.toHaveBeenCalled();
+  });
+  it('blocks each selected date with its own timezone bounds and keeps shared reasons', async () => {
+    const plan = await service.preview({ ...input, dates: ['2026-11-04','2026-11-05'] }, actor, authorize, appointmentAccess);
+    await apply(plan); expect(blocks).toHaveLength(2);
+    expect(blocks.map(b => b[4])).toEqual(['2026-11-04','2026-11-05']);
+    expect(dependencies.completeAppointment.mock.calls[0][1].clientFacingReason).toBe(input.clientFacingReason);
+  });
+  it('includes assigned-school messages even on a day with no client appointments, and sends only the reviewed edit', async () => {
+    appointments = [];
+    const school = { key:'school:2:10:2026-11-04',kind:'school',id:10,agencyId:2,date:input.date,title:'School',recipients:['office@example.test'],message:{subject:'Original',text:'Original'} };
+    dependencies.schools.mockResolvedValue([school]);
+    const edit = { recipients:['new@example.test','extra@example.test'],message:{subject:'Reviewed subject',text:'Reviewed message'} };
+    const plan = await service.preview({ ...input, schoolChoices:{[school.key]:edit} },actor,authorize,appointmentAccess);
+    expect(dependencies.notifySchool).not.toHaveBeenCalled();
+    expect(plan.items[0]).toMatchObject(edit);
+    await apply(plan); await apply(plan);
+    expect(dependencies.notifySchool).toHaveBeenCalledExactlyOnceWith(plan.token,expect.objectContaining(edit),actor.id);
+  });
+  it('validates shared private slots and refuses a replacement on a canceled day', async () => {
+    const slot = {startAt:'2026-11-04T20:00:00Z',endAt:'2026-11-04T21:00:00Z',modality:'VIRTUAL'};
+    await expect(service.preview({...input,followUpAction:'private_slots',offeredSlots:[slot]},actor,authorize,appointmentAccess)).rejects.toThrow('outside the canceled days');
+    slot.startAt='2026-11-06T20:00:00Z';slot.endAt='2026-11-06T21:00:00Z';
+    const plan=await service.preview({...input,followUpAction:'private_slots',offeredSlots:[slot],offerDays:3},actor,authorize,appointmentAccess);
+    await apply(plan);
+    expect(dependencies.completeAppointment.mock.calls[0][1]).toMatchObject({followUpAction:'private_slots',offerDays:3,offeredSlots:[slot]});
+  });
+  it('rejects sessions outside the authorized inventory and rechecks contact changes', async () => {
+    await expect(service.preview({...input,scopeMode:'sessions',appointmentIds:[999]},actor,authorize,appointmentAccess)).rejects.toThrow('outside these dates');
+    const plan=await preview();
+    dependencies.contacts.mockResolvedValue({clientId:12,mode:'guardian',channels:['email'],contacts:[{email:'changed@example.test'}],recipients:[]});
+    await expect(apply(plan)).rejects.toThrow('schedule changed'); expect(blocks).toHaveLength(0);
   });
 });

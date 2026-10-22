@@ -1243,6 +1243,9 @@ export async function sendEmailFromIdentity({
   let comm = null;
   if (existingCommunicationId) {
     comm = { id: Number(existingCommunicationId) };
+    // Buffered schedule notices create their receipt before transport. Attach
+    // the actual pixel token to that receipt, just as for newly logged mail.
+    if (trackingToken) await UserCommunication.setTrackingToken(comm.id, identity.agency_id, trackingToken);
     if (redirected.redirected) {
       try {
         const [existingRows] = await pool.execute(

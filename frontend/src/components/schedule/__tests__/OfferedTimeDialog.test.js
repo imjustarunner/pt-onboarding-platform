@@ -20,3 +20,12 @@ it('does not reuse private recipients from a different calendar block while load
   api.get.mockRejectedValueOnce({response:{data:{error:{message:'Access denied'}}}});await w.setProps({item:{...item,replacementSlotId:21}});await flushPromises();
   expect(w.text()).not.toContain('Private Client');expect(w.text()).toContain('Access denied');w.unmount();
 });
+
+it('shows sent/opened/portal response history on a confirmed session without release controls',async()=>{
+  api.get.mockResolvedValue({data:{slot:{modality:'VIRTUAL',timeZone:'America/Denver'},recipients:[{offerId:1,clientName:'Client',status:'confirmed',
+    deliveries:[{channel:'email',recipient:'parent@example.test',status:'sent',sentAt:'2030-01-01T17:00:00Z',openedAt:'2030-01-01T18:00:00Z'}],
+    views:[{name:'Parent',firstViewedAt:'2030-01-01T19:00:00Z'}],outcomes:[{text:'Session canceled — requested session confirmed and scheduled.',providerEmailStatus:'sent'}]}]}});
+  const w=mount(Dialog,{props:{item,historyOnly:true},global:{stubs:{Teleport:true}}});await flushPromises();
+  expect(w.text()).toContain('parent@example.test');expect(w.text()).toContain('Email open detected');expect(w.text()).toContain('Parent viewed');
+  expect(w.text()).toContain('confirmed and scheduled');expect(w.text()).toContain('Provider email: sent');expect(w.text()).not.toContain('Release this offered time');w.unmount();
+});

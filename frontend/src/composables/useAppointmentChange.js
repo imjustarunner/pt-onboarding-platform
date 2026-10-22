@@ -260,7 +260,7 @@ export function useAppointmentChange() {
       if (!retrospective.value && facts.notificationMode === 'none' && !facts.suppressionReason.trim()) return false;
       if (!retrospective.value && ['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
         if (facts.eventType !== 'canceled' || facts.notificationMode === 'none') return false;
-        if (facts.followUpAction === 'private_slots' && (!facts.offeredSlots.length || facts.offeredSlots.length > 6)) return false;
+        if (facts.followUpAction === 'private_slots' && (!facts.offeredSlots.length || facts.offeredSlots.length > 24)) return false;
         if (facts.followUpAction === 'portal_booking' && (!replacementOptions.value?.portalBookingEnabled || !replacementOptions.value?.slots?.length)) return false;
       }
       if (facts.eventType === 'no_show') {
@@ -362,7 +362,7 @@ export function useAppointmentChange() {
   function addOfferSlot(slot) {
     const index=facts.offeredSlots.findIndex(s=>s.startAt===slot.startAt && s.endAt===slot.endAt);
     if(index>=0) facts.offeredSlots.splice(index,1,slot);
-    else if(facts.offeredSlots.length<6) facts.offeredSlots.push(slot);
+    else if(facts.offeredSlots.length<24) facts.offeredSlots.push(slot);
   }
   async function requestOfferOffice() {
     if(customOffer.busy)return;
@@ -379,7 +379,7 @@ export function useAppointmentChange() {
     finally{customOffer.busy=false;}
   }
   async function addCustomOffer() {
-    if(customOffer.busy || facts.offeredSlots.length>=6) return;
+    if(customOffer.busy || facts.offeredSlots.length>=24) return;
     if(!customOffer.modality) { customOffer.error='Choose in office, virtual, or both for this time.'; return; }
     customOffer.busy=true;customOffer.error='';const id=appointmentId.value;
     try {

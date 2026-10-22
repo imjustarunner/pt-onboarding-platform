@@ -5,6 +5,7 @@ import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { addDaysYmd } from '../utils/scheduleRecurrence.js';
+import { MAX_REPLACEMENT_SLOTS, replacementOpeningWindow } from './replacementOpeningWindow.js';
 
 const fail = message => Object.assign(new Error(message), { status: 400 });
 export const slotKey = slot => [slot.startAt, slot.endAt, slot.modality, slot.roomId || ''].join('|');
@@ -14,7 +15,7 @@ const requestedModality = (value, appointment) => {
   if (!['IN_PERSON', 'VIRTUAL', 'BOTH'].includes(modality)) throw fail('Choose in office, virtual, or both for this time.');
   return modality;
 };
-export const replacementSlotLabel = slot => `${appointmentTimeLabel(slot.startAt, slot.timeZone)} (${slot.timeZone}) · ${
+export const replacementSlotLabel = slot => `${appointmentTimeLabel(slot.startAt, slot.timeZone)} (${slot.timeZone}) · ${(parseUtcDate(slot.endAt) - parseUtcDate(slot.startAt)) / 60000} min · ${
   slot.modality === 'VIRTUAL' || slot.availableFormats?.length === 1 && slot.availableFormats[0] === 'VIRTUAL' ? 'Virtual'
     : `In office: ${slot.buildingName || 'Office'} ${slot.roomLabel || ''}${slot.modality === 'BOTH' && (!slot.availableFormats || slot.availableFormats.includes('VIRTUAL')) ? ' or virtual — client chooses' : ''}`}`;
 
@@ -69,7 +70,7 @@ export function validateCancellationChoices(facts = {}) {
     if (facts.eventType !== 'canceled') throw fail('Replacement offers are for a canceled appointment, not an already-booked replacement.');
     const days = Number(facts.offerDays ?? 2);
     if (![1, 2, 3, 7, 14].includes(days)) throw fail('Choose an offer duration of 1, 2, 3, 7, or 14 days.');
-    if (action === 'private_slots' && (!Array.isArray(facts.offeredSlots) || !facts.offeredSlots.length || facts.offeredSlots.length > 6)) throw fail('Choose between one and six replacement times.');
+    if (action === 'private_slots' && (!Array.isArray(facts.offeredSlots) || !facts.offeredSlots.length || facts.offeredSlots.length > MAX_REPLACEMENT_SLOTS)) throw fail(`Choose between one and ${MAX_REPLACEMENT_SLOTS} replacement times.`);
   }
   return { notificationMode, suppressionReason };
 }
@@ -77,8 +78,10 @@ export function validateCancellationChoices(facts = {}) {
 export function createCancellationFollowUpService({ database = pool, appointments = Appointment,
   availability = { computeWeekAvailability: async args => (await import('./providerAvailability.service.js')).default.computeWeekAvailability(args) },
   roomOptions = async (...args) => (await import('./replacementOfficeRequest.service.js')).oneTimeReplacementRoomOptions(...args),
+  validateDuration = async (...args) => (await import('./replacementDuration.service.js')).validateReplacementDuration(...args),
   now = () => new Date() } = {}) {
-  async function nextAppointment(appointment, clientId, { afterAt = null } = {}) {
+  async function nextAppointment(appointment, clientId, { afterAt = null, excludeAppointmentIds = [] } = {}) {
+    const excluded = [...new Set(excludeAppointmentIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
     // Same provider, service, and participant. Do not mistake another clinician's
     // appointment for continuation of this care. Prefer an actual series match.
     const [rows] = await database.execute(`SELECT a.id,a.start_at,a.source_timezone,
@@ -94,7 +97,8 @@ export function createCancellationFollowUpService({ database = pool, appointment
         AND a.tenant_service_id <=> anchor.tenant_service_id AND a.service_code <=> anchor.service_code
         AND a.status IN ('scheduled','confirmed','client_confirmed')
         AND a.start_at>GREATEST(anchor.start_at,UTC_TIMESTAMP(),COALESCE(?,anchor.start_at))
-      ORDER BY same_series DESC,a.start_at,a.id LIMIT 1`, [clientId, appointment.id, afterAt]);
+      ${excluded.length ? `AND a.id NOT IN (${excluded.map(() => '?').join(',')})` : ''}
+      ORDER BY same_series DESC,a.start_at,a.id LIMIT 1`, [clientId, appointment.id, afterAt, ...excluded]);
     const row = rows[0];
     return row ? { id: Number(row.id), startAt: parseUtcDate(row.start_at).toISOString(),
       displayWhen: appointmentTimeLabel(row.start_at, row.source_timezone || appointment.sourceTimezone),
@@ -141,15 +145,23 @@ export function createCancellationFollowUpService({ database = pool, appointment
     return [...found.values()].sort((a, b) => a.startAt.localeCompare(b.startAt));
   }
   async function validatePrivateSlots(appointment, candidates, { excludePublicRequestId = null, skipUnavailable = false } = {}) {
-    const duration = +parseUtcDate(appointment.endAt) - +parseUtcDate(appointment.startAt);
+    const originalDuration = +parseUtcDate(appointment.endAt) - +parseUtcDate(appointment.startAt);
     const zone = appointment.sourceTimezone || 'America/Denver';
-    const weeks = new Map(), result = [];
+    const weeks = new Map(), checkedLengths = new Set(), result = [];
     for (const candidate of candidates) {
       try {
         const modality = requestedModality(candidate.modality, appointment);
         const start = parseUtcDate(candidate.startAt), end = parseUtcDate(candidate.endAt);
+        const duration = +end - +start;
         if (!start || !end || !Number.isFinite(+start) || +start <= +now() || +start > +now()+120*86400000
-          || +end-+start !== duration || duration<15*60000 || duration>240*60000) throw fail('Choose a future time within 120 days with the same appointment length.');
+          || (duration !== originalDuration && ![30,45,60].includes(duration/60000)) || duration<15*60000 || duration>240*60000) throw fail('Choose a future time within 120 days with the original length or a supported 30, 45, or 60 minute length.');
+        if (duration !== originalDuration) for (const format of replacementFormats({ modality })) {
+          const lengthKey = `${duration}:${format}`;
+          if (!checkedLengths.has(lengthKey)) {
+            await validateDuration(appointment, { startAt: start.toISOString(), endAt: end.toISOString(), modality: format });
+            checkedLengths.add(lengthKey);
+          }
+        }
         const date = new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(start);
         if (!weeks.has(date)) weeks.set(date, await availability.computeWeekAvailability({ agencyId: appointment.agencyId,
           providerId: appointment.providerUserId, weekStartYmd: date, slotMinutes:duration/60000, intakeOnly:false,
@@ -198,6 +210,31 @@ export function createCancellationFollowUpService({ database = pool, appointment
     const [slot]=await validatePrivateSlots(appointment,[{startAt:start.toISOString(),endAt:end.toISOString(),roomId,modality}]);
     return {rooms,slot,timeZone:zone};
   }
+  async function openingWindow(appointmentId, input = {}) {
+    const appointment = await appointments.findById(appointmentId);
+    if (!appointment || parseUtcDate(appointment.startAt) <= now()) throw fail('Offer replacement times for a future appointment.');
+    const zone = appointment.sourceTimezone || 'America/Denver';
+    const modality = requestedModality(input.modality, appointment);
+    const { start, end, slots: candidates } = replacementOpeningWindow(input, zone, now());
+    const week = await availability.computeWeekAvailability({ agencyId: appointment.agencyId, providerId: appointment.providerUserId,
+      weekStartYmd: input.localStart.slice(0,10), intakeOnly:false, includePrivateCalendar:true, includePrivateOffers:true, materializeOfficeEvents:true });
+    const rooms = modality === 'VIRTUAL' ? [] : coveringReplacementRooms(week.officeReservations, start, end)
+      .map(r => ({ id:r.roomId, buildingId:r.buildingId, label:`${r.buildingName || 'Office'} · ${r.roomLabel || r.roomId}`, needsRequest:false }));
+    if (modality !== 'VIRTUAL') rooms.push(...(await roomOptions(appointment,start,end)).filter(r => !rooms.some(own => own.id === r.id)));
+    const base = { rooms, slots:[], unavailable:[], timeZone:zone };
+    if (modality !== 'VIRTUAL' && !input.roomId) return base;
+    if (rooms.some(r => r.id === Number(input.roomId) && r.needsRequest)) return { ...base, requiresOfficeRequest:true };
+    if (modality !== 'VIRTUAL' && !rooms.some(r => r.id === Number(input.roomId))) throw fail('Choose a room reserved for this whole time window.');
+    // Preflight length once so a service restriction is explained, not silently
+    // presented as a day with no openings. Final review rechecks every slot.
+    if (Number(input.durationMinutes) !== (parseUtcDate(appointment.endAt)-parseUtcDate(appointment.startAt))/60000) {
+      for (const format of replacementFormats({modality})) await validateDuration(appointment,{...candidates[0],modality:format});
+    }
+    const free = candidates.filter(s => !(week.busyBlocks || []).some(b => +parseUtcDate(b.startAt)<+parseUtcDate(s.endAt) && +parseUtcDate(b.endAt)>+parseUtcDate(s.startAt)));
+    base.slots = await validatePrivateSlots(appointment, free.map(s => ({ ...s, modality, roomId:input.roomId })));
+    base.unavailable = candidates.filter(s => !free.includes(s)).map(s => ({ ...s, reason:'Conflicts with an appointment or calendar commitment.' }));
+    return base;
+  }
   async function context(appointmentId, { includeSlots = true } = {}) {
     const appointment = await appointments.findById(appointmentId);
     if (!appointment) throw fail('Appointment not found.');
@@ -224,6 +261,6 @@ export function createCancellationFollowUpService({ database = pool, appointment
     if (!available.length || (facts.followUpAction === 'private_slots' && available.length !== wanted.size)) throw fail('One or more replacement times are no longer available. Refresh the openings or keep the next appointment.');
     return available;
   }
-  return { nextAppointment, bookingEnabled, slots, context, validateOffer, validatePrivateSlots, customSlot };
+  return { nextAppointment, bookingEnabled, slots, context, validateOffer, validatePrivateSlots, customSlot, openingWindow };
 }
 export const cancellationFollowUp = createCancellationFollowUpService();

@@ -1,12 +1,12 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api.js';
-const props = defineProps({item:{type:Object,required:true}});
+const props = defineProps({item:{type:Object,required:true},historyOnly:Boolean});
 const emit=defineEmits(['close','released']);
 const busy=ref(false),error=ref('');
 const details=ref(null),loading=ref(false),detailsError=ref('');let sequence=0;
 const when=v=>v?new Date(v).toLocaleString(undefined,{timeZone:details.value?.slot?.timeZone || 'America/Denver',dateStyle:'medium',timeStyle:'short'}):'';
-const statusLabel = status => ({open:'Awaiting response',requested:'Selected — awaiting confirmation',confirmed:'Confirmed',declined:'Declined',declined_by_team:'Declined by care team',selected_other_time:'Selected another time',expired:'Expired',released:'Released'}[status] || status);
+const statusLabel = status => ({open:'Awaiting response',requested:'Booking in progress',confirmed:'Confirmed',declined:'Declined',declined_by_team:'Declined by care team',selected_other_time:'Selected another time',expired:'Expired',released:'Released'}[status] || status);
 const formatLabel = format => ({IN_PERSON:'In office',VIRTUAL:'Virtual',BOTH:'In office or virtual — client chooses'}[format] || format);
 async function loadDetails() {
   const own=++sequence;details.value=null;detailsError.value='';loading.value=true;
@@ -30,11 +30,20 @@ async function release(){if(busy.value)return;busy.value=true;error.value='';try
         <ul class="offer-recipients"><li v-for="recipient in details.recipients" :key="recipient.offerId">
           <strong>{{ recipient.clientName }}</strong> <span>{{ statusLabel(recipient.status) }}</span>
           <p>Offered {{ when(recipient.offeredAt) }}<br>Response deadline: {{ when(recipient.expiresAt) }}<template v-if="recipient.selectedModality"><br>Chosen format: {{ formatLabel(recipient.selectedModality) }}</template></p>
+          <ul v-if="recipient.deliveries?.length" aria-label="Invitation delivery"><li v-for="(delivery, index) in recipient.deliveries" :key="index">
+            {{ delivery.channel || 'Notice' }} · {{ delivery.recipient || 'Awaiting delivery' }} · {{ delivery.status }}
+            <span v-if="delivery.sentAt">Sent {{ when(delivery.sentAt) }}</span><span v-else-if="delivery.queuedFor">Queued for {{ when(delivery.queuedFor) }}</span>
+            <span v-if="delivery.deliveredAt">Delivered {{ when(delivery.deliveredAt) }}</span><span v-if="delivery.openedAt">Email open detected {{ when(delivery.openedAt) }}</span>
+            <span v-else-if="delivery.channel === 'email'">No email open recorded</span>
+          </li></ul>
+          <p v-for="(view, index) in recipient.views || []" :key="`view:${index}`">{{ view.name }} viewed the offer in the portal {{ when(view.firstViewedAt) }}.</p>
+          <p v-for="(outcome, index) in recipient.outcomes || []" :key="`outcome:${index}`">{{ outcome.text }} <span v-if="outcome.providerEmailStatus !== 'suppressed'">Provider email: {{ outcome.providerEmailStatus }}<template v-if="outcome.providerEmailSentAt"> · {{ when(outcome.providerEmailSentAt) }}</template></span></p>
         </li></ul>
+        <p v-if="details.recipients.length">Email open detection may be blocked or triggered by email software. Portal viewing is recorded separately.</p>
         <p v-if="!details.recipients.length">No client offers are recorded for this time.</p>
       </section>
-      <p v-if="item.offerRequested">A client selected this time. It is reserved while the care team confirms the appointment. Review the appointment request before changing this reservation.</p>
-      <template v-else><p>Offered to {{ item.invitedCount }} client(s). The first completed selection reserves the time. Other clients immediately see the remaining choices.</p>
+      <p v-if="!historyOnly && item.offerRequested">A client selected this time. The appointment is being booked automatically. Once booked, make any changes through My Schedule and notify the family.</p>
+      <template v-else-if="!historyOnly"><p>Offered to {{ item.invitedCount }} client(s). The first completed selection reserves the time. Other clients immediately see the remaining choices.</p>
         <p>Hidden from public booking while these offers are active.<template v-if="item.offerExpiresAt"> Last offer expires {{ when(item.offerExpiresAt) }}.</template></p>
         <p>Releasing this time removes it from every active offer. Your underlying published availability determines whether it becomes public again.</p>
         <button :disabled="busy" @click="release">{{ busy ? 'Releasing…' : 'Release this offered time' }}</button>

@@ -19,7 +19,7 @@ const fixture = (status = 'preview', results = {}) => ({
   clientFacingReason: 'Your provider is unavailable due to an unexpected schedule change.',
   followUpAction: 'client_contact_support', followUpMessage: 'Contact support for another time.',
   items: [
-    { key: 'appointment:41', kind: 'appointment', title: 'Client session', recipients: ['Example Client'], agencyId: 2, timeZone: 'America/Denver', startAt: '2026-10-15T16:00:00Z', note: 'Provider-initiated cancellation. No fee.' },
+    { id:41, key: 'appointment:41', kind: 'appointment', title: 'Client session', recipients: ['Example Client'], agencyId: 2, timeZone: 'America/Denver', startAt: '2026-10-15T16:00:00Z', note: 'Provider-initiated cancellation. No fee.' },
     { key: 'weekly:52', kind: 'weekly', title: 'Virtual opening', agencyId: 2, timeZone: 'America/Denver', startAt: '2026-10-15T18:00:00Z' }
   ],
   unchanged: [{ key: 'meeting:63', title: 'Started meeting', detail: 'Already started; review individually.', timeZone: 'America/Denver', startAt: '2026-10-15T12:00:00Z' }],
@@ -33,10 +33,11 @@ function open() {
   wrapper = mount(Dialog, { props: { providerId: 7, agencyId: 2, agencyOptions: [{ id: 2, name: 'Test agency' }, { id: 3, label: 'Second agency' }], date: '2026-10-15' }, attachTo: document.body });
   return wrapper;
 }
-async function review() {
+async function review(finalReview = true) {
   await wrapper.findAll('textarea')[0].setValue(fixture().clientFacingReason);
   await button('Review day').trigger('click');
   await flushPromises();
+  if (finalReview && button('Review final cancellation')) { await button('Review final cancellation').trigger('click'); await flushPromises(); }
 }
 async function signAndConfirm() {
   await wrapper.find('.day-signature input').setValue(true);
@@ -81,11 +82,11 @@ describe('day cancellation review', () => {
     await wrapper.findAll('textarea')[1].setValue('Private staffing note.');
     await wrapper.findAll('textarea')[2].setValue('Please contact support for another time.');
     await review();
-    expect(m.post).toHaveBeenCalledOnce();
-    expect(m.post).toHaveBeenCalledWith(`${base}/preview`, {
+    expect(m.post).toHaveBeenCalledTimes(2);
+    expect(m.post).toHaveBeenCalledWith(`${base}/preview`, expect.objectContaining({
       agencyIds: [2], date: '2026-10-15', clientFacingReason: fixture().clientFacingReason,
       internalReason: 'Private staffing note.', notificationMode: 'send', suppressionReason: '', followUpAction: 'client_contact_support', followUpMessage: 'Please contact support for another time.'
-    }, { skipGlobalLoading: true });
+    }), { skipGlobalLoading: true });
     expect(wrapper.find('.day-review').text()).toContain(fixture().clientFacingReason);
     expect(wrapper.find('.day-review').text()).not.toContain('Private staffing note');
     expect(wrapper.find('.day-items').text()).toContain('Example Client');
@@ -93,13 +94,13 @@ describe('day cancellation review', () => {
     expect(wrapper.text()).toContain('Already started; review individually.');
     expect(button('Confirm cancellation').element.disabled).toBe(true);
     await button('Confirm cancellation').trigger('click');
-    expect(m.post).toHaveBeenCalledOnce();
+    expect(m.post).toHaveBeenCalledTimes(2);
   });
   it('requires a fresh signature after going back and rebuilding the preview', async () => {
     open(); await review();
     await wrapper.find('.day-signature input').setValue(true);
     await button('Back').trigger('click');
-    await button('Review day').trigger('click'); await flushPromises();
+    await button('Review final cancellation').trigger('click'); await flushPromises();
     expect(wrapper.find('.day-signature input').element.checked).toBe(false);
     expect(button('Confirm cancellation').element.disabled).toBe(true);
     expect(m.post.mock.calls.every(([url]) => url.endsWith('/preview'))).toBe(true);
@@ -107,7 +108,7 @@ describe('day cancellation review', () => {
   it('signs, updates the reviewed plan, and emits saved only when the processed dialog closes', async () => {
     open(); await review(); await signAndConfirm();
     expect(m.post).toHaveBeenLastCalledWith(`${base}/${token}/apply`, { signatureConfirmed: true, retryFailed: false }, { skipGlobalLoading: true });
-    expect(wrapper.text()).toContain('The day is marked unavailable and the listed items were updated.');
+    expect(wrapper.text()).toContain('The reviewed cancellations are complete.');
     expect(wrapper.emitted('saved')).toBeUndefined();
     await button('Done').trigger('click');
     expect(wrapper.emitted('saved')).toHaveLength(1);
@@ -127,9 +128,9 @@ describe('day cancellation review', () => {
     expect(wrapper.find('.day-items').text()).toContain('Updated');
     expect(button('Continue').element.disabled).toBe(false);
     await button('Continue').trigger('click'); await flushPromises();
-    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/preview'))).toHaveLength(1);
+    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/preview'))).toHaveLength(2);
     expect(m.post.mock.calls.filter(([url]) => url.endsWith('/apply'))).toHaveLength(3);
-    expect(wrapper.text()).toContain('listed items were updated');
+    expect(wrapper.text()).toContain('reviewed cancellations are complete');
   });
   it('reports partial failures and delivery warnings and retries only when requested', async () => {
     let applications = 0;
@@ -237,4 +238,39 @@ it('opens exactly one dialog from a day header without focusing the day or openi
   expect(m.post).not.toHaveBeenCalled();
   await wrapper.findComponent(Dialog).find('button[aria-label="Close"]').trigger('click'); await flushPromises();
   expect(wrapper.findAll('dialog')).toHaveLength(0);
+});
+
+
+it('holds sending until recipients and editable school/family emails have been reviewed and signed', async () => {
+  const data=fixture();data.notificationMode='send';
+  data.items[0].clients=[{clientId:8,clientName:'Example Client',mode:'guardian',channels:['email'],contacts:[
+    {key:'client',role:'client',name:'Example Client',email:'client@example.test',phone:'+15555550111'},
+    {key:'guardian:12',role:'guardian',name:'Parent',email:'parent@example.test',phone:'+15555550112'}],recipients:[]}];
+  data.items[0].message={subject:'Session canceled',text:'Reviewed family message'};
+  data.items.push({key:'school:2:20:2026-10-15',kind:'school',title:'Assigned school',recipients:['school@example.test'],message:{subject:'School notice',text:'Provider will be unavailable on this date.'}});
+  m.post.mockImplementation(async()=>({data}));open();await review(false);
+  expect(button('Confirm cancellation')).toBeUndefined();expect(wrapper.find('.day-signature').exists()).toBe(false);
+  const select=wrapper.findAll('select').find(s=>s.findAll('option').some(o=>o.attributes('value')==='both'));await select.setValue('both');
+  await wrapper.find('input[aria-label="Parent email"]').setValue('changed-parent@example.test');
+  const school=wrapper.findAll('fieldset').find(f=>f.text().includes('Assigned school'));
+  await school.find('input[type="email"]').setValue('changed-school@example.test');
+  await school.find('textarea').setValue('Edited school cancellation.');
+  await school.findAll('button').find(b=>b.text()==='Add school recipient').trigger('click');
+  await school.findAll('input[type="email"]')[1].setValue('added-school@example.test');
+  expect(m.post.mock.calls.every(([url])=>url.endsWith('/preview'))).toBe(true);
+  await button('Review final cancellation').trigger('click');await flushPromises();
+  const body=m.post.mock.calls.at(-1)[1];
+  expect(body.messagesReviewed).toBe(true);expect(body.contactChoices[8]).toMatchObject({mode:'both',recipients:expect.arrayContaining([expect.objectContaining({email:'changed-parent@example.test'})])});
+  expect(body.schoolChoices['school:2:20:2026-10-15']).toEqual({recipients:['changed-school@example.test','added-school@example.test'],message:{subject:'School notice',text:'Edited school cancellation.'}});
+  expect(button('Confirm cancellation').element.disabled).toBe(true);
+});
+
+it('explains that offering a time commits the provider before invitations are sent',async()=>{
+  open();await review(false);
+  const rescheduling=wrapper.findAll('select').find(s=>s.findAll('option').some(o=>o.attributes('value')==='private_slots'));
+  await rescheduling.setValue('private_slots');
+  expect(wrapper.text()).toContain('Offer only times you can commit to');
+  expect(wrapper.text()).toContain('it becomes a scheduled appointment automatically');
+  expect(wrapper.text()).toContain('change the booked appointment and notify the family through My Schedule');
+  expect(m.post.mock.calls.every(([url])=>url.endsWith('/preview'))).toBe(true);
 });

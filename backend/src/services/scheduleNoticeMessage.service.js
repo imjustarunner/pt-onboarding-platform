@@ -18,10 +18,19 @@ export function buildScheduleNoticeMessage(entries, portalUrl) {
     const zone = a.sourceTimezone || 'America/Denver';
     const when = `${appointmentTimeLabel(a.startAt, zone)} (${zone})`;
     const moved = payload.eventType === 'moved' && !payload.initialBooking;
-    const text = moved
+    const replacement = !!payload.facts?.replacementForAppointmentId;
+    let text = replacement
+      ? `Your time has been reserved for ${when}. It replaces the canceled appointment on ${appointmentTimeLabel(payload.facts.replacementOriginalStartAt || payload.originalStartAt, zone)} (${zone}).`
+      : moved
       ? `Your appointment has moved to ${when}. The previous time, ${appointmentTimeLabel(payload.originalStartAt, zone)} (${zone}), is no longer scheduled. Please use the updated time in your portal.`
       : `Your appointment is scheduled for ${when}. Please review the current appointment details in your portal.`;
-    return { text, html: `<p>${escapeNoticeHtml(text)}</p>`, subject: moved ? 'Your appointment has moved' : 'Your appointment is scheduled' };
+    if (replacement) {
+      const minutes = (parseUtcDate(a.endAt)-parseUtcDate(a.startAt))/60000;
+      if (Number.isFinite(minutes) && minutes>0) text += ` Duration: ${minutes} minutes.`;
+      if (a.attendanceDetails) text += ` ${a.attendanceDetails}`;
+      text += ' Your provider will reach out if there are any changes to their schedule. Your other appointments remain scheduled.';
+    }
+    return { text, html: `<p>${escapeNoticeHtml(text)}</p>`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : 'Your appointment is scheduled' };
   });
   const footer = 'Please reply to this email to reach our support team. Use the secure portal for clinical details.';
   return {

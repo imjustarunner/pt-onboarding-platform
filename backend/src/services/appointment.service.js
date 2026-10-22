@@ -192,6 +192,7 @@ async function createLockedAppointment({
   timeZone = DEFAULT_SCHEDULE_TZ,
   serviceLocationId = null,
   replacementOfferId = null,
+  resumeReplacementAppointmentId = null,
   deferScheduleNotice = false
 } = {}) {
   const aid = Number(agencyId || 0);
@@ -203,6 +204,18 @@ async function createLockedAppointment({
   if (!(new Date(start).getTime() < new Date(end).getTime())) {
     throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
   }
+  let resuming = null;
+  if (resumeReplacementAppointmentId) {
+    resuming = await Appointment.findById(resumeReplacementAppointmentId);
+    if (!replacementOfferId || !deferScheduleNotice || source !== `replacement_offer:${replacementOfferId}`
+      || !resuming || resuming.source !== source || resuming.status !== 'scheduled'
+      || Number(resuming.agencyId) !== aid || Number(resuming.providerUserId) !== Number(providerUserId)
+      || toMysqlDateTime(resuming.startAt,'UTC') !== start || toMysqlDateTime(resuming.endAt,'UTC') !== end
+      || resuming.modality !== modality || Number(resuming.roomId || 0) !== Number(roomId || 0)
+      || Number(resuming.packageEntitlementId || 0) !== Number(packageEntitlementId || 0)) {
+      throw Object.assign(new Error('This replacement booking changed. Review the existing appointment before retrying.'), {status:409});
+    }
+  }
 
   const selfPayOnly = await getAgencySelfPayOnly(aid);
   let businessType = null;
@@ -210,6 +223,9 @@ async function createLockedAppointment({
   if (!tenantServiceId && serviceCode) {
     const matching = (await TenantService.listForAgency(aid)).filter(s => s.serviceCode === serviceCode);
     if (matching.length === 1) tenantServiceId = matching[0].id;
+  }
+  if (resuming && Number(resuming.tenantServiceId || 0) !== Number(tenantServiceId || 0)) {
+    throw Object.assign(new Error('This replacement service changed. Review the existing appointment before retrying.'),{status:409});
   }
   if (tenantServiceId) {
     service = await TenantService.findById(tenantServiceId, aid);
@@ -257,7 +273,7 @@ async function createLockedAppointment({
     if (!entitlement || !clientIds.includes(Number(entitlement.clientId)) || entitlement.status !== 'ACTIVE') {
       throw Object.assign(new Error('Select an active package belonging to a participant in this agency'), { status: 400 });
     }
-    if (Number(entitlement.sessionsRemaining) < 1) throw Object.assign(new Error('No sessions remaining on package'), { status: 409 });
+    if (!resuming && Number(entitlement.sessionsRemaining) < 1) throw Object.assign(new Error('No sessions remaining on package'), { status: 409 });
     if (service && (service.packageEligible === false || (entitlement.businessType && entitlement.businessType !== businessType)
       || (entitlement.allowedTenantServiceIds?.length && !entitlement.allowedTenantServiceIds.map(Number).includes(Number(tenantServiceId))))) {
       throw Object.assign(new Error('Package does not cover this service'), { status: 400 });
@@ -296,7 +312,7 @@ async function createLockedAppointment({
   const selfPayQuote = !packageEntitlementId && ['self_pay', 'self_pay_only'].includes(settlementMode)
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
       modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
-  const appt = await Appointment.create({
+  const appt = resuming || await Appointment.create({
     replacementOfferId,
     agencyId: aid,
     parentAgencyId,
@@ -365,17 +381,23 @@ async function createLockedAppointment({
       });
     } catch (e) {
       // A failed reservation must not leave a bookable appointment behind.
-      await pool.execute('DELETE FROM appointment_billing WHERE appointment_id = ?', [appt.id]);
-      await pool.execute('DELETE FROM appointment_participants WHERE appointment_id = ?', [appt.id]);
-      await pool.execute('DELETE FROM appointments WHERE id = ?', [appt.id]);
+      if (!resuming) {
+        await pool.execute('DELETE FROM appointment_billing WHERE appointment_id = ?', [appt.id]);
+        await pool.execute('DELETE FROM appointment_participants WHERE appointment_id = ?', [appt.id]);
+        await pool.execute('DELETE FROM appointments WHERE id = ?', [appt.id]);
+      }
       throw e;
     }
   }
 
-  try {
-    await scheduleSessionNotifications(appt.id, { replace: true });
-  } catch {
-    /* session notifications are best-effort */
+  // Replacement approval links its calendar occurrence before finalizing any
+  // outbound messages or reminders. An interrupted approval must stay quiet.
+  if (!deferScheduleNotice) {
+    try {
+      await scheduleSessionNotifications(appt.id, { replace: true });
+    } catch {
+      /* session notifications are best-effort */
+    }
   }
 
   if (ensureContext) {

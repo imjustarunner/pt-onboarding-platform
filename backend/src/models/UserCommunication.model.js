@@ -15,6 +15,11 @@ class UserCommunication {
     return crypto.randomBytes(16).toString('hex');
   }
 
+  static async setTrackingToken(id, agencyId, token) {
+    const [result] = await pool.execute('UPDATE user_communications SET tracking_token=? WHERE id=? AND agency_id=?', [token, id, agencyId]);
+    if (result.affectedRows !== 1) throw new Error('Email tracking record does not belong to this agency.');
+  }
+
   static async create(communicationData) {
     const {
       userId = null,

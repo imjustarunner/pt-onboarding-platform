@@ -1,8 +1,16 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const props = defineProps({ appointmentId: { type: Number, required: true } });
 const rows = ref([]); const loading = ref(false); const busy = ref(0); const error = ref(''); const notice = ref(''); let request = 0;
+const offerSlots = ref(null), selectedOffer = ref(null), offersLoading = ref(false);
+async function loadOffers() {
+  const id = props.appointmentId; offersLoading.value = true;
+  try { const { data } = await api.get(`/appointments/${id}/replacement-history`, { skipGlobalLoading: true }); if (props.appointmentId === id) offerSlots.value = data.slots || []; }
+  catch (e) { if (props.appointmentId === id) error.value = e.response?.data?.error?.message || 'Could not load replacement invitations.'; }
+  finally { offersLoading.value = false; }
+}
 const metadata = row => {
   if (row.metadata && typeof row.metadata === 'object') return row.metadata;
   try { return JSON.parse(row.metadata || row.metadata_json || '{}') || {}; } catch { return {}; }
@@ -40,13 +48,17 @@ async function retry(row) {
   } catch (e) { if (props.appointmentId === id) error.value = e.response?.data?.error?.message || 'Could not retry this delivery. Review its status before trying again.'; }
   finally { busy.value = 0; }
 }
-watch(() => props.appointmentId, () => { rows.value = []; notice.value = ''; load(); }, { immediate: true });
+watch(() => props.appointmentId, () => { rows.value = []; notice.value = ''; offerSlots.value = null; selectedOffer.value = null; load(); }, { immediate: true });
 </script>
 <template>
   <section class="appointment-communications" aria-label="Session communication history">
     <header><div><h3>Communications</h3><p>Appointment notifications and delivery activity retained with this session. Schedule updates are also saved to the client’s communication record.</p></div><button type="button" :disabled="loading || !!busy" @click="load">Refresh</button></header>
     <p v-if="loading" role="status">Loading session communications…</p>
     <p v-if="notice" role="status">{{ notice }}</p><p v-if="error" role="alert">{{ error }}</p>
+    <button type="button" :disabled="offersLoading" @click="loadOffers">{{ offersLoading ? 'Loading invitations…' : 'Replacement invitations' }}</button>
+    <p v-if="offerSlots && !offerSlots.length">No replacement invitations are linked to this session.</p>
+    <ul v-if="offerSlots?.length"><li v-for="slot in offerSlots" :key="slot.replacementSlotId"><button type="button" @click="selectedOffer = slot">{{ when(slot.startAt) }} — recipients and delivery history</button></li></ul>
+    <OfferedTimeDialog v-if="selectedOffer" :item="selectedOffer" history-only @close="selectedOffer = null" />
     <p v-if="!loading && !communications.length && !error">No appointment communications have been recorded yet.</p>
     <ol>
       <li v-for="row in communications" :key="row.id" :data-delivery-id="row.metadata.cancellationDeliveryId || undefined">

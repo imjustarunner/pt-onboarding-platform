@@ -1186,8 +1186,14 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
   const bufferResult = await processDueChangeNotifications({ limit: 20 });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');
   const cancellations = await processDueCancellationNotifications({ limit: 20 });
+  let replacementBookings;
+  try { replacementBookings = await (await import('./appointmentReplacementOffer.service.js')).replacementOffers.processBookings({limit:20}); }
+  catch (e) { replacementBookings = {failed:1}; console.warn('[replacement-offers] Automatic booking retry needs attention:',e.message); }
   const scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20 });
-  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates };
+  let replacementOutcomes;
+  try { replacementOutcomes = await (await import('./replacementOfferEvents.service.js')).replacementOfferEvents.processDue({ limit: 20 }); }
+  catch (e) { replacementOutcomes = { failed: 1 }; console.warn('[replacement-offers] Outcome processing needs attention:', e.message); }
+  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates, replacementBookings, replacementOutcomes };
 }
 
 // ── Provider-pushed buffered updates ─────────────────────────────────────────

@@ -120,7 +120,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
     else if(client.service.service_kind==='counseling')serviceFilter+=" AND (a.business_type IS NULL OR a.business_type IN ('mental_health','healthcare'))";
     else{serviceFilter+=' AND a.business_type=?';params.push(client.service.service_kind);}
   }
-  const selection = `SELECT DISTINCT a.business_type AS businessType,a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'${serviceFilter}`;
+  const selection = `SELECT DISTINCT a.source,a.office_location_id AS officeLocationId,a.room_id AS roomId,a.business_type AS businessType,a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'${serviceFilter}`;
   // This is a display window only: keep the provider's future reservation intact.
   // Query upcoming and history independently, so far-future rows cannot crowd out either.
   const [upcoming] = await pool.execute(`${selection} AND a.start_at>=UTC_TIMESTAMP()
@@ -135,9 +135,12 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
     delete row.googleMeetLink;
     row.requests = (await appointmentRequests(row.id)).filter(r => Number(r.clientId) === Number(clientId));
     row.serviceSetting = await resolveAppointmentServiceSetting(row);
+    if (String(row.source || '').startsWith('replacement_offer:')) {
+      row.attendanceDetails = await (await import('./replacementBookingConfirmation.service.js')).replacementAttendanceDetails(row);
+    }
     if (offerIds.has(Number(row.id))) {
       const { replacementOffers } = await import('./appointmentReplacementOffer.service.js');
-      row.replacementOffer = await replacementOffers.view(row.id, clientId);
+      row.replacementOffer = await replacementOffers.view(row.id, clientId, userId);
     }
   }
   return rows;

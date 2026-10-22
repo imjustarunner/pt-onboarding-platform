@@ -34,7 +34,7 @@ function harness() {
     encrypt:s=>JSON.stringify({encrypted:Buffer.from(s).toString('base64')}),decrypt:s=>Buffer.from(JSON.parse(s).encrypted,'base64').toString(),
     appointment:vi.fn(async id=>appointments.get(Number(id))),participants:vi.fn(async()=>[{clientId:8}]),
     tenant:vi.fn(async()=>({channelsEnabled:{sms:true},changeNotify:{channels:['email','sms'],bufferMinutes:15}})),
-    consent:vi.fn(async()=>({email:true,sms:true,emailAddress:'client@example.test',phoneNumber:'+15555550100',guardianUserId:9})),
+    reviewedRecipientAllowed:vi.fn(async()=>true),consent:vi.fn(async()=>({email:true,sms:true,emailAddress:'client@example.test',phoneNumber:'+15555550100',guardianUserId:9})),
     preferences:vi.fn(async()=>({isDefault:true})),normalizePhone:async p=>p,
     log:vi.fn(),communication:vi.fn(async()=>({id:10})),updateCommunication:vi.fn(),
     sendEmail:vi.fn(async()=>({id:'email-1'})),sendSms:vi.fn(async()=>({messageId:'sms-1'})),smsSender:async()=>'+15555550101',
@@ -107,5 +107,36 @@ describe('one durable schedule update per client after edits settle',()=>{
   it('does not repeat a verified replacement already described by the moved-session message',()=>{
     const m=buildScheduleNoticeMessage([{appointment:{id:1},payload:{},cancellation:{replacementAppointmentId:2,subject:'Your appointment has moved',text:'Updated time',html:'Updated time'}},{appointment:{id:2},payload:{}}],'https://portal.example.test');
     expect(m.subject).toBe('Your appointment has moved');expect(m.text.match(/Updated time/g)).toHaveLength(1);
+  });
+});
+
+
+describe('reviewed cancellation delivery scope',()=>{
+  const targets=[{key:'client',userId:11,email:'client@example.test',phone:'+15555550111'},
+    {key:'guardian:12',userId:12,email:'parent@example.test',phone:'+15555550112'}];
+  const facts={reviewedCancellation:true,notificationRecipients:[{clientId:8,mode:'both',channels:['email','sms'],recipients:targets}]};
+  it('sends separately to each selected contact with separate receipts and current permissions',async()=>{
+    const h=harness();await h.service.queue(1,{eventType:'canceled',facts});h.advance(15);await h.service.process(1);
+    expect(h.deps.sendEmail.mock.calls.map(([a])=>a.to)).toEqual(['client@example.test','parent@example.test']);
+    expect(h.deps.sendSms.mock.calls.map(([a])=>a.to)).toEqual(['+15555550111','+15555550112']);
+    expect(h.deliveries).toHaveLength(4);expect(h.deps.reviewedRecipientAllowed).toHaveBeenCalledTimes(4);
+    await h.service.process(1);expect(h.deps.sendEmail).toHaveBeenCalledTimes(2);
+  });
+  it('does not add unreviewed bookings to a reviewed cancellation email',async()=>{
+    const h=harness();await h.service.queue(1,{eventType:'canceled',facts});
+    h.appointments.set(2,{...h.appointments.get(1),id:2,status:'scheduled',startAt:'2030-01-04T17:00:00Z'});await h.service.queue(2,{eventType:'created'});
+    h.advance(15);await h.service.process(1);
+    expect(h.deps.sendEmail.mock.calls.every(([a])=>!a.text.includes('January 4'))).toBe(true);
+    expect(h.notices[1].status).toBe('pending');
+  });
+  it('honors email-only and per-contact revocation without falling back to another address',async()=>{
+    const h=harness();h.deps.reviewedRecipientAllowed.mockImplementation(async(c,a,r)=>r.key==='client');
+    await h.service.queue(1,{eventType:'canceled',facts:{...facts,notificationRecipients:[{...facts.notificationRecipients[0],channels:['email']}]}});
+    h.advance(15);await h.service.process(1);expect(h.deps.sendEmail).toHaveBeenCalledTimes(1);expect(h.deps.sendSms).not.toHaveBeenCalled();
+    expect(h.deliveries.map(d=>d.status)).toEqual(['sent','skipped']);
+  });
+  it('records no-contact choice without sending to the default recipient',async()=>{
+    const h=harness();await h.service.queue(1,{eventType:'canceled',facts:{...facts,notificationRecipients:[{clientId:8,mode:'none',channels:[],recipients:[]}]}});
+    h.advance(15);await h.service.process(1);expect(h.deps.sendEmail).not.toHaveBeenCalled();expect(h.notices[0].status).toBe('suppressed');
   });
 });

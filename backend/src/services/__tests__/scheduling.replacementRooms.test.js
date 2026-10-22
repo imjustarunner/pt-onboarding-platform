@@ -4,12 +4,12 @@ import { createCancellationFollowUpService, coveringReplacementRooms, validateCa
 import { oneTimeRoomWindow } from '../replacementOfficeRequest.service.js';
 
 const start='2030-01-03T17:15:00.000Z', end='2030-01-03T18:15:00.000Z';
-function setup({modality='IN_PERSON',reservations=[],busyBlocks=[],freeRooms=[]}={}) {
+function setup({modality='IN_PERSON',reservations=[],busyBlocks=[],freeRooms=[],validateDuration=vi.fn()}={}) {
   const appointment={id:1,agencyId:2,providerUserId:5,modality,startAt:'2030-01-02T17:00:00Z',endAt:'2030-01-02T18:00:00Z',sourceTimezone:'America/Denver'};
   const availability={computeWeekAvailability:vi.fn(async()=>({officeReservations:reservations,busyBlocks,virtualSlots:[],inPersonSlots:[]}))};
   const roomOptions=vi.fn(async()=>freeRooms),appointments={findById:async()=>appointment};
-  const service=createCancellationFollowUpService({appointments,availability,roomOptions,now:()=>new Date('2030-01-01T10:00:00Z')});
-  return {service,availability,roomOptions,appointment};
+  const service=createCancellationFollowUpService({appointments,availability,roomOptions,validateDuration,now:()=>new Date('2030-01-01T10:00:00Z')});
+  return {service,availability,roomOptions,appointment,validateDuration};
 }
 const own=(id,startAt,endAt,overrides={})=>({id,roomId:7,buildingId:3,roomLabel:'#7',buildingName:'Office',roomAvailable:true,hasAppointment:false,startAt,endAt,...overrides});
 
@@ -97,7 +97,43 @@ describe('one-time private rescheduling room choices',()=>{
   });
   it('requires consent to send the offer invitation and limits the replacement choices',()=>{
     expect(()=>validateCancellationChoices({eventType:'canceled',notificationMode:'none',suppressionReason:'Called',followUpAction:'private_slots',offeredSlots:[{}]})).toThrow('Send a notification');
-    expect(()=>validateCancellationChoices({eventType:'canceled',followUpAction:'private_slots',offeredSlots:Array(7).fill({})})).toThrow('six');
+    expect(()=>validateCancellationChoices({eventType:'canceled',followUpAction:'private_slots',offeredSlots:Array(25).fill({})})).toThrow('24');
     expect(validateCancellationChoices({eventType:'canceled',followUpAction:'private_slots',offeredSlots:[{}]}).notificationMode).toBe('send');
+  });
+});
+
+
+describe('replacement day windows',()=>{
+  const window={localStart:'2030-01-03T09:00',localEnd:'2030-01-03T12:00',durationMinutes:45,gapMinutes:15,modality:'VIRTUAL'};
+  it('creates complete 45-minute openings with 15-minute gaps and excludes conflicts',async()=>{
+    const h=setup({busyBlocks:[{startAt:'2030-01-03T17:15:00Z',endAt:'2030-01-03T17:30:00Z'}]});
+    const result=await h.service.openingWindow(1,window);
+    expect(result.slots.map(s=>[s.startAt,s.endAt])).toEqual([
+      ['2030-01-03T16:00:00.000Z','2030-01-03T16:45:00.000Z'],['2030-01-03T18:00:00.000Z','2030-01-03T18:45:00.000Z']]);
+    expect(result.unavailable).toHaveLength(1);expect(h.roomOptions).not.toHaveBeenCalled();
+    expect(result.slots[0].label).toContain('45 min');expect(h.validateDuration).toHaveBeenCalled();
+  });
+  it.each([30,45,60])('uses %i minute sessions without exceeding the window',async durationMinutes=>{
+    const h=setup();const result=await h.service.openingWindow(1,{...window,durationMinutes,gapMinutes:10});
+    for(const slot of result.slots){expect((new Date(slot.endAt)-new Date(slot.startAt))/60000).toBe(durationMinutes);expect(new Date(slot.endAt).getTime()).toBeLessThanOrEqual(Date.parse('2030-01-03T19:00:00Z'));}
+  });
+  it('keeps unapproved in-person windows out of the offered slots',async()=>{
+    const h=setup({freeRooms:[{id:8,needsRequest:true}]});
+    const result=await h.service.openingWindow(1,{...window,modality:'BOTH',roomId:8});
+    expect(result).toMatchObject({requiresOfficeRequest:true,slots:[]});
+    expect(h.roomOptions).toHaveBeenCalledWith(h.appointment,new Date('2030-01-03T16:00:00Z'),new Date('2030-01-03T19:00:00Z'));
+  });
+  it('uses one existing room across the entire window',async()=>{
+    const h=setup({reservations:[own(10,'2030-01-03T16:00:00Z','2030-01-03T19:00:00Z')]});
+    const result=await h.service.openingWindow(1,{...window,modality:'BOTH',roomId:7});
+    expect(result.slots).toHaveLength(3);expect(result.slots.every(s=>s.roomId===7&&s.modality==='BOTH')).toBe(true);
+  });
+  it('rejects a changed length that the existing service or package cannot book',async()=>{
+    const validateDuration=vi.fn().mockRejectedValue(Object.assign(new Error('Service requires 53 minutes'),{status:400}));
+    const h=setup({validateDuration});await expect(h.service.openingWindow(1,window)).rejects.toThrow('53 minutes');
+    await expect(h.service.validatePrivateSlots(h.appointment,[{startAt:start,endAt:'2030-01-03T18:00:00Z',modality:'VIRTUAL'}])).rejects.toThrow('53 minutes');
+  });
+  it.each([{gapMinutes:-1},{gapMinutes:1.5},{durationMinutes:0},{durationMinutes:31},{localEnd:'2030-01-04T12:00'},{localEnd:'2030-01-03T09:15'},{localStart:'2030-03-10T01:00',localEnd:'2030-03-10T04:00'}])('rejects invalid or clock-changing windows %j',async invalid=>{
+    const h=setup();await expect(h.service.openingWindow(1,{...window,...invalid})).rejects.toMatchObject({status:400});expect(h.availability.computeWeekAvailability).not.toHaveBeenCalled();
   });
 });

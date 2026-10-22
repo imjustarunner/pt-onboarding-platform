@@ -19,7 +19,8 @@
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? 'In person' : a.modality === 'VIRTUAL' ? 'Online' : a.modality }} · {{ a.status.replaceAll('_',' ') }}</p>
       <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">Join online appointment →</a>
-      <p v-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
+      <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
+      <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
       <p v-if="a.serviceSetting?.isSchool">No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.</p>
       <p v-if="a.canceledBy">Canceled by {{ a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
       <section v-if="a.replacementOffer" class="replacement-offer" aria-label="Private replacement offer">
@@ -27,7 +28,7 @@
         <p v-if="a.replacementOffer.nextAppointment">Your next {{ a.replacementOffer.nextAppointment.recurring ? 'recurring ' : '' }}appointment is {{ a.replacementOffer.nextAppointment.displayWhen }} ({{ a.replacementOffer.nextAppointment.timeZone }}). It remains scheduled.</p>
         <p v-else>No next appointment is currently scheduled. Sign in to check for updates or message your care team with questions.</p>
         <template v-if="a.replacementOffer.status === 'open'">
-          <p>Choose one time by {{ when(a.replacementOffer.expiresAt, a.timeZone) }}, or decline. These times are reserved for invited clients and may be offered to more than one person. Availability is checked when you select; the first completed selection reserves a time. Your selected time is reserved for the care team to confirm. Other recurring appointments stay scheduled.</p>
+          <p>Choose one time by {{ when(a.replacementOffer.expiresAt, a.timeZone) }}, or decline. These times are reserved for invited clients and may be offered to more than one person. Availability is checked when you select; the first completed selection reserves a time. Reserving a time schedules your replacement appointment immediately. Your provider will reach out if there are any changes to their schedule. Other recurring appointments stay scheduled.</p>
           <div v-for="slot in a.replacementOffer.slots" :key="slot.key" class="offer-time">
             <label><span><input v-model="selectedSlots[a.id]" type="radio" :name="`replacement-${a.id}`" :value="slot.key" @change="selectedFormats[a.id]=formats(slot).length === 1 ? formats(slot)[0] : ''"> {{ slot.label }}</span></label>
             <fieldset v-if="selectedSlots[a.id] === slot.key && formats(slot).length > 1" class="offer-formats">
@@ -36,11 +37,11 @@
             </fieldset>
           </div>
           <p v-if="!a.replacementOffer.slots.length">No offered times are currently available. Your next appointment stays scheduled, if listed above. You can contact support for other options.</p>
-          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedChoice(a)" @click="respondToOffer(a, 'select')">Reserve selected time for confirmation</button>
+          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedChoice(a)" @click="respondToOffer(a, 'select')">Reserve this time</button>
             <button type="button" :disabled="busy" @click="respondToOffer(a, 'decline')">{{ a.replacementOffer.nextAppointment ? `See you next session — ${a.replacementOffer.nextAppointment.displayWhen}` : 'Decline replacement offer' }}</button></div>
         </template>
-        <p v-else-if="a.replacementOffer.status === 'requested'">Your replacement time is reserved for care-team confirmation. This is a request, not a confirmed appointment.</p>
-        <p v-else-if="a.replacementOffer.status === 'confirmed'">Your replacement appointment is confirmed. See your upcoming appointments for its current details.</p>
+        <div v-else-if="['requested','booking'].includes(a.replacementOffer.status)"><p>We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.</p><button type="button" :disabled="busy" @click="respondToOffer(a, 'select')">Refresh reservation</button></div>
+        <p v-else-if="a.replacementOffer.status === 'confirmed'">Your time has been reserved. Your provider will reach out if there are any changes to their schedule. See your upcoming appointments for the details.</p>
         <p v-else-if="a.replacementOffer.status === 'declined_by_team'">The care team could not confirm this replacement. Contact support for other options. Your other appointments remain scheduled.</p>
         <p v-else-if="a.replacementOffer.status === 'declined'">You declined this offer. Other appointments remain unchanged.</p>
         <p v-else>This offer has expired. It did not change or cancel your other appointments. Please contact support if you need another time.</p>
@@ -83,12 +84,15 @@ const selectedChoice = a => {
 async function respondToOffer(a, action) {
   if (busy.value || props.preview) return;
   const choice = action === 'select' ? selectedChoice(a) : null;
-  if (action === 'select' && !choice) return;
+  if (action === 'select' && a.replacementOffer.status === 'open' && !choice) return;
   const own = sequence; busy.value = true; error.value = ''; notice.value = '';
   try {
     const { data } = await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/replacement-offer`, { action, ...choice }, { skipGlobalLoading: true });
     if (own === sequence) {
-      notice.value = data.status === 'requested' ? 'Your time is reserved for the care team to confirm. Your other appointments stay scheduled.' : 'Replacement offer declined. Your other appointments stay scheduled.';
+      notice.value = data.status === 'confirmed'
+        ? 'Your time has been reserved. Your provider will reach out if there are any changes to their schedule. Your other appointments stay scheduled.'
+        : ['booking','requested'].includes(data.status) ? 'We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.'
+          : 'Replacement offer declined. Your other appointments stay scheduled.';
       await load();
     }
   } catch (e) { if (own === sequence) error.value = e.response?.data?.error?.message || 'Could not save your choice. Refresh before trying again.'; }

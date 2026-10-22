@@ -29,6 +29,21 @@ export async function readReplacementSlotRecipients(db, slot, now = new Date()) 
     LEFT JOIN public_appointment_requests r ON r.id=o.request_id
     WHERE os.slot_id=? ORDER BY o.created_at DESC,o.id DESC`, [slot.agency_id, slot.provider_id, slot.id]);
   const iso = value => value ? parseUtcDate(value).toISOString() : null;
+  const [deliveries] = await db.execute(`SELECT n.appointment_id,n.client_id,n.status AS queue_status,n.fire_at,
+    d.channel,d.status,d.recipient_address,d.sent_at,uc.delivered_at,uc.opened_at
+    FROM appointment_replacement_offer_slots os JOIN appointment_replacement_offers o ON o.id=os.offer_id
+    JOIN appointment_schedule_notices n ON n.appointment_id=o.appointment_id AND n.client_id=o.client_id
+    LEFT JOIN appointment_schedule_notice_deliveries d ON d.batch_id=n.batch_id
+    LEFT JOIN user_communications uc ON uc.id=d.communication_id
+    WHERE os.slot_id=? AND o.agency_id=? AND o.provider_id=? AND n.event_type IN ('canceled','rescheduled')
+    ORDER BY n.id,d.id`, [slot.id,slot.agency_id,slot.provider_id]);
+  const [views] = await db.execute(`SELECT v.offer_id,v.first_viewed_at,v.last_viewed_at,u.first_name,u.last_name
+    FROM appointment_replacement_offer_views v JOIN appointment_replacement_offer_slots os ON os.offer_id=v.offer_id
+    JOIN appointment_replacement_offers o ON o.id=v.offer_id JOIN users u ON u.id=v.user_id
+    WHERE os.slot_id=? AND o.agency_id=? AND o.provider_id=?`, [slot.id,slot.agency_id,slot.provider_id]);
+  const [events] = await db.execute(`SELECT e.* FROM appointment_replacement_events e
+    JOIN appointment_replacement_offer_slots os ON os.offer_id=e.offer_id JOIN appointment_replacement_offers o ON o.id=e.offer_id
+    WHERE os.slot_id=? AND o.agency_id=? AND o.provider_id=? ORDER BY e.id`, [slot.id,slot.agency_id,slot.provider_id]);
   return rows.map(row => {
     let status = row.status;
     if (row.selected_slot_id && Number(row.selected_slot_id) !== Number(slot.id)) status = 'selected_other_time';
@@ -37,7 +52,12 @@ export async function readReplacementSlotRecipients(db, slot, now = new Date()) 
     else if (status === 'open' && +parseUtcDate(row.expires_at) <= +now) status = 'expired';
     return { offerId: Number(row.id), appointmentId: Number(row.appointment_id), clientId: Number(row.client_id),
       clientName: row.full_name || row.initials || 'Client', offeredAt: iso(row.created_at), expiresAt: iso(row.expires_at),
-      status, selectedModality: Number(row.selected_slot_id) === Number(slot.id) ? row.selected_modality || null : null };
+      status,
+      deliveries: deliveries.filter(d => Number(d.appointment_id) === Number(row.appointment_id) && Number(d.client_id) === Number(row.client_id))
+        .map(d => ({ channel:d.channel, status:d.status || d.queue_status, recipient:d.recipient_address, queuedFor:iso(d.fire_at), sentAt:iso(d.sent_at), deliveredAt:iso(d.delivered_at), openedAt:iso(d.opened_at) })),
+      views: views.filter(v => Number(v.offer_id) === Number(row.id)).map(v => ({ name:[v.first_name,v.last_name].filter(Boolean).join(' '), firstViewedAt:iso(v.first_viewed_at), lastViewedAt:iso(v.last_viewed_at) })),
+      outcomes: events.filter(e => Number(e.offer_id) === Number(row.id)).map(e => ({ status:e.event_type, text:e.outcome_text, recordedAt:iso(e.created_at), providerEmailStatus:e.email_status, providerEmailSentAt:iso(e.email_sent_at) })),
+      selectedModality: Number(row.selected_slot_id) === Number(slot.id) ? row.selected_modality || null : null };
   });
 }
 

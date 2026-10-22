@@ -448,7 +448,9 @@ export function assembleAppointmentChangeNarrative({
   strikeResult = null,
   waiver = null,
   actorTitle = 'The provider',
-  additionalComments = ''
+  additionalComments = '',
+  clientFacingReason = '',
+  followUpAction = ''
 } = {}) {
   const sentences = [];
   const initiatorLabel = INITIATOR_LABELS[String(initiator || '').toLowerCase()] || 'the client';
@@ -482,6 +484,9 @@ export function assembleAppointmentChangeNarrative({
       `${actorTitle} indicated that ${initiatorLabel} canceled the scheduled session${dueTo}.`
     );
   }
+
+  if (clientFacingReason && ['canceled','rescheduled'].includes(et)) sentences.push(`Cancellation reason: ${clientFacingReason}`);
+  if (et === 'canceled' && ['private_slots','portal_booking'].includes(followUpAction)) sentences.push('Outcome: Session canceled — reschedule requested.');
 
   if (classification === 'late_cancel' || classification === 'late_cancel_reschedule') {
     sentences.push(
@@ -689,7 +694,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
 
   let nextAppointment = null;
   if (['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(facts.followUpAction)) {
-    nextAppointment = await cancellationFollowUp.nextAppointment(bundle, clientId, { afterAt: facts.followUpAfterAt || null });
+    nextAppointment = await cancellationFollowUp.nextAppointment(bundle, clientId, { afterAt: facts.followUpAfterAt || null, excludeAppointmentIds: facts.followUpExcludedAppointmentIds || [] });
     if (facts.followUpAction === 'keep_next' && !nextAppointment) throw Object.assign(new Error('There is no next appointment with this provider. Choose support follow-up instead.'), { status: 400 });
   }
   if (safeInt(facts.replacementAppointmentId)) {
@@ -734,7 +739,8 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     strikeResult: strikePreview,
     waiver: facts.waiver || null,
     actorTitle: 'The provider',
-    additionalComments: facts.additionalComments
+    additionalComments: facts.additionalComments,
+    clientFacingReason: facts.clientFacingReason, followUpAction: facts.followUpAction
   });
 
   let providerName = null;
@@ -916,7 +922,8 @@ async function applyAppointmentChange(
     strikeResult: preview.strike,
     waiver: facts.waiver || null,
     actorTitle: 'The provider',
-    additionalComments: facts.additionalComments
+    additionalComments: facts.additionalComments,
+    clientFacingReason: facts.clientFacingReason, followUpAction: facts.followUpAction
   });
 
 

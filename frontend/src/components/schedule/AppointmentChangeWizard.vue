@@ -188,22 +188,24 @@
                 <p v-if="change.replacementOptions?.value?.nextAppointment" class="muted">Next {{ change.replacementOptions.value.nextAppointment.recurring ? 'recurring ' : '' }}appointment: {{ change.replacementOptions.value.nextAppointment.displayWhen }} ({{ change.replacementOptions.value.nextAppointment.timeZone }}).</p>
                 <p v-if="change.replacementOptions?.value && !change.replacementOptions.value.portalBookingEnabled" class="muted">General online booking is off for this practice or provider. A private offer authorizes only this client to choose from your selected times.</p>
                 <div v-if="['private_slots', 'portal_booking'].includes(change.facts.followUpAction)" class="acw-offers">
-                  <p>You can offer the same times to several clients. The first completed selection reserves a time; offers stay off the public page until released or expired. One replacement occurrence only. The client may decline and keep their next appointment. A selected time is reserved for care-team confirmation; other recurring sessions remain unchanged.</p>
+                  <p>You can offer the same times to several clients. The first completed selection reserves a time; offers stay off the public page until released or expired. One replacement occurrence only. The client may decline and keep their next appointment. A completed reservation schedules the appointment immediately; no additional approval is required.</p>
+                  <p class="acw-info"><strong>Offer only times you can commit to.</strong> A client or guardian can book these times immediately. If you later need to adjust your schedule or close gaps, change the booked appointment and notify the family through My Schedule.</p>
                   <label class="acw-field">Offer expires after <select v-model.number="change.facts.offerDays" class="acw-input"><option :value="1">1 day</option><option :value="2">48 hours (recommended)</option><option :value="3">3 days</option><option :value="7">7 days</option><option :value="14">14 days</option></select></label>
                   <template v-if="change.facts.followUpAction === 'private_slots'">
+                    <ReplacementOpeningBuilder v-model="change.facts.offeredSlots" v-model:pending-requests="change.facts.pendingOfficeRequests" :appointment-id="change.appointmentId.value" :time-zone="change.replacementOptions?.value?.timeZone" @update:pending-requests="change.saveDraft()" @busy="change.customOffer.busy = $event" />
                     <h4>Add a free time</h4><p>No published opening is needed. Uses this appointment’s length. Choose in office, virtual, or both for each time, regardless of the original visit’s format. With both options, the client chooses how to attend. Times are in {{ change.replacementOptions?.value?.timeZone || 'the provider’s timezone' }}.</p>
                     <label class="acw-field">Date and start time <input v-model="change.customOffer.localStart" :disabled="change.customOffer.busy" type="datetime-local" class="acw-input" @change="change.customOffer.roomId=null;change.customOffer.rooms=[];change.customOffer.requiresOfficeRequest=false"></label>
                     <label class="acw-field">Offer this time as <select v-model="change.customOffer.modality" :disabled="change.customOffer.busy" class="acw-input" @change="change.customOffer.roomId=null;change.customOffer.rooms=[];change.customOffer.requiresOfficeRequest=false;change.customOffer.error=''"><option value="" disabled>Choose a format</option><option value="IN_PERSON">In office</option><option value="VIRTUAL">Virtual</option><option value="BOTH">In office or virtual — client chooses</option></select></label>
                     <p v-if="change.customOffer.modality && change.customOffer.modality !== 'VIRTUAL'">Use an available room already reserved for you, or request an available room for this date only. Room approval is needed before offering an in-office option. Virtual-only times do not need a room.</p>
                     <label v-if="change.customOffer.rooms.length" class="acw-field">Room <select v-model="change.customOffer.roomId" :disabled="change.customOffer.busy" @change="change.customOffer.requiresOfficeRequest=false" class="acw-input"><option :value="null">Choose a room</option><option v-for="room in change.customOffer.rooms" :key="room.id" :value="room.id">{{ room.label }} — {{ room.needsRequest ? 'One-time request needed' : 'Already reserved for you' }}</option></select></label>
-                    <button type="button" class="acw-btn" :disabled="change.customOffer.busy || !change.customOffer.localStart || !change.customOffer.modality || change.facts.offeredSlots.length>=6" @click="change.addCustomOffer">{{ change.customOffer.busy ? 'Checking…' : 'Check and add time' }}</button>
+                    <button type="button" class="acw-btn" :disabled="change.customOffer.busy || !change.customOffer.localStart || !change.customOffer.modality || change.facts.offeredSlots.length>=24" @click="change.addCustomOffer">{{ change.customOffer.busy ? 'Checking…' : 'Check and add time' }}</button>
                     <div v-if="change.customOffer.requiresOfficeRequest"><p>This room is available to request. This is a one-time replacement; your recurring room schedule will stay unchanged.</p><p>{{ change.customOffer.rooms.find(r=>r.id===Number(change.customOffer.roomId))?.windowLabel }}</p><button type="button" class="acw-btn" :disabled="change.customOffer.busy" @click="change.requestOfferOffice">Confirm and request this room once</button></div>
-                    <div v-for="request in change.facts.pendingOfficeRequests || []" :key="request.requestId" class="acw-info"><strong>Office request #{{ request.requestId }} submitted</strong><p>{{ request.label }} · {{ request.windowLabel }} · {{ request.modality === 'BOTH' ? 'In office or virtual' : 'In office' }}</p><p>This room is not offered to the client yet. Your draft is saved. After room approval, recheck to add the in-office choice. You can offer this time as virtual only while waiting, use other secured times, or keep the next appointment.</p><button type="button" class="acw-btn" :disabled="change.customOffer.busy" @click="change.customOffer.localStart=request.localStart;change.customOffer.roomId=request.roomId;change.customOffer.modality=request.modality || 'IN_PERSON';change.addCustomOffer()">Recheck room and add time</button></div>
+                    <div v-for="request in (change.facts.pendingOfficeRequests || []).filter(r => !r.localEnd)" :key="request.requestId" class="acw-info"><strong>Office request #{{ request.requestId }} submitted</strong><p>{{ request.label }} · {{ request.windowLabel }} · {{ request.modality === 'BOTH' ? 'In office or virtual' : 'In office' }}</p><p>This room is not offered to the client yet. Your draft is saved. After room approval, recheck to add the in-office choice. You can offer this time as virtual only while waiting, use other secured times, or keep the next appointment.</p><button type="button" class="acw-btn" :disabled="change.customOffer.busy" @click="change.customOffer.localStart=request.localStart;change.customOffer.roomId=request.roomId;change.customOffer.modality=request.modality || 'IN_PERSON';change.addCustomOffer()">Recheck room and add time</button></div>
                     <p v-if="change.customOffer.error" role="alert">{{ change.customOffer.error }}</p>
                     <h4>Already offered</h4><p>Reuse a time below for this client. These offers are shared; the first completed selection reserves the time.</p>
-                    <label v-for="slot in change.replacementOptions?.value?.alreadyOffered || []" :key="slot.key" class="acw-field"><span><input type="checkbox" :checked="change.facts.offeredSlots.some(s=>s.key===slot.key)" :disabled="slot.requested || (change.facts.offeredSlots.length>=6 && !change.facts.offeredSlots.some(s=>s.key===slot.key))" @change="change.toggleOfferSlot(slot)"> {{ slot.label }} · {{ slot.requested ? 'Selected — unavailable' : `Offered to ${slot.invitedCount} client(s)` }}</span></label>
+                    <label v-for="slot in change.replacementOptions?.value?.alreadyOffered || []" :key="slot.key" class="acw-field"><span><input type="checkbox" :checked="change.facts.offeredSlots.some(s=>s.key===slot.key)" :disabled="slot.requested || (change.facts.offeredSlots.length>=24 && !change.facts.offeredSlots.some(s=>s.key===slot.key))" @change="change.toggleOfferSlot(slot)"> {{ slot.label }} · {{ slot.requested ? 'Selected — unavailable' : `Offered to ${slot.invitedCount} client(s)` }}</span></label>
                     <p v-if="!change.replacementOptions?.value?.alreadyOffered?.length" class="muted">No active offered times.</p>
-                    <h4>Selected for this client ({{ change.facts.offeredSlots.length }}/6)</h4>
+                    <h4>Selected for this client ({{ change.facts.offeredSlots.length }}/24)</h4>
                     <p v-for="slot in change.facts.offeredSlots" :key="slot.key">{{ slot.label }} <button type="button" class="acw-btn" @click="change.toggleOfferSlot(slot)">Remove</button></p>
                   </template>
                   <h4>Published current-client openings</h4>
@@ -211,7 +213,7 @@
                   <p class="muted">Uses the same visit length and appointment format, over the next four weeks. You can also add a free time above without publishing it. Times are checked again when selected.</p>
                   <div class="acw-offer-slots">
                     <label v-for="slot in change.replacementOptions?.value?.slots || []" :key="slot.key" class="acw-field">
-                      <span v-if="change.facts.followUpAction === 'private_slots'"><input type="checkbox" :checked="change.facts.offeredSlots.some(s=>s.key===slot.key)" :disabled="change.facts.offeredSlots.length >= 6 && !change.facts.offeredSlots.some(s => s.key === slot.key)" @change="change.toggleOfferSlot(slot)"> {{ slot.label }}<template v-if="slot.alreadyOffered"> · Offered to {{ slot.invitedCount }} client(s)</template></span>
+                      <span v-if="change.facts.followUpAction === 'private_slots'"><input type="checkbox" :checked="change.facts.offeredSlots.some(s=>s.key===slot.key)" :disabled="change.facts.offeredSlots.length >= 24 && !change.facts.offeredSlots.some(s => s.key === slot.key)" @change="change.toggleOfferSlot(slot)"> {{ slot.label }}<template v-if="slot.alreadyOffered"> · Offered to {{ slot.invitedCount }} client(s)</template></span>
                       <span v-else>{{ slot.label }}</span>
                     </label>
                   </div>
@@ -453,10 +455,11 @@
               v-if="change.step.value < 4"
               type="button"
               class="acw-btn primary"
-              :disabled="change.loading.value || !change.canContinueFromStep(change.step.value)"
+              :disabled="change.loading.value || change.customOffer.busy || !change.canContinueFromStep(change.step.value)"
               @click="change.goNext()"
             >Continue →</button>
             <template v-else-if="change.workflow.value?.status !== 'completed'">
+            <p v-if="['private_slots','portal_booking'].includes(change.facts.followUpAction)">Only offer times you can commit to. A completed reservation schedules the appointment immediately, without another approval.</p>
             <label><input v-model="change.signatureConfirmed.value" type="checkbox" /> I reviewed this note and confirm my signature.</label>
             <button
               type="button"
@@ -475,6 +478,7 @@
 
 <script setup>
 import { computed, watch } from 'vue';
+import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import SchoolSupportCancellationBenefit from './SchoolSupportCancellationBenefit.vue';
 import {
   CANCEL_INITIATORS,
@@ -535,8 +539,8 @@ const timingLabel = computed(() => {
 const followUpLabel = computed(() => ({
   keep_next: nextAppointmentMessage.value,
   keep_next_or_support: nextAppointmentMessage.value,
-  private_slots: `Open Appointments in your client portal to choose one of the private replacement times offered by your provider, or decline. This offer expires after ${props.change.facts.offerDays} days. A selected time is reserved for care-team confirmation. ${nextAppointmentMessage.value}`,
-  portal_booking: `Open Appointments in your client portal to choose an available current-client replacement time, or decline. This offer expires after ${props.change.facts.offerDays} days. A selected time is reserved for care-team confirmation. ${nextAppointmentMessage.value}`,
+  private_slots: `Open Appointments in your client portal to choose one of the private replacement times offered by your provider, or decline. This offer expires after ${props.change.facts.offerDays} days. Reserving a time schedules your replacement appointment immediately. Your provider will reach out if there are any changes to their schedule. ${nextAppointmentMessage.value}`,
+  portal_booking: `Open Appointments in your client portal to choose an available current-client replacement time, or decline. This offer expires after ${props.change.facts.offerDays} days. Reserving a time schedules your replacement appointment immediately. Your provider will reach out if there are any changes to their schedule. ${nextAppointmentMessage.value}`,
   client_contact_support: 'Please contact our support team to arrange another appointment.',
   replacement_booked: 'A replacement appointment has been scheduled. Please review its current date and time in your portal.',
   support_will_contact: 'Our support team will contact you to arrange another appointment.',

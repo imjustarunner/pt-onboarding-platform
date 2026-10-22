@@ -28,6 +28,8 @@ import { getAgencySelfPayOnly, resolveSelfPayQuote } from '../selfPayRates.servi
 import { validateSchedulingSelection } from '../schedulingTaxonomy.service.js';
 import { ensureAppointmentClinicalLink } from '../appointmentClinicalLink.service.js';
 import { createAppointment } from '../appointment.service.js';
+import { scheduleSessionNotifications } from '../sessionNotification.service.js';
+import { appointmentScheduleNotices } from '../appointmentScheduleNotice.service.js';
 const args = { agencyId: 1, tenantServiceId: 10, providerUserId: 9, startAt: '2026-09-15T16:00:00Z', endAt: '2026-09-15T16:50:00Z', participants: [{ clientId: 8, role: 'client' }] };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -38,6 +40,29 @@ beforeEach(() => {
   Appointment.listParticipants.mockResolvedValue(args.participants); Appointment.getBilling.mockResolvedValue({});
 });
 describe('self-pay booking integration', () => {
+  it('resumes a partially created replacement on the same appointment',async()=>{
+    Appointment.findById.mockResolvedValue({id:20,agencyId:1,providerUserId:9,tenantServiceId:10,status:'scheduled',
+      source:'replacement_offer:3',startAt:args.startAt,endAt:args.endAt,modality:'VIRTUAL'});
+    await createAppointment({...args,modality:'VIRTUAL',source:'replacement_offer:3',replacementOfferId:3,resumeReplacementAppointmentId:20,deferScheduleNotice:true});
+    expect(Appointment.create).not.toHaveBeenCalled();expect(Appointment.replaceParticipants).toHaveBeenCalledWith(20,args.participants);
+    expect(ensureAppointmentClinicalLink).toHaveBeenCalledWith(20,null);expect(scheduleSessionNotifications).not.toHaveBeenCalled();
+  });
+  it.each([{status:'canceled_by_provider'},{providerUserId:99},{source:'staff_grid'},{startAt:'2026-09-15T17:00:00Z'},{tenantServiceId:99}])('does not overwrite a replacement that changed during recovery: %j',async change=>{
+    Appointment.findById.mockResolvedValue({id:20,agencyId:1,providerUserId:9,tenantServiceId:10,status:'scheduled',source:'replacement_offer:3',startAt:args.startAt,endAt:args.endAt,modality:'VIRTUAL',...change});
+    await expect(createAppointment({...args,modality:'VIRTUAL',source:'replacement_offer:3',replacementOfferId:3,resumeReplacementAppointmentId:20,deferScheduleNotice:true})).rejects.toMatchObject({status:409});
+    expect(Appointment.create).not.toHaveBeenCalled();expect(Appointment.replaceParticipants).not.toHaveBeenCalled();
+  });
+  it('resumes a package reservation even when its last credit is already reserved for this appointment',async()=>{
+    Appointment.findById.mockResolvedValue({id:20,agencyId:1,providerUserId:9,tenantServiceId:10,status:'scheduled',source:'replacement_offer:3',startAt:args.startAt,endAt:args.endAt,modality:'VIRTUAL',packageEntitlementId:4});
+    BookingPackage.findEntitlementById.mockResolvedValue({clientId:8,status:'ACTIVE',sessionsRemaining:0});
+    await createAppointment({...args,modality:'VIRTUAL',source:'replacement_offer:3',replacementOfferId:3,resumeReplacementAppointmentId:20,deferScheduleNotice:true,packageEntitlementId:4});
+    expect(Appointment.create).not.toHaveBeenCalled();expect(BookingPackage.applyAppointmentUsage).toHaveBeenCalledWith(expect.objectContaining({appointmentId:20,entitlementId:4,mode:'reserve'}));
+  });
+  it('defers replacement reminders and confirmation until the approval is fully linked', async () => {
+    await createAppointment({ ...args, deferScheduleNotice:true, source:'replacement_offer:1' });
+    expect(scheduleSessionNotifications).not.toHaveBeenCalled();expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
+    expect(ensureAppointmentClinicalLink).toHaveBeenCalledWith(20,null);
+  });
   it('blocks a direct clinical booking before the provider is enabled, even with a self-pay package', async () => {
     requireClientSessionBooking.mockRejectedValueOnce(Object.assign(new Error('Coming soon'), {status:403}));
     await expect(createAppointment({ ...args, packageEntitlementId: 4 })).rejects.toMatchObject({status:403});
@@ -55,6 +80,7 @@ describe('self-pay booking integration', () => {
     expect(Appointment.upsertBilling).toHaveBeenCalledWith(20, expect.objectContaining({ settlementMode: 'self_pay_only', amountCents: 12500, responsibleClientId: 8 }));
     expect(validateSchedulingSelection).not.toHaveBeenCalled();
     expect(ensureAppointmentClinicalLink).toHaveBeenCalledWith(20, null);
+    expect(scheduleSessionNotifications).toHaveBeenCalledWith(20,{replace:true});
   });
   it('does not require insurance coding for self-pay packages or add a separate session charge', async () => {
     BookingPackage.findEntitlementById.mockResolvedValue({ clientId: 8, status: 'ACTIVE', sessionsRemaining: 2 });
