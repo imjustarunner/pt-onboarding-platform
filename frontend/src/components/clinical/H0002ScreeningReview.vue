@@ -74,7 +74,7 @@
             </template>
             <template v-else-if="data.signedAt"><p>Signed {{ data.signedAt }}. Supervisor cosign and claim readiness are tracked separately.</p><pre>{{ data.draftText }}</pre></template>
           </div>
-          <aside v-if="packetUrl" class="packet-preview"><button type="button" @click="packetUrl = ''">Close packet</button><iframe :src="packetUrl" title="Source intake packet" /></aside>
+          <aside v-if="packetUrl" class="packet-preview"><button type="button" @click="closePacket">Close packet</button><iframe :src="packetUrl" :sandbox="packetIsPdf ? undefined : ''" title="Source intake packet" /></aside>
         </div>
       </section>
     </div>
@@ -88,7 +88,8 @@ const props = defineProps({ sessionId: { type: Number, required: true }, agencyI
 const emit = defineEmits(['close', 'signed', 'saved', 'forwarded']);
 const data = ref(null), loading = ref(true), saving = ref(false), error = ref(''), saveNotice = ref('');
 const englishText=ref(''),answerLanguage=ref('en'),translationText=ref(''),noIdentifiersConfirmed=ref(false),translating=ref(false),forwardProvider=ref('');
-const packets=ref([]),packetUrl=ref(''),packetError=ref('');
+const packets=ref([]),packetUrl=ref(''),packetError=ref(''),packetIsPdf=ref(false);
+let packetObjectUrl='',packetRequest=0;
 const outcomes = { meets: 'Does meet criteria for admission', does_not_meet: 'Does not meet criteria for admission', further_evaluation: 'Further clinical evaluation is needed' };
 const review = reactive({ outcome:'further_evaluation',assessment:'',followUp:'',presentingProblem:'',safetyConcern:'',placeOfService:'10',paperTranscription:false,paperDocumentId:null,paperSourceConfirmed:false,paperResponses:{},locationConfirmed:false,noConcernsConfirmed:false,reviewConfirmed:false,safetyReviewed:false,accurateAndComplete:false,medicalNecessityAttested:false });
 let revision=0, timer, ready=false, savePromise=null;
@@ -150,7 +151,27 @@ async function loadPackets(){
     if(packet)await openPacket(packet);
   }catch{packetError.value='Could not load client documents.';}
 }
-async function openPacket(doc){try{const r=await api.get(`${endpoint()}/documents/${doc.id}/view`);if(!r.data?.url)throw new Error('No document URL');packetUrl.value=r.data.url;review.paperDocumentId=Number(doc.id);review.paperSourceConfirmed=false;}catch{packetError.value='Could not open this document.';}}
+function closePacket(){packetRequest++;if(packetObjectUrl)URL.revokeObjectURL(packetObjectUrl);packetObjectUrl='';packetUrl.value='';}
+async function openPacket(doc){
+ const request=++packetRequest;packetError.value='';
+ try{
+  const r=await api.get(`${endpoint()}/documents/${doc.id}/view`,{responseType:'blob'});
+  if(request!==packetRequest)return;
+  let payload=r.data;
+  const mime=String(payload?.type||r.headers?.['content-type']||doc.mime_type||'').toLowerCase();
+  if(payload instanceof Blob && mime.includes('json'))payload=JSON.parse(await payload.text());
+  if(request!==packetRequest)return;
+  if(packetObjectUrl)URL.revokeObjectURL(packetObjectUrl);packetObjectUrl='';
+  if(payload instanceof Blob){
+   if(!/pdf|image\/|text\/(?:plain|html)/.test(mime))throw new Error('Unsupported document preview');
+   packetObjectUrl=URL.createObjectURL(payload);packetUrl.value=packetObjectUrl;packetIsPdf.value=mime.includes('application/pdf');
+  }else{
+   if(!payload?.url)throw new Error('No document URL');
+   packetUrl.value=payload.url;packetIsPdf.value=String(doc.mime_type||'').toLowerCase()==='application/pdf';
+  }
+  review.paperDocumentId=Number(doc.id);review.paperSourceConfirmed=false;
+ }catch{if(request===packetRequest)packetError.value='Could not open this document.';}
+}
 async function closeRoi(){
   saving.value=true;error.value='';
   try{const r=await api.post(`${endpoint()}/close-roi`,{agencyId:props.agencyId,sourceHash:data.value.sourceHash},{skipGlobalLoading:true});ready=false;emit('saved',r.data);emit('close');}
@@ -160,7 +181,7 @@ async function closeRoi(){
 function refreshProposal(){review.presentingProblem=data.value.proposedReview?.presentingProblem||'';review.assessment=data.value.proposedReview?.assessment||'';review.followUp=data.value.proposedReview?.followUp||'';review.outcome=data.value.suggestedOutcome;review.reviewConfirmed=false;review.accurateAndComplete=false;}
 function buildPresentingProblem(){review.presentingProblem=(data.value.clinicalFields||[]).filter(field=>/reason|concern|goal|harm|suicid|abuse|neglect|trauma|help/i.test(field.key)).map(field=>review.paperResponses[field.key]?`${field.label}: ${review.paperResponses[field.key]}`:'').filter(Boolean).join('\n');}
 function warnUnsaved(event){if(ready&&!data.value?.signedAt&&!data.value?.roiOnly&&(dirty.value||saving.value)){event.preventDefault();event.returnValue='';}}
-onBeforeUnmount(()=>{clearTimeout(timer);window.removeEventListener('beforeunload',warnUnsaved);});
+onBeforeUnmount(()=>{closePacket();clearTimeout(timer);window.removeEventListener('beforeunload',warnUnsaved);});
 </script>
 <style scoped>
 .h0002-backdrop{position:fixed;inset:0;background:#15213388;z-index:15000;display:flex;align-items:center;justify-content:center;padding:20px}.h0002-dialog{background:var(--bg-primary,#fff);color:var(--text-primary,#172b40);width:min(1000px,100%);max-height:94vh;overflow:auto;border-radius:14px;padding:24px;box-shadow:0 18px 60px #0003}.with-packet{width:min(1600px,100%)}.with-packet .review-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,1fr);gap:24px}.packet-preview{position:sticky;top:0;height:78vh}.packet-preview iframe{width:100%;height:92%;border:1px solid #ccd}.packet-link{display:block;margin:8px 0}footer{flex-wrap:wrap}header,footer{display:flex;align-items:center;justify-content:space-between;gap:16px}h2{margin:0}header button{border:0;background:transparent;font-size:28px;cursor:pointer}label{display:flex;flex-direction:column;gap:8px;margin:16px 0;font-weight:600}input,textarea,select{font:inherit;padding:10px;border:1px solid #aebdcb;border-radius:6px}textarea{resize:vertical;width:100%;box-sizing:border-box}.check{flex-direction:row;align-items:flex-start;font-weight:400}.check input{margin-top:4px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5;background:var(--bg-secondary,#f3f6f8);padding:16px;border-radius:8px}.muted{color:var(--text-secondary,#536579);font-size:14px}.error{color:#a12525}.language-box{background:var(--bg-secondary,#f3f6f8);padding:16px;border-radius:8px}summary{cursor:pointer;font-weight:600}footer{margin-top:24px;justify-content:flex-end}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:900px){.with-packet .review-columns{grid-template-columns:1fr}.packet-preview{position:static}}

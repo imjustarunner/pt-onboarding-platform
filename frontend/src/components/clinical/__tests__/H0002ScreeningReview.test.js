@@ -8,6 +8,15 @@ async function open(overrides={}){api.get.mockResolvedValue({data:{...fixture(),
 const label=(w,text)=>w.findAll('label').find(node=>node.text().startsWith(text));
 beforeEach(()=>{vi.clearAllMocks();api.put.mockImplementation(async(url,body)=>({data:{review:{...body,revision:body.revision+1},noteId:99}}));api.post.mockResolvedValue({data:{ok:true}});});
 describe('ROI disposition and source documents',()=>{
+ it('previews an encrypted PDF returned as bytes and releases it when closed',async()=>{
+  const create=vi.fn(()=> 'blob:test-packet'),revoke=vi.fn();
+  vi.stubGlobal('URL',class extends URL {static createObjectURL=create;static revokeObjectURL=revoke;});
+  api.get.mockImplementation(async url=>({data:url.endsWith('/review')?{...fixture(),submissionId:22,psc:{complete:false,answered:0}}:url.endsWith('/view')?new Blob(['%PDF-test'],{type:'application/pdf'}):[{id:1,intake_submission_id:22,document_type:'Intake Packet'}]}));
+  const w=mount(Review,{props:{sessionId:12,agencyId:2},global:{stubs:{Teleport:true}}});await flushPromises();
+  expect(w.get('iframe').attributes('src')).toBe('blob:test-packet');
+  expect(api.get).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/documents/1/view',{responseType:'blob'});
+  w.unmount();expect(revoke).toHaveBeenCalledWith('blob:test-packet');vi.unstubAllGlobals();
+ });
  it('offers ROI closure without a screening signature or automatic draft rewrite',async()=>{
   const w=await open({roiOnly:true,psc:{complete:false,answered:0}});
   expect(w.text()).toContain('Release of Information');expect(w.find('.btn-primary').exists()).toBe(false);
