@@ -110,3 +110,96 @@ it('does not save client changes from a read-only preview', async () => {
   expect(w.get('fieldset.preview-fields').element.disabled).toBe(true);
   w.unmount();
 });
+
+it.each(['confirm_services_started', 'provider_intake'])('allows a %s client with no service date to be reviewed as not started', async actionKey => {
+  clients = [{ ...client(1), lifecycleAction: { actionKey }, checklist: { ...client(1).checklist, firstServiceAt: actionKey === 'confirm_services_started' ? '2025-09-02' : '' } }];
+  const w = await render();
+  await row(w, 1).get('input[type=checkbox]').setValue(true);
+  await row(w, 1).get('button.primary').trigger('click'); await flushPromises();
+  expect(api.put).toHaveBeenCalledWith('/public/provider-update/sample/sections/client_fall_update', expect.objectContaining({ completed: false, data: expect.objectContaining({ pendingClientIds: [1] }) }));
+  expect(api.put.mock.calls.some(([url]) => url.includes('/fall-actions/'))).toBe(false);
+  expect(row(w, 1).text()).toContain('No start date was recorded');
+  await review(w).trigger('click'); await flushPromises();
+  expect(api.put).toHaveBeenLastCalledWith('/public/provider-update/sample/sections/client_fall_update', expect.objectContaining({ completed: true, data: expect.objectContaining({ pendingClientIds: [1] }) }));
+  expect(clients[0].checklist.firstServiceAt).toBe(actionKey === 'confirm_services_started' ? '2025-09-02' : '');
+  w.unmount();
+});
+it('saves not-started choices on Save for later and restores them when reopened', async () => {
+  clients = [{ ...client(1), lifecycleAction: { actionKey: 'confirm_services_started' } }];
+  const w = await render({ mode: 'me', token: '' });
+  await row(w, 1).get('input[type=checkbox]').setValue(true);
+  expect(await w.vm.saveDraft()).toBe(true);
+  const saved = api.put.mock.calls.find(([url]) => url.endsWith('/sections/client_fall_update'))[1];
+  expect(saved.completed).toBe(false);
+  expect(await w.vm.saveDraft()).toBe(true); expect(api.put).toHaveBeenCalledTimes(1);
+  w.unmount(); api.put.mockClear();
+  const reopened = await render({ section: { key: 'client_fall_update', data: saved.data } });
+  expect(row(reopened, 1).get('input[type=checkbox]').element.checked).toBe(true);
+  expect(row(reopened, 1).find('input[type=date]').exists()).toBe(false);
+  await review(reopened).trigger('click'); await flushPromises();
+  expect(api.put).toHaveBeenCalledTimes(1);
+  expect(api.put.mock.calls[0][1].completed).toBe(true);
+  reopened.unmount();
+});
+it('recovers from the missing-start-date error when not started is selected', async () => {
+  clients = [{ ...client(1), lifecycleAction: { actionKey: 'confirm_services_started' } }];
+  const w = await render();
+  api.put.mockRejectedValueOnce({ response: { data: { error: { message: 'First completed session must be a valid date on or before today.' } } } });
+  await row(w, 1).get('button.primary').trigger('click'); await flushPromises();
+  expect(row(w, 1).text()).toContain('First completed session must be');
+  await row(w, 1).get('input[type=checkbox]').setValue(true);
+  await review(w).trigger('click'); await flushPromises();
+  expect(w.findAll('[role=alert]')).toHaveLength(0);
+  expect(api.put.mock.calls.filter(([url]) => url.includes('/fall-actions/'))).toHaveLength(1);
+  expect(api.put.mock.calls.at(-1)[1].completed).toBe(true);
+  w.unmount();
+});
+it('saves new parent-contact steps without submitting a service date for a pending client', async () => {
+  const w = await render();
+  await contact(w, 1).setValue('2026-10-06');
+  await row(w, 1).get('select').setValue('false');
+  await row(w, 1).get('input[type=checkbox]').setValue(true);
+  await row(w, 1).get('button.primary').trigger('click'); await flushPromises();
+  const contactSave = api.put.mock.calls.find(([url]) => url.includes('/fall-actions/'))[1];
+  expect(contactSave).toEqual({ agencyId: 2, parentsContactedAt: '2026-10-06', parentsContactedSuccessful: false });
+  expect(clients[0].checklist.firstServiceAt).toBe('');
+  expect(row(w, 1).text()).toContain('Reviewed — services have not started yet');
+  w.unmount();
+});
+it('preserves pending choices and does not complete the section if their save fails', async () => {
+  const w = await render();
+  await row(w, 1).get('input[type=checkbox]').setValue(true);
+  api.put.mockRejectedValueOnce({ response: { data: { error: { message: 'Connection interrupted. Please retry.' } } } });
+  await review(w).trigger('click'); await flushPromises();
+  expect(api.put).toHaveBeenCalledTimes(1);
+  expect(api.put.mock.calls[0][1].completed).toBe(false);
+  expect(row(w, 1).get('input[type=checkbox]').element.checked).toBe(true);
+  expect(w.emitted('saved')).toBeUndefined();
+  await review(w).trigger('click'); await flushPromises();
+  expect(api.put.mock.calls.at(-1)[1].completed).toBe(true);
+  w.unmount();
+});
+it('handles multiple pending clients alongside a client who has actually started', async () => {
+  clients = [client(1), client(2), { ...client(3), lifecycleAction: { actionKey: 'confirm_services_started' } }];
+  const w = await render();
+  await row(w, 1).get('input[type=checkbox]').setValue(true);
+  await row(w, 2).get('input[type=checkbox]').setValue(true);
+  await row(w, 3).get('input[type=date]').setValue('2026-10-20');
+  await review(w).trigger('click'); await flushPromises();
+  const serviceSaves = api.put.mock.calls.filter(([url]) => url.includes('/fall-actions/'));
+  expect(serviceSaves).toHaveLength(1);
+  expect(serviceSaves[0][0]).toContain('/fall-actions/3');
+  expect(serviceSaves[0][1].serviceDate).toBe('2026-10-20');
+  expect(api.put.mock.calls.at(-1)[1]).toMatchObject({ completed: true, data: { pendingClientIds: [1, 2] } });
+  w.unmount();
+});
+it('lets a provider replace a saved pending review with an actual completed session', async () => {
+  clients = [{ ...client(1), lifecycleAction: { actionKey: 'confirm_services_started' } }];
+  const w = await render({ section: { key: 'client_fall_update', data: { pendingClientIds: [1] } } });
+  await row(w, 1).get('input[type=checkbox]').setValue(false);
+  await row(w, 1).get('input[type=date]').setValue('2026-10-20');
+  await review(w).trigger('click'); await flushPromises();
+  expect(api.put.mock.calls.find(([url]) => url.includes('/fall-actions/'))[1].serviceDate).toBe('2026-10-20');
+  expect(api.put.mock.calls.at(-1)[1]).toMatchObject({ completed: true, data: { pendingClientIds: [] } });
+  w.unmount();
+});
