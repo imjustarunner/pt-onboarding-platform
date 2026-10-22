@@ -310,6 +310,7 @@
               <div class="check-item">
                 <div class="k">Parents Contacted</div>
                 <div class="v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
+                <ParentContactAttempts :count="checklist.parent_contact_attempt_count" />
               </div>
               <div class="check-item">
                 <div class="k">Successful?</div>
@@ -519,6 +520,7 @@
 </template>
 
 <script setup>
+import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -792,6 +794,7 @@ const load = async () => {
       const c = (await api.get(`/clients/${props.client.id}`)).data || {};
       fullClient.value = c;
         checklist.value = {
+        parent_contact_attempt_count: c.parent_contact_attempt_count ?? null,
         parents_contacted_at: c.parents_contacted_at || null,
         parents_contacted_successful: c.parents_contacted_successful === null || c.parents_contacted_successful === undefined ? null : !!c.parents_contacted_successful,
         first_service_at: c.first_service_at || null,

@@ -29,7 +29,7 @@ describe('SchoolClientChatModal', () => {
         return { data: [] };
       }
       if (String(url).startsWith('/clients/')) {
-        return { data: {} };
+        return { data: { parent_contact_attempt_count: 3 } };
       }
       return { data: {} };
     });
@@ -57,6 +57,7 @@ describe('SchoolClientChatModal', () => {
     // Both panes visible by default.
     expect(wrapper.find('.dual').classes()).toContain('dual-active-both');
     expect(wrapper.text()).toContain('Comments');
+    expect(wrapper.text()).toContain('Contact attempts: 3');
     expect(wrapper.text()).toContain('Messages (ticketed)');
     expect(wrapper.text()).toContain('If you have a question about the client, please send us a message.');
     expect(wrapper.text()).toContain('Messages are for questions/inquiries');

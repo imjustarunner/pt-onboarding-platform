@@ -140,6 +140,7 @@
           <div>
             <div class="sco-k">Parents contacted</div>
             <div class="sco-v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
+            <ParentContactAttempts :count="checklist.parent_contact_attempt_count" />
           </div>
           <div>
             <div class="sco-k">Successful?</div>
@@ -287,6 +288,7 @@
 </template>
 
 <script setup>
+import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -482,6 +484,7 @@ async function loadOverviewBody() {
   try {
     const c = (await api.get(`/clients/${clientId}`, { skipGlobalLoading: true })).data || {};
     checklist.value = {
+      parent_contact_attempt_count: c.parent_contact_attempt_count ?? null,
       parents_contacted_at: c.parents_contacted_at || null,
       parents_contacted_successful: c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
         ? null

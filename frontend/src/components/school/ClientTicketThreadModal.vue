@@ -28,6 +28,7 @@
               <div class="check-item">
                 <div class="k">Parents Contacted</div>
                 <div class="v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
+                <ParentContactAttempts :count="checklist.parent_contact_attempt_count" />
               </div>
               <div class="check-item">
                 <div class="k">Successful?</div>
@@ -118,6 +119,7 @@
 </template>
 
 <script setup>
+import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import SupportTicketThreadMessage from './SupportTicketThreadMessage.vue';
@@ -287,6 +289,7 @@ const load = async () => {
     try {
       const c = (await api.get(`/clients/${props.client.id}`)).data || {};
       checklist.value = {
+        parent_contact_attempt_count: c.parent_contact_attempt_count ?? null,
         parents_contacted_at: c.parents_contacted_at || null,
         parents_contacted_successful:
           c.parents_contacted_successful === null || c.parents_contacted_successful === undefined

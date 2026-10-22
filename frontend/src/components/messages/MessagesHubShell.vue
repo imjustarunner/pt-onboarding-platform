@@ -501,7 +501,7 @@
             <p v-if="secureHint" class="msg-hub-secure-hint">{{ secureHint }}</p>
 
             <div v-if="sendMethod === 'sms'" class="msg-hub-email-thread-head">
-              <label>Text conversation <select v-model="selectedSmsThreadKey"><option :value="null">New text to current contact number</option><option v-for="key in smsThreads" :key="key" :value="key">{{ key.split(':').slice(-2).join(' → ') }}</option></select></label>
+              <label>Text conversation <select v-model="selectedSmsThreadKey" @change="smsConversationChoiceExplicit = true"><option :value="null">New text to current contact number</option><option v-for="key in smsThreads" :key="key" :value="key">{{ key.split(':').slice(-2).join(' → ') }}</option></select></label>
             </div>
             <button v-if="historyAvailable" class="btn btn-secondary btn-xs" :disabled="historyLoading" @click="loadOlderHistory">{{ historyLoading ? 'Loading…' : 'Load older messages' }}</button>
             <div ref="timelineEl" class="msg-hub-timeline">
@@ -2663,8 +2663,9 @@ async function downloadHubAttachment(event, attachment) {
   catch (e) { sendError.value = e?.response?.data?.error?.message || 'Could not download attachment'; }
 }
 const selectedSmsThreadKey = ref(null);
+const smsConversationChoiceExplicit = ref(false);
 const smsThreads = computed(() => [...new Set((timeline.value || []).filter((m) => m.channel === 'sms').map((m) => m.meta?.smsThreadKey).filter(Boolean))]);
-watch(() => selected.value?.personKey, () => { selectedSmsThreadKey.value = null; });
+watch(() => selected.value?.personKey, () => { selectedSmsThreadKey.value = null; smsConversationChoiceExplicit.value = false; });
 const visibleTimeline = computed(() => {
   const method = String(sendMethod.value || '').toLowerCase();
   const items = Array.isArray(timeline.value) ? timeline.value : [];
@@ -4577,7 +4578,7 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
     }) : [];
     timeline.value = [...new Map([...older, ...incoming].map((m) => [m.id, m])).values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     loadedTimelinePersonKey = personKey;
-    if (!selectedSmsThreadKey.value && sendMethod.value === 'sms') selectedSmsThreadKey.value = [...incoming].reverse().find((m) => m.channel === 'sms')?.meta?.smsThreadKey || null;
+    if (!smsConversationChoiceExplicit.value && !selectedSmsThreadKey.value && sendMethod.value === 'sms') selectedSmsThreadKey.value = [...incoming].reverse().find((m) => m.channel === 'sms')?.meta?.smsThreadKey || null;
     const chatMsg = [...timeline.value].reverse().find((m) => m.channel === sendMethod.value && m?.meta?.threadId);
     chatThreadId.value = chatMsg?.meta?.threadId || null;
 
@@ -5060,6 +5061,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
       if (navId.value === 'queued') loadQueued();
       else refreshQueuedCount();
     }
+    if (sentMethod === 'sms') smsConversationChoiceExplicit.value = false;
     await loadTimeline(selected.value.personKey);
     await loadPersonContext(selected.value.personKey);
     dropOpenedFromUnread({ personKey: selected.value.personKey, conversationId: data?.threadRef?.conversationId || null });

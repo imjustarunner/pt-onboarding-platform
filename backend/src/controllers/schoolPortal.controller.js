@@ -1,3 +1,4 @@
+import { attachParentContactCounts } from '../services/parentContactCounts.service.js';
 import { visibleSchoolRosterClients } from '../services/clientTerminationRoster.service.js';
 import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
 import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
@@ -1316,6 +1317,7 @@ export const getSchoolClients = async (req, res, next) => {
       }
     }
     await attachRosterSearchFields(clients);
+    await attachParentContactCounts(clients);
     let restrictedClients = clients.map(client => {
       const clientId = Number(client.id);
       const schoolStaffAccessMeta = String(userRole || '').toLowerCase() === 'school_staff'
@@ -1387,6 +1389,7 @@ export const getSchoolClients = async (req, res, next) => {
         paperwork_delivery_method_id: client.paperwork_delivery_method_id || null,
         paperwork_delivery_method_label: client.paperwork_delivery_method_label || null,
         doc_date: client.doc_date || null,
+        parent_contact_attempt_count: client.parent_contact_attempt_count,
         parents_contacted_at: canViewOperationalChecklist ? (client.parents_contacted_at || null) : null,
         parents_contacted_successful:
           !canViewOperationalChecklist ||
@@ -1399,6 +1402,7 @@ export const getSchoolClients = async (req, res, next) => {
         // School staff: booleans only (no dates) for read-only provider milestones
         provider_milestones: {
           parents_contacted: !!(client.parents_contacted_at),
+          parent_contact_attempt_count: client.parent_contact_attempt_count,
           intake_done: !!(client.intake_at),
           first_service_done: servicesConfirmedThisSchoolYear({ ...client, client_type: 'school' })
         },
@@ -2101,6 +2105,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       // dispositions table optional
     }
     await attachRosterSearchFields(clients);
+    await attachParentContactCounts(clients);
     let restrictedClients = clients.map((client) => {
       const clientId = Number(client.id);
       const firstServiceAt = client.first_service_at ? new Date(client.first_service_at) : null;
@@ -2182,6 +2187,7 @@ export const getProviderMyRoster = async (req, res, next) => {
         paperwork_delivery_method_id: client.paperwork_delivery_method_id || null,
         paperwork_delivery_method_label: client.paperwork_delivery_method_label || null,
         doc_date: client.doc_date || null,
+        parent_contact_attempt_count: client.parent_contact_attempt_count,
         parents_contacted_at: client.parents_contacted_at || null,
         parents_contacted_successful:
           client.parents_contacted_successful === null || client.parents_contacted_successful === undefined

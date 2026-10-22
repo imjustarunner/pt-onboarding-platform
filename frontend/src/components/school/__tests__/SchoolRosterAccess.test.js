@@ -25,6 +25,11 @@ const roster = (props = {}) => mount(ClientListGrid, {
 });
 
 describe('school roster', () => {
+  it.each(['being_seen', 'ready_to_schedule'])('shows recorded contact attempts for a %s client', client_status_key => {
+    const wrapper = roster({ clientsOverride: [{ ...active, client_status_key, parent_contact_attempt_count: 3 }] });
+    expect(wrapper.text()).toContain(client_status_key === 'being_seen' ? 'Contact attempts: 3' : '3 attempts');
+    wrapper.unmount();
+  });
   it('uses the selected label mode, including mixed-case initials', async () => {
     const wrapper = roster({ clientLabelMode: 'codes' });
     expect(wrapper.find('.initials-btn').text()).toBe('123456');

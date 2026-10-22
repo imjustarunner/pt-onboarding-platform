@@ -1,3 +1,4 @@
+import { attachParentContactCounts } from '../services/parentContactCounts.service.js';
 import { cardUrlKey } from '../services/insuranceCards/policy.js';
 import { validateFaxFields } from '../services/faxExtraction.service.js';
 import { createClientFromFax, getFaxDraft } from '../services/faxIntake.service.js';
@@ -1075,6 +1076,7 @@ export const getClientById = async (req, res, next) => {
         if (refreshed) Object.assign(client, refreshed);
       }
       await attachDemographicsOnFileFlag(client);
+      await attachParentContactCounts([client]);
       return res.json(client);
     }
 
@@ -1120,6 +1122,7 @@ export const getClientById = async (req, res, next) => {
         }
       }
 
+      await attachParentContactCounts([client]);
       // Return restricted view (exclude sensitive fields)
       const restrictedClient = {
         id: client.id,
@@ -1132,6 +1135,7 @@ export const getClientById = async (req, res, next) => {
         organization_slug: client.organization_slug,
         skills: isSkillsClientFlag(client.skills),
 
+        parent_contact_attempt_count: client.parent_contact_attempt_count,
         // Compliance checklist fields (non-clinical / operational)
         parents_contacted_at: client.parents_contacted_at || null,
         parents_contacted_successful:
@@ -1193,6 +1197,7 @@ export const getClientById = async (req, res, next) => {
     await attachDemographicsOnFileFlag(client);
     // PII gating: strip full/first/last names for school_staff even when they
     // happen to also have agency access (defense-in-depth).
+    await attachParentContactCounts([client]);
     res.json(redactClientNamesForRole(client, userRole));
   } catch (error) {
     console.error('Get client by ID error:', error);

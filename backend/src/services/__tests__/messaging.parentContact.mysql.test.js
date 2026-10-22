@@ -8,6 +8,7 @@ import {canReadSharedClientConversation} from '../clientConversationRecord.servi
 import {guardianContactContext} from '../guardianContactContext.service.js';
 import ClientNotes from '../../models/ClientNotes.model.js';
 import {persistInboundEmail} from '../inboundEmailPersistence.service.js';
+import {attachParentContactCounts} from '../parentContactCounts.service.js';
 import {decryptChatText} from '../chatEncryption.service.js';
 const socketPath=process.env.HUB_SCOPE_MYSQL_SOCKET;
 const dbName=`parent_contact_test_${process.pid}`;
@@ -30,10 +31,10 @@ describe.skipIf(!socketPath)('parent contact events in isolated MySQL',()=>{
    'CREATE TABLE communication_links (conversation_id INT,entity_type VARCHAR(30),entity_id INT)',
    'CREATE TABLE communication_messages (id INT PRIMARY KEY AUTO_INCREMENT,conversation_id INT,channel VARCHAR(20),direction VARCHAR(20),author_user_id INT,send_status VARCHAR(20),from_json JSON,to_json JSON,cc_json JSON,bcc_json JSON,is_internal_note INT DEFAULT 0,is_auto_reply INT DEFAULT 0,auto_reply_kind VARCHAR(30),subject VARCHAR(100),body_text TEXT,body_html TEXT,internet_message_id VARCHAR(100),in_reply_to VARCHAR(100),references_header TEXT,is_group_email INT DEFAULT 0,sent_at DATETIME,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
    'CREATE TABLE client_notes (id INT PRIMARY KEY AUTO_INCREMENT,client_id INT,author_id INT,category VARCHAR(30),urgency VARCHAR(20),message TEXT,message_ciphertext TEXT,message_iv VARCHAR(100),message_auth_tag VARCHAR(100),encryption_key_id VARCHAR(100),is_internal_only INT,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
-   'CREATE TABLE message_logs (id INT PRIMARY KEY,agency_id INT,client_id INT,user_id INT,direction VARCHAR(20),delivery_status VARCHAR(20),from_number VARCHAR(40),to_number VARCHAR(40),sms_thread_key VARCHAR(100),created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
+   'CREATE TABLE message_logs (id INT PRIMARY KEY,agency_id INT,client_id INT,user_id INT,direction VARCHAR(20),delivery_status VARCHAR(20),from_number VARCHAR(40),to_number VARCHAR(40),sms_thread_key VARCHAR(100),metadata JSON,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
    'CREATE TABLE guardian_client_threads (client_id INT,agency_id INT,thread_id INT)',
    'CREATE TABLE chat_thread_participants (thread_id INT,user_id INT)',
-   'CREATE TABLE chat_messages (id INT PRIMARY KEY,thread_id INT,sender_user_id INT,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
+   'CREATE TABLE chat_messages (id INT PRIMARY KEY,thread_id INT,sender_user_id INT,topic_id VARCHAR(50),created_at DATETIME DEFAULT CURRENT_TIMESTAMP)',
    "INSERT INTO users (id,role,first_name,email,personal_phone,status) VALUES (10,'provider','Halle','provider@example.test',NULL,'ACTIVE'),(20,'client_guardian','Parent','parent@example.test','7195550100','ACTIVE'),(30,'supervisor','Supervisor',NULL,NULL,'ACTIVE'),(40,'provider','Unrelated',NULL,NULL,'ACTIVE')",
    "INSERT INTO agencies VALUES (2,'ITSCO','itsco')",
    'INSERT INTO user_agencies VALUES (10,2),(30,2),(40,2)',
@@ -45,8 +46,10 @@ describe.skipIf(!socketPath)('parent contact events in isolated MySQL',()=>{
    "INSERT INTO communication_links VALUES (100,'client',1),(100,'client',2)",
    `INSERT INTO communication_messages (id,conversation_id,channel,direction,author_user_id,send_status,to_json) VALUES (1,100,'email','outbound',10,'scheduled',JSON_ARRAY(JSON_OBJECT('email','parent@example.test')))`
   ])await state.db.query(sql);
-  const migration=readFileSync(new URL('../../../../database/migrations/1689_parent_contact_events.sql',import.meta.url),'utf8');
-  for(const sql of migration.split(';').filter(s=>s.trim()))await state.db.query(sql);
+  for(const file of ['1689_parent_contact_events.sql','1691_parent_contact_attempts.sql']) {
+   const migration=readFileSync(new URL('../../../../database/migrations/'+file,import.meta.url),'utf8');
+   for(const sql of migration.split(';').filter(s=>s.trim()))await state.db.query(sql);
+  }
  });
  afterAll(async()=>{if(state.db){await state.db.query(`DROP DATABASE ${dbName}`);await state.db.end();}});
  it('writes exactly one encrypted contact note per child only after a successful send',async()=>{
@@ -94,4 +97,32 @@ describe.skipIf(!socketPath)('parent contact events in isolated MySQL',()=>{
   expect((await state.db.query("SELECT * FROM client_parent_contact_events WHERE source_type='sms'"))[0]).toHaveLength(2);
   expect((await state.db.query("SELECT * FROM client_parent_contact_events WHERE source_type='secure'"))[0]).toHaveLength(4);
  });
+ it('counts new email conversations once per child, not follow-ups, human replies, retries or failed sends',async()=>{
+  await state.db.query('DELETE FROM client_parent_contact_attempts');
+  const backfill=readFileSync(new URL('../../../../database/migrations/1691_parent_contact_attempts.sql',import.meta.url),'utf8');
+  for(const sql of backfill.split(';').filter(s=>s.trim()))await state.db.query(sql);
+  const clients=[{id:1},{id:2}];await attachParentContactCounts(clients,state.db);
+  expect(clients.map(c=>c.parent_contact_attempt_count)).toEqual([3,2]);
+  await state.db.query(`INSERT INTO communication_messages (id,conversation_id,channel,direction,author_user_id,send_status,to_json) VALUES (30,100,'email','outbound',10,'sent',JSON_ARRAY(JSON_OBJECT('email','parent@example.test')))`);
+  await syncEmailParentContact(30);await syncEmailParentContact(30);
+  await attachParentContactCounts(clients,state.db);expect(clients.map(c=>c.parent_contact_attempt_count)).toEqual([3,2]);
+  await state.db.query('INSERT INTO communication_conversations (id,agency_id,inbox_id) VALUES (101,2,10)');
+  await state.db.query("INSERT INTO communication_links VALUES (101,'client',1),(101,'client',2)");
+  await state.db.query(`INSERT INTO communication_messages (id,conversation_id,channel,direction,author_user_id,send_status,to_json) VALUES (31,101,'email','outbound',10,'failed',JSON_ARRAY(JSON_OBJECT('email','parent@example.test')))`);
+  await syncEmailParentContact(31);await attachParentContactCounts(clients,state.db);expect(clients.map(c=>c.parent_contact_attempt_count)).toEqual([3,2]);
+  await state.db.query("UPDATE communication_messages SET send_status='sent' WHERE id=31");await syncEmailParentContact(31);
+  await attachParentContactCounts(clients,state.db);expect(clients.map(c=>c.parent_contact_attempt_count)).toEqual([4,3]);
+ });
+ it('counts an explicit new text and secure topic once, while keeping each conversation reply in that attempt',async()=>{
+  await state.db.query(`INSERT INTO message_logs (id,agency_id,client_id,user_id,direction,delivery_status,from_number,to_number,sms_thread_key,metadata) VALUES
+   (40,2,1,10,'OUTBOUND','sent','+17195550200','+17195550100','pair',JSON_OBJECT('startsParentContactConversation',true)),
+   (41,2,1,10,'OUTBOUND','sent','+17195550200','+17195550100','pair',NULL),
+   (42,2,1,NULL,'INBOUND','received','+17195550100','+17195550200','pair',NULL)`);
+  await syncSmsParentContact(40);await syncSmsParentContact(41);await syncSmsParentContact(42);await syncSmsParentContact(40);
+  expect((await state.db.query("SELECT * FROM client_parent_contact_attempts WHERE source_type='sms'"))[0]).toHaveLength(2);
+  await state.db.query("INSERT INTO chat_messages (id,thread_id,sender_user_id,topic_id) VALUES (40,200,10,'new-topic'),(41,200,10,'new-topic'),(42,200,20,'new-topic')");
+  for(const id of [40,41,42,40])await syncSecureParentContact(id);
+  expect((await state.db.query("SELECT * FROM client_parent_contact_attempts WHERE source_type='secure'"))[0]).toHaveLength(4);
+ });
+
 });

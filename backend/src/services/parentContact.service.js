@@ -23,8 +23,13 @@ export function emailParentContactOutcome(message, guardian, previousOutbound = 
   return original ? { successful: true, authorId: original.author_user_id } : null;
 }
 
-async function recordContact(db, { sourceType, sourceId, client, guardianId, authorId, direction, successful, occurredAt, conversationId }) {
+async function recordContact(db, { sourceType, sourceId, client, guardianId, authorId, direction, successful, occurredAt, conversationId, conversationKey }) {
   if (!authorId) return;
+  if (direction === 'outbound' && conversationKey) {
+    await db.execute(`INSERT IGNORE INTO client_parent_contact_attempts
+      (client_id,agency_id,source_type,conversation_key,first_source_id,occurred_at) VALUES (?,?,?,?,?,?)`,
+      [client.id,client.agency_id,sourceType,conversationKey,sourceId,occurredAt]);
+  }
   const [inserted] = await db.execute(`INSERT IGNORE INTO client_parent_contact_events
     (source_type,source_id,client_id,agency_id,guardian_user_id,author_user_id,direction,successful,occurred_at)
     VALUES (?,?,?,?,?,?,?,?,?)`, [sourceType,sourceId,client.id,client.agency_id,guardianId,authorId,direction,successful ? 1 : 0,occurredAt]);
@@ -71,7 +76,7 @@ export async function syncEmailParentContact(messageId) {
     return guardians.flatMap(g => {
       const outcome = emailParentContactOutcome(m,g,outbound);
       return outcome ? [{client:g,guardianId:g.guardian_user_id,authorId:outcome.authorId || m.author_user_id,
-        direction:m.direction,successful:outcome.successful,occurredAt:m.sent_at || m.created_at,conversationId:m.conversation_id}] : [];
+        direction:m.direction,successful:outcome.successful,occurredAt:m.sent_at || m.created_at,conversationId:m.conversation_id,conversationKey:String(m.conversation_id)}] : [];
     });
   });
 }
@@ -89,7 +94,11 @@ export async function syncSmsParentContact(messageId) {
     const [[original]] = inbound ? await db.execute(`SELECT user_id FROM message_logs WHERE client_id=? AND agency_id=?
       AND sms_thread_key=? AND id<? AND direction='OUTBOUND' AND delivery_status IN ('sent','delivered') AND user_id IS NOT NULL ORDER BY id DESC LIMIT 1`,[m.client_id,m.agency_id,m.sms_thread_key,m.id]) : [[m]];
     if (!original?.user_id) return [];
-    return [{client:guardian,guardianId:guardian.guardian_user_id,authorId:original.user_id,direction:inbound?'inbound':'outbound',successful:inbound,occurredAt:m.created_at}];
+    const [[start]] = !inbound && m.sms_thread_key ? await db.execute(`SELECT MAX(id) AS id FROM message_logs
+      WHERE agency_id=? AND sms_thread_key=? AND id<=? AND direction='OUTBOUND' AND delivery_status IN ('sent','delivered')
+      AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.startsParentContactConversation'))='true'`,[m.agency_id,m.sms_thread_key,m.id]) : [[null]];
+    const conversationKey=`${m.sms_thread_key || `message:${m.id}`}:${start?.id || 'legacy'}`;
+    return [{client:guardian,guardianId:guardian.guardian_user_id,authorId:original.user_id,direction:inbound?'inbound':'outbound',successful:inbound,occurredAt:m.created_at,conversationKey}];
   });
 }
 
@@ -111,7 +120,7 @@ export async function syncSecureParentContact(messageId) {
       const [[prior]]=inbound ? await db.execute(`SELECT m.sender_user_id FROM chat_messages m JOIN users u ON u.id=m.sender_user_id
         WHERE m.thread_id=? AND m.id<? AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','admin','support','super_admin','clinical_practice_assistant') ORDER BY m.id DESC LIMIT 1`,[m.thread_id,m.id]) : [[m]];
       if(!prior)continue;
-      events.push({client:g,guardianId:g.guardian_user_id,authorId:prior.sender_user_id,direction:inbound?'inbound':'outbound',successful:inbound,occurredAt:m.created_at,conversationId:`secure-${m.thread_id}`});
+      events.push({client:g,guardianId:g.guardian_user_id,authorId:prior.sender_user_id,direction:inbound?'inbound':'outbound',successful:inbound,occurredAt:m.created_at,conversationId:`secure-${m.thread_id}`,conversationKey:`${m.thread_id}:${m.topic_id || 'legacy'}`});
     }
     return events;
   });

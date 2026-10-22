@@ -36,6 +36,19 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('preserves an explicit new-text selection when the existing phone thread refreshes', async () => {
+    state.selected = { ...person, methods: [{ id: 'sms', available: true }], preferredMethod: 'sms' };
+    state.sendMethod = 'sms';
+    await nextTick();
+    state.selectedSmsThreadKey = null;
+    state.smsConversationChoiceExplicit = true;
+    api.get.mockResolvedValue({ data: { items: [{ id: 'sms-1', channel: 'sms', createdAt: '2026-10-22', meta: { smsThreadKey: 'existing-phone-pair' } }] } });
+    await state.loadTimeline(person.personKey, { quiet: true });
+    expect(state.selectedSmsThreadKey).toBeNull();
+    state.smsConversationChoiceExplicit = false;
+    await state.loadTimeline(person.personKey, { quiet: true });
+    expect(state.selectedSmsThreadKey).toBe('existing-phone-pair');
+  });
   it('labels outgoing email with the recipient in the list and reading pane', async () => {
     state.selected = null;
     const conversation = { id: 55, channel: 'email', latestMessageDirection: 'outbound',

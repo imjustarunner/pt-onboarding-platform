@@ -429,6 +429,7 @@
                 >
                   <span v-for="step in providerMilestonesLabel(client).split(' · ')" :key="step">{{ step }}</span>
                 </div>
+                <ParentContactAttempts v-if="isSchoolStaff && !showProviderMilestonesReadonly(client)" :count="client.parent_contact_attempt_count" />
               </div>
             </td>
             <td v-if="showSchoolColumn">{{ client.organization_name || organizationName || '—' }}</td>
@@ -730,6 +731,7 @@
 </template>
 
 <script setup>
+import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import FictionalClientPreview from './redesign/FictionalClientPreview.vue';
 import { isSchoolOnboardingDemoActive } from '../../utils/schoolOnboardingDemoContext.js';
 const fictionalDemo = isSchoolOnboardingDemoActive();
@@ -984,7 +986,9 @@ const showProviderMilestonesReadonly = (client) => {
 };
 const providerMilestonesLabel = (client) => {
   const m = client?.provider_milestones || {};
-  const contact = (m.parents_contacted || client?.parents_contacted_at) ? 'Contact ✓' : 'Contact —';
+  const attempts = m.parent_contact_attempt_count ?? client?.parent_contact_attempt_count;
+  const contact = ((m.parents_contacted || client?.parents_contacted_at) ? 'Contact ✓' : 'Contact —')
+    + (attempts == null ? '' : ` (${attempts} ${attempts === 1 ? 'attempt' : 'attempts'})`);
   const intake = (m.intake_done || client?.intake_at) ? 'Intake ✓' : 'Intake —';
   const first = (m.first_service_done || client?.services_started_at || client?.first_service_at)
     ? 'First service ✓'

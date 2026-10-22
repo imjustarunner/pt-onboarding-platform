@@ -706,6 +706,7 @@ export const postMessagesHubSend = async (req, res, next) => {
           payload: {
             clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
             numberId: req.body?.numberId || null,
+            startNewConversation: method === 'sms' && !req.body?.smsThreadKey,
             attachments: attachments.length ? attachments : null,
             cc: req.body?.cc || null,
             bcc: req.body?.bcc || null
@@ -734,6 +735,7 @@ export const postMessagesHubSend = async (req, res, next) => {
       }
       req.body = {
         ...req.body,
+        startNewConversation: !req.body?.smsThreadKey,
         clientId: person.clientId || undefined,
         contactId: person.contactId || undefined,
         body
@@ -1232,7 +1234,8 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
           body: {
             clientId: person.clientId || undefined,
             contactId: person.contactId || undefined,
-            body: row.body, smsThreadKey: payload.smsThreadKey || null, numberId: payload.numberId || null
+            body: row.body, smsThreadKey: payload.smsThreadKey || null, numberId: payload.numberId || null,
+            startNewConversation: payload.startNewConversation === true
           }
         });
       } else if (row.channel === 'secure' || row.channel === 'internal') {

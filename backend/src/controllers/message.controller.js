@@ -436,7 +436,8 @@ export const sendMessage = async (req, res, next) => {
       context: { severity: 'info' }
     });
 
-    const outboundMetadata = { provider: 'vonage', gatekeeper: decision, numberId };
+    const outboundMetadata = { provider: 'vonage', gatekeeper: decision, numberId,
+      startsParentContactConversation: req.body?.startNewConversation === true };
     if (hasMedia) outboundMetadata.media_urls = mediaUrls;
 
     const outboundLog = await MessageLog.createOutbound({
@@ -462,7 +463,7 @@ export const sendMessage = async (req, res, next) => {
         body: authored.body, senderFirstName: authored.senderFirstName,
         mediaUrl: hasMedia ? mediaUrls : null
       });
-      const sentMetadata = { provider: 'vonage', status: msg.status, gatekeeper: decision };
+      const sentMetadata = { ...outboundMetadata, status: msg.status };
       if (hasMedia) sentMetadata.media_urls = mediaUrls;
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, sentMetadata);
       

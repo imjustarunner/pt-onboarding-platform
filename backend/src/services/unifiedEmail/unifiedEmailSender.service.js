@@ -1,3 +1,4 @@
+import { withSsoSenderCopy } from '../ssoEmailCopy.service.js';
 import { assertFreshCardEmail } from '../insuranceCards/scope.js';
 import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
@@ -897,7 +898,10 @@ export async function sendNotificationEmail({
   }
 
   const gmail = await getGmailClient();
-  const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
+  const deliveryBcc = redirected.redirected ? redirected.bcc : await withSsoSenderCopy({
+    identity, generatedByUserId, source, to: redirected.to, cc: redirected.cc, bcc: redirected.bcc
+  });
+  const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: deliveryBcc, actorUserId: generatedByUserId });
   const mime = buildMimeMessage({
     to: groupEnvelope.to,
     cc: groupEnvelope.cc,
@@ -1353,7 +1357,10 @@ export async function sendEmailFromIdentity({
   const gmail = await getGmailClient();
   if (internetMessageIdOverride && !/^<[^<>\s]+@[^<>\s]+>$/.test(internetMessageIdOverride)) throw new Error('Invalid RFC Message-ID');
   let internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
-  const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
+  const deliveryBcc = redirected.redirected ? redirected.bcc : await withSsoSenderCopy({
+    identity, generatedByUserId, source, to: redirected.to, cc: redirected.cc, bcc: redirected.bcc
+  });
+  const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: deliveryBcc, actorUserId: generatedByUserId });
   const mime = buildMimeMessage({
     messageId: internetMessageId,
     to: groupEnvelope.to,

@@ -27,6 +27,7 @@
           <span class="step-label">{{ item.label }}</span>
         </div>
 
+        <ParentContactAttempts :count="contactAttemptCount" />
         <div class="form-grid">
           <div class="form-group">
             <label for="prov-parents-contacted">Parents contacted</label>
@@ -69,6 +70,7 @@
 </template>
 
 <script setup>
+import ParentContactAttempts from './ParentContactAttempts.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 
@@ -88,6 +90,7 @@ const saving = ref(false);
 const error = ref('');
 const saveMsg = ref('');
 
+const contactAttemptCount = ref(null);
 const form = ref({
   parentsContactedAt: '',
   parentsContactedSuccessful: '',
@@ -97,6 +100,7 @@ const form = ref({
 
 function syncFormFromClient(client) {
   if (!client) return;
+  contactAttemptCount.value = client.parent_contact_attempt_count ?? null;
   form.value = {
     parentsContactedAt: client.parents_contacted_at ? String(client.parents_contacted_at).slice(0, 10) : '',
     parentsContactedSuccessful:
