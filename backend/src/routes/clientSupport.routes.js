@@ -1,0 +1,11 @@
+import express from 'express';
+import rateLimit from 'express-rate-limit';
+import {authenticate,requireActiveStatus} from '../middleware/auth.middleware.js';
+import {positiveId} from '../services/familyBillingPolicy.service.js';
+import {supportAccounts,supportDetails,submitSupportRequest,pastPaymentAgencies} from '../services/clientSupport.service.js';
+const router=express.Router(),run=fn=>async(req,res,next)=>{try{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});await fn(req,res);}catch(e){next(e);}};
+router.use(authenticate,requireActiveStatus);
+router.get('/accounts',run(async(req,res)=>res.json({accounts:await supportAccounts(req.user.id),receiptAgencies:await pastPaymentAgencies(req.user.id)})));
+router.get('/:clientId',run(async(req,res)=>res.json(await supportDetails(req.user.id,positiveId(req.params.clientId),positiveId(req.query.agencyId)))));
+router.post('/:clientId/requests',rateLimit({windowMs:60000,max:10}),run(async(req,res)=>res.json(await submitSupportRequest(req.user.id,positiveId(req.params.clientId),positiveId(req.body.agencyId),req.body))));
+export default router;

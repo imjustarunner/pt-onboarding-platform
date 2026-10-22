@@ -2750,7 +2750,7 @@ class User {
     return { password, expiresAt };
   }
 
-  static async generatePasswordlessToken(userId, expiresInHours = 48, purpose = 'setup') {
+  static async generatePasswordlessToken(userId, expiresInHours = 48, purpose = 'setup', db = pool) {
     await assertFullSuiteIdentity(userId);
     const crypto = (await import('crypto')).default;
     const token = crypto.randomBytes(32).toString('hex');
@@ -2758,23 +2758,23 @@ class User {
     expiresAt.setHours(expiresAt.getHours() + expiresInHours);
     
     if (purpose === 'prehire_portal') {
-      await pool.execute(
+      await db.execute(
         `UPDATE users SET passwordless_token = CASE WHEN passwordless_token_purpose = 'reset' THEN ? ELSE COALESCE(passwordless_token, ?) END,
          passwordless_token_expires_at = ?, passwordless_token_purpose = 'prehire_portal' WHERE id = ?`,
         [token, token, expiresAt, userId]);
-      const [[stored]] = await pool.execute('SELECT passwordless_token FROM users WHERE id = ?', [userId]);
+      const [[stored]] = await db.execute('SELECT passwordless_token FROM users WHERE id = ?', [userId]);
       return { token: stored.passwordless_token, expiresAt };
     }
 
     // Try to store purpose if the column exists (backward compatible)
     try {
-      await pool.execute(
+      await db.execute(
         'UPDATE users SET passwordless_token = ?, passwordless_token_expires_at = ?, passwordless_token_purpose = ? WHERE id = ?',
         [token, expiresAt, purpose || 'setup', userId]
       );
     } catch (e) {
       // Fallback for older DBs without passwordless_token_purpose
-      await pool.execute(
+      await db.execute(
         'UPDATE users SET passwordless_token = ?, passwordless_token_expires_at = ? WHERE id = ?',
         [token, expiresAt, userId]
       );

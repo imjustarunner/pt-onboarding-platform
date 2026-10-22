@@ -16,6 +16,7 @@ beforeEach(()=>{
  vi.resetAllMocks();pool.execute.mockResolvedValue([[{agency_id:2,guardian_user_id:3}]]);
  isGuardianTestAccountId.mockResolvedValue(false);
  db={release:vi.fn(),execute:vi.fn(async sql=>{
+  if(sql.includes('FROM client_portal_independence'))return [[]];
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
   if(sql.includes('SELECT id,receivable_id'))return [[{id:11,receivable_id:22}]];
   if(sql.includes('SELECT email'))return [[{email:'parent@example.test'}]];
@@ -36,3 +37,5 @@ it('does not send concurrently when another worker owns the recipient lock',asyn
 it('does not bill a guardian just because statements are shared',async()=>{listBalances.mockResolvedValue([{receivableId:22,isOwnShare:false,billingState:'due',dueCents:1000}]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
 it('does not prompt another payment while the guardian payment is pending',async()=>{listBalances.mockResolvedValue([{receivableId:22,isOwnShare:true,paymentStatus:'unknown',billingState:'due',dueCents:1000}]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
 it('does not automatically email fictional guardian balances',async()=>{isGuardianTestAccountId.mockResolvedValue(true);expect(await sendPendingBalanceNotifications()).toEqual([]);expect(pool.getConnection).not.toHaveBeenCalled();expect(listBalances).not.toHaveBeenCalled();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
+
+it('links a retained payer to their assistance page rather than the former family profile',async()=>{listBalances.mockResolvedValue([{receivableId:22,clientId:8,isOwnShare:true,billingState:'due',dueCents:1000}]);const original=db.execute.getMockImplementation();db.execute.mockImplementation((q,a)=>q.includes('FROM client_portal_independence')?[[{client_id:8}]]:original(q,a));await sendPendingBalanceNotifications();expect(sendEmailFromIdentity.mock.calls[0][0].text).toContain('panel=assistance');});

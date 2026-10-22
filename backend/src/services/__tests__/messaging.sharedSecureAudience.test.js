@@ -56,14 +56,14 @@ it('requires client selection when a guardian has more than one child', async ()
 describe('two guardian account limit', () => {
   beforeEach(() => { vi.spyOn(ClientGuardian, 'hasRelationshipTypeColumn').mockResolvedValue(true); });
   it('locks the client row and refuses a third enabled guardian', async () => {
-    db.execute.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[{ guardian_user_id: 9 }, { guardian_user_id: 10 }]]);
+    db.execute.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ guardian_user_id: 9 }, { guardian_user_id: 10 }]]);
     await expect(ClientGuardian.upsertLink({ clientId: 4, guardianUserId: 12, accessEnabled: true })).rejects.toMatchObject({ status: 409 });
     expect(db.execute.mock.calls[0][0]).toContain('FOR UPDATE'); expect(db.rollback).toHaveBeenCalled(); expect(db.commit).not.toHaveBeenCalled();
   });
   it('allows a second guardian and excludes the updated account from the count', async () => {
-    db.execute.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[{ guardian_user_id: 9 }]]).mockResolvedValueOnce([{}]);
+    db.execute.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ guardian_user_id: 9 }]]).mockResolvedValueOnce([{}]);
     await ClientGuardian.upsertLink({ clientId: 4, guardianUserId: 10, accessEnabled: true });
-    expect(db.execute.mock.calls[1][1]).toEqual([4, 10]); expect(db.commit).toHaveBeenCalled();
+    expect(db.execute.mock.calls[2][1]).toEqual([4, 10]); expect(db.commit).toHaveBeenCalled();
   });
 });
 it('removes a revoked actor before rejecting the read so stale inbox membership cannot disclose content', async () => {

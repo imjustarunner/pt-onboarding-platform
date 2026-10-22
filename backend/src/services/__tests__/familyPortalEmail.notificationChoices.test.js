@@ -13,6 +13,7 @@ beforeEach(()=>{
   scope={agency_id:2,client_id:22,guardian_user_id:50,recipient_hash:familyContactHash(email),expires_at:new Date(Date.now()+86400000)};
   recipient={email,first_name:'Demo',last_name:'Guardian',full_name:'Demo Child',client_type:'school',agency_name:'ITSCO',permissions_json:null,access_enabled:1,phone:'+17195550100'};
   db={execute:vi.fn(async(sql,args)=>{
+    if(sql.includes('FROM client_portal_independence'))return [[]];
     if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
     if(sql.includes('FROM family_notification_invitations'))return [[...(args[0]===familyContactHash(token)?[scope]:[])]];
     if(sql.includes('FROM client_guardians'))return [[...(recipient?[recipient]:[])]];
@@ -175,4 +176,13 @@ it('lets an authenticated account manage its scoped preferences after declining 
  const result=await createFamilyNotificationInvitation({agencyId:2,clientId:22,guardianUserId:50,actorUserId:50,forAccountSettings:true},db);
  expect(result.url).toContain('notification');
  expect(db.execute.mock.calls.some(([sql])=>/UPDATE family_notification_choices|INSERT INTO family_notification_choices/.test(sql))).toBe(false);
+});
+
+it.each(['appointments','schedule_changes','messages','documents'])('stops queued %s notifications to a former guardian even with earlier consent',async notificationCategory=>{
+ const original=db.execute.getMockImplementation();db.execute.mockImplementation((q,a)=>q.includes('FROM client_portal_independence')?[[{email,scopes_json:['billing']}]]:original(q,a));saved={choices_json:all('both')};
+ const result=await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:email,channel:'email',notificationCategory},db);expect(result.allowed).toBe(false);
+});
+it('retained billing permission allows consented billing, but never insurance or private conversations',async()=>{
+ const original=db.execute.getMockImplementation();db.execute.mockImplementation((q,a)=>q.includes('FROM client_portal_independence')?[[{email,scopes_json:['billing']}]]:original(q,a));saved={choices_json:all('email')};
+ for(const [category,allowed] of [['billing',true],['insurance',false],['messages',false]])expect((await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:email,channel:'email',notificationCategory:category},db)).allowed).toBe(allowed);
 });

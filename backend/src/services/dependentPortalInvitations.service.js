@@ -36,7 +36,7 @@ export async function inviteDependent({userId,clientId,email,confirmed=false}){
  const client=await parentDependentAccess(userId,clientId);
  const db=await pool.getConnection();let childUserId;
  try{
-  await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);
+  await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);await parentDependentAccess(userId,clientId,db);
   const [[old]]=await db.execute('SELECT * FROM dependent_portal_access WHERE client_id=?',[clientId]);
   if(old)throw fail(409,'This dependent already has a personal login. Use resend, or ask your care team to change the email.');
   const [[used]]=await db.execute('SELECT id FROM users WHERE LOWER(email)=? OR LOWER(username)=? LIMIT 1',[address,address]);
@@ -56,15 +56,19 @@ export async function inviteDependent({userId,clientId,email,confirmed=false}){
 }
 export async function resendDependentInvitation({userId,clientId}){
  const client=await parentDependentAccess(userId,clientId);
- const [[a]]=await pool.execute('SELECT d.*,u.email,u.first_name FROM dependent_portal_access d JOIN users u ON u.id=d.user_id WHERE d.client_id=?',[clientId]);
- if(!a||a.revoked_at)throw fail(409,'This personal login is not active. Ask the care team to review it.');
- // Reserve before generating a token or sending: concurrent requests must not
- // invalidate each other's links or deliver duplicate invitations.
- const [reserved]=await pool.execute('UPDATE dependent_portal_access SET last_invited_at=UTC_TIMESTAMP() WHERE user_id=? AND revoked_at IS NULL AND (last_invited_at IS NULL OR last_invited_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE))',[a.user_id]);
- if(!reserved.affectedRows)throw fail(429,'Wait a minute before sending another invitation.');
  const context=await clientEmailContext({agencyId:client.agency_id,clientId});
- const account=await User.findById(a.user_id);
- const token=await User.generatePasswordlessToken(a.user_id,48,account.password_hash?'reset':'setup');
+ const db=await pool.getConnection();let a,account,token;
+ try{
+  await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);
+  await parentDependentAccess(userId,clientId,db);
+  [[a]]=await db.execute('SELECT d.*,u.email,u.first_name FROM dependent_portal_access d JOIN users u ON u.id=d.user_id WHERE d.client_id=?',[clientId]);
+  if(!a||a.revoked_at)throw fail(409,'This personal login is not active. Ask the care team to review it.');
+  const [reserved]=await db.execute('UPDATE dependent_portal_access SET last_invited_at=UTC_TIMESTAMP() WHERE user_id=? AND revoked_at IS NULL AND (last_invited_at IS NULL OR last_invited_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE))',[a.user_id]);
+  if(!reserved.affectedRows)throw fail(429,'Wait a minute before sending another invitation.');
+  account=await User.findById(a.user_id);
+  token=await User.generatePasswordlessToken(a.user_id,48,account.password_hash?'reset':'setup',db);
+  await db.commit();
+ }catch(e){await db.rollback();throw e;}finally{db.release();}
  const url=account.password_hash?context.url(`reset-password/${encodeURIComponent(token.token)}`):clientPortalInviteUrl({portal:context.portal,token:token.token,existingAccount:false});
  const intro=`Hi ${a.first_name}, your personal portal with ${context.tenant.name} is ready. This login opens only your own appointments, learning materials, messages, and records your care team shares with you.`;
  const result=await sendClientPortalEmail({agencyId:client.agency_id,clientId,context,to:a.email,userId:a.user_id,generatedByUserId:userId,source:'manual',templateType:'hub_portal_invite',subject:`Your personal ${context.tenant.name} portal`,
@@ -75,7 +79,7 @@ export async function resendDependentInvitation({userId,clientId}){
 }
 export async function revokeDependentInvitation({userId,clientId}){
  await parentDependentAccess(userId,clientId);
- const db=await pool.getConnection();try{await db.beginTransaction();const [[a]]=await db.execute('SELECT * FROM dependent_portal_access WHERE client_id=? FOR UPDATE',[clientId]);
+ const db=await pool.getConnection();try{await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);await parentDependentAccess(userId,clientId,db);const [[a]]=await db.execute('SELECT * FROM dependent_portal_access WHERE client_id=? FOR UPDATE',[clientId]);
  if(!a)throw fail(404,'No personal login has been invited.');
  await db.execute('UPDATE dependent_portal_access SET revoked_at=UTC_TIMESTAMP() WHERE user_id=?',[a.user_id]);
  await db.execute('UPDATE client_guardians SET access_enabled=0 WHERE guardian_user_id=? AND client_id=?',[a.user_id,clientId]);

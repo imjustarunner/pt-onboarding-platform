@@ -87,6 +87,18 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
   });
   if(attempt.status==='succeeded')return {paid:true,alreadyPaid:true,paymentId:attempt.id};
   const snapshot=decryptFamilyBilling(attempt.snapshot_encrypted,context(agencyId,allocationId));
+  if(!attempt.processor_intent_id){
+    try {
+      const [[row]]=await pool.execute('SELECT r.client_id FROM family_receivable_allocations a JOIN family_receivables r ON r.id=a.receivable_id WHERE a.id=? AND a.agency_id=?',[allocationId,agencyId]);
+      if(!row)throw billingError(404,'Payer balance not found');
+      await requireResponsiblePayer(userId,row.client_id,agencyId);
+    }catch(e){
+      // Authorization can change after the attempt was prepared. Nothing has
+      // been sent to the processor; do not dispatch a newly revoked payer.
+      await pool.execute("UPDATE family_ledger_payments SET status='cancelled' WHERE id=? AND status='pending' AND processor_intent_id IS NULL AND processor_dispatch_started_at IS NULL",[attempt.id]);
+      throw e;
+    }
+  }
   const {claimProcessorDispatch}=await import('./paymentDispatch.js');
   const dispatch=await claimProcessorDispatch({attempt,agencyId,userId,allocationId,automatic,planId});
   let intent;

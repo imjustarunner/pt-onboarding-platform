@@ -23,7 +23,7 @@ describe.skipIf(!socket)('independent guardian policies with real SQL and encryp
   const root=await mysql.createConnection({socketPath:socket,user:'root'});await root.query('CREATE DATABASE guardian_insurance_readiness_test');await root.end();
   state.db=mysql.createPool({socketPath:socket,user:'root',database:'guardian_insurance_readiness_test',timezone:'Z',connectionLimit:4});
   let fixture=await fs.readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');fixture=fixture.slice(fixture.indexOf('CREATE TABLE agencies'));
-  const migrations=['613_guardian_insurance_payment.sql','1413_private_family_billing.sql'];
+  const migrations=['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql'];
   for(const statement of splitSqlStatements(stripSqlLineComments(fixture)))await state.db.query(statement);
   for(const name of migrations){const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);}
   const followups=await fs.readFile(new URL('../../../../database/migrations/1640_insurance_followups_and_payer_shares.sql',import.meta.url),'utf8');

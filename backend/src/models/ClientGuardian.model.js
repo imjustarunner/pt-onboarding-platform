@@ -117,6 +117,10 @@ class ClientGuardian {
     try {
       await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      if(enabled){
+        const [[independent]]=await db.execute("SELECT user_id FROM client_portal_independence WHERE client_id=? AND status='active'",[cid]);
+        if(independent&&(Number(independent.user_id)!==uid||relType!=='self'))throw Object.assign(new Error('This client controls their own account. Use client-approved assistance permissions; a guardian link cannot restore family access.'),{status:409});
+      }
       if (enabled && relType !== 'self') {
         const [active] = await db.execute(
           `SELECT guardian_user_id FROM client_guardians WHERE client_id = ? AND access_enabled = 1 AND guardian_user_id <> ? ${hasRelationshipType ? "AND relationship_type <> 'self'" : ''}`, [cid, uid]);

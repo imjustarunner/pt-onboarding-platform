@@ -1,22 +1,27 @@
 import pool from '../config/database.js';
 import GuardianPaymentCard, { paymentCardSummary } from '../models/GuardianPaymentCard.model.js';
 import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.js';
-import { BILLING_TERMS, BILLING_TERMS_VERSION, linkAllowsBilling, linkAllowsBillingView, requireBillingLink, requireResponsiblePayer, billingError, positiveId, auditBilling, recordBillingConsent } from './familyBillingPolicy.service.js';
+import { BILLING_TERMS, BILLING_TERMS_VERSION, linkAllowsBilling, linkAllowsBillingView, linkAllowsInsurance, requireInsuranceLink, requireBillingLink, requireResponsiblePayer, billingError, positiveId, auditBilling, recordBillingConsent } from './familyBillingPolicy.service.js';
 import { normalizePolicy, applySubmittedClientInsurance, readClientInsurance, claimInsuranceIssues } from './clientInsurance.service.js';
 import { getStripePublishableKey } from './stripePayments.service.js';
 
 export async function getFamilyBillingSummary(userId, agencyId) {
-  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json
-    FROM client_guardians cg JOIN clients c ON c.id = cg.client_id WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1 ORDER BY c.full_name`, [userId, agencyId]);
+  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json,i.status AS independence_status,g.scopes_json AS support_scopes
+    FROM client_guardians cg JOIN clients c ON c.id = cg.client_id
+    LEFT JOIN client_portal_independence i ON i.client_id=c.id
+    LEFT JOIN client_support_grants g ON g.client_id=c.id AND g.helper_user_id=cg.guardian_user_id AND g.agency_id=? AND g.revoked_at IS NULL
+    LEFT JOIN dependent_portal_access d ON d.user_id=cg.guardian_user_id
+    WHERE cg.guardian_user_id = ? AND (c.agency_id = ? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
+    AND (cg.access_enabled=1 OR (i.status='active' AND g.helper_user_id IS NOT NULL)) AND (d.user_id IS NULL OR d.client_id=c.id) ORDER BY c.full_name`, [agencyId,userId,agencyId,agencyId]);
   const items = [];
   for (const c of clients) {
-    if (!linkAllowsBillingView(c)) continue;
+    if (!linkAllowsBillingView(c) && !linkAllowsInsurance(c)) continue;
     const [payers] = await pool.execute(`SELECT p.guardian_user_id, p.payment_card_id, p.consent_id, p.recurring_limit_cents, u.first_name, u.last_name
       FROM client_billing_payers p JOIN users u ON u.id = p.guardian_user_id
       JOIN client_guardians cg ON cg.client_id = p.client_id AND cg.guardian_user_id = p.guardian_user_id
-      WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active' AND cg.access_enabled = 1`, [agencyId, c.id]);
+      WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active'`, [agencyId, c.id]);
     const own = linkAllowsBilling(c) ? payers.find(p => Number(p.guardian_user_id) === Number(userId)) : null;
-    items.push({ clientId: c.id, clientName: c.full_name || c.initials, clientType:c.client_type, insuranceApplicable:!['learning','tutoring'].includes(String(c.client_type).toLowerCase()), insuranceOnFile: !!c.insurance_on_file, canManageInsurance: linkAllowsBilling(c), responsiblePayers: payers.map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
+    items.push({ clientId: c.id, clientName: c.full_name || c.initials, clientType:c.client_type, insuranceApplicable:!['learning','tutoring'].includes(String(c.client_type).toLowerCase()), insuranceOnFile: linkAllowsInsurance(c) ? !!c.insurance_on_file : null, canManageInsurance: linkAllowsInsurance(c), responsiblePayers: payers.filter(p=>c.independence_status!=='active'||c.relationship_type==='self'||Number(p.guardian_user_id)===Number(userId)).map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
       ...(own ? { paymentCardId: own.payment_card_id, recurringEnabled: !!own.consent_id, recurringLimitCents: own.recurring_limit_cents, paymentOnFileRequired: !own.payment_card_id } : {}) });
   }
   const canManage = items.some(c => c.canManageBilling);
@@ -51,7 +56,7 @@ export async function assignCard({ userId, agencyId, clientId, cardId, recurring
   try {
     await db.beginTransaction();
     await requireResponsiblePayer(userId, clientId, agencyId, db);
-    const [clients] = await db.execute('SELECT id FROM clients WHERE id = ? AND agency_id = ? FOR UPDATE', [clientId, agencyId]);
+    const [clients] = await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [clientId]);
     if (!clients.length) throw billingError(404, 'Client not found');
     const cards = await GuardianPaymentCard.findActiveByGuardian(userId, agencyId, db);
     const card = cards.find(c => Number(c.id) === positiveId(cardId));
@@ -84,7 +89,7 @@ export async function revokeRecurring({ userId, agencyId, clientId }) {
 export async function saveFamilyInsurance({ userId, agencyId, clientIds, primary, secondary, coverageScope, coverageConfirmed, profileId }) {
   if (coverageConfirmed !== true || !Array.isArray(clientIds) || !clientIds.length || clientIds.length > 30) throw billingError(400, 'Confirm the clients covered by this policy');
   const ids = [...new Set(clientIds.map(positiveId))];
-  for (const id of ids) await requireBillingLink(userId, id, agencyId);
+  for (const id of ids) await requireInsuranceLink(userId, id, agencyId);
   if (ids.length > 1 && coverageScope !== 'account_holder') throw billingError(400, 'A client-specific policy cannot be applied to siblings');
   const p = normalizePolicy(primary), secondaryPolicy = secondary ? normalizePolicy(secondary) : null;
   if (!p.insurerName || !p.memberId || !p.subscriberName || !p.relationshipToSubscriber) throw billingError(400, 'Carrier, member ID, subscriber name, and relationship are required');
@@ -97,11 +102,11 @@ export async function saveFamilyInsurance({ userId, agencyId, clientIds, primary
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
-    for (const clientId of ids) await requireBillingLink(userId, clientId, agencyId, db);
+    for (const clientId of ids) await requireInsuranceLink(userId, clientId, agencyId, db);
     if (profileId) {
       const [oldAssignments] = await db.execute('SELECT client_id FROM guardian_insurance_clients WHERE profile_id = ? AND agency_id = ? FOR UPDATE', [profileId, agencyId]);
       for (const assignment of oldAssignments) {
-        await requireBillingLink(userId, assignment.client_id, agencyId, db);
+        await requireInsuranceLink(userId, assignment.client_id, agencyId, db);
         if (!ids.includes(Number(assignment.client_id))) {
           const previous = await readClientInsurance(assignment.client_id, agencyId, db);
           if (Number(previous?.profileId) === Number(profileId)) await db.execute('UPDATE clients SET billing_insurance_payload = NULL, primary_insurer_name = NULL WHERE id = ? AND agency_id = ?', [assignment.client_id, agencyId]);

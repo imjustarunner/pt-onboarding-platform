@@ -1,2 +1,2 @@
 import {defineConfig} from 'vitest/config';import vue from '@vitejs/plugin-vue';
-export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',restoreMocks:true,include:['src/components/guardian/__tests__/DependentPortal*.test.js','src/views/guardian/__tests__/DependentPortal*.test.js']}});
+export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',restoreMocks:true,include:['src/components/guardian/__tests__/DependentPortal*.test.js','src/components/guardian/__tests__/ClientAccess*.test.js','src/components/guardian/__tests__/ClientSupport*.test.js','src/views/guardian/__tests__/DependentPortal*.test.js']}});

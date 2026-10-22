@@ -9,7 +9,7 @@ import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 export async function queueBalanceNotifications({agencyId,receivableId,clientId},db=pool) {
   await db.execute(`INSERT IGNORE INTO family_balance_notifications (agency_id,receivable_id,guardian_user_id)
     SELECT ?,?,cg.guardian_user_id FROM client_guardians cg JOIN clients c ON c.id=cg.client_id
-    WHERE c.agency_id=? AND cg.client_id=? AND cg.access_enabled=1 AND (
+    WHERE c.agency_id=? AND cg.client_id=? AND (cg.access_enabled=1 OR EXISTS(SELECT 1 FROM client_support_grants g JOIN client_portal_independence i ON i.client_id=g.client_id AND i.status='active' WHERE g.client_id=c.id AND g.agency_id=c.agency_id AND g.helper_user_id=cg.guardian_user_id AND g.revoked_at IS NULL AND JSON_CONTAINS(g.scopes_json,JSON_QUOTE('billing')))) AND (
       EXISTS(SELECT 1 FROM family_receivable_allocations a JOIN client_billing_payers p ON p.guardian_user_id=cg.guardian_user_id AND p.client_id=cg.client_id AND p.agency_id=c.agency_id AND p.status='active' WHERE a.receivable_id=? AND a.payer_user_id=cg.guardian_user_id AND a.amount_cents>a.paid_cents)
 )`,[agencyId,receivableId,agencyId,clientId,receivableId]);
 }
@@ -41,7 +41,8 @@ export async function sendPendingBalanceNotifications() {
       const [[agency]]=await db.execute('SELECT name,slug,portal_url FROM agencies WHERE id=?',[agencyId]);
       const clientId = balances.find(b=>due.has(Number(b.receivableId)))?.clientId;
       const context=await clientEmailContext({agencyId,clientId});
-      const url=context.url('guardian?panel=billing');
+      const [[delegate]]=await db.execute("SELECT client_id FROM client_portal_independence WHERE client_id=? AND status='active' AND user_id<>?",[clientId,userId]);
+      const url=context.url(delegate?'guardian?panel=assistance':'guardian?panel=billing');
       const marks=claimed.map(()=>'?').join(',');
       await db.execute(`UPDATE family_balance_notifications SET status='sending' WHERE id IN (${marks}) AND status='pending'`,claimed);
       const result=await sendClientPortalEmail({agencyId,clientId,context,billing:true,to:user.email,userId,

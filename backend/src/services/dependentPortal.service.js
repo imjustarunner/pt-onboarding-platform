@@ -23,7 +23,8 @@ export async function personalContext(userId,input){
 }
 export async function personalOverview(userId){
  const profile=await personalProfile(userId),agencies=await guardianCareContexts(profile,userId);
- return {clientId:profile.client_id,name:profile.full_name||profile.initials,schoolName:profile.organization_type==='school'?profile.organization_name:null,
+ const [[independent]]=await pool.execute("SELECT client_id FROM client_portal_independence WHERE client_id=? AND user_id=? AND status='active'",[profile.client_id,userId]);
+ return {independent:!!independent,clientId:profile.client_id,name:profile.full_name||profile.initials,schoolName:profile.organization_type==='school'?profile.organization_name:null,
   agencies:agencies.map(a=>({id:a.agency_id,name:a.agency_name,slug:a.agency_slug,logo:a.agency_logo_url,services:a.services.map(s=>({id:s.id,label:s.label,kind:s.service_kind,providerName:s.provider_name}))}))};
 }
 export async function personalAppointments(userId,input){

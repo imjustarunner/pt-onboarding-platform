@@ -23,10 +23,11 @@
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
       <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
+      <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
       <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" />
       <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="allFamilyProfiles" />
 
-      <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing'].includes(activePanel)" class="empty-state">
+      <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
         <p class="hint">Ask your organization to add you as a guardian on the child’s record.</p>
       </div>
@@ -644,6 +645,7 @@ import PortalMigrationChecklist from '../../components/guardian/PortalMigrationC
 import AuricWellPortalGuide from '../../components/guardian/AuricWellPortalGuide.vue';
 import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';
 import HistoricalBillingRequest from '../../components/billing/HistoricalBillingRequest.vue';
+import ClientSupportAccounts from '../../components/guardian/ClientSupportAccounts.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianInvitations from '../../components/guardian/GuardianInvitations.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
@@ -701,7 +703,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['checkins','evaluations','overview','family','family_billing','family_messages','onboarding','help','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const activePanel = ref(['assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','help','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -973,9 +975,10 @@ const portalNavigation = computed(() => {
 
   if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
   items.unshift({key:'family',label:familyHomeLabel.value,icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
+  items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
   items.push( {key:'records',label:'Request my records',icon:'documents'}, {key:'help',label:'Portal help & feedback',icon:'support'});
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'notification_history',label:'Notification history',icon:'tasks'},{key:'signout',label:'Sign out',icon:'account'});
-  const accountKeys=['family','family_billing','family_messages','notifications','account','records','help'];
+  const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
   return ordered.map(i=>({...i,group:i.key==='signout'?'Account':accountKeys.includes(i.key)?'Family & account':`Viewing ${selectedFirstName.value}`}));
 });
@@ -1858,7 +1861,7 @@ watch(
     allowedKeys.add('messages');
     allowedKeys.add('account');
     allowedKeys.add('notifications');
-    for(const key of ['checkins','evaluations','onboarding','family','family_billing','family_messages','help','plan','notification_history']) allowedKeys.add(key);
+    for(const key of ['assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','help','plan','notification_history']) allowedKeys.add(key);
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'

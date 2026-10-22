@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { cardFollowupEligible, hasCompletedCardEnrollment } from './scope.js';
 import pool from '../../config/database.js';
 import {decodeInsuranceProfile} from '../../models/GuardianInsuranceProfile.model.js';
-import {billingError,positiveId,requireBillingLink,auditBilling} from '../familyBillingPolicy.service.js';
+import {billingError,positiveId,requireInsuranceLink,auditBilling} from '../familyBillingPolicy.service.js';
 import {readClientInsurance} from '../clientInsurance.service.js';
 import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncryption.service.js';
 import {coverageFingerprint} from '../coverageVerification.service.js';
@@ -17,7 +17,7 @@ export async function cardContext({agencyId,profileId,userId,staff=false},db=poo
   const [links]=await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.primary_insurer_name,it.insurance_key,it.label AS insurance_label,g.profile_id AS assigned_profile_id FROM clients c LEFT JOIN insurance_types it ON it.id=c.insurance_type_id LEFT JOIN guardian_insurance_clients g ON g.client_id=c.id AND g.agency_id=c.agency_id AND g.profile_id=? WHERE c.agency_id=? AND (c.id=? OR g.profile_id IS NOT NULL) AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') AND c.compliance_archived_at IS NULL`,[profileId,agencyId,profile.client_id||0]);
   const clients=[];
   for(const c of links) {
-    try{await requireBillingLink(profile.guardian_user_id,c.id,agencyId,db);}catch(e){if(e.status===403)continue;throw e;}
+    try{await requireInsuranceLink(profile.guardian_user_id,c.id,agencyId,db);}catch(e){if(e.status===403)continue;throw e;}
     const coverage=await readClientInsurance(c.id,agencyId,db);
     const currentCoverage=Number(coverage?.profileId)===Number(profileId)&&cardCycle(coverage)===cardCycle(profile);
     // Another parent's policy remains their private submission while staff

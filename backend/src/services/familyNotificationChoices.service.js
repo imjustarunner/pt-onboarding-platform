@@ -121,6 +121,17 @@ export async function familyNotificationDeliveryGate({agencyId,clientId,to,chann
   if(!FAMILY_NOTIFICATION_CATEGORIES.some(c=>c.key===category))return {allowed:false,reason:'unknown_family_notification_category'};
   const address=channel==='sms'?normalizeSmsPhone(to):String(to||'').trim().toLowerCase();
   if(!address)return {allowed:false,reason:'family_notification_recipient_missing'};
+  // Recheck independence at delivery time, including jobs queued before a
+  // transition. Optional-email consent never restores a former guardian's access.
+  if(Number(clientId)){
+    const [former]=await db.execute(`SELECT u.email,COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone,g.scopes_json
+      FROM client_portal_independence i JOIN client_guardians cg ON cg.client_id=i.client_id AND cg.guardian_user_id<>i.user_id AND cg.relationship_type<>'self'
+      JOIN users u ON u.id=cg.guardian_user_id LEFT JOIN client_support_grants g ON g.client_id=i.client_id AND g.agency_id=? AND g.helper_user_id=u.id AND g.revoked_at IS NULL
+      WHERE i.client_id=? AND i.status='active'`,[agencyId,clientId]);
+    const matches=former.filter(r=>(channel==='sms'?normalizeSmsPhone(r.phone):String(r.email||'').trim().toLowerCase())===address);
+    if(matches.length&&!matches.every(r=>Array.isArray(parse(r.scopes_json))&&parse(r.scopes_json).includes(category==='billing'?'billing':category==='insurance'?'insurance':'__not_delegated__')))
+      return {allowed:false,reason:'independent_client_access_restricted'};
+  }
   const column=channel==='sms'?'phone_hash':'recipient_hash';
   const [rows]=await db.execute(`SELECT choices_json,updated_at FROM family_notification_choices WHERE agency_id=? AND ${column}=?${clientId?' AND client_id=?':''}`,
     [Number(agencyId),familyContactHash(address),...(clientId?[Number(clientId)]:[])]);

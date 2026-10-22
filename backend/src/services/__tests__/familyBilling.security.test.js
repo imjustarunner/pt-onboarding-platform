@@ -36,7 +36,7 @@ test('self accounts, revoked links, malformed permissions, and no-view links can
 });
 test('a linked guardian still needs an explicit payer assignment in the same agency',async()=>{
  const calls=[];const db={execute:async(sql,args)=>{calls.push(args);return sql.includes('client_guardians')?[[{access_enabled:1,relationship_type:'guardian'}]]:[[]];}};
- await assert.rejects(requireResponsiblePayer(2,10,1,db),e=>e.status===403);assert.deepEqual(calls,[[2,10,1],[2,10,1]]);
+ await assert.rejects(requireResponsiblePayer(2,10,1,db),e=>e.status===403);assert.deepEqual(calls,[[10],[1,2,10,1,1],[2,10,1]]);
 });
 test('client-specific insurance never defaults to every sibling and Medicaid IDs stay per child',()=>{
  const shared={primary:{insurerName:'Carrier',memberId:'parent-id',subscriberName:'Parent'}};
