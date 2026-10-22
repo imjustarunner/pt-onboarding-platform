@@ -142,7 +142,7 @@ async function forward(){if(!forwardProvider.value||!await saveDraft())return;sa
 async function loadPackets(){
   packetError.value='';
   try {
-    const r=await api.get(`/phi-documents/clients/${data.value.clientId}`,{params:{agencyId:props.agencyId}});
+    const r=await api.get(`${endpoint()}/documents`,{params:{agencyId:props.agencyId}});
     packets.value=(Array.isArray(r.data)?r.data:[]).sort((a,b)=>Number(Number(b.intake_submission_id)===Number(data.value.submissionId))-Number(Number(a.intake_submission_id)===Number(data.value.submissionId)));
     if(!packets.value.length)packetError.value='No source document is stored for this client. Upload the completed paper packet to the client’s documents, then retry.';
     const selected=packets.value.find(doc=>Number(doc.id)===Number(review.paperDocumentId));
@@ -150,7 +150,7 @@ async function loadPackets(){
     if(packet)await openPacket(packet);
   }catch{packetError.value='Could not load client documents.';}
 }
-async function openPacket(doc){try{const r=await api.get(`/phi-documents/${doc.id}/view`);if(!r.data?.url)throw new Error('No document URL');packetUrl.value=r.data.url;review.paperDocumentId=Number(doc.id);review.paperSourceConfirmed=false;}catch{packetError.value='Could not open this document.';}}
+async function openPacket(doc){try{const r=await api.get(`${endpoint()}/documents/${doc.id}/view`);if(!r.data?.url)throw new Error('No document URL');packetUrl.value=r.data.url;review.paperDocumentId=Number(doc.id);review.paperSourceConfirmed=false;}catch{packetError.value='Could not open this document.';}}
 async function closeRoi(){
   saving.value=true;error.value='';
   try{const r=await api.post(`${endpoint()}/close-roi`,{agencyId:props.agencyId,sourceHash:data.value.sourceHash},{skipGlobalLoading:true});ready=false;emit('saved',r.data);emit('close');}

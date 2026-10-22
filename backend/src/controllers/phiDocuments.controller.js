@@ -1,3 +1,4 @@
+import { hasScreeningDocumentRead } from '../services/h0002DocumentAccess.service.js';
 import Client from '../models/Client.model.js';
 import {clientAccess as clinicalClientAccess} from '../services/safetyPlans/access.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
@@ -358,7 +359,7 @@ export const listClientPhiDocuments = async (req, res, next) => {
           client,
           requireDocumentAccess: true
         });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!allowed && !hasScreeningDocumentRead(req, client)) return res.status(403).json({ error: { message: 'Access denied' } });
 
     let docs = [];
     try {
@@ -750,7 +751,7 @@ export const viewPhiDocument = async (req, res, next) => {
             client,
             requireDocumentAccess: true
           });
-      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+      if (!allowed && !hasScreeningDocumentRead(req, client)) return res.status(403).json({ error: { message: 'Access denied' } });
       if (isSchoolStaff && !schoolStaffMayOpenPhiDocument(doc, {
         userId: req.user.id,
         state: schoolStaffAccessState

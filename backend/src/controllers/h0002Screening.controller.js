@@ -1,3 +1,5 @@
+import { grantScreeningDocumentRead } from '../services/h0002DocumentAccess.service.js';
+import { listClientPhiDocuments, viewPhiDocument } from './phiDocuments.controller.js';
 import { closeRoiScreening } from '../services/h0002ScreeningDisposition.service.js';
 import { readScreeningDraft, saveScreeningDraft } from '../services/h0002ReviewDraft.service.js';
 import { screeningEnglish, redactedScreeningText } from '../services/h0002Translation.service.js';
@@ -70,4 +72,15 @@ export async function translateH0002Screening(req,res,next) {
 export async function closeH0002RoiTask(req,res,next) {
   try { res.json(await closeRoiScreening({sessionId:Number(req.params.sessionId),user:req.user,sourceHash:req.body?.sourceHash})); }
   catch(error) { next(error); }
+}
+
+export async function getH0002SourceDocuments(req,res,next) {
+  try {
+    const context=await screeningReviewContext({sessionId:Number(req.params.sessionId),user:req.user});
+    const readingRequest=Object.create(req);
+    readingRequest.params={clientId:String(context.session.client_id),docId:req.params.documentId};
+    grantScreeningDocumentRead(readingRequest,context);
+    if(req.params.documentId)await viewPhiDocument(readingRequest,res,next);
+    else await listClientPhiDocuments(readingRequest,res,next);
+  } catch(error) { next(error); }
 }
