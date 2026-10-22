@@ -4,9 +4,10 @@ import ClientInsuranceEditor from '../ClientInsuranceEditor.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn()}}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:1,role:'staff'}})}));
-vi.mock('../../../config/medicalBillingAccess.js',()=>({canAccessMedicalBilling:()=>true}));
+vi.mock('../../../config/medicalBillingAccess.js',()=>({canAccessMedicalBilling:vi.fn(()=>true)}));
+import { canAccessMedicalBilling } from '../../../config/medicalBillingAccess.js';
 const demographic={firstName:'Test',lastName:'Patient',dateOfBirth:'1996-10-01',addressLine1:'123 Synthetic St',city:'Test City',state:'CO',postalCode:'80000',sex:'F'};
-beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{insurance:null,demographics:demographic,missingClaimFields:['Member ID is missing']}});api.put.mockResolvedValue({data:{missingClaimFields:['Member ID is missing']}});});
+beforeEach(()=>{vi.clearAllMocks();canAccessMedicalBilling.mockReturnValue(true);api.get.mockResolvedValue({data:{insurance:null,demographics:demographic,missingClaimFields:['Member ID is missing']}});api.put.mockResolvedValue({data:{missingClaimFields:['Member ID is missing']}});});
 async function setup(){const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});await w.find('button').trigger('click');await flushPromises();return w;}
 it('prefills empty chart identity without replacing saved insurance-specific identity',async()=>{
  api.get.mockResolvedValue({data:{insurance:{patient:{firstName:'Policy name'},primary:{}},demographics:demographic}});const w=await setup();const fields=w.findAll('.identity-fields input');expect(fields[0].element.value).toBe('Policy name');expect(fields[2].element.value).toBe('1996-10-01');expect(fields[4].element.value).toBe('123 Synthetic St');w.unmount();
@@ -26,4 +27,25 @@ it('combines parents’ policies independently, preserves source references, and
  await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({primary:first,secondary:second,coverageSources:{primary:{profileId:11,slot:'primary'},secondary:{profileId:22,slot:'primary'}},verifiedForClaims:false});
  await w.findAll('button').find(b=>b.text()==='Swap primary and secondary').trigger('click');await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[1][1]).toMatchObject({primary:second,secondary:first,profileId:22,coverageSources:{primary:{profileId:22,slot:'primary'},secondary:{profileId:11,slot:'primary'}}});
  expect(w.findAll('.coverage-evidence')).toHaveLength(2);expect(w.findAll('.coverage-evidence button')).toHaveLength(3);w.unmount();
+});
+
+it('allows support insurance entry without mounting claim verification or billing readiness',async()=>{
+ canAccessMedicalBilling.mockReturnValue(false);
+ const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377,accountSupport:true},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});
+ await w.find('button').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/clients/5/account-support/insurance',{params:{agencyId:377}});
+ expect(w.find('client-coverage-verification-stub').exists()).toBe(false);
+ expect(w.find('client-documentation-readiness-stub').exists()).toBe(false);
+ expect(w.text()).not.toContain('verified coverage for claim preparation');
+ expect(w.text()).not.toContain('Provider accepts assignment');
+ await w.find('form').trigger('submit');await flushPromises();
+ const [path,payload]=api.put.mock.calls[0];expect(path).toBe('/clients/5/account-support/insurance');
+ expect(payload).not.toHaveProperty('verifiedForClaims');expect(payload).not.toHaveProperty('acceptAssignment');
+ expect(w.find('[role="status"]').text()).toBe('Insurance information saved for billing review.');w.unmount();
+});
+it('hides insurance without billing or support access and discards data when support access is revoked',async()=>{
+ canAccessMedicalBilling.mockReturnValue(false);
+ const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377}});expect(w.find('button').exists()).toBe(false);expect(api.get).not.toHaveBeenCalled();
+ await w.setProps({accountSupport:true});await w.find('button').trigger('click');await flushPromises();expect(w.find('form').exists()).toBe(true);
+ await w.setProps({accountSupport:false});expect(w.find('form').exists()).toBe(false);w.unmount();
 });

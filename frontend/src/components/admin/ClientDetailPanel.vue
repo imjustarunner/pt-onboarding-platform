@@ -717,8 +717,9 @@
                 <h3>Documents &amp; Insurance</h3>
               </header>
               <div class="ov-card-body">
-                <ClientInsuranceEditor v-if="canViewClientBillingImport" :client-id="client.id" :agency-id="client.agency_id" />
-                <ClientCareCoverageSummary v-if="roleNorm !== 'school_staff'" :client-id="client.id" />
+                <ClientInsuranceEditor v-if="canViewClientBillingImport || (canSupportClientAccount && isClinicalLikeClientType)" :client-id="client.id" :agency-id="client.agency_id" :account-support="canSupportClientAccount" />
+                <ClientAccountSupport v-if="canSupportClientAccount" :client-id="client.id" :agency-id="client.agency_id" @manage-contacts="goChartSub('guardians')" />
+                <ClientCareCoverageSummary v-else-if="roleNorm !== 'school_staff'" :client-id="client.id" />
                 <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Ongoing paperwork</div>
                   <div class="ov-row-value">
@@ -2782,10 +2783,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } f
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
-import { canAccessMedicalBilling } from '../../config/medicalBillingAccess';
+import { canAccessMedicalBilling, canAccessClientAccountSupport } from '../../config/medicalBillingAccess';
 import ClientPendingTasks from '../billing/ClientPendingTasks.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import ClientCareCoverageSummary from '../billing/ClientCareCoverageSummary.vue';
+import ClientAccountSupport from '../billing/ClientAccountSupport.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientRenewalPushModal from './ClientRenewalPushModal.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
@@ -4003,6 +4005,7 @@ const schoolRoiStatusLabel = computed(() => {
   return 'None';
 });
 
+const canSupportClientAccount = computed(() => canAccessClientAccountSupport(authStore.user, clientAgencyId.value, myAgencies.value));
 const canViewClientBillingImport = computed(() => {
   if (!isClinicalLikeClientType.value) return false;
   return canAccessMedicalBilling(authStore.user, clientAgencyId.value);

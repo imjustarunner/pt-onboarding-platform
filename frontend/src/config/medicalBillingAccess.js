@@ -54,3 +54,13 @@ export function canAccessBillingWorkspace(user) {
   if (['provider', 'provider_plus'].includes(role)) return false;
   return role === 'super_admin' || (user?.billingAgencyIds || []).some(id => Number(id) > 0);
 }
+
+/** Routine client account support does not imply billing or claims access. */
+export function canAccessClientAccountSupport(user, agencyId, agencies = user?.agencies || user?.agencyIds || []) {
+  const role = String(user?.role || user?.effectiveRole || '').toLowerCase();
+  if (!Number(agencyId) || !['super_admin', 'admin', 'support'].includes(role)) return false;
+  if (role === 'super_admin') return true;
+  return agencies.some(agency => Number(agency?.id ?? agency) === Number(agencyId)
+    && ![false, 0, '0'].includes(agency?.is_active)
+    && ![true, 1, '1'].includes(agency?.is_archived));
+}

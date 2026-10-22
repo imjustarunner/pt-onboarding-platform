@@ -2,6 +2,7 @@ import { cardUrlKey } from '../services/insuranceCards/policy.js';
 import { validateFaxFields } from '../services/faxExtraction.service.js';
 import { createClientFromFax, getFaxDraft } from '../services/faxIntake.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
+import { requireClientAccountSupport } from '../services/clientAccountSupportAccess.service.js';
 import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model.js';
 import { auditBilling } from '../services/familyBillingPolicy.service.js';
 import Client from '../models/Client.model.js';
@@ -117,7 +118,7 @@ export const getClientInsuranceCard = async (req, res, next) => {
 
     const [clientRows] = await pool.execute('SELECT agency_id FROM clients WHERE id = ?', [clientId]);
     const agencyId = Number(clientRows[0]?.agency_id);
-    if (userRole === 'support' && !(await User.listBillingAgencyIds(req.user.id)).map(Number).includes(agencyId)) return res.status(403).json({ error: { message: 'Billing access is required' } });
+    if (userRole === 'support') await requireClientAccountSupport(req.user, clientId, agencyId);
     const coverage = await readClientInsurance(clientId, agencyId);
     const profileId = Number(req.query.profileId || coverage?.profileId || 0);
     if (!profileId) return res.status(404).json({ error: { message: 'No assigned insurance card evidence for this client' } });

@@ -4,6 +4,9 @@ import { listClientSecureMessages, getClientSecureMessage } from '../controllers
 import express from 'express';
 import * as serviceEnrollments from '../controllers/clientServiceEnrollment.controller.js';
 import { getClientCareBillingSummary } from '../controllers/clientCareBillingSummary.controller.js';
+import { getClientAccountSupport } from '../controllers/clientAccountSupport.controller.js';
+import { getSupportClientInsurance, saveSupportClientInsurance } from '../controllers/clientInsurance.controller.js';
+import { requireActiveStatus } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 import {
   getClients,
@@ -251,7 +254,10 @@ router.put('/:id/clinical-responses', updateClientClinicalResponses);
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
 router.get('/:id/care-billing-summary', getClientCareBillingSummary);
-router.get('/:id/insurance-card', getClientInsuranceCard);
+router.get('/:id/account-support', requireActiveStatus, getClientAccountSupport);
+router.get('/:id/account-support/insurance', requireActiveStatus, getSupportClientInsurance);
+router.put('/:id/account-support/insurance', requireActiveStatus, saveSupportClientInsurance);
+router.get('/:id/insurance-card', requireActiveStatus, getClientInsuranceCard);
 
 // Demographics from profile + latest intake (backfills legacy data)
 router.get('/:id/demographics', getClientDemographics);

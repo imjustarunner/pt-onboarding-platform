@@ -11,7 +11,7 @@ export function summarizeCareBalances(rows, now=new Date()) {
  }
  return {status:due?(oldest?'overdue':'balance_due'):review?'billing_review':'no_balance_due',ageBand:oldest>90?'over_90_days':oldest>60?'61_90_days':oldest>30?'31_60_days':oldest>0?'1_30_days':null,hasItemsUnderReview:review};
 }
-export async function clientCareBillingSummary(agencyId,clientId,db=pool){
+export async function clientCareBillingSummary(agencyId,clientId,db=pool,{includeAmounts=false}={}){
  const insurance=await readClientInsurance(clientId,agencyId,db);
  const policies=['primary','secondary'].filter(slot=>insurance?.[slot]?.insurerName).map(slot=>({position:slot,insurerName:insurance[slot].insurerName}));
  const rows=[];let after=0;
@@ -22,6 +22,9 @@ export async function clientCareBillingSummary(agencyId,clientId,db=pool){
   for(const row of page){let collectible=false;try{await assertCollectible(row,db);collectible=true;}catch(e){if(e.status!==409)throw e;}rows.push({...row,collectible});}
   if(page.length<200)break;after=page.at(-1).id;
  }
- // Never return claim IDs, transaction details, card/member IDs, or any amounts.
- return {policies,balance:summarizeCareBalances(rows),scope:'Current app ledger; billing handles collection and reconciliation'};
+ // Only the separately authorized account-support endpoint opts into an amount.
+ // Review, held, disputed and in-flight payments never count as payable.
+ const balance=summarizeCareBalances(rows);
+ if(includeAmounts)balance.payableCents=rows.reduce((total,row)=>total+(row.collectible&&!row.pending?Math.max(0,Number(row.amount_cents)-Number(row.paid_cents)):0),0);
+ return {policies,balance,scope:'Current app ledger; billing handles collection and reconciliation'};
 }
