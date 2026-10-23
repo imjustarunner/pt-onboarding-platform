@@ -30,3 +30,14 @@ it('does not fall back to another number when the configured staff sender is una
  m.sender.mockResolvedValue(null);expect(await Dispatcher.dispatchForNotification(notification)).toMatchObject({reason:'missing_from_number'});
  expect(m.sender).toHaveBeenCalledTimes(1);expect(m.send).not.toHaveBeenCalled();
 });
+
+it.each([
+ [{id:2,slug:'itsco'},'https://app.itsco.health/dashboard?tab=my&my=availability'],
+ [{id:2,slug:'nextlevelup'},'https://app.nextleveluplcc.com/dashboard?tab=my&my=availability'],
+ [{id:2,slug:'practice',custom_domain:'portal.example.test'},'https://portal.example.test/dashboard?tab=my&my=availability']
+])('links to the provider’s own availability in the notifying agency',async(agency,link)=>{
+ m.agency.mockResolvedValue(agency);
+ await Dispatcher.dispatchForNotification(notification);
+ expect(m.send.mock.calls[0][0].body).toContain(`Full? Turn off Accepting new clients and save: ${link}`);
+ expect(m.send.mock.calls[0][0].body).not.toMatch(/admin\/users|providerId|userId/);
+});

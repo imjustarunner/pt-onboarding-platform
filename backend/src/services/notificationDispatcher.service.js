@@ -11,7 +11,7 @@ import {replyMatchesPreference,safeAppointmentAlert} from '../utils/staffAppoint
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
 import Agency from '../models/Agency.model.js';
-import { buildPublicPortalBaseUrl, buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { buildPublicPortalBaseUrl, buildPublicAppUrl, buildProviderAvailabilitySettingsUrl } from '../utils/publicPortalUrl.js';
 import { staffCommunicationKey, staffNotificationKind, staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 
@@ -234,7 +234,7 @@ class NotificationDispatcherService {
     const appointmentAlert=['client_appointment_reply','kiosk_checkin'].includes(notification.type)?safeAppointmentAlert(notification.type,safeDetails):null;
     const body = urgentSupport
       ? `Urgent: a support request needs your attention. Sign in to claim it and reply securely: ${buildPublicPortalBaseUrl(agency)}`
-      : appointmentAlert || staffNotificationBody(notification.type,notification.type==='client_exchange_match'?exchangeLink:buildPublicPortalBaseUrl(agency));
+      : appointmentAlert || staffNotificationBody(notification.type,notification.type==='client_exchange_match'?exchangeLink:buildPublicPortalBaseUrl(agency), { availabilityUrl: buildProviderAvailabilitySettingsUrl(agency) });
 
     const log = await NotificationSmsLog.create({
       userId,

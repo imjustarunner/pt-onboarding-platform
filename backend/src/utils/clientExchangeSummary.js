@@ -34,11 +34,12 @@ export function exchangeNotificationSummary({listing,client={}}) {
   const type = {individual:'Individual therapy',family:'Family therapy',couples:'Couples therapy'}[String(listing.serviceType||'').toLowerCase()] || 'Therapy type not provided';
   return [`Age: ${age}`, ...(diagnoses.length?[`Diagnosis: ${diagnoses.join('; ')}`]:[]), ...(concerns.length?[`Presenting concerns: ${concerns.join('; ')}`]:[]), type];
 }
-export function buildExchangeEmail({ listing, link, client = {} }) {
+export function buildExchangeEmail({ listing, link, client = {}, availabilityLink }) {
   const lines=exchangeNotificationSummary({listing,client});
   const intro='New client added to the exchange. This is a possible match while you are open for new clients. Unknown preferences may still match; review the client’s needs before requesting. An assignment is not automatic.';
+  const availabilityHelp = 'No longer accepting new clients? Open your availability settings, turn off “Accepting new clients,” and select “Save availability.” This stops future Client Exchange matches for this agency. Existing clients and appointments stay unchanged.';
   return {
-    text:`${intro}\n\n${lines.join('\n')}\n\nReview and request in the app: ${link}\nThis notification mailbox does not accept replies.`,
-    html:`<p>${intro}</p><ul>${lines.map(line=>`<li>${escapeHtml(line)}</li>`).join('')}</ul><p><a href="${escapeHtml(link)}">Review and request in the app</a></p><p>This notification mailbox does not accept replies.</p>`
+    text:`${intro}\n\n${lines.join('\n')}\n\nReview and request in the app: ${link}${availabilityLink ? `\n\n${availabilityHelp}\nUpdate my availability: ${availabilityLink}` : ''}\nThis notification mailbox does not accept replies.`,
+    html:`<p>${intro}</p><ul>${lines.map(line=>`<li>${escapeHtml(line)}</li>`).join('')}</ul><p><a href="${escapeHtml(link)}">Review and request in the app</a></p>${availabilityLink ? `<p>${availabilityHelp}</p><p><a href="${escapeHtml(availabilityLink)}">Update my availability</a></p>` : ''}<p>This notification mailbox does not accept replies.</p>`
   };
 }

@@ -10,6 +10,18 @@ const state={preferences:{seesClients:true,acceptingNewClients:true,inPerson:tru
 const render=()=>mount(Settings,{props:{providerId:9,agencyId:2},global:{stubs:{ProviderServiceOfferings:true,RouterLink:{props:['to'],template:'<a :data-to="JSON.stringify(to)"><slot/></a>'}}}});
 beforeEach(()=>{auth.user={id:1,role:'admin'};vi.resetAllMocks();api.get.mockResolvedValue({data:state});});
 describe('provider availability settings',()=>{
+ it('closes overall availability without resubmitting stale per-format accepting overrides',async()=>{
+  api.get.mockResolvedValue({data:{...state,preferences:{...state.preferences,intakeStatusByFormat:{IN_PERSON:'accepting',VIRTUAL:'accepting'}}}});
+  const w=render();await flushPromises();
+  expect(api.put).not.toHaveBeenCalled();
+  await w.findAll('label').find(l=>l.text().includes('Accepting new clients')).find('input').setValue(false);
+  expect(api.put).not.toHaveBeenCalled();
+  api.put.mockResolvedValue({data:{...state,preferences:{...state.preferences,acceptingNewClients:false}}});
+  await w.find('.actions button').trigger('click');await flushPromises();
+  expect(api.put.mock.calls[0][1]).toMatchObject({agencyId:2,acceptingNewClients:false,inPerson:true,virtual:true,applyToAll:false});
+  expect(api.put.mock.calls[0][1]).not.toHaveProperty('intakeStatusByFormat');
+  expect(w.find('[role=status]').text()).toBe('Availability saved.');w.unmount();
+ });
  it('keeps care assignment read-only for self-service availability',async()=>{
  const w=render();await flushPromises();
  expect(w.findAll('label').find(l=>l.text().includes('Sees clients for this agency')).find('input').element.disabled).toBe(true);

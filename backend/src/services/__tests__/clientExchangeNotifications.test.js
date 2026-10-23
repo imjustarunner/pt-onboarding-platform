@@ -37,6 +37,10 @@ it('sends to every matched provider except current provider, with an agency-scop
   expect(mocks.execute.mock.calls[0][1]).toEqual([2]);
   expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ senderIdentityId: 77, to: 'user10@example.com', templateType: 'client_exchange_match', linkUrl: 'https://app.itsco.health/client-exchange?listingId=44&agencyId=2' }));
   expect(JSON.stringify(mocks.send.mock.calls)).not.toContain('Private Client Name');
+  const email = mocks.send.mock.calls[0][0];
+  expect(email.text).toContain('Update my availability: https://app.itsco.health/dashboard?tab=my&my=availability');
+  expect(email.html).toContain('href="https://app.itsco.health/dashboard?tab=my&amp;my=availability"');
+  expect(email.text).toContain('turn off “Accepting new clients,” and select “Save availability.”');
   expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, agencyId: 2, relatedEntityId: 44 }));
 });
 it('preserves in-app notification when the recipient opts out of email', async () => {

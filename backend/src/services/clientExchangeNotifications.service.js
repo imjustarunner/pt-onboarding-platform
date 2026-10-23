@@ -6,7 +6,7 @@ import NotificationDispatcher from './notificationDispatcher.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { buildPublicAppUrl, buildProviderAvailabilitySettingsUrl } from '../utils/publicPortalUrl.js';
 
 export async function notifyExchangeMatches({ listing, client, send = true, report = true }) {
   const { withExchangeLock, startExchangeRun, finishExchangeRun, saveExchangeDecision, saveExchangeDelivery,
@@ -75,7 +75,7 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
           let result;
           try {
             result=await sendEmailFromIdentity({senderIdentityId:sender.id,to,userId:user.id,source:'auto',subject:'New client added to the exchange',
-              replyToOverride:noReply,...buildExchangeEmail({listing,link,client}),templateType:'client_exchange_match',linkUrl:link,fromDisplayNameOverride:'Client Exchange',
+              replyToOverride:noReply,...buildExchangeEmail({listing,link,client,availabilityLink:buildProviderAvailabilitySettingsUrl(agency)}),templateType:'client_exchange_match',linkUrl:link,fromDisplayNameOverride:'Client Exchange',
               internetMessageIdOverride:`<client-exchange-${listing.id}-${user.id}@auricwell.com>`});
           }catch(error){summary.failed++;await saveExchangeDelivery(listing.id,user.id,{email:{status:'unknown',reason:'Email attempt did not return a confirmed result; check delivery records before retrying.',from:sender.from_email,to}});continue;}
           const status=result?.redirected?'redirected':result?.queued?'queued':result?.blocked||result?.failed?'failed':result?.skipped?'skipped':result?.id||result?.sent?'sent':'unknown';

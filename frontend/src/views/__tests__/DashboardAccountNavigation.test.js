@@ -84,3 +84,9 @@ it('honors legacy account-only settings links', async () => {
   await open('/dashboard?my=preferences');
   expect(wrapper.find('user-preferences-hub-stub').exists()).toBe(true);
 });
+
+it.each(['/dashboard', '/itsco/dashboard'])('opens availability directly from a match notification at %s', async path => {
+  await open(`${path}?tab=my&my=availability`);
+  expect(wrapper.get('[data-profile-my-section="availability"]').isVisible()).toBe(true);
+  expect(wrapper.findComponent({name:'ProviderAvailabilitySettings'}).props()).toMatchObject({providerId:7,agencyId:2});
+});

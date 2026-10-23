@@ -29,7 +29,9 @@ export function validateStaffCommunicationInput(input, disclosureHash) {
 }
 export function staffDeliveryKinds(choices) { return STAFF_COMMUNICATION_CHOICES.filter(c=>c.key!=='polling'&&choices?.[c.key]===true).map(c=>c.key); }
 export function staffNotificationKind(type) { return type==='client_exchange_match'?'exchangeMatches':type==='kiosk_checkin'?'kioskArrivals':type==='client_appointment_reply'?'appointmentReplies':['inbound_client_message','support_safety_net_alert','client_note'].includes(type)?'messageAlerts':'notifications'; }
-export function staffNotificationBody(type, portalUrl) {
+export function staffNotificationBody(type, portalUrl, { availabilityUrl } = {}) {
   const intro=type==='client_exchange_match'?'New client added to the exchange. A possible match is available.':type==='kiosk_checkin'?'Your client has just checked in!':type==='client_appointment_reply'?'A client replied about an appointment. Open the app to review any cancellation or scheduling concern.':staffNotificationKind(type)==='messageAlerts'?'You have a message waiting in the app.':'You have a staff update or reminder in the app.';
-  return `${intro} Sign in to review: ${portalUrl}`;
+  const availability = type === 'client_exchange_match' && availabilityUrl
+    ? ` Full? Turn off Accepting new clients and save: ${availabilityUrl}` : '';
+  return `${intro} Sign in to review: ${portalUrl}${availability}`;
 }

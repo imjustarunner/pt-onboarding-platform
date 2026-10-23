@@ -116,6 +116,10 @@ export function buildPublicAppUrl(agency, path = '', { platformBaseUrl } = {}) {
   return `${base}/${suffix}`;
 }
 
+export function buildProviderAvailabilitySettingsUrl(agency) {
+  return `${buildPublicAppUrl(agency, 'dashboard')}?tab=my&my=availability`;
+}
+
 /**
  * Public marketing website origin (not the app portal).
  * Prefer website_url (e.g. https://itsco.health); otherwise strip leading `app.`
