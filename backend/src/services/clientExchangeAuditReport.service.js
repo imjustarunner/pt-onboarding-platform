@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { getExchangeAudit, parseAuditJson } from './clientExchangeAudit.service.js';
 import { buildExchangeAuditReport } from '../utils/clientExchangeAuditReport.js';
+import { renderExchangeAuditPdf } from './clientExchangeAuditPdf.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 
@@ -18,7 +19,9 @@ export async function sendExchangeAuditReport({listing,agency,identities}) {
   if(!support?.from_email||!sender?.id)throw Object.assign(new Error('Support audit sender or support address is missing'),{code:'EXCHANGE_AUDIT_MAILBOX_MISSING'});
   const audit=await getExchangeAudit(listing.id);
   const link=`${buildPublicAppUrl(agency,'client-exchange')}?listingId=${listing.id}&agencyId=${listing.agencyId}`;
-  const content=buildExchangeAuditReport({audit,listing,agencyName:agency.name,ordinal:pilot.ordinal,link});
+  const {reportHtml,...content}=buildExchangeAuditReport({audit,listing,agencyName:agency.name,ordinal:pilot.ordinal,link});
+  const pdf=await renderExchangeAuditPdf(reportHtml);
+  content.attachments.unshift({filename:`exchange-${listing.id}-audit-report.pdf`,contentType:'application/pdf',contentBase64:pdf.toString('base64')});
   await pool.execute(`INSERT INTO client_exchange_audit_reports (listing_id,report_key,status) VALUES (?,?,'sending')
     ON DUPLICATE KEY UPDATE status='sending'`,[listing.id,reportKey]);
   try {

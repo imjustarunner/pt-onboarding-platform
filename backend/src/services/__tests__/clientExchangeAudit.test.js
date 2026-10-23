@@ -34,13 +34,16 @@ it('never automatically retries uncertain or queued sends',()=>{
 });
 it('renders support explanations without client names, initials, or clinical free text',()=>{
   const report=buildExchangeAuditReport({agencyName:'ITSCO',ordinal:1,link:'https://example.test/?listingId=9',listing:{id:9,clientInitials:'PRIVATE',fullName:'Private Client',presentingProblems:['Private clinical narrative']},audit:{views:{total:4,unique_viewers:2},providers:[{userId:7,name:'<img src=x>',email:'provider@example.com',matched:false,checks:[{status:'fail',reason:'Age does not overlap'},{status:'unknown',reason:'Schedule needs review'}],emailDelivery:{status:'skipped',reason:'Opted out'},smsDelivery:{status:'sent'},views:2}],viewers:[]}});
-  expect(report.text).toContain('Age does not overlap');expect(Buffer.from(report.attachments[0].contentBase64,'base64').toString()).toContain('Opted out');expect(report.text).toContain('Earlier listing views were not tracked');
-  expect(report.html).toContain('&lt;img');expect(report.html).not.toContain('<img');expect(JSON.stringify(report)).not.toMatch(/PRIVATE|Private Client|Private clinical narrative/);
+  expect(report.reportHtml).toContain('Age does not overlap');expect(Buffer.from(report.attachments[0].contentBase64,'base64').toString()).toContain('Opted out');expect(report.text).toContain('Earlier listing views were not tracked');
+  expect(report.reportHtml).toContain('&lt;img');expect(report.reportHtml).not.toContain('<img');expect(report.html).not.toContain('<table');expect(JSON.stringify(report)).not.toMatch(/PRIVATE|Private Client|Private clinical narrative/);
 });
 
 it('keeps a large agency report below email logging limits and includes every provider in the attachment',()=>{
   const providers=Array.from({length:200},(_,i)=>({userId:i+1,name:`Provider ${i}`,email:`p${i}@example.com`,matched:false,checks:[{field:'format',status:'fail',reason:'No compatible visit format is open for new clients.'},{field:'schedule',status:'unknown',reason:'Schedule needs manual confirmation.'}],emailDelivery:{status:'skipped'},smsDelivery:{status:'skipped'},views:0}));
   const report=buildExchangeAuditReport({agencyName:'ITSCO',ordinal:1,link:'https://example.com',listing:{id:9},audit:{providers}});
-  expect(Buffer.byteLength(report.html)).toBeLessThan(40000);
+  expect(Buffer.byteLength(report.html)).toBeLessThan(4000);
+  expect(report.text).not.toContain('Provider 199');
+  expect(report.reportHtml).toContain('Provider 199');
+  expect(report.reportHtml.match(/No compatible visit format is open for new clients\./g)).toHaveLength(1);
   expect(Buffer.from(report.attachments[0].contentBase64,'base64').toString()).toContain('Provider 199');
 });
