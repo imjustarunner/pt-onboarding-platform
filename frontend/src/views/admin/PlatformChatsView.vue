@@ -208,6 +208,11 @@ onMounted(async () => {
   overflow: hidden;
 }
 .chats-view.is-hub {
+  /* Leave room for the inbox below the toolbars on short/zoomed windows.
+     Page scrolling is preferable to shrinking the reading panes to a strip. */
+  height: auto;
+  max-height: none;
+  min-height: max(48rem, calc(100dvh - 72px));
   width: 100%;
   max-width: none;
 }
@@ -288,6 +293,9 @@ onMounted(async () => {
     height: calc(100dvh - 56px);
     max-height: calc(100dvh - 56px);
     padding: 6px 10px 4px;
+  }
+  .chats-view.is-hub {
+    min-height: max(48rem, calc(100dvh - 56px));
   }
 }
 

@@ -7334,6 +7334,13 @@ h1 {
   max-height: calc(100dvh - 180px);
   padding: 0;
 }
+.card-content.card-content--messages-hub :deep(.chats-view.is-hub),
+.my-panel.dashboard-embedded-view :deep(.chats-view.is-hub) {
+  height: auto;
+  /* Keep the messaging page's minimum height when embedded in the dashboard. */
+  max-height: none;
+  min-height: max(48rem, calc(100dvh - 180px));
+}
 
 .my-panel--account-hub :deep(.pay-hub) {
   margin-top: 0;

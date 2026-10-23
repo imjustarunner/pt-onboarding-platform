@@ -6689,6 +6689,18 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   overflow: hidden;
   position: relative;
 }
+/* Page hosts can grow when toolbars wrap. Keep a usable reading area instead
+   of spending the entire height on controls. Overlays must still fit the screen. */
+.msg-hub:not(.msg-hub--drawer):not(.reader-fullscreen) {
+  flex: 1;
+  height: auto;
+  max-height: none;
+}
+.msg-hub:not(.msg-hub--drawer):not(.reader-fullscreen) > .msg-hub-body {
+  min-height: 24rem;
+  /* Long inboxes scroll inside their panes instead of stretching the page. */
+  contain: size;
+}
 .msg-hub.person-focus .msg-hub-rail,
 .msg-hub.person-focus .msg-hub-rail-backdrop {
   display: none;

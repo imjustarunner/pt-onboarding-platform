@@ -711,8 +711,9 @@ onMounted(() => {
 }
 .cc-messages-host {
   padding-bottom: 0;
-  min-height: calc(100dvh - 220px);
-  height: calc(100dvh - 220px);
+  /* Match the standalone inbox's usable minimum, including wrapped toolbars. */
+  min-height: max(48rem, calc(100dvh - 220px));
+  height: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
