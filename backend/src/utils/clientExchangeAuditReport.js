@@ -41,10 +41,12 @@ export function buildExchangeAuditReport({audit, listing, agencyName, ordinal, l
 
   function providerSection(list, heading, explanation) {
     if (!list.length) return `<section class="report-section"><h2>${heading} (0)</h2><p>No providers in this section.</p></section>`;
-    // Explain identical decisions once, without losing provider-specific unknowns.
+    // Explain identical exclusions once. Keep unknowns prominent for matches
+    // and incomplete evaluations; the CSV retains every unknown for excluded providers.
     const groups = new Map();
     for (const provider of list) {
-      const checks = reasons(provider), unknown = unknowns(provider);
+      const checks = reasons(provider);
+      const unknown = provider.matched || !checks.length ? unknowns(provider) : [];
       const key = JSON.stringify([checks, unknown]);
       if (!groups.has(key)) groups.set(key, {checks, unknown, providers:[]});
       groups.get(key).providers.push(provider);
@@ -71,7 +73,7 @@ export function buildExchangeAuditReport({audit, listing, agencyName, ordinal, l
     ${pending.length ? `<div class="confirmation"><strong>Delivery review needed for ${pending.length} providers</strong><p>Failed, pending or uncertain delivery outcomes are shown beside each provider in the following sections.</p></div>` : ''}
     <p>This report covers all ${providers.length} evaluated providers. Matching explanations are grouped when identical; each provider’s delivery results and view counts remain separate.</p><p><a href="${escape(safeLink)}">Open this listing’s audit in Client Exchange</a></p><div class="notes"><strong>How to read this report</strong>${paragraphs(notes)}</div></section>
     ${providerSection(matched, 'Matched providers', 'These providers passed the recorded matching rules. Confirm any unknown fields before assignment.')}
-    ${providerSection(providers.filter(provider => !provider.matched), 'Not matched / needs review', 'The reasons below explain the current decision. Historical delivery receipts may reflect an earlier match.')}
+    ${providerSection(providers.filter(provider => !provider.matched), 'Not matched / needs review', 'The reasons below explain the current decision. Historical delivery receipts may reflect an earlier match. Additional unverified fields for excluded providers are retained in the CSV.')}
     <section class="report-section"><h2>Viewing activity</h2><p>All recorded viewers, including people outside the evaluated provider list.</p>${audit.viewers?.length ? `<table><colgroup><col style="width:50%"><col style="width:15%"><col style="width:35%"></colgroup><thead><tr><th>Viewer</th><th>Detail views</th><th>Last viewed (UTC)</th></tr></thead><tbody>${audit.viewers.map(viewer => `<tr><td>${escape([viewer.first_name, viewer.last_name].filter(Boolean).join(' ') || 'Unnamed viewer')}<div class="muted">User #${escape(viewer.user_id)}</div></td><td>${Number(viewer.view_count || 0)}</td><td>${escape(date(viewer.last_viewed_at))}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">No detail views have been recorded since tracking began.</p>'}<div class="notes">${paragraphs([notes[0]])}</div></section></body></html>`;
 
   const cell = value => {let text=String(value??'');if(/^[=+@\t\r-]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};

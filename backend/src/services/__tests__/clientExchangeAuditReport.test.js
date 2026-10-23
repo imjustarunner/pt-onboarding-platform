@@ -46,3 +46,15 @@ it('keeps distinct unknown fields and delivery reasons beside the correct provid
   expect(report.reportHtml).toContain('Support Viewer');expect(report.reportHtml).toContain('2026-10-23 12:00:00 UTC');
   expect(report.text).toContain('1 provider has failed, pending or uncertain deliveries');
 });
+it('groups identical exclusions despite different unknowns, while retaining all unknowns in the CSV', ()=>{
+  const report=buildExchangeAuditReport({agencyName:'Test',listing:{id:9},ordinal:1,link:'https://example.test',audit:{providers:[
+    {userId:1,name:'One',matched:false,checks:[{status:'fail',reason:'Not accepting clients'},{status:'unknown',reason:'Unverified age coverage'}]},
+    {userId:2,name:'Two',matched:false,checks:[{status:'fail',reason:'Not accepting clients'},{status:'unknown',reason:'Unverified insurance coverage'}]},
+    {userId:3,name:'Three',matched:false,checks:[{status:'unknown',reason:'Matching evaluation incomplete'}]}
+  ]}});
+  expect(report.reportHtml.match(/Not accepting clients/g)).toHaveLength(1);
+  expect(report.reportHtml).toContain('Matching evaluation incomplete');
+  expect(report.reportHtml).toContain('Additional unverified fields for excluded providers are retained in the CSV');
+  const csv=Buffer.from(report.attachments[0].contentBase64,'base64').toString();
+  expect(csv).toContain('Unverified age coverage');expect(csv).toContain('Unverified insurance coverage');
+});
