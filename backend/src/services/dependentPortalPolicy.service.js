@@ -18,6 +18,8 @@ export function personalBillingRouteAllowed(method,path,clientId){
  return method==='POST'&&/^\/api\/family-billing\/(allocations\/\d+\/pay|plans\/\d+\/(accept|cancel)|balances\/\d+\/split|splits\/\d+\/respond)$/.test(path);
 }
 export function dependentRouteAllowed(method,path,clientId){
+ // The handler independently requires an isolated demo account and exact email recipient.
+ if(method==='GET' && /^\/api\/communications\/qa-email-inbox(?:\/\d+)?$/.test(path))return true;
  if(path.startsWith('/api/dependent-portal/'))return !/\/(manage|staff)\//.test(path);
  if(/^\/api\/account-security(?:\/.*)?$/.test(path))return true;
  if(method==='POST'&&['/api/auth/activity-log','/api/auth/platform-session/heartbeat'].includes(path))return true;

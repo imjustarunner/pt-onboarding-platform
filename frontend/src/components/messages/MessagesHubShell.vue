@@ -45,6 +45,7 @@
       </div>
     </header>
 
+    <QaRecipientEmailInbox />
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
       <button v-for="channel in inboxChannels" :key="channel.id" type="button" :data-channel="channel.id" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">
         <ConversaIcon :type="channel.id" :size="16" />{{ channel.label }}
@@ -1575,6 +1576,7 @@
 </template>
 
 <script setup>
+import QaRecipientEmailInbox from './QaRecipientEmailInbox.vue';
 import EmailDeliveryChoice from './EmailDeliveryChoice.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';

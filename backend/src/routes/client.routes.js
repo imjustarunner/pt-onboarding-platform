@@ -4,7 +4,8 @@ import { listClientSecureMessages, getClientSecureMessage } from '../controllers
 import express from 'express';
 import * as serviceEnrollments from '../controllers/clientServiceEnrollment.controller.js';
 import { getClientCareBillingSummary } from '../controllers/clientCareBillingSummary.controller.js';
-import { getClientAccountSupport } from '../controllers/clientAccountSupport.controller.js';
+import { getClientAccountSupport, getClientOperationalStatus } from '../controllers/clientAccountSupport.controller.js';
+import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getSupportClientInsurance, saveSupportClientInsurance } from '../controllers/clientInsurance.controller.js';
 import { requireActiveStatus } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
@@ -249,12 +250,13 @@ router.get('/:id/sms-audit', listClientSmsAudit);
 router.post('/:id/log-view', logClientProfileView);
 
 // Clinical responses from intake (provider/admin)
-router.get('/:id/clinical-responses', getClientClinicalResponses);
-router.put('/:id/clinical-responses', updateClientClinicalResponses);
+router.get('/:id/clinical-responses', excludeSupportClinicalContent, getClientClinicalResponses);
+router.put('/:id/clinical-responses', excludeSupportClinicalContent, updateClientClinicalResponses);
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
 router.get('/:id/care-billing-summary', getClientCareBillingSummary);
 router.get('/:id/account-support', requireActiveStatus, getClientAccountSupport);
+router.get('/:id/operational-status', requireActiveStatus, getClientOperationalStatus);
 router.get('/:id/account-support/insurance', requireActiveStatus, getSupportClientInsurance);
 router.put('/:id/account-support/insurance', requireActiveStatus, saveSupportClientInsurance);
 router.get('/:id/insurance-card', requireActiveStatus, getClientInsuranceCard);
@@ -316,14 +318,14 @@ router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
 
 // Intake note pipeline (90791 / H0031 AI-assisted drafting)
-router.get('/:id/intake-note', getClientIntakeNote);
-router.post('/:id/intake-note/generate', generateClientIntakeNote);
-router.post('/:id/intake-note/import', importClientIntakeNote);
-router.post('/:id/intake-note/evaluate-diagnosis', evaluateIntakeDiagnosisJustification);
-router.patch('/:id/intake-note/:draftId/sections', updateClientIntakeNoteSections);
-router.post('/:id/intake-note/:draftId/diagnosis', confirmClientIntakeDiagnosis);
-router.post('/:id/intake-note/:draftId/regenerate', regenerateClientIntakeNote);
-router.post('/:id/intake-note/:draftId/finalize', finalizeClientIntakeNote);
+router.get('/:id/intake-note', excludeSupportClinicalContent, getClientIntakeNote);
+router.post('/:id/intake-note/generate', excludeSupportClinicalContent, generateClientIntakeNote);
+router.post('/:id/intake-note/import', excludeSupportClinicalContent, importClientIntakeNote);
+router.post('/:id/intake-note/evaluate-diagnosis', excludeSupportClinicalContent, evaluateIntakeDiagnosisJustification);
+router.patch('/:id/intake-note/:draftId/sections', excludeSupportClinicalContent, updateClientIntakeNoteSections);
+router.post('/:id/intake-note/:draftId/diagnosis', excludeSupportClinicalContent, confirmClientIntakeDiagnosis);
+router.post('/:id/intake-note/:draftId/regenerate', excludeSupportClinicalContent, regenerateClientIntakeNote);
+router.post('/:id/intake-note/:draftId/finalize', excludeSupportClinicalContent, finalizeClientIntakeNote);
 
 // Smart Disclosure status / require re-sign
 router.get('/:id/disclosure', getClientDisclosure);

@@ -1,3 +1,4 @@
+import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import {getStaffSmsRequest} from '../services/staffSmsAssistant.service.js';
 import { listMyCommunicationChoices, saveMyCommunicationChoices, listMyCommunicationAgreementsController, downloadMyCommunicationAgreement } from '../controllers/staffCommunicationChoices.controller.js';
 import express from 'express';
@@ -49,9 +50,9 @@ router.get('/communication-choices', authenticate, listMyCommunicationChoices);
 router.put('/communication-choices', authenticate, saveMyCommunicationChoices);
 
 router.get('/clinical-notes-eligible', authenticate, getClinicalNotesEligible);
-router.get('/notes-to-sign', authenticate, listNotesToSign);
-router.get('/notes-to-sign/count', authenticate, getNotesToSignCount);
-router.post('/notes-to-sign/:id/sign', authenticate, signNote);
+router.get('/notes-to-sign', authenticate, excludeSupportClinicalContent, listNotesToSign);
+router.get('/notes-to-sign/count', authenticate, excludeSupportClinicalContent, getNotesToSignCount);
+router.post('/notes-to-sign/:id/sign', authenticate, excludeSupportClinicalContent, signNote);
 router.post('/tasks', authenticate, createCustomTask);
 router.post('/tasks/sync-client-lifecycle', authenticate, syncMyClientLifecycleTasks);
 router.put('/tasks/:id', authenticate, updateCustomTask);

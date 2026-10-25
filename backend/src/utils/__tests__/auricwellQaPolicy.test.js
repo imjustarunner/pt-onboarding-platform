@@ -16,3 +16,11 @@ test('QA fails closed for missing or corrupt policy',()=>{
 test('unrelated tenants retain their notification policy',()=>{
   assert.equal(allowQaExchangeRecipient({slug:'unrelated'},{id:12,is_demo:0}),true);
 });
+test('an explicit roster permits only its synthetic providers, up to ten',()=>{
+  const roster=Array.from({length:10},(_,i)=>({id:1500+i,email:`qa.provider.${i}@example.com`}));
+  const qa={...agency,feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders:roster}}};
+  for(const entry of roster)assert.equal(allowQaExchangeRecipient(qa,{...entry,is_demo:1,role:'provider'}),true);
+  for(const user of [{...roster[0],is_demo:0,role:'provider'},{...roster[0],is_demo:1,role:'support'},{...roster[0],id:9999,is_demo:1,role:'provider'}])assert.equal(allowQaExchangeRecipient(qa,user),false);
+  for(const exchangeProviders of [[],null,[...roster, {id:1600,email:'qa.provider.extra@example.com'}],[roster[0],roster[0]],[{id:1500,email:'real@clinic.test'}]])
+    assert.equal(allowQaExchangeRecipient({...qa,feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders}}},{...roster[0],is_demo:1,role:'provider'}),false);
+});

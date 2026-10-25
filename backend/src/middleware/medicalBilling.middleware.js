@@ -4,6 +4,7 @@ import { grantVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
 import User from '../models/User.model.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
+import { excludeSupportClinicalContent } from './supportContentAccess.middleware.js';
 
 async function loadAgencyFlags(agencyId) {
   const id = parseInt(agencyId, 10);
@@ -63,9 +64,10 @@ const requireClinicalChartFlags = requireMedicalBilling('clinicalChartEnabled');
 export async function requireClinicalChart(req, res, next) {
   try { requireStaffPlanActor(req.user); }
   catch (error) { return next(error); }
-  return requireClinicalChartFlags(req, res, next);
+  return excludeSupportClinicalContent(req, res, () => requireClinicalChartFlags(req, res, next));
 }
-export const requireClinicalNoteSigning = requireMedicalBilling('clinicalNoteSigningEnabled');
+const requireClinicalNoteSigningFlags = requireMedicalBilling('clinicalNoteSigningEnabled');
+export const requireClinicalNoteSigning = (req, res, next) => excludeSupportClinicalContent(req, res, () => requireClinicalNoteSigningFlags(req, res, next));
 export const requireMedicalClaims = requireMedicalBilling('medicalClaimsEnabled');
 export const requireClaimMd = requireMedicalBilling('claimMdEnabled');
 

@@ -210,6 +210,7 @@
               </section>
             </template>
           </ClientOverviewHub>
+          <ClientOperationalStatus v-if="roleNorm === 'support' && clientChartClientId" :client-id="clientChartClientId" />
           <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
         </div>
 
@@ -2775,6 +2776,7 @@
 </template>
 
 <script setup>
+import ClientOperationalStatus from '../clients/ClientOperationalStatus.vue';
 import DependentPortalSharing from './DependentPortalSharing.vue';
 import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
@@ -2945,13 +2947,13 @@ const chartSubnav = computed(() => {
       'provider_plus',
       'admin',
       'super_admin',
-      'support',
       'staff',
       'supervisor',
       'clinical_practice_assistant',
       'intern',
       'intern_plus'
     ].includes(roleNorm.value);
+    if (roleNorm.value === 'support') return [{ id: 'overview', label: 'Status' }, { id: 'audit', label: 'Access log' }];
     return recordsSubnav({
       canViewClinical: isClinicalLikeClientType.value && clinicalRoleOk,
       canViewMedicalRecord: canViewMedicalRecord.value,
@@ -3000,6 +3002,7 @@ const effectiveHubSub = computed(() => {
   return '';
 });
 function showPanel(legacyId) {
+  if (roleNorm.value === 'support' && ['clinical-notes','clinical','medical-record','intake-note','treatment-plans','phi','surveys'].includes(legacyId)) return false;
   return panelVisible(legacyId, chartHub.value, effectiveHubSub.value);
 }
 function setChartNav(hubId, subId = '') {
@@ -4022,7 +4025,6 @@ const canViewMedicalRecord = computed(() => {
   return [
     'super_admin',
     'admin',
-    'support',
     'provider',
     'provider_plus',
     'supervisor',

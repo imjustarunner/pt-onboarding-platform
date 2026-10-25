@@ -295,6 +295,12 @@ export const getAllAgencies = async (req, res, next) => {
 export const getAgencyById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (req.user.role !== 'super_admin') {
+      const agencies = await User.getAgencies(req.user.id);
+      if (!(agencies || []).some(agency => Number(agency.id) === Number(id))) {
+        return res.status(404).json({ error: { message: 'Agency not found' } });
+      }
+    }
     const agency = await Agency.findById(id);
     
     if (!agency) {

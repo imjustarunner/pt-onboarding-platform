@@ -1,0 +1,49 @@
+{
+  "at": "2026-10-25T10:55:07.272Z",
+  "loginStatus": 200,
+  "checks": [
+    {
+      "path": "/api/users/me/agencies",
+      "status": 200,
+      "memberships": [
+        {
+          "id": 450,
+          "slug": "auricwell-qa-demo"
+        },
+        {
+          "id": 451,
+          "slug": "auricwell-qa-demo-school"
+        }
+      ]
+    },
+    {
+      "path": "/api/clients?agencyId=450",
+      "status": 200,
+      "resultShape": {
+        "count": 0
+      }
+    },
+    {
+      "path": "/api/clients?agencyId=451",
+      "status": 200
+    },
+    {
+      "path": "/api/client-exchange/listings?agencyId=450",
+      "status": 200
+    },
+    {
+      "path": "/api/client-exchange/listings?agencyId=451",
+      "status": 403
+    },
+    {
+      "path": "/api/clinical-notes/context?agencyId=450",
+      "status": 200
+    },
+    {
+      "path": "/api/communications/inboxes?agencyId=450",
+      "status": 200
+    }
+  ],
+  "role": "support",
+  "userId": 1434
+}

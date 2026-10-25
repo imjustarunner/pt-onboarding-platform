@@ -1,3 +1,4 @@
+import { excludeSupportSettings } from '../middleware/supportContentAccess.middleware.js';
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -13,7 +14,7 @@ const router = express.Router();
 router.get('/:schoolId/paperwork-delivery-methods', authenticate, requireAgencyAdmin, listPaperworkDeliveryMethods);
 router.post(
   '/:schoolId/paperwork-delivery-methods',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('methodKey').isString().isLength({ min: 1, max: 64 }),
@@ -24,7 +25,7 @@ router.post(
 );
 router.put(
   '/:schoolId/paperwork-delivery-methods/:id',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('methodKey').isString().isLength({ min: 1, max: 64 }),
@@ -40,7 +41,7 @@ router.put(
 
 // Comment categories for school client notes
 router.get('/:schoolId/comment-categories', authenticate, getSchoolCommentCategories);
-router.put('/:schoolId/comment-categories', authenticate, requireAgencyAdmin, setSchoolCommentCategories);
+router.put('/:schoolId/comment-categories', authenticate, excludeSupportSettings, requireAgencyAdmin, setSchoolCommentCategories);
 
 export default router;
 

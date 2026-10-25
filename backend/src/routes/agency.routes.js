@@ -1,3 +1,4 @@
+import { excludeSupportSettings } from '../middleware/supportContentAccess.middleware.js';
 import { updateDashboardIcon } from '../controllers/dashboardIcons.controller.js';
 import express from 'express';
 import { body } from 'express-validator';
@@ -560,22 +561,22 @@ router.get('/:id/affiliated-organizations', authenticate, listAffiliatedOrganiza
 router.get('/:id/business-cards', authenticate, getBusinessCardTemplate);
 router.put('/:id/business-cards', authenticate, putBusinessCardTemplate);
 router.get('/:id/business-cards/people/:userId', authenticate, getEmployeeBusinessCard);
-router.get('/:id/settings-people-snapshot', authenticate, requireBackofficeAdmin, getTenantPeopleSnapshot);
+router.get('/:id/settings-people-snapshot', authenticate, excludeSupportSettings, requireBackofficeAdmin, getTenantPeopleSnapshot);
 router.get('/:id/disclosure-settings', authenticate, getAgencyDisclosureSettings);
-router.put('/:id/disclosure-settings', authenticate, putAgencyDisclosureSettings);
+router.put('/:id/disclosure-settings', authenticate, excludeSupportSettings, putAgencyDisclosureSettings);
 router.get('/:agencyId/school-intake-master', authenticate, getAgencySchoolIntakeMaster);
-router.put('/:agencyId/school-intake-master', authenticate, putAgencySchoolIntakeMaster);
+router.put('/:agencyId/school-intake-master', authenticate, excludeSupportSettings, putAgencySchoolIntakeMaster);
 router.get('/:agencyId/school-packet-template-versions', authenticate, listAgencySchoolPacketTemplateVersions);
 router.get('/:agencyId/school-packet-template-versions/:version', authenticate, getAgencySchoolPacketTemplateVersion);
 router.get('/:agencyId/office-intake-master', authenticate, getAgencyOfficeIntakeMaster);
-router.put('/:agencyId/office-intake-master', authenticate, putAgencyOfficeIntakeMaster);
+router.put('/:agencyId/office-intake-master', authenticate, excludeSupportSettings, putAgencyOfficeIntakeMaster);
 router.get('/:agencyId/office-packet-template', authenticate, getAgencyOfficePacketTemplate);
-router.put('/:agencyId/office-packet-template', authenticate, putAgencyOfficePacketTemplate);
+router.put('/:agencyId/office-packet-template', authenticate, excludeSupportSettings, putAgencyOfficePacketTemplate);
 router.get('/:agencyId/office-packet-template/pdf', authenticate, downloadAgencyOfficePacketTemplatePdf);
 router.get('/:agencyId/office-packet-template-versions', authenticate, listAgencyOfficePacketTemplateVersions);
 router.get('/:agencyId/office-packet-template-versions/:version', authenticate, getAgencyOfficePacketTemplateVersion);
 router.get('/:agencyId/office-packet-brand', authenticate, getAgencyPacketBrand);
-router.put('/:agencyId/office-packet-brand/version', authenticate, putAgencyPacketBrandVersion);
+router.put('/:agencyId/office-packet-brand/version', authenticate, excludeSupportSettings, putAgencyPacketBrandVersion);
 router.post(
   '/:agencyId/office-packet-brand/:slot',
   authenticate,
@@ -584,7 +585,7 @@ router.post(
 );
 router.get('/:agencyId/channel-intake-masters', authenticate, listAgencyChannelIntakeMasters);
 router.get('/:agencyId/channel-intake-masters/:channel', authenticate, getAgencyChannelIntakeMaster);
-router.put('/:agencyId/channel-intake-masters/:channel', authenticate, putAgencyChannelIntakeMaster);
+router.put('/:agencyId/channel-intake-masters/:channel', authenticate, excludeSupportSettings, putAgencyChannelIntakeMaster);
 router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.
@@ -648,9 +649,9 @@ router.get('/:id/management-team/coverage', authenticate, listCoverage);
 router.post('/:id/management-team/coverage', authenticate, setCoverage);
 router.delete('/:id/management-team/coverage', authenticate, deleteCoverage);
 router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, listAgencyNotificationTriggers);
-router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);
+router.put('/:id/notification-triggers/:triggerKey', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateAgencyNotificationTrigger);
 router.get('/:id/notification-preferences', authenticate, requireBackofficeAdmin, getAgencyNotificationPreferences);
-router.put('/:id/notification-preferences', authenticate, requireBackofficeAdmin, updateAgencyNotificationPreferences);
+router.put('/:id/notification-preferences', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateAgencyNotificationPreferences);
 router.get('/:id/notification-sender', authenticate, requireSuperAdmin, getAgencyNotificationSender);
 router.put('/:id/notification-sender', authenticate, requireSuperAdmin, putAgencyNotificationSender);
 router.get('/:id/district-background-processes', authenticate, requireBackofficeAdmin, async (req, res, next) => {
@@ -662,7 +663,7 @@ router.get('/:id/district-background-processes', authenticate, requireBackoffice
     next(e);
   }
 });
-router.put('/:id/district-background-processes', authenticate, requireBackofficeAdmin, async (req, res, next) => {
+router.put('/:id/district-background-processes', authenticate, excludeSupportSettings, requireBackofficeAdmin, async (req, res, next) => {
   try {
     const { putDistrictBackgroundProcess } = await import('../controllers/districtBackgroundProcess.controller.js');
     req.params.agencyId = req.params.id;
@@ -719,10 +720,10 @@ router.get('/:id/book-club/books', authenticate, listBookClubBooksForTenant);
 router.post('/:id/book-club/books', authenticate, createBookClubBook);
 router.put('/:id/book-club/books/:bookId', authenticate, updateBookClubBook);
 router.get('/:id/book-club/interests', authenticate, listBookClubInterests);
-router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
+router.post('/', authenticate, excludeSupportSettings, requireBackofficeAdmin, validateCreateAgency, createAgency);
 router.put('/:id/dashboard-icons', authenticate, requireSuperAdmin, updateDashboardIcon);
 
-router.put('/:id', authenticate, requireBackofficeAdminOrClubManagerForAgency, validateUpdateAgency, updateAgency);
+router.put('/:id', authenticate, excludeSupportSettings, requireBackofficeAdminOrClubManagerForAgency, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
 router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);
 router.delete('/:id', authenticate, requireSuperAdmin, deleteAgencyHard);

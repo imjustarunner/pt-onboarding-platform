@@ -1,3 +1,4 @@
+import { excludeSupportSettings } from '../middleware/supportContentAccess.middleware.js';
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -21,7 +22,7 @@ const router = express.Router();
 router.get('/client-statuses', authenticate, requireAgencyAccess, listClientStatuses);
 router.post(
   '/client-statuses',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('statusKey').isString().isLength({ min: 1, max: 64 }),
@@ -33,7 +34,7 @@ router.post(
 );
 router.put(
   '/client-statuses/:id',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('statusKey').isString().isLength({ min: 1, max: 64 }),
@@ -51,7 +52,7 @@ router.put(
 router.get('/paperwork-statuses', authenticate, requireAgencyAccess, listPaperworkStatuses);
 router.post(
   '/paperwork-statuses',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('statusKey').isString().isLength({ min: 1, max: 64 }),
@@ -63,7 +64,7 @@ router.post(
 );
 router.put(
   '/paperwork-statuses/:id',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('statusKey').isString().isLength({ min: 1, max: 64 }),
@@ -81,7 +82,7 @@ router.put(
 router.get('/insurance-types', authenticate, requireAgencyAccess, listInsuranceTypes);
 router.post(
   '/insurance-types',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('insuranceKey').isString().isLength({ min: 1, max: 64 }),
@@ -92,7 +93,7 @@ router.post(
 );
 router.put(
   '/insurance-types/:id',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('insuranceKey').isString().isLength({ min: 1, max: 64 }),
@@ -110,7 +111,7 @@ router.put(
 router.get('/languages', authenticate, listLanguageOptions);
 router.post(
   '/languages',
-  authenticate,
+  authenticate, excludeSupportSettings,
   [body('label').isString().isLength({ min: 1, max: 128 })],
   createLanguageOption
 );
@@ -119,7 +120,7 @@ router.post(
 router.get('/packet-ocr-config', authenticate, requireAgencyAccess, getPacketOcrConfig);
 router.put(
   '/packet-ocr-config',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('questions').optional().isArray(),

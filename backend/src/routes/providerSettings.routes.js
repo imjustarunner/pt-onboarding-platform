@@ -1,3 +1,4 @@
+import { excludeSupportSettings } from '../middleware/supportContentAccess.middleware.js';
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -13,7 +14,7 @@ const router = express.Router();
 router.get('/credentials', authenticate, requireAgencyAdmin, listProviderCredentials);
 router.post(
   '/credentials',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('credentialKey').isString().isLength({ min: 1, max: 64 }),
@@ -24,7 +25,7 @@ router.post(
 );
 router.put(
   '/credentials/:id',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('credentialKey').isString().isLength({ min: 1, max: 64 }),
@@ -41,7 +42,7 @@ router.put(
 router.get('/credential-insurance', authenticate, requireAgencyAdmin, listCredentialInsuranceMatrix);
 router.post(
   '/credential-insurance',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireAgencyAdmin,
   [
     body('credentialId').isInt({ min: 1 }),

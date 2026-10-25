@@ -1,3 +1,4 @@
+import { excludeSupportSettings } from '../middleware/supportContentAccess.middleware.js';
 import { getVacationSettings, updateVacationSettings, updateVacationDefaults } from '../controllers/vacationResponder.controller.js';
 import express from 'express';
 import multer from 'multer';
@@ -24,12 +25,12 @@ router.get('/vacation', authenticate, getVacationSettings);
 router.put('/vacation', authenticate, updateVacationSettings);
 router.put('/vacation/defaults', authenticate, updateVacationDefaults);
 
-router.get('/', authenticate, requireBackofficeAdmin, getEmailSettings);
-router.put('/', authenticate, requireBackofficeAdmin, updateEmailSettings);
-router.get('/html-chrome', authenticate, requireBackofficeAdmin, getHtmlEmailChrome);
+router.get('/', authenticate, excludeSupportSettings, requireBackofficeAdmin, getEmailSettings);
+router.put('/', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateEmailSettings);
+router.get('/html-chrome', authenticate, excludeSupportSettings, requireBackofficeAdmin, getHtmlEmailChrome);
 router.post(
   '/html-chrome/:kind',
-  authenticate,
+  authenticate, excludeSupportSettings,
   requireBackofficeAdmin,
   upload.single('file'),
   uploadHtmlEmailChrome

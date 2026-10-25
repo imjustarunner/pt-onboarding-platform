@@ -1,4 +1,5 @@
 import express from 'express';
+import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
@@ -16,7 +17,7 @@ import {
 
 const router = express.Router();
 
-router.use(authenticate, requireActiveStatus);
+router.use(authenticate, requireActiveStatus, excludeSupportClinicalContent);
 
 router.get(
   '/documentation-queue',
@@ -143,4 +144,3 @@ router.post(
 );
 
 export default router;
-

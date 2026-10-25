@@ -7,6 +7,7 @@ import Client from '../models/Client.model.js';
 import { loadClientExchangeSummary } from '../services/clientExchangeSummary.service.js';
 import { providerHasAssignedClientAccess, resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import * as ClientExchange from '../services/clientExchange.service.js';
+import { supportExchangeSummary } from '../utils/supportExchangeSummary.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -24,14 +25,12 @@ async function assertAgencyAccess(req, agencyId) {
   const user = req.user;
   if (!user) return false;
   if (String(user.role || '').toLowerCase() === 'super_admin') return true;
-  const ua = user.agencies || user.userAgencies || [];
-  if (Array.isArray(ua) && ua.some((a) => Number(a.id || a.agency_id) === Number(agencyId))) {
-    return true;
-  }
-  if (Number(user.agencyId) === Number(agencyId)) return true;
+  // Current membership is authoritative; a stale token must not restore revoked access.
   try {
     const [rows] = await pool.execute(
-      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT 1 FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
+       WHERE ua.user_id = ? AND ua.agency_id = ? AND ua.is_active=1
+         AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 LIMIT 1`,
       [user.id, agencyId]
     );
     return Boolean(rows?.[0]);
@@ -97,7 +96,8 @@ export async function previewClientSummary(req, res, next) {
     if (!allowedRoles.includes(req.user.role)) return res.status(403).json({ error: { message: 'Forbidden' } });
     const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, client });
     if (!access.ok) return res.status(access.status || 403).json({ error: { message: access.message } });
-    res.json({ summary: await loadClientExchangeSummary({ client }) });
+    const summary = await loadClientExchangeSummary({ client });
+    res.json({ summary: req.user.role === 'support' ? supportExchangeSummary(summary) : summary });
   } catch (error) { next(error); }
 }
 
@@ -203,7 +203,7 @@ export async function withdrawListing(req, res, next) {
     if (!canWithdraw) {
       return res.status(403).json({ error: { message: 'Only the poster, current provider, or admin/support can withdraw this listing' } });
     }
-    const listing = await ClientExchange.withdrawListing({ listingId, actingUserId: req.user.id });
+    const listing = await ClientExchange.withdrawListing({ listingId, actingUserId: req.user.id, viewerRole: req.user.role });
     res.json({ listing });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });

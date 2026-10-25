@@ -1,3 +1,4 @@
+import { excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
 import { getMyAccountAccess, revealMyAccountTempPassword } from '../controllers/myAccountAccess.controller.js';
 import express from 'express';
 import { checkUserLoginHelp, sendUserLoginHelp } from '../controllers/loginHelp.controller.js';
@@ -109,13 +110,13 @@ router.get('/ai-query', authenticate, requireBackofficeAdmin, aiQueryUsers);
 router.get('/duplicates', authenticate, requireBackofficeAdmin, getPeopleDuplicates);
 router.get('/tests', authenticate, requireBackofficeAdmin, getPeopleTests);
 router.post('/merge/preview', authenticate, requireBackofficeAdmin, previewPeopleMerge);
-router.post('/merge', authenticate, requireBackofficeAdmin, applyPeopleMerge);
-router.post('/demo/bulk', authenticate, requireBackofficeAdmin, bulkPatchDemo);
+router.post('/merge', authenticate, excludeSupportSettings, requireBackofficeAdmin, applyPeopleMerge);
+router.post('/demo/bulk', authenticate, excludeSupportSettings, requireBackofficeAdmin, bulkPatchDemo);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedUsers); // Must come before /:id
 router.get('/:id/agencies', authenticate, getUserAgencies);
-router.get('/:id/login-email-aliases', authenticate, requireBackofficeAdmin, getUserLoginEmailAliases);
-router.post('/:id/login-email-alias', authenticate, requireBackofficeAdmin, addUserLoginEmailAlias);
-router.delete('/:id/login-email-alias', authenticate, requireBackofficeAdmin, removeUserLoginEmailAlias);
+router.get('/:id/login-email-aliases', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, getUserLoginEmailAliases);
+router.post('/:id/login-email-alias', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, addUserLoginEmailAlias);
+router.delete('/:id/login-email-alias', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, removeUserLoginEmailAlias);
 router.get('/:id/schedule-summary', authenticate, getUserScheduleSummary);
 router.get('/:id/work-schedule', authenticate, getUserWorkSchedule);
 router.put('/:id/work-schedule', authenticate, putUserWorkSchedule);
@@ -152,9 +153,9 @@ router.get('/:id/guardian-clients', authenticate, requireBackofficeAdmin, getGua
 router.get('/:id/guardian-events', authenticate, requireBackofficeAdmin, getGuardianEvents);
 router.get('/:id/strava-connection', authenticate, getUserStravaConnection);
 router.get('/:id', authenticate, getUserById);
-router.patch('/:id/demo', authenticate, requireBackofficeAdmin, patchUserDemo);
-router.put('/:id', authenticate, updateUser);
-router.put('/:id/status', authenticate, requireBackofficeAdmin, updateUserStatus);
+router.patch('/:id/demo', authenticate, excludeSupportSettings, requireBackofficeAdmin, patchUserDemo);
+router.put('/:id', authenticate, supportProfileUpdateOnly, updateUser);
+router.put('/:id/status', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateUserStatus);
 router.post('/:id/skill-builder/require-confirm-next-login', authenticate, requireSkillBuilderConfirmNextLogin);
 router.post('/:id/profile-photo', authenticate, uploadProfilePhoto.single('photo'), uploadUserProfilePhoto);
 router.get('/:id/email-signature/preview', authenticate, getUserEmailSignaturePreview);
@@ -171,39 +172,39 @@ router.post('/:id/photos/:photoId/flag', authenticate, flagUserPhoto);
 router.delete('/:id/photos/:photoId/flag', authenticate, unflagUserPhoto);
 router.delete('/:id/photos/:photoId/moderate', authenticate, moderateRemovePhoto);
 
-router.post('/assign/agency', authenticate, requireBackofficeAdmin, assignUserToAgency);
-router.put('/:id/default-agency', authenticate, requireBackofficeAdmin, setUserDefaultAgency);
-router.post('/remove/agency', authenticate, requireBackofficeAdmin, removeUserFromAgency);
-router.put('/:id/payroll-access', authenticate, requireBackofficeAdmin, setUserAgencyPayrollAccess);
-router.put('/:id/billing-access', authenticate, requireBackofficeAdmin, setUserAgencyBillingAccess);
+router.post('/assign/agency', authenticate, excludeSupportSettings, requireBackofficeAdmin, assignUserToAgency);
+router.put('/:id/default-agency', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserDefaultAgency);
+router.post('/remove/agency', authenticate, excludeSupportSettings, requireBackofficeAdmin, removeUserFromAgency);
+router.put('/:id/payroll-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyPayrollAccess);
+router.put('/:id/billing-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyBillingAccess);
 router.get('/:id/department-access', authenticate, getUserDepartmentAccess);
-router.put('/:id/department-access', authenticate, requireBackofficeAdmin, setUserAgencyDepartmentAccess);
-router.put('/:id/h0032-mode', authenticate, requireBackofficeAdmin, setUserAgencyH0032Mode);
+router.put('/:id/department-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyDepartmentAccess);
+router.put('/:id/h0032-mode', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyH0032Mode);
 router.get('/:id/business-card-agencies', authenticate, listStaffCardAgencies);
 router.get('/:id/agencies/:agencyId/service-assignments', authenticate, listStaffServiceAssignments);
-router.put('/:id/agencies/:agencyId/service-assignments', authenticate, requireBackofficeAdmin, updateStaffServiceAssignments);
-router.put('/:id/agency-membership', authenticate, requireBackofficeAdmin, guardAgencyMembershipUpdate, setUserAgencyMembershipRole);
-router.put('/:id/supervision-prelicensed', authenticate, requireBackofficeAdmin, setUserAgencySupervisionPrelicensed);
+router.put('/:id/agencies/:agencyId/service-assignments', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateStaffServiceAssignments);
+router.put('/:id/agency-membership', authenticate, excludeSupportSettings, requireBackofficeAdmin, guardAgencyMembershipUpdate, setUserAgencyMembershipRole);
+router.put('/:id/supervision-prelicensed', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencySupervisionPrelicensed);
 router.get('/:id/supervision-prelicensed-classification', authenticate, requireBackofficeAdmin, getSupervisionPrelicensedClassification);
 
 // New endpoints for tokens, passwords, account info, and checklist
-router.post('/:id/generate-token', authenticate, requireBackofficeAdmin, generateInvitationToken);
-router.post('/:id/generate-temporary-password', authenticate, requireBackofficeAdmin, generateTemporaryPassword);
-router.post('/:id/set-temporary-password', authenticate, requireBackofficeAdmin, setCustomTemporaryPassword);
-router.post('/:id/reset-passwordless-token', authenticate, resetPasswordlessToken);
+router.post('/:id/generate-token', authenticate, excludeSupportSettings, requireBackofficeAdmin, generateInvitationToken);
+router.post('/:id/generate-temporary-password', authenticate, excludeSupportSettings, requireBackofficeAdmin, generateTemporaryPassword);
+router.post('/:id/set-temporary-password', authenticate, excludeSupportSettings, requireBackofficeAdmin, setCustomTemporaryPassword);
+router.post('/:id/reset-passwordless-token', authenticate, excludeSupportSettings, resetPasswordlessToken);
 router.post('/:id/send-setup-link', authenticate, requireBackofficeAdmin, sendInitialSetupLink);
 router.post('/:id/resend-setup-link', authenticate, requireBackofficeAdmin, resendSetupLink);
 router.post('/:id/send-reset-password-link', authenticate, requireBackofficeAdmin, sendResetPasswordLink);
 router.get('/:id/login-help', authenticate, requireBackofficeAdmin, checkUserLoginHelp);
 router.post('/:id/login-help/send', authenticate, requireBackofficeAdmin, sendUserLoginHelp);
 router.post('/:id/send-reset-password-link-sms', authenticate, requireBackofficeAdmin, sendResetPasswordLinkSms);
-router.post('/:id/sso-password-override', authenticate, requireBackofficeAdmin, setSsoPasswordOverride);
-router.post('/change-password', authenticate, changePassword); // For users to change their own password
-router.post('/:id/change-password', authenticate, changePassword); // For admins to change other users' passwords
-router.get('/:id/credentials', authenticate, requireBackofficeAdmin, getUserCredentials);
-router.get('/:id/account-info', authenticate, getAccountInfo);
+router.post('/:id/sso-password-override', authenticate, excludeSupportSettings, requireBackofficeAdmin, setSsoPasswordOverride);
+router.post('/change-password', authenticate, supportOwnAccountOnly, changePassword); // Own password remains available.
+router.post('/:id/change-password', authenticate, supportOwnAccountOnly, changePassword);
+router.get('/:id/credentials', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, getUserCredentials);
+router.get('/:id/account-info', authenticate, supportOwnAccountOnly, getAccountInfo);
 router.get('/:id/profile-overview', authenticate, getProfileOverview);
-router.post('/:id/toggle-supervisor-privileges', authenticate, toggleSupervisorPrivileges);
+router.post('/:id/toggle-supervisor-privileges', authenticate, excludeSupportSettings, toggleSupervisorPrivileges);
 router.get('/:id/completion-package', authenticate, downloadCompletionPackage);
 router.get('/:id/onboarding-checklist', authenticate, getOnboardingChecklist);
 router.post('/:id/onboarding-checklist/:itemId/complete', authenticate, markChecklistItemComplete);

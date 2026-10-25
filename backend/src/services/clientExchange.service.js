@@ -5,6 +5,7 @@ import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import { insertExchangeListing } from './clientExchangePosting.service.js';
 import pool from '../config/database.js';
 import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
+import { supportExchangeSummary } from '../utils/supportExchangeSummary.js';
 import { mergeExchangeSummary, summaryItems } from '../utils/clientExchangeSummary.js';
 import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from './clientExchangeClaims.service.js';
 import { notifyExchangeClaim, notifyExchangeAssignment } from './clientExchangeNotifications.service.js';
@@ -118,6 +119,7 @@ function isPrivilegedViewer({ viewerRole, viewerUserId, listing }) {
 function redactListing(listing, { viewerRole, viewerUserId }) {
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
+  if (String(viewerRole || '').toLowerCase() === 'support') Object.assign(mapped, supportExchangeSummary(mapped));
   mapped.canManageClaims = ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())
     || Number(viewerUserId) === Number(listing.current_provider_user_id)
     || (!listing.current_provider_user_id && Number(viewerUserId) === Number(listing.posted_by_user_id));
@@ -281,7 +283,7 @@ export async function createListing({
   const result = { insertId: inserted.listingId };
   const resolvedCurrentProvider = inserted.currentProviderId;
   if (!inserted.created) {
-    const listing = await getListingById(inserted.listingId, { viewerUserId: posterId, viewerRole: 'admin' });
+    const listing = await getListingById(inserted.listingId, { viewerUserId: posterId, viewerRole });
     return { ...listing, alreadyPosted: true };
   }
 
@@ -299,14 +301,14 @@ export async function createListing({
   // Referral alerts belong to the matched-provider notification path below.
   // Broadcasting into Office Available bypassed matching and generated unrelated
   // unread-message reminder emails for every member of that channel.
-  const listing = await getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
+  const listing = await getListingById(result.insertId, { viewerUserId: posterId, viewerRole });
   listing.notifications = { pending: true };
   return listing;
 }
 
-export async function withdrawListing({ listingId, actingUserId }) {
+export async function withdrawListing({ listingId, actingUserId, viewerRole }) {
   await withdrawExchangeListing({ listingId, actingUserId });
-  return getListingById(listingId, { viewerUserId: actingUserId, viewerRole: 'admin' });
+  return getListingById(listingId, { viewerUserId: actingUserId, viewerRole });
 }
 
 export async function createRequest({ listingId, requestingProviderUserId, message = null }) {

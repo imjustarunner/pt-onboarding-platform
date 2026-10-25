@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-25",
+  "baseCommit": "dcb50cb68",
+  "status": "LOCAL_CHECKS_PASSED_NOT_DEPLOYED",
+  "liveBaseline": "live-read-only.json",
+  "checks": [
+    {
+      "name": "QA support, Exchange and scheduling backend regression",
+      "passed": 160,
+      "failed": 0
+    },
+    {
+      "name": "QA recipient/roster and summary node tests",
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "name": "Account-support backend regression",
+      "passed": 46,
+      "failed": 0
+    },
+    {
+      "name": "Recipient inbox, existing messaging and account-support frontend regression",
+      "passed": 51,
+      "failed": 0
+    },
+    {
+      "name": "Full frontend production build",
+      "status": "passed",
+      "nodeOptions": "--max-old-space-size=8192"
+    },
+    {
+      "name": "Final Vite production build after email-link hardening",
+      "status": "passed"
+    }
+  ],
+  "countNote": "Suite totals are test executions; some account-support cases overlap.",
+  "dailyLaunchEnabled": false,
+  "newLiveRecordsCreated": 0,
+  "testMessagesSent": 0,
+  "remaining": "See docs/auricwell/QA_SUPPORT_READINESS_2026-10-25.md"
+}

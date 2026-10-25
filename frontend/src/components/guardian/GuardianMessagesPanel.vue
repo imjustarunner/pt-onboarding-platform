@@ -1,5 +1,6 @@
 <template>
   <div class="gmsg conversa-surface">
+    <QaRecipientEmailInbox />
     <div class="panel-head">
       <ConversaBrand compact />
       <div class="panel-subtitle">Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.</div>
@@ -202,6 +203,7 @@
 </template>
 
 <script setup>
+import QaRecipientEmailInbox from '../messages/QaRecipientEmailInbox.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaBadge from '../../components/conversa/ConversaBadge.vue';

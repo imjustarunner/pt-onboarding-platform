@@ -8,6 +8,7 @@ import emailDraftRoutes from './emailDraft.routes.js';
 import { conversationAccessMiddleware } from '../services/communicationAccess.service.js';
 import { downloadCommunicationAttachment } from '../services/communicationAttachments.service.js';
 import express from 'express';
+import * as qaRecipientEmail from '../controllers/qaRecipientEmail.controller.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
@@ -69,6 +70,8 @@ import {
 const router = express.Router();
 router.use('/client-texts', clinicalMessagingBridge);
 router.use(authenticate);
+router.get('/qa-email-inbox', qaRecipientEmail.list);
+router.get('/qa-email-inbox/:emailId', qaRecipientEmail.detail);
 router.use('/drafts', emailDraftRoutes);
 
 router.get('/feed', getCommunicationsFeed);
@@ -145,4 +148,3 @@ router.get('/calls/voicemails/:voicemailId/audio', streamVoicemailAudio);
 router.get('/calls/:callLogId/recording', streamCallRecording);
 
 export default router;
-

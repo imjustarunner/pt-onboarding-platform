@@ -1,9 +1,19 @@
 import pool from '../config/database.js';
+import { clientOperationalStatus } from '../services/clientOperationalStatus.service.js';
+import { logClientAccess } from '../services/clientAccessLog.service.js';
 import { requireClientAccountSupport } from '../services/clientAccountSupportAccess.service.js';
 import { clientCareBillingSummary } from '../services/clientCareBillingSummary.service.js';
 import { decodePaymentCard } from '../models/GuardianPaymentCard.model.js';
 import { requireResponsiblePayer, auditBilling } from '../services/familyBillingPolicy.service.js';
 import { resolveClientPortalContext, clientPortalAppUrl } from '../services/clientPortalContext.service.js';
+
+export async function getClientOperationalStatus(req, res, next) {
+  try {
+    const result = await clientOperationalStatus(req.user, req.params.id);
+    await logClientAccess(req, Number(req.params.id), 'view_operational_session_status');
+    res.set('Cache-Control','no-store').json(result);
+  } catch (error) { next(error); }
+}
 
 export async function getClientAccountSupport(req, res, next) {
   try {

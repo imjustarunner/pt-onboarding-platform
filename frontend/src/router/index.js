@@ -2587,7 +2587,7 @@ const routes = [
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/public-services',
@@ -2647,7 +2647,7 @@ const routes = [
     component: () => import('../views/admin/AutomatedEmailSettingsView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'super_admin', 'support'],
+      requiresRole: ['admin', 'super_admin'],
       organizationSlug: true
     }
   },
@@ -4160,7 +4160,7 @@ const routes = [
     path: '/admin/settings',
     name: 'Settings',
     component: () => import('../views/admin/SettingsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: { requiresAuth: true, requiresRole: ['admin'] }
   },
   {
     path: '/admin/support-tickets',
@@ -4290,7 +4290,7 @@ const routes = [
     component: () => import('../views/admin/AutomatedEmailSettingsView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'super_admin', 'support']
+      requiresRole: ['admin', 'super_admin']
     }
   },
   {

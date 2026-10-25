@@ -752,7 +752,7 @@ function buildAppEntries() {
       keywords: ['email settings', 'auto email', 'automated email', 'sender', 'from address', 'notifications', 'fallback', 'delivery', 'roi approval', 'templates'],
       kind: 'path',
       path: '/admin/email-settings',
-      rolesAny: ['admin', 'super_admin', 'support']
+      rolesAny: ['admin', 'super_admin']
     },
     {
       id: 'admin-update-newsletter',
