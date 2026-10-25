@@ -5,6 +5,7 @@ import {
   buildPublicMarketingUrl,
   buildPublicPortalBaseUrl,
   buildPublicPortalLoginUrl,
+  buildPublicResetPasswordUrl,
   buildQuickViewHomeUrl,
   buildQuickViewTenantBaseUrl,
   buildQuickViewTokenUrl,
@@ -14,6 +15,28 @@ import {
 const PLATFORM = 'https://plottwisthq.com';
 
 describe('publicPortalUrl', () => {
+  it('keeps the isolated QA agency reset and login links on its actual ITSCO app path', () => {
+    const agency = { id: 450, slug: 'auricwell-qa-demo', portal_url: 'auricwell-qa-demo',
+      organization_type: 'agency', feature_flags: { qaSandbox: { syntheticOnly: true } } };
+    for (const feature_flags of [agency.feature_flags, JSON.stringify(agency.feature_flags)]) {
+      const configured = { ...agency, feature_flags };
+      assert.equal(buildPublicResetPasswordUrl(configured, 'test-token', { platformBaseUrl: PLATFORM }),
+        'https://app.itsco.health/auricwell-qa-demo/reset-password/test-token');
+      assert.equal(buildPublicPortalLoginUrl(configured, { platformBaseUrl: PLATFORM }),
+        'https://app.itsco.health/auricwell-qa-demo/login');
+    }
+  });
+
+  it('does not apply the shared QA host to unverified or unrelated agencies', () => {
+    for (const agency of [
+      { id: 451, slug: 'auricwell-qa-demo', feature_flags: { qaSandbox: { syntheticOnly: true } } },
+      { id: 450, slug: 'auricwell-qa-demo', feature_flags: {} },
+      { id: 450, slug: 'another-agency', feature_flags: { qaSandbox: { syntheticOnly: true } } }
+    ]) {
+      assert.equal(buildPublicPortalBaseUrl(agency, { platformBaseUrl: PLATFORM }), `${PLATFORM}/${agency.slug}`);
+    }
+  });
+
   it('maps ITSCO marketing support to itsco.health (not app.itsco.health)', () => {
     const itsco = {
       name: 'ITSCO',

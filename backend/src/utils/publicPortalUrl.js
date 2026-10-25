@@ -8,6 +8,7 @@
 
 import { routingDestination } from '../services/schoolCareBridgeRouting.service.js';
 import { publicAppBaseUrl } from '../services/contactReminderToken.service.js';
+import { isAuricwellQaAgency, AURICWELL_QA_SLUG } from './auricwellQaPolicy.js';
 
 export const DEDICATED_APP_HOSTS = Object.freeze({
   itsco: 'app.itsco.health',
@@ -88,6 +89,9 @@ function platformBase(platformBaseUrl) {
  * Other agencies → {FRONTEND_URL}/{slug}
  */
 export function buildPublicPortalBaseUrl(agency, { platformBaseUrl } = {}) {
+  // This isolated agency shares ITSCO's app host, but must retain its own path.
+  // Setting custom_domain to that shared host would incorrectly drop the slug.
+  if (isAuricwellQaAgency(agency)) return `https://app.itsco.health/${AURICWELL_QA_SLUG}`;
   const slug = orgSlug(agency);
   const parent = parentSlug(agency);
   const ownCustom = hostnameFromCustomDomain(agency?.custom_domain || agency?.customDomain);
