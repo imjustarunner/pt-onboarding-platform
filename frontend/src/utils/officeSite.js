@@ -14,6 +14,13 @@ export function officeSiteForHost(host = '') {
   return OFFICE_SITES.find(site => site.host === String(host).toLowerCase().split(':')[0]) || null;
 }
 export function isOfficePath(path = '') { return /^\/office-kiosk(?:\/|$|[?#])/.test(path) || /^\/kiosk(?:-welcome)?\/\d+(?:\/|$|[?#])/.test(path); }
+export function officeKioskEntryRedirect(host, path = '') {
+  const site = officeSiteForHost(host);
+  if (!site || site.locationId !== null) return null;
+  // Recover saved links to the former account-based station on shared kiosk hosts.
+  return /^\/(?:login|kiosk(?:\/(?:login|app))?|session-ended)\/?$/.test(path)
+    ? '/office-kiosk' : null;
+}
 export function officePaths(host) {
   const site = officeSiteForHost(host);
   if (!site) return null;

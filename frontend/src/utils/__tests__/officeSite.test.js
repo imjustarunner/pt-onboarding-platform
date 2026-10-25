@@ -1,7 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { officePaths, officeSiteForHost, officeHtml, OFFICE_SITES } from '../officeSite';
+import { officePaths, officeSiteForHost, officeHtml, officeKioskEntryRedirect, OFFICE_SITES } from '../officeSite';
 import { publicBrowserBranding } from '../publicBrowserBranding';
 describe('dedicated office sites', () => {
+ it.each(['kiosk.auricwell.com', 'kiosk.plottwisthq.com'])('recovers old account entry links on %s', host => {
+  for (const path of ['/login', '/kiosk', '/kiosk/login', '/kiosk/app', '/session-ended']) {
+   expect(officeKioskEntryRedirect(host, path)).toBe('/office-kiosk');
+   expect(officeKioskEntryRedirect(host, `${path}/`)).toBe('/office-kiosk');
+  }
+  for (const path of ['/office-kiosk', '/kiosk-welcome/6', '/kiosk/6', '/api/public/office-kiosk/session', '/reset-password', '/itsco/kiosk']) {
+   expect(officeKioskEntryRedirect(host, path)).toBeNull();
+  }
+ });
+ it('preserves account and event kiosk entry on other hosts', () => {
+  for (const host of ['plottwisthq.com', 'app.itsco.health', 'auricwell.com', '437.plottwisthq.com', 'kiosk.auricwell.com.evil.test']) {
+   for (const path of ['/login', '/kiosk', '/kiosk/login', '/kiosk/app']) expect(officeKioskEntryRedirect(host, path)).toBeNull();
+  }
+ });
  it('maps Denver to its real location, not the hostname number', () => {
   expect(officePaths('office1.plottwisthq.com').internal('/')).toBe('/kiosk-welcome/6');
   expect(officePaths('437.plottwisthq.com').clean('/kiosk-welcome/1?x=1')).toBe('/?x=1');

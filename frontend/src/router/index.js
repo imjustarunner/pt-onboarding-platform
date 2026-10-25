@@ -7,6 +7,7 @@ import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
 import { hasRequiredRouteRole } from './routeRoleAccess.js';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
+import { officeKioskEntryRedirect } from '../utils/officeSite.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
 import { tenantLegalProfiles, tenantLegalLinks } from '../content/tenantLegalProfiles.js';
 import { Capacitor } from '@capacitor/core';
@@ -5069,6 +5070,16 @@ function isFreshLoginWindow(now = Date.now()) {
 }
 
 router.beforeEach(async (to, from, next) => {
+  const officeEntry = officeKioskEntryRedirect(window.location.hostname, to.path);
+  if (officeEntry) {
+    next({ path: officeEntry, replace: true });
+    return;
+  }
+  // Office devices use their own setup code and cookie, independent of staff sessions.
+  if (to.name === 'OfficeKiosk' || to.name === 'KioskWelcome') {
+    next();
+    return;
+  }
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
