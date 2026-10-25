@@ -11,6 +11,24 @@ import Home from '../DashboardOverviewHome.vue';
 import Work from '../OverviewWorkCard.vue';
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks();mocks.get.mockResolvedValue({data:{notes:[],drafts:[]}});mocks.queue.mockResolvedValue([]);});
 describe('dashboard work',()=>{
+ it('waits for the agency and loads draft counts with the required scope',async()=>{
+  mocks.get.mockImplementation(async(path,options)=>{
+   if(path==='/clinical-notes/recent'){
+    if(options?.params?.agencyId!==450)throw Error('agencyId is required');
+    return {data:{drafts:[{id:7,status:'draft'}]}};
+   }
+   return {data:{}};
+  });
+  const w=shallowMount(Home,{props:{showNotes:true}});await flushPromises();
+  expect(mocks.get).not.toHaveBeenCalled();
+  await w.setProps({agencyId:450});await flushPromises();
+  expect(w.findComponent({name:'OverviewMetricCards'}).props('noteAidInProgressCount')).toBe(1);
+  w.unmount();
+ });
+ it('does not load clinical note counts for a dashboard without clinical access',async()=>{
+  const w=shallowMount(Home,{props:{agencyId:450,showNotes:false}});await flushPromises();
+  expect(mocks.get).not.toHaveBeenCalled();expect(mocks.queue).not.toHaveBeenCalled();w.unmount();
+ });
  it('lets staff hide and reorder cards and restores their choices',async()=>{
   let w=shallowMount(Home,{props:{agencyId:2,showNotes:true,showSchedule:true,showPayroll:true}});await flushPromises();
   await w.get('.ov-customize').trigger('click');

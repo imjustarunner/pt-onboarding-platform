@@ -529,12 +529,13 @@ function openNoteAid() {
 async function loadNoteAidCounts() {
   if (!props.showNotes || !props.enabled) return;
   const uid = userId.value;
-  if (!uid) return;
+  const agencyId = Number(props.agencyId);
+  if (!uid || !Number.isSafeInteger(agencyId) || agencyId < 1) return;
   try {
     const [queue, recentRes] = await Promise.all([
       fetchWorkQueueFromApi(uid).catch(() => []),
       api.get('/clinical-notes/recent', {
-        params: { allAccessible: 1, limit: 100, archiveStatus: 'active', days: 30 },
+        params: { agencyId, allAccessible: 1, limit: 100, archiveStatus: 'active', days: 30 },
         skipGlobalLoading: true
       }).catch(() => ({ data: null }))
     ]);
