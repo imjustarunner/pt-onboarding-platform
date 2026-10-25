@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { allowQaExchangeRecipient, AURICWELL_QA_SLUG } from '../utils/auricwellQaPolicy.js';
 import { buildExchangeEmail, exchangeNotificationSummary } from '../utils/clientExchangeSummary.js';
 import Agency from '../models/Agency.model.js';
 import Notification from '../models/Notification.model.js';
@@ -27,6 +28,7 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
       const {users,facets}=await loadExchangeCandidates(agencyId);
       const history=await exchangeDeliveryHistory(listing);
       for(const user of users) {
+        if(!allowQaExchangeRecipient(agency,user)){summary.skipped++;continue;}
         const previous=history.get(Number(user.id))||{};
         let decision;
         try { decision=await evaluateExchangeCandidate({user,listing,client,facets:facets.get(Number(user.id))}); }
@@ -89,7 +91,7 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
         await saveExchangeDelivery(listing.id,userId,previous);
       }
       await finishExchangeRun(listing.id,summary.failed?'delivery_needs_review':null);
-      if(report){
+      if(report && agency?.slug !== AURICWELL_QA_SLUG){
         try {const {sendExchangeAuditReport}=await import('./clientExchangeAuditReport.service.js');const result=await sendExchangeAuditReport({listing,agency,identities});
           if(result?.status&&!['sent'].includes(result.status))await finishExchangeRun(listing.id,'audit_delivery_needs_review');
         }catch(error){await finishExchangeRun(listing.id,'audit_send_failed');console.error('[clientExchange] Support audit needs retry',{listingId:listing.id,code:error?.code||'audit_send_failed'});}
@@ -101,13 +103,14 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
 
 async function exchangeActivityNotification({ listing, userId, type, title, message, actorUserId }) {
   const agency = await Agency.findById(listing.agency_id);
+  const [[recipient]] = await pool.execute(`SELECT u.id, u.role, u.work_email, u.email, u.personal_email, u.is_demo FROM users u
+    JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? WHERE u.id = ? AND COALESCE(ua.is_active,1) = 1 AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0 LIMIT 1`, [listing.agency_id, userId]);
+  if (!recipient || !allowQaExchangeRecipient(agency, recipient)) return;
   await Notification.create({
     type, severity: 'info', title, message, userId, agencyId: listing.agency_id,
     relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id, actorUserId,
     actorSource: 'client_exchange', audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
   });
-  const [[recipient]] = await pool.execute(`SELECT u.id, u.role, u.work_email, u.email, u.personal_email FROM users u
-    JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? WHERE u.id = ? AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0 LIMIT 1`, [listing.agency_id, userId]);
   if (!recipient || !await isNotificationChannelEnabled({ userId, userRole: recipient.role, agencyId: listing.agency_id, type, channel: 'email' })) return;
   const identities = await EmailSenderIdentity.list({ agencyId: listing.agency_id, includePlatformDefaults: false, onlyActive: true });
   const sender = identities.find(row => row.identity_key === 'notifications') || identities.find(row => /^notifications@/i.test(row.from_email || ''));

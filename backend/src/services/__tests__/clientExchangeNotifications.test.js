@@ -18,9 +18,12 @@ vi.mock('../clientExchangeAudit.service.js',()=>({
 vi.mock('../clientExchangeAuditReport.service.js',()=>({sendExchangeAuditReport:vi.fn().mockResolvedValue({status:'sent'})}));
 import {exchangeDeliveryHistory,isExchangeListingOpen,saveExchangeDecision,saveExchangeDelivery} from '../clientExchangeAudit.service.js';
 import { notifyExchangeMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
+import Agency from '../../models/Agency.model.js';
+import {sendExchangeAuditReport} from '../clientExchangeAuditReport.service.js';
 const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual' } };
 beforeEach(() => {
   vi.clearAllMocks();
+  Agency.findById.mockResolvedValue({id:2,slug:'itsco'});
   exchangeDeliveryHistory.mockResolvedValue(new Map());
   isExchangeListingOpen.mockResolvedValue(true);
   mocks.execute.mockImplementation(async sql => sql.includes('provider_insurance_overrides') ? [[]] : [[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
@@ -30,6 +33,27 @@ beforeEach(() => {
   mocks.enabled.mockResolvedValue(true);
   mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email: 'notifications@itsco.health',reply_to:'support@itsco.health' },{id:78,identity_key:'noreply',from_email:'noreply@itsco.health'}]);
   mocks.notify.mockResolvedValue({ id: 1 }); mocks.send.mockResolvedValue({ sent: true });
+});
+it('QA suppresses all match channels for everyone except the configured synthetic provider', async()=>{
+  Agency.findById.mockResolvedValue({id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:10}}});
+  mocks.execute.mockResolvedValue([[{id:10,role:'provider',email:'qa.provider.auricwell@example.com',is_demo:1,sees_clients:1,provider_accepting_new_clients:1},{id:11,role:'provider',email:'real@example.org',is_demo:0}]]);
+  await notifyExchangeMatches({listing:{...listing,agencyId:450}});
+  expect(mocks.notify.mock.calls.map(([n])=>n.userId)).toEqual([10]);
+  expect(mocks.send.mock.calls.map(([n])=>n.userId)).toEqual([10]);
+  expect(mocks.dispatch).toHaveBeenCalledTimes(1);
+  expect(sendExchangeAuditReport).not.toHaveBeenCalled();
+});
+it('QA claim reviewers receive no in-app or email notification',async()=>{
+  Agency.findById.mockResolvedValue({id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:10}}});
+  mocks.execute.mockImplementation(async(sql,params)=>sql.includes('SELECT DISTINCT u.id')?[[{id:12}]]:[[{id:params[1],role:'support',email:'qa.support.auricwell@example.com',is_demo:1}]]);
+  await notifyExchangeClaim({listing:{id:44,agency_id:450,current_provider_user_id:9,posted_by_user_id:12},requestingProviderUserId:10});
+  expect(mocks.notify).not.toHaveBeenCalled();expect(mocks.send).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
+});
+it('QA assignment notification fails closed when the recipient is not its demo provider',async()=>{
+  Agency.findById.mockResolvedValue({id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:10}}});
+  mocks.execute.mockResolvedValue([[{id:11,email:'real@example.org',is_demo:0}]]);
+  await notifyExchangeAssignment({listing:{id:44,agency_id:450},request:{requesting_provider_user_id:11},actingUserId:12});
+  expect(mocks.notify).not.toHaveBeenCalled();expect(mocks.send).not.toHaveBeenCalled();
 });
 it('sends to every matched provider except current provider, with an agency-scoped private link', async () => {
   const result = await notifyExchangeMatches({ listing, client: { full_name: 'Private Client Name' } });

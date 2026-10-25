@@ -1,14 +1,37 @@
-// The administrator preview reuses shared EHR services. It is not a customer login.
+// Shared EHR access: existing administrator preview plus explicitly scoped QA staff.
+import { AURICWELL_QA_SLUG } from '../utils/auricwellQaPolicy.js';
+export { AURICWELL_QA_SLUG };
 export const previewError = (status, message) => Object.assign(new Error(message), { status });
 export function previewAgencySlug(value) {
   const slug = String(value || '').trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(slug)) throw previewError(400, 'Choose a practice.');
   return slug === 'innerstrength' ? 'tisi' : slug;
 }
-export function assertPreviewActor(user, claims = {}) {
-  if (user?.role !== 'super_admin' || claims.demoMode || claims.testAccountSwitch || !user?.id || !user.is_active || ['ARCHIVED', 'INACTIVE_EMPLOYEE'].includes(user.status)) {
-    throw previewError(403, 'AuricWell practice preview requires your active superadmin account.');
+export function isQaPreviewIdentity(user) {
+  const roles = { 'qa.provider.auricwell@example.com':'provider', 'qa.support.auricwell@example.com':'support', 'qa.setup.auricwell@example.com':'admin' };
+  return Number(user?.is_demo) === 1 && Object.hasOwn(roles,String(user?.email||'').toLowerCase())
+    && roles[String(user.email).toLowerCase()] === user.role;
+}
+export function assertPreviewActor(user, claims = {}, { qaAgencyId = null } = {}) {
+  const qaAccess = isQaPreviewIdentity(user) && Number.isSafeInteger(qaAgencyId) && qaAgencyId > 0;
+  if ((user?.role !== 'super_admin' && !qaAccess) || claims.demoMode || claims.testAccountSwitch || !user?.id || !user.is_active || user.is_archived || ['ARCHIVED', 'INACTIVE_EMPLOYEE','TERMINATED_PENDING'].includes(user.status)) {
+    throw previewError(403, 'This account does not have access to this AuricWell workspace.');
   }
+}
+export function assertQaPreviewPractice(req, agency) {
+  if (req.auricwellQaAgencyId && (agency?.slug !== AURICWELL_QA_SLUG || Number(agency.id) !== req.auricwellQaAgencyId))
+    throw previewError(404, 'Practice unavailable.');
+}
+export function qaPreviewRouteAllowed(method, path, user, agencyId) {
+  if (/^\/platform\//.test(path)) return false;
+  if (/^\/auricwell-preview\/toasts(?:\/|$)/.test(path) && path !== '/auricwell-preview/toasts/active') return false;
+  const agency = path.match(/^\/agencies\/(\d+)/);
+  if (agency && Number(agency[1]) !== agencyId) return false;
+  const preferences = path.match(/^\/users\/(\d+)\/preferences$/);
+  if (preferences && Number(preferences[1]) !== Number(user.id)) return false;
+  // Keep the real role downstream. Support does not acquire clinical write access.
+  if (user.role === 'support' && method !== 'GET') return false;
+  return previewRouteAllowed(method,path);
 }
 export function constrainPreviewInput(input, agencyId) {
   if (!input || typeof input !== 'object') return;
@@ -24,7 +47,7 @@ export function constrainPreviewInput(input, agencyId) {
 }
 export function previewRouteAllowed(method, path) {
   if (method === 'GET') return [
-    /^\/auricwell-preview(?:\/context|\/providers|\/toasts(?:\/active)?)?$/,
+    /^\/auricwell-preview(?:\/context|\/providers|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
     /^\/platform\/toast-announcements$/,
     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,
     /^\/note-aid\/(?:catalog|tools)$/,

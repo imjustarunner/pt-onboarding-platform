@@ -1,0 +1,64 @@
+{
+  "name": "ITSCO-style isolated QA agency",
+  "agencyId": 450,
+  "agencySlug": "auricwell-qa-demo",
+  "schoolId": 451,
+  "primaryInterface": "full_platform",
+  "primaryLogin": "https://app.itsco.health/auricwell-qa-demo/login",
+  "providerDashboard": "https://app.itsco.health/auricwell-qa-demo/dashboard",
+  "secondaryInterface": {
+    "name": "auricwell_ehr",
+    "url": "https://auricwell.com/app/auricwell-qa-demo",
+    "priority": "secondary regression"
+  },
+  "providerUserId": 1433,
+  "supportUserId": 1434,
+  "setupAdminUserId": 1435,
+  "superadminAllowed": false,
+  "schedule": {
+    "timezone": "America/Denver",
+    "startLocal": "05:00",
+    "enabled": false,
+    "retainClients": true
+  },
+  "dailyEnrollmentCases": [
+    "school_en",
+    "school_es",
+    "office_en",
+    "office_es"
+  ],
+  "providerCoverage": [
+    "dashboard",
+    "account",
+    "credentials",
+    "documents",
+    "settings",
+    "notifications",
+    "availability",
+    "scheduling",
+    "clients",
+    "documentation",
+    "payroll",
+    "compensation",
+    "benefits",
+    "submit",
+    "tasks",
+    "training",
+    "quizzes"
+  ],
+  "quizInterpretation": "Existing provider onboarding/training quizzes; user clarification pending",
+  "emailDestination": "testing@itsco.health",
+  "providerSmsDestination": "+16189107000",
+  "clientSmsEnabled": false,
+  "featureParityVerified": false,
+  "notificationDeliveryVerified": false,
+  "runbook": "docs/auricwell/GROK_DAILY_QA.md",
+  "limitations": [
+    "No live payroll posting or payments",
+    "Full configuration parity and training assignment still require verification",
+    "Daily scheduler is not configured"
+  ],
+  "primaryRoutingStatus": "candidate_verified_not_published",
+  "productionSignInBlocker": "This tenant has no configured app domain.",
+  "candidateRevision": "onboarding-frontend-itsco-qa-routing-20261024"
+}

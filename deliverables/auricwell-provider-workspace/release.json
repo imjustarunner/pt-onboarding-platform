@@ -1,0 +1,199 @@
+{
+  "backendFiles": [
+    "src/routes/auricwellPreview.routes.js",
+    "src/services/auricwellPreviewPolicy.js",
+    "src/middleware/auricwellPreview.middleware.js"
+  ],
+  "frontendFiles": [
+    "src/auricwell/App.vue",
+    "src/auricwell/Overview.vue",
+    "src/auricwell/WorkspaceShell.vue",
+    "src/auricwell/WorkspaceTools.vue",
+    "src/auricwell/workspace.js",
+    "src/auricwell/Records.vue",
+    "src/auricwell/qaAccess.js",
+    "src/auricwell/style.css"
+  ],
+  "baseBackendDigest": "sha256:d258025112c80e5ad4f8c3694cea535d7ed40268492c490e93cf4cde49468959",
+  "baseFrontendDigest": "sha256:f71bbb4da590f12d719dfcf7371178e9d624849459850e96bea02435b7dbc6b7",
+  "testResults": {
+    "frontend": "13 tests passed",
+    "backendAccess": "15 tests passed",
+    "backendRoutes": "10 tests passed",
+    "browser": "Desktop/mobile synthetic fixture interaction checks passed",
+    "productionFrontendBuild": "passed",
+    "candidateBrowser": "All three real demo accounts rendered the candidate; support authoring denial verified; desktop/mobile screenshots captured.",
+    "liveBrowser": "Provider, support, and setup accounts passed on auricwell.com; support mobile and documentation denial passed; screenshots captured."
+  },
+  "screenshotsUseSyntheticFixtures": true,
+  "nativeTools": [
+    "overview",
+    "clients",
+    "appointments review",
+    "notes and documentation",
+    "providers",
+    "notifications inbox"
+  ],
+  "personalToolLinks": [
+    "payroll",
+    "compensation",
+    "benefits",
+    "preferences",
+    "account details",
+    "credentials",
+    "availability"
+  ],
+  "operationalLimitations": [
+    "Payroll/account edits open existing full-suite personal pages.",
+    "Reports currently shows personal activity summary, not agency financial reporting.",
+    "Pending drafts cover active drafts created in the last 30 days, up to 100.",
+    "Daily bot scheduler and email/SMS delivery readiness remain separate."
+  ],
+  "status": "published_verified",
+  "backendRevision": "onboarding-backend-aw-workspace-20261024",
+  "frontendRevision": "onboarding-frontend-aw-workspace-20261024",
+  "backendBuildId": "4899511b-b06b-41ad-90bc-b6ed330f2586",
+  "frontendBuildId": "cde9b1c9-54ae-43fa-a773-1a3229e896ad",
+  "backendImageDigest": "sha256:95241861ee987405ea990eda9e8a1563caf14cadc373cd794f75d12f57e41ccd",
+  "frontendImageDigest": "sha256:3b980316fec181b79efd3fbfa68d9fa50bb79a04dcdc0e80038f0905415e3618",
+  "previousBackendRevision": "onboarding-backend-qa-access-20261024",
+  "previousFrontendRevision": "onboarding-frontend-qa-access-copy-20261024",
+  "published": true,
+  "candidateAccessVerification": {
+    "at": "2026-10-24T17:38:01.380Z",
+    "results": [
+      {
+        "account": "support",
+        "baseURL": "https://aw-workspace-check---onboarding-backend-65v3jdyqba-wm.a.run.app",
+        "loginStatus": 200,
+        "role": "support",
+        "userId": 1434,
+        "practiceListStatus": 200,
+        "practiceSlugs": [
+          "auricwell-qa-demo"
+        ],
+        "otherPracticeDenied": 404,
+        "tasksStatus": 200,
+        "notificationsStatus": 200,
+        "crossAgencyDenied": 403,
+        "announcementManagementDenied": 403,
+        "supportClinicalWriteDenied": 403,
+        "frontendCandidate": "https://aw-workspace-check---onboarding-frontend-65v3jdyqba-wm.a.run.app",
+        "pageShowsQa": true,
+        "supportDocumentationDenied": true
+      },
+      {
+        "account": "setup",
+        "baseURL": "https://aw-workspace-check---onboarding-backend-65v3jdyqba-wm.a.run.app",
+        "loginStatus": 200,
+        "role": "admin",
+        "userId": 1435,
+        "practiceListStatus": 200,
+        "practiceSlugs": [
+          "auricwell-qa-demo"
+        ],
+        "otherPracticeDenied": 404,
+        "tasksStatus": 200,
+        "notificationsStatus": 200,
+        "crossAgencyDenied": 403,
+        "announcementManagementDenied": 403,
+        "frontendCandidate": "https://aw-workspace-check---onboarding-frontend-65v3jdyqba-wm.a.run.app",
+        "pageShowsQa": true
+      },
+      {
+        "account": "provider",
+        "baseURL": "https://aw-workspace-check---onboarding-backend-65v3jdyqba-wm.a.run.app",
+        "loginStatus": 200,
+        "role": "provider",
+        "userId": 1433,
+        "practiceListStatus": 200,
+        "practiceSlugs": [
+          "auricwell-qa-demo"
+        ],
+        "otherPracticeDenied": 404,
+        "tasksStatus": 200,
+        "notificationsStatus": 200,
+        "crossAgencyDenied": 403,
+        "announcementManagementDenied": 403,
+        "frontendCandidate": "https://aw-workspace-check---onboarding-frontend-65v3jdyqba-wm.a.run.app",
+        "pageShowsQa": true
+      }
+    ]
+  },
+  "publishedVerifiedAt": "2026-10-24T17:54:35.961255+00:00",
+  "publicationApproval": "User explicitly approved publication: yesn lets go for it",
+  "liveAccessVerification": {
+    "at": "2026-10-24T17:54:28.045Z",
+    "results": [
+      {
+        "account": "provider",
+        "baseURL": "https://auricwell.com",
+        "loginStatus": 200,
+        "role": "provider",
+        "userId": 1433,
+        "practiceListStatus": 200,
+        "practiceSlugs": [
+          "auricwell-qa-demo"
+        ],
+        "otherPracticeDenied": 404,
+        "tasksStatus": 200,
+        "notificationsStatus": 200,
+        "crossAgencyDenied": 403,
+        "announcementManagementDenied": 403,
+        "pageShowsQa": true
+      },
+      {
+        "account": "support",
+        "baseURL": "https://auricwell.com",
+        "loginStatus": 200,
+        "role": "support",
+        "userId": 1434,
+        "practiceListStatus": 200,
+        "practiceSlugs": [
+          "auricwell-qa-demo"
+        ],
+        "otherPracticeDenied": 404,
+        "tasksStatus": 200,
+        "notificationsStatus": 200,
+        "crossAgencyDenied": 403,
+        "announcementManagementDenied": 403,
+        "supportClinicalWriteDenied": 403,
+        "pageShowsQa": true,
+        "supportDocumentationDenied": true
+      },
+      {
+        "account": "setup",
+        "baseURL": "https://auricwell.com",
+        "loginStatus": 200,
+        "role": "admin",
+        "userId": 1435,
+        "practiceListStatus": 200,
+        "practiceSlugs": [
+          "auricwell-qa-demo"
+        ],
+        "otherPracticeDenied": 404,
+        "tasksStatus": 200,
+        "notificationsStatus": 200,
+        "crossAgencyDenied": 403,
+        "announcementManagementDenied": 403,
+        "pageShowsQa": true
+      }
+    ]
+  },
+  "liveTraffic": {
+    "onboarding-backend": {
+      "revision": "onboarding-backend-aw-workspace-20261024",
+      "percent": 100
+    },
+    "onboarding-frontend": {
+      "revision": "onboarding-frontend-aw-workspace-20261024",
+      "percent": 100
+    }
+  },
+  "liveScreenshots": [
+    "live-provider-workspace.png",
+    "live-support-workspace.png",
+    "live-support-workspace-mobile.png",
+    "live-setup-workspace.png"
+  ]
+}

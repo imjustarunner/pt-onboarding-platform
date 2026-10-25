@@ -1,0 +1,73 @@
+{
+  "baselineCommit": "196a7d7bb6fea328bcc449e110b3fe9846a60292",
+  "backendFiles": [
+    "backend/src/middleware/auricwellPreview.middleware.js",
+    "backend/src/services/auricwellPreviewPolicy.js",
+    "backend/src/routes/auricwellPreview.routes.js",
+    "backend/src/services/clientExchangeNotifications.service.js",
+    "backend/src/utils/auricwellQaPolicy.js"
+  ],
+  "frontendFiles": [
+    "frontend/src/auricwell/App.vue",
+    "frontend/src/auricwell/qaAccess.js"
+  ],
+  "agencyId": 450,
+  "schoolId": 451,
+  "accountIds": {
+    "provider": 1433,
+    "support": 1434,
+    "setup": 1435
+  },
+  "backendRevision": "onboarding-backend-qa-access-20261024",
+  "backendImageDigest": "sha256:d258025112c80e5ad4f8c3694cea535d7ed40268492c490e93cf4cde49468959",
+  "backendBuildId": "24c5debe-bebe-452b-8845-f5e41d3388e1",
+  "previousBackendRevision": "onboarding-backend-g39965382399a1",
+  "previousFrontendRevision": "onboarding-frontend-03078-5m6",
+  "checks": {
+    "backendReadiness": "PASS",
+    "ordinaryRolesPreserved": "PASS",
+    "singleQaAgency": "PASS",
+    "crossAgencyDenial": "PASS",
+    "supportClinicalWriteDenied": "PASS",
+    "supportRestrictedNavigation": "PASS",
+    "supportNormalBrowserSignIn": "PASS",
+    "desktopWorkspace": "PASS",
+    "mobileWorkspace": "PASS",
+    "clientExchangeRecipientPolicyTests": "PASS"
+  },
+  "dailyRunEnabled": false,
+  "outboundDeliveryVerified": false,
+  "clientCountAtVerification": 0,
+  "pending": [
+    "Grok scheduler and browser workers",
+    "restricted mailbox reader",
+    "email sender and canary delivery",
+    "provider SMS sender/preferences and delivery",
+    "service/room configuration and end-to-end availability/booking",
+    "daily enrollment journeys and clinical workflow verification"
+  ],
+  "frontendBuildId": "3e83d915-89a3-4738-bb9b-772ee5c48478",
+  "frontendImageDigest": "sha256:f71bbb4da590f12d719dfcf7371178e9d624849459850e96bea02435b7dbc6b7",
+  "frontendRevision": "onboarding-frontend-qa-access-copy-20261024",
+  "frontendPublicationVerified": true,
+  "testEvidence": {
+    "exchangeNotifications": "23 tests passed against deployed-source baseline",
+    "previewPolicyAndMiddleware": "15 tests passed",
+    "previewRoutes": "7 tests passed",
+    "qaRecipientPolicy": "3 tests passed",
+    "frontend": "8 tests passed; build passed"
+  },
+  "observations": [
+    {
+      "type": "authentication_rate_limit",
+      "account": "support",
+      "status": 429,
+      "context": "Repeated verification after successful API and normal browser sign-in; stopped retries. Final copy-only build verified by unit tests and exact candidate HTML comparison."
+    }
+  ],
+  "verifiedAt": "2026-10-24T15:29:03.667329+00:00",
+  "screenshotNotes": {
+    "support-workspace.png": "Captured after role-isolation deployment and before the final wording-only update.",
+    "support-workspace-mobile.png": "Captured after role-isolation deployment and before the final wording-only update."
+  }
+}

@@ -19,3 +19,26 @@ describe('shared API practice boundary',()=>{
   it('checks linked client scope before saving a draft',async()=>{pool.execute.mockResolvedValue([[{agency_id:8}]]);expect((await run({method:'POST',path:'/clinical-notes/drafts',body:{agencyId:7,clientId:12}})).error.status).toBe(404);});
   it('rejects foreign scope, switched actors and file uploads',async()=>{expect((await run({query:{agencyId:8}})).error.status).toBe(403);expect((await run({authClaims:{testAccountSwitch:true}})).error.status).toBe(403);expect((await run({method:'POST',path:'/clinical-notes/generate',is:()=>true})).error.status).toBe(403);});
 });
+describe('QA staff practice boundary',()=>{
+  beforeEach(()=>{
+    User.findById.mockResolvedValue({id:1433,role:'provider',email:'qa.provider.auricwell@example.com',is_demo:1,is_active:1,status:'ACTIVE_EMPLOYEE'});
+    Agency.findById.mockResolvedValue({id:450,slug:'auricwell-qa-demo',is_active:1,organization_type:'agency'});
+    pool.execute.mockImplementation(async sql=>sql.includes('JOIN user_agencies')?[[{id:450}]]:[[{agency_id:450}]]);
+  });
+  it('admits the QA provider without changing their role',async()=>{
+    const {req,error}=await run({get:()=> '450',user:{id:1433,role:'provider'}});
+    expect(error).toBeUndefined();expect(req.auricwellQaAgencyId).toBe(450);expect(req.user.role).toBe('provider');expect(req.previewActor.role).toBe('provider');
+    expect(req.query.agencyId).toBe('450');
+  });
+  it('rejects absent membership and another practice',async()=>{
+    pool.execute.mockResolvedValue([[]]);
+    expect((await run({get:()=> '450',user:{id:1433,role:'provider'}})).error.status).toBe(403);
+    pool.execute.mockResolvedValue([[{id:450}]]);
+    Agency.findById.mockResolvedValue({id:2,slug:'itsco',is_active:1});
+    expect((await run({get:()=> '2',user:{id:1433,role:'provider'}})).error.status).toBe(404);
+  });
+  it('checks record agency independently of QA membership',async()=>{
+    pool.execute.mockImplementation(async sql=>sql.includes('JOIN user_agencies')?[[{id:450}]]:[[{agency_id:2}]]);
+    expect((await run({get:()=> '450',path:'/clients/55',user:{id:1433,role:'provider'}})).error.status).toBe(404);
+  });
+});

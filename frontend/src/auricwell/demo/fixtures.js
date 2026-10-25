@@ -33,6 +33,8 @@ export function demoResponse(url, config={}) {
  const userMatch=p.match(/\/users\/(\d+)(?:\/|$)/);if(userMatch&&!providers.some(u=>u.id===Number(userMatch[1])))throw new Error('That provider is outside this fictional demo.');
  if(p==='/clients') {const search=String(q.search||'').toLowerCase();return {clients:Number(q.page||1)>1?[]:clients.filter(c=>`${c.full_name} ${c.initials}`.toLowerCase().includes(search)),total:clients.length};}
  if(p==='/auricwell-preview/providers')return {providers};
+ if(p==='/auricwell-preview/tasks')return {tasks:[],total:0};
+ if(p==='/appointments')return {appointments:schedule(q.windowStart).scheduleEvents.map(e=>({...e,title:e.title,providerUserId:actor.id,serviceCode:'90834'}))};
  if(/^\/clients\/\d+$/.test(p))return clientFor(clientMatch[1]);
  if(p.endsWith('/chart')&&clientMatch)return chart(clientMatch[1]);
  if(clientMatch&&p.endsWith('/agency-affiliations'))return [{agency_id:practice.id,agency_name:practice.name}];

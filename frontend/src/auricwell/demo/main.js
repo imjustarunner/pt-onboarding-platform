@@ -22,7 +22,7 @@ if(navigator.mediaDevices) navigator.mediaDevices.getUserMedia=async()=>{notify(
 const router=createRouter({history:createWebHashHistory(),routes:[{path:'/:organizationSlug/:section?',component:{template:'<span />'},meta:{auricwellPreview:true}},{path:'/:pathMatch(.*)*',redirect:`/${practice.slug}`} ]});
 router.beforeEach(to=>{
  if(to.params.organizationSlug!==practice.slug)return `/${practice.slug}`;
- if(to.params.section&&!['overview','appointments','clients','documentation','billing','providers'].includes(to.params.section)){notify('That screen is outside this fictional demo.');return `/${practice.slug}`;}
+ if(to.params.section&&!['overview','appointments','clients','documentation','billing','providers','reports'].includes(to.params.section)){notify('That screen is outside this fictional demo.');return `/${practice.slug}`;}
 });
 const app=createApp(Demo);app.use(createPinia());app.use(router);app.use(i18n);
 sessionStorage.setItem('sched_office_reminder_seen','1');

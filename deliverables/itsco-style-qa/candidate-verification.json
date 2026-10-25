@@ -1,0 +1,228 @@
+{
+  "at": "2026-10-24T18:09:38.030Z",
+  "primaryInterface": "full_platform",
+  "agencyId": 450,
+  "role": "provider",
+  "checks": [
+    {
+      "name": "provider-dashboard",
+      "requestedPath": "/auricwell-qa-demo/dashboard",
+      "status": "NEEDS_ATTENTION",
+      "path": "/auricwell-qa-demo/dashboard",
+      "failedRequests": [
+        {
+          "path": "/api/clinical-notes/recent",
+          "status": 400
+        },
+        {
+          "path": "/api/skill-builders/me/assigned-events",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "name": "provider-account",
+      "requestedPath": "/auricwell-qa-demo/dashboard?tab=my&my=account",
+      "status": "NEEDS_ATTENTION",
+      "path": "/auricwell-qa-demo/dashboard",
+      "failedRequests": [
+        {
+          "path": "/api/skill-builders/me/assigned-events",
+          "status": 403
+        },
+        {
+          "path": "/api/learning-program-classes",
+          "status": 400
+        },
+        {
+          "path": "/api/accountability/workspaces",
+          "status": 403
+        },
+        {
+          "path": "/api/evaluations/student-training",
+          "status": 404
+        }
+      ]
+    },
+    {
+      "name": "provider-payroll",
+      "requestedPath": "/auricwell-qa-demo/dashboard?tab=my&my=payroll",
+      "status": "NEEDS_ATTENTION",
+      "path": "/auricwell-qa-demo/dashboard",
+      "failedRequests": [
+        {
+          "path": "/api/accountability/workspaces",
+          "status": 403
+        },
+        {
+          "path": "/api/skill-builders/me/assigned-events",
+          "status": 403
+        },
+        {
+          "path": "/api/learning-program-classes",
+          "status": 400
+        },
+        {
+          "path": "/api/evaluations/student-training",
+          "status": 404
+        }
+      ]
+    },
+    {
+      "name": "provider-settings",
+      "requestedPath": "/auricwell-qa-demo/dashboard?tab=my&my=preferences",
+      "status": "NEEDS_ATTENTION",
+      "path": "/auricwell-qa-demo/dashboard",
+      "failedRequests": [
+        {
+          "path": "/api/accountability/workspaces",
+          "status": 403
+        },
+        {
+          "path": "/api/evaluations/student-training",
+          "status": 404
+        },
+        {
+          "path": "/api/skill-builders/me/assigned-events",
+          "status": 403
+        },
+        {
+          "path": "/api/learning-program-classes",
+          "status": 400
+        }
+      ]
+    },
+    {
+      "name": "provider-training",
+      "requestedPath": "/auricwell-qa-demo/on-demand-training",
+      "status": "NEEDS_ATTENTION",
+      "path": "/auricwell-qa-demo/my-learning",
+      "failedRequests": [
+        {
+          "path": "/api/provider-update/document-learning",
+          "status": 403
+        },
+        {
+          "path": "/api/skill-builders/me/assigned-events",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "name": "provider-schedule",
+      "requestedPath": "/auricwell-qa-demo/my-schedule",
+      "status": "NEEDS_ATTENTION",
+      "path": "/auricwell-qa-demo/my-schedule",
+      "failedRequests": [
+        {
+          "path": "/api/skill-builders/me/assigned-events",
+          "status": 403
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "failedRequests": [
+    {
+      "path": "/api/clinical-notes/recent",
+      "status": 400
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    },
+    {
+      "path": "/api/clinical-notes/recent",
+      "status": 400
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    },
+    {
+      "path": "/api/learning-program-classes",
+      "status": 400
+    },
+    {
+      "path": "/api/accountability/workspaces",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluations/student-training",
+      "status": 404
+    },
+    {
+      "path": "/api/accountability/workspaces",
+      "status": 403
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    },
+    {
+      "path": "/api/learning-program-classes",
+      "status": 400
+    },
+    {
+      "path": "/api/evaluations/student-training",
+      "status": 404
+    },
+    {
+      "path": "/api/accountability/workspaces",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluations/student-training",
+      "status": 404
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    },
+    {
+      "path": "/api/learning-program-classes",
+      "status": 400
+    },
+    {
+      "path": "/api/provider-update/document-learning",
+      "status": 403
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    },
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    }
+  ],
+  "frontendSource": "https://itsco-qa-check---onboarding-frontend-65v3jdyqba-wm.a.run.app",
+  "loginPayload": {
+    "hasToken": true,
+    "hasUser": true,
+    "hasSessionId": true
+  },
+  "membershipIds": [
+    450
+  ],
+  "featureFlags": {
+    "qaSandbox": {
+      "inbox": "testing@itsco.health",
+      "version": 1,
+      "syntheticOnly": true,
+      "accessRevision": "qa-access-20261024",
+      "dailyRunEnabled": false,
+      "exchangeProviderUserId": 1433,
+      "notificationGuardDeploymentRequired": false
+    }
+  },
+  "status": "NEEDS_ATTENTION",
+  "limitations": [
+    "Page rendering is not workflow completion or feature parity.",
+    "No training attempt, enrollment, booking, notification send, or payroll mutation was performed."
+  ]
+}

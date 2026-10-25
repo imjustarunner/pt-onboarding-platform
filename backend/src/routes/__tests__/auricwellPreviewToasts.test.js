@@ -1,11 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
-vi.mock('../../models/Agency.model.js', () => ({ default: {} }));
+vi.mock('../../models/Agency.model.js', () => ({ default: {findBySlug:vi.fn()} }));
 vi.mock('../../middleware/auth.middleware.js', () => ({ authenticate: vi.fn(), requireActiveStatus: vi.fn() }));
 vi.mock('../../middleware/auricwellPreview.middleware.js', () => ({ requirePreviewAdmin: vi.fn() }));
 vi.mock('../../services/auditEvent.service.js', () => ({ logAuditEvent: vi.fn() }));
 vi.mock('../../services/toastAnnouncements.service.js', () => ({ listToasts: vi.fn(), saveToast: vi.fn(), deleteToast: vi.fn() }));
 import router from '../auricwellPreview.routes.js';
+import pool from '../../config/database.js';
+import Agency from '../../models/Agency.model.js';
 import { listToasts, saveToast, deleteToast } from '../../services/toastAnnouncements.service.js';
 import { previewRouteAllowed } from '../../services/auricwellPreviewPolicy.js';
 const handler = (path, method) => router.stack.find(layer => layer.route?.path === path && layer.route.methods[method]).route.stack[0].handle;
@@ -59,4 +61,43 @@ it('gives practice and support notices the same authenticated login dismissal bo
   expect(first[0].login_session_key).toMatch(/^[a-f0-9]{64}$/);
   expect(first[0].login_session_key).toBe(first[1].login_session_key);
   expect((await read('cookie-login-b'))[0].login_session_key).not.toBe(first[0].login_session_key);
+});
+it('lists only the verified QA agency for a QA user',async()=>{
+  pool.execute.mockResolvedValue([[{id:450,slug:'auricwell-qa-demo',name:'QA'}]]);
+  const res=response(), next=vi.fn();
+  await handler('/','get')({auricwellQaAgencyId:450,previewActor:{id:1434,role:'support'}},res,next);
+  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('WHERE id=? AND slug=?'),[450,'auricwell-qa-demo']);
+  expect(res.json.mock.calls[0][0].practices.map(p=>p.id)).toEqual([450]);
+});
+it('rejects another practice context before logging or returning it',async()=>{
+  Agency.findBySlug.mockResolvedValue({id:2,slug:'itsco',is_active:1,organization_type:'agency'});
+  const res=response(),next=vi.fn();await handler('/context','get')({auricwellQaAgencyId:450,query:{slug:'itsco'},user:{id:1434}},res,next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));expect(res.json).not.toHaveBeenCalled();
+});
+it('does not let a QA setup account manage announcements even through the route directly',async()=>{
+  const next=vi.fn();await handler('/toasts','post')({auricwellQaAgencyId:450,auricwellPreview:{agencyId:450},path:'/toasts',user:{id:1435},body:{}},response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(saveToast).not.toHaveBeenCalled();
+});
+
+vi.mock('../../controllers/notification.controller.js',()=>({getNotificationFeed:vi.fn()}));
+it('limits dashboard tasks to the current actor and validated practice before limiting rows',async()=>{
+  pool.execute.mockResolvedValueOnce([[{total:1}]]).mockResolvedValueOnce([[{id:1,title:'QA task'}]]);
+  const res=response(),next=vi.fn();
+  await handler('/tasks','get')({user:{id:1433},auricwellPreview:{agencyId:450},query:{userId:99,agencyId:2}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  for(const [sql,params] of pool.execute.mock.calls){expect(params).toEqual([1433,450]);expect(sql).toContain('t.assigned_to_user_id=?');expect(sql).toContain('COALESCE(t.assigned_to_agency_id,tl.agency_id,tp.agency_id)=?');expect(sql).toContain("t.status NOT IN ('completed','overridden','archived')");}
+  expect(res.json).toHaveBeenCalledWith({tasks:[{id:1,title:'QA task'}],total:1});
+});
+it('forces personal notification inbox regardless of requested managed scope',async()=>{
+  const {getNotificationFeed}=await import('../../controllers/notification.controller.js');
+  const req={user:{id:1433},auricwellPreview:{agencyId:450},query:{agencyId:2,scope:'managed',userId:99}};
+  const res=response(),next=vi.fn();await handler('/notifications','get')(req,res,next);
+  expect(req.query).toEqual({agencyId:'450',scope:'inbox',page:'1',pageSize:'10',status:'all'});
+  expect(getNotificationFeed).toHaveBeenCalledWith(req,res,next);
+});
+it('does not expose personal dashboard reads without a validated practice',async()=>{
+  for(const path of ['/tasks','/notifications']){const next=vi.fn();await handler(path,'get')({user:{id:1433}},response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:400}));}
+  expect(previewRouteAllowed('GET','/auricwell-preview/tasks')).toBe(true);
+  expect(previewRouteAllowed('POST','/auricwell-preview/tasks')).toBe(false);
+  expect(previewRouteAllowed('GET','/auricwell-preview/notifications')).toBe(true);
 });

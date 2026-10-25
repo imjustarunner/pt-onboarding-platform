@@ -3,8 +3,27 @@ import { tenantWorkspaceDestination, platformWorkspaceDestination, isFamilyPorta
 
 const itsco = { id: 1, slug: 'itsco', custom_domain: 'app.itsco.health' };
 const tisi = { id: 2, slug: 'tisi', custom_domain: 'app.theinnerstrengthinstitute.com' };
+const qa = { id: 450, slug: 'auricwell-qa-demo', feature_flags: { qaSandbox: { syntheticOnly: true } } };
 
 describe('workspace addresses', () => {
+  it.each(['provider', 'support', 'admin'])('keeps the isolated QA %s in its full-platform agency path', role => {
+    expect(tenantWorkspaceDestination({ agency: qa, role, hostname: 'app.itsco.health', hostPortalSlug: 'itsco', path: '/dashboard', query: { tab: 'my', my: 'payroll' } }))
+      .toEqual({ hostname: 'app.itsco.health', path: '/auricwell-qa-demo/dashboard', query: { tab: 'my', my: 'payroll' }, hash: '' });
+  });
+  it('accepts server-serialized QA flags and retains the scoped schedule route', () => {
+    expect(tenantWorkspaceDestination({ agency: { ...qa, feature_flags: JSON.stringify(qa.feature_flags) }, role: 'provider', hostname: 'app.itsco.health', path: '/my-schedule' }))
+      .toMatchObject({ hostname: 'app.itsco.health', path: '/auricwell-qa-demo/my-schedule' });
+  });
+  it.each([
+    { ...qa, id: 451 }, { ...qa, slug: 'other-demo' },
+    { ...qa, feature_flags: {} }, { ...qa, feature_flags: '{invalid' },
+    { ...qa, feature_flags: { qaSandbox: { syntheticOnly: false } } }
+  ])('does not extend the shared-host exception to a different or unmarked tenant', agency => {
+    expect(() => tenantWorkspaceDestination({ agency, role: 'provider', hostname: 'app.itsco.health', path: '/dashboard' })).toThrow('no configured app domain');
+  });
+  it('does not host the QA agency on an unrelated domain', () => {
+    expect(() => tenantWorkspaceDestination({ agency: qa, role: 'provider', hostname: 'app.theinnerstrengthinstitute.com', path: '/dashboard' })).toThrow('no configured app domain');
+  });
   it.each(['client_guardian', 'client'])('preserves the signed-in origin for %s family profile switches', role => {
     for (const path of ['/guardian', '/nlu/guardian', '/tisi/guardian', '/itsco/guardian/waivers']) {
       expect(isFamilyPortalRoute({role, path})).toBe(true);

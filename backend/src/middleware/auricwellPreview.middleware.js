@@ -3,14 +3,22 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { authenticate, requireActiveStatus } from './auth.middleware.js';
-import { assertPreviewActor, constrainPreviewInput, previewError, previewRouteAllowed } from '../services/auricwellPreviewPolicy.js';
+import { assertPreviewActor, constrainPreviewInput, previewError, previewRouteAllowed, isQaPreviewIdentity, assertQaPreviewPractice, qaPreviewRouteAllowed, AURICWELL_QA_SLUG } from '../services/auricwellPreviewPolicy.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
 export async function requirePreviewAdmin(req, res, next) {
   try {
     const actor = await User.findById(req.user?.id);
-    assertPreviewActor(actor, req.authClaims || req.user);
-    req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email };
+    let qaAgencyId = null;
+    if (isQaPreviewIdentity(actor)) {
+      const [[membership]] = await pool.execute(`SELECT a.id FROM agencies a JOIN user_agencies ua ON ua.agency_id=a.id
+        WHERE ua.user_id=? AND ua.is_active=1 AND a.slug=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
+        AND JSON_EXTRACT(a.feature_flags,'$.qaSandbox.syntheticOnly')=true`,[actor.id,AURICWELL_QA_SLUG]);
+      if (membership) qaAgencyId = Number(membership.id);
+    }
+    assertPreviewActor(actor, req.authClaims || req.user, {qaAgencyId});
+    if (qaAgencyId) req.auricwellQaAgencyId = qaAgencyId;
+    req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email, credential: actor.credential || null, timezone: actor.timezone || null };
     next();
   } catch (error) { next(error); }
 }
@@ -47,9 +55,11 @@ export function auricwellPreviewBoundary(req, res, next) {
           const agencyId = Number(raw);
           if (!Number.isSafeInteger(agencyId) || agencyId < 1) throw previewError(400, 'Invalid practice.');
           const agency = await Agency.findById(agencyId);
+          assertQaPreviewPractice(req,agency);
           if (!agency?.is_active || !['agency', 'clinical'].includes(agency.organization_type || 'agency')) throw previewError(404, 'Practice unavailable.');
           const path = req.path.replace(/\/$/, '') || '/';
           if (!previewRouteAllowed(req.method, path)) throw previewError(403, 'This action is not yet available in the AuricWell preview.');
+          if (req.auricwellQaAgencyId && !qaPreviewRouteAllowed(req.method,path,req.previewActor,agencyId)) throw previewError(403,'This action is not available to this QA account.');
           req.auricwellPreview = { agencyId };
           constrainPreviewInput(req.query, agencyId);
           req.query.agencyId = String(agencyId);

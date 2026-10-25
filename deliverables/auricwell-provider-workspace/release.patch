@@ -1,0 +1,397 @@
+--- a/backend/src/routes/auricwellPreview.routes.js
++++ b/backend/src/routes/auricwellPreview.routes.js
+@@ -34,7 +34,7 @@
+   if (!id) throw previewError(400, 'Select a practice first.');
+   return id;
+ };
+-const run = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res)).catch(next);
++const run = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res, next)).catch(next);
+ router.get('/toasts/active', run(async (req, res) => {
+   const rows = await listToasts({ agencyId: toastAgency(req), active: true, includeSupport: true });
+   res.set('Cache-Control', 'private, no-store');
+@@ -54,4 +54,28 @@
+     res.json({ providers });
+   } catch (error) { next(error); }
+ });
++// Personal dashboard reads always use the authenticated actor and validated practice.
++router.get('/tasks', run(async (req,res) => {
++  const agencyId=req.auricwellPreview?.agencyId;
++  if(!agencyId) throw previewError(400,'Select a practice first.');
++  const from=`FROM tasks t LEFT JOIN task_lists tl ON tl.id=t.task_list_id
++    LEFT JOIN task_projects tp ON tp.id=t.project_id
++    WHERE t.assigned_to_user_id=? AND COALESCE(t.assigned_to_agency_id,tl.agency_id,tp.agency_id)=?
++    AND t.status NOT IN ('completed','overridden','archived')`;
++  const params=[req.user.id,agencyId];
++  const [[count]]=await pool.execute(`SELECT COUNT(*) AS total ${from}`,params);
++  const [tasks]=await pool.execute(`SELECT t.id,t.title,t.task_type,t.status,t.due_date,tl.name AS task_list_name ${from}
++    ORDER BY (t.due_date IS NULL),t.due_date,t.id LIMIT 50`,params);
++  res.set('Cache-Control','private, no-store');
++  res.json({tasks,total:Number(count.total)});
++}));
++router.get('/notifications', run(async (req,res,next) => {
++  const agencyId=req.auricwellPreview?.agencyId;
++  if(!agencyId) throw previewError(400,'Select a practice first.');
++  // Ignore caller-supplied managed/team scope, user IDs and agency filters.
++  req.query={agencyId:String(agencyId),scope:'inbox',page:'1',pageSize:'10',status:'all'};
++  res.set('Cache-Control','private, no-store');
++  const {getNotificationFeed}=await import('../controllers/notification.controller.js');
++  return getNotificationFeed(req,res,next);
++}));
+ export default router;
+--- a/backend/src/services/auricwellPreviewPolicy.js
++++ b/backend/src/services/auricwellPreviewPolicy.js
+@@ -47,7 +47,7 @@
+ }
+ export function previewRouteAllowed(method, path) {
+   if (method === 'GET') return [
+-    /^\/auricwell-preview(?:\/context|\/providers|\/toasts(?:\/active)?)?$/,
++    /^\/auricwell-preview(?:\/context|\/providers|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
+     /^\/platform\/toast-announcements$/,
+     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,
+     /^\/note-aid\/(?:catalog|tools)$/,
+--- a/backend/src/middleware/auricwellPreview.middleware.js
++++ b/backend/src/middleware/auricwellPreview.middleware.js
+@@ -18,7 +18,7 @@
+     }
+     assertPreviewActor(actor, req.authClaims || req.user, {qaAgencyId});
+     if (qaAgencyId) req.auricwellQaAgencyId = qaAgencyId;
+-    req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email };
++    req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email, credential: actor.credential || null, timezone: actor.timezone || null };
+     next();
+   } catch (error) { next(error); }
+ }
+--- a/frontend/src/auricwell/App.vue
++++ b/frontend/src/auricwell/App.vue
+@@ -1,19 +1,20 @@
+ <template>
+   <div class="aw-app">
+-    <header class="aw-header"><a class="aw-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48"><span>AuricWell</span></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
++    <header v-if="!context" class="aw-header"><a class="aw-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48"><span>AuricWell</span></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
+     <main v-if="isLogin" class="aw-welcome aw-login"><p class="aw-eyebrow">AURICWELL · PRACTICE ACCESS</p><h1>A clear place for your clinical work.</h1><p>Sign in with the account assigned to your practice workspace.</p><a class="aw-button" :href="loginUrl">Continue to secure sign-in →</a><p>Your account's practice access and permissions apply.</p><a :href="websiteBase">← Back to the AuricWell website</a></main>
+     <main v-else-if="error" class="aw-welcome"><h1>Practice access</h1><p role="alert">{{ error }}</p><a class="aw-button" :href="loginUrl">Sign in or unlock your account</a><p>Use your own practice account, then return here.</p></main>
+     <main v-else-if="loading" class="aw-welcome" role="status">Opening AuricWell…</main>
+     <main v-else-if="!context" class="aw-welcome"><p class="aw-eyebrow">AURICWELL · PRACTICE ACCESS</p><h1>Your care workspace.</h1><p>Choose a practice available to your account.</p><p v-if="actor">Signed in as <strong>{{ actorName }}</strong></p><div class="aw-practices"><a v-for="p in practices" :key="p.id" :href="`${appBase}/${p.slug === 'tisi' ? 'innerstrength' : p.slug}`"><strong>{{ p.name }}</strong><span>Open practice →</span></a></div></main>
+     <main v-else-if="context.qaWorkspace && !qaSectionAllowed" class="aw-welcome"><h1>Access restricted</h1><p role="alert">This section is not available to your practice role.</p><RouterLink :to="`/${slug}/overview`">Return to the QA workspace</RouterLink></main>
+-    <template v-else>
++    <WorkspaceShell v-else :actor="actor" :slug="slug" :section="section" :navigation="navigation" :website-base="websiteBase" :unread="unread" :demo="!!demoContext">
++      <template #notice>
+       <AnnouncementToasts v-if="!demoContext" :storage-key="`auricwell:${actor.id}:agency:${context.practice.id}`" :load-items="loadOfficeToasts" />
+       <div v-if="demoContext" class="aw-identity" role="status"><strong>Interactive demo · Fictional practice</strong><span>Explore the actual EHR screens. Nothing is saved, signed, submitted or sent.</span><button type="button" @click="resetDemo">Reset demo</button></div>
+       <div v-else-if="context.qaWorkspace" class="aw-identity" role="status"><strong>QA workspace · {{ actorName }} · {{ actor.role }}</strong><span>Fictional clients in {{ context.practice.name }}. Changes are saved for testing.</span></div>
+       <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Saved drafts are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
+-      <nav class="aw-nav" aria-label="Practice navigation"><RouterLink v-for="item in navigation" :key="item.key" :to="`/${slug}/${item.key}`" :aria-current="section === item.key ? 'page' : undefined"><PortalIcon :name="item.icon" />{{ item.label }}</RouterLink><a v-if="!demoContext" :href="`/records-manager?agencyId=${context.practice.id}`">Records requests</a></nav>
+-      <main class="aw-content">
+-        <section v-if="section === 'overview'" class="aw-welcome"><p class="aw-eyebrow">{{ context.practice.name }}</p><h1>Care, connected.</h1><p>{{ demoContext ? 'Meet Meadowbrook Therapy, a fictional practice. Explore its schedule, open a client chart, and try the shared Note Workspace workspace.' : context.qaWorkspace ? 'Review fictional clients and appointments in your isolated QA agency. Your practice role determines the available sections.' : 'Your existing charts, Note Workspace and billing records, together in AuricWell.' }}</p><div class="aw-practices"><RouterLink v-for="item in navigation.filter(n => n.key !== 'overview')" :key="item.key" :to="`/${slug}/${item.key}`"><strong class="aw-area-label"><PortalIcon :name="item.icon" />{{ item.label }}</strong><span>Open →</span></RouterLink></div><div v-if="demoContext" class="aw-status"><h2>A guided place to explore</h2><p>Start with Appointments to try the calendar and booking controls. Open Clients for treatment plans and documentation, or Note Workspace for drafts and the documentation workflow. Provider profiles and the billing queue use fictional examples.</p><p>AI generation, recording, signing, payments and message delivery are not connected in this demo. Reloading or resetting clears local changes. Please use fictional information only.</p></div><div v-else-if="context.qaWorkspace" class="aw-status"><h2>Available in your QA workspace</h2><p>Review the demo agency’s clients, appointments and provider profiles. {{ actor.role === 'support' ? 'Your support account has no clinical authoring or billing access here.' : 'Use Note Workspace for draft documentation within your role’s permissions.' }}</p><p>Use the full suite for provider availability, guardian enrollment, booking and other supported workflows. These fictional records are retained for testing and support review.</p></div><div v-else class="aw-status"><h2>Preview availability</h2><p>Review clients, appointments, providers and billing. Use Note Workspace to open and save your drafts. Signing, financial changes, patient access, imports and practice contracting are not enabled in this preview.</p><p>Existing practice features and clinical permissions still apply. Your account does not sign as another provider or change agency enrollment.</p></div></section>
++      </template>
++        <Overview v-if="section === 'overview' || section === 'reports'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" :can-document="canDocument" :report="section === 'reports'" :demo="!!demoContext" />
++        <WorkspaceTools v-else-if="['account','settings','payroll','notifications'].includes(section)" :section="section" :agency="context.practice" :actor="actor" :slug="slug" :notifications="notificationItems" :loading="notificationsLoading" :error="notificationsError" @refresh="loadNotifications" />
+         <section v-else-if="section === 'announcements' && !demoContext" class="aw-toast-managers">
+           <ToastAnnouncementManager :request="toastRequest" base-path="/auricwell-preview/toasts" />
+           <ToastAnnouncementManager :request="toastRequest" base-path="/platform/toast-announcements" support />
+@@ -24,8 +25,7 @@
+         <slot v-else-if="section === 'appointments' && $slots.appointments" name="appointments" />
+         <Records v-else-if="['clients','providers','appointments'].includes(section)" :key="`${context.practice.id}:${section}`" :section="section" :agency="context.practice" :slug="slug" />
+         <section v-else class="aw-welcome"><h1>Page unavailable</h1><RouterLink :to="`/${slug}`">Return to practice</RouterLink></section>
+-      </main>
+-    </template>
++    </WorkspaceShell>
+   </div>
+ </template>
+ <script setup>
+@@ -38,6 +38,9 @@
+ import { useAgencyStore } from '../store/agency';
+ import { useAuthStore } from '../store/auth';
+ import Records from './Records.vue';
++import WorkspaceShell from './WorkspaceShell.vue';
++import Overview from './Overview.vue';
++import WorkspaceTools from './WorkspaceTools.vue';
+ import PortalIcon from '../components/portal/PortalIcon.vue';
+ const props = defineProps({ demoContext: { type: Object, default: null } });
+ const resetDemo = () => window.location.reload();
+@@ -54,8 +57,19 @@
+ const actorName = computed(() => [actor.value?.first_name, actor.value?.last_name].filter(Boolean).join(' ') || actor.value?.email || 'Your account');
+ const isLogin = computed(() => route.name === 'login');
+ const loginUrl = computed(() => `${slug.value===QA_SLUG?`/${QA_SLUG}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search)}`);
++const canDocument=computed(()=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes('documentation'));
+ const qaSectionAllowed = computed(()=>qaSections(actor.value?.role).includes(section.value));
+-const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'Appointments',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Note Workspace',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'}, ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
++const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'Appointments',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(!props.demoContext ? [{key:'payroll',label:'My Payroll',icon:'billing'},{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
++const notificationItems=ref([]),unread=ref(null),notificationsLoading=ref(false),notificationsError=ref('');
++let notificationRequestId=0;
++async function loadNotifications(){
++  const id=++notificationRequestId;
++  if(props.demoContext){notificationItems.value=[];unread.value=0;return;}
++  notificationsLoading.value=true;notificationsError.value='';
++  try{const {data}=await api.get('/auricwell-preview/notifications');if(id!==notificationRequestId)return;notificationItems.value=data.items||[];unread.value=Number(data.unreadCount||0);}
++  catch{if(id===notificationRequestId){notificationsError.value='Notifications could not load. Please try again.';unread.value=null;}}
++  finally{if(id===notificationRequestId)notificationsLoading.value=false;}
++}
+ const toastRequest = async (path, options = {}) => (await api.request({ url: path, method: options.method || 'GET', data: options.body })).data;
+ const loadOfficeToasts = async () => (await api.get('/auricwell-preview/toasts/active')).data;
+ let requestId = 0;
+@@ -82,13 +96,14 @@
+       agencyStore.agencies = [result.practice]; agencyStore.userAgencies = [result.practice]; agencyStore.platformMode = false;
+       window.__auricwellPracticeId = result.practice.id;
+       context.value = result;
++      loadNotifications();
+     } else practices.value = result.practices;
+   } catch (e) { if (id === requestId) error.value = e.message; }
+   finally { if (id === requestId) loading.value = false; }
+ }
+-function endSession() { ++requestId; context.value = null; practices.value = []; error.value = 'Your session ended or is locked. Sign in or unlock before continuing.'; delete window.__auricwellPracticeId; }
++function endSession() { ++requestId; ++notificationRequestId; notificationItems.value=[]; unread.value=null; context.value = null; practices.value = []; error.value = 'Your session ended or is locked. Sign in or unlock before continuing.'; delete window.__auricwellPracticeId; }
+ window.addEventListener('auricwell-session-ended', endSession);
+-onBeforeUnmount(() => { ++requestId; window.removeEventListener('auricwell-session-ended', endSession); });
++onBeforeUnmount(() => { ++requestId; ++notificationRequestId; window.removeEventListener('auricwell-session-ended', endSession); });
+ watch(slug, (current, previous) => { if (!props.demoContext && previous && current !== previous) window.location.assign(`${appBase}/${encodeURIComponent(current)}`); else load(); }, { immediate:true });
+ </script>
+ 
+--- /dev/null
++++ b/frontend/src/auricwell/Overview.vue
+@@ -0,0 +1,68 @@
++<template>
++  <section class="aw-overview" :aria-busy="loading" @click.capture="guardDemoTools">
++    <div class="aw-overview-heading">
++      <div><p class="aw-eyebrow">{{ agency.name }}</p><h1>{{ report ? 'My activity' : `${greeting}, ${actor.first_name || 'there'}.` }}</h1><p class="aw-subtitle">{{ report ? 'Your schedule and current work, scoped to this practice.' : "Here’s what’s happening in your practice today." }}</p></div>
++      <div class="aw-date-control"><span>{{ dateLabel }}</span><label><PortalIcon name="sessions"/><select v-model="range" aria-label="Schedule date range"><option value="today">Today</option><option value="week">Next 7 days</option></select></label><small>{{ timezone }}</small></div>
++    </div>
++    <div class="aw-summary-grid">
++      <RouterLink class="aw-summary-card" :to="`/${slug}/appointments`"><span class="aw-metric-icon"><PortalIcon name="sessions"/></span><div><strong>{{ metric('appointments',appointments.length) }}</strong><span>{{ range==='today'?'Appointments Today':'Appointments · Next 7 Days' }}</span><small>{{ errors.appointments ? 'Schedule could not load' : 'Your appointments in this practice' }}</small></div><span aria-hidden="true">›</span></RouterLink>
++      <RouterLink class="aw-summary-card" :to="`/${slug}/clients`"><span class="aw-metric-icon"><PortalIcon name="people"/></span><div><strong>{{ metric('clients',clientTotal) }}</strong><span>Active Clients</span><small>Your assigned caseload</small></div><span aria-hidden="true">›</span></RouterLink>
++      <RouterLink v-if="canDocument" class="aw-summary-card" :to="`/${slug}/documentation`"><span class="aw-metric-icon"><PortalIcon name="documents"/></span><div><strong>{{ metric('notes',notes.length)+(notes.length>=100?'+':'') }}</strong><span>Pending Note Drafts</span><small>Active drafts · last 30 days</small></div><span aria-hidden="true">›</span></RouterLink>
++      <a class="aw-summary-card" :href="personalToolUrl(slug,'tasks')"><span class="aw-metric-icon"><PortalIcon name="tasks"/></span><div><strong>{{ metric('tasks',taskTotal) }}</strong><span>Open Tasks</span><small>{{ errors.tasks?'Tasks could not load':taskTotal>50?'First 50 tasks shown':`${overdueTasks} overdue` }}</small></div><span aria-hidden="true">›</span></a>
++    </div>
++    <div class="aw-dashboard-grid">
++      <section class="aw-panel"><header><h2>{{ range==='today'?"Today’s Schedule":'Upcoming Schedule' }}</h2><RouterLink :to="`/${slug}/appointments`">View all appointments <span aria-hidden="true">→</span></RouterLink></header>
++        <p v-if="loading" class="aw-empty" role="status">Loading schedule…</p><p v-else-if="errors.appointments" class="aw-empty aw-error" role="alert">{{ errors.appointments }}</p><div v-else-if="!appointments.length" class="aw-empty"><PortalIcon name="sessions"/><h3>No appointments scheduled</h3><p>Open your calendar to review or add availability.</p><a :href="personalToolUrl(slug,'schedule')">Manage my availability →</a></div>
++        <div v-else class="aw-schedule-list"><a v-for="row in appointments.slice(0,5)" :key="row.id" class="aw-schedule-row" :href="scheduleUrl(row)"><span class="aw-timeline-dot"/><span class="aw-session-time"><strong>{{ time(row.startAt || row.start_at) }}</strong><small>{{ range==='week'?shortDate(row.startAt || row.start_at):duration(row) }}</small></span><span class="aw-row-main"><strong>{{ row.title || 'Client appointment' }}</strong><small>{{ row.serviceCode || row.service_code || 'Therapy session' }}{{ row.modality ? ` · ${row.modality==='VIRTUAL'?'Telehealth':'In person'}` : '' }}</small></span><span class="aw-badge" :class="{ 'aw-badge-active': appointmentState(row,now)==='In progress' }">{{ appointmentState(row,now) }}</span><span aria-hidden="true">›</span></a></div>
++      </section>
++      <section v-if="canDocument" class="aw-panel"><header><h2>Pending Notes &amp; Documentation</h2><RouterLink :to="`/${slug}/documentation`">View all notes <span aria-hidden="true">→</span></RouterLink></header>
++        <p v-if="loading" class="aw-empty" role="status">Loading notes…</p><p v-else-if="errors.notes" class="aw-empty aw-error" role="alert">{{ errors.notes }}</p><div v-else-if="!notes.length" class="aw-empty"><PortalIcon name="documents"/><h3>No pending drafts</h3><p>Your saved draft notes will appear here.</p><RouterLink :to="`/${slug}/documentation`">Open Notes &amp; Documentation →</RouterLink></div>
++        <RouterLink v-for="row in notes.slice(0,5)" v-else :key="row.id" class="aw-list-row" :to="{path:`/${slug}/documentation`,query:{draftId:String(row.id),...(row.client_id?{clientId:String(row.client_id)}:{})}}"><PortalIcon name="documents"/><span class="aw-row-main"><strong>{{ clientName(row) }}</strong><small>{{ row.title || row.note_type?.replaceAll('_',' ') || 'Note draft' }} · {{ shortDate(row.date_of_service || row.created_at) }}</small></span><span class="aw-badge aw-badge-warm">Draft</span><span aria-hidden="true">›</span></RouterLink>
++      </section>
++      <section class="aw-panel"><header><h2>Your Clients</h2><RouterLink :to="`/${slug}/clients`">View all clients <span aria-hidden="true">→</span></RouterLink></header>
++        <p v-if="loading" class="aw-empty" role="status">Loading clients…</p><p v-else-if="errors.clients" class="aw-empty aw-error" role="alert">{{ errors.clients }}</p><div v-else-if="!clients.length" class="aw-empty"><PortalIcon name="people"/><h3>No active clients assigned</h3><p>Clients assigned to you will appear here.</p></div>
++        <RouterLink v-for="row in clients.slice(0,5)" v-else :key="row.id" class="aw-list-row" :to="{path:`/${slug}/clients`,query:{clientId:String(row.id)}}"><span class="aw-avatar">{{ initials(clientName(row)) }}</span><span class="aw-row-main"><strong>{{ clientName(row) }}</strong><small>{{ row.status || 'Active' }}{{ row.preferred_language?` · ${row.preferred_language}`:'' }}</small></span><span class="aw-list-action">Open chart</span><span aria-hidden="true">›</span></RouterLink>
++      </section>
++      <section class="aw-panel"><header><h2>Tasks &amp; Follow-ups</h2><a :href="personalToolUrl(slug,'tasks')">View all tasks <span aria-hidden="true">→</span></a></header>
++        <p v-if="loading" class="aw-empty" role="status">Loading tasks…</p><p v-else-if="errors.tasks" class="aw-empty aw-error" role="alert">{{ errors.tasks }}</p><div v-else-if="!tasks.length" class="aw-empty"><PortalIcon name="tasks"/><h3>You’re up to date</h3><p>No open tasks assigned in this practice.</p></div>
++        <a v-for="row in tasks.slice(0,5)" v-else :key="row.id" class="aw-list-row" :href="personalToolUrl(slug,'tasks')"><PortalIcon name="tasks"/><span class="aw-row-main"><strong>{{ row.title || row.name || 'Assigned task' }}</strong><small>{{ row.task_list_name || row.task_type?.replaceAll('_',' ') || 'Follow-up' }}</small></span><span class="aw-due" :class="{'aw-overdue':isOverdue(row)}">{{ row.due_date?`Due ${shortDate(row.due_date)}`:'No due date' }}</span><span aria-hidden="true">›</span></a>
++      </section>
++    </div>
++    <footer class="aw-dashboard-footer"><span>{{ loading?'Refreshing…':`Updated ${updatedAt || '—'}` }} · {{ timezone }}</span><button :disabled="loading" @click="load">Refresh dashboard</button></footer>
++  </section>
++</template>
++<script setup>
++import { ref,computed,watch,onBeforeUnmount } from 'vue';
++import api from '../services/api';
++import PortalIcon from '../components/portal/PortalIcon.vue';
++import { personalToolUrl,dayKey,shiftDay,rowsOf,clientName,initials,pendingDrafts,appointmentState } from './workspace';
++const props=defineProps({agency:Object,actor:Object,slug:String,canDocument:Boolean,report:Boolean,demo:Boolean});
++function guardDemoTools(event){if(props.demo&&event.target.closest('a')?.getAttribute('href')?.startsWith(`/${props.slug}/`)){event.preventDefault();event.stopPropagation();window.dispatchEvent(new CustomEvent('aw-demo-notice',{detail:'Personal account tools are not connected in the fictional demo.'}));}}
++const range=ref('today'),loading=ref(true),errors=ref({}),appointments=ref([]),clients=ref([]),clientTotal=ref(0),notes=ref([]),tasks=ref([]),taskTotal=ref(0),now=ref(Date.now()),updatedAt=ref('');let sequence=0;
++const timezone=computed(()=>props.actor.timezone||props.agency.timezone||'America/Denver');
++const today=computed(()=>dayKey(now.value,timezone.value));
++const greeting=computed(()=>{const h=Number(new Intl.DateTimeFormat('en-US',{timeZone:timezone.value,hour:'numeric',hourCycle:'h23'}).format(now.value));return h<12?'Good morning':h<18?'Good afternoon':'Good evening';});
++const dateLabel=computed(()=>new Intl.DateTimeFormat('en-US',{timeZone:timezone.value,weekday:'long',month:'short',day:'numeric',year:'numeric'}).format(now.value));
++const formatDate=(value,options)=>{if(!value)return 'Date not recorded';const d=new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(value))?`${value}T12:00:00Z`:value);return Number.isNaN(d.getTime())?'Date not recorded':new Intl.DateTimeFormat('en-US',{timeZone:timezone.value,...options}).format(d);};
++const time=value=>formatDate(value,{hour:'numeric',minute:'2-digit'}),shortDate=value=>formatDate(value,{month:'short',day:'numeric'});
++const duration=row=>{const minutes=Math.round((new Date(row.endAt||row.end_at)-new Date(row.startAt||row.start_at))/60000);return minutes>0?`${minutes} min`:'Duration not recorded';};
++const isOverdue=row=>row.due_date && String(row.due_date).slice(0,10)<today.value;
++const overdueTasks=computed(()=>tasks.value.filter(isOverdue).length);
++const metric=(key,value)=>loading.value?'—':errors.value[key]?'—':value;
++const scheduleUrl=row=>`${personalToolUrl(props.slug,'schedule')}?date=${encodeURIComponent(dayKey(row.startAt||row.start_at,timezone.value))}`;
++async function load(){
++ const id=++sequence;loading.value=true;errors.value={};appointments.value=[];clients.value=[];notes.value=[];tasks.value=[];clientTotal.value=0;taskTotal.value=0;
++ const start=today.value,end=shiftDay(start,range.value==='week'?7:1),params={agencyId:props.agency.id};
++ const requests=[['appointments',()=>api.get('/appointments',{params:{...params,providerId:props.actor.id,windowStart:shiftDay(start,-1),windowEnd:shiftDay(end,1)}})],['clients',()=>api.get('/clients',{params:{...params,agency_id:props.agency.id,provider_id:props.actor.id,status:'ACTIVE',paginate:1,page:1,per_page:5}})],['tasks',()=>api.get('/auricwell-preview/tasks')]];
++ if(props.canDocument)requests.push(['notes',()=>api.get('/clinical-notes/recent',{params:{...params,archiveStatus:'active'}})]);
++ const results=await Promise.allSettled(requests.map(([,get])=>get()));if(id!==sequence)return;
++ results.forEach((result,index)=>{const key=requests[index][0];if(result.status==='rejected'){errors.value[key]=result.reason?.response?.status===403?'This information is not available to your account.':`Could not load ${key}. Try refreshing.`;return;}const data=result.value.data;
++ if(key==='appointments')appointments.value=rowsOf(data,'appointments').filter(row=>{const day=dayKey(row.startAt||row.start_at,timezone.value);return day>=start&&day<end&&!/cancel|void|rescheduled/.test(String(row.status));}).sort((a,b)=>new Date(a.startAt||a.start_at)-new Date(b.startAt||b.start_at));
++ if(key==='clients'){clients.value=rowsOf(data,'clients');clientTotal.value=Number(data.total??clients.value.length);}
++ if(key==='notes')notes.value=pendingDrafts(data);
++ if(key==='tasks'){tasks.value=rowsOf(data,'tasks').filter(row=>!['completed','overridden','archived'].includes(row.status));taskTotal.value=Number(data.total??tasks.value.length);}
++ });loading.value=false;updatedAt.value=time(Date.now());
++}
++watch(()=>[props.agency.id,props.actor.id,range.value,today.value],load,{immediate:true});
++const timer=setInterval(()=>now.value=Date.now(),60000);onBeforeUnmount(()=>{sequence++;clearInterval(timer);});
++</script>
+--- /dev/null
++++ b/frontend/src/auricwell/WorkspaceShell.vue
+@@ -0,0 +1,57 @@
++<template>
++  <div class="aw-workspace" :class="{ 'aw-collapsed': collapsed, 'aw-menu-open': mobileOpen }" @keydown.esc="mobileOpen=false; accountOpen=false">
++    <a class="aw-skip" href="#aw-main">Skip to content</a>
++    <button v-if="mobileOpen" class="aw-scrim" aria-label="Close navigation" @click="mobileOpen=false" />
++    <aside class="aw-sidebar" aria-label="Workspace sidebar">
++      <a class="aw-sidebar-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" /><span>AuricWell</span></a>
++      <nav class="aw-nav" aria-label="Practice navigation">
++        <RouterLink v-for="item in navigation" :key="item.key" :to="`/${slug}/${item.key}`" :title="item.label" :aria-current="section===item.key?'page':undefined" @click="mobileOpen=false"><PortalIcon :name="item.icon"/><span>{{ item.label }}</span></RouterLink>
++      </nav>
++      <div class="aw-sidebar-bottom">
++        <a :href="demo?websiteBase:personalToolUrl(slug,'support')"><PortalIcon name="help"/><span>Help &amp; Support</span></a>
++        <button :aria-expanded="!collapsed" aria-label="Toggle sidebar width" @click="collapsed=!collapsed"><PortalIcon :name="collapsed?'arrow':'back'"/><span>Collapse</span></button>
++      </div>
++    </aside>
++    <div class="aw-workspace-body">
++      <header class="aw-topbar">
++        <button class="aw-mobile-menu aw-icon-button" aria-label="Open navigation" :aria-expanded="mobileOpen" @click="mobileOpen=!mobileOpen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
++        <form class="aw-search" role="search" @submit.prevent="search">
++          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg>
++          <input v-model="query" aria-label="Search clients" type="search" placeholder="Search clients by name or initials…" maxlength="120" />
++          <button type="submit" class="aw-search-submit">Search</button>
++        </form>
++        <RouterLink v-if="!demo" :to="`/${slug}/notifications`" class="aw-notification-button aw-icon-button" :aria-label="unread===null?'Notifications':`Notifications, ${unread} unread`"><PortalIcon name="notifications"/><span v-if="unread>0" class="aw-unread-dot"/></RouterLink>
++        <div class="aw-account">
++          <button :disabled="demo" class="aw-account-toggle" :aria-expanded="accountOpen" aria-controls="aw-account-menu" @click="accountOpen=!accountOpen"><span class="aw-avatar">{{ initials(actorName) }}</span><span class="aw-account-label"><strong>{{ actorName }}{{ actor.credential ? `, ${actor.credential}` : '' }}</strong><small>{{ roleLabel }}</small></span><span aria-hidden="true">⌄</span></button>
++          <div v-if="accountOpen" id="aw-account-menu" class="aw-account-menu">
++            <RouterLink :to="`/${slug}/account`" @click="accountOpen=false">My Account</RouterLink>
++            <RouterLink :to="`/${slug}/settings`" @click="accountOpen=false">Settings</RouterLink>
++            <a :href="personalToolUrl(slug,'account')">Open full suite ↗</a>
++            <button @click="signOut" :disabled="signingOut">{{ signingOut?'Signing out…':'Sign out' }}</button>
++            <p v-if="logoutError" role="alert">{{ logoutError }}</p>
++          </div>
++        </div>
++      </header>
++      <slot name="notice" />
++      <main id="aw-main" class="aw-content" tabindex="-1"><slot /></main>
++    </div>
++  </div>
++</template>
++<script setup>
++import { ref, computed } from 'vue';
++import { useRouter } from 'vue-router';
++import PortalIcon from '../components/portal/PortalIcon.vue';
++import { AURICWELL_MARK_URL } from '../constants/auricwellBrand';
++import { personalToolUrl, initials } from './workspace';
++const props=defineProps({actor:Object,slug:String,section:String,navigation:Array,websiteBase:String,unread:{type:Number,default:null},demo:Boolean});
++const router=useRouter(), query=ref(''),collapsed=ref(false),mobileOpen=ref(false),accountOpen=ref(false),signingOut=ref(false),logoutError=ref('');
++const actorName=computed(()=>[props.actor.first_name,props.actor.last_name].filter(Boolean).join(' ')||'My account');
++const roleLabel=computed(()=>({provider:'Provider',support:'Support',admin:'Agency administrator',super_admin:'Administrator'}[props.actor.role]||'Practice member'));
++function search(){if(query.value.trim())router.push({path:`/${props.slug}/clients`,query:{search:query.value.trim()}});}
++async function signOut(){
++  if(props.demo){logoutError.value='This is a fictional demo; no account is signed in.';return;}
++  signingOut.value=true;logoutError.value='';
++  try{const response=await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();window.dispatchEvent(new Event('auricwell-session-ended'));window.location.assign(`/${encodeURIComponent(props.slug)}/login`);}
++  catch{logoutError.value='Could not sign out. Please try again.';signingOut.value=false;}
++}
++</script>
+--- /dev/null
++++ b/frontend/src/auricwell/WorkspaceTools.vue
+@@ -0,0 +1,29 @@
++<template>
++  <section class="aw-tools"><p class="aw-eyebrow">{{ agency.name }}</p><h1>{{ title }}</h1>
++    <template v-if="section==='notifications'">
++      <p class="aw-subtitle">Your notifications for this practice.</p>
++      <div class="aw-tools-actions"><button @click="$emit('refresh')">Refresh</button><a :href="personalToolUrl(slug,'notifications')">Manage notifications ↗</a></div>
++      <div class="aw-panel"><p v-if="loading" class="aw-empty" role="status">Loading notifications…</p><p v-else-if="error" class="aw-empty aw-error" role="alert">{{ error }}</p><div v-else-if="!notifications.length" class="aw-empty"><PortalIcon name="notifications"/><h2>You’re all caught up</h2><p>New updates will appear here.</p></div>
++        <a v-for="item in notifications" v-else :key="item.id" class="aw-list-row" :href="personalToolUrl(slug,'notifications')"><PortalIcon name="notifications"/><span class="aw-row-main"><strong>{{ item.title || 'Practice update' }}</strong><small>{{ item.message }}</small></span><span v-if="!item.viewer_is_read && !item.is_read" class="aw-badge">Unread</span><span aria-hidden="true">›</span></a>
++      </div>
++    </template>
++    <template v-else>
++      <p class="aw-subtitle">{{ descriptions[section] }}</p>
++      <div v-if="section==='account'" class="aw-profile-summary"><span class="aw-avatar">{{ initials(actorName) }}</span><div><h2>{{ actorName }}</h2><p>{{ actor.email }}</p><small>{{ actor.role.replaceAll('_',' ') }} · {{ agency.name }}</small></div></div>
++      <div class="aw-tool-grid"><a v-for="tool in tools" :key="tool.key" class="aw-tool-card" :href="personalToolUrl(slug,tool.key)"><PortalIcon :name="tool.icon"/><h2>{{ tool.label }}</h2><p>{{ tool.description }}</p><span>Open {{ tool.label.toLowerCase() }} ↗</span></a></div>
++      <p class="aw-caption">These tools open your existing personal workspace with the same account and practice permissions.</p>
++    </template>
++  </section>
++</template>
++<script setup>
++import {computed} from 'vue';
++import PortalIcon from '../components/portal/PortalIcon.vue';
++import {personalToolUrl,initials} from './workspace';
++const props=defineProps({section:String,agency:Object,actor:Object,slug:String,notifications:{type:Array,default:()=>[]},loading:Boolean,error:String});
++defineEmits(['refresh']);
++const actorName=computed(()=>[props.actor.first_name,props.actor.last_name].filter(Boolean).join(' '));
++const title=computed(()=>({account:'My Account',settings:'Settings',payroll:'My Payroll',notifications:'Notifications'}[props.section]));
++const descriptions={account:'Your profile, credentials and personal documents.',settings:'Manage your availability, preferences and notification settings.',payroll:'Your pay, time submissions and compensation details.'};
++const catalog={account:{key:'account',icon:'account',label:'Account details',description:'Review and update your personal information.'},credentials:{key:'credentials',icon:'shield',label:'Credentials',description:'Manage your professional credentials and supporting documents.'},documents:{key:'documents',icon:'documents',label:'My documents',description:'Open your assigned documents and completed paperwork.'},preferences:{key:'preferences',icon:'settings',label:'Preferences',description:'Manage your personal application and communication preferences.'},notifications:{key:'notifications',icon:'notifications',label:'Notification settings',description:'Review alerts and choose how you receive updates.'},schedule:{key:'schedule',icon:'sessions',label:'My availability',description:'Open your calendar to publish and manage available time.'},payroll:{key:'payroll',icon:'billing',label:'Payroll & submissions',description:'View your payroll details and submit eligible time or expenses.'},compensation:{key:'compensation',icon:'documents',label:'My compensation',description:'Review compensation information made available to your account.'},benefits:{key:'benefits',icon:'people',label:'Benefits',description:'Review the benefits available through your agency.'}};
++const tools=computed(()=>({account:['account','credentials','documents'],settings:['preferences','notifications','schedule'],payroll:['payroll','compensation','benefits']}[props.section]||[]).map(k=>catalog[k]));
++</script>
+--- /dev/null
++++ b/frontend/src/auricwell/workspace.js
+@@ -0,0 +1,29 @@
++// Navigation stays on this origin and carries the selected practice explicitly.
++export function personalToolUrl(slug, tool = 'account') {
++  const root = `/${encodeURIComponent(slug)}`;
++  const paths = { schedule: '/my-schedule', tasks: '/tasks', notifications: '/notifications', support: '/support' };
++  return paths[tool] ? root + paths[tool] : `${root}/dashboard?tab=my&my=${encodeURIComponent(tool)}`;
++}
++export function dayKey(value = new Date(), timezone = 'America/Denver') {
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return '';
++  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(date);
++  return ['year','month','day'].map(key => parts.find(p => p.type === key).value).join('-');
++}
++export function shiftDay(day, amount) {
++  const date = new Date(`${day}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + amount);
++  return date.toISOString().slice(0,10);
++}
++export function rowsOf(data, key) { return Array.isArray(data) ? data : data?.[key] || data?.items || []; }
++export function clientName(client) { return client.full_name || client.client_full_name || [client.first_name,client.last_name].filter(Boolean).join(' ') || client.initials || `Client #${client.client_id || client.id}`; }
++export function initials(name) { return String(name || '').split(/\s+/).filter(Boolean).slice(0,2).map(s=>s[0]).join('').toUpperCase(); }
++export function pendingDrafts(data) { return (data?.drafts || []).filter(d => !['signed','completed','archived'].includes(String(d.status).toLowerCase()) && !d.provider_signed_at); }
++export function appointmentState(row, now = Date.now()) {
++  const status = String(row.status || '').toLowerCase();
++  if (/cancel|void|rescheduled|no_show/.test(status)) return status.replaceAll('_',' ');
++  if (status === 'completed') return 'Completed';
++  const start = new Date(row.startAt || row.start_at).getTime(), end = new Date(row.endAt || row.end_at).getTime();
++  if (start <= now && end > now) return 'In progress';
++  if (end <= now) return 'Past appointment';
++  return 'Upcoming';
++}
+--- a/frontend/src/auricwell/Records.vue
++++ b/frontend/src/auricwell/Records.vue
+@@ -1,12 +1,15 @@
+ <template><section class="aw-records"><header><div><p class="aw-eyebrow">{{ agency.name }}</p><h1>{{ titles[section] }}</h1></div><button @click="load" :disabled="loading">Refresh</button></header><form v-if="section === 'clients'" @submit.prevent="page=1;load()"><label>Find a client <input v-model="search" type="search" placeholder="Name or initials"></label><button>Search</button></form><p role="alert" v-if="error">{{ error }}</p><p v-else-if="loading" role="status">Loading {{ titles[section].toLowerCase() }}…</p><p v-else-if="!rows.length">No records found in this practice.</p><div v-else class="aw-table"><table><thead><tr><th>{{ section === 'appointments' ? 'Appointment' : 'Name' }}</th><th>{{ section === 'providers' ? 'Credential' : section === 'appointments' ? 'Service' : 'Status' }}</th><th>{{ section === 'providers' ? 'Status' : section === 'appointments' ? 'Status' : 'Documentation' }}</th></tr></thead><tbody><tr v-for="r in rows" :key="r.id"><td><button v-if="section === 'providers'" type="button" @click="selectedProvider = r">{{ [r.first_name,r.last_name].filter(Boolean).join(' ') }}</button><span v-else>{{ section === 'providers' ? [r.first_name,r.last_name].filter(Boolean).join(' ') : section === 'appointments' ? date(r.startAt || r.start_at) : r.full_name || r.initials || `Client #${r.id}` }}</span></td><td>{{ section === 'providers' ? r.credential || 'Not recorded' : section === 'appointments' ? r.serviceCode || r.service_code || 'Appointment' : r.status || '—' }}</td><td><RouterLink v-if="section === 'clients'" :to="{path:`/${slug}/clients`,query:{clientId:String(r.id)}}">Open chart →</RouterLink><span v-else>{{ section === 'providers' ? (r.is_active && !['ARCHIVED','INACTIVE_EMPLOYEE'].includes(r.status) ? 'Active' : 'Inactive · history') : r.status }}</span></td></tr></tbody></table></div><div v-if="section === 'clients'" class="aw-pagination"><button :disabled="loading || page === 1" @click="page--;load()">Previous</button><span>Page {{ page }}</span><button :disabled="loading || rows.length < 50" @click="page++;load()">Next</button></div><section v-if="selectedProvider && section === 'providers'" class="aw-provider-profile" aria-label="Provider profile"><img v-if="selectedProvider.profile_photo_url" :src="selectedProvider.profile_photo_url" alt=""><div><h2>{{ selectedProvider.first_name }} {{ selectedProvider.last_name }}</h2><p>{{ selectedProvider.credential || 'Credential not recorded' }}</p><p v-if="selectedProvider.bio">{{ selectedProvider.bio }}</p><dl><dt>Status</dt><dd>{{ selectedProvider.is_active && !['ARCHIVED','INACTIVE_EMPLOYEE'].includes(selectedProvider.status) ? 'Active' : 'Inactive · historical attribution' }}</dd><template v-if="selectedProvider.specialties?.length"><dt>Care focus</dt><dd>{{ selectedProvider.specialties.join(', ') }}</dd></template></dl></div><button type="button" @click="selectedProvider = null">Close profile</button></section><p v-if="section === 'providers'" class="aw-caption">Credentials are shown as recorded. This directory does not establish payer eligibility or enrollment.</p><p v-if="section === 'appointments'" class="aw-caption">Existing appointments for the next 30 days. Appointment changes remain in the full suite during preview.</p></section></template>
+ <script setup>
+-import { ref, onMounted, onBeforeUnmount } from 'vue';
++import { ref, watch, onBeforeUnmount } from 'vue';
+ import api from '../services/api';
++import {useRoute} from 'vue-router';
++import {useAuthStore} from '../store/auth';
++const route=useRoute(),auth=useAuthStore();
+ const props = defineProps({section:String,agency:Object,slug:String});
+ const titles={clients:'Clients',providers:'Providers',appointments:'Appointments'};
+ const selectedProvider=ref(null);
+-const rows=ref([]),loading=ref(false),error=ref(''),search=ref(''),page=ref(1);let seq=0;
++const rows=ref([]),loading=ref(false),error=ref(''),search=ref(String(route.query.search||'')),page=ref(1);let seq=0;
+ const date=v => v ? new Date(v).toLocaleString() : 'Time not recorded';
+-async function load(){const id=++seq;rows.value=[];loading.value=true;error.value='';try{const start=new Date(),end=new Date(Date.now()+30*86400000);const paths={clients:'/clients',providers:'/auricwell-preview/providers',appointments:'/appointments'};const {data}=await api.get(paths[props.section],{params:{agencyId:props.agency.id,agency_id:props.agency.id,...(props.section==='clients'?{search:search.value,page:page.value,per_page:50,paginate:1}:{}),...(props.section==='appointments'?{windowStart:start.toISOString().slice(0,10),windowEnd:end.toISOString().slice(0,10)}: {})}});if(id!==seq)return;rows.value=Array.isArray(data)?data:data.clients||data.providers||data.appointments||data.items||[];}catch(e){if(id===seq)error.value=e.response?.data?.error?.message||e.message;}finally{if(id===seq)loading.value=false;}}
+-onMounted(load);onBeforeUnmount(()=>++seq);
++async function load(){const id=++seq;rows.value=[];loading.value=true;error.value='';try{const start=new Date(),end=new Date(Date.now()+30*86400000);const paths={clients:'/clients',providers:'/auricwell-preview/providers',appointments:'/appointments'};const {data}=await api.get(paths[props.section],{params:{agencyId:props.agency.id,agency_id:props.agency.id,...(props.section==='clients'?{search:search.value,...(auth.user?.role==='provider'?{provider_id:auth.user.id}:{}),page:page.value,per_page:50,paginate:1}:{}),...(props.section==='appointments'?{...(auth.user?.role==='provider'?{providerId:auth.user.id}:{}),windowStart:start.toISOString().slice(0,10),windowEnd:end.toISOString().slice(0,10)}: {})}});if(id!==seq)return;rows.value=Array.isArray(data)?data:data.clients||data.providers||data.appointments||data.items||[];}catch(e){if(id===seq)error.value=e.response?.data?.error?.message||e.message;}finally{if(id===seq)loading.value=false;}}
++watch(()=>[props.section,route.query.search],()=>{search.value=String(route.query.search||'');page.value=1;load();},{immediate:true});onBeforeUnmount(()=>++seq);
+ </script>
+--- a/frontend/src/auricwell/qaAccess.js
++++ b/frontend/src/auricwell/qaAccess.js
+@@ -1,8 +1,8 @@
+ export const QA_SLUG = 'auricwell-qa-demo';
+ export function qaSections(role) {
+-  const base=['overview','appointments','clients','providers'];
+-  if(role==='provider') return [...base,'documentation'];
++  const base=['overview','appointments','clients','providers','notifications','account','settings','reports'];
++  if(role==='provider') return [...base,'documentation','payroll'];
+   if(role==='support') return base;
+-  if(role==='admin') return [...base,'documentation','billing'];
++  if(role==='admin') return [...base,'documentation','billing','payroll'];
+   return [];
+ }
+--- a/frontend/src/auricwell/style.css
++++ b/frontend/src/auricwell/style.css
+@@ -9,3 +9,15 @@
+ .aw-login{max-width:680px;border:1px solid #e3eaf3;border-radius:16px;padding:40px;margin:64px auto;background:linear-gradient(145deg,#fff,#f7faff)}.aw-login .aw-button{display:inline-block;margin:16px 0 24px}.aw-login h1{font-size:38px;line-height:1.15}.aw-login p{line-height:1.7}@media(max-width:700px){.aw-login{margin:28px 16px;padding:28px}.aw-login h1{font-size:30px}}
+ 
+ .aw-nav a,.aw-area-label{display:inline-flex;align-items:center;gap:9px}.aw-nav svg,.aw-area-label svg{width:20px;height:20px;flex-shrink:0}.aw-provider-profile{border:1px solid #dbe5f1;border-radius:14px;padding:24px;margin:20px 0;display:flex;gap:24px;align-items:flex-start}.aw-provider-profile img{width:130px;height:150px;object-fit:cover;border-radius:12px}.aw-provider-profile h2{margin-top:0}.aw-provider-profile p{max-width:70ch;line-height:1.65}.aw-provider-profile dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px}.aw-provider-profile dd{margin:0}.aw-provider-profile button{margin-left:auto}@media(max-width:600px){.aw-provider-profile{flex-wrap:wrap;padding:16px}.aw-provider-profile img{width:90px;height:100px}.aw-provider-profile dl{grid-template-columns:1fr}.aw-nav a{padding:10px}}
++
++/* Provider workspace: shared EHR content inside the AuricWell navigation shell. */
++.aw-workspace{--aw-sidebar:250px;display:grid;grid-template-columns:var(--aw-sidebar) minmax(0,1fr);min-height:100vh;color:#122b49;background:#f6f8fb;font-size:14px;line-height:1.5}
++.aw-workspace *, .aw-workspace *::before,.aw-workspace *::after{box-sizing:border-box}.aw-workspace button,.aw-workspace input,.aw-workspace select{font:inherit}.aw-workspace a{color:#0864cc}.aw-workspace svg{width:22px;height:22px;flex:none}.aw-workspace button{cursor:pointer}.aw-workspace button:disabled{cursor:wait;opacity:.6}.aw-workspace h1,.aw-workspace h2,.aw-workspace h3,.aw-workspace p{margin-top:0}.aw-workspace h1{font-size:36px;line-height:1.2;letter-spacing:-1.15px;margin-bottom:8px;color:#0b2039}.aw-workspace h2{font-size:17px;line-height:1.35;letter-spacing:-.3px;margin-bottom:0}.aw-workspace h3{font-size:15px;margin-bottom:6px}
++.aw-sidebar{position:sticky;top:0;height:100dvh;display:flex;flex-direction:column;background:linear-gradient(150deg,#fff,#f8fbfe);border-right:1px solid #e6edf5;z-index:30}.aw-sidebar-brand{height:76px;display:flex;align-items:center;gap:8px;padding:0 26px;border-bottom:1px solid #e6edf5;text-decoration:none;color:#082761!important;font-size:28px;letter-spacing:-1.3px;font-weight:750;white-space:nowrap}.aw-sidebar-brand img{width:43px;height:48px;object-fit:contain}.aw-sidebar .aw-nav{display:flex;flex-direction:column;gap:7px;padding:20px 16px;border:0;overflow:auto}.aw-sidebar .aw-nav a{display:flex;align-items:center;gap:17px;padding:12px 14px;border-radius:8px;color:#526986;font-size:14px;white-space:normal;line-height:1.35;min-height:46px}.aw-sidebar .aw-nav a:hover{background:#f0f5fc;color:#0759b8}.aw-sidebar .aw-nav a[aria-current=page]{background:#eaf3ff;color:#0560c9;font-weight:650}.aw-sidebar-bottom{margin-top:auto;padding:18px 26px 24px}.aw-sidebar-bottom>a,.aw-sidebar-bottom>button{display:flex;gap:16px;align-items:center;width:100%;padding:12px 4px;border:0;background:transparent;color:#526986;text-decoration:none;text-align:left}.aw-sidebar-bottom>a{border-top:1px solid #e2eaf3;padding-top:22px}.aw-collapsed{--aw-sidebar:82px}.aw-collapsed .aw-sidebar-brand{padding:0 18px}.aw-collapsed .aw-sidebar-brand span,.aw-collapsed .aw-nav span,.aw-collapsed .aw-sidebar-bottom span{display:none}.aw-collapsed .aw-sidebar .aw-nav{padding:20px 12px}.aw-collapsed .aw-sidebar .aw-nav a{justify-content:center;padding:13px}.aw-collapsed .aw-sidebar-bottom{padding:16px 22px}
++.aw-workspace-body{min-width:0}.aw-topbar{height:76px;padding:12px 28px;display:flex;align-items:center;gap:24px;background:#fff;border-bottom:1px solid #e6edf5;position:relative;z-index:20}.aw-search{display:flex;align-items:center;gap:12px;background:#f3f6fa;border:1px solid #dfe7f0;border-radius:8px;padding:0 12px;max-width:560px;width:100%;height:42px;color:#5b7392}.aw-search input{background:transparent;border:0;outline:none;min-width:0;flex:1;color:#203954}.aw-search input::placeholder{color:#60738d}.aw-search-submit{background:transparent;border:0;color:#0864cc;font-size:12px!important}.aw-icon-button{display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#526986!important;min-width:42px;min-height:42px;border-radius:8px}.aw-icon-button:hover{background:#edf4fc}.aw-notification-button{position:relative;margin-left:auto}.aw-unread-dot{position:absolute;width:8px;height:8px;border-radius:50%;background:#0763cf;right:8px;top:5px;border:2px solid #fff}.aw-account{position:relative;border-left:1px solid #e6edf5;padding-left:20px;flex-shrink:0}.aw-account-toggle{display:flex;align-items:center;gap:12px;border:0;background:transparent;color:#172e4a;text-align:left;padding:0}.aw-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#f2f5f8,#dfe6ee);display:inline-flex;align-items:center;justify-content:center;font-weight:600;color:#263d58;flex-shrink:0;font-size:12px}.aw-account-label strong{display:block;font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.aw-account-label small{display:block;color:#60738d;font-size:12px;margin-top:1px}.aw-account-menu{position:absolute;top:54px;right:0;min-width:220px;background:white;border:1px solid #dfe7f1;box-shadow:0 12px 30px #17324d1c;border-radius:12px;padding:8px;z-index:50}.aw-account-menu a,.aw-account-menu button{display:block;text-align:left;padding:10px 12px;text-decoration:none;color:#263d58;width:100%;background:none;border:0;border-radius:6px}.aw-account-menu a:hover,.aw-account-menu button:hover{background:#eff5fc}.aw-account-menu p{color:#ae2531;font-size:12px;padding:8px}.aw-mobile-menu{display:none}.aw-skip{position:fixed;left:270px;top:-100px;padding:10px 16px;background:white;z-index:200}.aw-skip:focus{top:12px}.aw-scrim{display:none}
++.aw-workspace .aw-content{padding:26px 28px 32px;max-width:1800px;width:100%;margin:0 auto}.aw-workspace .aw-identity{padding:8px 28px;font-size:11px;line-height:1.4;border-color:#e9e3d4;background:#fdfbf6;color:#70664e}.aw-workspace .aw-identity strong{font-weight:600}.aw-workspace .aw-eyebrow{font-size:10px;letter-spacing:1.8px;margin-bottom:8px;color:#756d5a}.aw-overview-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:22px}.aw-subtitle{font-size:15px;color:#5b6e87;margin-bottom:0}.aw-date-control{display:flex;flex-direction:column;gap:8px;min-width:170px;color:#516987;font-size:13px;text-align:right}.aw-date-control label{display:flex;align-items:center;gap:10px;border:1px solid #e0e8f1;border-radius:8px;background:white;padding:8px 12px;color:#203954}.aw-date-control label svg{width:18px;height:18px}.aw-date-control select{border:0;background:transparent;flex:1;min-width:0;color:#203954}.aw-date-control>small{font-size:10px;color:#7b8ca2}.aw-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}.aw-summary-card{display:flex;align-items:flex-start;gap:16px;padding:21px 19px;background:#fff;border:1px solid #e2eaf3;border-radius:9px;text-decoration:none!important;color:#122b49!important;min-width:0}.aw-summary-card:hover{border-color:#b1cdec;box-shadow:0 3px 12px #244c7710}.aw-metric-icon{display:flex;align-items:center;justify-content:center;background:#ecf4ff;width:46px;height:46px;border-radius:9px;color:#0864cc;flex-shrink:0}.aw-metric-icon svg{width:26px;height:26px}.aw-summary-card>div{display:flex;flex-direction:column;gap:2px;min-width:0}.aw-summary-card>div>strong{font-size:28px;line-height:1.15;font-weight:750;color:#0c2545}.aw-summary-card>div>span{font-size:13px;font-weight:550;line-height:1.4;margin-top:3px}.aw-summary-card small{font-size:11px;line-height:1.5;color:#60738e}.aw-summary-card>span:last-child:not(.aw-metric-icon){margin:auto 0 auto auto;color:#526d8d;font-size:26px}.aw-dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.aw-panel{min-width:0;border:1px solid #e2eaf3;border-radius:10px;background:#fff;padding:0 18px;overflow:hidden}.aw-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:53px;border-bottom:1px solid #edf1f6;padding:14px 0}.aw-panel>header>a{font-size:12px;text-decoration:none;white-space:nowrap}.aw-panel>header>a span{margin-left:7px}.aw-list-row,.aw-schedule-row{display:flex;align-items:center;gap:14px;min-height:61px;padding:11px 0;border-bottom:1px solid #edf1f6;text-decoration:none!important;color:#233b57!important}.aw-list-row:last-child,.aw-schedule-row:last-child{border:0}.aw-list-row:hover,.aw-schedule-row:hover{background:#f8fbff}.aw-list-row>svg{width:20px;height:22px;color:#647c99}.aw-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}.aw-row-main strong{font-size:12px;line-height:1.5;font-weight:600;overflow-wrap:anywhere}.aw-row-main small{font-size:11px;color:#637995;line-height:1.45;overflow-wrap:anywhere}.aw-list-action,.aw-due{font-size:11px;color:#7185a0;text-align:right;max-width:100px}.aw-overdue{color:#b1333c}.aw-list-row>span:last-child,.aw-schedule-row>span:last-child{color:#627d9a}.aw-badge{font-size:10px;padding:4px 11px;background:#edf5ff;color:#1763b5;border-radius:30px;white-space:nowrap;line-height:1.5}.aw-badge-active{background:#e3efff;color:#193e6c}.aw-badge-warm{background:#fff5e5;color:#89653c}.aw-schedule-row{gap:14px;position:relative}.aw-timeline-dot{position:relative;width:8px;height:8px;background:#bcc7d3;border-radius:50%;flex-shrink:0}.aw-schedule-row:first-child .aw-timeline-dot{background:#0864cc}.aw-schedule-row:not(:last-child) .aw-timeline-dot:after{content:'';position:absolute;width:1px;height:58px;background:#e3e9f0;left:3px;top:8px}.aw-session-time{width:92px;flex:none;display:flex;flex-direction:column;border-right:1px solid #e7edf5;padding-right:12px;gap:2px}.aw-session-time strong{font-size:12px;font-weight:600}.aw-session-time small{font-size:11px;color:#6b809a}.aw-empty{padding:35px 16px;min-height:240px;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#637995;font-size:13px;gap:6px;margin:0}.aw-empty>svg{width:30px;height:30px;color:#97b0cf;margin-bottom:12px}.aw-empty h3,.aw-empty h2{color:#3f5875}.aw-empty p{max-width:310px;margin-bottom:6px}.aw-empty a{font-size:12px;text-decoration:none}.aw-error{color:#ab3842;background:#fffafb}.aw-dashboard-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;color:#74869c;font-size:11px;margin-top:20px}.aw-dashboard-footer button{border:1px solid #dce6f2;padding:7px 12px;border-radius:6px;background:white;color:#386392}
++.aw-tools{max-width:1200px;margin:0 auto}.aw-tools-actions{display:flex;align-items:center;gap:18px;margin:20px 0}.aw-tools-actions button{border:1px solid #dce6f2;padding:8px 14px;border-radius:6px;background:white;color:#386392}.aw-tools-actions a{font-size:13px}.aw-tool-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin:26px 0}.aw-tool-card{display:block;padding:26px;background:white;border:1px solid #e0e9f3;border-radius:12px;text-decoration:none}.aw-tool-card>svg{width:30px;height:30px;margin-bottom:18px}.aw-tool-card h2{color:#193650;margin-bottom:12px}.aw-tool-card p{color:#61758c;min-height:65px;font-size:13px}.aw-tool-card>span{font-size:12px}.aw-profile-summary{display:flex;gap:20px;align-items:center;border-bottom:1px solid #e0e8f3;padding:24px 0}.aw-profile-summary .aw-avatar{width:60px;height:60px;font-size:18px}.aw-profile-summary p{margin:5px 0;color:#567089}.aw-profile-summary small{color:#71859c}.aw-workspace .aw-records{max-width:none}.aw-workspace .aw-caption{color:#61758c}.aw-workspace .aw-records>header h1{margin-bottom:20px}
++@media(min-width:1500px){.aw-workspace{--aw-sidebar:270px}.aw-collapsed{--aw-sidebar:82px}.aw-summary-card{padding:22px;gap:24px}.aw-summary-card>div>span{font-size:14px}.aw-row-main strong,.aw-session-time strong{font-size:13px}.aw-panel h2{font-size:18px}.aw-panel>header>a{font-size:13px}.aw-list-row,.aw-schedule-row{min-height:62px}.aw-row-main small{font-size:12px}}
++@media(max-width:1200px){.aw-workspace{--aw-sidebar:220px}.aw-collapsed{--aw-sidebar:82px}.aw-sidebar-brand{font-size:25px;padding:0 18px}.aw-topbar{padding:12px 20px;gap:14px}.aw-workspace .aw-content{padding:24px 20px}.aw-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.aw-dashboard-grid{grid-template-columns:1fr}.aw-panel .aw-empty{min-height:180px}.aw-tool-grid{grid-template-columns:1fr}.aw-tool-card p{min-height:0}.aw-account-label strong{max-width:150px}}
++@media(max-width:760px){.aw-workspace,.aw-collapsed{display:block}.aw-sidebar{position:fixed;left:-280px;width:250px;height:100dvh;top:0;transition:left .18s ease;z-index:60;box-shadow:5px 0 20px #102b491a}.aw-menu-open .aw-sidebar{left:0}.aw-scrim{display:block;position:fixed;inset:0;background:#0b203966;border:0;z-index:55}.aw-collapsed .aw-sidebar-brand span,.aw-collapsed .aw-nav span,.aw-collapsed .aw-sidebar-bottom span{display:initial}.aw-collapsed .aw-sidebar .aw-nav a{justify-content:flex-start}.aw-sidebar-bottom>button{display:none}.aw-mobile-menu{display:inline-flex}.aw-topbar{height:66px;padding:10px 12px;gap:7px}.aw-search{height:40px;gap:6px;padding:0 9px}.aw-search>svg{width:17px;height:17px}.aw-search input{font-size:12px}.aw-search-submit{display:none}.aw-account{padding-left:9px}.aw-account-label,.aw-account-toggle>span:last-child{display:none}.aw-account-toggle{gap:0}.aw-account .aw-avatar{width:33px;height:33px}.aw-notification-button{min-width:34px}.aw-workspace .aw-content{padding:22px 16px}.aw-workspace .aw-identity{padding:8px 16px;font-size:10px;gap:4px}.aw-workspace h1{font-size:29px;letter-spacing:-.8px}.aw-overview-heading{flex-direction:column;gap:16px}.aw-subtitle{font-size:13px}.aw-date-control{display:grid;grid-template-columns:1fr auto;align-items:center;width:100%;text-align:left;gap:8px;font-size:12px}.aw-date-control>small{grid-column:1/-1}.aw-date-control label{padding:6px 9px}.aw-summary-grid{gap:10px;margin-bottom:16px}.aw-summary-card{padding:13px 11px;gap:9px;flex-wrap:wrap}.aw-metric-icon{width:32px;height:32px;border-radius:6px}.aw-metric-icon svg{width:20px;height:20px}.aw-summary-card>div{flex:1;min-width:75px}.aw-summary-card>div>strong{font-size:24px}.aw-summary-card>div>span{font-size:11px}.aw-summary-card small{font-size:10px}.aw-summary-card>span:last-child:not(.aw-metric-icon){display:none}.aw-panel{padding:0 12px}.aw-panel>header{gap:8px;align-items:flex-start}.aw-panel h2{font-size:14px;max-width:58%}.aw-panel>header>a{font-size:10px;white-space:normal;text-align:right}.aw-list-row,.aw-schedule-row{gap:9px}.aw-session-time{width:66px;padding-right:8px}.aw-session-time strong{font-size:10px}.aw-session-time small{font-size:10px}.aw-schedule-row .aw-badge{max-width:75px;white-space:normal;text-align:center;padding:4px 7px;font-size:9px}.aw-row-main strong{font-size:11px}.aw-row-main small{font-size:10px}.aw-list-action{display:none}.aw-list-row .aw-avatar{width:30px;height:30px;font-size:10px}.aw-empty{min-height:190px!important;font-size:12px;padding:26px 12px}.aw-dashboard-footer{align-items:flex-start;font-size:10px}.aw-dashboard-footer button{white-space:nowrap}.aw-skip{left:12px}.aw-tools .aw-tool-grid{margin-top:20px}.aw-tool-card{padding:20px}}
++@media(prefers-reduced-motion:reduce){.aw-sidebar{transition:none}}

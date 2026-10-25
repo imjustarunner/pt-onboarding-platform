@@ -1,0 +1,63 @@
+{
+  "status": "candidate_verified_publication_blocked",
+  "baseFrontendImage": "us-west3-docker.pkg.dev/ptonboard-dev/onboarding-frontend/onboarding-frontend@sha256:3b980316fec181b79efd3fbfa68d9fa50bb79a04dcdc0e80038f0905415e3618",
+  "sourceBaseline": "196a7d7bb6fea328bcc449e110b3fe9846a60292",
+  "changedApplicationFiles": [
+    "frontend/src/utils/workspaceDestination.js"
+  ],
+  "build": "passed; Node 8GB heap required",
+  "tests": "26 targeted routing and host tests passed",
+  "primaryLogin": "https://app.itsco.health/auricwell-qa-demo/login",
+  "primaryDashboard": "https://app.itsco.health/auricwell-qa-demo/dashboard",
+  "outboundMessagesSent": false,
+  "dailySchedulerEnabled": false,
+  "cloudBuildId": "681765df-9ede-4aa4-88d3-19e2a3e003c4",
+  "initialFullPlatformFinding": "Normal login accepted credentials but routing failed: This tenant has no configured app domain.",
+  "frontendRevision": "onboarding-frontend-itsco-qa-routing-20261024",
+  "frontendImageDigest": "sha256:391e93558c764e6c369252c7bbb855db35dd7636776660ebddac25ebbe27874d",
+  "candidateUrl": "https://itsco-qa-check---onboarding-frontend-65v3jdyqba-wm.a.run.app",
+  "published": false,
+  "candidateVerification": {
+    "at": "2026-10-24T18:09:38.030Z",
+    "freshProviderLoginPassed": true,
+    "soleAgencyId": 450,
+    "pagesRendered": [
+      "provider-dashboard",
+      "provider-account",
+      "provider-payroll",
+      "provider-settings",
+      "provider-training",
+      "provider-schedule"
+    ],
+    "javascriptErrors": [],
+    "workflowReadiness": "NEEDS_ATTENTION",
+    "configurationAndPermissionFindings": [
+      {
+        "path": "/api/clinical-notes/recent",
+        "status": 400
+      },
+      {
+        "path": "/api/skill-builders/me/assigned-events",
+        "status": 403
+      },
+      {
+        "path": "/api/learning-program-classes",
+        "status": 400
+      },
+      {
+        "path": "/api/accountability/workspaces",
+        "status": 403
+      },
+      {
+        "path": "/api/evaluations/student-training",
+        "status": 404
+      },
+      {
+        "path": "/api/provider-update/document-learning",
+        "status": 403
+      }
+    ]
+  },
+  "publicationBlockedBy": "Automatic approval review rejected switching 100% of shared production frontend traffic: exact approval for this subsequent routing release is missing and verification contains configuration/permission failures.",
+  "requestedRevision": "onboarding-frontend-itsco-qa-routing-20261024"
+}
