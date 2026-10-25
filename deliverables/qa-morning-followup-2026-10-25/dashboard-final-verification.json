@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-25T13:19:12.750Z",
+  "frontendRelease": "18034fe57",
+  "checks": [
+    {
+      "name": "dashboard note counts request",
+      "agencyId": "450",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "normal provider dashboard",
+      "userId": 1433,
+      "role": "provider",
+      "passed": true
+    }
+  ],
+  "warnings": [
+    {
+      "path": "/api/skill-builders/me/assigned-events",
+      "status": 403
+    }
+  ],
+  "passed": true
+}

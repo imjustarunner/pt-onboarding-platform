@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-25T13:38:12.818Z",
+  "workflows": [
+    {
+      "id": 40197775325,
+      "name": "Deploy Backend to Cloud Run",
+      "commit": "dd1ae03cdc59b9d0d5c23f619e3ea1b7fc2519d0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40197775325"
+    },
+    {
+      "id": 40197775318,
+      "name": "Deploy Frontend to Cloud Run",
+      "commit": "dd1ae03cdc59b9d0d5c23f619e3ea1b7fc2519d0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40197775318"
+    },
+    {
+      "id": 40197775344,
+      "name": "Scheduling regressions",
+      "commit": "dd1ae03cdc59b9d0d5c23f619e3ea1b7fc2519d0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40197775344"
+    }
+  ],
+  "localChecks": {
+    "backendMorning": 142,
+    "backendSupport": 165,
+    "frontendMorning": 84,
+    "nodeTests": 19,
+    "frontendProductionBuild": "passed; final route build verified by frontend deployment"
+  },
+  "passed": true
+}

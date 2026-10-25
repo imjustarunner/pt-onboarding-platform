@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-25T13:28:41.417Z",
+  "checks": [
+    {
+      "name": "phone formatting",
+      "entered": "+1 618 910 7000",
+      "displayed": "(618) 910-7000",
+      "passed": true
+    },
+    {
+      "name": "phone formatting",
+      "entered": "6189107000",
+      "displayed": "6189107000",
+      "passed": true
+    },
+    {
+      "name": "phone formatting",
+      "entered": "618910700012",
+      "displayed": "618910700012",
+      "passed": true
+    },
+    {
+      "name": "assigned agreement visible to supervisee",
+      "status": 200,
+      "agreements": [
+        {
+          "id": 413,
+          "agencyId": 450,
+          "supervisorId": 1438,
+          "superviseeId": 1439,
+          "supervisorSigned": false,
+          "superviseeSigned": false
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "createsClients": false,
+  "sendsMessages": false,
+  "passed": true
+}

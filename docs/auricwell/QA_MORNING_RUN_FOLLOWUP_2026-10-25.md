@@ -6,6 +6,8 @@ Send this supplement to the Coordinator alongside the existing instructions. Kee
 
 Use ordinary staff login at https://app.itsco.health/auricwell-qa-demo/login. Primary testing uses the full ITSCO-style platform. The secondary interface is https://auricwell.com/app/auricwell-qa-demo, using the same platform credentials.
 
+If the welcome briefing covers the page, finish loading it and click **Enter Dashboard**. The optional **Don't show this briefing again on this device** checkbox prevents it from covering subsequent pages in that browser. Dismiss it through the visible controls before testing the page underneath.
+
 | Persona | User ID | Login | Access |
 | --- | --- | --- | --- |
 | Original provider | 1433 | qa.provider.auricwell@example.com | Provider |
@@ -17,7 +19,7 @@ All four staff identities have active membership only in demo agency **450**. Sc
 
 The owner has separate private `supervisor.json` and `supervisee.json` credential files in `secrets/auricwell-qa/`. Share each only with its assigned tester. Passwords are not in this document. Never share `setup.json`, the combined provisioning receipt, or administrator credentials with bots.
 
-Clinical supervision assignment **123** links supervisor **1438** to supervisee **1439** in agency **450**. Agreement **413** is unsigned. Exercise the normal agreement and note review workflows; do not manufacture signatures or treat the assignment itself as a successful cosign test. These fictional accounts do not represent verified professional licenses.
+Clinical supervision assignment **123** links supervisor **1438** to supervisee **1439** in agency **450**. Agreement **413** is unsigned. Each assigned bot may complete the normal agreement and note review screens as its own fictional persona. Do not insert signatures or completed statuses directly into the database, use another person's identity, or treat the assignment itself as a successful cosign test. These fictional accounts do not represent verified professional licenses.
 
 The Exchange notification roster contains exactly providers 1433, 1438 and 1439. The new providers must publish their own appropriate profile and availability before being expected to appear as selectable providers. The original provider currently has virtual working hours; in-person availability remains to be published and tested.
 
@@ -77,3 +79,31 @@ Retain at least two scheduled synthetic sessions each week long enough to exerci
 The bot's original manifest and screenshots remain on its computer at `/workspace/auricwell-qa/manifest.json` and `/workspace/qa-2026-10-25/`. Attach the relevant screenshots to each retest result. Local engineering evidence is under `deliverables/qa-morning-followup-2026-10-25/`.
 
 Use `PASS`, `FAIL` or `BLOCKED` per journey. A morning brief must name the first blocking step, evidence location and responsible follow-up. Until assignment/booking, independent family access, dual-email receipt, reminders, support permissions, Exchange and cosigning have passed together, report the overall environment as **not yet fully verified**.
+
+## Live verification added after the fixes
+
+The intake, consent, identity, timezone and training corrections were published to `main` in `62693be96` and `1f739a5b7`. Both backend and frontend deployments succeeded. The scheduling regression workflow passed in both UTC and America/Denver, including its provider-offboarding job. A further dashboard correction in `18034fe57` supplies the agency ID when fetching note counts; the old request returned HTTP 400 and silently omitted drafts. The deployed request now returns HTTP 200 with agency 450.
+
+| Verified on the deployed demo | Result |
+| --- | --- |
+| Four enrollment URLs | HTTP 200, correct English/Spanish link language, scheduling timezone America/Denver. Spanish start screens remained Spanish with an English browser preference saved. |
+| Public virtual provider directory | Includes provider 1433 and excludes providers outside the explicit QA roster. This is directory eligibility, not a completed booking. |
+| Provider and support direct login | Fresh ordinary password logins reached the demo dashboards. No superadmin credentials or impersonation were used. |
+| Supervisor and supervisee | Both signed in to the full platform and the secondary EHR as providers. EHR context returned practice 450. Both could access their supervision agreement endpoint and their own email inbox. Requests for the real agency's Exchange were denied. |
+| Support boundaries | Operational status for retained clients 2259, 2261 and 2263 was accessible. Clinical-note context, administrative settings and the real agency's Exchange were denied. |
+| Provider learning and timezone | Document-learning and on-demand library endpoints returned HTTP 200. Saved account timezone and virtual-hours response both reported America/Denver. No training module is currently assigned; quiz completion remains untested. |
+| Messages email view | The support email panel rendered with its own `@example.com` address. All staff's own email endpoints were accessible. The checked inboxes were empty, so these checks do **not** establish delivery or reminder success. |
+
+The first browser pass retained two unexpected supervisor HTTP 403 responses and a stalled supervisee username step. A subsequent fresh-browser pass succeeded on all 12 pair checks without changing their roles or credentials. The cause of that initial interruption is unconfirmed; report it if repeated. Do not discard the earlier failed evidence. A separate optional Skill Builders assigned-events request returns HTTP 403 because that program is disabled in this demo; record this independently from learning-library access.
+
+Engineering checks passed: **142 backend morning regressions, 165 backend support regressions, 84 frontend regressions and 19 Node tests**, plus the frontend production build. These checks do not substitute for completing the normal enrollment, assignment, booking, reminder, Exchange and cosign journeys.
+
+Evidence files in `deliverables/qa-morning-followup-2026-10-25/` include `deployed-browser-verification.json` (initial pass, including failures), `supervision-browser-verification.json` (successful pair recheck), `input-and-agreement-verification.json`, and the accompanying screenshots. No new clients were submitted during these engineering browser checks. The existing five clients remain available for investigation.
+
+The deeper agreement check found an additional issue: the agreement endpoint returned HTTP 200 with an empty list because the shared meeting policy excluded all demo users. Commit `8dbc9196c` allows only active, explicitly rostered QA clinicians with current membership in the verified agency 450. Ordinary demo accounts remain excluded. This does not grant access to real agencies or remove meeting invitation, ownership or signature requirements. The before-fix evidence is retained in `input-and-agreement-before-membership-fix.json`; the post-fix check must verify agreement **413** in the response, not just HTTP 200.
+
+The deployed backend now returns unsigned agreement **413** to the supervisee, with supervisor **1438**, supervisee **1439** and agency **450**. The subsequent browser check exposed a separate routing defect: the agreement page's organization alias lacked the route metadata needed to preserve its agency, so ordinary providers were redirected to the dashboard. Commit `dd1ae03cd` defines the scoped route explicitly. Use **https://app.itsco.health/auricwell-qa-demo/supervision/agreements** after signing in. Retained before-fix evidence is in `supervision-before-route-fix.json`.
+
+**Final verification, October 25 at 7:38 a.m. America/Denver:** both deployments at `dd1ae03cd` succeeded, and the scheduling workflow passed. Both providers opened the actual agreement screen through ordinary login, saw agreement 413 with the correct party roles, and were denied requests to inspect another agency's supervision records. The agreement remains unsigned for the bots' normal signing test. See `supervision-final-verification.json`, `release-verification.json`, and the two `*-agreement-final.png` screenshots. The [evidence index](../../deliverables/qa-morning-followup-2026-10-25/README.md) links the checks and screenshots.
+
+The fixes and accounts are ready for the Coordinator's next retest. Keep the overall daily journey **not yet fully verified** until the acceptance work above passes; deployment success and account access alone are insufficient.

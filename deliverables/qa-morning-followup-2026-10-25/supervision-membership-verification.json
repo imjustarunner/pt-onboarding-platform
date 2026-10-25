@@ -1,0 +1,71 @@
+{
+  "at": "2026-10-25T13:17:23.171Z",
+  "mode": "local patched service against retained demo records; read-only",
+  "normalGuardianMembership": "1437 is not marked demo; its existing membership policy is unchanged. Meeting participation still requires invitation or ownership.",
+  "checks": [
+    {
+      "agencyId": 450,
+      "userId": 1433,
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "agencyId": 450,
+      "userId": 1438,
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "agencyId": 450,
+      "userId": 1439,
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "agencyId": 2,
+      "userId": 1438,
+      "expected": false,
+      "actual": false,
+      "passed": true
+    },
+    {
+      "agencyId": 2,
+      "userId": 1439,
+      "expected": false,
+      "actual": false,
+      "passed": true
+    },
+    {
+      "agencyId": 450,
+      "userId": 1434,
+      "expected": false,
+      "actual": false,
+      "passed": true
+    },
+    {
+      "agencyId": 450,
+      "userId": 1435,
+      "expected": false,
+      "actual": false,
+      "passed": true
+    },
+    {
+      "agencyId": 450,
+      "userId": 1437,
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "name": "agenda scope",
+      "agencies": [
+        450
+      ],
+      "passed": true
+    }
+  ],
+  "passed": true
+}

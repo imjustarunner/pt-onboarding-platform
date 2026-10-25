@@ -1,0 +1,64 @@
+{
+  "at": "2026-10-25T13:37:05.998Z",
+  "backendRelease": "dd1ae03cdc59b9d0d5c23f619e3ea1b7fc2519d0",
+  "deployment": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40197775325",
+  "frontendDeployment": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40197775318",
+  "checks": [
+    {
+      "name": "supervisor normal login and assigned agreement",
+      "userId": 1438,
+      "role": "provider",
+      "status": 200,
+      "agreements": [
+        {
+          "id": 413,
+          "agencyId": 450,
+          "supervisorId": 1438,
+          "superviseeId": 1439,
+          "myRole": "supervisor",
+          "complete": false,
+          "supervisorSigned": false,
+          "superviseeSigned": false
+        }
+      ],
+      "passed": true
+    },
+    {
+      "name": "supervisor cannot inspect another agency supervision",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "supervisee normal login and assigned agreement",
+      "userId": 1439,
+      "role": "provider",
+      "status": 200,
+      "agreements": [
+        {
+          "id": 413,
+          "agencyId": 450,
+          "supervisorId": 1438,
+          "superviseeId": 1439,
+          "myRole": "supervisee",
+          "complete": false,
+          "supervisorSigned": false,
+          "superviseeSigned": false
+        }
+      ],
+      "passed": true
+    },
+    {
+      "name": "supervisee cannot inspect another agency supervision",
+      "status": 403,
+      "passed": true
+    }
+  ],
+  "screenshots": [
+    "supervisor-agreement-final.png",
+    "supervisee-agreement-final.png"
+  ],
+  "errors": [],
+  "signsAgreements": false,
+  "createsClients": false,
+  "passed": true
+}

@@ -1,0 +1,282 @@
+{
+  "at": "2026-10-25T13:00:00.053Z",
+  "release": "62693be96fd3f146db40b9e3013241b9df84a797",
+  "createsClients": false,
+  "checks": [
+    {
+      "name": "school-en initial form language",
+      "status": 200,
+      "language": "en",
+      "masterLanguage": "en",
+      "timezone": "America/Denver",
+      "localeParameter": null,
+      "passed": true,
+      "visibleText": "🇺🇸\n🇲🇽\nCedar Grove K-8 — DEMO\nSchool coordination\nSchoolCareBridge\nClinical portal\nAuricWell\n\nWelcome\n\nCedar Grove K-8 — DEMO\n\nBegin to start a secure Digital Enrollment Packet. This link creates a unique session for each person.\n\nProtected by reCAPTCHA\nPlease verify you're human first, then fill out the form below.\nComplete the verification to continue.\nBegin enrollment\n→\n\nPress Enter ↵ to continue\n\nNot your school?\nNeed help?\n719-657-7444 Ext 0\nSend a message\nTerms & Conditions\nPrivacy Policy\nHealth Information & Privacy"
+    },
+    {
+      "name": "school-es initial form language",
+      "status": 200,
+      "language": "es",
+      "masterLanguage": "es",
+      "timezone": "America/Denver",
+      "localeParameter": null,
+      "passed": true,
+      "visibleText": "🇺🇸\n🇲🇽\nCedar Grove K-8 — DEMO\nCoordinación escolar\nSchoolCareBridge\nPortal clínico\nAuricWell\n\nBienvenido\n\nCedar Grove K-8 — DEMO\n\nComience para iniciar un Paquete digital de inscripción seguro. Este enlace crea una sesión única para cada persona.\n\nProtegido por reCAPTCHA\nPor favor verifique que es humano primero, luego complete el formulario a continuación.\nComplete la verificación para continuar.\nComenzar inscripción\n→\n\nPresione Enter ↵ para continuar\n\n¿No es su escuela?\n¿Necesita ayuda?\n719-657-7444 Ext 0\nEnviar un mensaje\nTérminos y condiciones\nPolítica de privacidad\nInformación de salud y privacidad (inglés)"
+    },
+    {
+      "name": "office-en initial form language",
+      "status": 200,
+      "language": "en",
+      "masterLanguage": null,
+      "timezone": "America/Denver",
+      "localeParameter": null,
+      "passed": true,
+      "visibleText": "← Back to welcome\n🇺🇸\n🇲🇽\nAuricWell QA Mental Health — DEMO\nLet's get your enrollment started\n\nStart with a few details about you. We’ll guide you through the rest, and you can save and return anytime.\n\nAbout 10–15 minutes to get started\nSave and return anytime\nWho is this for?\n👤\nMyself\n👨‍👩‍👧\nMy child / dependent\n💑\nA couple\n🏠\nA family\nWhat you'll need\nLet's start with some basics.\nYour first name *\nMiddle name\nYour last name *\nPhone number *\nYour email *\nDate of birth *\nProtected by reCAPTCHA\nComplete the verification to continue.\nUnfinished form reminders\n\nIf you need to leave and come back, we can email you a private link to finish this enrollment form.\n\nMore info\n\nIf you do not agree, please close this page. You may still continue — your session will expire in 12 hours with no r"
+    },
+    {
+      "name": "public QA provider roster",
+      "status": 200,
+      "ids": [
+        1433
+      ],
+      "passed": true
+    },
+    {
+      "name": "office-es initial form language",
+      "status": 200,
+      "language": "es",
+      "masterLanguage": null,
+      "timezone": "America/Denver",
+      "localeParameter": null,
+      "passed": true,
+      "visibleText": "← Volver al inicio\n🇺🇸\n🇲🇽\nAuricWell QA Mental Health — DEMO\nEmpecemos su inscripción\n\nComience con unos datos sobre usted. Le guiaremos en los siguientes pasos y podrá guardar y volver cuando quiera.\n\nUnos 10–15 minutos para comenzar\nGuarde y vuelva cuando quiera\n¿Para quién es esto?\n👤\nPara mí\n👨‍👩‍👧\nMi dependiente\n💑\nUna pareja\n🏠\nUna familia\nQué va a necesitar\nEmpecemos con lo básico.\nSu nombre *\nSegundo nombre\nSu apellido *\nNúmero de teléfono *\nSu correo electrónico *\nFecha de nacimiento *\nProtegido por reCAPTCHA\nComplete la verificación para continuar.\nRecordatorios de formulario incompleto\n\nSi necesita salir y volver, podemos enviarle por correo un enlace privado para terminar este formulario de inscripción.\n\nMás información\n\nSi no acepta, cierre esta página. Aun así puede conti"
+    },
+    {
+      "name": "provider primary normal login",
+      "passed": true,
+      "userId": 1433,
+      "role": "provider",
+      "path": "/auricwell-qa-demo/dashboard"
+    },
+    {
+      "name": "provider own email inbox",
+      "path": "/api/communications/qa-email-inbox",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "address": "qa.provider.auricwell@example.com",
+        "count": 0
+      }
+    },
+    {
+      "name": "provider cannot access real agency",
+      "path": "/api/agencies/2",
+      "status": 404,
+      "expected": [
+        403,
+        404
+      ],
+      "passed": true
+    },
+    {
+      "name": "provider cannot access real Exchange",
+      "path": "/api/client-exchange/listings?agencyId=2",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "name": "provider document learning",
+      "path": "/api/provider-update/document-learning?agencyId=450",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "courseCount": 1
+      }
+    },
+    {
+      "name": "provider on-demand library",
+      "path": "/api/on-demand-training/modules?agencyId=450",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "count": 0
+      }
+    },
+    {
+      "name": "virtual availability timezone",
+      "path": "/api/availability/me/virtual-working-hours?agencyId=450",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "timezone": "America/Denver",
+        "rowCount": 5
+      }
+    },
+    {
+      "name": "provider saved timezone",
+      "path": "/api/users/1433/preferences",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "timezone": "America/Denver"
+      }
+    },
+    {
+      "name": "support primary normal login",
+      "passed": true,
+      "userId": 1434,
+      "role": "support",
+      "path": "/auricwell-qa-demo/admin"
+    },
+    {
+      "name": "support own email inbox",
+      "path": "/api/communications/qa-email-inbox",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "address": "qa.support.auricwell@example.com",
+        "count": 0
+      }
+    },
+    {
+      "name": "support cannot access real agency",
+      "path": "/api/agencies/2",
+      "status": 404,
+      "expected": [
+        403,
+        404
+      ],
+      "passed": true
+    },
+    {
+      "name": "support cannot access real Exchange",
+      "path": "/api/client-exchange/listings?agencyId=2",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "name": "support retained client 2259",
+      "path": "/api/clients/2259/operational-status",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "keys": [
+          "sessions",
+          "limit",
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "support retained client 2261",
+      "path": "/api/clients/2261/operational-status",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "keys": [
+          "sessions",
+          "limit",
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "support retained client 2263",
+      "path": "/api/clients/2263/operational-status",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "keys": [
+          "sessions",
+          "limit",
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "support clinical read denied",
+      "path": "/api/clinical-notes/context?agencyId=450",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "name": "support administrative settings denied",
+      "path": "/api/agencies/450/settings-people-snapshot",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "name": "supervisor primary normal login",
+      "passed": true,
+      "userId": 1438,
+      "role": "provider",
+      "path": "/auricwell-qa-demo/dashboard"
+    },
+    {
+      "name": "supervisor own email inbox",
+      "path": "/api/communications/qa-email-inbox",
+      "status": 200,
+      "expected": 200,
+      "passed": true,
+      "details": {
+        "address": "qa.provider.supervisor.auricwell@example.com",
+        "count": 0
+      }
+    },
+    {
+      "name": "supervisor cannot access real agency",
+      "path": "/api/agencies/2",
+      "status": 404,
+      "expected": [
+        403,
+        404
+      ],
+      "passed": true
+    },
+    {
+      "name": "supervisor cannot access real Exchange",
+      "path": "/api/client-exchange/listings?agencyId=2",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "name": "supervisor secondary role authorization",
+      "path": "/api/auricwell-preview/context?slug=auricwell-qa-demo",
+      "status": 403,
+      "expected": 200,
+      "passed": false
+    },
+    {
+      "name": "supervisor supervision agreement",
+      "path": "/api/supervision/agreements?agencyId=450",
+      "status": 403,
+      "expected": 200,
+      "passed": false
+    }
+  ],
+  "screenshots": [
+    "school-es-deployed.png",
+    "office-es-deployed.png",
+    "provider-learning-deployed.png",
+    "support-email-deployed.png",
+    "supervisor-primary-deployed.png"
+  ],
+  "errors": [
+    "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#password') to be visible\u001b[22m\n"
+  ],
+  "passed": false
+}

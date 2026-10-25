@@ -1,0 +1,100 @@
+{
+  "at": "2026-10-25T13:08:24.664Z",
+  "release": "1f739a5b7",
+  "checks": [
+    {
+      "name": "supervisee-primary normal login",
+      "passed": true,
+      "userId": 1439,
+      "role": "provider",
+      "path": "/auricwell-qa-demo/dashboard"
+    },
+    {
+      "name": "supervisee-primary EHR scope",
+      "status": 200,
+      "passed": true,
+      "scope": {
+        "actorId": 1439,
+        "role": "provider",
+        "practiceId": 450,
+        "qaWorkspace": true
+      }
+    },
+    {
+      "name": "supervisee-primary agreement access",
+      "status": 200,
+      "passed": true,
+      "agreements": [
+        "agreements"
+      ]
+    },
+    {
+      "name": "supervisee-primary own email access",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "supervisee-primary real Exchange denied",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "supervisor-primary normal login",
+      "passed": true,
+      "userId": 1438,
+      "role": "provider",
+      "path": "/auricwell-qa-demo/dashboard"
+    },
+    {
+      "name": "supervisor-primary EHR scope",
+      "status": 200,
+      "passed": true,
+      "scope": {
+        "actorId": 1438,
+        "role": "provider",
+        "practiceId": 450,
+        "qaWorkspace": true
+      }
+    },
+    {
+      "name": "supervisor-primary agreement access",
+      "status": 200,
+      "passed": true,
+      "agreements": [
+        "agreements"
+      ]
+    },
+    {
+      "name": "supervisor-primary own email access",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "supervisor-primary real Exchange denied",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "supervisee-secondary normal login",
+      "passed": true,
+      "userId": 1439,
+      "role": "provider",
+      "path": "/app/auricwell-qa-demo"
+    },
+    {
+      "name": "supervisor-secondary normal login",
+      "passed": true,
+      "userId": 1438,
+      "role": "provider",
+      "path": "/app/auricwell-qa-demo"
+    }
+  ],
+  "screenshots": [
+    "supervisee-primary-verified.png",
+    "supervisor-primary-verified.png",
+    "supervisee-secondary-verified.png",
+    "supervisor-secondary-verified.png"
+  ],
+  "errors": [],
+  "passed": true
+}
