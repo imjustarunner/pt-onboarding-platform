@@ -1,0 +1,56 @@
+{
+  "at": "2026-10-25T12:03:13.971522+00:00",
+  "codeCommit": "bf04e7b097561f997ff920f902d3d3ef9be90e80",
+  "status": "DEPLOYED_SCOPED_ACCESS_AND_UI_CHECKS_PASSED",
+  "dailyLaunchEnabled": false,
+  "newLiveRecordsCreated": 0,
+  "testMessagesSent": 0,
+  "workflows": [
+    {
+      "id": 40190836512,
+      "name": "Scheduling regressions",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40190836512"
+    },
+    {
+      "id": 40190836506,
+      "name": "Deploy Frontend to Cloud Run",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40190836506"
+    },
+    {
+      "id": 40190836518,
+      "name": "Deploy Backend to Cloud Run",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40190836518"
+    }
+  ],
+  "evidence": [
+    "deployed-preflight.json",
+    "browser-verification.json"
+  ],
+  "historicalEvidence": [
+    "live-read-only.json",
+    "verification.json",
+    "browser-verification-initial.json",
+    "browser-verification-during-rollout.json",
+    "browser-verification-access-fix.json"
+  ],
+  "localChecks": {
+    "qaBackendPassed": 165,
+    "accountSupportBackendPassed": 46,
+    "nodePolicyTestsPassed": 14,
+    "frontendPassed": 61,
+    "productionBuild": "passed",
+    "note": "Some test suites overlap."
+  },
+  "limits": [
+    "Not a complete platform authorization audit.",
+    "Live record-level, enrollment, scheduling, dispatch, supervision and delivery canaries remain unrun.",
+    "Normal enrollment must be verified to propagate demo identity and membership for per-person email access.",
+    "External Grok scheduler, population enforcement and timed reminder verification remain unconfigured."
+  ]
+}

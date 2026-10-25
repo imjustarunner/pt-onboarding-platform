@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-25T11:44:30.133Z",
+  "role": "support",
+  "readOnly": true,
+  "checks": [
+    {
+      "path": "/api/clinical-notes/context?agencyId=450",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "path": "/api/communications/qa-email-inbox",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "path": "/api/agencies/450/settings-people-snapshot",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "path": "/api/agencies/2",
+      "status": 404,
+      "expected": 403,
+      "passed": false
+    },
+    {
+      "path": "/api/client-exchange/listings?agencyId=2",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    }
+  ],
+  "screenshots": [
+    "support-messages-desktop.png",
+    "support-messages-mobile.png",
+    "support-settings-denied.png"
+  ],
+  "emailPanelVisible": true,
+  "emailPanelText": "Email for qa.support.auricwell@example.com\n\nThese are your email copies. Delivery to testing@itsco.health is checked separately.\n\nRefresh emails\n\nNo emails recorded for this account yet.",
+  "navigationChecks": [
+    {
+      "requestedPath": "/auricwell-qa-demo/admin/settings",
+      "finalPath": "/auricwell-qa-demo/admin",
+      "passed": true
+    },
+    {
+      "requestedPath": "/auricwell-qa-demo/admin/email-settings",
+      "finalPath": "/auricwell-qa-demo/admin/email-settings",
+      "passed": false
+    }
+  ],
+  "settingsRouteDenied": false,
+  "finalPath": "/auricwell-qa-demo/admin/email-settings",
+  "passed": false
+}

@@ -57,3 +57,7 @@ NODE_OPTIONS=--max-old-space-size=8192 npm run build
 ```
 
 The initial frontend build exhausted Node's default heap; the rerun with an 8 GB limit completed. Final test/build counts and any post-deployment results belong in `deliverables/qa-support-addendum/verification.json` so they are not confused with the earlier live baseline.
+
+## Publication follow-up — October 25, 2026
+
+The earlier local-only status above is preserved as the original audit record. The code has since been committed, pushed to main and deployed. The completed scoped API/browser checks, screenshots and remaining launch gates are in the new [release update](QA_RELEASE_UPDATE_2026-10-25.md) and `deliverables/qa-support-addendum/release-verification.json`. Unattended daily testing remains disabled.

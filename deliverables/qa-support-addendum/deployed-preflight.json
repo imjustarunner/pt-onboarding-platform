@@ -1,0 +1,95 @@
+{
+  "at": "2026-10-25T11:31:07.491Z",
+  "readOnly": true,
+  "agencyId": 450,
+  "schoolId": 451,
+  "launchEnabled": false,
+  "accounts": [
+    {
+      "role": "provider",
+      "checks": [
+        {
+          "path": "/api/users/me/agencies",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/client-exchange/listings?agencyId=450",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/communications/qa-email-inbox",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        }
+      ],
+      "organizationIds": [
+        450
+      ],
+      "scopePassed": true
+    },
+    {
+      "role": "support",
+      "checks": [
+        {
+          "path": "/api/users/me/agencies",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/client-exchange/listings?agencyId=450",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/communications/qa-email-inbox",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/clients?agencyId=450",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/clinical-notes/context?agencyId=450",
+          "status": 403,
+          "expected": 403,
+          "passed": true
+        },
+        {
+          "path": "/api/clinical-notes/contact-documentation?agencyId=450",
+          "status": 200,
+          "expected": 200,
+          "passed": true
+        },
+        {
+          "path": "/api/agencies/450/settings-people-snapshot",
+          "status": 403,
+          "expected": 403,
+          "passed": true
+        }
+      ],
+      "organizationIds": [
+        450,
+        451
+      ],
+      "scopePassed": true,
+      "visibleActiveClientCount": 0,
+      "populationGate": "BLOCKED: coordinator must count all retained/archived clients and all provider identities before creation"
+    }
+  ],
+  "limitations": [
+    "Does not prove delivery, scheduling, enrollment, document dispatch or cross-tenant record isolation.",
+    "Does not start a scheduler or provision any provider."
+  ],
+  "passed": true
+}
