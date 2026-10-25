@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-25T15:57:01.946Z",
+  "release": "6c41025484fdbcc7ecb06ae71fce0f992235de76",
+  "deployment": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40208697282",
+  "changesPasswords": false,
+  "checks": [
+    {
+      "userId": 1434,
+      "email": "qa.support.auricwell@example.com",
+      "communicationId": 3944,
+      "httpStatus": 200,
+      "deliveryStatus": "sent",
+      "deliveredTo": "testing@itsco.health",
+      "resetLinks": [
+        "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]"
+      ],
+      "loginLinks": [
+        "https://app.itsco.health/auricwell-qa-demo/login"
+      ],
+      "allRecoveryLinksCorrect": true,
+      "validationStatus": 200,
+      "finalUrl": "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]",
+      "navigation": [
+        "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]",
+        "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]"
+      ],
+      "usernameMatches": true,
+      "formVisible": true,
+      "screenshot": "recovery-1434.png",
+      "passed": true
+    },
+    {
+      "userId": 1440,
+      "email": "qa.recovery.parent.20261025@example.com",
+      "communicationId": 3945,
+      "httpStatus": 200,
+      "deliveryStatus": "sent",
+      "deliveredTo": "testing@itsco.health",
+      "resetLinks": [
+        "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]"
+      ],
+      "loginLinks": [
+        "https://app.itsco.health/auricwell-qa-demo/login"
+      ],
+      "allRecoveryLinksCorrect": true,
+      "validationStatus": 200,
+      "finalUrl": "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]",
+      "navigation": [
+        "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]",
+        "https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]"
+      ],
+      "usernameMatches": true,
+      "formVisible": true,
+      "screenshot": "recovery-1440.png",
+      "passed": true
+    }
+  ],
+  "passed": true
+}

@@ -1,0 +1,21 @@
+QA ADDENDUM — RECOVERY LINK DOMAIN — 2026-10-25
+
+The previously generated demo recovery emails used plottwisthq.com. Earlier password-setup checks confirmed that recovery worked but did not check the hostname. That domain mismatch was a valid QA failure.
+
+The shared public URL builder now uses the demo agency's actual portal address:
+https://app.itsco.health/auricwell-qa-demo
+Both recovery and login links retain the demo agency path. The mapping requires the verified synthetic demo agency (450); ordinary ITSCO links remain on app.itsco.health and unrelated tenants retain their existing domains. Hostnames are not taken from public request headers.
+
+Code commit: 6c41025484fdbcc7ecb06ae71fce0f992235de76
+Local validation: 11 public-URL tests and 84 password-recovery tests passed.
+
+TESTER CHANGES
+Request a fresh email. Existing emails are historical evidence and their text does not change after a deployment. Check every recovery and login link in the new email, then follow the recovery link and record the final domain and any redirects. Expected recovery address:
+https://app.itsco.health/auricwell-qa-demo/reset-password/[REDACTED]
+Expected login address:
+https://app.itsco.health/auricwell-qa-demo/login
+
+Keep reset tokens out of screenshots, copied URLs, and reports. Record only a redacted path. This check is additional to delivery to testing@itsco.health, visibility in each recipient's own Messages inbox, and first-time password setup.
+
+DEPLOYED VERIFICATION — PASS
+Backend deployment 40208697282 succeeded. Fresh support-user 1434 email (communication 3944) and parent 1440 email (communication 3945) were sent to testing@itsco.health. Both emails contained only the expected ITSCO recovery and login destinations. Opening the actual emailed recovery links in a browser stayed on app.itsco.health, validated successfully (HTTP 200), and displayed the password form for the correct account. No password was changed. Screenshots and token-redacted evidence accompany this addendum.
