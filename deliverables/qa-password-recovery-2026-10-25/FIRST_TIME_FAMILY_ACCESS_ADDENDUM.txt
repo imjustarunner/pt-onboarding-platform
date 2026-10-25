@@ -1,0 +1,22 @@
+QA ADDENDUM — FIRST-TIME PARENT, GUARDIAN, AND CLIENT ACCESS
+2026-10-25
+
+A person already recorded through enrollment/invitation does not need to have signed in, chosen a password, or used a temporary password before requesting Forgot Password. The normal recovery link also sets their first password. Enrollment normally creates the underlying pending identity before the person activates their portal. This behavior uses the common recovery service, with no demo-only authentication bypass.
+
+LIVE CHECKS
+- Parent/guardian fixture 1440, qa.recovery.parent.20261025@example.com, communication 3928.
+- Self-service client identity fixture 1441, qa.recovery.client.20261025@example.com, communication 3929.
+
+Both began in PENDING_SETUP with no lasting or temporary password. Both received a sent recovery email redirected to testing@itsco.health. Each emailed link successfully set a first password, followed by successful normal login. The email copy was visible in the recipient's Messages inbox. Both used links were rejected afterward. The deployed family-portal role is client_guardian for both kinds of identity; these are authentication fixtures without clinical client relationships or clinical access. Existing staff bot passwords were unchanged.
+
+Configured tenant templates can call the email a password reset even for first-time setup. The functional requirement is that the link allows the first password to be saved. Independent inspection of the external mailbox was not performed; sent transport receipts and in-app email copies were verified.
+
+REGRESSION COVERAGE
+84 password-recovery tests passed, including added cases for first-time client_guardian, guardian, and client roles and an expired guardian temporary password. Existing restrictions on inactive accounts and SSO remain in place.
+
+TESTER COVERAGE TO ADD
+After normal enrollment/invitation, before the person sets any password, use Forgot Password with their unique recorded email. Verify the recovery email, complete first password setup, sign in, and confirm the family sees only its authorized records. Also cover an expired unused temporary password. Retain the existing negative checks for inactive accounts, unknown email addresses, and cross-family email access.
+
+An email with no enrollment, invitation, or user identity on file still needs initial enrollment; Forgot Password does not create a clinical relationship from an arbitrary address. Demo delivery redirects to testing@itsco.health; real users retain their normal recovery addresses.
+
+The two recovery fixture passwords are saved only in the owner's private secrets/auricwell-qa/recovery-parent.json and recovery-client.json files, not in this handoff or Git.

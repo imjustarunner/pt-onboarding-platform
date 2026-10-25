@@ -68,6 +68,24 @@ describe('password recovery delivery', () => {
     await requestPasswordRecoveryEmail({ email: user.email });
     expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ to: user.personal_email, text: expect.stringContaining(user.email) }));
   });
+  it.each(['client_guardian', 'guardian', 'client'])('sends first-time password setup for a %s who has never signed in', async (role) => {
+    Object.assign(user, { role, status: 'PENDING_SETUP', password_hash: null, temporary_password_hash: null, last_login: null });
+    const result = await requestPasswordRecoveryEmail({ email: user.email });
+    expect(result.outcome).toBe('sent');
+    expect(m.token).toHaveBeenCalledWith(user.id, 48, 'reset');
+    expect(m.send).toHaveBeenCalledWith(expect.objectContaining({
+      to: user.email, subject: 'Set your password',
+      text: expect.stringContaining('Use this link to set a password for your account so you can sign in.')
+    }));
+    expect(m.ticket).not.toHaveBeenCalled();
+  });
+  it('sends guardian setup after an unused temporary password expires', async () => {
+    Object.assign(user, { role: 'client_guardian', status: 'PENDING_SETUP', password_hash: null,
+      temporary_password_hash: 'expired-hash', temporary_password_expires_at: '2020-01-01T00:00:00Z' });
+    expect((await requestPasswordRecoveryEmail({ email: user.email })).outcome).toBe('sent');
+    expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Set your password' }));
+    expect(m.ticket).not.toHaveBeenCalled();
+  });
   it('blocks SSO before generating a token or sending mail', async () => {
     user.role = 'provider';
     expect((await requestPasswordRecoveryEmail({ email: user.email })).outcome).toBe('sso_required');
