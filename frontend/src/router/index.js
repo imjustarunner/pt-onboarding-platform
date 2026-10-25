@@ -1042,7 +1042,6 @@ const routes = [
   },
   {
     path: '/supervision/agreements',
-    alias: '/:organizationSlug/supervision/agreements',
     name: 'MySupervisionAgreements',
     component: () => import('../views/supervision/MySupervisionAgreementsView.vue'),
     meta: { requiresAuth: true }
@@ -1565,6 +1564,12 @@ const routes = [
     name: 'OrganizationJoinSupervision',
     component: () => import('../views/MeetingJoinEntry.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/supervision/agreements',
+    name: 'OrganizationSupervisionAgreements',
+    component: () => import('../views/supervision/MySupervisionAgreementsView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/supervision/sessions/:sessionId/presentation',

@@ -6,5 +6,6 @@ export default defineConfig({plugins:[vue()],test:{environment:'jsdom',include:[
  'src/views/__tests__/PublicIntakeProviderSelection.test.js',
  'src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js',
  'src/components/dashboard/__tests__/DashboardWork.test.js',
+ 'src/router/__tests__/supportRouteAccess.test.js',
  'src/components/availability/__tests__/VirtualWorkingHoursEditor.test.js'
 ]}});

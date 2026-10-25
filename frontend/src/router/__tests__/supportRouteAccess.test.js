@@ -5,6 +5,15 @@ import { hasRequiredRouteRole } from '../routeRoleAccess.js';
 vi.mock('../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }));
 
 describe('Support navigation permissions', () => {
+  it.each(['auricwell-qa-demo','itsco'])('preserves the organization scope on %s supervision agreements', async slug => {
+    const route = router.resolve(`/${slug}/supervision/agreements`);
+    // The global guard prefixes authenticated routes lacking this metadata.
+    // A plain alias incorrectly sent these links back to the dashboard.
+    expect(route.meta).toMatchObject({requiresAuth:true,organizationSlug:true});
+    expect(route.params.organizationSlug).toBe(slug);
+    expect((await route.matched.at(-1).components.default()).default.__name).toBe('MySupervisionAgreementsView');
+    expect(router.resolve('/supervision/agreements').meta.requiresAuth).toBe(true);
+  });
   it.each(['/admin/settings', '/auricwell-qa-demo/admin/settings',
     '/admin/email-settings', '/auricwell-qa-demo/admin/email-settings'])('denies administrative settings at %s', path => {
     const route = router.resolve(path);
