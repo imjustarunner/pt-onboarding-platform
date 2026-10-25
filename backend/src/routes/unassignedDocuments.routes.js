@@ -1,6 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import {
   listUnassignedDocuments,
   assignToClient,
@@ -10,7 +11,8 @@ import {
 
 const router = express.Router();
 
-router.use(authenticate, requireBackofficeAdmin);
+// These are completed uploaded documents, not blank templates for dispatch.
+router.use(authenticate, excludeSupportClinicalContent, requireBackofficeAdmin);
 
 router.get('/', listUnassignedDocuments);
 router.get('/:id/download', downloadDocument);

@@ -6,7 +6,7 @@
         <BrandingLogo size="medium" :logo-url="brandingStore.displayLogoUrl" />
         <div class="org-name">
           <h1>{{ agencyStore.currentAgency?.name || 'Admin Dashboard' }}</h1>
-          <span class="role-badge">Tenant administration</span>
+          <span class="role-badge">{{ isSupport ? 'Support workspace' : 'Tenant administration' }}</span>
         </div>
       </div>
 
@@ -65,7 +65,31 @@
 
     <div class="main-layout" @click="closeDropdowns">
       <nav class="sidebar">
-        <template v-if="isOperationsMode">
+        <template v-if="isSupport">
+          <div class="sidebar-section">
+            <div class="section-header">CLIENT SUPPORT</div>
+            <router-link :to="`${prefix}/admin`" class="nav-item">Support Dashboard</router-link>
+            <router-link :to="`${prefix}/admin/clients`" class="nav-item">Clients</router-link>
+            <router-link :to="`${prefix}/admin/guardians`" class="nav-item">Guardians</router-link>
+            <router-link :to="`${prefix}/client-exchange`" class="nav-item">Client Exchange</router-link>
+            <router-link :to="`${prefix}/admin/family-billing`" class="nav-item">Account Support</router-link>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-header">COORDINATION</div>
+            <router-link :to="`${prefix}/workforce-operations`" class="nav-item">Scheduling</router-link>
+            <router-link :to="`${prefix}/admin/providers`" class="nav-item">Provider Directory</router-link>
+            <router-link :to="`${prefix}/messages`" class="nav-item">Messages &amp; Email</router-link>
+            <router-link v-if="canSeeSchoolPortals" :to="`${prefix}/admin/school-portals-hub`" class="nav-item">School Portals</router-link>
+            <router-link :to="ticketsPath" class="nav-item">Support Tickets</router-link>
+          </div>
+          <div class="sidebar-section">
+            <div class="section-header">MY WORKSPACE</div>
+            <router-link :to="`${prefix}/dashboard`" class="nav-item">My Account</router-link>
+            <router-link :to="`${prefix}/my-learning`" class="nav-item">My Learning</router-link>
+            <router-link :to="notificationsPath" class="nav-item">Notifications</router-link>
+          </div>
+        </template>
+        <template v-else-if="isOperationsMode">
           <div class="sidebar-section">
             <div class="section-header">CORE</div>
             <router-link :to="`/${slug}/operations-dashboard`" class="nav-item">Dashboard</router-link>
@@ -197,7 +221,7 @@
           </div>
         </div>
 
-        <FrequentPagesBar :limit="6" class="fpb-dashboard" />
+        <FrequentPagesBar v-if="!isSupport" :limit="6" class="fpb-dashboard" />
 
         <router-link v-if="isOperationsMode" :to="`${prefix}/buildings/schedule?approvals=1`" class="building-master-shortcut">
           <strong>Building Master</strong>
@@ -568,6 +592,7 @@ const slug = computed(() =>
 const currentUser = computed(() => authStore.user || authStore.currentUser || {});
 const userId = computed(() => currentUser.value?.id || currentUser.value?.email || null);
 const roleLower = computed(() => String(currentUser.value?.role || '').toLowerCase());
+const isSupport = computed(() => roleLower.value === 'support');
 const canSeeUsersNav = computed(() =>
   ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'club_manager'].includes(roleLower.value)
 );
@@ -732,7 +757,7 @@ const peopleOpsFeatureEnabled = computed(() => {
   );
 });
 const showPeopleOpsPipeline = computed(() =>
-  peopleOpsFeatureEnabled.value && isVisible('peopleOps')
+  !isSupport.value && peopleOpsFeatureEnabled.value && isVisible('peopleOps')
 );
 const canAccessTeamBoardRole = computed(() =>
   ['admin', 'support', 'super_admin'].includes(roleLower.value)
@@ -780,10 +805,10 @@ const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
 const canSeeKudosWidget = computed(() => isTruthyFeatureFlag(agencyFlags.value?.kudosEnabled));
 
 const pageTitle = computed(() =>
-  (isOperationsMode.value ? 'Operations Dashboard' : 'Management Dashboard')
+  (isSupport.value ? 'Support Dashboard' : isOperationsMode.value ? 'Operations Dashboard' : 'Management Dashboard')
 );
 const pageSubtitle = computed(() =>
-  (isOperationsMode.value
+  (isSupport.value ? 'Client coordination, scheduling, communication and follow-up.' : isOperationsMode.value
     ? 'Schedule coordination, school coverage, hiring pipeline, and program support.'
     : 'Real-time overview of priority operations and actions.')
 );
@@ -856,7 +881,7 @@ const hubQuickLinks = computed(() => {
   return buildDashboardQuickAccessLinks({
     ...ctx,
     currentSurface: isOperationsMode.value ? 'operations' : 'management'
-  });
+  }).filter(link => !isSupport.value || ['my', 'workforce', 'school'].includes(link.key));
 });
 
 const summaryPaths = computed(() => ({
@@ -1066,7 +1091,10 @@ const glanceCards = computed(() => {
 
 const orderedGlanceCards = computed(() => {
   const ordered = applyGlanceOrder(glanceCards.value, { includeEscalations: canSeeEscalations.value });
-  return filterDashboardGlanceCards(ordered, {
+  const permitted = isSupport.value
+    ? ordered.filter(card => ['support_tickets', 'tasks', 'messages', 'escalations', 'office_requests'].includes(card.key))
+    : ordered;
+  return filterDashboardGlanceCards(permitted, {
     role: roleLower.value,
     user: currentUser.value,
     agencyId: currentAgencyId.value,
@@ -1170,6 +1198,7 @@ const canAccessOutreach = computed(() => !!currentUser.value?.capabilities?.canA
 
 // Same catalog as classic AgencyAdminDashboard (no create-ticket — admins don't open tickets).
 const defaultQuickActionIds = computed(() => {
+  if (isSupport.value) return ['manage_clients', 'client_exchange', 'schedule', 'communications', 'provider_directory', 'family_account_support', 'notifications'];
   if (isOperationsMode.value) {
     return [
       'schedule',
@@ -1223,6 +1252,16 @@ const defaultQuickActionIds = computed(() => {
 const quickActionsCatalog = computed(() => {
   const p = prefix.value;
   const base = [
+    {
+      id: 'client_exchange', title: 'Client Exchange', description: 'Coordinate referrals, matches and provider requests',
+      to: `${p}/client-exchange`, emoji: '🤝', iconKey: 'manage_clients', category: 'Client support',
+      roles: ['support', 'admin', 'super_admin'], capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'family_account_support', title: 'Account Support', description: 'Basic billing, insurance and account coordination',
+      to: `${p}/admin/family-billing`, emoji: '🧾', iconKey: 'manage_clients', category: 'Client support',
+      roles: ['support', 'admin', 'super_admin'], capabilities: ['canAccessPlatform']
+    },
     {
       id: 'team_lead_dashboard',
       title: 'Team Lead Dashboards',
@@ -1736,6 +1775,9 @@ const quickActionsCatalog = computed(() => {
   ];
 
   return base.filter((a) => {
+    if (isSupport.value && !['manage_clients', 'client_exchange', 'family_account_support', 'schedule',
+      'provider_directory', 'external_calendar_audit', 'provider_availability_dashboard', 'school_portals',
+      'communications', 'communications_center', 'notifications', 'presence_team_board', 'escalations_desk'].includes(a.id)) return false;
     if (isOperationsMode.value) {
       // No Engagement Feed on Operations; Communications management covers messaging.
       if (a.id === 'chats') return false;
@@ -1806,7 +1848,7 @@ const refreshDerivedGlanceCounts = async ({ agencyId, personal, center } = {}) =
   unreadMessages.value = resolveUnreadMessagesCount({ personal, center });
 
   const notificationLate = countLateNoteNotifications();
-  if (agencyId) {
+  if (agencyId && !isSupport.value) {
     const unpaidReport = await safeGet(
       '/payroll/periods/unpaid-drafts-report',
       { params: { agencyId, periods: 3 } },
@@ -2043,11 +2085,11 @@ const loadDashboard = async () => {
       safeGet('/dashboard/schedule-snapshot', {
         params: { agencyId, date: new Date().toISOString().split('T')[0] }
       }, 8000),
-      safeGet('/unassigned-documents', { params }, 8000),
-      safeGet('/hiring/candidates', {
+      isSupport.value ? null : safeGet('/unassigned-documents', { params }, 8000),
+      isSupport.value ? null : safeGet('/hiring/candidates', {
         params: { agencyId, status: 'PROSPECTIVE', stageFilter: 'active' }
       }, 8000),
-      safeGet('/payroll/pending-submissions-summary', { params }, 8000),
+      isSupport.value ? null : safeGet('/payroll/pending-submissions-summary', { params }, 8000),
       safeGet('/dashboard/org-overview-summary', { params }, 8000),
       safeGet('/skill-builders/events/directory', { params: { agencyId } }, 12000),
       canSeeSchoolPortals.value
@@ -2063,7 +2105,7 @@ const loadDashboard = async () => {
       safeGet('/office-schedule/approvals', {
         params: { summary: 1 }
       }, 8000),
-      safeGet('/hiring/onboarding-candidates', { params: { agencyId } }, 8000)
+      isSupport.value ? null : safeGet('/hiring/onboarding-candidates', { params: { agencyId } }, 8000)
     ]);
 
     officeRequestCount.value = Number(officeRequestsRaw?.total || 0);
@@ -2585,11 +2627,6 @@ const logout = () => {
   grid-template-columns: 240px 1fr;
   min-height: calc(100vh - 120px);
 }
-@media (max-width: 960px) {
-  .main-layout { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-}
-
 .sidebar {
   background: var(--ops-sidebar, color-mix(in srgb, var(--ops-primary, #1f6b4a) 78%, #041a12));
   color: rgba(255, 255, 255, 0.9);
@@ -2597,6 +2634,10 @@ const logout = () => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+@media (max-width: 960px) {
+  .main-layout { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
 }
 .section-header {
   font-size: 10px;

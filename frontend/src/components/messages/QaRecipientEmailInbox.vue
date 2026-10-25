@@ -50,7 +50,7 @@ async function open(id) {
   try {const {data}=await api.get(`/communications/qa-email-inbox/${id}`);if(version===generation)selected.value=data;}
   catch {if(version===generation)error.value='Unable to open this email.';}
 }
-watch(() => [auth.user?.id,auth.user?.email], () => {
+watch([() => auth.user?.id, () => auth.user?.email], () => {
   generation++; available.value=false; items.value=[]; selected.value=null;
   if(/@example\.com$/i.test(auth.user?.email || ''))load();
 },{immediate:true});
