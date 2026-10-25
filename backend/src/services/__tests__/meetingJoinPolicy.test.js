@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
-import { activeMeetingAgencyIds, canJoinTeamMeeting, canJoinSupervision, roomUnavailable, requirePersonalSupervisionInvitation } from '../meetingJoinPolicy.service.js';
+import { activeMeetingAgencyIds, hasActiveMeetingMembership, canJoinTeamMeeting, canJoinSupervision, roomUnavailable, requirePersonalSupervisionInvitation } from '../meetingJoinPolicy.service.js';
 beforeEach(() => { vi.clearAllMocks(); m.execute.mockResolvedValue([[]]); });
 describe('current meeting room access', () => {
   const event = { id: 1, agency_id: 2, provider_id: 3 };
@@ -56,4 +56,30 @@ it('discovers only server-authorized active agencies within the candidate list',
 });
 it('does not query a tenant catalog without candidates or an authenticated user',async()=>{
  expect(await activeMeetingAgencyIds([],5)).toEqual([]);expect(await activeMeetingAgencyIds([2],0)).toEqual([]);expect(m.execute).not.toHaveBeenCalled();
+});
+
+describe('isolated QA supervision membership',()=>{
+ const qa={agency_id:450,slug:'auricwell-qa-demo',agency_active:1,agency_archived:0,
+  id:1438,email:'qa.provider.supervisor.auricwell@example.com',role:'provider',status:'ACTIVE_EMPLOYEE',is_demo:1,is_active:1,is_archived:0,
+  feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders:[{id:1438,email:'qa.provider.supervisor.auricwell@example.com'}]}}};
+ const membership=row=>m.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([row?[row]:[]]);
+ it('admits the listed demo clinician with current membership and discovers only the QA agency',async()=>{
+  membership(qa);expect(await hasActiveMeetingMembership(450,1438)).toBe(true);
+  expect(m.execute.mock.calls[1][0]).toContain('ua.is_active=1');expect(m.execute.mock.calls[1][1]).toEqual([450,1438]);
+  membership(qa);expect(await activeMeetingAgencyIds([2,450],1438)).toEqual([450]);
+ });
+ it.each([
+  {agency_id:2},{slug:'itsco'},{feature_flags:{}},{agency_active:0},{agency_archived:1},
+  {is_active:0},{is_archived:1},{is_demo:0},{status:'TERMINATED_PENDING'},
+  {role:'support'},{role:'admin'},{id:9999},{email:'real@agency.example'}
+ ])('denies changed scope or provider identity %j',async patch=>{
+  membership({...qa,...patch});expect(await hasActiveMeetingMembership(450,1438)).toBe(false);
+ });
+ it('denies revoked membership and never considers the QA exception for another tenant',async()=>{
+  membership(null);expect(await hasActiveMeetingMembership(450,1438)).toBe(false);
+  m.execute.mockClear();expect(await hasActiveMeetingMembership(2,1438)).toBe(false);expect(m.execute).toHaveBeenCalledTimes(1);
+ });
+ it('still requires an invitation or ownership after QA membership is verified',async()=>{
+  membership(qa);expect(await canJoinTeamMeeting({id:1,agency_id:450,provider_id:1439},1438)).toBe(false);
+ });
 });

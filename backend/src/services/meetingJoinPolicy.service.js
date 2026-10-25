@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
+import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 
 // Room access follows the current account and roster, never the role of a URL.
 // Shared by access checks and agenda scope discovery. A directory affiliation is
@@ -10,13 +11,33 @@ const activeMeetingMembershipSql = `COALESCE(u.is_active,1)=1
       AND (u.role IN ('super_admin','superadmin') OR EXISTS (
         SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=org.id AND ua.is_active=1))`;
 
+// Synthetic clinicians can exercise supervision only in the verified QA agency.
+// Keep the general demo exclusion and require the same explicit provider roster
+// used for QA assignment notifications, plus a current agency membership.
+async function hasQaMeetingMembership(agencyId, userId) {
+  if (Number(agencyId) !== 450) return false;
+  const [[row]] = await pool.execute(`SELECT org.id AS agency_id,org.slug,org.feature_flags,
+    org.is_active AS agency_active,org.is_archived AS agency_archived,
+    u.id,u.email,u.role,u.status,u.is_demo,u.is_active,u.is_archived
+    FROM agencies org JOIN user_agencies ua ON ua.agency_id=org.id AND ua.is_active=1
+    JOIN users u ON u.id=ua.user_id WHERE org.id=? AND u.id=? LIMIT 1`, [450,userId]);
+  return !!row && Number(row.agency_active) === 1 && !Number(row.agency_archived)
+    && Number(row.is_active) === 1 && !Number(row.is_archived) && Number(row.is_demo) === 1
+    && row.status === 'ACTIVE_EMPLOYEE'
+    && ['provider','provider_plus','supervisor','intern','intern_plus'].includes(row.role)
+    && isAuricwellQaAgency({ id:row.agency_id,slug:row.slug,feature_flags:row.feature_flags })
+    && allowQaExchangeRecipient({ slug:row.slug,feature_flags:row.feature_flags },row);
+}
+
 export async function activeMeetingAgencyIds(agencyIds, userId) {
   const ids=[...new Set((agencyIds || []).map(Number).filter(id=>Number.isSafeInteger(id)&&id>0))];
   if(!ids.length || !Number(userId))return [];
   const [rows]=await pool.execute(`SELECT org.id FROM agencies org JOIN users u ON u.id=?
     WHERE org.id IN (${ids.map(()=>'?').join(',')}) AND org.is_active=1
       AND ${activeMeetingMembershipSql}`, [userId,...ids]);
-  return rows.map(row=>Number(row.id));
+  const allowed = rows.map(row=>Number(row.id));
+  if (ids.includes(450) && !allowed.includes(450) && await hasQaMeetingMembership(450,userId)) allowed.push(450);
+  return allowed;
 }
 
 export async function hasActiveMeetingMembership(agencyId, userId) {
@@ -24,7 +45,7 @@ export async function hasActiveMeetingMembership(agencyId, userId) {
   const [rows] = await pool.execute(`SELECT 1 FROM users u JOIN agencies org ON org.id=? AND org.is_active=1
     WHERE u.id=? AND ${activeMeetingMembershipSql}
     LIMIT 1`, [agencyId, userId]);
-  return !!rows?.length;
+  return !!rows?.length || await hasQaMeetingMembership(agencyId,userId);
 }
 
 export async function canJoinTeamMeeting(event, userId) {

@@ -3,6 +3,7 @@ export default {root:new URL('.',import.meta.url).pathname,
  test:{environment:'node',include:[
  'src/services/__tests__/intakeAuthorization.test.js',
  'src/services/__tests__/qaIntakeIdentity.test.js',
+ 'src/services/__tests__/meetingJoinPolicy.test.js',
  'src/services/__tests__/scheduling.enrollmentProviderDirectory.test.js',
  'src/services/__tests__/guardianAccess.insurance.test.js',
  'src/services/__tests__/auricwellPreviewPolicy.test.js',
