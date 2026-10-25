@@ -9404,7 +9404,7 @@ const loadLink = async () => {
       organizationId.value = String(link.value.organization_id);
     }
     try {
-      const lang = String(link.value?.language_code || 'en').toLowerCase();
+      const lang = String(link.value?.language_code || preferredLocale || i18n.global.locale.value || 'en').toLowerCase();
       if (lang === 'es') {
         const cached = localStorage.getItem(`intakeEnglishKey:${publicKey}`);
         if (cached) linkedLanguageEnglishPublicKey.value = cached;

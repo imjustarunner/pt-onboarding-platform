@@ -173,3 +173,19 @@ it('keeps the enrollment shell while loading and carries Spanish into the full p
  expect(wrapper.find('.df-sidebar').exists()).toBe(false);
  setPublicLocale('en');
 });
+
+it('opens an explicit Spanish form in Spanish even after an English visit',async()=>{
+ const {setPublicLocale}=await import('../../i18n');setPublicLocale('en');
+ localStorage.setItem('publicLocale','en');localStorage.setItem('preferredFormLanguage','en');
+ get.mockImplementation(async url=>({data:url==='/public-intake/office-test'?{...structuredClone(data),link:{...structuredClone(data.link),language_code:'es',scheduling_timezone:'America/Denver'}}:{}}));
+ await render();expect(wrapper.vm.intakeLocale).toBe('es');
+ expect(get.mock.calls.find(([url])=>url==='/public-intake/office-test')[1].params.locale).toBeUndefined();
+ expect(wrapper.vm.enrollmentPreferenceTimeZone).toBe('America/Denver');
+ wrapper.vm.enrollmentPreferenceTimeZone='America/Chicago';expect(wrapper.vm.enrollmentPreferenceTimeZone).toBe('America/Chicago');
+ setPublicLocale('en');
+});
+it('honors an explicit English link instead of retaining another packet’s Spanish preference',async()=>{
+ const {setPublicLocale}=await import('../../i18n');setPublicLocale('es');
+ get.mockImplementation(async url=>({data:url==='/public-intake/office-test'?{...structuredClone(data),link:{...structuredClone(data.link),language_code:'en'}}:{}}));
+ await render();expect(wrapper.vm.intakeLocale).toBe('en');setPublicLocale('en');
+});
