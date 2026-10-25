@@ -56,7 +56,8 @@ export function useDashboardLayout({
   kind = 'default',
   userId = null,
   agencyId = null,
-  defaultOrder = []
+  defaultOrder = [],
+  persist = true
 } = {}) {
   const fallback = Array.isArray(defaultOrder) ? [...defaultOrder] : [];
   const userIdRef = isRef(userId) ? userId : ref(userId);
@@ -73,17 +74,18 @@ export function useDashboardLayout({
     return `${base}:agency-${sanitizeKey(agency)}:${sanitizeKey(unref(userIdRef))}`;
   });
 
-  const order = ref(loadOrderFromStorage(storageKey.value, fallback));
+  const order = ref(unref(persist) ? loadOrderFromStorage(storageKey.value, fallback) : [...fallback]);
   const editMode = ref(false);
 
-  watch([userIdRef, agencyIdRef, kindRef], () => {
-    order.value = loadOrderFromStorage(storageKey.value, fallback);
+  watch([userIdRef, agencyIdRef, kindRef, () => unref(persist)], () => {
+    order.value = unref(persist) ? loadOrderFromStorage(storageKey.value, fallback) : [...fallback];
+    editMode.value = false;
   });
 
   watch(
     order,
     (next) => {
-      saveOrderToStorage(storageKey.value, next);
+      if (unref(persist)) saveOrderToStorage(storageKey.value, next);
     },
     { deep: true }
   );

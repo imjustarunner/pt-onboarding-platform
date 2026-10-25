@@ -47,3 +47,20 @@ describe('dashboard invitation responses', () => {
     expect(mocks.push).toHaveBeenCalledWith({path:'/itsco/my-schedule',query:{eventId:2,eventKind:'SUPERVISION',weekStart:'2026-10-20'}});w.unmount();
   });
 });
+
+it('snoozes without sending an RSVP and keeps the invitation visible if persistence fails', async()=>{
+ mocks.get.mockResolvedValue({data:{prompts:[{...training,registrationClosesAt:'2026-10-22T22:00:00Z'}]}});
+ const w=mount(DashboardInvitationToasts,{props:{userId:7}});await flushPromises();
+ mocks.post.mockRejectedValueOnce(new Error('offline'));
+ await w.findAll('button').find(b=>b.text()==='Snooze 12 hours').trigger('click');await flushPromises();
+ expect(w.text()).toContain('Crisis skills');expect(w.get('[role="alert"]').text()).toContain('Could not snooze');
+ mocks.get.mockResolvedValue({data:{prompts:[]}});
+ await w.findAll('button').find(b=>b.text()==='Snooze 12 hours').trigger('click');await flushPromises();
+ expect(mocks.post).toHaveBeenLastCalledWith('/meeting-invitations/snooze',{key:'training:1'});expect(w.text()).not.toContain('Crisis skills');w.unmount();
+});
+it('explains the final twelve-hour cutoff and does not send a snooze request',async()=>{
+ mocks.get.mockResolvedValue({data:{prompts:[{...training,registrationClosesAt:'2026-10-20T10:00:00Z'}]}});
+ const w=mount(DashboardInvitationToasts,{props:{userId:7}});await flushPromises();
+ const button=w.findAll('button').find(b=>b.text()==='Snooze 12 hours');expect(button.attributes('aria-disabled')).toBe('true');
+ await button.trigger('click');expect(w.text()).toContain('Please RSVP that you are attending or not attending');expect(mocks.post).not.toHaveBeenCalled();w.unmount();
+});

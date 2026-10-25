@@ -6376,7 +6376,8 @@ router.afterEach((to) => {
     ? `?${new URLSearchParams(queryKeys.sort().map((k) => [k, String(query[k])])).toString()}`
     : '';
   const fullPath = `${path}${queryString}`;
-  const page = extractAdminPageFromPath(path);
+  const workspacePage = /\/(dashboard|my-schedule|my-meetings|messages|tasks|note-aid|my-learning|tools-aids|notifications)$/.exec(path)?.[1];
+  const page = workspacePage === 'dashboard' ? `dashboard/${query.tab || 'overview'}` : workspacePage || extractAdminPageFromPath(path);
 
   let clockedIn = false;
   let clockedInSessionId = null;
@@ -6395,7 +6396,8 @@ router.afterEach((to) => {
   }
 
   const trackable =
-    path.includes('/admin')
+    !!workspacePage
+    || path.includes('/admin')
     || path.includes('/club_manager_dashboard')
     || /\/client-exchange(\/|$)/i.test(path)
     || path.includes('/schedule/')
@@ -6404,7 +6406,7 @@ router.afterEach((to) => {
 
   api.post('/auth/activity-log', {
     actionType: 'admin_page_view',
-    metadata: { path: fullPath, page, ...(clockedIn ? { clockedIn: true, clockedInSessionId } : {}) }
+    metadata: { path: workspacePage ? `${path}${query.tab ? `?tab=${encodeURIComponent(String(query.tab))}` : ''}` : fullPath, page, ...(clockedIn ? { clockedIn: true, clockedInSessionId } : {}) }
   }, { skipGlobalLoading: true }).catch(() => {});
 });
 

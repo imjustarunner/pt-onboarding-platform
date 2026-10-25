@@ -14,7 +14,7 @@ beforeEach(()=>{vi.clearAllMocks();invalidateScheduleSummaryCacheForUser(7);setA
 afterEach(async()=>{wrapper?.unmount();await flushPromises();invalidateScheduleSummaryCacheForUser(7);});
 describe('My Schedule supervision controls',()=>{
  it('refreshes the supervisee balance immediately after an attendance correction',async()=>{
-  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;
   s.selectedSupervisionParticipantId=8;
   await flushPromises();
@@ -23,7 +23,7 @@ describe('My Schedule supervision controls',()=>{
   expect(s.supvSuperviseeHours).toMatchObject({individualHours:16.26,groupHours:1});
  });
  it('enables creation for a supervisor and sends the chosen recurrence to the supervision state',async()=>{
-  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;
   await s.openSlotActionModal({dayName:'Monday',hour:10,dateYmd:'2026-10-05',preserveSelectionRange:false,initialRequestType:'supervision'});await flushPromises();
   expect(s.editorIsSupervision).toBe(true);
@@ -45,7 +45,7 @@ describe('My Schedule supervision controls',()=>{
   // the fixture, including a slower refresh arriving during the second scope.
   const defaultGet=m.get.getMockImplementation();
   m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
-  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;
   expect(s.supervisionRecurrenceEndMode).toBe('indefinite');expect(s.scheduleEventRecurrenceEndMode).toBe('indefinite');
   for(const scope of ['single','future']) {
@@ -59,7 +59,7 @@ describe('My Schedule supervision controls',()=>{
 });
 
 it('ignores Google-only overlaps but keeps simultaneous app conflicts',async()=>{
- wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
  const s=wrapper.vm.$.setupState;
  const interval={startAt:'2026-10-13T19:00:00Z',endAt:'2026-10-13T20:00:00Z'};
  const ranges=[{start:new Date(interval.startAt),end:new Date(interval.endAt)}];
@@ -80,7 +80,7 @@ for(const series of [false,'single','future']) it(series?`reloads the repeat lab
  const defaultGet=m.get.getMockImplementation();
  m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
- wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
  const s=wrapper.vm.$.setupState;s.summary=fixture;
  s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
  expect(s.supervisionRecurrence).toBe(series?'WEEKLY':'ONCE');
@@ -99,7 +99,7 @@ it('shows recurrence and outcome controls on Info, hides Join/status in Edit, an
  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,status:'SCHEDULED',role:'supervisor',modality:'virtual',sessionType:'individual',recurrenceSeriesId:'series',recurrenceFrequency:'WEEKLY',joinUrl:'/join/test',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
  const defaultGet=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
  vi.spyOn(window,'confirm').mockReturnValue(true);
- wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
  const s=wrapper.vm.$.setupState;s.summary=fixture;s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
  s.editorWorkspaceTab='info';await flushPromises();
  expect(wrapper.find('[data-testid="supervision-recurrence-summary"]').text()).toContain('Weekly');

@@ -1,5 +1,5 @@
 <template>
-  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="My Work">
+  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="My Work" @click="onCardClick">
     <template v-if="collapsed">
       <button
         type="button"
@@ -34,13 +34,13 @@
     <template v-else>
     <header class="na-wq-head">
       <div>
-        <strong>My Work</strong>
-        <p v-if="queueMode === 'notes'">{{ pendingCount }} not started · {{ startedCount }} in progress</p>
-        <p v-else>{{ cosignCount }} awaiting your co-sign</p>
+        <button v-if="openable" type="button" class="na-wq-title-link" @click="$emit('open-work')">My Work ↗</button>
+        <strong v-else>My Work</strong>
+
       </div>
       <div class="na-wq-head-actions">
         <button
-          v-if="queueMode === 'notes'"
+          v-if="queueMode === 'notes' && allowAdd"
           type="button"
           class="na-wq-add"
           @click="$emit('add-todo')"
@@ -85,9 +85,9 @@
     </div>
 
     <template v-if="queueMode === 'notes'">
-      <div class="na-wq-legend" aria-hidden="true">
-        <span class="na-wq-chip na-wq-chip--pending">Not started</span>
-        <span class="na-wq-chip na-wq-chip--started">Started</span>
+      <div class="na-wq-legend">
+        <span class="na-wq-chip na-wq-chip--pending">{{ pendingCount }} Not started</span>
+        <span class="na-wq-chip na-wq-chip--started">{{ startedCount }} In progress</span>
       </div>
 
       <div class="na-wq-sort">
@@ -120,7 +120,7 @@
       <div v-if="loading" class="na-wq-empty" role="status">Loading My Work…</div>
       <div v-else-if="error" class="na-wq-empty" role="alert">{{ error }}</div>
       <div v-else-if="!visibleItems.length" class="na-wq-empty">
-        Session notes that need documentation appear here. Use Add work or open pending Notes tasks.
+        Session notes that need documentation appear here automatically.
       </div>
       <ul v-else class="na-wq-list">
         <li
@@ -236,6 +236,8 @@ const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
 const MODE_KEY = 'noteAidWorkQueueMode';
 
 const props = defineProps({
+  allowAdd: { type: Boolean, default: false },
+  openable: { type: Boolean, default: false },
   allowRemove: { type: Boolean, default: true },
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -256,6 +258,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'add-todo',
+  'open-work',
   'select',
   'select-cosign',
   'delete',
@@ -267,6 +270,9 @@ const emit = defineEmits([
   'refresh-cosign'
 ]);
 
+function onCardClick(event) {
+  if (props.openable && !event.target.closest('button,a,input,select,textarea')) emit('open-work');
+}
 const agencyStore = useAgencyStore();
 const failedLogoKeys = ref(new Set());
 
@@ -536,6 +542,7 @@ function removeQueueTitle(item) {
 </script>
 
 <style scoped>
+.na-wq-title-link { border: 0; padding: 0; background: none; color: inherit; font: inherit; font-weight: 700; cursor: pointer; text-align: left; }
 .na-wq {
   width: 300px;
   flex-shrink: 0;
@@ -744,6 +751,8 @@ function removeQueueTitle(item) {
   gap: 8px;
 }
 .na-wq-item {
+  flex: 0 0 auto;
+  min-width: 0;
   position: relative;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -772,6 +781,7 @@ function removeQueueTitle(item) {
   cursor: pointer;
 }
 .na-wq-item-top {
+  flex-wrap: wrap;
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -780,6 +790,7 @@ function removeQueueTitle(item) {
 }
 .na-wq-item-top strong {
   color: #0f172a;
+  overflow-wrap: anywhere;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -843,6 +854,7 @@ function removeQueueTitle(item) {
     padding: 12px 28px 12px 12px;
   }
   .na-wq-item-top {
+  flex-wrap: wrap;
     flex-wrap: wrap;
     align-items: center;
   }

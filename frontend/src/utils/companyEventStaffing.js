@@ -16,10 +16,16 @@ export function isFirstDayOfSchoolCompanyEvent(event) {
   return false;
 }
 
+export function isLastDayOfSchoolCompanyEvent(event) {
+  const type = String(event?.eventType || event?.event_type || '').toLowerCase();
+  const category = String(event?.schoolEventCategory || event?.school_event_category || event?.category || '').toLowerCase();
+  return type === 'school_last_day' || category === 'last_day' || /\blast\s*day\s*of\s*school\b/i.test(event?.title || event?.name || '');
+}
+
 export function isCalendarOnlyCompanyEvent(event) {
   if (!event) return false;
   const type = String(event.eventType || event.event_type || '').toLowerCase();
-  return event.calendarOnly === true || isFirstDayOfSchoolCompanyEvent(event)
+  return event.calendarOnly === true || isFirstDayOfSchoolCompanyEvent(event) || isLastDayOfSchoolCompanyEvent(event)
     || ['school_holiday', 'school_day_off', 'school_fall_check_in', 'school_spring_event'].includes(type);
 }
 
@@ -34,7 +40,10 @@ export function isUpcomingCompanyEvent(event, now = Date.now()) {
 
 /** Invitations, current assignments/requests, and shifts that still have room. */
 export function shouldShowOnProviderDashboardEvents(event, now = Date.now()) {
-  if (!isUpcomingCompanyEvent(event, now) || isCalendarOnlyCompanyEvent(event)) return false;
+  if (!isUpcomingCompanyEvent(event, now)) return false;
+  // Keep the last school day visible as an informational date, with no staffing action.
+  if (isLastDayOfSchoolCompanyEvent(event)) return true;
+  if (isCalendarOnlyCompanyEvent(event)) return false;
   const sessions = Array.isArray(event.sessions) ? event.sessions : [];
   const upcoming = sessions.filter((session) => new Date(session.endsAt || session.startsAt).getTime() > now);
   if (upcoming.some((session) => session.myAssignment || ['pending', 'approved'].includes(session.myRequest?.status))) return true;
@@ -100,6 +109,7 @@ export function isSessionStaffingFull(session, event) {
 }
 
 export function companyEventRequestStatusLabel(event, session = primaryCompanyEventSession(event)) {
+  if (isCalendarOnlyCompanyEvent(event)) return 'School calendar date';
   if (!session) return '';
   if (session.myAssignment) {
     const s = String(session.myAssignment.assignmentStatus || 'draft');

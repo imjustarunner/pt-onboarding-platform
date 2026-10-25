@@ -39,7 +39,7 @@
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
         <router-link v-if="!isPublicProofMode && canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
-        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Messages by Conversa</router-link>
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Messages</router-link>
         <router-link v-if="!isPublicProofMode && !hideSscTicketsButton" class="btn btn-secondary" :to="ticketsLink">
           Tickets
           <span v-if="openTicketsCount > 0" class="header-badge">{{ openTicketsCount }}</span>

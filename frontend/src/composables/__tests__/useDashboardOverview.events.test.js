@@ -15,11 +15,12 @@ it('includes calendar-only staffing discoveries and filters after adding capacit
   const company = { ...base, id: 1, eventType: 'company_event', title: 'Company invitation' };
   const full = { ...base, id: 2, eventType: 'school_outreach', title: 'Full outreach', canRequestOutreachShift: true };
   const dayOff = { ...base, id: 3, eventType: 'school_day_off', title: 'No school' };
-  const available = { ...base, id: 4, eventType: 'school_outreach', title: 'Available outreach', canRequestOutreachShift: true, sessions: [{ ...session, approvedProvidersCount: 0 }] };
+  const available = { ...base, id: 4, eventType: 'school_outreach', title: 'Available outreach', schoolName: 'Twain', schoolCity: 'Denver', schoolAddress: '123 Example Street', canRequestOutreachShift: true, sessions: [{ ...session, approvedProvidersCount: 0 }] };
   api.get.mockImplementation(async (url) => ({ data: url === '/me/company-events/calendar'
     ? [company, { ...full, sessions: [session] }, dayOff, available] : [] }));
   scope = effectScope();
   const state = scope.run(() => useDashboardOverview({ userId: 7, agencyId: 2, companyEvents: [company, full, dayOff], includeSubmissionUpdates: false }));
   await flushPromises();
+  expect(state.upcomingEvents.value.find(event => event.title === 'Available outreach').whereLine).toBe('Twain · 123 Example Street · Denver');
   expect(state.upcomingEvents.value.map((event) => event.title)).toEqual(['Company invitation', 'Available outreach']);
 });

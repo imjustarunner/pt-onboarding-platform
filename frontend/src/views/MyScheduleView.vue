@@ -1,6 +1,7 @@
 <template>
   <div class="my-schedule-page" data-testid="my-schedule-page">
     <div class="my-schedule-page__inner">
+      <DashboardLearningTips :user="authStore.user" :enabled="!!authStore.user?.id" />
       <div v-if="!authStore.user?.id" class="muted">Sign in to view your schedule.</div>
       <ScheduleHubPanel
         v-else
@@ -11,6 +12,10 @@
         :meta-only-header="true"
         @select-view="onSelectHubView"
       >
+        <template #header-controls>
+          <TeamSchedulePicker v-model="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" @select-name="teamUserName = $event" />
+          <router-link v-if="teamUserId && (canPickEmployeeSchedule || isSupervisorUser)" :to="{ path: orgTo('/dashboard'), query: { tab: 'my_schedule', scheduleViewAs: String(teamUserId) } }" class="btn btn-secondary btn-sm">Open schedule tools</router-link>
+        </template>
         <template #header-actions>
           <button v-if="isSuperadmin" class="btn btn-secondary btn-sm" @click="showOfficeTransition = !showOfficeTransition" :aria-expanded="showOfficeTransition">Office scheduling transition</button>
           <router-link
@@ -49,7 +54,8 @@
         <OfficeSchedulingTransition v-if="isSuperadmin && showOfficeTransition" />
         <OfficeAssignmentUsageReviews />
         <ProviderCopayAttendance />
-        <ScheduleAvailabilityGrid
+        <TeamAvailabilityCalendar v-if="teamUserId" :user-id="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" :name="teamUserName" :week-start-ymd="weekStartYmd || null" @update:weekStartYmd="onWeekStartUpdate" />
+        <ScheduleAvailabilityGrid v-else
           :user-id="Number(authStore.user.id)"
           :mode="'self'"
           :compact-page-chrome="true"
@@ -75,12 +81,16 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
+import TeamSchedulePicker from '../components/schedule/TeamSchedulePicker.vue';
+import TeamAvailabilityCalendar from '../components/schedule/TeamAvailabilityCalendar.vue';
+import DashboardLearningTips from '../components/dashboard/DashboardLearningTips.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import OfficeSchedulingTransition from '../components/schedule/OfficeSchedulingTransition.vue';
 import OfficeAssignmentUsageReviews from '../components/schedule/OfficeAssignmentUsageReviews.vue';
 import ProviderCopayAttendance from '../components/provider/ProviderCopayAttendance.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 
+const teamUserId = ref(0), teamUserName = ref('Team member');
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();

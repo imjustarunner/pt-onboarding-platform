@@ -992,7 +992,7 @@ const glanceCards = computed(() => {
       },
       {
         key: 'messages',
-        label: 'Messages by Conversa',
+        label: 'Messages',
         value: unreadMessages.value,
         hint: 'Unread messages',
         cta: 'Open Inbox',
@@ -1039,7 +1039,7 @@ const glanceCards = computed(() => {
     },
     {
       key: 'messages',
-      label: 'Messages by Conversa',
+      label: 'Messages',
       value: unreadMessages.value,
       hint: 'Unread messages',
       cta: 'Open Inbox',
@@ -1607,7 +1607,7 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'communications',
-      title: 'Messages by Conversa',
+      title: 'Messages',
       brandIconUrl: CONVERSA_ICON_URL,
       description: 'Direct messages, channels, threads, and mentions',
       to: `${p}/messages`,

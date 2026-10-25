@@ -226,7 +226,7 @@ describe('day cancellation review', () => {
 });
 
 it('opens exactly one dialog from a day header without focusing the day or opening a booking editor', async () => {
-  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2, mode: 'self', weekStartYmd: '2026-10-12' }, global: { stubs: { RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' }, DayCancellationDialog: false } } });
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2, mode: 'self', weekStartYmd: '2026-10-12' }, global: { stubs: { Teleport: false, RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' }, DayCancellationDialog: false } } });
   await flushPromises(); const state = wrapper.vm.$.setupState; await state.load({ forceRefresh: true }); await flushPromises();
   const before = [...state.focusedDays];
   const dayButton = wrapper.findAll('.sched-day-cancel').find(b => b.attributes('aria-label')?.includes('Tuesday'));

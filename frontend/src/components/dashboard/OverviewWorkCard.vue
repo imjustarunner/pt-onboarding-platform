@@ -1,6 +1,6 @@
 <template>
   <NoteAidWorkQueuePanel class="overview-work" :items="items" :loading="loading" :error="error"
-    :collapsible="false" :allow-remove="false" :show-cosign-mode="isSupervisor" :cosign-items="cosigns"
+    :allow-add="auth.user?.role === 'super_admin'" openable @open-work="openWorkspace" :collapsible="false" :allow-remove="false" :show-cosign-mode="isSupervisor" :cosign-items="cosigns"
     @select="open" @select-cosign="openCosign" @add-todo="openWorkspace" @refresh-cosign="load" />
 </template>
 <script setup>
@@ -29,10 +29,12 @@ async function load() {
 function launch(query = {}) { return navigateToNoteAid(router, query, { organizationSlug: route.params.organizationSlug }); }
 function open(item) { return launch({ workQueueId: item.id, agencyId: item.agencyId, launchIntent: 'work_queue' }); }
 function openCosign(item) { return launch({ noteId: item.clinicalNoteId, agencyId: item.agencyId, launchIntent: 'cosign' }); }
-function openWorkspace() { return launch(); }
+function openWorkspace() { return launch({ launchIntent: 'work_queue' }); }
 onMounted(load);
 watch(() => auth.user?.id, load);
 </script>
 <style scoped>
-.overview-work { width: 100%; min-width: 0; height: 430px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; }
+.overview-work { width: 100%; min-width: 0; height: auto; overflow: hidden; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; }
+.overview-work :deep(.na-wq-list) { flex: 0 1 auto; max-height: 370px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.overview-work :deep(.na-wq-item-btn) { min-height: 64px; }
 </style>

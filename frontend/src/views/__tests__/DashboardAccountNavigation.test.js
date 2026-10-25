@@ -52,6 +52,19 @@ it('leaves settings when the global Dashboard link clears the query', async () =
   expect(wrapper.find('dashboard-overview-home-stub').exists()).toBe(true);
 });
 
+it('opens a sidebar section requested by the desktop menu on initial dashboard load', async () => {
+  const router = await open('/itsco/dashboard?dashboardCard=my');
+  expect(router.currentRoute.value.query.tab).toBe('my');
+  expect(router.currentRoute.value.query.dashboardCard).toBeUndefined();
+  expect(wrapper.get('[aria-label="My Account sections"]').isVisible()).toBe(true);
+});
+
+it('ignores a desktop menu request for a section outside the allowed sidebar', async () => {
+  const router = await open('/itsco/dashboard?dashboardCard=unavailable-section');
+  expect(router.currentRoute.value.query.tab).toBeUndefined();
+  expect(wrapper.find('dashboard-overview-home-stub').exists()).toBe(true);
+});
+
 it('returns to My Account and clears enrollment and search targets', async () => {
   const router = await open('/dashboard?tab=my&my=preferences&section=prefs-enrollment#prefs-enrollment');
   await wrapper.findAll('.acct-back').find(b => b.text().includes('Back to My Account')).trigger('click'); await flushPromises();

@@ -2,7 +2,7 @@
   <div class="nsb-root">
     <button
       type="button"
-      class="nsb-trigger"
+      class="nsb-trigger" data-tour="nav-quicknav"
       aria-label="Quick navigation"
       title="Quick Nav — ⌘/Ctrl+K"
       @click="openNav"

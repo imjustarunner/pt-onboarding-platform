@@ -38,7 +38,7 @@ function setup() {
   log: { create: vi.fn(async () => ({ id: 40 })), updateStatus: vi.fn(async () => ({})) },
   invitation: vi.fn(async () => ({ url: 'https://app.itsco.health/join/invitation/personal' }))
  };
- return { state, deps, send: createSupervisionRsvpSms(deps), request: { session, user, kind: 'join:60' } };
+ return { state, deps, send: createSupervisionRsvpSms(deps), request: { session, user, kind: 'join:5' } };
 }
 describe('mandatory pending RSVP Campaign 2 reminders', () => {
  it('sends once with the personal RSVP link, exact staff campaign and notification consent', async () => {
@@ -92,12 +92,13 @@ describe('mandatory pending RSVP Campaign 2 reminders', () => {
  it('keeps signup-only, individual supervision, huddles and initial invitations out of this flow', async () => {
   for (const request of [
    { session, user, kind: 'invitation' },
+   ...['day_before','join:1440','reminder:1440','presenter:1440','join:60'].map(kind=>({session,user,kind})),
    { session: { ...session, enrollment_mode: 'signup_only' }, user, kind: 'day_before' },
-   { session: { ...session, session_type: 'individual' }, user, kind: 'join:60' },
-   { session: { ...session, kind: 'HUDDLE' }, user, kind: 'join:60' }
+   { session: { ...session, session_type: 'individual' }, user, kind: 'join:5' },
+   { session: { ...session, kind: 'HUDDLE' }, user, kind: 'join:5' }
   ]) {
    const f = setup(); await f.send(request); expect(f.deps.db.execute).not.toHaveBeenCalled();
   }
-  expect(isSupervisionRsvpReminder(session, 'presenter:60')).toBe(true);
+  expect(isSupervisionRsvpReminder(session, 'presenter:5')).toBe(true);
  });
 });

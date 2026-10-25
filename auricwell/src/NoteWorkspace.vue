@@ -274,6 +274,7 @@ function openNote(note) {
   selectedId.value = note.id;
   collapse();
 }
+defineExpose({ openNote });
 function closeNote() {
   selectedId.value = null;
   draftsCollapsed.value = false;

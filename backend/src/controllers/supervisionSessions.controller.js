@@ -1,3 +1,4 @@
+import { hasClinicalSupervisionHistory } from '../services/clinicalSupervisionHistory.service.js';
 import { makeSupervisionRecurring } from '../services/supervisionRecurrenceEdit.service.js';
 import { userBelongsToAgency } from '../services/supervisionSignup.service.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
@@ -4963,4 +4964,12 @@ export const respondToSupervisionSession = async (req,res,next) => {
     if (!Number.isSafeInteger(sessionId) || sessionId < 1) return res.status(400).json({error:{message:'Invalid session.'}});
     res.json(await saveSupervisionRsvp({sessionId,userId:Number(req.user.id),response:req.body.response,reason:req.body.reason,scope:req.body.scope,untilDate:req.body.untilDate}));
   } catch (error) { next(error); }
+};
+
+
+export const getMyClinicalSupervisionStatus = async (req,res,next) => {
+  try {
+    const userId = Number(req.user.id);
+    res.json({hasClinicalSupervision:await hasClinicalSupervisionHistory(userId)});
+  } catch(error) { next(error); }
 };

@@ -60,6 +60,9 @@ import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 import {
   canManageOthersSchedule,
   canViewFullScheduleDetails,
+  canViewPeerSchedule,
+  canIncludeAllScheduleAgencies,
+  toPeerAvailabilitySummary,
   resolveScheduleDetailLevel,
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary
@@ -3902,14 +3905,8 @@ function scheduleEventStartEndForSummary(row) {
   };
 }
 
-/** Any authenticated role may request a peer summary when they share an agency (busy by default). */
-const canViewProviderScheduleSummary = (role) => {
-  const r = String(role || '').toLowerCase();
-  if (!r) return false;
-  // Guardians / school-only portals do not get peer calendars.
-  if (r === 'client_guardian' || r === 'guardian' || r === 'school_staff' || r === 'school_support') return false;
-  return true;
-};
+/** Coworker calendar access remains restricted to staff roles and shared agencies. */
+const canViewProviderScheduleSummary = canViewPeerSchedule;
 
 /** Create/edit events on another user's calendar: privileged roles only (supervisor checked separately). */
 const canCreateProviderScheduleEvent = (role) => canManageOthersSchedule(role);
@@ -4048,12 +4045,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
     };
     const provider = await User.findById(providerId);
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+    if (!isSelf && !canViewPeerSchedule(provider.role)) return res.status(403).json({ error: { message: 'Staff schedules only.' } });
 
     // Resolve agency context (used for access checks + scoping)
     const includeAllAgenciesRaw = String(req.query.includeAllAgencies || '').trim().toLowerCase();
-    const includeAllAgencies = includeAllAgenciesRaw === 'true'
+    const includeAllAgencies = canIncludeAllScheduleAgencies({ isSelf, actorRole: req.user?.role }) && (includeAllAgenciesRaw === 'true'
       || includeAllAgenciesRaw === '1'
-      || String(req.query.agencyId || '').trim().toLowerCase() === 'all';
+      || String(req.query.agencyId || '').trim().toLowerCase() === 'all');
     let agencyId = (!includeAllAgencies && req.query.agencyId) ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) {
       try {
@@ -4073,6 +4071,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
       const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
       const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
       if (shared.length > 0) {
+        const requestedAgencyId = Number(req.query.agencyId);
+        if (requestedAgencyId > 0 && !shared.includes(requestedAgencyId)) return res.status(403).json({ error: { message: 'Organization access required.' } });
         if (!agencyId || !shared.includes(Number(agencyId))) {
           agencyId = shared[0];
         }
@@ -6025,6 +6025,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       actorRole: req.user?.role,
       isSupervisorOfTarget
     });
+    if (detailLevel === 'availability') return res.json(toPeerAvailabilitySummary(fullPayload));
     if (detailLevel === 'busy') {
       return res.json(toBusyOnlyScheduleSummary(fullPayload));
     }

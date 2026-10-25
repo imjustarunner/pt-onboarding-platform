@@ -30,13 +30,22 @@ describe('dashboard work',()=>{
   expect(mocks.get).not.toHaveBeenCalled();expect(mocks.queue).not.toHaveBeenCalled();w.unmount();
  });
  it('lets staff hide and reorder cards and restores their choices',async()=>{
-  let w=shallowMount(Home,{props:{agencyId:2,showNotes:true,showSchedule:true,showPayroll:true}});await flushPromises();
+  let w=shallowMount(Home,{global:{stubs:{DashboardOverviewSection:false,DashboardCardEditor:false},renderStubDefaultSlot:true},props:{agencyId:2,showNotes:true,showSchedule:true,showPayroll:true}});await flushPromises();
+  expect(w.find('overview-pay-period-card-stub').exists()).toBe(true);
+  expect(w.find('overview-events-card-stub').exists()).toBe(true);
   await w.get('.ov-customize').trigger('click');
   const editor=w.get('.ov-card-editor');
   await editor.findAll('label').find(l=>l.text().includes('Events for you')).get('input').setValue(false);
   await editor.get('[aria-label="Move My Work down"]').trigger('click');
   await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
-  w=shallowMount(Home,{props:{agencyId:2,showNotes:true}});await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
+  w=shallowMount(Home,{global:{stubs:{DashboardOverviewSection:false,DashboardCardEditor:false},renderStubDefaultSlot:true},props:{agencyId:2,showNotes:true}});await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
  });
  it('opens the selected exact work queue item in Note Workspace',async()=>{const w=shallowMount(Work);await flushPromises();w.findComponent({name:'NoteAidWorkQueuePanel'}).vm.$emit('select',{id:42,agencyId:2});await flushPromises();expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({workQueueId:'42',agencyId:'2',launchIntent:'work_queue'})}));w.unmount();});
+});
+
+it.each(['provider','admin','super_admin'])('shows the testing Add work option only to super admin, including for %s',async role=>{
+ mocks.user.role=role;const w=shallowMount(Work);await flushPromises();
+ const panel=w.findComponent({name:'NoteAidWorkQueuePanel'});expect(panel.props('allowAdd')).toBe(role==='super_admin');
+ panel.vm.$emit('open-work');await flushPromises();expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({launchIntent:'work_queue'})}));
+ w.unmount();mocks.user.role='provider';
 });

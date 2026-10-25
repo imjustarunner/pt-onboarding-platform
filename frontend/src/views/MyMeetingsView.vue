@@ -1,7 +1,7 @@
 <template>
   <main class="my-meetings" :class="{ embedded }">
     <header class="page-heading">
-      <div><p class="eyebrow">YOUR WORKSPACE</p><h1>Meetings</h1><p>Your meetings, shared records, and personal notes in one place.</p></div>
+      <div><p class="eyebrow">YOUR WORKSPACE</p><h1>My Meetings</h1><p>Your meetings, shared records, and personal notes in one place.</p></div>
       <RouterLink class="schedule-link" :to="`${prefix}/my-schedule`"><CalendarDays :size="18" /> My schedule</RouterLink>
     </header>
     <ManualMeetingLog :agency-id="agencyId" @saved="load(false)" />

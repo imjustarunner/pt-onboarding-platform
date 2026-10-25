@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 afterEach(() => { wrapper?.unmount(); clearScheduleSummaryCache(); vi.useRealTimers(); });
 async function mount() {
-  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2, mode: 'self', weekStartYmd: '2026-10-12' }, global: { stubs: { RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } } });
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2, mode: 'self', weekStartYmd: '2026-10-12' }, global: { stubs: { Teleport: false, RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } } });
   await flushPromises();
   const state = wrapper.vm.$.setupState;
   await state.load({ forceRefresh: true });

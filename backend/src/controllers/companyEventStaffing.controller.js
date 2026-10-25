@@ -99,6 +99,7 @@ async function listEventManagerUserIds(agencyId, { excludeUserId = null } = {}) 
 
 async function ensureProgramEventScope(eventRow) {
   const t = String(eventRow?.event_type || '').trim().toLowerCase();
+  if (['school_first_day', 'school_last_day'].includes(t) || /\b(first|last)\s*day\s*of\s*school\b/i.test(eventRow?.title || '')) return { ok: false, status: 400, message: 'School calendar dates do not accept shift requests.' };
   if (t === 'skills_group') return { ok: false, status: 400, message: 'Staffing blocks are not available for Skill Builders events' };
   return { ok: true };
 }

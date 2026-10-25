@@ -21,3 +21,25 @@ body{margin:0;background:#fff!important;color:#213449!important}.aw-app{min-heig
 @media(max-width:1200px){.aw-workspace{--aw-sidebar:220px}.aw-collapsed{--aw-sidebar:82px}.aw-sidebar-brand{font-size:25px;padding:0 18px}.aw-topbar{padding:12px 20px;gap:14px}.aw-workspace .aw-content{padding:24px 20px}.aw-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.aw-dashboard-grid{grid-template-columns:1fr}.aw-panel .aw-empty{min-height:180px}.aw-tool-grid{grid-template-columns:1fr}.aw-tool-card p{min-height:0}.aw-account-label strong{max-width:150px}}
 @media(max-width:760px){.aw-workspace,.aw-collapsed{display:block}.aw-sidebar{position:fixed;left:-280px;width:250px;height:100dvh;top:0;transition:left .18s ease;z-index:60;box-shadow:5px 0 20px #102b491a}.aw-menu-open .aw-sidebar{left:0}.aw-scrim{display:block;position:fixed;inset:0;background:#0b203966;border:0;z-index:55}.aw-collapsed .aw-sidebar-brand span,.aw-collapsed .aw-nav span,.aw-collapsed .aw-sidebar-bottom span{display:initial}.aw-collapsed .aw-sidebar .aw-nav a{justify-content:flex-start}.aw-sidebar-bottom>button{display:none}.aw-mobile-menu{display:inline-flex}.aw-topbar{height:66px;padding:10px 12px;gap:7px}.aw-search{height:40px;gap:6px;padding:0 9px}.aw-search>svg{width:17px;height:17px}.aw-search input{font-size:12px}.aw-search-submit{display:none}.aw-account{padding-left:9px}.aw-account-label,.aw-account-toggle>span:last-child{display:none}.aw-account-toggle{gap:0}.aw-account .aw-avatar{width:33px;height:33px}.aw-notification-button{min-width:34px}.aw-workspace .aw-content{padding:22px 16px}.aw-workspace .aw-identity{padding:8px 16px;font-size:10px;gap:4px}.aw-workspace h1{font-size:29px;letter-spacing:-.8px}.aw-overview-heading{flex-direction:column;gap:16px}.aw-subtitle{font-size:13px}.aw-date-control{display:grid;grid-template-columns:1fr auto;align-items:center;width:100%;text-align:left;gap:8px;font-size:12px}.aw-date-control>small{grid-column:1/-1}.aw-date-control label{padding:6px 9px}.aw-summary-grid{gap:10px;margin-bottom:16px}.aw-summary-card{padding:13px 11px;gap:9px;flex-wrap:wrap}.aw-metric-icon{width:32px;height:32px;border-radius:6px}.aw-metric-icon svg{width:20px;height:20px}.aw-summary-card>div{flex:1;min-width:75px}.aw-summary-card>div>strong{font-size:24px}.aw-summary-card>div>span{font-size:11px}.aw-summary-card small{font-size:10px}.aw-summary-card>span:last-child:not(.aw-metric-icon){display:none}.aw-panel{padding:0 12px}.aw-panel>header{gap:8px;align-items:flex-start}.aw-panel h2{font-size:14px;max-width:58%}.aw-panel>header>a{font-size:10px;white-space:normal;text-align:right}.aw-list-row,.aw-schedule-row{gap:9px}.aw-session-time{width:66px;padding-right:8px}.aw-session-time strong{font-size:10px}.aw-session-time small{font-size:10px}.aw-schedule-row .aw-badge{max-width:75px;white-space:normal;text-align:center;padding:4px 7px;font-size:9px}.aw-row-main strong{font-size:11px}.aw-row-main small{font-size:10px}.aw-list-action{display:none}.aw-list-row .aw-avatar{width:30px;height:30px;font-size:10px}.aw-empty{min-height:190px!important;font-size:12px;padding:26px 12px}.aw-dashboard-footer{align-items:flex-start;font-size:10px}.aw-dashboard-footer button{white-space:nowrap}.aw-skip{left:12px}.aw-tools .aw-tool-grid{margin-top:20px}.aw-tool-card{padding:20px}}
 @media(prefers-reduced-motion:reduce){.aw-sidebar{transition:none}}
+
+/* Shared overview controls keep clinical lists readable as the shell narrows. */
+.aw-overview { container-type:inline-size; }
+.aw-overview .aw-dashboard-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.aw-overview .aw-panel { flex:1; }
+.aw-card-scroll { max-height:320px; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.aw-card-scroll:focus-visible { outline:2px solid #2467a7; outline-offset:-2px; }
+.aw-summary-collapsed { border-color:#80addd; background:#f3f8ff; }
+.aw-summary-card .aw-expand-hint { color:#0864cc; font-weight:600; }
+@container (max-width:850px) {
+ .aw-panel>header { flex-wrap:wrap; align-items:flex-start; }
+ .aw-panel h2 { font-size:15px; max-width:none; }
+ .aw-panel>header>a { white-space:normal; text-align:left; }
+ .aw-schedule-row { display:grid; grid-template-columns:8px 70px minmax(0,1fr); gap:7px; }
+ .aw-session-time { width:auto; padding-right:7px; }
+ .aw-schedule-row .aw-badge { grid-column:3; justify-self:start; }
+ .aw-schedule-row>span:last-child { display:none; }
+ .aw-list-row { flex-wrap:wrap; gap:8px; }
+ .aw-list-row .aw-row-main { min-width:100px; }
+ .aw-list-action { display:none; }
+}
+@container (max-width:580px) { .aw-overview .aw-dashboard-grid { grid-template-columns:minmax(0,1fr); } }

@@ -35,6 +35,13 @@ export function normalizeMeetingSettings(raw, defaults = defaultMeetingSettings(
     }
     result.trainingReminderMode = input.trainingReminderMode;
   }
+  if (input.registrationClosesAt !== undefined) {
+    const at = input.registrationClosesAt;
+    if (at !== null && (typeof at !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(at) || !Number.isFinite(Date.parse(at)))) {
+      throw Object.assign(new Error('Choose a valid registration deadline with a time zone.'), { status: 400 });
+    }
+    result.registrationClosesAt = at === null ? null : new Date(at).toISOString();
+  }
   return result;
 }
 

@@ -10,7 +10,7 @@
       </div>
       <div class="pthq-personal-actions">
         <router-link to="/admin" class="pthq-personal-link">← Command center</router-link>
-        <router-link to="/admin?panel=messages" class="pthq-personal-link"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</router-link>
+        <router-link to="/admin?panel=messages" class="pthq-personal-link"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages</router-link>
         <span class="pthq-personal-pill">PERSONAL</span>
         <button
           type="button"
@@ -26,6 +26,7 @@
       class="container container-wide"
       :class="{ 'pthq-personal-inner': usePlatformShell }"
     >
+    <DashboardLearningTips :user="authStore.user" :cards="railCardsForDisplay" :enabled="!previewMode && !isClubContext && isOnboardingComplete" />
     <ProviderUpdateAssignedBanner v-if="!previewMode && !isClubContext" :agency-id="currentAgencyId" />
     <DashboardInvitationToasts v-if="!previewMode && !isClubContext && activeTab === 'overview' && authStore.user?.id" :user-id="authStore.user.id" />
     <!-- Dashboard Header with Logo (shown in preview mode) -->
@@ -54,6 +55,7 @@
           <span v-if="tierHelpPinned || tierHelpHovered" id="dashboard-tier-help" class="tier-status-help" role="status">{{ tierBadgeHelp }}</span>
         </span>
       </div>
+      <DashboardMeetings v-if="isOnboardingComplete && !isSchoolStaff" compact />
       <button
         v-if="showShareClubWithStaffButton"
         type="button"
@@ -66,7 +68,7 @@
 
     <ProviderOpeningNotice v-if="!previewMode && !isClubContext && isOnboardingComplete && activeTab !== 'my' && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor'].includes(authStore.user?.role) || authStore.user?.has_provider_access)" :provider-id="authStore.user?.id" :agency-id="currentAgencyId" @open="setMyTab('availability')" />
 
-    <ProfileContentSearch v-if="!previewMode && !(isOnboardingComplete && !isClubContext && activeTab === 'overview')" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
+    <ProfileContentSearch data-tour="dash-search" v-if="!previewMode && !(isOnboardingComplete && !isClubContext && activeTab === 'overview')" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
       :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope" label="Search My Dashboard" input-id="dashboard-profile-search"
       @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
 
@@ -325,17 +327,19 @@
           v-for="card in railCardsForDisplay"
           :key="card.id"
           class="rail-card-row"
-          :class="{ 'rail-card-row--nested': !!card.nestedUnder }"
+          :class="{ 'rail-card-row--nested': !!card.nestedUnder, 'rail-card-row--deep': card.depth > 1 }"
+          @pointerenter="offerLibraryLinks(card)" @pointerleave="cancelLibraryHover"
+          @focusin="offerLibraryLinks(card)" @focusout="cancelLibraryHover"
         >
           <button
             type="button"
             class="rail-card"
-            :style="{ '--rail-accent': cardHue(card.id) }"
+            :style="{ '--rail-accent': cardHue(card.id), '--rail-highlight': railHighlights[card.id] || undefined }"
             :data-card-id="card.id"
             :data-tour="`dash-rail-card-${String(card.id)}`"
             :class="{
               active: isRailCardActive(card),
-              'rail-card-submit': card.id === 'submit',
+              'rail-card--highlighted': !!railHighlights[card.id],
               'rail-card-pending-alert': card.id === 'clients' && clientActionItemCount > 0,
               'rail-card-clients-pulse': card.id === 'clients' && clientActionItemCount > 0,
               'rail-card--pyu-pulse': card.id === 'provider_year_update' && card.pulse,
@@ -390,6 +394,13 @@
             :first="railCardSiblings(card)[0]?.id === card.id"
             :last="railCardSiblings(card).at(-1)?.id === card.id"
             @move="(delta) => moveRailCard(card, delta)" />
+          <fieldset v-if="railOrderEditing" class="rail-highlight-picker" :aria-label="`Highlight ${card.label}`">
+            <legend>Highlight</legend>
+            <button v-for="shade in railHighlightShades" :key="shade.color" type="button" :title="shade.label" :aria-label="`${shade.label} highlight for ${card.label}`" :aria-pressed="railHighlights[card.id] === shade.color" :style="{ background: shade.color }" @click="setRailHighlight(card.id, shade.color)"></button>
+            <button type="button" :aria-label="`Clear highlight for ${card.label}`" @click="setRailHighlight(card.id, '')">×</button>
+          </fieldset>
+          <button v-if="card.id === 'tools_library'" type="button" class="library-disclosure" :aria-expanded="libraryLinksExpanded"
+            aria-label="Show Library quick links" data-tour="dash-library-links" @click="toggleNest(card.id)">{{ libraryLinksExpanded ? '▾' : '▸' }}</button>
           <DashboardIconEditor v-if="!card.brandIconUrl" :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
             :disabled="previewMode" />
           <div
@@ -437,10 +448,11 @@
           :loading="railOrderLoading" :saving="railOrderSaving" :error="railOrderError"
           @start="startRailEdit" @save="saveRailOrder" @cancel="cancelRailEdit" @reset="resetRailOrder" />
           <ul class="dashboard-mobile-drawer__list">
-            <li v-for="card in railCardsForDisplay" :key="`mob-${card.id}`">
+            <li v-for="card in railCardsForDisplay" :key="`mob-${card.id}`" @pointerenter="offerLibraryLinks(card)" @pointerleave="cancelLibraryHover">
               <button
                 type="button"
                 class="dashboard-mobile-drawer__item"
+                :style="railHighlights[card.id] ? { background: `color-mix(in srgb, ${railHighlights[card.id]} 75%, transparent)` } : undefined"
                 :class="{
                   active: isRailCardActive(card),
                   nested: !!card.nestedUnder
@@ -459,6 +471,11 @@
                 <span class="dashboard-mobile-drawer__label">{{ card.label }}</span>
                 <span v-if="card.badgeCount" class="dashboard-mobile-drawer__badge">{{ card.badgeCount }}</span>
               </button>
+              <button v-if="card.id === 'tools_library'" type="button" class="library-disclosure" :aria-expanded="libraryLinksExpanded" aria-label="Show Library quick links" @click="toggleNest(card.id)">{{ libraryLinksExpanded ? '▾' : '▸' }} Quick links</button>
+              <fieldset v-if="railOrderEditing" class="rail-highlight-picker"><legend>Highlight {{ card.label }}</legend>
+                <button v-for="shade in railHighlightShades" :key="shade.color" type="button" :aria-label="`${shade.label} highlight for ${card.label}`" :aria-pressed="railHighlights[card.id] === shade.color" :style="{ background: shade.color }" @click="setRailHighlight(card.id, shade.color)"></button>
+                <button type="button" :aria-label="`Clear highlight for ${card.label}`" @click="setRailHighlight(card.id, '')">×</button>
+              </fieldset>
               <DashboardRailMoveButtons v-if="railOrderEditing" :label="card.label" :disabled="railOrderSaving"
             :first="railCardSiblings(card)[0]?.id === card.id"
             :last="railCardSiblings(card).at(-1)?.id === card.id"
@@ -471,9 +488,9 @@
       </div>
 
       <div class="dashboard-detail">
-        <!-- Frequent pages bar — admin/support/cpa/provider_plus roles only -->
+        <!-- Shortcuts are filtered against the current user's route access. -->
         <FrequentPagesBar
-          v-if="!previewMode && ['super_admin','admin','support','cpa','provider_plus'].includes(authStore.user?.role)"
+          v-if="!previewMode && isOnboardingComplete && !isClubContext"
           :limit="6"
           class="fpb-my-dashboard"
         />
@@ -524,9 +541,9 @@
               @book-virtual="onOverviewBookVirtual"
             >
               <template #search>
-                <ProfileContentSearch :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
+                <ProfileContentSearch data-tour="dash-search" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
                   :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope"
-                  label="Search My Dashboard" input-id="overview-profile-search" data-tour="dash-overview-search" keyboard-shortcut
+                  label="Search My Dashboard" input-id="overview-profile-search" keyboard-shortcut
                   @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
               </template>
             </DashboardOverviewHome>
@@ -595,6 +612,7 @@
             </div>
           </div>
 
+          <StaffDirectory v-if="!previewMode && activeTab === 'staff'" :agency-id="currentAgencyId" :user-id="authStore.user?.id" />
           <MyLearningView v-if="!previewMode && activeTab === 'training' && !isPending" />
           
           <DocumentsTab
@@ -641,7 +659,8 @@
             >
               <template #header-controls>
               <div
-                v-if="canPickEmployeeSchedule && scheduleViewMode === 'self'"
+                v-if="canViewTeamSchedule && scheduleViewMode === 'self'"
+                data-tour="my-schedule-view-as"
                 class="schedule-header-view-as"
               >
                 <span class="schedule-view-as-label">View as</span>
@@ -659,7 +678,7 @@
                   :disabled="employeeSchedulePickerLoading"
                   @click="clearMyScheduleViewAs"
                 >
-                  Clear
+                  My schedule
                 </button>
                 <span v-if="!currentAgencyId" class="hint schedule-view-as-hint">
                   Choose an organization (top left) to search.
@@ -673,7 +692,7 @@
                 <button type="button" class="btn btn-secondary btn-sm" @click="openTasksHubFromSchedule">
                   Tasks
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
+                <button v-if="scheduleViewMode !== 'self'" type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
                   {{ scheduleFullscreenActive ? 'Exit full screen' : 'Full screen' }}
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
@@ -920,6 +939,9 @@
               <div v-else-if="scheduleViewMode === 'schedule_list'" class="psl-panel-wrap">
                 <ProviderScheduleList :user-id="scheduleGridUserId" />
               </div>
+              <TeamAvailabilityCalendar v-else-if="useTeamAvailabilityView && currentAgencyId"
+                :user-id="scheduleGridUserId" :agency-id="Number(currentAgencyId)" :name="scheduleSubjectDisplayName"
+                :week-start-ymd="activeScheduleWeekStartYmd || null" @update:weekStartYmd="onScheduleWeekStartUpdate" />
               <ScheduleAvailabilityGrid
                 ref="scheduleGridRef"
                 v-else-if="authStore.user?.id && scheduleGridUserId && !(scheduleViewAsRequiresOrg && !currentAgencyId)"
@@ -1327,6 +1349,9 @@
 
 <script setup>
 import ProviderUpdateAssignedBanner from '../components/provider/ProviderUpdateAssignedBanner.vue';
+import StaffDirectory from '../components/dashboard/StaffDirectory.vue';
+import DashboardLearningTips from '../components/dashboard/DashboardLearningTips.vue';
+import DashboardMeetings from '../components/meetings/DashboardMeetings.vue';
 import DashboardInvitationToasts from '../components/meetings/DashboardInvitationToasts.vue';
 import { CONVERSA_ICON_URL } from '../constants/conversa';
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
@@ -1358,7 +1383,7 @@ import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
 import { navigateToJoinLink } from '../utils/appJoinNavigation';
 import {
-  setDashboardMobileNavItems
+  setDashboardMobileNavItems, dashboardNavigationContextKey
 } from '../navigation/dashboardMobileNav.js';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
@@ -1369,6 +1394,9 @@ import HourlyIndirectTimeLog from '../components/dashboard/HourlyIndirectTimeLog
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
+import TeamAvailabilityCalendar from '../components/schedule/TeamAvailabilityCalendar.vue';
+import { canBrowseTeamSchedules, directoryScheduleOptions } from '../utils/teamScheduleAccess.js';
+import { libraryQuickLinks, flattenExpandedRail } from '../utils/dashboardLibraryLinks.js';
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
 import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
@@ -1380,7 +1408,6 @@ import ProviderOpeningNotice from '../components/availability/ProviderOpeningNot
 import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import ScheduleCalendarMenu from '../components/schedule/ScheduleCalendarMenu.vue';
-import { AURICWELL_MARK_URL } from '../constants/auricwellBrand.js';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyLearningView from './MyLearningView.vue';
@@ -1542,7 +1569,7 @@ function isRailCardActive(card) {
   if (!id) return false;
   // Submit stays highlighted while viewing nested Log Time.
   if (id === 'submit' && activeTab.value === 'log_time') return true;
-  if ((id === 'portals_nest' || id === 'tools_nest') && Array.isArray(card.children)) {
+  if (card.kind === 'nest' && Array.isArray(card.children)) {
     return card.children.some((c) => isRailCardActive(c));
   }
   if (card?.kind === 'link' && card?.to) {
@@ -1561,7 +1588,7 @@ function isRailCardActive(card) {
     return true;
   }
   if (card?.kind === 'content') return activeTab.value === id;
-  return selectedRailCardId.value === id;
+  return false;
 }
 
 function openInlineProgramHub({ mode = '', cardId = '', organization = null, initialSection = null } = {}) {
@@ -1614,9 +1641,28 @@ const providerAssignedProgramOrgs = ref([]);
 const {
   editing: railOrderEditing, loading: railOrderLoading, saving: railOrderSaving,
   error: railOrderError, applyOrder: applyRailOrder, move: moveRailSection,
-  start: startRailEdit, cancel: cancelRailEdit, reset: resetRailOrder, save: saveRailOrder
+  start: startRailOrderEdit, cancel: cancelRailOrderEdit, reset: resetRailSectionOrder, save: persistRailOrder
 } = useDashboardRailOrder(computed(() => props.previewMode ? null : authStore.user?.id));
 
+const railHighlightShades = [ { label: 'Sage', color: '#bbd8c8' }, { label: 'Sky', color: '#bfd8f1' }, { label: 'Lavender', color: '#d5c8ed' }, { label: 'Peach', color: '#f1d0b6' }, { label: 'Rose', color: '#edc4d0' } ];
+const railHighlights = ref({});
+let savedRailHighlights = {};
+function startRailEdit() { savedRailHighlights = {...railHighlights.value}; startRailOrderEdit(); }
+function cancelRailEdit() { if (!railOrderSaving.value) { railHighlights.value = {...savedRailHighlights}; cancelRailOrderEdit(); } }
+function resetRailOrder() { if (!railOrderSaving.value) { railHighlights.value = {}; resetRailSectionOrder(); } }
+async function saveRailOrder() {
+  const key = railHighlightKey.value, colors = {...railHighlights.value};
+  await persistRailOrder();
+  if (railOrderEditing.value || key !== railHighlightKey.value) return;
+  savedRailHighlights = colors;
+  try { localStorage.setItem(key, JSON.stringify(colors)); } catch { /* Optional browser preference. */ }
+}
+const railHighlightKey = computed(() => `dashboard.railHighlights.v1:${authStore.user?.id || ''}`);
+watch(railHighlightKey, key => { try { const saved = JSON.parse(localStorage.getItem(key) || '{}'); railHighlights.value = Object.fromEntries(Object.entries(saved).filter(([id,color]) => railHighlightShades.some(shade => shade.color === color))); } catch { railHighlights.value = {}; } }, { immediate: true });
+function setRailHighlight(id, color) {
+  if (!railOrderEditing.value) return;
+  railHighlights.value = { ...railHighlights.value, [id]: color };
+}
 const railCollapsedMode = ref(false);
 const railHoverExpanded = ref(false);
 /** Debounce rail hover collapse so layout reflow doesn't fire mouseleave/enter loops. */
@@ -1782,6 +1828,15 @@ const isHourlyWorkerUser = computed(() => {
   return raw === true || raw === 1 || raw === '1';
 });
 
+const hasClinicalSupervision = computed(() => !!(authStore.user?.has_clinical_supervision || authStore.user?.capabilities?.hasClinicalSupervision));
+watch(() => authStore.user?.id, async id => {
+  if (!id || props.previewMode) return;
+  try {
+    const { data } = await api.get('/supervision/my-history-status', {skipGlobalLoading:true});
+    if (authStore.user?.id === id) authStore.user.has_clinical_supervision = !!data.hasClinicalSupervision;
+  } catch { /* Retain the last known supervision history during a temporary failure. */ }
+}, {immediate:true});
+
 /** Role / feature gates for Overview landing widgets (mirrors rail card visibility). */
 const overviewFlags = computed(() => {
   const u = authStore.user;
@@ -1812,7 +1867,7 @@ const overviewFlags = computed(() => {
     showNotes: !school && !club && !isLimitedAccessNonProvider && (isProviderLike || isTrueAdmin),
     showClaims: !school && !club && !isLimitedAccessNonProvider && providerSurfacesEnabled.value,
     showSupervision: !club && isSup,
-    showMySupervision: !club && !isSup && !isLimitedAccessNonProvider,
+    showMySupervision: !club && !isSup && hasClinicalSupervision.value,
     showChats: !isLimitedAccessNonProvider,
     showAdminMeetings: !school && !club && canAdminMeetings
   };
@@ -2458,6 +2513,7 @@ watch(currentAgencyId, () => {
   fetchUserTimeCategories();
 });
 
+const canViewTeamSchedule = computed(() => canBrowseTeamSchedules(authStore.user));
 const canPickEmployeeSchedule = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(r);
@@ -2493,7 +2549,7 @@ const clearMyScheduleViewAs = () => {
 
 /** Schedule modal header provider picker — keep dashboard “View as” in sync. */
 const onScheduleModalChangeUser = (userId) => {
-  if (!canPickEmployeeSchedule.value) return;
+  if (!canViewTeamSchedule.value) return;
   const id = Number(userId || 0);
   const me = Number(authStore.user?.id || 0);
   if (!id || id === me) {
@@ -2506,16 +2562,26 @@ const onScheduleModalChangeUser = (userId) => {
   myScheduleViewAsUserId.value = id;
 };
 
+let schedulePickerRequest = 0;
 const fetchUsersForEmployeeSchedulePicker = async () => {
-  if (!canPickEmployeeSchedule.value || props.previewMode) return;
+  if (!canViewTeamSchedule.value || props.previewMode) return;
+  const run = ++schedulePickerRequest;
+  const agencyId = Number(currentAgencyId.value || 0);
+  employeeSchedulePickerUsersRaw.value = [];
+  if (!agencyId) { employeeSchedulePickerLoading.value = false; return; }
   try {
     employeeSchedulePickerLoading.value = true;
-    const resp = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
-    employeeSchedulePickerUsersRaw.value = Array.isArray(resp.data) ? resp.data : [];
+    if (canPickEmployeeSchedule.value) {
+      const resp = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
+      if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = Array.isArray(resp.data) ? resp.data : [];
+    } else {
+      const { data } = await api.get('/staff/directory', { params: { agencyId }, skipGlobalLoading: true });
+      if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = directoryScheduleOptions(data.staff, agencyId);
+    }
   } catch {
-    employeeSchedulePickerUsersRaw.value = [];
+    if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = [];
   } finally {
-    employeeSchedulePickerLoading.value = false;
+    if (run === schedulePickerRequest) employeeSchedulePickerLoading.value = false;
   }
 };
 
@@ -2526,8 +2592,11 @@ const isViewingAnotherUserOnMySchedule = computed(() => {
   return Number.isFinite(v) && v > 0 && v !== me;
 });
 
+const useTeamAvailabilityView = computed(() => isViewingAnotherUserOnMySchedule.value && !canPickEmployeeSchedule.value
+  && !(isSupervisor(authStore.user) && (supervisees.value || []).some(person => Number(person.id) === Number(myScheduleViewAsUserId.value))));
+
 const scheduleViewAsRequiresOrg = computed(() =>
-  canPickEmployeeSchedule.value && isViewingAnotherUserOnMySchedule.value
+  canViewTeamSchedule.value && isViewingAnotherUserOnMySchedule.value
 );
 
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
@@ -2834,7 +2903,7 @@ const loadScheduleViewPrefs = () => {
     const parsed = JSON.parse(raw);
     const mode = String(parsed?.mode || '').toLowerCase();
     const viewAs = Number(parsed?.viewAsUserId ?? 0);
-    const wantViewAs = canPickEmployeeSchedule.value && Number.isFinite(viewAs) && viewAs > 0;
+    const wantViewAs = canViewTeamSchedule.value && Number.isFinite(viewAs) && viewAs > 0;
     const urlMode = String(route.query?.scheduleMode || '').toLowerCase();
     const urlHasViewAs = String(route.query?.scheduleViewAs || '').trim().length > 0;
     // Do not override an explicit supervisee-only URL (bookmark/share) with saved view-as prefs.
@@ -2895,7 +2964,7 @@ const loadScheduleViewPrefs = () => {
 const saveScheduleViewPrefs = () => {
   const key = String(scheduleViewPrefKey.value || '');
   if (!key) return;
-  if (!isSupervisor(authStore.user) && !canPickEmployeeSchedule.value) return;
+  if (!isSupervisor(authStore.user) && !canViewTeamSchedule.value) return;
   try {
     window.localStorage.setItem(key, JSON.stringify({
       mode: scheduleViewMode.value,
@@ -2910,7 +2979,7 @@ const saveScheduleViewPrefs = () => {
       selfWeekStartYmd: selfScheduleWeekStartYmd.value || null,
       superviseeWeekStartYmd: superviseeScheduleWeekStartYmd.value || null,
       employeeWeekStartYmd: employeeScheduleWeekStartYmd.value || null,
-      viewAsUserId: canPickEmployeeSchedule.value ? Number(myScheduleViewAsUserId.value || 0) : 0
+      viewAsUserId: canViewTeamSchedule.value ? Number(myScheduleViewAsUserId.value || 0) : 0
     }));
   } catch {
     // ignore storage limits/private mode
@@ -3219,7 +3288,7 @@ const scheduleViewContextLine = computed(() => {
 const tabs = computed(() => {
   const list = [
     { id: 'checklist', label: momentumListEnabled.value ? 'My Work' : 'Checklist', badgeCount: checklistCount.value },
-    { id: 'training', label: 'Plotline Training · Beta', brandIconUrl: '/assets/plotline/icon.svg', badgeCount: trainingCount.value }
+    { id: 'training', label: 'My Training', brandIconUrl: '/assets/plotline/icon.svg', badgeCount: trainingCount.value }
   ];
   // Documents live under My Account once onboarding is complete; keep rail access for pre-hire.
   if (!isOnboardingComplete.value) {
@@ -3743,7 +3812,16 @@ function openProviderYearUpdateFromSplash() {
   router.push(path).catch(() => {});
 }
 
+const libraryLinksExpanded = ref(false);
+let libraryHoverTimer;
+function cancelLibraryHover() { clearTimeout(libraryHoverTimer); }
+function offerLibraryLinks(card) {
+  cancelLibraryHover();
+  if (card.id === 'tools_library' && !railOrderEditing.value) libraryHoverTimer = setTimeout(() => { libraryLinksExpanded.value = true; }, 1500);
+}
+onBeforeUnmount(cancelLibraryHover);
 function isNestExpanded(nestId) {
+  if (nestId === 'tools_library') return libraryLinksExpanded.value;
   if (nestId === 'tools_nest') return toolsNestExpanded.value;
   if (nestId === 'portals_nest') return portalsNestExpanded.value;
   if (nestId === 'momentum_nest') return momentumNestExpanded.value;
@@ -3751,6 +3829,7 @@ function isNestExpanded(nestId) {
 }
 
 function toggleNest(nestId) {
+  if (nestId === 'tools_library') { cancelLibraryHover(); libraryLinksExpanded.value = !libraryLinksExpanded.value; return; }
   if (nestId === 'tools_nest') {
     toolsNestExpanded.value = !toolsNestExpanded.value;
     return;
@@ -4020,14 +4099,9 @@ const dashboardCards = computed(() => {
         description: 'View weekly schedule and request availability from the grid.'
       });
       if (!isClubContext.value) cards.push({
-        id: 'meetings', label: 'Meetings', kind: 'content', badgeCount: 0,
+        id: 'meetings', label: 'My Meetings', kind: 'content', badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('meetings', iconOrg) || brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
         description: 'Attended meetings, participants, chat, transcripts, and personal notes.'
-      });
-      if (!isClubContext.value) cards.push({
-        id: 'virtual_office', label: 'AuricWell Office', kind: 'link', to: virtualOfficePath.value,
-        badgeCount: 0, brandIconUrl: AURICWELL_MARK_URL, iconUrl: AURICWELL_MARK_URL,
-        description: 'Open your virtual office, copy your guest link, and admit waiting guests.'
       });
       if (!isClubContext.value && portalsNestCard.value) cards.push(portalsNestCard.value);
 
@@ -4035,7 +4109,7 @@ const dashboardCards = computed(() => {
       if (!isLimitedAccessNonProvider && !isClubContext.value) {
         cards.push({
           id: 'clients',
-          label: 'Clients',
+          label: 'My Clients',
           kind: 'content',
           badgeCount: clientActionItemCount.value || 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg),
@@ -4097,7 +4171,7 @@ const dashboardCards = computed(() => {
             description: 'Note Workspace and other AI documentation aids.'
           }
         ];
-        if (caps.canViewLibrary !== false && !isSchoolStaff.value) {
+        if (caps.canViewLibrary === true && !isSchoolStaff.value) {
           const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
           children.unshift({
             id: 'tools_library',
@@ -4167,7 +4241,7 @@ const dashboardCards = computed(() => {
           description: 'Note Workspace and other AI documentation aids.'
         }
       ];
-      if (caps.canViewLibrary !== false && !isSchoolStaff.value) {
+      if (caps.canViewLibrary === true && !isSchoolStaff.value) {
         const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
         children.unshift({
           id: 'tools_library',
@@ -4221,12 +4295,18 @@ const dashboardCards = computed(() => {
     if (!isLimitedAccessNonProvider) {
       cards.push({
         id: 'chats',
-        label: 'Messages by Conversa',
+        label: 'Messages',
         kind: 'content',
         badgeCount: 0,
         brandIconUrl: CONVERSA_ICON_URL,
         description: isClubContext.value ? 'Club members online.' : 'Direct messages, channels, threads, and mentions.'
       });
+    }
+
+    if (!isClubContext.value && !isSchoolStaff.value && ['super_admin','admin','support','staff','provider','provider_plus','supervisor','clinical_practice_assistant','intern','intern_plus','facilitator','tutor','clinician','assistant_admin'].includes(role)) {
+      cards.push({ id: 'staff', label: 'Staff', kind: 'content', badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('staff', iconOrg),
+        description: 'Find staff, work numbers and extensions, assigned offices, and website profiles. Start a conversation directly.' });
     }
 
     // Notifications: embedded in dashboard
@@ -4250,7 +4330,7 @@ const dashboardCards = computed(() => {
       });
     }
     // My supervision card (supervisees – providers, interns, etc. who have supervision sessions) – hidden for clubs
-    if (!isClubContext.value && !isSupervisor(authStore.user) && !isLimitedAccessNonProvider) {
+    if (!isClubContext.value && !isSupervisor(authStore.user) && hasClinicalSupervision.value) {
       cards.push({
         id: 'my_supervision',
         label: 'My Supervision',
@@ -4310,7 +4390,6 @@ const defaultRailCards = computed(() => {
         overview: -1,
         my: 0,
         my_schedule: 1,
-        virtual_office: 1.25,
         meetings: 1.5,
         momentum_nest: 2,
         checklist: 2.1,
@@ -4332,6 +4411,7 @@ const defaultRailCards = computed(() => {
         portals_nest: 10,
         program_shifts: 11,
         clients: 12,
+        staff: 12.5,
         providers: 13,
         documents: 14,
         skill_builders_provider_hub: 15,
@@ -4349,7 +4429,6 @@ const defaultRailCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
-      virtual_office: 3.25,
       meetings: 3.5,
       skill_builders_provider_hub: 3.7,
       provider_program_portals: 3.8,
@@ -4386,36 +4465,20 @@ const defaultRailCards = computed(() => {
   });
 });
 
-const railCards = computed(() => applyRailOrder(defaultRailCards.value).map((card) => ({
-  ...card,
-  ...(Array.isArray(card.children) ? { children: applyRailOrder(card.children) } : {})
-})));
-const railCardSiblings = (card) => card.nestedUnder
-  ? (railCards.value.find((parent) => parent.id === card.nestedUnder)?.children || [])
-  : railCards.value;
-const moveRailCard = (card, delta) => moveRailSection(card.id, delta, railCardSiblings(card));
-
-/** Flatten nest children into the rail when expanded. */
-const railCardsForDisplay = computed(() => {
-  const out = [];
-  for (const card of railCards.value || []) {
-    out.push(card);
-    if (
-      card?.kind === 'nest' &&
-      isNestExpanded(card.id) &&
-      Array.isArray(card.children) &&
-      card.children.length
-    ) {
-      for (const child of card.children) {
-        out.push({ ...child, nestedUnder: card.id });
-      }
-    }
-  }
-  return out.map((card) => ({
-    ...card,
-    iconUrl: card.brandIconUrl || brandingStore.getDashboardIconOverrideUrl('dashboard', card.id) || card.iconUrl
-  }));
+const decorateRailCards = (cards) => applyRailOrder(cards).map(card => {
+  const children = card.id === 'tools_library' ? libraryQuickLinks(card) : card.children;
+  return { ...card, ...(children ? { children: decorateRailCards(children) } : {}) };
 });
+const railCards = computed(() => decorateRailCards(defaultRailCards.value));
+const findRailCard = (cards, id) => {
+  for (const card of cards || []) { if (card.id === id) return card; const child = findRailCard(card.children, id); if (child) return child; }
+};
+const railCardSiblings = (card) => card.nestedUnder
+  ? (findRailCard(railCards.value, card.nestedUnder)?.children || []) : railCards.value;
+const moveRailCard = (card, delta) => moveRailSection(card.id, delta, railCardSiblings(card));
+const railCardsForDisplay = computed(() => flattenExpandedRail(railCards.value, isNestExpanded).map(card => ({
+  ...card, iconUrl: card.brandIconUrl || brandingStore.getDashboardIconOverrideUrl('dashboard', card.id) || card.iconUrl
+})));
 
 const activeRailLabel = computed(() => {
   const active = (railCardsForDisplay.value || []).find((c) => isRailCardActive(c));
@@ -4423,9 +4486,9 @@ const activeRailLabel = computed(() => {
 });
 
 watch(
-  railCardsForDisplay,
-  (items) => {
-    setDashboardMobileNavItems(items || []);
+  [railCardsForDisplay, () => dashboardNavigationContextKey(authStore.user, agencyStore.currentAgency?.id)],
+  ([items, context]) => {
+    setDashboardMobileNavItems(items || [], context);
   },
   { immediate: true, deep: true }
 );
@@ -4616,6 +4679,20 @@ const handleCardClick = (card) => {
     navFn({ query: { ...route.query, tab: card.id } });
   }
 };
+
+let pendingDashboardNavCard = '';
+watch([() => route.query.dashboardCard, railCards], async ([rawId]) => {
+  const id = typeof rawId === 'string' ? rawId : '';
+  if (!id || pendingDashboardNavCard || props.previewMode) return;
+  const card = findRailCard(railCards.value, id);
+  if (!card) return;
+  pendingDashboardNavCard = id;
+  try {
+    const query = { ...route.query }; delete query.dashboardCard;
+    await router.replace({ path: route.path, query });
+    handleCardClick(card);
+  } finally { pendingDashboardNavCard = ''; }
+}, { immediate: true });
 
 const onOverviewNavigate = (tab) => {
   if (tab && typeof tab === 'object') {
@@ -4887,7 +4964,7 @@ const syncFromQuery = () => {
     // Resolve scheduleViewAs before scheduleMode=supervisee. During router.replace the query can
     // briefly include both; supervisee-first would clear view-as and cause flicker / reset to "my" schedule.
     const rawViewAs = String(route.query?.scheduleViewAs || '').trim();
-    if (rawViewAs && canPickEmployeeSchedule.value) {
+    if (rawViewAs && canViewTeamSchedule.value) {
       const qViewAs = Number.parseInt(rawViewAs, 10);
       if (Number.isFinite(qViewAs) && qViewAs > 0) {
         scheduleViewMode.value = 'self';
@@ -5530,7 +5607,7 @@ watch([activeTab, scheduleViewMode, selectedSuperviseeId, selectedEmployeeDirect
     delete nextQuery.employeeId;
     const v = Number(myScheduleViewAsUserId.value || 0);
     const me = Number(authStore.user?.id || 0);
-    if (canPickEmployeeSchedule.value && Number.isFinite(v) && v > 0 && v !== me) {
+    if (canViewTeamSchedule.value && Number.isFinite(v) && v > 0 && v !== me) {
       nextQuery.scheduleViewAs = String(v);
     } else {
       delete nextQuery.scheduleViewAs;
@@ -5850,13 +5927,13 @@ watch(
 );
 
 // Admin/staff/provider_plus: directory for “view as” schedule search.
-watch([activeTab, currentAgencyId, () => authStore.user?.id, canPickEmployeeSchedule], async () => {
+watch([activeTab, currentAgencyId, () => authStore.user?.id, canViewTeamSchedule], async () => {
   if (props.previewMode) return;
   if (activeTab.value !== 'my_schedule') return;
   if (!isOnboardingComplete.value) return;
-  if (!canPickEmployeeSchedule.value) return;
+  if (!canViewTeamSchedule.value) return;
   await fetchUsersForEmployeeSchedulePicker();
-});
+}, { immediate: true });
 
 watch([employeeSchedulePickerOptions, myScheduleViewAsUserId, currentAgencyId, employeeSchedulePickerLoading], () => {
   const id = Number(myScheduleViewAsUserId.value || 0);
@@ -5904,6 +5981,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.library-disclosure { cursor:pointer; border:1px solid var(--border,#cbd5e1); border-radius:8px; padding:6px; background:var(--bg-card,#fff); color:inherit; }
+.rail-card-row--deep { padding-left:24px; }
+
+.rail-highlight-picker { display: flex; flex-wrap: wrap; gap: 5px; border: 0; margin: 0; padding: 4px; }
+.rail-highlight-picker legend { font-size: 11px; }
+.rail-highlight-picker button { width: 24px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 50%; cursor: pointer; }
+.rail-highlight-picker button[aria-pressed="true"] { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dashboard-rail .rail-card.rail-card--highlighted { background: color-mix(in srgb, var(--rail-highlight) 75%, transparent); }
+.rail-card.active { outline: 2px solid var(--primary); outline-offset: -2px; }
+.rail-card-row:has(.rail-highlight-picker) { flex-wrap: wrap; }
+.rail-card-row:has(.rail-highlight-picker) .rail-highlight-picker { flex-basis: 100%; }
+
 /* Tighter grid for In-School Claims options */
 .submit-grid-2 {
   display: grid;
@@ -5982,7 +6071,7 @@ h1 {
 }
 
 .onboarding-card .btn:hover {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.75);
 }
 
 .top-snapshot-row {
@@ -6070,7 +6159,7 @@ h1 {
 /* Split view: rail + detail — stretch columns so the rail can grow with the main pane (scroll only when rail content overflows). */
 .dashboard-shell {
   display: grid;
-  grid-template-columns: fit-content(26rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
   margin-bottom: 16px;
@@ -6094,14 +6183,14 @@ h1 {
   grid-template-columns: 88px minmax(0, 1fr);
 }
 .dashboard-shell.schedule-focus.rail-expanded {
-  grid-template-columns: fit-content(26rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
 }
 .dashboard-shell.messages-focus {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 6px;
 }
 .dashboard-shell.messages-focus.rail-expanded {
-  grid-template-columns: fit-content(26rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
 }
 /* When rail is collapsed (any tab), shrink grid column so content fills the space */
 .dashboard-shell.rail-collapsed {
@@ -6722,10 +6811,10 @@ h1 {
 .rail-card:hover {
   border-color: var(--primary);
   box-shadow: var(--shadow);
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.75);
 }
 [data-theme="dark"] .rail-card:hover {
-  background: rgba(37, 40, 44, 0.95);
+  background: rgba(37, 40, 44, 0.75);
 }
 
 .rail-card:disabled {
@@ -6736,19 +6825,10 @@ h1 {
 .rail-card.active {
   border-color: var(--accent);
   box-shadow: var(--shadow);
-  background: rgba(243, 246, 250, 0.95);
+  background: rgba(243, 246, 250, 0.75);
 }
 [data-theme="dark"] .rail-card.active {
-  background: rgba(51, 65, 85, 0.6);
-}
-
-.rail-card-submit {
-  background: color-mix(in srgb, var(--primary-light) 18%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
-}
-.rail-card-submit .rail-card-title,
-.rail-card-submit .rail-card-cta {
-  color: var(--primary);
+  background: rgba(51, 65, 85, 0.75);
 }
 
 .rail-card-left {
@@ -6832,7 +6912,7 @@ h1 {
 }
 .rail-card--pyu-highlight {
   border-color: #c2410c;
-  background: linear-gradient(135deg, #fff7ed 0%, #ffffff 55%);
+  background: rgba(255, 255, 255, 0.75);
   box-shadow: 0 0 0 1px rgba(194, 65, 12, 0.22), 0 6px 18px rgba(194, 65, 12, 0.12);
 }
 .rail-card--pyu-highlight .rail-card-title {
@@ -6979,7 +7059,7 @@ h1 {
     grid-template-columns: 72px minmax(0, 1fr);
   }
   .dashboard-shell.rail-expanded {
-    grid-template-columns: fit-content(26rem) minmax(0, 1fr);
+    grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
   }
   .dashboard-shell.rail-expanded .dashboard-rail { width: 100%; min-width: 0; }
   .dashboard-rail {

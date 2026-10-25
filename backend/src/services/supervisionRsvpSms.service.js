@@ -9,7 +9,7 @@ import Vonage from './vonage.service.js';
 import SmsLog from '../models/NotificationSmsLog.model.js';
 const json=value=>typeof value==='string'?JSON.parse(value):value||{};
 export const isSupervisionRsvpReminder = (session,kind) => session.kind!=='HUDDLE' && session.session_type==='group'
- && session.enrollment_mode!=='signup_only' && (kind==='day_before'||kind==='join_reminder'||/^(join:|reminder:|presenter:)/.test(kind));
+ && session.enrollment_mode!=='signup_only' && (kind==='join_reminder'||/^(join|reminder|presenter):[1-5]$/.test(kind));
 export function createSupervisionRsvpSms({db=pool,resolveSender=resolveRegisteredSmsSender,readSender=getSmsSender,prepare=prepareSmsDelivery,send=options=>Vonage.sendSms(options),log=SmsLog,invitation=personalMeetingInvitation}={}) {
  async function eligible(sessionId,userId) {
   const [[row]]=await db.execute(`SELECT s.*,u.personal_phone,u.work_phone,u.phone_number,p.sms_enabled,p.notification_categories

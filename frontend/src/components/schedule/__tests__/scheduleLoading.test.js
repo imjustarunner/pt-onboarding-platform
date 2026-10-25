@@ -41,7 +41,7 @@ afterEach(() => {
 async function mount() {
   wrapper = shallowMount(Grid, {
     props: { userId: 7, mode: 'self', weekStartYmd: '2026-10-12' },
-    global: { stubs: { RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } }
+    global: { stubs: { Teleport: false, RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } }
   });
   await flushPromises();
   return wrapper.vm.$.setupState;

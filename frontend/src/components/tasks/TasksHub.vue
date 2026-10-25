@@ -389,6 +389,7 @@
       </div>
 
       <NoteAidWorkQueuePanel
+        :allow-add="authStore.user?.role === 'super_admin'"
         v-if="notesTodoOpen && canUseNotesWorkspace"
         class="notes-todo-rail"
         v-bind="noteQueuePanelProps"

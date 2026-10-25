@@ -30,3 +30,9 @@ describe('dashboard meeting entry',()=>{
   await vi.advanceTimersByTimeAsync(60000);expect(w.findAll('.meeting-join')).toHaveLength(3);w.unmount();
  });
 });
+
+it('opens today’s meetings in the compact dashboard header even before the join window',async()=>{
+ api.get.mockResolvedValue({data:{scheduleEvents:[{id:1,kind:'TEAM_MEETING',title:'Later today',startAt:'2026-09-22T20:00:00Z',endAt:'2026-09-22T21:00:00Z'}]}});
+ const w=mount(DashboardMeetings,{props:{compact:true},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.get('.meetings-today').element.open).toBe(true);expect(w.find('.meeting-join').exists()).toBe(false);w.unmount();
+});

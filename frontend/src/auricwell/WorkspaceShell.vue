@@ -9,7 +9,7 @@
       </nav>
       <div class="aw-sidebar-bottom">
         <a :href="demo?websiteBase:personalToolUrl(slug,'support')"><PortalIcon name="help"/><span>Help &amp; Support</span></a>
-        <button :aria-expanded="!collapsed" aria-label="Toggle sidebar width" @click="collapsed=!collapsed"><PortalIcon :name="collapsed?'arrow':'back'"/><span>Collapse</span></button>
+        <button :aria-expanded="!collapsed" :aria-label="collapsed?'Expand sidebar':'Collapse sidebar'" :title="collapsed?'Expand sidebar':'Collapse sidebar'" @click="collapsed=!collapsed"><PortalIcon :name="collapsed?'arrow':'back'"/><span>Collapse</span></button>
       </div>
     </aside>
     <div class="aw-workspace-body">
@@ -43,8 +43,11 @@ import { useRouter } from 'vue-router';
 import PortalIcon from '../components/portal/PortalIcon.vue';
 import { AURICWELL_MARK_URL } from '../constants/auricwellBrand';
 import { personalToolUrl, initials } from './workspace';
+import { useDashboardCardState } from '../composables/useDashboardCardState.js';
 const props=defineProps({actor:Object,slug:String,section:String,navigation:Array,websiteBase:String,unread:{type:Number,default:null},demo:Boolean});
-const router=useRouter(), query=ref(''),collapsed=ref(false),mobileOpen=ref(false),accountOpen=ref(false),signingOut=ref(false),logoutError=ref('');
+const router=useRouter(), query=ref(''),mobileOpen=ref(false),accountOpen=ref(false),signingOut=ref(false),logoutError=ref('');
+const sidebarState=useDashboardCardState({kind:'auricwell-sidebar',userId:computed(()=>props.actor.id),agencyId:computed(()=>props.slug),cardIds:['navigation'],persist:computed(()=>!props.demo)});
+const collapsed=computed({get:()=>sidebarState.collapsedCards.value.includes('navigation'),set:value=>sidebarState.setCollapsed('navigation',value)});
 const actorName=computed(()=>[props.actor.first_name,props.actor.last_name].filter(Boolean).join(' ')||'My account');
 const roleLabel=computed(()=>({provider:'Provider',support:'Support',admin:'Agency administrator',super_admin:'Administrator'}[props.actor.role]||'Practice member'));
 function search(){if(query.value.trim())router.push({path:`/${props.slug}/clients`,query:{search:query.value.trim()}});}

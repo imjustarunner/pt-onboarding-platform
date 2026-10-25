@@ -82,3 +82,13 @@ it('never sends generic group supervision texts, even when the generic SMS chann
  await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
  expect(m.send).toHaveBeenCalled();expect(m.sms).not.toHaveBeenCalled();
 });
+
+it('keeps the day-before individual reminder by email and sends SMS only when it is time to join',async()=>{
+ m.gate.mockResolvedValue({email:true,sms:true});
+ await runJoinReminderTick({now:new Date('2026-10-04T18:00:00Z')});
+ expect(m.send).toHaveBeenCalledTimes(2);expect(m.sms).not.toHaveBeenCalled();
+ await runJoinReminderTick({now:new Date('2026-10-05T17:30:00Z')});
+ expect(m.send).toHaveBeenCalledTimes(4);expect(m.sms).not.toHaveBeenCalled();
+ await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
+ expect(m.send).toHaveBeenCalledTimes(6);expect(m.sms).toHaveBeenCalledTimes(2);
+});

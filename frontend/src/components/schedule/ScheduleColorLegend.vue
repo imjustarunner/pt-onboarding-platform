@@ -1,6 +1,7 @@
 <template>
-  <section class="schedule-color-legend" aria-label="Schedule color key">
-    <strong>Color key</strong>
+  <details class="schedule-color-legend" aria-label="Schedule color key">
+    <summary data-tour="my-schedule-color-key">Color key</summary>
+    <div class="legend-content">
     <div class="legend-items">
       <span v-for="option in primary" :key="option.key" class="legend-item">
         <span class="legend-swatch" :style="swatch(option)" aria-hidden="true"></span>{{ option.label }}
@@ -15,7 +16,8 @@
       </div>
     </details>
     <span class="legend-hint">Change colors in Settings → Appointment colors.</span>
-  </section>
+    </div>
+  </details>
 </template>
 <script setup>
 import { SCHEDULE_COLOR_OPTIONS } from '../../utils/scheduleAppearance.js';
@@ -29,7 +31,9 @@ const swatch = option => {
 };
 </script>
 <style scoped>
-.schedule-color-legend { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; font-size:12px; color:var(--text-primary,#334155); }
+.schedule-color-legend { font-size:12px; color:var(--text-primary,#334155); }
+.schedule-color-legend > summary { display:inline-block; padding:7px 10px; border:1px solid var(--border,#cbd5e1); border-radius:8px; background:var(--bg-card,#fff); font-weight:600; }
+.legend-content { display:flex; flex-wrap:wrap; gap:10px 14px; padding:10px 0; }
 .legend-items { display:flex; flex-wrap:wrap; gap:6px 14px; }
 .legend-item { display:inline-flex; align-items:center; gap:6px; }
 .legend-swatch { width:14px; height:14px; flex:0 0 14px; border:1px solid; border-radius:4px; }

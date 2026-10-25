@@ -1,13 +1,13 @@
 <template>
-  <section class="dashboard-meetings" aria-label="Office and meetings">
+  <section class="dashboard-meetings" :class="{ 'dashboard-meetings--compact': compact }" aria-label="Office and meetings">
     <details class="dashboard-shortcut">
-      <summary>My virtual office <span class="shortcut-hint">Open your private space</span></summary>
+      <summary><img v-if="officeLogo" :src="officeLogo" class="office-logo" alt="" />My Virtual Office ↗<span v-if="!compact" class="shortcut-hint">Open your private space</span></summary>
       <div class="shortcut-content">
     <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" @click="notifyNavigation">My Room ↗</RouterLink>
       </div>
     </details>
-    <details class="dashboard-shortcut" @toggle="onMeetingsToggle">
-      <summary>My meetings <span class="shortcut-hint">{{ meetings.length ? `${meetings.length} upcoming` : 'Meetings and notes' }}</span></summary>
+    <details ref="meetingsDetails" class="dashboard-shortcut" :class="{ 'meetings-today': todayMeetings.length > 0 }" @toggle="onMeetingsToggle">
+      <summary>My Meetings <span class="shortcut-hint">{{ meetings.length ? `${meetings.length} upcoming` : 'Meetings and notes' }}</span></summary>
       <div class="shortcut-content">
     <RouterLink :to="{ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`, query: {} }" @click="notifyNavigation">My meetings · attended meetings and notes</RouterLink>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
@@ -26,15 +26,18 @@
 </template>
 <script setup>
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants.js';
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
+import { isMentalHealthPractice, isNoteAidEmployeeRole, isNoteAidEnabledForAgencyFlags } from '../../config/noteAidAccess';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { CalendarDays, ChevronRight } from '@lucide/vue';
 const emit = defineEmits(['navigate', 'inspect']);
-const props = defineProps({ includeAllAgencies: { type: Boolean, default: true }, inspectInPlace: { type: Boolean, default: false }, lazy: { type: Boolean, default: false } });
+const props = defineProps({ compact: { type: Boolean, default: false }, includeAllAgencies: { type: Boolean, default: true }, inspectInPlace: { type: Boolean, default: false }, lazy: { type: Boolean, default: false } });
 function notifyNavigation(event) {
   // RouterLink already prevents the native click's default action. Notify the
   // enclosing briefing on same-tab navigation, including a repeated route.
@@ -42,6 +45,17 @@ function notifyNavigation(event) {
   emit('navigate');
 }
 const auth=useAuthStore(), agencies=useAgencyStore(), route=useRoute(), rows=ref([]), now=ref(Date.now());
+const officeLogo = computed(() => {
+  const agency = agencies.currentAgency || {};
+  const caps = auth.user?.capabilities || {};
+  const ehr = isMentalHealthPractice(agency) && isNoteAidEmployeeRole(auth.user?.role) && isNoteAidEnabledForAgencyFlags(agency.feature_flags)
+    && caps.canViewClients !== false && !['tutor', 'school_staff', 'guardian'].includes(auth.user?.role);
+  return ehr ? AURICWELL_MARK_URL : toUploadsUrl(agency.logo_url || agency.logoUrl || '') || '';
+});
+const meetingsDetails = ref(null);
+const todayMeetings = computed(() => meetings.value.filter(m => new Date(m.start).toDateString() === new Date(now.value).toDateString()));
+let openedDay = '';
+
 let timer;
 const meetingsOpen = ref(false);
 function onMeetingsToggle(event) {
@@ -49,6 +63,10 @@ function onMeetingsToggle(event) {
   if (props.lazy && meetingsOpen.value) void load();
 }
 const meetings=computed(()=>rows.value.filter(m=>m.end>now.value).sort((a,b)=>a.start-b.start));
+watch(todayMeetings, rows => {
+  const day = new Date(now.value).toDateString();
+  if (props.compact && rows.length && openedDay !== day && meetingsDetails.value) { meetingsDetails.value.open = true; openedDay = day; }
+}, { flush: 'post' });
 const canJoin=m=>m.url && m.start-now.value<=300000 && now.value<m.end;
 const formatTime=ms=>new Date(ms).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 function scheduleLink(m){return {path:`${route.params.organizationSlug?`/${route.params.organizationSlug}`:''}/my-schedule`,query:{eventId:m.id,eventKind:m.kind,weekStart:m.weekStart}};}
@@ -60,6 +78,15 @@ async function load(){try{const userId=auth.user?.id;if(!userId)return;const age
 onMounted(()=>{if (!props.lazy) void load();timer=setInterval(()=>{now.value=Date.now();if ((!props.lazy || meetingsOpen.value) && document.visibilityState !== 'hidden') void load();},30000);});onUnmounted(()=>clearInterval(timer));
 </script>
 <style scoped>
+.office-logo { width: 24px; height: 24px; object-fit: contain; vertical-align: middle; margin-right: 7px; }
+.dashboard-meetings--compact { margin: 0; gap: 8px; flex: 1 1 auto; justify-content: flex-end; }
+.dashboard-meetings--compact .dashboard-shortcut { position: relative; flex: 0 1 auto; }
+.dashboard-meetings--compact .dashboard-shortcut summary { padding: 8px 10px; font-size: 13px; }
+.dashboard-meetings--compact .shortcut-content { position: absolute; right: 0; top: calc(100% + 5px); z-index: 50; width: min(390px, calc(100vw - 48px)); box-sizing: border-box; max-height: 55vh; overflow-y: auto; padding: 14px; background: var(--bg-card, #fff); border: 1px solid var(--border, #b4d5cb); border-radius: 10px; box-shadow: 0 8px 28px #0002; }
+.meetings-today > summary { animation: meetings-attention 2s ease-in-out 4; }
+@keyframes meetings-attention { 50% { box-shadow: 0 0 0 3px #7c3aed55; } }
+@media(prefers-reduced-motion: reduce) { .meetings-today > summary { animation: none; border: 2px solid #7c3aed; } }
+
 .meeting-details { display:inline-flex; align-items:center; justify-content:center; gap:8px; flex-shrink:0; min-height:40px; padding:8px 12px; border:1px solid var(--border, #b4d5cb); border-radius:6px; background:var(--bg-card, #fff); color:var(--text-primary, #173f39); font:inherit; font-weight:600; text-decoration:none; cursor:pointer; }
 .meeting-details:hover { border-color:currentColor; }
 .meeting-details:focus-visible { outline:2px solid currentColor; outline-offset:3px; }

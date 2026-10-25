@@ -12,7 +12,7 @@
         <span v-if="featured.isLive" class="ov-live">Live Now</span>
         <span class="ov-featured-title">{{ featured.title }}</span>
       </div>
-      <div class="ov-featured-meta">{{ featured.subtitle }}</div>
+      <div class="ov-featured-meta">{{ fullDate(featured.startMs) }} · {{ featured.subtitle }}</div>
       <div v-if="whereText(featured)" class="ov-featured-where">{{ whereText(featured) }}</div>
       <div class="ov-featured-actions">
         <button
@@ -108,6 +108,7 @@ const upcomingList = computed(() => {
 const requestingKey = ref('');
 const requestError = ref('');
 
+const fullDate = ms => ms == null ? '' : new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 const dayNum = (ms) => {
   if (ms == null) return '—';
   return String(new Date(ms).getDate());

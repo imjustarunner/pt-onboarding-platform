@@ -20,3 +20,9 @@ it('requires a reason for mandatory decline and permits optional reminder opt-ou
 it('rejects oversized reasons without updating any RSVP',async()=>{await expect(saveTrainingRsvp(event,4,'declined','x'.repeat(2001))).rejects.toMatchObject({status:400});expect(m.execute).not.toHaveBeenCalled();});
 it('rejects registration by someone who only sees the agency calendar',async()=>{m.canJoin.mockResolvedValue(false);await expect(saveTrainingRsvp(event,4,'accepted')).rejects.toMatchObject({status:403});expect(m.execute).not.toHaveBeenCalled();});
 it('rejects invalid RSVP and non-training events',async()=>{await expect(saveTrainingRsvp(event,4,'pending')).rejects.toMatchObject({status:400});await expect(saveTrainingRsvp({...event,meeting_subtype:'general'},4,'accepted')).rejects.toMatchObject({status:403});expect(m.execute).not.toHaveBeenCalled();});
+
+it('rejects acceptance after the first date registration deadline even from a later series invitation',async()=>{
+ m.execute.mockResolvedValue([[{start_at:'2020-10-01 18:00:00',meeting_settings_json:null}]]);
+ await expect(saveTrainingRsvp({...event,start_at:'2099-10-01 18:00:00'},4,'accepted')).rejects.toMatchObject({status:409});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+});

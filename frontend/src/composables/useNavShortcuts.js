@@ -3,13 +3,37 @@
  * Fetches the current user's most-visited admin pages (last 90 days),
  * deduplicates by page key, and returns a ready-to-render shortcut list.
  */
-import { ref, computed } from 'vue';
+import { ref, computed, watch, unref } from 'vue';
 import api from '../services/api.js';
 import { normalizeAdminPageKey } from '../utils/normalizeAdminPageKey.js';
 
 const PAGE_META = {
+  'dashboard/overview': { label: 'My Dashboard', icon: '🏠' },
+  'dashboard/my': { label: 'My Account', icon: '👤' },
+  'dashboard/my_schedule': { label: 'My Schedule', icon: '📅' },
+  'dashboard/meetings': { label: 'My Meetings', icon: '📅' },
+  'dashboard/clients': { label: 'My Clients', icon: '👥' },
+  'dashboard/staff': { label: 'Staff', icon: '👥' },
+  'dashboard/chats': { label: 'Messages', icon: '💬' },
+  'dashboard/training': { label: 'My Training', icon: '📚' },
+  'dashboard/supervision': { label: 'Supervision', icon: '👥' },
+  'dashboard/my_supervision': { label: 'My Supervision', icon: '👥' },
+  'dashboard/submit': { label: 'Submit', icon: '📥' },
+  'dashboard/notifications': { label: 'Notifications', icon: '🔔' },
+  'dashboard/checklist': { label: 'My Work', icon: '📋' },
+  'my-schedule': { label: 'My Schedule', icon: '📅' },
+  'my-meetings': { label: 'My Meetings', icon: '📅' },
+  'my-learning': { label: 'My Training', icon: '📚' },
+  'messages': { label: 'Messages', icon: '💬' },
+  'tasks': { label: 'My Work', icon: '📋' },
+  'notifications': { label: 'Notifications', icon: '🔔' },
+  'tools-aids': { label: 'Tools and Resources', icon: '📚' },
   'dashboard':                      { label: 'Admin Dashboard',      icon: '🏠' },
   'admin-dashboard':                { label: 'Admin Dashboard',      icon: '🏠' },
+  'note-aid': { label: 'Note Workspace', icon: '📝' },
+  'clinical-note-generator': { label: 'Note Workspace', icon: '📝' },
+  'school-operations/clients': { label: 'School Clients', icon: '👤' },
+  'workforce-operations/clients': { label: 'Client Directory', icon: '👤' },
   'clients':                        { label: 'Clients',              icon: '👤' },
   'school-clients':                 { label: 'School Clients',       icon: '🏫' },
   'caseload-hub/schools-staff':     { label: 'School Management',    icon: '🏫' },
@@ -75,34 +99,20 @@ function metaForKey(key) {
   return { label, icon: DEFAULT_ICON };
 }
 
-// Module-level cache so we only fetch once per session
-let _cache = null;
-let _pending = null;
-
-export function useNavShortcuts({ limit = 6 } = {}) {
-  const shortcuts = ref(_cache ? [..._cache] : []);
-  const loading = ref(!_cache);
-  const error = ref(null);
-
+export function useNavShortcuts({ limit = 6, userId = null } = {}) {
+  const shortcuts = ref([]), loading = ref(false), error = ref(null);
+  let generation = 0;
   async function load() {
-    if (_cache) {
-      shortcuts.value = [..._cache];
-      loading.value = false;
-      return;
-    }
-    if (_pending) {
-      await _pending;
-      shortcuts.value = [...(_cache || [])];
-      loading.value = false;
-      return;
-    }
+    const run = ++generation;
+    shortcuts.value = []; error.value = null;
+    if (!unref(userId)) { loading.value = false; return; }
     loading.value = true;
-    error.value = null;
     // Fetch 2× what we'll show so deduplication doesn't exhaust the list
     const fetchLimit = Math.min(limit * 3, 20);
-    _pending = api
+    await api
       .get('/user-nav/shortcuts', { params: { limit: fetchLimit }, skipGlobalLoading: true })
       .then((res) => {
+        if (run !== generation) return;
         const raw = res.data?.shortcuts || [];
 
         // Deduplicate by canonical key + destination path — keep highest visit count
@@ -141,23 +151,20 @@ export function useNavShortcuts({ limit = 6 } = {}) {
         }
         for (const row of byCanonical.values()) delete row.peakPathVisits;
 
-        _cache = [...byCanonical.values()].sort((a, b) => b.visitCount - a.visitCount);
-        shortcuts.value = [..._cache];
+        shortcuts.value = [...byCanonical.values()].sort((a, b) => b.visitCount - a.visitCount);
       })
       .catch((err) => {
-        console.warn('[useNavShortcuts] failed to load:', err);
-        error.value = err;
+        if (run === generation) error.value = err;
       })
       .finally(() => {
-        loading.value = false;
-        _pending = null;
+        if (run === generation) loading.value = false;
       });
-    await _pending;
+
   }
 
   const topShortcuts = computed(() => shortcuts.value.slice(0, limit));
 
-  load();
+  watch(() => unref(userId), load, { immediate: true });
 
-  return { shortcuts, topShortcuts, loading, error, reload: () => { _cache = null; load(); } };
+  return { shortcuts, topShortcuts, loading, error, reload: load };
 }

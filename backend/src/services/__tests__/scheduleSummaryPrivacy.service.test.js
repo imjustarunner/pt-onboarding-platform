@@ -4,10 +4,39 @@ import {
   canManageOthersSchedule,
   resolveScheduleDetailLevel,
   toBusyOnlyScheduleSummary,
-  toTypedPeerScheduleSummary
+  toTypedPeerScheduleSummary,
+  toPeerAvailabilitySummary, canViewPeerSchedule, canIncludeAllScheduleAgencies
 } from '../scheduleSummaryPrivacy.service.js';
 
 describe('scheduleSummaryPrivacy', () => {
+  it.each(['provider', 'intern', 'tutor', 'staff', 'supervisor', 'assistant_admin'])('lets %s browse coworkers without management access being implied', role => {
+    expect(canViewPeerSchedule(role)).toBe(true);
+    expect(canIncludeAllScheduleAgencies({ isSelf: false, actorRole: role })).toBe(false);
+    expect(resolveScheduleDetailLevel({ isSelf: false, actorRole: role, requestedLevel: 'availability' })).toBe('availability');
+  });
+  it.each(['client', 'guardian', 'school_staff', 'school_support', 'kiosk', 'athlete', 'parent', 'unknown', ''])('excludes %s from staff calendar access', role => expect(canViewPeerSchedule(role)).toBe(false));
+  it('allows all agencies only for the calendar owner or super admin', () => {
+    expect(canIncludeAllScheduleAgencies({ isSelf: true, actorRole: 'provider' })).toBe(true);
+    expect(canIncludeAllScheduleAgencies({ isSelf: false, actorRole: 'super_admin' })).toBe(true);
+    expect(canIncludeAllScheduleAgencies({ isSelf: false, actorRole: 'admin' })).toBe(false);
+  });
+  it('returns only generic times and labels, with no event identifiers, locations or appointment details', () => {
+    const interval = { startAt: '2026-10-26T16:00:00Z', endAt: '2026-10-26T17:00:00Z' };
+    const privateFields = { id: 567, clientId: 42, title: 'Private Client', description: 'Clinical details', joinUrl: 'https://private.example', attendees: [{ name: 'Private Person' }], buildingName: 'Private Office', roomNumber: 'Secret Room' };
+    const result = toPeerAvailabilitySummary({
+      providerId: 12, agencyId: 2, scheduleAgencyIds: [2, 99], weekStart: '2026-10-26', weekEnd: '2026-11-02',
+      officeEvents: [{ ...interval, ...privateFields, slotState: 'ASSIGNED_BOOKED' }, { ...interval, slotState: 'ASSIGNED_AVAILABLE' }],
+      scheduleEvents: [{ ...interval, ...privateFields, kind: 'TEAM_MEETING' }, { ...interval, ...privateFields, kind: 'PERSONAL_EVENT' }],
+      supervisionSessions: [{ ...interval, ...privateFields }],
+      googleEvents: [{ ...privateFields, start: { dateTime: interval.startAt }, end: { dateTime: interval.endAt } }]
+    });
+    expect(result).toEqual({ ok: true, detailLevel: 'availability', weekStart: '2026-10-26', weekEnd: '2026-11-02', busyBlocks: [
+      { ...interval, activityType: 'session', title: 'Session' },
+      { ...interval, activityType: 'meeting', title: 'Meeting' },
+      { ...interval, activityType: 'busy', title: 'Busy' }
+    ] });
+    expect(JSON.stringify(result)).not.toMatch(/Private|Secret|Clinical|clientId|attendees|agency|joinUrl|567/);
+  });
   it('full detail roles', () => {
     expect(canViewFullScheduleDetails('admin')).toBe(true);
     expect(canViewFullScheduleDetails('support')).toBe(true);

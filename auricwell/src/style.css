@@ -1270,3 +1270,16 @@ select[multiple] {
     margin-bottom: 10px;
   }
 }
+
+/* EHR staff navigation remembers its width independently from management dashboards. */
+@media(min-width:761px){
+ .workspace .sidebar nav{min-height:0;overflow-y:auto}
+ .ehr-sidebar-collapsed .sidebar{width:82px;padding:12px 10px}
+ .ehr-sidebar-collapsed .workspace-body{margin-left:82px}
+ .ehr-sidebar-collapsed .sidebar .brand{width:60px;height:60px;overflow:hidden}
+ .ehr-sidebar-collapsed .sidebar .brand img{width:60px;height:60px;object-fit:contain;transform:none}
+ .ehr-sidebar-collapsed .practice-label,.ehr-sidebar-collapsed .nav-label,.ehr-sidebar-collapsed .sidebar>.outline,.ehr-sidebar-collapsed .sidebar-bottom>*:not(.ehr-sidebar-toggle){display:none}
+ .ehr-sidebar-collapsed .sidebar nav a{justify-content:center;padding:12px 5px;gap:0;position:relative}
+ .ehr-sidebar-collapsed .sidebar .count{position:absolute;right:0;top:0;font-size:9px}
+ .ehr-sidebar-collapsed .ehr-sidebar-toggle{width:100%;text-align:center}
+}

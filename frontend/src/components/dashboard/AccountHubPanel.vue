@@ -10,7 +10,6 @@
             </svg>
           </span>
           <h2 class="acct-hub__title">My Account</h2>
-          <HowToVideoButton video-id="my-account-business-cards" />
         </div>
         <p class="acct-hub__subtitle">{{ showOverview ? 'Choose an account section below.' : activeMeta.description }}</p>
         <div v-if="userDisplayName" class="acct-hub__user">
@@ -82,7 +81,6 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import HowToVideoButton from '../HowToVideoButton.vue';
 import { getAccountSectionMeta, getAccountSectionThemeStyle } from '../../config/accountDisplaySections';
 
 const props = defineProps({

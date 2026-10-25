@@ -40,6 +40,7 @@ import {
   getSuperviseeHoursSummary,
   getMySupervisionPrompts,
   getMySupervisionSessions,
+  getMyClinicalSupervisionStatus,
   getSuperviseeSessions,
   getMyPresenterAssignments,
   getSessionAttendees,
@@ -122,6 +123,7 @@ router.get('/attendance-logs', listSupervisionAttendanceLogs);
 router.get('/attendance-logs/export', exportSupervisionAttendanceLogsCsv);
 router.get('/supervisee/:superviseeId/hours-summary', getSuperviseeHoursSummary);
 router.get('/my-prompts', getMySupervisionPrompts);
+router.get('/my-history-status', getMyClinicalSupervisionStatus);
 router.get('/my-sessions', getMySupervisionSessions);
 router.get('/supervisee/:superviseeId/sessions', getSuperviseeSessions);
 router.get('/my-presenter-assignments', getMyPresenterAssignments);

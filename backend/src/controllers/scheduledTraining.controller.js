@@ -1,3 +1,5 @@
+import { trainingRegistrationClosesAt } from '../services/trainingRegistrationPolicy.js';
+import { parseMeetingSettings, normalizeMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { saveTrainingRsvp, saveOpenTrainingRsvp } from '../services/scheduledTrainingRsvp.service.js';
 import { trainingReminderDescription } from '../services/meetingReminderPolicy.js';
@@ -21,12 +23,19 @@ export const getTraining = async(req,res,next) => {
     const canSeeDeclined = canViewDeclinedMeetingParticipants(event,req.user,participants);
     const visibleParticipants = visibleMeetingRsvpParticipants(participants,canSeeDeclined);
     const [approvals]=await pool.execute("SELECT user_id FROM scheduled_training_hands WHERE event_id=? AND status='approved'",[event.id]);
-    res.json({viewerUserId:Number(req.user.id),viewerInvitation:self || null,invited:proctor || !!event.actor_invited,canRegister:!proctor && (!!event.actor_invited || !!event.agency_visible),reminderDescription:trainingReminderDescription(event,{isRequired:Number(self?.is_required)===1}),approvedIds:approvals.map(p=>Number(p.user_id)),event:{id:event.id,title:event.title,topic:event.topic,startAt:event.start_at,endAt:event.end_at,timeZone:event.event_timezone,agencyVisible:!!event.agency_visible,videoDefaultOn:!!event.video_default_on,videoAllowed:!!event.video_allowed,muteAll:!!event.mute_all},proctor,assets,hands,log:log[0] || null,participants:visibleParticipants,canSeeDeclined});
+    res.json({viewerUserId:Number(req.user.id),viewerInvitation:self || null,invited:proctor || !!event.actor_invited,registrationClosesAt:trainingRegistrationClosesAt(event),canRegister:!proctor && Date.parse(trainingRegistrationClosesAt(event)) > Date.now() && (!!event.actor_invited || !!event.agency_visible),reminderDescription:trainingReminderDescription(event,{isRequired:Number(self?.is_required)===1}),approvedIds:approvals.map(p=>Number(p.user_id)),event:{id:event.id,title:event.title,topic:event.topic,startAt:event.start_at,endAt:event.end_at,timeZone:event.event_timezone,agencyVisible:!!event.agency_visible,videoDefaultOn:!!event.video_default_on,videoAllowed:!!event.video_allowed,muteAll:!!event.mute_all},proctor,assets,hands,log:log[0] || null,participants:visibleParticipants,canSeeDeclined});
   }catch(e){next(e);}
 };
 export const updateTraining = async(req,res,next) => {
   try {
     const {event}=await trainingAccess(Number(req.params.eventId),req.user,{edit:true});
+    if (req.body.registrationClosesAt !== undefined) {
+      const settings = normalizeMeetingSettings({ registrationClosesAt: req.body.registrationClosesAt }, parseMeetingSettings(event.meeting_settings_json));
+      if (settings.registrationClosesAt && Date.parse(settings.registrationClosesAt) > Date.parse(trainingRegistrationClosesAt({...event,meeting_settings_json:{}}))) throw trainingError(400,'Registration must close by the training start time.');
+      await pool.execute(`UPDATE provider_schedule_events e JOIN scheduled_trainings t ON t.event_id=e.id
+        SET e.meeting_settings_json=JSON_SET(COALESCE(e.meeting_settings_json,JSON_OBJECT()),'$.registrationClosesAt',?)
+        WHERE t.series_key=?`, [settings.registrationClosesAt, event.series_key]);
+    }
     const sets=[],values=[];
     for(const [key,column] of Object.entries({agencyVisible:'agency_visible',videoDefaultOn:'video_default_on',videoAllowed:'video_allowed',muteAll:'mute_all'})) {
       if(req.body[key]!==undefined) { if(typeof req.body[key]!=='boolean') throw trainingError(400,`${key} must be true or false.`); sets.push(`${column}=?`);values.push(Number(req.body[key])); }

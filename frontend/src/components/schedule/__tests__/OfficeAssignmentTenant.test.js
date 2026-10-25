@@ -12,10 +12,11 @@ beforeEach(async () => {
   setActivePinia(createPinia()); localStorage.clear(); vi.clearAllMocks();
   m.get.mockImplementation(async url => ({ data: url.includes('agencies') ? [] : {} }));
   m.post.mockResolvedValue({ data: { ok: true } });
-  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { RouterLink: true } } });
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: false, RouterLink: true } } });
   await flushPromises();
 });
-afterEach(() => wrapper?.unmount());
+afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks(); });
 it('includes the current tenant in the person-first admin room assignment', async () => {
   const s = wrapper.vm.$.setupState;
   s.adminAssignOfficeLocationId = 1; s.adminAssignRoomId = 4;

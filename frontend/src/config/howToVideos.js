@@ -18,7 +18,7 @@
 export const HOW_TO_VIDEOS = [
   {
     id: 'my-account-business-cards',
-    title: 'My Account & business cards',
+    title: 'My business cards',
     url: 'https://youtu.be/Gj3-Xc8NkPY?is=5_x2E71u8ZOV6zOT'
   }
 ];

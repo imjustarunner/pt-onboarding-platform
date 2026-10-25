@@ -8,15 +8,18 @@
           <span class="invitation-kind">{{ event.type === 'training' ? 'Training' : 'Group supervision' }} · {{ event.required ? 'Required' : 'Optional' }}</span>
           <h3>{{ event.title }}</h3>
           <p>{{ when(event) }}</p>
+          <p v-if="event.type === 'training'">RSVP closes {{ when({ ...event, startAt: event.registrationClosesAt || event.startAt }) }}</p>
           <p v-if="event.signupOnly" class="signup-countdown">Sign-up required · {{ countdown(event) }}</p>
           <p v-else>{{ event.required ? 'Please RSVP. Include a reason if you cannot attend.' : 'You are welcome to attend. Not interested stops reminders; no reason is needed.' }}</p>
         </div>
         <div class="invitation-actions">
           <button type="button" class="attend" :disabled="!!busy || (event.signupOnly && !signupAvailable(event))" @click="respond(event, 'accepted')">{{ event.signupOnly ? 'Sign up' : 'I’m attending' }}</button>
           <button type="button" :disabled="!!busy" @click="details(event)">More info</button>
+          <button type="button" class="snooze" :disabled="!!busy" :aria-disabled="!canSnooze(event)" :aria-describedby="!canSnooze(event) ? `snooze-help-${event.id}` : undefined" @click="snooze(event)">Snooze 12 hours</button>
           <button v-if="!event.required" type="button" :disabled="!!busy" @click="respond(event, 'declined')">Dismiss · not interested</button>
           <button v-else type="button" :disabled="!!busy" :aria-expanded="declining === event.key" @click="declining = declining === event.key ? '' : event.key; reason = ''">I can’t attend</button>
         </div>
+        <p v-if="!canSnooze(event) || snoozeBlocked === event.key" :id="`snooze-help-${event.id}`" class="snooze-help" role="status">Please RSVP that you are attending or not attending. Registration closes within 12 hours and a decision must be made. Thank you for your understanding.</p>
         <form v-if="event.required && declining === event.key" class="decline-form" @submit.prevent="respond(event, 'declined')">
           <label :for="`absence-${event.key}`">Reason for not attending (required)</label>
           <textarea :id="`absence-${event.key}`" v-model="reason" maxlength="2000" rows="2" required />
@@ -44,6 +47,7 @@ const props = defineProps({ userId: { type: [Number, String], required: true } }
 const route = useRoute(), router = useRouter();
 const prompts = ref([]), error = ref(''), busy = ref(''), now = ref(Date.now());
 const declining = ref(''), reason = ref(''), selectedTraining = ref(null), showAll = ref(false);
+const snoozeBlocked = ref('');
 const dialog = ref(null); let previousFocus;
 const visible = computed(() => showAll.value ? prompts.value : prompts.value.slice(0, 1));
 let timer, inFlight = false, mounted = true;
@@ -65,6 +69,19 @@ async function load() {
     if (mounted && uid === props.userId) prompts.value = Array.isArray(data?.prompts) ? data.prompts : [];
   } catch { /* Existing cards remain actionable during a temporary refresh failure. */ }
   finally { inFlight = false; }
+}
+function canSnooze(event) { return Date.parse(event.registrationClosesAt || event.signupClosesAt || event.startAt) - now.value > 12 * 3600000; }
+async function snooze(event) {
+  now.value = Date.now();
+  if (!canSnooze(event)) { snoozeBlocked.value = event.key; return; }
+  if (busy.value) return;
+  busy.value = event.key; error.value = '';
+  try {
+    await api.post('/meeting-invitations/snooze', { key: event.key });
+    prompts.value = prompts.value.filter(row => row.key !== event.key);
+    window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));
+  } catch(e) { error.value = e.response?.data?.error?.message || 'Could not snooze this invitation. Please try again.'; }
+  finally { busy.value = ''; }
 }
 async function respond(event, response) {
   if (busy.value) return;
@@ -97,6 +114,8 @@ onUnmounted(() => { mounted=false; clearInterval(timer); window.removeEventListe
 </script>
 
 <style scoped>
+.snooze[aria-disabled="true"] { opacity: .5; cursor: help; }
+.snooze-help { font-size: 13px; line-height: 1.5; }
 .dashboard-invitations { position: fixed; bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; width: min(420px, calc(100vw - 32px)); z-index: 1000; max-height: 65vh; overflow: auto; box-shadow: 0 8px 32px #172a3340; border-radius: 14px; background: var(--bg, #fff); }
 
 .dashboard-invitations{margin:0}.invitation-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px}.invitation-toast{border:1px solid var(--border,#a9cfc1);border-left:4px solid #248065;border-radius:12px;background:var(--bg-card,#f2faf6);padding:14px;color:var(--text-primary,#183e35)}.invitation-toast--required{border-left-color:#98630b}.invitation-kind{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em}.invitation-copy h3{font-size:1rem;margin:5px 0}.invitation-copy p{font-size:.85rem;line-height:1.45;margin:5px 0}.signup-countdown{font-weight:700}.invitation-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.dashboard-invitations button{font:inherit;min-height:40px;padding:7px 10px;border:1px solid var(--border,#b4c8bf);border-radius:7px;background:var(--bg-card,#fff);color:inherit;cursor:pointer}.dashboard-invitations button.attend{background:#17633f;color:#fff;border-color:#17633f;font-weight:600}.dashboard-invitations button:disabled{opacity:.55;cursor:default}.decline-form{display:grid;gap:7px;margin-top:10px}.decline-form textarea{width:100%;font:inherit;border:1px solid var(--border,#a9cfc1);border-radius:6px}.show-invitations{margin-top:8px}.invitation-error{color:var(--danger,#a32727)}.training-details-backdrop{position:fixed;inset:0;background:#11182788;z-index:2100;display:grid;place-items:center;padding:20px}.training-details-modal{position:relative;background:var(--bg-card,#fff);border-radius:14px;width:min(800px,100%);max-height:85dvh;overflow:auto;padding:38px 12px 12px}.close-details{position:absolute;right:12px;top:8px;font-size:1.5rem!important}.dashboard-invitations button:focus-visible{outline:3px solid #5b7fc5;outline-offset:2px}

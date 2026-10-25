@@ -1,3 +1,4 @@
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import { generateJoinToken } from '../utils/joinToken.js';
@@ -30,6 +31,7 @@ export async function isTrainingProctor(event, userId, db = pool) {
 }
 export async function trainingAccess(eventId, actor, { edit = false, visible = false } = {}) {
   const [rows] = await pool.execute(`SELECT e.*,t.topic,t.agency_visible,t.video_default_on,t.video_allowed,t.mute_all,t.series_key,
+    (SELECT MIN(first_event.start_at) FROM scheduled_trainings series JOIN provider_schedule_events first_event ON first_event.id=series.event_id WHERE series.series_key=t.series_key AND first_event.status='ACTIVE') registration_start_at,
     EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=e.id AND a.user_id=?) actor_invited,
     EXISTS(SELECT 1 FROM meeting_participant_preferences p JOIN provider_schedule_event_attendees a ON a.event_id=p.event_id AND a.user_id=p.user_id WHERE p.event_id=e.id AND p.user_id=? AND p.is_cohost=1) actor_coproctor
     FROM provider_schedule_events e JOIN scheduled_trainings t ON t.event_id=e.id WHERE e.id=?`, [actor.id,actor.id,eventId]);
@@ -62,6 +64,9 @@ export async function createScheduledTraining(input, actor) {
   if (input.agenda && (!Array.isArray(input.agenda) || input.agenda.length>50)) throw trainingError(400,'Choose up to 50 agenda items.');
   if (input.goals && (!Array.isArray(input.goals) || input.goals.length>50)) throw trainingError(400,'Choose up to 50 goals.');
   const settings = normalizeMeetingSettings(input.meetingSettings, defaultMeetingSettings('training'));
+  const firstStart = Math.min(...value.sessions.map(session => parseUtcDate(session.startAt).getTime()));
+  if (settings.registrationClosesAt && Date.parse(settings.registrationClosesAt) > firstStart) throw trainingError(400, 'Registration must close by the first training date.');
+  settings.registrationClosesAt ||= new Date(firstStart).toISOString();
   settings.attendance = true; settings.compensation = true;
   const seriesKey = randomUUID();
   const db = await pool.getConnection(); const events = [];

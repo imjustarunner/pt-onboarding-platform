@@ -1,7 +1,11 @@
 <template>
+  <div class="schedule-stage-shell">
+  <Teleport to="body" :disabled="!fullscreenFallback">
   <div
     class="sched-wrap"
+    ref="fullscreenRoot"
     :class="{
+      'sched-wrap--fullscreen': fullscreenFallback,
       'sched-wrap-quarter': showQuarterDetail,
       'sched-wrap--dark': darkScheduleTheme,
       'sched-wrap--side-by-side': scheduleSideBySide
@@ -9,6 +13,7 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
+    <button v-if="fullscreenActive" type="button" class="sched-fullscreen-exit" title="Exit full screen (Escape)" @click="toggleFullscreen">× Exit full screen</button>
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
@@ -99,32 +104,22 @@
               Today
             </button>
             <div class="sched-nav-arrows">
-              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" @click="prevWeek" :disabled="loading">
+              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" :title="isDayOrAgendaSpan ? 'Go to the previous day' : 'Go to the previous week'" data-tour="my-schedule-previous" @click="prevWeek" :disabled="loading">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" @click="nextWeek" :disabled="loading">
+              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" :title="isDayOrAgendaSpan ? 'Go to the next day' : 'Go to the next week'" data-tour="my-schedule-next" @click="nextWeek" :disabled="loading">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
             </div>
-            <label class="sched-nav-date-wrap" title="Jump to a week (pick any date)">
-              <span class="sr-only">Jump to date</span>
-              <svg class="sched-nav-date-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
-              </svg>
-              <input
-                class="sched-nav-date-input"
-                type="date"
-                :value="weekJumpDateValue"
-                :disabled="loading"
-                aria-label="Jump to week"
-                data-tour="my-schedule-week-jump"
-                @change="onWeekJumpDateChange"
-              />
-            </label>
+            <button type="button" class="sched-command__outline" data-tour="my-schedule-fullscreen"
+              :aria-pressed="fullscreenActive" :title="fullscreenActive ? 'Exit full screen (Escape)' : 'Expand the calendar to full screen'" @click="toggleFullscreen">
+              <span aria-hidden="true">⛶</span> {{ fullscreenActive ? 'Exit full screen' : 'Full screen' }}
+            </button>
             <button
               class="sched-nav-icon-btn"
               type="button"
               aria-label="Refresh schedule"
+              data-tour="my-schedule-refresh"
               title="Reload this week’s schedule from the server"
               @click="load({ forceRefresh: true })"
               :disabled="loading"
@@ -137,7 +132,7 @@
 
           <div class="sched-command__actions">
             <button
-              v-if="Number(effectiveAgencyId || 0) > 0"
+              v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
               class="sched-command__book"
               type="button"
               :title="clientSessionBookingEnabled ? 'Book a session with a client' : 'Coming soon — your practice will enable session booking when your transition is ready'"
@@ -161,26 +156,13 @@
               type="button"
               class="sched-command__outline"
               title="Admit guests waiting in your My Room lobby"
+              data-tour="my-schedule-my-room"
               @click="showMyRoomLobbyModal = true"
             >
               My Room
             </button>
-            <button
-              v-if="!hideOfficeAndCalendarIntegration"
-              type="button"
-              class="sched-command__outline"
-              :class="{ on: viewMode === 'office_layout' }"
-              :disabled="loading || officeGridLoading"
-              data-tour="my-schedule-request-office-cta"
-              title="Request or book an office room for approval"
-              @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : viewMode = 'office_layout'"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M3 21h18" /><path d="M5 21V7l8-4v18" /><path d="M19 21V11l-6-4" />
-              </svg>
-              {{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}
-              <span class="sched-command__chev" aria-hidden="true">▾</span>
-            </button>
+
+
             <button
               v-if="!hideOfficeAndCalendarIntegration"
               type="button"
@@ -203,10 +185,11 @@
             <button
               type="button"
               class="sched-command__settings"
-              :class="{ on: calendarSettingsOpen, 'sched-settings-discovery': showScheduleSettingsTip }"
+              :class="{ on: calendarSettingsOpen }"
               aria-label="Calendar settings"
+              title="Change days, layout, colors, office rooms, and calendar options"
+              data-tour="my-schedule-settings"
               :aria-expanded="calendarSettingsOpen"
-              title="People, office, feeds, layout, and more tools"
               data-testid="schedule-command-settings"
               @click="toggleCalendarSettings"
             >
@@ -214,9 +197,9 @@
                 <circle cx="12" cy="12" r="3"/>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
-              <span class="sched-command__chev" aria-hidden="true">▾</span>
+              <span>Settings</span><span class="sched-command__chev" aria-hidden="true">▾</span>
             </button>
-            <button v-if="showScheduleSettingsTip" type="button" class="sched-settings-tip" @click="toggleCalendarSettings">Click here to change your layout, days &amp; colors</button>
+
           </div>
         </div>
 
@@ -499,6 +482,28 @@
 
         <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" v-show="!compactPageChrome || activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">
           <span class="sched-tool-cluster__label">Office</span>
+        <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-pill"
+          :class="{ on: showMyRooms }" role="switch" :aria-checked="String(showMyRooms)"
+          data-testid="my-schedule-room-toggle" @click="showMyRooms = !showMyRooms"
+          title="Show your booked and Assigned Available office rooms; available-room counts are controlled separately in Settings">
+          My office rooms · {{ showMyRooms ? 'On' : 'Off' }}
+        </button>
+            <button
+              v-if="!hideOfficeAndCalendarIntegration"
+              type="button"
+              class="sched-command__outline"
+              :class="{ on: viewMode === 'office_layout' }"
+              :disabled="loading || officeGridLoading"
+              data-tour="my-schedule-request-office-cta"
+              title="Request or book an office room for approval"
+              @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : viewMode = 'office_layout'"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M3 21h18" /><path d="M5 21V7l8-4v18" /><path d="M19 21V11l-6-4" />
+              </svg>
+              {{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}
+              <span class="sched-command__chev" aria-hidden="true">▾</span>
+            </button>
           <select
             v-model.number="selectedOfficeLocationId"
             class="sched-select sched-select--compact"
@@ -592,6 +597,7 @@
 
         <div id="sched-settings-layout" v-show="!compactPageChrome || activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
           <span class="sched-tool-cluster__label">Display</span>
+          <label class="sched-inline compact"><span>Jump to date</span><input type="date" :value="weekJumpDateValue" :disabled="loading" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" /></label>
           <button
             type="button"
             class="sched-pill"
@@ -800,12 +806,7 @@
       </details>
 
       <div class="sched-room-visibility">
-        <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-pill"
-          :class="{ on: showMyRooms }" role="switch" :aria-checked="String(showMyRooms)"
-          data-testid="my-schedule-room-toggle" @click="showMyRooms = !showMyRooms"
-          title="Show your booked and Assigned Available office rooms; available-room counts are controlled separately in Settings">
-          My office rooms · {{ showMyRooms ? 'On' : 'Off' }}
-        </button>
+
         <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" />
         <ScheduleHelp />
       </div>
@@ -4624,6 +4625,7 @@
           </div><!-- /.nr-main -->
         </div><!-- /.nr-layout -->
 
+
         <div
           v-if="isScheduleEventEditMode && editingScheduleStackItem"
           class="nr-footer"
@@ -5771,6 +5773,8 @@
       </div>
     </div>
   </div>
+  </Teleport>
+  </div>
 </template>
 
 <script setup>
@@ -5810,6 +5814,7 @@ import {
   wallDatetimeLocalToSummaryIso
 } from '../../utils/scheduleEventInstants.js';
 import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../../utils/appointmentOfficeSelection.js';
+import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { familyScheduleProjection } from '../../utils/familyScheduleVisibility';
@@ -5947,6 +5952,8 @@ const openAttendanceVerification = (eventType,eventId) => {
   window.open(resolved.href,'_blank','noopener,noreferrer');
 };
 const authStore = useAuthStore();
+const fullscreenRoot = ref(null);
+const { fullscreenActive, fullscreenFallback, toggleFullscreen } = useScheduleFullscreen(fullscreenRoot);
 const trainingEditorOpen = ref(false);
 const selectedTrainingEventId = ref(null);
 const selectedTrainingInvited = ref(false);
@@ -6566,10 +6573,6 @@ const openMobileDayHour = (hour) => {
 };
 const rowHeightMode = ref('normal');
 const scheduleSideBySide = ref(true);
-const scheduleSettingsTipSeen = ref(false);
-const showScheduleSettingsTip = computed(() => props.mode === 'self' && !scheduleSettingsTipSeen.value
-  && Date.now() >= Date.parse('2026-10-19T06:00:00Z') && Date.now() < Date.parse('2026-12-19T07:00:00Z'));
-watch(calendarSettingsOpen, open => { if (open) scheduleSettingsTipSeen.value = true; });
 const initializedOverlayDefaults = ref(false);
 
 const displayPrefsKey = computed(() => {
@@ -7347,7 +7350,7 @@ const officeReminderToast = ref('');
 const OFFICE_REMINDER_MSG = 'Click "Office & Room Booking" to navigate offices and request space.';
 const OFFICE_REMINDER_STORAGE_KEY = 'sched_office_reminder_seen';
 const showOfficeReminder = () => {
-  if (props.mode !== 'self') return;
+  if (props.mode !== 'self' || props.compactPageChrome) return;
   try {
     if (sessionStorage.getItem(OFFICE_REMINDER_STORAGE_KEY)) return;
     sessionStorage.setItem(OFFICE_REMINDER_STORAGE_KEY, '1');
@@ -26798,6 +26801,13 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 </script>
 
 <style scoped>
+.schedule-stage-shell { min-width:0; }
+.sched-fullscreen-exit { position:fixed; right:16px; bottom:16px; z-index:1800; padding:10px 14px; border:1px solid var(--border,#cbd5e1); border-radius:10px; color:var(--text-primary,#17233a); background:var(--bg-card,#fff); box-shadow:0 3px 16px #0003; cursor:pointer; font:inherit; }
+
+.sched-wrap:fullscreen, .sched-wrap--fullscreen { box-sizing:border-box; width:100%; height:100dvh; overflow:auto; padding:12px; background:var(--bg-card,#fff); }
+.sched-wrap--fullscreen { position:fixed; inset:0; z-index:1900; }
+.sched-wrap:fullscreen .sched-command__nav, .sched-wrap--fullscreen .sched-command__nav { position:sticky; top:0; z-index:30; background:var(--bg-card,#fff); padding:4px; }
+
 .supervision-move-reason {display:flex;flex-direction:column;gap:10px;margin:16px 0;font-weight:600;}
 .supervision-move-reason textarea {padding:12px;font:inherit;border:1px solid #becbdf;border-radius:10px;width:100%;box-sizing:border-box;}
 .supervision-recurrence-badge {display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border:1px solid #c4b5fd;border-radius:999px;background:#ede9fe;color:#5b21b6;font-weight:700;margin:12px 0 18px;}
@@ -27040,11 +27050,12 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .sched-command__brand {
+  flex-wrap: wrap;
   display: inline-flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  flex: 1 1 220px;
+  flex: 0 1 auto;
 }
 .sched-command__title-switch { position: relative; }
 .sched-command__title-btn {
@@ -27158,7 +27169,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-left: auto;
+  margin-left: 0;
 }
 .sched-command__book {
   display: inline-flex;
@@ -29927,7 +29938,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   z-index: 1;
 }
 
-.sched-room-visibility { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; padding:12px 0; }
+.sched-room-visibility { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:4px 0; }
 .sched-room-visibility > .sched-pill { flex-shrink:0; }
 
 .modal-backdrop {

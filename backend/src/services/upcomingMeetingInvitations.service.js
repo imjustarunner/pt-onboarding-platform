@@ -1,3 +1,4 @@
+import { trainingRegistrationClosesAt } from './trainingRegistrationPolicy.js';
 import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { getSupervisionSignupWindow } from './supervisionSignupWindow.js';
@@ -10,10 +11,11 @@ const staffMembership = (alias, invitedAudience = false) => `EXISTS (SELECT 1 FR
   AND u.role IS NOT NULL AND u.role NOT IN ('client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate')
   AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING'))`;
 
-export async function upcomingMeetingInvitations(userId, now = new Date()) {
+export async function upcomingMeetingInvitations(userId, now = new Date(), { includeSnoozed = false } = {}) {
   const uid = Number(userId);
   if (!Number.isInteger(uid) || uid <= 0) return [];
-  const [trainings] = await pool.execute(`SELECT e.id,e.agency_id,e.title,e.start_at,e.end_at,e.event_timezone,
+  const [trainings] = await pool.execute(`SELECT e.id,e.agency_id,e.title,e.start_at,e.end_at,e.event_timezone,e.meeting_settings_json,
+    (SELECT MIN(first_event.start_at) FROM scheduled_trainings first_training JOIN provider_schedule_events first_event ON first_event.id=first_training.event_id WHERE first_training.series_key=t.series_key AND first_event.status='ACTIVE') registration_start_at,
     t.series_key,COALESCE(p.is_required,0) is_required,COALESCE(p.rsvp,'pending') rsvp
     FROM scheduled_trainings t JOIN provider_schedule_events e ON e.id=t.event_id
     JOIN agencies org ON org.id=e.agency_id AND org.is_active=1
@@ -39,7 +41,7 @@ export async function upcomingMeetingInvitations(userId, now = new Date()) {
     const key = row.series_key || row.id;
     if (seenTrainings.has(key)) return false;
     seenTrainings.add(key); return true;
-  }).map(row => ({ ...prompt(row, 'training'), required: Number(row.is_required) === 1 }));
+  }).map(row => ({ ...prompt(row, 'training'), required: Number(row.is_required) === 1, registrationClosesAt: trainingRegistrationClosesAt({...row,start_at:row.registration_start_at || row.start_at}), snoozeKey: `training:${row.series_key || row.id}` }));
   for (const row of supervisions) {
     const signupOnly = row.enrollment_mode === 'signup_only';
     const window = signupOnly ? getSupervisionSignupWindow(row, now) : {};
@@ -48,7 +50,11 @@ export async function upcomingMeetingInvitations(userId, now = new Date()) {
       required: !signupOnly && (Number(row.is_required) === 1 || Number(row.is_presenter) === 1),
       signupOnly, ...window });
   }
-  return prompts.sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
+  const open = prompts.filter(row => Date.parse(row.registrationClosesAt || row.signupClosesAt || row.startAt) > now.getTime());
+  const [snoozes] = includeSnoozed ? [[]] : await pool.execute('SELECT invitation_key,snoozed_until FROM dashboard_invitation_snoozes WHERE user_id=? AND snoozed_until>?', [uid, now]);
+  return open.filter(row => !snoozes.some(s => s.invitation_key === (row.snoozeKey || row.key)
+    && now.getTime() < Math.min(parseUtcDate(s.snoozed_until).getTime(), Date.parse(row.registrationClosesAt || row.signupClosesAt || row.startAt) - 12 * 3600000)))
+    .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
 }
 
 function prompt(row, type) {

@@ -1,9 +1,9 @@
 <template>
   <div class="rail-editor">
     <div class="rail-editor-actions">
-      <button v-if="!editing" type="button" :disabled="loading" @click="$emit('start')">Edit layout</button>
+      <button v-if="!editing" type="button" data-tour="dash-edit-layout" :disabled="loading" @click="$emit('start')">Edit layout</button>
       <template v-else>
-        <button type="button" :disabled="saving" @click="$emit('save')">{{ saving ? 'Saving…' : 'Save order' }}</button>
+        <button type="button" :disabled="saving" @click="$emit('save')">{{ saving ? 'Saving…' : 'Save layout' }}</button>
         <button type="button" :disabled="saving" @click="$emit('cancel')">Cancel</button>
         <button type="button" :disabled="saving" @click="$emit('reset')">Reset</button>
       </template>

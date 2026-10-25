@@ -23,6 +23,7 @@ it('shows office toasts throughout the authenticated AuricWell workspace and cle
   expect(mock.get).toHaveBeenCalledWith('/auricwell-preview/toasts/active');
   expect(w.get('.announcement-toast').text()).toContain('Provider appointments follow their individual schedules.');
   expect(w.get('.aw-nav').text()).toContain('Announcements');
+  expect(w.get('.aw-nav').text()).not.toContain('My Payroll');
   window.dispatchEvent(new Event('auricwell-session-ended')); await flushPromises();
   expect(w.find('.announcement-toast').exists()).toBe(false); w.unmount();
 });

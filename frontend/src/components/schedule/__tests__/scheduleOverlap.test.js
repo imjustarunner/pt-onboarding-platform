@@ -11,7 +11,7 @@ import Grid from '../ScheduleAvailabilityGrid.vue';
 let wrapper;
 const event=(id,start,end)=>({id,kind:'SCHEDULE_HOLD',title:`Block ${id}`,startAt:`2026-10-13T${start}:00`,endAt:`2026-10-13T${end}:00`,agencyId:2,providerId:7});
 async function mount(props={}) {
-  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2,weekStartYmd:'2026-10-12',...props},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2,weekStartYmd:'2026-10-12',...props},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
   await flushPromises();
   const s=wrapper.vm.$.setupState;
   s.summary=m.summary;
@@ -224,13 +224,11 @@ it('keeps post-rollout layout choices but always starts a new visit on the week'
   s.setScheduleSpanMode('day');await nextTick();
   expect(s.scheduleSpanMode).toBe('day');
 });
-it('shows the layout helper during the two-month introduction and dismisses on opening settings', async () => {
-  vi.setSystemTime(new Date('2026-10-19T18:00:00Z'));
-  const s=await mount({mode:'self',compactPageChrome:true});
-  expect(wrapper.find('.sched-settings-tip').text()).toContain('change your layout');
-  await wrapper.find('[data-testid="schedule-command-settings"]').trigger('click');
-  expect(wrapper.find('.sched-settings-tip').exists()).toBe(false);
-  wrapper.unmount();vi.setSystemTime(new Date('2026-12-20T18:00:00Z'));
+it('keeps compact settings discoverable without the old permanent helper', async () => {
   await mount({mode:'self',compactPageChrome:true});
   expect(wrapper.find('.sched-settings-tip').exists()).toBe(false);
+  const settings = wrapper.get('[data-tour="my-schedule-settings"]');
+  expect(settings.attributes('title')).toContain('layout');
+  await settings.trigger('click');
+  expect(settings.attributes('aria-expanded')).toBe('true');
 });

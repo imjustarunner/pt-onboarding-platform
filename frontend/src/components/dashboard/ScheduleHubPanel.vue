@@ -67,7 +67,7 @@
 
     <div v-if="metaOnlyHeader" class="sched-hub__utility-row" :class="{ 'sched-hub__utility-row--single-line': !!$slots['header-controls'] }">
       <slot name="header-controls" />
-      <div class="sched-hub__header-actions"><slot name="header-actions" /></div>
+      <details v-if="$slots['header-actions']" class="sched-hub__more"><summary title="Additional calendar tools and shortcuts">More schedule tools</summary><div class="sched-hub__header-actions"><slot name="header-actions" /></div></details>
     </div>
     <slot name="skill-builders" />
 
@@ -159,6 +159,11 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 </script>
 
 <style scoped>
+.sched-hub__more { min-width:0; font-size:13px; }
+.sched-hub__more > summary { cursor:pointer; padding:7px 10px; border:1px solid var(--border,#cbd5e1); border-radius:8px; }
+.sched-hub__more[open] { flex-basis:100%; }
+.sched-hub__more .sched-hub__header-actions { margin-top:8px; }
+
 .sched-hub {
   --hub-green: #166534;
   --hub-border: #e5e7eb;
@@ -367,9 +372,9 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   color: #14532d;
 }
 
-.sched-hub__utility-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; min-width: 0; }
+.sched-hub__utility-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px; min-width: 0; }
 .sched-hub__utility-row .sched-hub__header-actions { margin-left: auto; align-items: center; gap: 3px; }
-.sched-hub__utility-row--single-line .sched-hub__header-actions { flex-wrap: nowrap; }
+.sched-hub__utility-row--single-line .sched-hub__header-actions { flex-wrap: wrap; }
 .sched-hub__utility-row .sched-hub__header-actions :deep(.btn) { white-space: nowrap; font-size: 12px; }
 @media (max-width: 1100px) {
   .sched-hub__utility-row { flex-wrap: wrap; }

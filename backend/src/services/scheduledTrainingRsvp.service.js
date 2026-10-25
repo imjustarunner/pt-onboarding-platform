@@ -1,3 +1,4 @@
+import { trainingRegistrationClosesAt } from './trainingRegistrationPolicy.js';
 import pool from '../config/database.js';
 import { canJoinTeamMeeting } from './meetingJoinPolicy.service.js';
 
@@ -5,6 +6,13 @@ import { canJoinTeamMeeting } from './meetingJoinPolicy.service.js';
 export async function saveTrainingRsvp(event, userId, response, reason = '') {
   if (!['accepted', 'declined'].includes(response)) throw Object.assign(new Error('Choose attending or decline.'), {status:400});
   if (event.meeting_subtype !== 'training' || !await canJoinTeamMeeting(event,userId)) throw Object.assign(new Error('You are not invited to this training.'), {status:403});
+  if (response === 'accepted') {
+    const [[firstDate]] = await pool.execute(`SELECT e.start_at,e.meeting_settings_json FROM scheduled_trainings selected
+      JOIN scheduled_trainings series ON series.series_key=selected.series_key JOIN provider_schedule_events e ON e.id=series.event_id
+      WHERE selected.event_id=? AND e.status='ACTIVE' ORDER BY e.start_at LIMIT 1`, [event.id]);
+    const deadline = trainingRegistrationClosesAt(firstDate?.start_at ? firstDate : event);
+    if (Date.parse(deadline) <= Date.now()) throw Object.assign(new Error('Registration for this training has closed.'), {status:409});
+  }
   const declineReason = response === 'declined' ? String(reason || '').trim() : '';
   if (declineReason.length > 2000) throw Object.assign(new Error('Keep your reason under 2,000 characters.'), { status: 400 });
   if (response === 'declined') {
@@ -29,7 +37,8 @@ export async function saveOpenTrainingRsvp(eventId, userId, response) {
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
-    const [events] = await db.execute(`SELECT e.id,t.series_key FROM scheduled_trainings t
+    const [events] = await db.execute(`SELECT e.id,e.start_at,e.meeting_settings_json,t.series_key,
+      (SELECT MIN(first_event.start_at) FROM scheduled_trainings series JOIN provider_schedule_events first_event ON first_event.id=series.event_id WHERE series.series_key=t.series_key AND first_event.status='ACTIVE') registration_start_at FROM scheduled_trainings t
       JOIN provider_schedule_events e ON e.id=t.event_id
       JOIN agencies org ON org.id=e.agency_id AND org.is_active=1
       JOIN user_agencies ua ON ua.agency_id=e.agency_id AND ua.user_id=? AND ua.is_active=1
@@ -40,6 +49,7 @@ export async function saveOpenTrainingRsvp(eventId, userId, response) {
         AND u.role IS NOT NULL AND u.role NOT IN ('client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate')
       FOR UPDATE`, [userId,eventId]);
     if (!events[0]) throw Object.assign(new Error('This training is no longer available for registration.'), {status:403});
+    if (response === 'accepted' && Date.parse(trainingRegistrationClosesAt(events[0])) <= Date.now()) throw Object.assign(new Error('Registration for this training has closed.'), {status:409});
     const [dates] = await db.execute(`SELECT e.id,COALESCE(p.is_required,0) is_required FROM scheduled_trainings t
       JOIN provider_schedule_events e ON e.id=t.event_id
       LEFT JOIN meeting_participant_preferences p ON p.event_id=e.id AND p.user_id=?

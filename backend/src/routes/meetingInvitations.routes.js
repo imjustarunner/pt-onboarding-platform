@@ -1,3 +1,4 @@
+import { invitationSnoozedUntil } from '../services/trainingRegistrationPolicy.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { saveTrainingRsvp } from '../services/scheduledTrainingRsvp.service.js';
 import { trainingReminderDescription } from '../services/meetingReminderPolicy.js';
@@ -53,6 +54,19 @@ router.get('/active' , authenticate, async (req,res,next) => {
 router.get('/upcoming', authenticate, async (req,res,next) => {
   try { res.json({prompts: await upcomingMeetingInvitations(req.user.id)}); }
   catch (error) { next(error); }
+});
+router.post('/snooze', authenticate, async (req,res,next) => {
+  try {
+    const now = new Date();
+    const prompts = await upcomingMeetingInvitations(req.user.id, now, { includeSnoozed: true });
+    const prompt = prompts.find(p => p.key === req.body.key);
+    if (!prompt) return res.status(404).json({error:{message:'This invitation is no longer available.'}});
+    const until = invitationSnoozedUntil(prompt, now);
+    if (!until) return res.status(409).json({error:{message:'Please RSVP that you are attending or not attending. Registration closes within 12 hours and a decision must be made. Thank you for your understanding.'}});
+    await pool.execute(`INSERT INTO dashboard_invitation_snoozes (user_id,invitation_key,snoozed_until) VALUES (?,?,?)
+      ON DUPLICATE KEY UPDATE snoozed_until=VALUES(snoozed_until)`, [req.user.id,prompt.snoozeKey || prompt.key,until]);
+    res.json({ok:true,snoozedUntil:until.toISOString()});
+  } catch(error) { next(error); }
 });
 router.post('/:token/rsvp', async (req,res,next) => {
   try {

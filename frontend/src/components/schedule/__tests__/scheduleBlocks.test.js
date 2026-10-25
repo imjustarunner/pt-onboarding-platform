@@ -10,7 +10,7 @@ vi.mock('../../../store/agency', () => ({useAgencyStore:()=>({currentAgency:{id:
 import Grid from '../ScheduleAvailabilityGrid.vue';
 let wrapper;
 async function open(type='schedule_hold') {
-  wrapper=shallowMount(Grid,{props:{userId:m.user.id,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
+  wrapper=shallowMount(Grid,{props:{userId:m.user.id,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
   await flushPromises();
   const s=wrapper.vm.$.setupState;
   await s.openSlotActionModal({dayName:'Tuesday',hour:13,dateYmd:'2026-10-13',preserveSelectionRange:false,initialRequestType:'schedule_hold'});

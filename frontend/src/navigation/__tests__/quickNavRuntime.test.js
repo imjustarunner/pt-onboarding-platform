@@ -154,3 +154,33 @@ describe('Client Exchange on a dedicated agency host', () => {
     }
   });
 });
+
+describe('dashboard role audit regressions',()=>{
+ it.each(['provider','provider_plus','intern','intern_plus','staff','supervisor','clinical_practice_assistant','tutor','facilitator','clinician','support','admin','assistant_admin','schedule_manager'])('keeps ordinary %s accounts out of ungranted finance, records, and club pages',role=>{
+   const user={id:7,role};
+   for(const path of ['/finance-operations','/records-manager','/club/settings','/club/seasons','/my-portal']) expect(canDiscoverQuickNavRoute(resolved({},path),{user,agency:{organization_type:'agency'}})).toBe(false);
+   expect(canDiscoverQuickNavRoute(resolved({},'/dashboard?tab=overview'),{user})).toBe(true);
+ });
+ it.each(['client_guardian','client','school_staff','kiosk'])('keeps employee pages out of %s search',role=>{
+   for(const path of ['/dashboard','/my-meetings','/messages','/people-operations']) expect(canDiscoverQuickNavRoute(resolved({},path),{user:{role}})).toBe(false);
+ });
+ it('requires explicit grants, preserves valid grants and hides missing capabilities',()=>{
+   expect(canDiscoverQuickNavRoute(resolved({},'/records-manager'),{user:{role:'staff',capabilities:{canAccessRecordsManager:true}}})).toBe(true);
+   expect(canDiscoverQuickNavRoute(resolved({},'/finance-operations'),{user:{role:'staff',capabilities:{canAccessFinanceOperations:true}}})).toBe(true);
+   expect(canDiscoverQuickNavRoute(resolved({requiresCapability:'canManagePayroll'}),{user:{role:'staff'}})).toBe(false);
+ });
+ it('retains My Supervision after the clinical assignment ends',()=>{
+   const user={role:'provider',capabilities:{hasClinicalSupervision:true}};
+   expect(buildQuickNavContext({user}).showMySupervision).toBe(true);
+   expect(canDiscoverQuickNavRoute(resolved({},'/supervision/agreements'),{user})).toBe(true);
+ });
+});
+
+it('keeps athlete navigation on participant surfaces and restricts club settings to managers',()=>{
+ const athlete={role:'athlete'},agency={organization_type:'affiliation',club_role:'member'};
+ expect(canDiscoverQuickNavRoute(resolved({},'/example/my_club_dashboard'),{user:athlete,agency})).toBe(true);
+ expect(canDiscoverQuickNavRoute(resolved({},'/example/messages'),{user:athlete,agency})).toBe(false);
+ expect(canDiscoverQuickNavRoute(resolved({},'/example/dashboard','Dashboard',{tab:'my',my:'payroll'}),{user:athlete,agency})).toBe(false);
+ expect(canDiscoverQuickNavRoute(resolved({},'/example/club/settings'),{user:{role:'provider'},agency})).toBe(false);
+ expect(canDiscoverQuickNavRoute(resolved({},'/example/club/settings'),{user:{role:'provider'},agency:{...agency,club_role:'manager'}})).toBe(true);
+});

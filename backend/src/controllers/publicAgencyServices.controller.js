@@ -483,7 +483,7 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
   return new Set((await listEnrolledProviders(agencyId, serviceType)).map(row => Number(row.id)));
 }
 
-async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
+export async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
   const serviceEnabled=(await getAgencyServiceTypes(agencyId)).some(s=>s.service_type===serviceType);
   // A clinical directory and school schedule remain public when online booking is not configured.
   if(!serviceEnabled && !(includeDirectory && serviceType==='counseling')) return [];

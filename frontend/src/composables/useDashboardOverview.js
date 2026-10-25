@@ -334,6 +334,9 @@ export function useDashboardOverview(opts = {}) {
       ) {
         whereParts.push(location);
       }
+      const city = String(enriched.schoolCity || enriched.city || enriched.eventLocationCity || e.schoolCity || e.city || '').trim();
+      const address = String(enriched.eventLocationAddress || enriched.publicLocationAddress || enriched.schoolAddress || e.eventLocationAddress || e.publicLocationAddress || e.schoolAddress || '').trim();
+      for (const part of [address, city]) if (part && !whereParts.some(p => p.toLowerCase().includes(part.toLowerCase()))) whereParts.push(part);
       return {
         id: `ce-${e.id}`,
         title,

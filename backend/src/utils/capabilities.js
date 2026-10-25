@@ -1,3 +1,5 @@
+import { context as recordsContext } from '../services/recordsRequests/service.js';
+import { hasClinicalSupervisionHistory } from '../services/clinicalSupervisionHistory.service.js';
 import { checkAccess } from './accessControl.js';
 import {financeAgencyIds} from '../services/finance/policy.js';
 import User from '../models/User.model.js';
@@ -47,6 +49,9 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
   const managedBilling = userForCaps?.id && !['provider', 'provider_plus'].includes(roleForCaps) ? await managedBillingAgencies(userForCaps.id) : [];
   const credentialingAgencyIds = await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
   const baseCaps = getUserCapabilities(userForCaps);
+  const [records, hasClinicalSupervision] = userForCaps?.id
+    ? await Promise.all([recordsContext(userForCaps.id), hasClinicalSupervisionHistory(userForCaps.id)])
+    : [{ practices: [] }, false];
   const financeIds = await financeAgencyIds(userForCaps);
   const canManagePayroll = roleForCaps === 'super_admin' || payrollAgencyIds.length > 0;
   const canAccessBudgetManagement =
@@ -66,6 +71,8 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
     managedBillingAgencyIds: [...new Set(managedBilling.map(a => Number(a.id)))],
     capabilities: {
       ...baseCaps,
+      canAccessRecordsManager: records.practices.length > 0,
+      hasClinicalSupervision,
       canManagePayroll,
       canAccessBudgetManagement,
       canManageCredentialing,

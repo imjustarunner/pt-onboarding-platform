@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:7,role:'super_admin'}})}));
+vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{id:2,slug:'itsco'}})}));
+vi.mock('../../../store/branding',()=>({useBrandingStore:()=>({getDashboardCardIconUrl:()=>null})}));
 import FrequentPagesBar from '../FrequentPagesBar.vue';
 
 const state = vi.hoisted(() => ({ shortcuts: [] }));
@@ -68,9 +71,9 @@ describe('Frequent pages workspace navigation', () => {
     wrapper.unmount();
   });
 
-  it.each([null, '//another.example/admin', '/login'])('uses the current workspace home for an invalid shortcut %s', async (path) => {
+  it.each([null, '//another.example/admin', '/login'])('hides an invalid shortcut %s', async (path) => {
     const { wrapper } = await renderAt('/itsco/dashboard', path);
-    expect(wrapper.get('a').attributes('href')).toBe('/itsco/admin');
+    expect(wrapper.find('a').exists()).toBe(false);
     wrapper.unmount();
   });
 });

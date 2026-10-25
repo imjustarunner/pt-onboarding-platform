@@ -828,7 +828,7 @@ export const APP_PAGES = [
     desc: 'View and manage notifications.'
   },
   {
-    title: 'Messages by Conversa',
+    title: 'Messages',
     section: 'Communications',
     path: '/messages',
     keywords: ['messages', 'messaging', 'inbox', 'direct messages'],

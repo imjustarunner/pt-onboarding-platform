@@ -10,7 +10,18 @@ waitingMedia.push({url:'/assets/auricwell-session-logo.png',path:fileURLToPath(n
 const sharedWaitingMedia={
  name:'shared-waiting-room-media',
  generateBundle(){for(const file of waitingMedia)this.emitFile({type:'asset',fileName:file.url.slice(1),source:readFileSync(file.path)});},
- configureServer(server){server.middlewares.use((req,res,next)=>{const file=waitingMedia.find(f=>f.url===req.url?.split('?')[0]);if(!file)return next();res.setHeader('Content-Type',file.url.endsWith('.mp4')?'video/mp4':file.url.endsWith('.png')?'image/png':'audio/mpeg');res.end(readFileSync(file.path));});}
+ configureServer(server){server.middlewares.use((req,res,next)=>{
+  const requested=new URL(req.url||'/','http://localhost');
+  const file=waitingMedia.find(f=>f.url===requested.pathname);
+  if(!file)return next();
+  // Vue's image imports need a URL module; ordinary image/media requests need bytes.
+  if(requested.searchParams.has('import')){
+   res.setHeader('Content-Type','application/javascript');
+   return res.end(`export default ${JSON.stringify(file.url)};`);
+  }
+  res.setHeader('Content-Type',file.url.endsWith('.mp4')?'video/mp4':file.url.endsWith('.png')?'image/png':'audio/mpeg');
+  res.end(readFileSync(file.path));
+ });}
 };
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";

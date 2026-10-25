@@ -48,3 +48,15 @@ describe('provider event relevance', () => {
     expect(shouldShowOnProviderDashboardEvents({ ...past, nextOccurrenceStart: '2030-10-10T14:00:00Z', nextOccurrenceEnd: '2030-10-10T18:00:00Z' })).toBe(true);
   });
 });
+
+it('never offers a last day of school shift when legacy data labels it as outreach', () => {
+  for (const details of [{title:'Last Day of School'}, {schoolEventCategory:'last_day'}]) {
+    expect(canRequestCompanyEventShift(event(details))).toBe(false);
+  }
+});
+
+it('keeps the last school day visible as an informational event with no shift action',()=>{
+ const row=event({eventType:'school_last_day'});
+ expect(shouldShowOnProviderDashboardEvents(row)).toBe(true);
+ expect(canRequestCompanyEventShift(row)).toBe(false);
+});

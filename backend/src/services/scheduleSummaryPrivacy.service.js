@@ -47,6 +47,7 @@ export function resolveScheduleDetailLevel({
   isSupervisorOfTarget = false
 }) {
   const raw = String(requestedLevel || '').trim().toLowerCase();
+  if (raw === 'availability') return 'availability';
   if (isSelf) return raw === 'busy' ? 'busy' : 'full';
   const canFull = canViewFullScheduleDetails(actorRole) || isSupervisorOfTarget;
   if (raw === 'full' && canFull) return 'full';
@@ -54,6 +55,33 @@ export function resolveScheduleDetailLevel({
   if (raw === 'typed') return 'typed';
   // Default: privileged get full, peers get typed activity (type + office + provider, no client PII)
   return canFull ? 'full' : 'typed';
+}
+
+export function canViewPeerSchedule(role) {
+  return ['super_admin', 'superadmin', 'admin', 'assistant_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'intern', 'intern_plus', 'facilitator', 'tutor', 'clinician'].includes(normalizeScheduleRole(role));
+}
+
+export function canIncludeAllScheduleAgencies({ isSelf, actorRole }) {
+  return isSelf || ['super_admin', 'superadmin'].includes(normalizeScheduleRole(actorRole));
+}
+
+/** Minimal coworker availability. Never serialize event identities, people, locations or notes. */
+export function toPeerAvailabilitySummary(payload = {}) {
+  const typed = toTypedPeerScheduleSummary(payload);
+  const seen = new Set();
+  const busyBlocks = [];
+  for (const block of typed.busyBlocks) {
+    if (block.activityType === 'opening') continue;
+    const kind = String(block.eventKind || '').toUpperCase();
+    const activityType = block.activityType === 'session' || ['CLIENT_SESSION', 'VIRTUAL_SESSION', 'SESSION'].includes(kind)
+      ? 'session' : ['supervision', 'team_meeting', 'meeting', 'huddle', 'admin_meeting', 'town_hall'].includes(block.activityType) || ['TEAM_MEETING', 'HUDDLE'].includes(kind)
+        ? 'meeting' : 'busy';
+    const key = `${block.startAt}|${block.endAt}|${activityType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    busyBlocks.push({ startAt: block.startAt, endAt: block.endAt, activityType, title: { session: 'Session', meeting: 'Meeting', busy: 'Busy' }[activityType] });
+  }
+  return { ok: true, detailLevel: 'availability', weekStart: payload.weekStart, weekEnd: payload.weekEnd, busyBlocks };
 }
 
 function intervalFromRow(row, startKeys = ['startAt', 'start_at', 'start'], endKeys = ['endAt', 'end_at', 'end']) {

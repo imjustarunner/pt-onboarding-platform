@@ -117,7 +117,7 @@ function buildAppEntries() {
       requires: ['showSchedule']
     },
     {
-      id: 'schedule-meetings', label: 'Meetings', group: 'schedule',
+      id: 'schedule-meetings', label: 'My Meetings', group: 'schedule',
       description: 'Your attended meetings, shared records, and personal notes.',
       keywords: ['meeting history','attendance','chat','transcripts','supervision','huddles','interviews'],
       kind: 'dashboard', tab: 'meetings', requires: ['showSchedule']
@@ -181,6 +181,9 @@ function buildAppEntries() {
       tab: 'my_supervision',
       requires: ['showMySupervision']
     },
+    { id: 'staff-directory', label: 'Staff', kind: 'dashboard', tab: 'staff', group: 'workspace',
+      description: 'Find work numbers, extensions, offices, and profiles. Message a colleague.', keywords: ['staff','directory','extension','coworker','phone','office'],
+      visibleKey: 'workforce', rolesAny: ['super_admin','admin','support','staff','provider','provider_plus','supervisor','clinical_practice_assistant','intern','intern_plus','facilitator','tutor','clinician','assistant_admin'] },
     {
       id: 'clients-caseload',
       routeName: 'MyClients',
@@ -349,7 +352,7 @@ function buildAppEntries() {
     {
       id: 'learning-training',
       routeName: 'AssignedTraining',
-      label: 'Assigned Training',
+      label: 'My Training',
       description: 'Assigned onboarding modules and learning paths.',
       group: 'learning',
       keywords: ['training', 'modules', 'learning', 'courses', 'onboarding', 'assigned training'],
@@ -431,7 +434,7 @@ function buildAppEntries() {
     {
       id: 'workspace-chats',
       routeName: 'PlatformChats',
-      label: 'Messages by Conversa',
+      label: 'Messages',
       description: 'Message your team.',
       group: 'workspace',
       keywords: ['chats', 'chat', 'messages', 'messaging'],
@@ -880,7 +883,7 @@ export function buildQuickNavContext(opts = {}) {
     showPayroll: !!opts.showPayroll && !isSchoolStaff && !isClubContext,
     showClaims: !!opts.showClaims,
     showSupervision: !!opts.showSupervision,
-    showMySupervision: !!opts.showMySupervision,
+    showMySupervision: !isClubContext && !isSup && !!(user?.has_clinical_supervision || user?.capabilities?.hasClinicalSupervision),
     showChats: opts.showChats !== false && !isLimitedAccessNonProvider,
     showLearning: !isClubContext && !isSchoolStaff,
     canManagePayroll: !!caps.canManagePayroll || isTrueAdmin,

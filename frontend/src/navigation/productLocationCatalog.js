@@ -526,10 +526,10 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'platform-chats',
     routeName: 'PlatformChats',
-    label: 'Messages by Conversa',
+    label: 'Messages',
     description: 'Message your team.',
     group: 'workspace',
-    howToFind: 'My Dashboard → Messages by Conversa',
+    howToFind: 'My Dashboard → Messages',
     keywords: ['chats', 'chat', 'messages', 'messaging', 'platform chats']
   },
   {

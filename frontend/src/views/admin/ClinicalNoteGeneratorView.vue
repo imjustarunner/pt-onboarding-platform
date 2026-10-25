@@ -1440,6 +1440,7 @@
       </main>
 
       <NoteAidWorkQueuePanel
+        :allow-add="authStore.user?.role === 'super_admin'"
         v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
         :items="workQueueItems"
         :active-id="activeWorkQueueItemId"

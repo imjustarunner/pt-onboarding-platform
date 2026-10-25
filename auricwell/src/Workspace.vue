@@ -1,5 +1,5 @@
 <template>
-  <div class="workspace">
+  <div class="workspace" :class="{'ehr-sidebar-collapsed': !patientPortal && sidebarCollapsed}">
     <AnnouncementToasts v-if="account?.id && practice && !patientPortal"
       :storage-key="`auricwell:${account.id}:practice:${practice.id || route.params.slug}`"
       :load-items="loadOfficeToasts" />
@@ -20,14 +20,17 @@
           :key="item.key"
           :to="`${root}/${item.key}`"
           :class="{ active: section === item.key }"
+          :title="item.label"
+          :aria-label="item.label"
+          :aria-current="section === item.key ? 'page' : undefined"
           ><span class="nav-icon" aria-hidden="true">{{ item.icon }}</span
-          >{{ item.label
-          }}<span v-if="item.key === 'messages' && unread" class="count">{{
+          ><span class="nav-label">{{ item.label }}</span><span v-if="item.key === 'messages' && unread" class="count">{{
             unread
           }}</span></RouterLink
         >
       </nav>
       <div class="sidebar-bottom">
+        <button v-if="!patientPortal" type="button" class="link-button ehr-sidebar-toggle" :aria-expanded="!sidebarCollapsed" :aria-label="sidebarCollapsed?'Expand sidebar':'Collapse sidebar'" @click="sidebarCollapsed=!sidebarCollapsed">{{ sidebarCollapsed?'→':'← Collapse' }}</button>
         <div class="small-mark">A</div>
         <p>More room<br />for care.</p>
         <RouterLink to="/account/text-verification">Account security</RouterLink>
@@ -72,7 +75,8 @@
           Loading your workspace…
         </p>
         <template v-else-if="data">
-          <div v-if="section === 'announcements' && canManageToasts" class="stack">
+          <PracticeOverview v-if="section === 'home' && !patientPortal" :account="account" :practice="practice" :data="data" :navigation="navigation" :notifications="notifications" @navigate="navigateOverview" />
+          <div v-else-if="section === 'announcements' && canManageToasts" class="stack">
             <ToastAnnouncementManager :request="api" :base-path="`${base}/toasts`" />
             <ToastAnnouncementManager v-if="account?.operator" :request="api" base-path="/support-toasts" support />
           </div>
@@ -331,6 +335,7 @@
             /></template>
             <NoteWorkspace
               v-else-if="section === 'documentation'"
+              ref="noteWorkspace"
               :key="base"
               :base="base"
               :account-id="account.id"
@@ -652,6 +657,8 @@ import { api } from "./api";
 import RecordForm from "./RecordForm.vue";
 import RecordsRequests from "./RecordsRequests.vue";
 import AnnouncementToasts from '../../frontend/src/components/notifications/AnnouncementToasts.vue';
+import PracticeOverview from '../../frontend/src/auricwell/PracticeOverview.vue';
+import { useDashboardCardState } from '../../frontend/src/composables/useDashboardCardState.js';
 import ToastAnnouncementManager from '../../frontend/src/components/admin/ToastAnnouncementManager.vue';
 import Settings from "./Settings.vue";
 import SessionPreferences from "./SessionPreferences.vue";
@@ -703,6 +710,7 @@ const account = ref(null),
 const clinicalPatient = ref("");
 const billingClient = ref("");
 const noteTemplates = ref([]);
+const noteWorkspace = ref(null);
 const contacts = ref([]),
   notifications = ref([]),
   showNotifications = ref(false);
@@ -716,6 +724,15 @@ const externalSession = ref(null);
 const section = computed(() => route.params.section || "home"),
   patientPortal = computed(() => practice.value?.actorType !== "staff");
 const can = (p) => practice.value?.permissions?.includes(p);
+const sidebarState=useDashboardCardState({kind:'auricwell-practice-sidebar',userId:computed(()=>account.value?.id),agencyId:computed(()=>practice.value?.id||route.params.slug),cardIds:['navigation']});
+const sidebarCollapsed=computed({get:()=>sidebarState.collapsedCards.value.includes('navigation'),set:value=>sidebarState.setCollapsed('navigation',value)});
+async function navigateOverview(target) {
+  if (!navigation.value.some(item=>item.key===target.section)) return;
+  await router.push(`${root}/${target.section}`);
+  await nextTick();
+  if (target.patientId) selectedPatient.value=target.patientId;
+  if (target.note) noteWorkspace.value?.openNote(target.note);
+}
 const canManageToasts = computed(() => !patientPortal.value && (can('admin') || can('announcements') || account.value?.operator));
 const loadOfficeToasts = () => api(`${base}/toasts/active`);
 const practiceTimezone = computed(
@@ -750,7 +767,7 @@ const descriptions = {
 };
 const navigation = computed(() =>
   [
-    { key: "home", label: "Home", icon: "⌂" },
+    { key: "home", label: patientPortal.value ? "Home" : "Overview", icon: "⌂" },
     ...(canManageToasts.value ? [{ key: "announcements", label: "Announcements", icon: "◉" }] : []),
     ...(patientPortal.value || can("records_manager") ? [{ key: "records-requests", label: patientPortal.value ? "Request my records" : "Records requests", icon: "▤" }] : []),
     {

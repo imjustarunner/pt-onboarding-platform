@@ -95,11 +95,11 @@ const DEFAULT_RSVP_OPTIONS = [
   { key: '3', label: 'Maybe' }
 ];
 
-function isFirstDayOfSchoolDashboardEvent(row) {
+function isSchoolBoundaryDashboardEvent(row) {
   const eventType = String(row?.event_type || row?.eventType || '').trim().toLowerCase();
-  if (eventType === 'school_first_day') return true;
+  if (['school_first_day', 'school_last_day'].includes(eventType)) return true;
   const title = String(row?.title || '').trim().toLowerCase();
-  if (/\bfirst\s*day\s*of\s*school\b/.test(title)) return true;
+  if (/\b(?:first|last)\s*day\s*of\s*school\b/.test(title)) return true;
   if (/\bjump\s*start\b/.test(title) && /\bfirst\s*day\b/.test(title)) return true;
   return false;
 }
@@ -3625,7 +3625,7 @@ export const listMyCompanyEvents = async (req, res, next) => {
     const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
     const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true });
     const events = visible
-      .filter(({ row }) => !isFirstDayOfSchoolDashboardEvent(row))
+      .filter(({ row }) => !isSchoolBoundaryDashboardEvent(row) || String(row.event_type || '').toLowerCase() === 'school_last_day' || /\blast\s*day\s*of\s*school\b/i.test(row.title || ''))
       .filter(({ row }) => { const vote = parseVotingConfig(parseJsonMaybe(row.voting_config_json)); return !vote.enabled || (pollUsesInternal(vote) && !row.participated && !row.voting_closed_at); })
       .map(({ row, audience }) => ({
       ...mapEventRow(row, req, { myEndpoint: true }),
@@ -3664,7 +3664,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
                 SELECT 1 FROM company_event_session_providers mine
                 WHERE mine.company_event_id = ce.id AND mine.provider_user_id = ?
               ) AS is_assigned_provider,
-              sch.name AS school_name,
+              sch.name AS school_name, sch.city AS school_city, sch.street_address AS school_address,
               sch.portal_url AS school_portal_url,
               sch.slug AS school_slug,
               sch.logo_url AS school_logo_url
@@ -3702,7 +3702,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
         || audience.groupIds.some((id) => userGroupIds.has(id));
       if (!inAudience) return false;
       const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(eventTypeToCategory(row.event_type))
-        || isFirstDayOfSchoolDashboardEvent(row);
+        || isSchoolBoundaryDashboardEvent(row);
       const staffing = parseJsonMaybe(row.staffing_config_json);
       const staffable = (staffing?.enabled && staffing?.providerSignup?.enabled !== false)
         || Number(row.outreach_table_invited) === 1;
@@ -3787,7 +3787,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       const eventType = String(row.event_type || '').toLowerCase();
       const isSchoolEvent = isSchoolPortalEventType(eventType);
       const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(eventTypeToCategory(eventType))
-        || isFirstDayOfSchoolDashboardEvent(row);
+        || isSchoolBoundaryDashboardEvent(row);
       const staffingRequestable =
         !calendarOnly && eventType !== 'skills_group' &&
         !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false);
@@ -3807,6 +3807,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
         isSchoolPortalEvent: isSchoolEvent,
         calendarOnly,
         schoolName: row.school_name ? String(row.school_name).trim() : null,
+        schoolCity: row.school_city || null, schoolAddress: row.school_address || null,
         schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
         schoolLogoUrl: row.school_logo_url ? String(row.school_logo_url).trim() : null,
         districtName: row.district_name ? String(row.district_name).trim() : null,

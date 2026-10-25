@@ -7,20 +7,21 @@
       </div>
       <div class="ov-header-actions">
         <button
-          v-if="showLogTime"
+          v-if="showClaims || showLogTime"
           type="button"
           class="ov-log-time-btn"
-          data-tour="dash-overview-log-time"
-          @click="navigate('log_time')"
+          data-tour="dash-overview-submit"
+          @click="navigate('submit')"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+            <path d="M12 16V4m-4 4 4-4 4 4M4 14v6h16v-6"/>
           </svg>
-          Log Time
+          Submit
         </button>
         <button
           type="button"
           class="ov-icon-btn"
+          data-tour="dash-overview-notifications"
           :aria-label="`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`"
           @click="navigate('notifications')"
         >
@@ -30,7 +31,7 @@
         <button
           type="button"
           class="ov-icon-btn"
-          aria-label="Open schedule"
+          aria-label="Open schedule" data-tour="dash-overview-schedule"
           @click="navigate('my_schedule')"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
@@ -77,22 +78,24 @@
         @navigate="navigate"
         @open-note-aid="openNoteAid"
       />
+      <button v-for="key in collapsedCardKeys" :key="key" type="button" class="ov-collapsed-card"
+        :aria-label="`Expand ${cardLabels[key]}`" @click="setCollapsed(key, false)">
+        <span>{{ cardLabels[key] }}</span><strong>{{ cardSummary(key) }}</strong><small>Expand ↗</small>
+      </button>
     </div>
 
     <div v-if="error" class="ov-error">{{ error }}</div>
 
-    <button type="button" class="ov-customize" :aria-expanded="cardLayout.editMode.value" @click="cardLayout.editMode.value = !cardLayout.editMode.value">Customize dashboard</button>
-    <div v-if="cardLayout.editMode.value" class="ov-card-editor" aria-label="Dashboard cards">
-      <div v-for="key in cardLayout.order.value" :key="key">
-        <label><input type="checkbox" :checked="!hiddenCards.includes(key)" @change="toggleCard(key)" /> {{ cardLabels[key] }}</label>
-        <button type="button" :disabled="cardLayout.isFirst(key)" :aria-label="`Move ${cardLabels[key]} up`" @click="cardLayout.moveUp(key)">↑</button>
-        <button type="button" :disabled="cardLayout.isLast(key)" :aria-label="`Move ${cardLabels[key]} down`" @click="cardLayout.moveDown(key)">↓</button>
-      </div>
-    </div>
+    <DashboardCardEditor :layout="cardLayout" :card-keys="availableCardKeys" :labels="cardLabels" :hidden="hiddenCards" @toggle="toggleCard" @reset="resetCards" />
     <div class="ov-mid">
-      <OverviewWorkCard v-if="showNotes && !hiddenCards.includes('work')" :style="cardLayout.orderStyle('work')" />
+      <DashboardOverviewSection v-if="availableCardKeys.includes('work') && !hiddenCards.includes('work')" v-show="!collapsedCards.includes('work')"
+        :style="cardLayout.orderStyle('work')" :label="cardLabels.work" :section-id="'work'" @collapse="setCollapsed('work', true)">
+      <OverviewWorkCard :style="cardLayout.orderStyle('work')" />
+      </DashboardOverviewSection>
+      <DashboardOverviewSection v-if="availableCardKeys.includes('schedule') && !hiddenCards.includes('schedule')" v-show="!collapsedCards.includes('schedule')"
+        :style="cardLayout.orderStyle('schedule')" :label="cardLabels.schedule" :section-id="'schedule'" @collapse="setCollapsed('schedule', true)">
       <OverviewTodaySchedule
-        v-if="showSchedule && !hiddenCards.includes('schedule')"
+
         :style="cardLayout.orderStyle('schedule')"
         class="ov-mid-schedule"
         :items="todayScheduleItems"
@@ -104,8 +107,11 @@
         @join="onJoinEvent"
         @open-focus="openFocusFromSchedule"
       />
+      </DashboardOverviewSection>
+      <DashboardOverviewSection v-if="availableCardKeys.includes('pay') && !hiddenCards.includes('pay')" v-show="!collapsedCards.includes('pay')"
+        :style="cardLayout.orderStyle('pay')" :label="cardLabels.pay" :section-id="'pay'" @collapse="setCollapsed('pay', true)">
       <OverviewPayPeriodCard
-        v-if="showPayroll && !hiddenCards.includes('pay')"
+
         :style="cardLayout.orderStyle('pay')"
         class="ov-mid-pay"
         :loading="loading"
@@ -124,8 +130,11 @@
         @navigate="navigate"
         @open-paycheck="openPaycheck"
       />
+      </DashboardOverviewSection>
+      <DashboardOverviewSection v-if="availableCardKeys.includes('events') && !hiddenCards.includes('events')" v-show="!collapsedCards.includes('events')"
+        :style="cardLayout.orderStyle('events')" :label="cardLabels.events" :section-id="'events'" @collapse="setCollapsed('events', true)">
       <OverviewEventsCard
-        v-if="!hiddenCards.includes('events')"
+
         :style="cardLayout.orderStyle('events')"
         :agency-id="agencyId"
         class="ov-mid-events"
@@ -137,26 +146,34 @@
         @join="onJoinEvent"
         @request-changed="onEventsRequestChanged"
       />
-    </div>
+      </DashboardOverviewSection>
 
-    <div class="ov-bottom">
+      <DashboardOverviewSection v-if="availableCardKeys.includes('notes') && !hiddenCards.includes('notes')" v-show="!collapsedCards.includes('notes')"
+        :style="cardLayout.orderStyle('notes')" :label="cardLabels.notes" :section-id="'notes'" @collapse="setCollapsed('notes', true)">
       <OverviewNotesSnapshot
-        v-if="showNotes"
+
         class="ov-bottom-notes"
         :direct-indirect="directIndirect"
         :notes-incomplete="notesStats.incomplete"
         @navigate="navigate"
       />
+      </DashboardOverviewSection>
+      <DashboardOverviewSection v-if="availableCardKeys.includes('activity') && !hiddenCards.includes('activity')" v-show="!collapsedCards.includes('activity')"
+        :style="cardLayout.orderStyle('activity')" :label="cardLabels.activity" :section-id="'activity'" @collapse="setCollapsed('activity', true)">
       <OverviewRecentActivity
         class="ov-bottom-activity"
         :items="recentActivityItems"
         @navigate="navigate"
       />
+      </DashboardOverviewSection>
+      <DashboardOverviewSection v-if="availableCardKeys.includes('actions') && !hiddenCards.includes('actions')" v-show="!collapsedCards.includes('actions')"
+        :style="cardLayout.orderStyle('actions')" :label="cardLabels.actions" :section-id="'actions'" @collapse="setCollapsed('actions', true)">
       <OverviewQuickActions
         class="ov-bottom-actions"
         :actions="quickActions"
         @action="onQuickAction"
       />
+      </DashboardOverviewSection>
     </div>
 
     <div v-if="showTip" class="ov-tip" role="status">
@@ -180,6 +197,9 @@ import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
+import DashboardOverviewSection from './DashboardOverviewSection.vue';
+import DashboardCardEditor from './DashboardCardEditor.vue';
+import { useDashboardCardState } from '../../composables/useDashboardCardState.js';
 import OverviewWorkCard from './OverviewWorkCard.vue';
 import { useDashboardLayout } from '../../composables/useDashboardLayout.js';
 import OverviewMetricCards from './OverviewMetricCards.vue';
@@ -245,16 +265,17 @@ const noteAidInProgressCount = ref(0);
 
 const userId = computed(() => authStore.user?.id || null);
 const agencyIdRef = toRef(props, 'agencyId');
-const cardLabels = { work: 'My Work', schedule: 'Today’s schedule', pay: 'Last pay overview', events: 'Events for you' };
-const cardLayout = useDashboardLayout({ kind: 'staff-overview', userId, agencyId: agencyIdRef, defaultOrder: ['work', 'schedule', 'pay', 'events'] });
-const hiddenCards = ref([]);
-const hiddenCardsKey = computed(() => `staff-overview-hidden:${userId.value}:${props.agencyId || ''}`);
-watch(hiddenCardsKey, key => { try { const saved = JSON.parse(localStorage.getItem(key) || '[]'); hiddenCards.value = Array.isArray(saved) ? saved.filter(id => id in cardLabels) : []; } catch { hiddenCards.value = []; } }, { immediate: true });
-function toggleCard(key) {
-  hiddenCards.value = hiddenCards.value.includes(key) ? hiddenCards.value.filter(id => id !== key) : [...hiddenCards.value, key];
-  try { localStorage.setItem(hiddenCardsKey.value, JSON.stringify(hiddenCards.value)); } catch { /* Browser preferences unavailable. */ }
+const cardLabels = { work: 'My Work', schedule: 'My Schedule', pay: 'Last pay overview', events: 'Events for you', notes: 'Notes Snapshot', activity: 'Recent Activity', actions: 'Quick Actions' };
+const cardLayout = useDashboardLayout({ kind: 'staff-overview', userId, agencyId: agencyIdRef, defaultOrder: Object.keys(cardLabels) });
+const availableCardKeys = computed(() => cardLayout.order.value.filter(key =>
+  !(['work', 'notes'].includes(key) && !props.showNotes) && !(key === 'schedule' && !props.showSchedule) && !(key === 'pay' && !props.showPayroll)));
+const { collapsedCards, hiddenCards, setCollapsed, toggleCard, resetCards } = useDashboardCardState({ kind: 'staff-overview', userId, agencyId: agencyIdRef, cardIds: Object.keys(cardLabels) });
+const collapsedCardKeys = computed(() => availableCardKeys.value.filter(key => collapsedCards.value.includes(key) && !hiddenCards.value.includes(key)));
+function cardSummary(key) {
+  return { work: `${noteAidQueueCount.value} not started · ${noteAidInProgressCount.value} in progress`, schedule: `${todayScheduleItems.value.length} today`,
+    pay: payPeriod.value.tierLabel || 'Pay period', events: `${upcomingEvents.value.length} upcoming`, notes: `${notesStats.value.incomplete || 0} incomplete`,
+    activity: `${recentActivityItems.value.length} updates`, actions: `${quickActions.value.length} shortcuts` }[key];
 }
-
 const enabledRef = toRef(props, 'enabled');
 const companyEventsRef = toRef(props, 'companyEvents');
 const supervisionPromptsRef = toRef(props, 'supervisionPrompts');
@@ -747,24 +768,14 @@ const onQuickAction = (action) => {
   color: #c4b5fd;
 }
 [data-theme="dark"] .ov-tip-dismiss { color: #94a3b8; }
-@media (max-width: 1100px) {
-  .ov-mid,
-  .ov-bottom {
-    grid-template-columns: 1fr 1fr;
-  }
-  .ov-mid-schedule,
-  .ov-bottom-activity {
-    grid-column: 1 / -1;
-  }
-}
-@media (max-width: 720px) {
-  .ov-mid,
-  .ov-bottom {
-    grid-template-columns: 1fr;
-  }
-  .ov-mid-schedule,
-  .ov-bottom-activity {
-    grid-column: auto;
-  }
-}
+/* Use the content width, including when the navigation is expanded. */
+.ov-mid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.ov-mid > * { min-width: 0; max-width: 100%; }
+.ov-home { min-width: 0; max-width: 100%; container-type: inline-size; }
+.ov-collapsed-card { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 16px; min-width: 0; border: 1px solid var(--border, #e2e8f0); border-radius: 12px; background: var(--bg-card, #fff); color: var(--text-primary); cursor: pointer; }
+.ov-collapsed-card span { font-weight: 700; }
+.ov-collapsed-card strong { font-size: 14px; overflow-wrap: anywhere; }
+.ov-collapsed-card small { color: var(--text-secondary); }
+@container (max-width: 540px) { .ov-mid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 </style>
