@@ -5,6 +5,7 @@ import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowP
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
+import { hasRequiredRouteRole } from './routeRoleAccess.js';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
 import { tenantLegalProfiles, tenantLegalLinks } from '../content/tenantLegalProfiles.js';
@@ -6202,7 +6203,6 @@ router.beforeEach(async (to, from, next) => {
     // Falls back to the global role for users with no active agency context.
     const userRoleNorm = currentEffectiveRoleNorm;
     const requiredRole = to.meta.requiresRole;
-    const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
     const orgSlugForRoute = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
     const clubManagerSscBypass =
       (currentUserRoleNorm === 'club_manager' || currentUserRoleNorm === 'assistant_manager') &&
@@ -6261,39 +6261,8 @@ router.beforeEach(async (to, from, next) => {
         String(to.path || '').includes('/guardian/')
       );
 
-    const hasRequiredRole = requiredRoles.some((role) => {
-      // Backoffice admin routes: true admins/support only.
-      if (role === 'admin') {
-        return (
-          userRoleNorm === 'admin' ||
-          userRoleNorm === 'super_admin' ||
-          userRoleNorm === 'support'
-        );
-      }
-
-      if (role === 'schedule_manager') {
-        return (
-          userRoleNorm === 'clinical_practice_assistant' ||
-          userRoleNorm === 'provider_plus' ||
-          userRoleNorm === 'admin' ||
-          userRoleNorm === 'super_admin' ||
-          userRoleNorm === 'support'
-        );
-      }
-
-      if (role === 'supervisor_or_cpa') {
-        return userRoleNorm === 'supervisor' || userRoleNorm === 'clinical_practice_assistant' || userRoleNorm === 'provider_plus';
-      }
-
-      if (role === 'clinical_practice_assistant') {
-        return userRoleNorm === 'clinical_practice_assistant' || userRoleNorm === 'provider_plus';
-      }
-
-      if (role === 'client_guardian' && isSuperadminGuardianPreview) {
-        return true;
-      }
-
-      return userRoleNorm === role;
+    const hasRequiredRole = hasRequiredRouteRole(userRoleNorm, requiredRole, {
+      guardianPreview: isSuperadminGuardianPreview
     });
 
     const hasSubCoordinatorRoleBypass = to.meta.allowSubCoordinator === true && hasSubCoordinatorAccess(authStore.user);
