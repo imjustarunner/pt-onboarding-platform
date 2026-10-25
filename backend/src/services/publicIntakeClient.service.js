@@ -2,6 +2,8 @@ import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext
 import { deferGuardianInvitation as shouldDeferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
+import { validateQaIntakeGuardian, markQaIntakeGuardian } from './qaIntakeIdentity.service.js';
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -328,6 +330,11 @@ const provisionSingleIntakeClient = async ({
     ...(createGuardian ? { guardian_portal_enabled: true } : {})
   });
 
+  if (isAuricwellQaAgency(await Agency.findById(agencyId))) {
+    await pool.execute('UPDATE clients SET is_demo=1 WHERE id=? AND agency_id=450',[client.id]);
+    client.is_demo=1;
+  }
+
   await seedClientAffiliations({
     clientId: client.id,
     agencyId,
@@ -380,6 +387,10 @@ class PublicIntakeClientService {
     if (!agencyId) {
       throw new Error('Unable to resolve agency for intake organization');
     }
+    if (Number(agencyId)!==Number(await resolveAgencyId(link.organization_id))) {
+      throw Object.assign(new Error('The selected organization does not belong to this intake agency.'),{status:403});
+    }
+    await validateQaIntakeGuardian({agencyId,email:payload?.guardian?.email});
 
     const clientStatusKey = options.clientStatusKey || 'received';
     const workflowStatus = options.workflowStatus || 'PACKET';
@@ -470,6 +481,7 @@ class PublicIntakeClientService {
       // context earlier). This keeps the Guardians list + agency filters in
       // sync with the client(s) they're actually linked to.
       await ensureGuardianAgencyAffiliation(guardianUser.id, agencyId);
+      await markQaIntakeGuardian({agencyId,userId:guardianUser.id,email:guardianUser.email});
 
       for (const client of createdClients) {
         const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
@@ -560,6 +572,10 @@ class PublicIntakeClientService {
     if (!agencyId) {
       throw new Error('Unable to resolve agency for intake organization (sibling create path)');
     }
+    if (Number(agencyId)!==Number(await resolveAgencyId(link.organization_id))) {
+      throw Object.assign(new Error('The selected organization does not belong to this intake agency.'),{status:403});
+    }
+    await validateQaIntakeGuardian({agencyId,email:payload?.guardian?.email});
 
     const createGuardian = !!link.create_guardian;
     const created = [];
@@ -601,6 +617,7 @@ class PublicIntakeClientService {
     }
     const guardianPayload = payload?.guardian || {};
     const email = String(guardianPayload.email || '').trim();
+    await validateQaIntakeGuardian({agencyId,email});
     if (!email) {
       throw new Error('Guardian email is required for guardian account creation');
     }
@@ -652,6 +669,7 @@ class PublicIntakeClientService {
     // the guardian to the resolved agency so the Guardians admin view sees
     // them scoped to the same tenant as their kids.
     await ensureGuardianAgencyAffiliation(guardianUser.id, agencyId);
+    await markQaIntakeGuardian({agencyId,userId:guardianUser.id,email:guardianUser.email});
 
     for (const client of createdClients) {
       const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});

@@ -8,7 +8,13 @@ export function previewAgencySlug(value) {
   return slug === 'innerstrength' ? 'tisi' : slug;
 }
 export function isQaPreviewIdentity(user) {
-  const roles = { 'qa.provider.auricwell@example.com':'provider', 'qa.support.auricwell@example.com':'support', 'qa.setup.auricwell@example.com':'admin' };
+  const roles = {
+    'qa.provider.auricwell@example.com':'provider',
+    'qa.provider.supervisor.auricwell@example.com':'provider',
+    'qa.provider.supervisee.auricwell@example.com':'provider',
+    'qa.support.auricwell@example.com':'support',
+    'qa.setup.auricwell@example.com':'admin'
+  };
   return Number(user?.is_demo) === 1 && Object.hasOwn(roles,String(user?.email||'').toLowerCase())
     && roles[String(user.email).toLowerCase()] === user.role;
 }

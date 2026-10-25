@@ -15,6 +15,12 @@ export async function assertLearningAssigner(actor, agencyId, userId) {
 const route = operation => async (req, res, next) => {
   try {
     const agencyId = Number(req.query.agencyId || req.body?.agencyId);
+    // Regular JWTs contain identity and role, but no employment status. Resolve
+    // current status before the library capability check, without promoting the
+    // learner or trusting stale role claims for assignment authority.
+    const current = req.user?.id ? await User.findById(req.user.id) : null;
+    if (!current || !Number(current.is_active) || current.is_archived) fail('Library access denied.');
+    req.user = {...req.user,role:current.role,status:current.status,effectiveRole:current.role};
     await assertReferenceAccess(req.user, agencyId);
     const result = await operation(req, agencyId);
     res.set('Cache-Control', 'private, no-store'); res.json(result);

@@ -1,5 +1,22 @@
 export const AURICWELL_QA_SLUG = 'auricwell-qa-demo';
 
+export function isAuricwellQaAgency(agency) {
+  let flags = agency?.feature_flags;
+  if (typeof flags === 'string') {
+    try { flags = JSON.parse(flags); } catch { return false; }
+  }
+  return Number(agency?.id) === 450 && agency?.slug === AURICWELL_QA_SLUG
+    && flags?.qaSandbox?.syntheticOnly === true;
+}
+
+// QA SMS is limited to the owner's original provider phone. Client/guardian
+// messages remain email-only even if a tester accidentally opts into texts.
+export function allowQaSmsDelivery(agency, {to,purpose,clientId}={}) {
+  if (![450,451,452].includes(Number(agency?.id)) && !String(agency?.slug||'').startsWith(AURICWELL_QA_SLUG)) return true;
+  return isAuricwellQaAgency(agency) && purpose==='workforce' && !clientId
+    && String(to||'').replace(/\D/g,'')==='16189107000';
+}
+
 // The dedicated QA tenant fails closed until its explicit provider roster is set.
 // Other tenants retain their existing policy. Email redirection is not a substitute
 // for this check: in-app notifications and SMS must be isolated too.

@@ -4,6 +4,24 @@
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  'Continue with payment follow-up': 'Continuar con seguimiento de pago',
+  'Secure card collection is not enabled yet. Your account will need payment follow-up before paid services.': 'El registro seguro de tarjetas aún no está habilitado. Se necesitará un seguimiento de pago antes de recibir servicios de pago.',
+  'Client’s relationship to subscriber': 'Relación del cliente con el titular',
+  'Select': 'Seleccione', 'Self': 'Yo mismo', 'Child': 'Hijo/a', 'Spouse': 'Cónyuge',
+  'Insurance carrier': 'Compañía de seguros',
+  'Electronic payer ID (if known)': 'ID electrónico del pagador (si lo conoce)',
+  'Eligibility payer ID (if different)': 'ID del pagador para verificar cobertura (si es diferente)',
+  'Group number': 'Número de grupo', 'Patient/member suffix': 'Sufijo del paciente/miembro',
+  'Subscriber legal first name': 'Nombre legal del titular', 'Subscriber legal last name': 'Apellido legal del titular',
+  'Subscriber date of birth': 'Fecha de nacimiento del titular', 'Subscriber address': 'Dirección del titular',
+  'Apartment / suite': 'Apartamento / oficina', 'City': 'Ciudad', 'State': 'Estado', 'ZIP code': 'Código postal',
+  'Plan type': 'Tipo de plan', 'Coverage effective date': 'Fecha de inicio de la cobertura',
+  'Coverage end date (if applicable)': 'Fecha de fin de la cobertura (si corresponde)', 'Claims phone': 'Teléfono para reclamaciones',
+  'Subscriber sex on policy': 'Sexo del titular según la póliza',
+  'Medicaid (each client has a separate member ID)': 'Medicaid (cada cliente tiene su propio ID de miembro)',
+  'Subscriber is the client. Name, birth date, sex and address use the client identity above; no duplicate entry is needed.': 'El titular es el cliente. Se usan el nombre, la fecha de nacimiento, el sexo y la dirección indicados arriba; no es necesario ingresarlos otra vez.',
+  'Please agree to the authorization statements to continue.': 'Acepte las declaraciones de autorización para continuar.',
+  'Please type your full name as a signature.': 'Escriba su nombre completo como firma.',
   // ── Communications ───────────────────────────────────────────────────────
   'Choose how you would like to receive operational communications. You can update these preferences at any time.':
     'Elija cómo desea recibir comunicaciones operativas. Puede actualizar estas preferencias en cualquier momento.',

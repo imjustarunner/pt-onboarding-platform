@@ -1,13 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), agencies: vi.fn(), access: vi.fn(), start: vi.fn(), detail: vi.fn(), catalog: vi.fn(), read: vi.fn(), reflection: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), user:vi.fn(), agencies: vi.fn(), access: vi.fn(), start: vi.fn(), detail: vi.fn(), catalog: vi.fn(), read: vi.fn(), reflection: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
-vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: mocks.agencies } }));
+vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: mocks.agencies, findById:mocks.user } }));
 vi.mock('../../services/companyReferenceDocuments.service.js', () => ({ assertReferenceAccess: mocks.access }));
 vi.mock('../../services/companyDocumentLearning.service.js', () => ({ startGuideLearning: mocks.start, guideLearningDetail: mocks.detail, guideLearningCatalog: mocks.catalog, readGuide: mocks.read, revealGuideReflection: mocks.reflection }));
 import { assertLearningAssigner, start, assign, staff, portalLearning } from '../companyDocumentLearning.controller.js';
-beforeEach(() => { vi.clearAllMocks(); mocks.access.mockResolvedValue(); mocks.agencies.mockResolvedValue([{ id: 2 }]); mocks.execute.mockResolvedValue([[]]); });
+beforeEach(() => { vi.clearAllMocks(); mocks.user.mockImplementation(async id=>({id,role:'provider',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0})); mocks.access.mockResolvedValue(); mocks.agencies.mockResolvedValue([{ id: 2 }]); mocks.execute.mockResolvedValue([[]]); });
 const response = () => ({ set: vi.fn(), json: vi.fn() });
 describe('paid guide assignment authority', () => {
+  it('hydrates status for ordinary JWTs and discards a stale administrator role',async()=>{
+    const next=vi.fn();await start({user:{id:7,role:'admin'},query:{agencyId:2},params:{key:'provider-guide'},body:{}},response(),next);
+    expect(mocks.access).toHaveBeenCalledWith(expect.objectContaining({id:7,role:'provider',effectiveRole:'provider',status:'ACTIVE_EMPLOYEE'}),2);
+    expect(next).not.toHaveBeenCalled();
+  });
+  it('denies a disabled current identity before loading the learning catalog',async()=>{
+    mocks.user.mockResolvedValue({id:7,role:'provider',status:'ACTIVE_EMPLOYEE',is_active:0});
+    const next=vi.fn();await start({user:{id:7},query:{agencyId:2},params:{key:'provider-guide'},body:{}},response(),next);
+    expect(next.mock.calls[0][0].status).toBe(403);expect(mocks.start).not.toHaveBeenCalled();
+  });
   it('permits company admins and the actual assigned supervisor', async () => {
     await assertLearningAssigner({ id: 9, role: 'admin' }, 2, 7);
     mocks.execute.mockResolvedValue([[{ id: 17 }]]); await assertLearningAssigner({ id: 9, role: 'provider', has_supervisor_privileges: 1 }, 2, 7);
@@ -26,6 +36,7 @@ describe('paid guide assignment authority', () => {
     expect(mocks.start).toHaveBeenCalledWith(2, 7, 'provider-guide', expect.any(Object)); expect(mocks.start.mock.calls[0]).toHaveLength(4);
   });
   it('lets People Operations inspect promotion setup without paid assignment authority', async () => {
+    mocks.user.mockResolvedValue({id:9,role:'support',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0});
     mocks.catalog.mockResolvedValue({ courses: [], expectedSchoolWork: true }); const res = response();
     await staff({ user: { id: 9, role: 'support' }, query: { agencyId: 2 }, params: { userId: '7' } }, res, vi.fn());
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ canAssign: false, expectedSchoolWork: true }));

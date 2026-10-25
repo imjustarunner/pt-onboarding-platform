@@ -30,6 +30,15 @@ describe('AuricWell administrator preview', () => {
 });
 describe('isolated QA practice access',()=>{
   const provider={id:1433,role:'provider',email:'qa.provider.auricwell@example.com',is_demo:1,is_active:1,status:'ACTIVE_EMPLOYEE'};
+  it('allows the two named QA providers only with independently verified membership and provider roles',()=>{
+    for(const key of ['supervisor','supervisee']) {
+      const user={...provider,email:`qa.provider.${key}.auricwell@example.com`};
+      expect(()=>assertPreviewActor(user,{}, {qaAgencyId:450})).not.toThrow();
+      expect(()=>assertPreviewActor(user)).toThrow();
+      expect(()=>assertPreviewActor({...user,role:'admin'}, {}, {qaAgencyId:450})).toThrow();
+      expect(()=>assertPreviewActor({...user,is_demo:0}, {}, {qaAgencyId:450})).toThrow();
+    }
+  });
   it('requires the exact synthetic identity and an independently verified membership',()=>{
     expect(()=>assertPreviewActor(provider,{}, {qaAgencyId:450})).not.toThrow();
     expect(()=>assertPreviewActor(provider)).toThrow();

@@ -29,4 +29,12 @@ describe('contactInput', () => {
     expect(isValidUsPhone('(555) 100-2121')).toBe(true);
     expect(normalizeUsPhoneForSubmit('(555) 100-2121')).toBe('5551002121');
   });
+  it('keeps the reported US country-code paste intact and rejects unsupported lengths', () => {
+    expect(formatUsPhoneInput('+1 618 910 7000')).toBe('(618) 910-7000');
+    expect(formatUsPhoneInput('16189107000')).toBe('(618) 910-7000');
+    for (const input of ['+44 20 7946 0958', '6189107000123']) {
+      expect(formatUsPhoneInput(input)).toBe(input);
+      expect(isValidUsPhone(formatUsPhoneInput(input))).toBe(false);
+    }
+  });
 });

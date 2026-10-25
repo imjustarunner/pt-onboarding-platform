@@ -1,0 +1,317 @@
+{
+  "at": "2026-10-25T12:23:51.738Z",
+  "readOnly": true,
+  "queries": {
+    "submissions": [
+      {
+        "id": 1262,
+        "signer_email": null,
+        "guardian_user_id": 1437,
+        "client_id": 2259,
+        "status": "submitted"
+      },
+      {
+        "id": 1263,
+        "signer_email": null,
+        "guardian_user_id": 1437,
+        "client_id": 2260,
+        "status": "submitted"
+      },
+      {
+        "id": 1264,
+        "signer_email": null,
+        "guardian_user_id": 1437,
+        "client_id": 2261,
+        "status": "submitted"
+      },
+      {
+        "id": 1265,
+        "signer_email": null,
+        "guardian_user_id": 1437,
+        "client_id": 2263,
+        "status": "submitted"
+      }
+    ],
+    "clients": [
+      {
+        "id": 2261,
+        "agency_id": 450,
+        "organization_id": 451,
+        "provider_id": null,
+        "status": "PACKET",
+        "client_type": "school",
+        "is_demo": 0,
+        "timezone": null,
+        "preferred_language": null,
+        "cleared_to_start": 0
+      },
+      {
+        "id": 2263,
+        "agency_id": 450,
+        "organization_id": 451,
+        "provider_id": null,
+        "status": "PACKET",
+        "client_type": "school",
+        "is_demo": 0,
+        "timezone": null,
+        "preferred_language": null,
+        "cleared_to_start": 0
+      },
+      {
+        "id": 2262,
+        "agency_id": 450,
+        "organization_id": 451,
+        "provider_id": null,
+        "status": "PACKET",
+        "client_type": "school",
+        "is_demo": 0,
+        "timezone": null,
+        "preferred_language": null,
+        "cleared_to_start": 0
+      },
+      {
+        "id": 2259,
+        "agency_id": 450,
+        "organization_id": 451,
+        "provider_id": null,
+        "status": "PACKET",
+        "client_type": "school",
+        "is_demo": 0,
+        "timezone": null,
+        "preferred_language": null,
+        "cleared_to_start": 0
+      },
+      {
+        "id": 2260,
+        "agency_id": 450,
+        "organization_id": 451,
+        "provider_id": null,
+        "status": "PACKET",
+        "client_type": "school",
+        "is_demo": 0,
+        "timezone": null,
+        "preferred_language": null,
+        "cleared_to_start": 0
+      }
+    ],
+    "preferences": [
+      {
+        "user_id": 1433,
+        "timezone": null,
+        "sms_enabled": 0
+      },
+      {
+        "user_id": 1434,
+        "timezone": null,
+        "sms_enabled": 0
+      }
+    ],
+    "provider": [
+      {
+        "id": 1433,
+        "role": "provider",
+        "timezone": "America/Denver",
+        "has_supervisor_privileges": 0,
+        "has_provider_access": 0,
+        "sees_clients": 1,
+        "provider_accepting_new_clients": 1,
+        "in_office_available": 0
+      }
+    ],
+    "profiles": [
+      {
+        "Field": "id",
+        "Type": "int",
+        "Null": "NO",
+        "Key": "PRI",
+        "Default": null,
+        "Extra": "auto_increment"
+      },
+      {
+        "Field": "user_id",
+        "Type": "int",
+        "Null": "NO",
+        "Key": "UNI",
+        "Default": null,
+        "Extra": ""
+      },
+      {
+        "Field": "public_blurb",
+        "Type": "text",
+        "Null": "YES",
+        "Key": "",
+        "Default": null,
+        "Extra": ""
+      },
+      {
+        "Field": "insurances_json",
+        "Type": "json",
+        "Null": "YES",
+        "Key": "",
+        "Default": null,
+        "Extra": ""
+      },
+      {
+        "Field": "self_pay_rate_cents",
+        "Type": "int",
+        "Null": "YES",
+        "Key": "",
+        "Default": null,
+        "Extra": ""
+      },
+      {
+        "Field": "self_pay_rate_note",
+        "Type": "varchar(255)",
+        "Null": "YES",
+        "Key": "",
+        "Default": null,
+        "Extra": ""
+      },
+      {
+        "Field": "accepting_new_clients_override",
+        "Type": "tinyint(1)",
+        "Null": "YES",
+        "Key": "",
+        "Default": null,
+        "Extra": ""
+      },
+      {
+        "Field": "created_at",
+        "Type": "datetime",
+        "Null": "NO",
+        "Key": "",
+        "Default": "CURRENT_TIMESTAMP",
+        "Extra": "DEFAULT_GENERATED"
+      },
+      {
+        "Field": "updated_at",
+        "Type": "datetime",
+        "Null": "NO",
+        "Key": "",
+        "Default": "CURRENT_TIMESTAMP",
+        "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+      },
+      {
+        "Field": "public_details_json",
+        "Type": "json",
+        "Null": "YES",
+        "Key": "",
+        "Default": null,
+        "Extra": ""
+      }
+    ],
+    "workingHours": [
+      {
+        "provider_id": 1433,
+        "agency_id": 450,
+        "day_of_week": "Friday",
+        "start_time": "09:00:00",
+        "end_time": "17:00:00"
+      },
+      {
+        "provider_id": 1433,
+        "agency_id": 450,
+        "day_of_week": "Monday",
+        "start_time": "09:00:00",
+        "end_time": "17:00:00"
+      },
+      {
+        "provider_id": 1433,
+        "agency_id": 450,
+        "day_of_week": "Thursday",
+        "start_time": "09:00:00",
+        "end_time": "17:00:00"
+      },
+      {
+        "provider_id": 1433,
+        "agency_id": 450,
+        "day_of_week": "Tuesday",
+        "start_time": "09:00:00",
+        "end_time": "17:00:00"
+      },
+      {
+        "provider_id": 1433,
+        "agency_id": 450,
+        "day_of_week": "Wednesday",
+        "start_time": "09:00:00",
+        "end_time": "17:00:00"
+      }
+    ],
+    "office": [
+      {
+        "id": 9,
+        "name": "Cedar Grove Counseling Office — DEMO",
+        "timezone": "America/Denver"
+      }
+    ],
+    "links": [
+      {
+        "id": 339,
+        "master_channel": null,
+        "scope_type": "agency",
+        "organization_id": 450,
+        "language_code": "en",
+        "intake_steps": null
+      },
+      {
+        "id": 342,
+        "master_channel": null,
+        "scope_type": "agency",
+        "organization_id": 450,
+        "language_code": "es",
+        "intake_steps": null
+      },
+      {
+        "id": 343,
+        "master_channel": null,
+        "scope_type": "school",
+        "organization_id": 451,
+        "language_code": "en",
+        "intake_steps": null
+      },
+      {
+        "id": 344,
+        "master_channel": null,
+        "scope_type": "school",
+        "organization_id": 451,
+        "language_code": "es",
+        "intake_steps": null
+      }
+    ]
+  },
+  "login": {
+    "status": 200,
+    "userId": 1433,
+    "role": "provider",
+    "ttlSeconds": 86400,
+    "agencies": [
+      {
+        "id": 450,
+        "slug": "auricwell-qa-demo",
+        "feature_flags": {
+          "qaSandbox": {
+            "inbox": "testing@itsco.health",
+            "version": 1,
+            "syntheticOnly": true,
+            "accessRevision": "qa-access-20261024",
+            "dailyRunEnabled": false,
+            "exchangeProviderUserId": 1433,
+            "notificationGuardDeploymentRequired": false
+          }
+        }
+      }
+    ],
+    "path": "/auricwell-qa-demo/dashboard",
+    "domainError": 0
+  },
+  "/api/availability/me/virtual-working-hours?agencyId=450": {
+    "status": 200
+  },
+  "/api/modules?agencyId=450": {
+    "status": 200
+  },
+  "/api/training-tracks?agencyId=450": {
+    "status": 404,
+    "message": "Route not found"
+  }
+}

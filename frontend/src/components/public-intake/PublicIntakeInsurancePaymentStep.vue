@@ -258,6 +258,8 @@ import { computed, ref, watch } from 'vue';
 import PublicIntakeInsuranceStep from './PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
 import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+const { tx: structuredTx } = useIntakeStepTx();
 
 const props = defineProps({
   insuranceInfo: { type: Object, default: () => ({}) },
@@ -292,7 +294,7 @@ const emit = defineEmits([
 ]);
 
 function tx(key) {
-  return props.translations?.[key] || key;
+  return structuredTx(key) !== key ? structuredTx(key) : (props.translations?.[key] || key);
 }
 
 const insuranceRef = ref(null);
@@ -357,7 +359,8 @@ function patchInsurance(patch) {
     authorizationAgreed: authAgreed.value,
     authorizationSignature: authSignature.value,
     authorizationSignatureData: authSignatureData.value || props.insuranceInfo?.authorizationSignatureData || '',
-    authorizationSignedAt: new Date().toISOString()
+    authorizationSignedAt: authAgreed.value && (String(authSignature.value || '').trim().length >= 2 || String(authSignatureData.value || props.insuranceInfo?.authorizationSignatureData || '').length >= 50)
+      ? (props.insuranceInfo?.authorizationSignedAt || new Date().toISOString()) : null
   });
 }
 
@@ -394,6 +397,7 @@ function onCardSaved(payload) {
 }
 
 function onPaymentSkip() {
+  if (!validateAuthorization()) return;
   emit('skip-acknowledged');
 }
 

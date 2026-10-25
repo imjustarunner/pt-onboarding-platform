@@ -5,6 +5,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { focusMatch } from '../../../frontend/src/navigation/providerFocus.js';
 import { ageYearsFromDob } from '../utils/intakeShowIf.js';
 import { providerServesAgeBucket } from '../utils/ageMatch.util.js';
+import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 
 const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -224,7 +225,6 @@ const ROLE_CLAUSE = `
 
 const ACTIVE_CLAUSE = `
   COALESCE(u.is_active, 1) = 1
-  AND COALESCE(u.is_demo, 0) = 0
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
   AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN (
     'ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING',
@@ -303,11 +303,14 @@ function providerSupportsServiceMode(populations = [], serviceMode = '') {
 export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '', programType='ALL', includeWaitlist=false, matchingPreferences=null } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
+  const [[agency]] = await pool.execute('SELECT id, slug, feature_flags FROM agencies WHERE id = ?', [aid]);
+  const qaAgency = isAuricwellQaAgency(agency);
+  const activeClause = `${ACTIVE_CLAUSE} AND COALESCE(u.is_demo, 0) = ${qaAgency ? 1 : 0}`;
   const ageYears = youngestAge(ages);
   const acceptingClause = '1=1';
 
   const queries = [
-    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
+    `SELECT u.id, u.email, u.role, u.is_demo, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             COALESCE(u.in_office_available, 0) AS in_office_available,
@@ -352,13 +355,13 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
             AND agency_id = ?
           GROUP BY provider_id
        ) vhours ON vhours.provider_id = u.id
-      WHERE ${ACTIVE_CLAUSE}
+      WHERE ${activeClause}
         AND COALESCE(ua.is_active, 1) = 1
         AND (${acceptingClause})
         AND ${ROLE_CLAUSE}
       ORDER BY open_slots DESC, u.last_name ASC, u.first_name ASC`,
     // Fallback without virtual / in-person tables
-    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
+    `SELECT u.id, u.email, u.role, u.is_demo, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             COALESCE(u.in_office_available, 0) AS in_office_available,
@@ -373,12 +376,12 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
           WHERE is_available = 1
           GROUP BY provider_id
        ) slot ON slot.provider_id = u.id
-      WHERE ${ACTIVE_CLAUSE}
+      WHERE ${activeClause}
         AND COALESCE(ua.is_active, 1) = 1
         AND (${acceptingClause})
         AND ${ROLE_CLAUSE}
       ORDER BY open_slots DESC, u.last_name ASC, u.first_name ASC`,
-    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
+    `SELECT u.id, u.email, u.role, u.is_demo, u.first_name, u.last_name, u.title, u.credential, u.profile_photo_path, u.sees_clients,
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             0 AS in_office_available,
@@ -387,7 +390,7 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
             0 AS open_virtual_slots
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-      WHERE ${ACTIVE_CLAUSE}
+      WHERE ${activeClause}
         AND COALESCE(ua.is_active, 1) = 1
         AND (${acceptingClause})
         AND ${ROLE_CLAUSE}
@@ -419,6 +422,7 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
     }
   }
 
+  if (qaAgency) rows = rows.filter(row => allowQaExchangeRecipient(agency, row));
   const ids = rows.map((r) => r.id);
   const [ageMap, slotMap, waitlistMap, populationMap] = await Promise.all([
     loadAgeSpecialtyMap(ids),

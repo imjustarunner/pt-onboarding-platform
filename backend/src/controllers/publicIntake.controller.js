@@ -1,4 +1,6 @@
 import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
+import ProviderAvailabilityService from '../services/providerAvailability.service.js';
+import { validateQaIntakeGuardian } from '../services/qaIntakeIdentity.service.js';
 import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
@@ -6120,6 +6122,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         title: link.title,
         description: publicDescription,
         language_code: link.language_code || 'en',
+        scheduling_timezone: agency?.id ? await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId: agency.id }) : null,
         scope_type: link.scope_type,
         form_type: link.form_type || 'intake',
         hiringNotifications: link.form_type === 'job_application' ? await hiringCommunicationContext(await resolveAgencyIdForLink(link)) : null,
@@ -12641,6 +12644,7 @@ const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
   const guardian=data.guardian || {};
   const email=String(guardian.email || data.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
   if(!email)return {guardianUserId:null};
+  await validateQaIntakeGuardian({agencyId,email});
   let user=submission.guardian_user_id ? await User.findById(submission.guardian_user_id) : await User.findByEmail(email);
   const firstName=String(guardian.firstName || submission.signer_name || 'Guardian').trim().split(/\s+/)[0];
   const lastName=String(guardian.lastName || '').trim();

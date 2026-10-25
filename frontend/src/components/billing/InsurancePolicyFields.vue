@@ -1,15 +1,17 @@
 <template>
   <div class="policy-fields">
-    <label>Client’s relationship to subscriber<select :value="modelValue.relationshipToSubscriber || ''" :required="requireComplete" @change="update('relationshipToSubscriber', $event.target.value)"><option value="">Select</option><option value="self">Self</option><option value="child">Child</option><option value="spouse">Spouse</option><option value="other">Other</option></select></label>
-    <p v-if="selfPatient" class="self-subscriber">Subscriber is the client. Name, birth date, sex and address use the client identity above; no duplicate entry is needed.</p>
-    <label v-for="field in visibleFields" :key="field.key">{{ field.label }}<input :value="modelValue[field.key] || ''" :type="field.type || 'text'" :required="requireComplete && !!field.required" maxlength="255" @input="update(field.key, $event.target.value)" /></label>
+    <label>{{ tx('Client’s relationship to subscriber') }}<select :value="modelValue.relationshipToSubscriber || ''" :required="requireComplete" @change="update('relationshipToSubscriber', $event.target.value)"><option value="">{{ tx('Select') }}</option><option value="self">{{ tx('Self') }}</option><option value="child">{{ tx('Child') }}</option><option value="spouse">{{ tx('Spouse') }}</option><option value="other">{{ tx('Other') }}</option></select></label>
+    <p v-if="selfPatient" class="self-subscriber">{{ tx('Subscriber is the client. Name, birth date, sex and address use the client identity above; no duplicate entry is needed.') }}</p>
+    <label v-for="field in visibleFields" :key="field.key">{{ tx(field.label) }}<input :value="modelValue[field.key] || ''" :type="field.type || 'text'" :required="requireComplete && !!field.required" maxlength="255" @input="update(field.key, $event.target.value)" /></label>
 
-    <label v-if="!selfPatient">Subscriber sex on policy<select :value="modelValue.subscriberSex || ''" @change="update('subscriberSex',$event.target.value)"><option value="">Select</option><option>M</option><option>F</option><option>U</option></select></label>
-    <label class="check"><input :checked="modelValue.isMedicaid === true || modelValue.isMedicaid === 1" type="checkbox" @change="update('isMedicaid',$event.target.checked)" /> Medicaid (each client has a separate member ID)</label>
+    <label v-if="!selfPatient">{{ tx('Subscriber sex on policy') }}<select :value="modelValue.subscriberSex || ''" @change="update('subscriberSex',$event.target.value)"><option value="">{{ tx('Select') }}</option><option>M</option><option>F</option><option>U</option></select></label>
+    <label class="check"><input :checked="modelValue.isMedicaid === true || modelValue.isMedicaid === 1" type="checkbox" @change="update('isMedicaid',$event.target.checked)" /> {{ tx('Medicaid (each client has a separate member ID)') }}</label>
   </div>
 </template>
 <script setup>
 import {computed,watch} from 'vue';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+const { tx } = useIntakeStepTx();
 const props = defineProps({ modelValue: { type:Object, default:()=>({}) }, patient:{type:Object,default:null}, requireComplete:{type:Boolean,default:true} });
 const selfPatient=computed(()=>props.patient && props.modelValue.relationshipToSubscriber==='self');
 const emit = defineEmits(['update:modelValue']);

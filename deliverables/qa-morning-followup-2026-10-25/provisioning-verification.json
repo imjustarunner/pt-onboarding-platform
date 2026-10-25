@@ -1,0 +1,163 @@
+{
+  "at": "2026-10-25T12:38:08.237Z",
+  "localDirectory": [
+    {
+      "id": 1433,
+      "name": "Avery Morgan QA",
+      "virtualAvailable": true,
+      "inOfficeAvailable": false,
+      "intakeStatus": {
+        "IN_PERSON": "unavailable",
+        "VIRTUAL": "accepting"
+      },
+      "openSlots": 5
+    }
+  ],
+  "scheduleTimezone": "America/Denver",
+  "staff": [
+    {
+      "id": 1433,
+      "role": "provider",
+      "is_demo": 1,
+      "has_supervisor_privileges": 0,
+      "agency_id": 450
+    },
+    {
+      "id": 1434,
+      "role": "support",
+      "is_demo": 1,
+      "has_supervisor_privileges": 0,
+      "agency_id": 450
+    },
+    {
+      "id": 1438,
+      "role": "provider",
+      "is_demo": 1,
+      "has_supervisor_privileges": 1,
+      "agency_id": 450
+    },
+    {
+      "id": 1439,
+      "role": "provider",
+      "is_demo": 1,
+      "has_supervisor_privileges": 0,
+      "agency_id": 450
+    }
+  ],
+  "supervision": [
+    {
+      "id": 123,
+      "supervisor_id": 1438,
+      "supervisee_id": 1439,
+      "agency_id": 450,
+      "supervisor_type": "clinical",
+      "is_primary": 1
+    }
+  ],
+  "agreement": [
+    {
+      "id": 413,
+      "assignment_id": 123,
+      "supervisor_signed_at": null,
+      "supervisee_signed_at": null
+    }
+  ],
+  "office": [
+    {
+      "office_location_id": 9,
+      "agency_id": 450
+    }
+  ],
+  "clientAffiliations": [
+    {
+      "client_id": 2259,
+      "organization_id": 451,
+      "is_primary": 1,
+      "is_active": 1,
+      "created_at": "2026-10-25T11:33:02.000Z",
+      "updated_at": "2026-10-25T11:33:02.000Z"
+    },
+    {
+      "client_id": 2260,
+      "organization_id": 451,
+      "is_primary": 1,
+      "is_active": 1,
+      "created_at": "2026-10-25T11:54:57.000Z",
+      "updated_at": "2026-10-25T11:54:57.000Z"
+    },
+    {
+      "client_id": 2261,
+      "organization_id": 451,
+      "is_primary": 1,
+      "is_active": 1,
+      "created_at": "2026-10-25T12:00:11.000Z",
+      "updated_at": "2026-10-25T12:00:11.000Z"
+    },
+    {
+      "client_id": 2262,
+      "organization_id": 451,
+      "is_primary": 1,
+      "is_active": 1,
+      "created_at": "2026-10-25T12:00:11.000Z",
+      "updated_at": "2026-10-25T12:00:11.000Z"
+    },
+    {
+      "client_id": 2263,
+      "organization_id": 451,
+      "is_primary": 1,
+      "is_active": 1,
+      "created_at": "2026-10-25T12:07:24.000Z",
+      "updated_at": "2026-10-25T12:07:24.000Z"
+    }
+  ],
+  "liveApi": [
+    {
+      "path": "/api/auth/session-lock-config",
+      "status": 401,
+      "policy": {
+        "error": {
+          "code": "SESSION_EXPIRED",
+          "message": "Your session ended. Sign in again."
+        },
+        "session": {
+          "phase": "expired",
+          "lastActivityAt": 1792931035000,
+          "activityVersion": 1792931035000,
+          "lockAt": 1792931215000,
+          "expiresAt": 1792931815000,
+          "serverNow": 1792931889392
+        },
+        "policy": {
+          "nonHourlyAdminSession": false,
+          "platformMaxMinutes": 30,
+          "agencyMaxMinutes": 30,
+          "sessionLockEnabled": false,
+          "inactivityTimeoutMinutes": 30,
+          "effectiveTimeoutMinutes": 30,
+          "pinRequired": false,
+          "pinType": "session",
+          "pinLength": 4,
+          "useLockScreen": false,
+          "idleBeforeTimedownSeconds": 180,
+          "timedownSeconds": 600
+        }
+      },
+      "error": "Your session ended. Sign in again."
+    },
+    {
+      "path": "/api/on-demand-training/modules?agencyId=450",
+      "status": 401,
+      "error": "Your session ended. Sign in again."
+    },
+    {
+      "path": "/api/on-demand-training/training-focuses?agencyId=450",
+      "status": 401,
+      "error": "Your session ended. Sign in again."
+    },
+    {
+      "path": "/api/communications/qa-email-inbox",
+      "status": 401,
+      "error": "Your session ended. Sign in again."
+    }
+  ]
+}

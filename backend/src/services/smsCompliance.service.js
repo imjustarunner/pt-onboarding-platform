@@ -1,6 +1,7 @@
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
 import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES } from '../utils/staffCommunicationChoices.js';
 import pool from '../config/database.js';
+import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
 
@@ -21,7 +22,7 @@ export async function getSmsSender(from) {
   if (!phone) throw smsPolicyError('sms_invalid_sender', 'A valid sending number is required');
   const [rows] = await pool.execute(
     `SELECT n.id, n.agency_id, n.phone_number, n.is_active, n.status,
-            a.name AS agency_name, a.phone_number AS support_phone,
+            a.name AS agency_name, a.phone_number AS support_phone, a.slug AS agency_slug, a.feature_flags AS agency_feature_flags,
             r.campaign_id, r.registration_json
      FROM twilio_numbers n LEFT JOIN agencies a ON a.id = n.agency_id
      LEFT JOIN sms_sender_registrations r ON r.number_id = n.id
@@ -113,6 +114,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
       && complianceReply.to === recipient && complianceReply.from === sender.phone_number && complianceReply.body === body) {
     controlReplies.delete(complianceReply);
     return { to: recipient, from: sender.phone_number, body, registration: sender.registration, controlReply: true };
+  }
+  if (!allowQaSmsDelivery({id:sender.agency_id,slug:sender.agency_slug,feature_flags:sender.agency_feature_flags},{to:recipient,purpose,clientId})) {
+    throw smsPolicyError('sms_qa_recipient_blocked','QA texts are limited to the demo provider; client and guardian texts are disabled.');
   }
   const registration = sender.registration;
   if (validateSmsRegistration(registration).length) throw smsPolicyError('sms_campaign_not_ready', 'SMS campaign registration and number linking must be verified before sending');

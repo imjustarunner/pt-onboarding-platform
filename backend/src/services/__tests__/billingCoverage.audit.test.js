@@ -46,11 +46,18 @@ test('self-pay preferences do not discard declared Medicaid from canonical clien
 });
 test('nonclinical enrollment still requires a verified card when collection is enabled', async () => {
   mock.method(pool, 'execute', async sql => sql.includes('agency_billing_accounts') ? [[{ stripe_connect_account_id: 'acct_test' }]] : [[]]);
-  await assert.rejects(validateIntakeBilling({ agencyId: 1, submission: { id: 2 }, link: { master_channel: 'tutoring', intake_steps: [{ type: 'insurance_info', paymentOnly: true }] }, intakeData: { insuranceInfo: { secondary: { isMedicaid: true } } } }), e => e.status === 409);
+  await assert.rejects(validateIntakeBilling({ agencyId: 1, submission: { id: 2 }, link: { master_channel: 'tutoring', intake_steps: [{ type: 'insurance_info', paymentOnly: true }] }, intakeData: { insuranceInfo: { authorizationAgreed:true,authorizationSignature:'QA Parent',secondary: { isMedicaid: true } } } }), e => e.status === 409);
 });
 for (const automatic of [false, true]) test(`Medicaid blocks ${automatic ? 'automatic' : 'payer-initiated'} ledger collection before a card or Stripe is accessed`, async () => {
+  // The live-billing guard reads the payer identity before opening the ledger
+  // transaction. Keep this unit fixture off the real database.
+  mock.method(pool,'execute',async sql=>{
+    assert.equal(sql,'SELECT email,role,is_demo FROM users WHERE id=?');
+    return [[{email:'payer@sample.test',role:'client_guardian',is_demo:0}]];
+  });
   const db = { beginTransaction: async () => {}, rollback: async () => {}, release() {}, execute: async sql => {
     if (sql.includes('learning_session_charges')) return [[{ id: 5, agency_id: 1, client_id: 10, total_cents: 2500, charge_status: 'PENDING' }]];
+    if (sql==='SELECT id FROM clients WHERE id=? FOR UPDATE') return [[{id:10}]];
     if (sql.includes('client_guardians')) return [[{ access_enabled: 1, relationship_type: 'guardian' }]];
     if (sql.includes('client_billing_payers')) return [[{ guardian_user_id: 2 }]];
     if (sql.includes('billing_insurance_payload')) return [[{ billing_insurance_payload: encryptFamilyBilling({ secondary: { isMedicaid: true } }, 'client-insurance:1:10') }]];

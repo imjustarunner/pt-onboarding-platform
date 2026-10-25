@@ -26,9 +26,13 @@ export function isValidEmailAddress(value) {
   return true;
 }
 
-/** Format US phone as (555) 555-5555 while typing (max 10 digits). */
+/** Accept the optional US country code without dropping any phone digits. */
 export function formatUsPhoneInput(raw) {
-  const digits = digitsOnly(raw).slice(0, 10);
+  let digits = digitsOnly(raw);
+  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+  // Preserve unsupported input so validation can reject it instead of silently
+  // turning an invalid/international number into a different US number.
+  if (digits.length > 10) return String(raw);
   if (!digits.length) return '';
   if (digits.length <= 3) return `(${digits}`;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;

@@ -2,6 +2,7 @@
   <div class="vwh">
     <div class="vwh-head">
       <h3 style="margin:0;">Virtual Working Hours</h3>
+      <p v-if="timeZone" class="muted">All times in {{ timeZone }}.</p>
       <div class="muted">Virtual openings for new or current clients. One-time openings are for an intake or meeting only. Appointments, school commitments and calendar conflicts remove unavailable times.</div>
     </div>
 
@@ -76,6 +77,7 @@ let generation=0;
 const saving = ref(false);
 const error = ref('');
 const rows = ref([]);
+const timeZone = ref('');
 
 const careOptions=['INDIVIDUAL','COUPLES','FAMILY'];
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -90,7 +92,7 @@ const removeRow = (idx) => {
 };
 
 const load = async () => {
-  const g=++generation;loaded.value=false;rows.value=[];notice.value='';
+  const g=++generation;loaded.value=false;rows.value=[];notice.value='';timeZone.value='';
   if (!props.agencyId) return;
   try {
     loading.value = true;
@@ -108,6 +110,7 @@ const load = async () => {
       frequency: r.frequency || 'WEEKLY'
     }));
     selfProviderId.value=resp.data?.providerId||null;
+    timeZone.value=resp.data?.timeZone||'';
     loaded.value=true;
   } catch (e) {
     if(g===generation)error.value = e.response?.data?.error?.message || 'Failed to load virtual working hours';
@@ -164,4 +167,3 @@ watch(() => [props.agencyId,props.providerId], load,{immediate:true});
 .check-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-weight: 600; }
 .pill.yes { display: inline-flex; justify-content: center; align-items: center; height: 36px; border-radius: 10px; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.32); color: #047857; font-weight: 800; }
 </style>
-

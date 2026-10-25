@@ -724,7 +724,7 @@ const canUseNoteAid = computed(() => {
   return isNoteAidEnabledForAgencyFlags(flags);
 });
 const displayTimeZone = computed(() => {
-  const fromPrefs = String(prefsStore.timezone || '').trim();
+  const fromPrefs = String(prefsStore.timezone || authStore.user?.timezone || '').trim();
   if (fromPrefs) return fromPrefs;
   return detectLocalTimezone();
 });

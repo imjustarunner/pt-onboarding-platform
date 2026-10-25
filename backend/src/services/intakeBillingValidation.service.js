@@ -3,12 +3,24 @@ import { assertFamilyBillingEncryption } from './familyBillingEncryption.service
 import { billingError } from './familyBillingPolicy.service.js';
 import { insuranceForIntakeClient } from './clientInsurance.service.js';
 import { hasMedicaidCoverage, shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
+import { linkLooksLikeOfficeIntake } from '../utils/officeIntakeLink.js';
 export async function validateIntakeBilling({ link, submission, intakeData, agencyId, insuranceOnFileApproved = false }) {
   const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
   const data = typeof intakeData === 'string' ? JSON.parse(intakeData) : (intakeData || {});
   const bag = data.responses?.submission || data.submission || data;
   const info = bag.insuranceInfo;
   if (info?.useInsuranceOnFile && !insuranceOnFileApproved) throw billingError(400, 'The care team must verify the insurance on file before this section can be skipped.');
+  // Deferring card collection never waives the authorization shown on the
+  // insurance step. Validate before merchant/Medicaid/self-pay early returns.
+  if (steps.some(step => step.type === 'insurance_info') && !(insuranceOnFileApproved && info?.useInsuranceOnFile)) {
+    const signed = String(info?.authorizationSignature || '').trim().length >= 2
+      || String(info?.authorizationSignatureData || '').trim().length >= 50;
+    const requiresCheckbox = linkLooksLikeOfficeIntake(link) || steps.some(step => step.paymentOnly)
+      || ['tutoring','coaching','consulting','mentorship'].includes(link.master_channel);
+    if (!signed || info?.authorizationAgreed === false || (requiresCheckbox && info?.authorizationAgreed !== true)) {
+      throw billingError(400, 'Please agree to and sign the insurance and payment authorization before completing enrollment.');
+    }
+  }
   const clientCount = Math.max(1,data.responses?.clients?.length || data.clients?.length || 1);
   if (info && (!info.isSelfPay || hasMedicaidCoverage(info)) && info.primary?.insurerName) {
     assertFamilyBillingEncryption();

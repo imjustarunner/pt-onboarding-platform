@@ -1,8 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowQaExchangeRecipient } from '../auricwellQaPolicy.js';
+import { allowQaExchangeRecipient, allowQaSmsDelivery } from '../auricwellQaPolicy.js';
 const agency = {slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:1433}}};
 const provider = {id:1433,is_demo:1,email:'qa.provider.auricwell@example.com'};
+test('QA SMS only admits workforce messages to the owned primary provider phone',()=>{
+ const qa={...agency,id:450};const options={to:'+16189107000',purpose:'workforce'};
+ assert.equal(allowQaSmsDelivery(qa,options),true);
+ for(const patch of [{purpose:'care'},{purpose:'reminders'},{clientId:2259},{to:'+15555550100'}])assert.equal(allowQaSmsDelivery(qa,{...options,...patch}),false);
+ assert.equal(allowQaSmsDelivery({...qa,feature_flags:null},options),false);
+ assert.equal(allowQaSmsDelivery({...qa,id:452,slug:'auricwell-qa-demo-clinic'},options),false);
+ assert.equal(allowQaSmsDelivery({id:2,slug:'itsco'},{purpose:'care',to:'+15555550100'}),true);
+});
 test('QA allows only its explicitly configured demo provider',()=>{
   assert.equal(allowQaExchangeRecipient(agency,provider),true);
   for (const user of [{...provider,id:1434},{...provider,is_demo:0},{...provider,email:'real@example.org'},null])

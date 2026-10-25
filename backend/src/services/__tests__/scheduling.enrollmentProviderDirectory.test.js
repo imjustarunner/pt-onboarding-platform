@@ -25,6 +25,21 @@ beforeEach(() => {
 });
 
 describe('full enrollment eligible provider directory', () => {
+  it('makes only the explicit active demo roster eligible in the verified QA agency',async()=>{
+    const qa={id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders:[{id:1433,email:'qa.provider.auricwell@example.com'}]}}};
+    const roster=[{...rows[0],id:1433,email:'qa.provider.auricwell@example.com',role:'provider',is_demo:1},
+      {...rows[0],id:99,email:'qa.provider.other@example.com',role:'provider',is_demo:1},
+      {...rows[0],id:100,email:'real@domain.test',role:'provider',is_demo:0}];
+    mocks.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[qa]]:sql.includes('FROM users u')?[roster]:[[]]);
+    mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true,virtual:true,intakeStatusByFormat:{VIRTUAL:'accepting',IN_PERSON:'unavailable'}}});
+    expect((await listOfficeIntakeProviders(450,{programType:'VIRTUAL'})).map(p=>p.id)).toEqual([1433]);
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('FROM users u'))[0]).toContain('COALESCE(ua.is_active, 1) = 1');
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('FROM users u'))[0]).toContain('COALESCE(u.is_demo, 0) = 1');
+  });
+  it('keeps demo users excluded for real agencies',async()=>{
+    await listOfficeIntakeProviders(2);
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('FROM users u'))[0]).toContain('COALESCE(u.is_demo, 0) = 0');
+  });
   it('lists Open first, then Waitlist, and excludes closed formats even for legacy includeNotAccepting callers', async () => {
     const result = await listOfficeIntakeProviders(2, { programType: 'VIRTUAL', includeNotAccepting: true });
     expect(result.map(row => row.id)).toEqual([1, 2]);

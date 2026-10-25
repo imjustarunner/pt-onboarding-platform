@@ -1229,7 +1229,8 @@ export const getMyVirtualWorkingHours = async (req, res, next) => {
     if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
 
     const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyId, providerId });
-    res.json({ ok: true, agencyId, providerId, rows });
+    const timeZone = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId });
+    res.json({ ok: true, agencyId, providerId, rows, timeZone });
   } catch (e) {
     next(e);
   }

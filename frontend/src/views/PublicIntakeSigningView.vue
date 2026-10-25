@@ -4776,7 +4776,7 @@ const enrollmentPreferredTimes = computed({
   set: value => { intakeResponses.submission.preferred_times = value; }
 });
 const enrollmentPreferenceTimeZone = computed({
-  get: () => intakeResponses.submission.preferred_time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+  get: () => intakeResponses.submission.preferred_time_zone || link.value?.scheduling_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || '',
   set: value => { intakeResponses.submission.preferred_time_zone = value; }
 });
 watch([enrollmentPreferredDays, enrollmentPreferredTimes, () => intakeResponses.submission.preferred_scheduling_notes], () => {
@@ -9380,7 +9380,9 @@ const loadLink = async () => {
       const stored = localStorage.getItem('publicLocale') || localStorage.getItem('preferredFormLanguage');
       if (stored === 'es' || stored === 'en') preferredLocale = stored;
     } catch { /* ignore */ }
-    const localeHint = inPageLocale.value === 'es' ? 'es' : 'en';
+    // An explicit form link owns its initial language. A browser's previous
+    // English session must not select the English master for a Spanish link.
+    const localeHint = userChoseLocale.value ? (inPageLocale.value === 'es' ? 'es' : 'en') : undefined;
     const resp = await api.get(
       `/public-intake/${publicKey}`,
       {
@@ -9419,21 +9421,16 @@ const loadLink = async () => {
       const officeLike = linkLooksLikeOfficeIntake(link.value)
         && String(resp.data?.organization?.organization_type || '').toLowerCase() !== 'school';
       if (officeLike) {
-        inPageLocale.value = userChoseLocale.value ? inPageLocale.value : i18n.global.locale.value;
+        inPageLocale.value = userChoseLocale.value ? inPageLocale.value : (lang.startsWith('es') ? 'es' : 'en');
         if (inPageLocale.value === 'es') fetchStringTranslations();
       } else if (usesSchoolMaster.value) {
         const masterLang = String(link.value?.master_language_code || link.value?.language_code || 'en')
           .toLowerCase()
           .startsWith('es') ? 'es' : 'en';
-        inPageLocale.value = preferredLocale || masterLang;
+        inPageLocale.value = userChoseLocale.value ? inPageLocale.value : masterLang;
       } else if (hasMap || hasQuestionLabelsEs || isSmartRoiForm) {
-        const stored = preferredLocale;
         const linkLang = String(link.value?.language_code || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
-        if (stored === 'es' || stored === 'en') {
-          inPageLocale.value = stored;
-        } else {
-          inPageLocale.value = linkLang;
-        }
+        if (!userChoseLocale.value) inPageLocale.value = linkLang;
         if (inPageLocale.value === 'es' && (hasMap || hasQuestionLabelsEs)) {
           fetchStringTranslations();
         }
@@ -11501,6 +11498,10 @@ const onPaymentCardSaved = (cardInfo) => {
 // Auto-advances to the next step so they don't have to click the footer
 // Continue button a second time (redundant UX).
 const onPaymentSkipAcknowledged = (skipModel) => {
+  if (currentFlowStep.value?.type === 'insurance_info') {
+    void completeInsuranceStep();
+    return;
+  }
   if (!intakeResponses.submission.paymentInfo) {
     intakeResponses.submission.paymentInfo = {};
   }
