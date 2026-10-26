@@ -1,0 +1,104 @@
+import { decryptTicketMessageRow, decryptTicketRow } from '../utils/supportTicketCrypto.js';
+import {
+  SUPPORT_EMAIL_DRAFT_VERSION, SUPPORT_EMAIL_REPLY_STANDARDS, SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION,
+  buildSupportEmailDraftContext, buildSupportEmailDraftPrompt,
+  classifySupportEmailDraft, parseSupportEmailDraftResult, validateSupportEmailDraft
+} from '../utils/supportEmailDraft.shared.js';
+import { summarizeLibrarySources } from '../utils/schoolSupportReplyLibrary.shared.js';
+
+/** No persistence and no email send: callers snapshot this result before offering it for review. */
+export async function generateSupportEmailDraft(input, dependencies = {}) {
+  const context = buildSupportEmailDraftContext({
+    ...input,
+    ticket: decryptTicketRow(input.ticket),
+    messages: (input.messages || []).map(decryptTicketMessageRow)
+  });
+  const classification = classifySupportEmailDraft(context);
+  const baseMetadata = {
+    promptVersion: SUPPORT_EMAIL_DRAFT_VERSION,
+    evidenceFingerprint: context.evidenceFingerprint,
+    unresolvedFacts: context.unresolvedFacts,
+    reviewWarnings: [],
+    claimantUserId: context.claimant.id,
+    claimantName: context.claimant.name,
+    latestInboundMessageId: context.latestInbound.id || null,
+    generatedForTicketId: context.ticketId,
+    standards: SUPPORT_EMAIL_REPLY_STANDARDS.map(({ id, source, evidence }) => ({ id, source, evidence, provenance: 'review_derived_standard', approval: 'not_reviewed_by_rachel' })),
+    draftSources: [
+      { type: 'ticket', id: context.ticketId, label: 'Received email and current conversation' },
+      ...context.messages.map((m) => ({ type: 'ticket_message', id: m.id, label: `${m.direction}: ${m.authorName || m.authorRole}`, detail: m.at })),
+      ...context.attachments.files.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Receipt confirmed; contents not reviewed' })),
+      ...context.verifiedFacts.map((f) => ({ type: 'verified_fact', id: f.evidenceId, label: f.key, detail: f.source }))
+    ]
+  };
+  if (classification.suppressed) {
+    return { text: '', status: 'suppressed', suppressed: true, suppressionReason: classification.reason, metadata: { ...baseMetadata, knowledgeSources: [] } };
+  }
+
+  let knowledgeMatches = input.knowledgeMatches;
+  let promptNotes = input.promptNotes;
+  const reviewWarnings = [];
+  if (!Array.isArray(knowledgeMatches)) {
+    try {
+      const matchKnowledge = dependencies.matchKnowledge || (await import('./schoolSupportReplyRetrieval.service.js')).matchReplyKnowledgeForTicket;
+      knowledgeMatches = await matchKnowledge({ agencyId: context.agencyId, schoolOrganizationId: context.schoolOrganizationId, subject: context.original.subject, question: context.latestInbound.body, intentKey: context.intentKey, limit: 4, excludeTicketId: context.ticketId });
+    } catch { knowledgeMatches = []; reviewWarnings.push('historical_knowledge_unavailable'); }
+  }
+  if (!Array.isArray(promptNotes)) {
+    try {
+      const listNotes = dependencies.listPromptNotes || (await import('./schoolSupportReplyLearning.service.js')).listActivePromptNotes;
+      promptNotes = await listNotes(context.agencyId, { schoolOrganizationId: context.schoolOrganizationId });
+    } catch { promptNotes = []; reviewWarnings.push('staff_feedback_unavailable'); }
+  }
+  const generateText = dependencies.generateText || (await import('./geminiText.service.js')).callGeminiText;
+  const prompt = buildSupportEmailDraftPrompt(context, { knowledgeMatches, promptNotes });
+  const generationOptions = { prompt, systemInstruction: SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION,
+    model: process.env.SUPPORT_EMAIL_DRAFT_MODEL || 'gemini-2.5-pro',
+    temperature: 0.1, maxOutputTokens: 4000, jsonMode: true, sensitive: true, vertexOnly: true, allowModelFallback: false };
+  let response = await generateText(generationOptions);
+  let result = parseSupportEmailDraftResult(response.text);
+  let validationIssues = validateSupportEmailDraft(result.reply, context);
+  let correctedDraft = false;
+  if (validationIssues.length) {
+    correctedDraft = true;
+    response = await generateText({ ...generationOptions, prompt: `${prompt}\nQUALITY CORRECTION REQUIRED:\nThe previous candidate failed these checks: ${JSON.stringify(validationIssues)}. Rewrite from the current evidence, removing those claims. Do not substitute a different wording of the same unsupported promise.\nPrevious rejected candidate: ${JSON.stringify(result)}` });
+    result = parseSupportEmailDraftResult(response.text);
+    validationIssues = validateSupportEmailDraft(result.reply, context);
+  }
+  if (validationIssues.length) {
+    throw Object.assign(new Error('The generated reply needs correction before it can be offered. Please regenerate or write a reply.'), {
+      code: 'SUPPORT_DRAFT_GROUNDING_FAILED', status: 422, validationIssues
+    });
+  }
+  const validEvidenceIds = new Set([
+    context.original.evidenceId,
+    ...context.messages.map((m) => m.evidenceId),
+    ...context.attachments.files.map((a) => a.evidenceId),
+    ...context.verifiedFacts.map((f) => f.evidenceId),
+    ...context.verifiedActions.map((a) => a.evidenceId)
+  ]);
+  if (result.usedEvidenceIds.some((id) => !validEvidenceIds.has(id))) reviewWarnings.push('unrecognized_model_citation');
+  // The sender appends its verified identity/signature at delivery. Keeping this
+  // body unsigned prevents an old draft speaking as a previous ticket claimant.
+  return {
+    text: result.reply,
+    status: 'needs_review',
+    suppressed: false,
+    suppressionReason: null,
+    modelName: response.modelName,
+    provider: response.provider,
+    latencyMs: response.latencyMs,
+    metadata: {
+      ...baseMetadata,
+      correctedDraft,
+      knowledgeSources: summarizeLibrarySources(knowledgeMatches),
+      draftSources: [...baseMetadata.draftSources, ...knowledgeMatches.map((m) => ({ type: m.retrievalSource === 'library' || !m.retrievalSource ? 'reply_library' : 'historical_reply', id: m.id, label: m.title, detail: m.retrievalSource || 'library' }))],
+      usedEvidenceIds: result.usedEvidenceIds.filter((id) => validEvidenceIds.has(id)),
+      unresolvedFacts: [...new Set([...context.unresolvedFacts, ...result.unresolvedFacts])],
+      proposedFollowUps: result.proposedFollowUps,
+      reviewWarnings: [...reviewWarnings, ...result.reviewNotes]
+    }
+  };
+}
+
+export { buildSupportEmailDraftContext, buildSupportEmailDraftPrompt };

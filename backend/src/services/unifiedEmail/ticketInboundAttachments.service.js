@@ -2,6 +2,7 @@
  * Persist Gmail inbound attachments onto support tickets and stream them back.
  */
 import pool from '../../config/database.js';
+import { createHash } from 'node:crypto';
 import StorageService from '../storage.service.js';
 import { getGmailClient } from './gmailClient.js';
 
@@ -48,6 +49,7 @@ export function collectGmailAttachmentParts(payload) {
     }
 
     out.push({
+      partId: node?.partId || null,
       filename: filename || (isPdfAttachment({ filename, mimeType }) ? 'attachment.pdf' : 'attachment'),
       mimeType: mimeType || 'application/octet-stream',
       attachmentId,
@@ -76,7 +78,7 @@ export async function listTicketAttachments(ticketId) {
   const tid = Number(ticketId || 0);
   if (!tid) return [];
   const [rows] = await pool.execute(
-    `SELECT a.id, a.ticket_id, a.file_name, a.file_path, a.mime_type, a.file_size, a.created_at,
+    `SELECT a.id, a.ticket_id, a.support_ticket_message_id, a.file_name, a.file_path, a.mime_type, a.file_size, a.created_at,
        t.client_id AS client_document_client_id,
        (SELECT d.id FROM client_phi_documents d
         WHERE d.client_id = t.client_id AND d.removed_at IS NULL
@@ -117,12 +119,12 @@ export async function readTicketAttachmentBuffer(row) {
   return buffer;
 }
 
-async function insertAttachmentRow({ ticketId, filename, path, mimeType, size }) {
+async function insertAttachmentRow({ ticketId, ticketMessageId = null, filename, path, mimeType, size }) {
   const [result] = await pool.execute(
     `INSERT INTO support_ticket_attachments
-      (ticket_id, uploaded_by_user_id, file_name, file_path, mime_type, file_size)
-     VALUES (?, NULL, ?, ?, ?, ?)`,
-    [Number(ticketId), String(filename).slice(0, 255), path, mimeType || null, Number(size) || null]
+      (ticket_id, support_ticket_message_id, uploaded_by_user_id, file_name, file_path, mime_type, file_size)
+     VALUES (?, ?, NULL, ?, ?, ?, ?)`,
+    [Number(ticketId), ticketMessageId, String(filename).slice(0, 255), path, mimeType || null, Number(size) || null]
   );
   return Number(result?.insertId || 0);
 }
@@ -140,35 +142,43 @@ async function downloadGmailPartBuffer(gmail, gmailMessageId, part) {
 
 export async function persistGmailAttachmentsForTicket({
   ticketId,
+  ticketMessageId = null,
   gmail = null,
   gmailMessageId = null,
-  payload = null
+  payload = null,
+  strict = false
 } = {}) {
-  if (!(await hasAttachmentsTable())) return { saved: 0, skipped: 'table_missing' };
+  if (!(await hasAttachmentsTable())) return { saved: 0, skipped: 'table_missing', complete: false, incomplete: true };
   const tid = Number(ticketId || 0);
-  if (!tid || !payload) return { saved: 0, skipped: 'missing_payload' };
+  if (!tid || !payload) return { saved: 0, skipped: 'missing_payload', complete: false, incomplete: true };
 
   const existing = await listTicketAttachments(tid);
   const existingNames = new Set((existing || []).map((a) => String(a.file_name || '').toLowerCase()));
+  const existingPaths = new Set((existing || []).map((a) => String(a.file_path || '')));
   const parts = collectGmailAttachmentParts(payload);
-  if (!parts.length) return { saved: 0, skipped: 'no_parts' };
+  if (!parts.length) return { saved: 0, skipped: 'no_parts', complete: true, incomplete: false };
 
   const client = gmail || (await getGmailClient());
   let saved = 0;
-  for (const part of parts) {
+  let failed = 0;
+  for (const [partIndex, part] of parts.entries()) {
     const key = String(part.filename || '').toLowerCase();
-    if (key && existingNames.has(key)) continue;
+    const sanitized = StorageService.sanitizeFilename(part.filename || 'attachment');
+    const sourceKey = gmailMessageId ? createHash('sha256').update(`${gmailMessageId}:${part.partId || part.attachmentId || partIndex}:${part.filename}`).digest('hex') : null;
+    const stablePath = sourceKey ? `uploads/ticket_attachments/ticket_${tid}/gmail-${sourceKey}-${sanitized}` : null;
+    if (stablePath && existingPaths.has(stablePath)) continue;
+    if (!strict && key && existingNames.has(key)) continue;
     let buffer = null;
     try {
       buffer = await downloadGmailPartBuffer(client, gmailMessageId, part);
     } catch (err) {
       console.warn('[ticketInboundAttachments] download failed:', err?.message || err);
+      failed += 1;
       continue;
     }
-    if (!buffer?.length) continue;
-    const sanitized = StorageService.sanitizeFilename(part.filename || 'attachment');
+    if (!buffer?.length) { failed += 1; continue; }
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const gcsPath = `uploads/ticket_attachments/ticket_${tid}/${unique}-${sanitized}`;
+    const gcsPath = stablePath || `uploads/ticket_attachments/ticket_${tid}/${unique}-${sanitized}`;
     try {
       const bucket = await StorageService.getGCSBucket();
       await bucket.file(gcsPath).save(buffer, {
@@ -181,18 +191,21 @@ export async function persistGmailAttachmentsForTicket({
       });
       await insertAttachmentRow({
         ticketId: tid,
+        ticketMessageId,
         filename: part.filename || sanitized,
         path: gcsPath,
         mimeType: part.mimeType,
         size: buffer.length
       });
       existingNames.add(key);
+      existingPaths.add(gcsPath);
       saved += 1;
     } catch (err) {
       console.warn('[ticketInboundAttachments] save failed:', err?.message || err);
+      failed += 1;
     }
   }
-  return { saved };
+  return { saved, failed, complete: failed === 0, incomplete: failed > 0 };
 }
 
 function normalizeRfc822MessageId(value) {
@@ -200,9 +213,8 @@ function normalizeRfc822MessageId(value) {
 }
 
 export async function ingestTicketAttachmentsFromGmail({ ticket } = {}) {
-  if (!ticket?.id) return { saved: 0, skipped: 'no_ticket' };
+  if (!ticket?.id) return { saved: 0, skipped: 'no_ticket', complete: false, incomplete: true };
   const existing = await listTicketAttachments(ticket.id);
-  if (existing.length) return { saved: 0, skipped: 'already_present', attachments: existing };
 
   let metadata = ticket.ai_draft_metadata_json;
   if (typeof metadata === 'string') {
@@ -213,11 +225,11 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}) {
     }
   }
   if (metadata?.attachmentsIngested) {
-    return { saved: 0, skipped: 'already_ingested', attachments: existing };
+    return { saved: 0, skipped: 'already_ingested', attachments: existing, complete: true };
   }
   const gmailMessageId = metadata?.gmailMessageId || metadata?.gmail_message_id || null;
   const rfcId = normalizeRfc822MessageId(ticket.source_email_message_id);
-  if (!gmailMessageId && !rfcId) return { saved: 0, skipped: 'no_gmail_id' };
+  if (!gmailMessageId && !rfcId) return { saved: 0, skipped: 'no_gmail_id', complete: false, incomplete: true };
 
   const gmail = await getGmailClient();
   let gmailId = gmailMessageId;
@@ -229,16 +241,17 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}) {
     });
     gmailId = list.data?.messages?.[0]?.id || null;
   }
-  if (!gmailId) return { saved: 0, skipped: 'gmail_not_found' };
+  if (!gmailId) return { saved: 0, skipped: 'gmail_not_found', complete: false, incomplete: true };
 
   const full = await gmail.users.messages.get({ userId: 'me', id: gmailId, format: 'full' });
   const result = await persistGmailAttachmentsForTicket({
     ticketId: ticket.id,
     gmail,
     gmailMessageId: gmailId,
-    payload: full.data?.payload || null
+    payload: full.data?.payload || null,
+    strict: true
   });
-  await markAttachmentsIngested(ticket.id, { ...metadata, gmailMessageId: gmailId });
+  if (result.complete) await markAttachmentsIngested(ticket.id, { ...metadata, gmailMessageId: gmailId });
   const attachments = await listTicketAttachments(ticket.id);
   return { ...result, attachments };
 }

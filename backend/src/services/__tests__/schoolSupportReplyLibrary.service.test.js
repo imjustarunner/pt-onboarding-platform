@@ -43,7 +43,7 @@ describe('schoolSupportReplyLibrary.shared', () => {
         bodyTemplate: 'Thanks for checking in. We are still waiting on the ROI.'
       }
     ]);
-    assert.match(block, /Approved reply library snippets/);
+    assert.match(block, /Curated reply library snippets/);
     assert.match(block, /Status waiting on ROI/);
     assert.match(block, /waiting on the ROI/);
   });
@@ -52,7 +52,7 @@ describe('schoolSupportReplyLibrary.shared', () => {
     const sources = summarizeLibrarySources([
       { id: 5, title: 'Packet received', intentKey: 'packet_received' }
     ]);
-    assert.deepEqual(sources, [{ id: 5, title: 'Packet received', intentKey: 'packet_received', intentLabel: 'Packet / referral received' }]);
+    assert.deepEqual(sources, [{ id: 5, title: 'Packet received', intentKey: 'packet_received', intentLabel: 'Packet / referral received', retrievalSource: 'library', approvalStatus: 'staff_curated', sourceTicketId: null, retrievalScore: null }]);
   });
 
   it('exports expected intent keys', () => {

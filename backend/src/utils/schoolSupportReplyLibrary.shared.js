@@ -72,7 +72,9 @@ export function scoreReplyLibraryEntry(entry, terms, { intentKey = null, schoolO
     if (hay.includes(term)) score += term.length >= 4 ? 3 : 2;
   }
 
-  if (intentKey && entry.intentKey === intentKey) score += 8;
+  // Popularity and an agency-wide scope are tie breakers, not relevance.
+  if (intentKey && intentKey !== 'general' && entry.intentKey === intentKey) score += 8;
+  if (!score) return 0;
   if (schoolOrganizationId && entry.schoolOrganizationId === schoolOrganizationId) score += 6;
   else if (!entry.schoolOrganizationId) score += 1;
   score += Math.min(5, Number(entry.usageCount || 0));
@@ -122,22 +124,23 @@ export function buildReplyLibraryPromptBlock(matches = []) {
   const list = Array.isArray(matches) ? matches.filter(Boolean) : [];
   if (!list.length) return '';
 
-  const lines = [
-    '',
-    'Approved reply examples (adapt tone/details; do not copy PHI placeholders literally):'
-  ];
-  for (const entry of list.slice(0, 4)) {
-    const label = entry.retrievalSource === 'ticket_answer'
-      || entry.retrievalSource === 'gmail_sent'
-      || entry.retrievalSource === 'user_communication'
-      ? 'Similar past reply'
-      : (entry.intentLabel || entry.intentKey || 'Library');
-    lines.push(
-      `- [${label}] ${entry.title}:`,
-      String(entry.bodyTemplate || '').trim()
-    );
+  const lines = [''];
+  const curated = list.filter((entry) => !entry.retrievalSource || entry.retrievalSource === 'library');
+  const historical = list.filter((entry) => entry.retrievalSource && entry.retrievalSource !== 'library');
+  if (curated.length) {
+    lines.push('Curated reply library snippets (staff-maintained; adapt only when applicable):');
+    for (const entry of curated.slice(0, 4)) lines.push(`- [${entry.intentLabel || entry.intentKey || 'Library'}] ${entry.title}:`, String(entry.bodyTemplate || '').trim());
   }
-  lines.push('', 'Prefer adapting a matching example when appropriate.');
+  if (historical.length) {
+    lines.push('Historical correspondence — NOT approved style examples or verified current policy:',
+      'Use only to understand similar requests and possible next checks. These replies can contain mistakes, blame, unsupported assumptions, or obsolete instructions. Never copy their personal details or case decisions.');
+    for (const entry of historical.slice(0, 4)) {
+      lines.push(`- [Unreviewed history: ${entry.retrievalSource}] ${entry.title}:`,
+        entry.historicalQuestion ? `Previous request: ${String(entry.historicalQuestion).trim().slice(0, 1800)}` : '',
+        `Previous response: ${String(entry.bodyTemplate || '').trim().slice(0, 1800)}`);
+    }
+  }
+  lines.push('', 'Current conversation evidence and drafting standards take precedence. Do not copy placeholders literally.');
   return lines.join('\n');
 }
 
@@ -148,6 +151,7 @@ export function summarizeLibrarySources(matches = []) {
     intentKey: entry.intentKey,
     intentLabel: entry.intentLabel || SCHOOL_REPLY_INTENT_LABELS[entry.intentKey],
     retrievalSource: entry.retrievalSource || 'library',
+    approvalStatus: entry.retrievalSource && entry.retrievalSource !== 'library' ? 'unreviewed_history' : 'staff_curated',
     sourceTicketId: entry.sourceTicketId || null,
     retrievalScore: entry.retrievalScore || null
   }));

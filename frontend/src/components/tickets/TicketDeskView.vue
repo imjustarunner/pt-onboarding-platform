@@ -13,6 +13,8 @@
         <p class="desk-sub">Tickets · Manage and respond to support requests.</p>
       </div>
       <div class="desk-header-actions">
+        <router-link v-if="canAnswer && replyLibraryAgencyId" class="btn btn-secondary btn-sm"
+          :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/support-review`, query: { agencyId: replyLibraryAgencyId } }">Daily reply review</router-link>
         <button
           v-if="!useMineForced"
           type="button"
@@ -332,6 +334,10 @@
                 </button>
               </div>
 
+              <div v-if="canonicalTicketId && Number(canonicalTicketId) !== Number(selectedId)" class="email-delivery-notice">
+                This email thread continues in ticket #{{ canonicalTicketId }}. Closing notes remain here.
+                <button type="button" class="btn btn-secondary btn-xs" @click="openCanonicalThread">Open email conversation</button>
+              </div>
               <div class="conversation-scroll">
               <!-- Conversation tab -->
               <template v-if="detailTab === 'conversation'">
@@ -355,6 +361,11 @@
                     <div class="bubble-meta">
                       <strong>{{ messageAuthor(m) }}</strong>
                       <span>{{ formatDateTime(m.created_at) }}</span>
+                    </div>
+                    <div v-if="m.email_delivery" class="email-envelope">
+                      <span>{{ m.email_delivery.from_name || m.email_delivery.from_email }}</span>
+                      <span v-if="m.email_delivery.from_name">&lt;{{ m.email_delivery.from_email }}&gt;</span>
+                      <strong>{{ deliveryLabel(m.email_delivery) }}</strong>
                     </div>
                     <div class="bubble-body">{{ m.body || '(deleted)' }}</div>
                   </div>
@@ -694,7 +705,7 @@
               <div v-if="showAutoDraftBanner" class="ai-draft-banner">
                 <div class="ai-draft-head">
                   <strong>{{ generatingDraft ? 'Preparing AI draft…' : 'AI draft ready' }}</strong>
-                  <span v-if="!generatingDraft" class="muted"> · edit below, then send as Official answer</span>
+                  <span v-if="!generatingDraft" class="muted"> · review and edit below, then send your reply</span>
                   <span v-if="selected.ai_draft_review_state" class="muted">
                     · {{ selected.ai_draft_review_state }}
                   </span>
@@ -757,6 +768,7 @@
                   <button
                     type="button"
                     class="btn btn-secondary btn-xs"
+                    v-if="!isEmailTicket"
                     :disabled="markingSent"
                     @click="markDraftSent"
                   >
@@ -793,7 +805,7 @@
                     type="button"
                     class="composer-tab"
                     :class="{ active: composerMode === 'reply' }"
-                    @click="composerMode = 'reply'"
+                    @click="switchComposerMode('reply')"
                   >
                     Reply
                   </button>
@@ -802,23 +814,45 @@
                     type="button"
                     class="composer-tab"
                     :class="{ active: composerMode === 'internal' }"
-                    @click="composerMode = 'internal'"
+                    @click="switchComposerMode('internal')"
                   >
                     Internal note
                   </button>
                   <button
-                    v-if="canAnswer"
+                    v-if="canAnswer && !isEmailTicket"
                     type="button"
                     class="composer-tab"
                     :class="{ active: composerMode === 'answer' }"
-                    @click="composerMode = 'answer'"
+                    @click="switchComposerMode('answer')"
                   >
                     Official answer
                   </button>
                 </div>
+                <div v-if="isEmailTicket && canAnswer && composerMode !== 'internal'" class="email-sender-controls">
+                  <label>Reply from
+                    <select v-model="senderIdentityId" aria-label="Shared email address">
+                      <option v-for="option in senderOptions" :key="option.id" :value="option.id">{{ option.fromEmail }}</option>
+                    </select>
+                  </label>
+                  <label>Display name
+                    <select v-model="senderMode" aria-label="Email display name">
+                      <option value="staff">{{ selectedSender?.staffDisplayName || 'My name' }}</option>
+                      <option value="team">{{ selectedSender?.teamDisplayName || 'Schools team' }}</option>
+                    </select>
+                  </label>
+                  <p v-if="selectedSender">{{ senderMode === 'staff' ? selectedSender.staffDisplayName : selectedSender.teamDisplayName }} &lt;{{ selectedSender.fromEmail }}&gt;</p>
+                  <p v-else class="error">No shared sender is configured for this conversation.</p>
+                </div>
+                <div v-if="draftIsStale && composerMode !== 'internal'" class="email-delivery-notice">
+                  This draft was prepared before the latest conversation activity. Review the messages above.
+                  <button type="button" class="btn btn-secondary btn-xs" @click="startFreshReply">I reviewed the conversation; keep my reply</button>
+                </div>
+                <p v-if="emailNotice" class="email-delivery-notice" role="status">{{ emailNotice }}</p>
+                <p v-if="draftWarnings.length && composerMode !== 'internal'" class="email-delivery-notice">Review before sending: {{ draftWarnings.join('; ') }}</p>
                 <p class="communication-standards"><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications. Use approved secure channels for protected health information.</p><textarea
                   v-model="draft"
                   class="composer-textarea"
+                  :disabled="messagesLoading"
                   :rows="composerTextRows"
                   :placeholder="composerPlaceholder"
                 />
@@ -909,7 +943,7 @@
                     v-else
                     type="button"
                     class="btn btn-primary"
-                    :disabled="sending || !draft.trim()"
+                    :disabled="sending || !draft.trim() || (isEmailTicket && composerMode !== 'internal' && (!selectedSender || !canActOnSelected || (canonicalTicketId && Number(canonicalTicketId) !== Number(selectedId))))"
                     @click="sendMessage"
                   >
                     {{ sending ? 'Sending…' : composerMode === 'internal' ? 'Add note' : 'Send reply' }}
@@ -1122,6 +1156,60 @@ const messagesLoading = ref(false);
 const messagesError = ref('');
 const draft = ref('');
 const composerMode = ref('reply');
+const composerDrafts = ref({ reply: '', internal: '', answer: '' });
+const senderOptions = ref([]);
+const senderIdentityId = ref(null);
+const senderMode = ref('staff');
+const selectedSender = computed(() => senderOptions.value.find((x) => Number(x.id) === Number(senderIdentityId.value)));
+const draftSnapshotId = ref(null);
+const draftThreadRevision = ref(null);
+const lastMessageId = ref(0);
+const draftWarnings = ref([]);
+const emailNotice = ref('');
+const canonicalTicketId = ref(null);
+const draftIsStale = computed(() => draftSnapshotId.value && draftThreadRevision.value != null && String(draftThreadRevision.value) !== String(lastMessageId.value));
+function startFreshReply() {
+  switchComposerMode('reply');
+  draftSnapshotId.value = null; draftThreadRevision.value = null;
+  emailNotice.value = 'Your reply is now based on the conversation you have reviewed. The earlier generated draft remains in the review history.';
+  saveDraftForTicket(selectedId.value, draft.value);
+}
+async function openCanonicalThread() {
+  const id = canonicalTicketId.value;
+  if (!id) return;
+  const origin = selectedId.value;
+  try {
+    const ticket = tickets.value.find((t) => Number(t.id) === Number(id));
+    if (ticket) selectTicket(ticket);
+    else {
+      const response = await api.get(`/support-tickets/${id}/messages`, { skipGlobalLoading: true });
+      if (response.data?.ticket && selectedId.value === origin) selectTicket(response.data.ticket);
+    }
+  } catch (error) {
+    if (selectedId.value === origin) actionError.value = error?.response?.data?.error?.message || 'Unable to open the email conversation.';
+  }
+}
+
+const sendAttempt = ref(null);
+let messageLoadSequence = 0;
+let draftGenerationSequence = 0;
+let restoringDraft = false;
+let messagePollTimer;
+function deliveryLabel(delivery) {
+  if (delivery.direction === 'inbound') return 'Received';
+  return { sent: 'Sent', queued: 'Waiting to send', pending_approval: 'Awaiting approval', failed: 'Delivery not confirmed', sending: 'Sending' }[delivery.send_status] || delivery.send_status;
+}
+function switchComposerMode(mode) {
+  if (mode === composerMode.value) return;
+  composerDrafts.value[composerMode.value] = draft.value;
+  composerMode.value = mode;
+  draft.value = composerDrafts.value[mode] || '';
+  if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
+}
+function setReplyDraft(text) {
+  switchComposerMode(isEmailTicket.value ? 'reply' : 'answer');
+  draft.value = text;
+}
 const sending = ref(false);
 const busy = ref(false);
 const searchInput = ref('');
@@ -1265,7 +1353,7 @@ function responsePlanStepStatusLabel(status) {
 }
 
 function focusComposerForReply() {
-  composerMode.value = 'answer';
+  switchComposerMode(isEmailTicket.value ? 'reply' : 'answer');
   if (selected.value?.ai_draft_response && !draft.value.trim()) {
     useAiDraft();
   }
@@ -1786,61 +1874,85 @@ async function loadTickets() {
   }
 }
 
-async function loadMessages(ticketId) {
-  messagesLoading.value = true;
+async function loadMessages(ticketId, { quiet = false } = {}) {
+  const sequence = ++messageLoadSequence;
+  if (!quiet) messagesLoading.value = true;
   messagesError.value = '';
+  const current = () => Number(selectedId.value) === Number(ticketId) && sequence === messageLoadSequence;
   try {
     const r = await api.get(`/support-tickets/${ticketId}/messages`, { skipGlobalLoading: true });
+    if (!current()) return;
+    canonicalTicketId.value = r.data?.canonicalTicketId || null;
     messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
     ticketAttachments.value = Array.isArray(r.data?.attachments) ? r.data.attachments : [];
     if (r.data?.ticket) selected.value = { ...selected.value, ...r.data.ticket };
+    senderOptions.value = r.data?.senderOptions || [];
+    if (!senderOptions.value.some((x) => Number(x.id) === Number(senderIdentityId.value))) {
+      senderIdentityId.value = (senderOptions.value.find((x) => x.identityKey === 'schools') || senderOptions.value[0])?.id || null;
+    }
+    if (selected.value) Object.assign(selected.value, { ai_draft_snapshot_id: r.data?.draftSnapshotId || null, ai_draft_thread_revision: r.data?.draftThreadRevision ?? null });
+    const revision = Number(r.data?.lastMessageId || 0);
+    if (quiet && revision > lastMessageId.value && draft.value.trim()) {
+      emailNotice.value = 'The conversation has new activity. Review the latest message before sending.';
+    }
+    lastMessageId.value = revision;
+    if (!draft.value.trim() || draft.value === r.data?.ticket?.ai_draft_response) {
+      draftSnapshotId.value = r.data?.draftSnapshotId || null;
+      draftThreadRevision.value = r.data?.draftThreadRevision ?? null;
+    }
+    draftWarnings.value = r.data?.draftWarnings || [];
     if (canAnswer.value) loadTicketActions(ticketId);
+    if (!quiet && !draft.value.trim()) maybeAutoPrepareDraftOnOpen(selected.value);
     await nextTick();
-    if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
+    if (current() && !quiet && threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
   } catch (e) {
+    if (!current()) return;
     messagesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load messages';
-    messages.value = [];
-    ticketAttachments.value = [];
   } finally {
-    messagesLoading.value = false;
+    if (current()) messagesLoading.value = false;
   }
 }
 
 function draftStorageKey(id) {
-  return `ticket-draft:${id}`;
+  return `support-composer:v2:${authStore.user?.id}:${selected.value?.agency_id || agencyStore.currentAgency?.id}:${id}`;
 }
-
 function saveDraftForTicket(id, text) {
-  if (!id) return;
+  if (!id || restoringDraft) return;
+  composerDrafts.value[composerMode.value] = String(text ?? '');
   try {
-    const raw = String(text ?? '');
-    if (!raw.trim()) {
-      localStorage.removeItem(draftStorageKey(id));
-      return;
-    }
-    localStorage.setItem(draftStorageKey(id), raw);
-  } catch {
-    /* ignore quota / private mode */
-  }
+    sessionStorage.setItem(draftStorageKey(id), JSON.stringify({ modes: composerDrafts.value,
+      mode: composerMode.value, draftSnapshotId: draftSnapshotId.value, draftThreadRevision: draftThreadRevision.value,
+      senderIdentityId: senderIdentityId.value, senderMode: senderMode.value, sendAttempt: sendAttempt.value }));
+  } catch { /* Private mode or quota: the editor remains available. */ }
 }
-
-function loadDraftForTicket(id) {
-  if (!id) return '';
+function restoreDraftForTicket(id) {
+  restoringDraft = true;
   try {
-    return localStorage.getItem(draftStorageKey(id)) || '';
+    const saved = JSON.parse(sessionStorage.getItem(draftStorageKey(id)) || '{}');
+    composerDrafts.value = { reply: '', internal: '', answer: '', ...saved.modes };
+    composerMode.value = ['reply', 'internal', 'answer'].includes(saved.mode) ? saved.mode : 'reply';
+    if (isEmailTicket.value && composerMode.value === 'answer') composerMode.value = 'reply';
+    draft.value = composerDrafts.value[composerMode.value] || '';
+    draftSnapshotId.value = saved.draftSnapshotId || null;
+    draftThreadRevision.value = saved.draftThreadRevision ?? null;
+    senderIdentityId.value = saved.senderIdentityId || null;
+    senderMode.value = saved.senderMode === 'team' ? 'team' : 'staff';
+    sendAttempt.value = saved.sendAttempt || null;
   } catch {
-    return '';
-  }
+    composerDrafts.value = { reply: '', internal: '', answer: '' };
+    composerMode.value = 'reply'; draft.value = ''; draftSnapshotId.value = null;
+    draftThreadRevision.value = null; senderIdentityId.value = null; senderMode.value = 'staff'; sendAttempt.value = null;
+  } finally { restoringDraft = false; }
 }
-
 function clearDraftForTicket(id) {
-  if (!id) return;
-  try {
-    localStorage.removeItem(draftStorageKey(id));
-  } catch {
-    /* ignore */
+  if (Number(id) === Number(selectedId.value)) {
+    composerDrafts.value[composerMode.value] = '';
+    saveDraftForTicket(id, '');
   }
 }
+watch([draft, senderIdentityId, senderMode], () => {
+  if (!restoringDraft && selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
+}, { flush: 'sync' });
 
 const selectedIndex = computed(() =>
   tickets.value.findIndex((t) => Number(t.id) === Number(selectedId.value))
@@ -1879,8 +1991,13 @@ function selectTicket(t) {
   selectedId.value = t.id;
   selected.value = t;
   detailTab.value = 'conversation';
-  composerMode.value = 'reply';
-  draft.value = loadDraftForTicket(t.id);
+  restoreDraftForTicket(t.id);
+  messages.value = [];
+  senderOptions.value = [];
+  lastMessageId.value = 0;
+  emailNotice.value = '';
+  canonicalTicketId.value = null;
+  draftWarnings.value = [];
   draftSources.value = [];
   actionError.value = '';
   showRegenGuidance.value = false;
@@ -1906,7 +2023,7 @@ function selectTicket(t) {
   if (canAnswer.value) loadTicketActions(t.id);
   if (canAnswer.value && isEmailTicket.value) loadResponsePlan(t.id);
   nextTick(() => {
-    if (!String(draft.value || '').trim()) {
+    if (Number(selectedId.value) === Number(t.id) && !String(draft.value || '').trim()) {
       maybeAutoPrepareDraftOnOpen(t);
     }
   });
@@ -1925,16 +2042,15 @@ async function maybeAutoPrepareDraftOnOpen(t) {
 
   const existing = String(ticket.ai_draft_response || '').trim();
   if (existing) {
-    composerMode.value = 'answer';
-    draft.value = existing;
+    setReplyDraft(existing);
     return;
   }
 
-  if (generatingDraft.value) return;
-  await generateDraft();
+  // Intake generates the first draft. Opening a conversation does not claim it.
 }
 
 function clearSelection() {
+  if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
   selectedId.value = null;
   selected.value = null;
   messages.value = [];
@@ -1992,14 +2108,16 @@ async function loadResponsePlan(ticketId) {
   responsePlanLoading.value = true;
   try {
     const r = await api.get(`/support-tickets/${id}/response-plan`, { skipGlobalLoading: true });
+    if (Number(selectedId.value) !== id) return;
     responsePlan.value = r.data?.responsePlan || null;
   } catch (e) {
+    if (Number(selectedId.value) !== id) return;
     responsePlan.value = null;
     if (e?.response?.status !== 404 && e?.response?.status !== 409) {
       console.warn('Failed to load response plan', e?.message || e);
     }
   } finally {
-    responsePlanLoading.value = false;
+    if (Number(selectedId.value) === id) responsePlanLoading.value = false;
   }
 }
 
@@ -2042,15 +2160,17 @@ async function loadTicketActions(ticketId) {
   ticketActionsLoading.value = true;
   try {
     const r = await api.get(`/support-tickets/${id}/actions`, { skipGlobalLoading: true });
+    if (Number(selectedId.value) !== id) return;
     ticketActions.value = Array.isArray(r.data?.actions) ? r.data.actions : [];
   } catch (e) {
+    if (Number(selectedId.value) !== id) return;
     // Table may not exist yet on older environments — keep quiet.
     ticketActions.value = [];
     if (e?.response?.status !== 404 && e?.response?.status !== 409) {
       console.warn('Failed to load ticket actions', e?.message || e);
     }
   } finally {
-    ticketActionsLoading.value = false;
+    if (Number(selectedId.value) === id) ticketActionsLoading.value = false;
   }
 }
 
@@ -2154,9 +2274,9 @@ function insertTempPasswordIntoDraft(action) {
     .filter(Boolean)
     .join('\n');
 
+  switchComposerMode(isEmailTicket.value ? 'reply' : 'answer');
   const existing = draft.value.trim();
   draft.value = existing ? `${existing}\n\n${block}` : block;
-  composerMode.value = 'answer';
 
   // Also append into stored AI draft so "Use draft" stays consistent if present.
   if (selected.value) {
@@ -2178,25 +2298,56 @@ function nameFromEmail(email) {
 }
 
 async function sendMessage() {
-  if (!selected.value?.id || !draft.value.trim()) return;
-  sending.value = true;
-  try {
-    const ticketId = selected.value.id;
-    const replyResult = await api.post(`/support-tickets/${selected.value.id}/messages`, {
-      body: draft.value.trim(),
-      isInternal: composerMode.value === 'internal'
-    });
-    draft.value = '';
-    clearDraftForTicket(ticketId);
-    await loadMessages(selected.value.id);
-    await loadTickets();
-    await loadMetrics();
-    if (replyResult.data?.emailReply?.sent === false) actionError.value = replyResult.data.emailReply.reason;
-  } catch (e) {
-    messagesError.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
-  } finally {
-    sending.value = false;
+  if (!selected.value?.id || !draft.value.trim() || sending.value) return;
+  const ticketId = selected.value.id;
+  const mode = composerMode.value;
+  const body = draft.value.trim();
+  const email = isEmailTicket.value && mode !== 'internal';
+  if (email && !selectedSender.value) { actionError.value = 'Choose a shared email sender before replying.'; return; }
+  const storageKey = draftStorageKey(ticketId);
+  const fingerprint = JSON.stringify([ticketId, mode, body, senderIdentityId.value, senderMode.value]);
+  if (sendAttempt.value?.fingerprint !== fingerprint) {
+    sendAttempt.value = { fingerprint, id: globalThis.crypto.randomUUID() };
   }
+  saveDraftForTicket(ticketId, draft.value);
+  const request = { body, isInternal: mode === 'internal', clientRequestId: sendAttempt.value.id,
+    senderIdentityId: senderIdentityId.value, senderMode: senderMode.value,
+    draftSnapshotId: draftSnapshotId.value, expectedLastMessageId: lastMessageId.value };
+  sending.value = true;
+  actionError.value = ''; emailNotice.value = '';
+  try {
+    const replyResult = await api.post(`/support-tickets/${ticketId}/messages`, request);
+    const receipt = replyResult.data?.emailReply;
+    const current = Number(selectedId.value) === Number(ticketId);
+    const confirmed = !email || receipt?.status === 'sent' || receipt?.sent === true;
+    if (current && (receipt?.sent === false || (email && !confirmed))) {
+      emailNotice.value = receipt?.status === 'queued' || receipt?.status === 'pending_approval'
+        ? 'Your reply is waiting to send. It will show as sent after delivery is confirmed.'
+        : receipt?.status === 'sending' ? 'Delivery is still being confirmed. Your reply remains saved.'
+        : 'Delivery was not confirmed. Your reply is saved; check the conversation before trying again.';
+    }
+    if (confirmed && receipt?.sent !== false && !current) {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+        if (String(saved.modes?.[mode] || '').trim() === body && saved.sendAttempt?.id === request.clientRequestId) {
+          saved.modes[mode] = ''; saved.sendAttempt = null; saved.draftSnapshotId = null;
+          sessionStorage.setItem(storageKey, JSON.stringify(saved));
+        }
+      } catch { /* Keep current work intact if storage is unavailable. */ }
+    }
+    if (confirmed && receipt?.sent !== false && current && composerMode.value === mode && draft.value.trim() === body) {
+      draft.value = ''; sendAttempt.value = null; draftSnapshotId.value = null;
+      clearDraftForTicket(ticketId);
+      if (email) emailNotice.value = 'Reply sent.';
+    }
+    if (current) await loadMessages(ticketId);
+    await loadTickets(); await loadMetrics();
+  } catch (e) {
+    if (Number(selectedId.value) === Number(ticketId)) {
+      messagesError.value = e?.response?.data?.error?.message || e?.message || 'Send failed. Your reply is saved.';
+      if (e?.response?.status === 409) await loadMessages(ticketId);
+    }
+  } finally { sending.value = false; }
 }
 
 async function claim() {
@@ -2318,60 +2469,46 @@ async function assignTicket() {
 function insertReplyLibraryText(text) {
   const chunk = String(text || '').trim();
   if (!chunk) return;
+  switchComposerMode(isEmailTicket.value ? 'reply' : 'answer');
   const existing = draft.value.trim();
   draft.value = existing ? `${existing}\n\n${chunk}` : chunk;
-  composerMode.value = 'answer';
 }
 
 async function generateDraft({ replace = true, guidance = null } = {}) {
-  if (!selected.value?.id) return;
-  if (!canActOnSelected.value) {
-    actionError.value = `Ticket is claimed by ${assigneeName(selected.value) || 'someone else'}.`;
-    return;
-  }
-  generatingDraft.value = true;
-  actionError.value = '';
+  if (!selected.value?.id || generatingDraft.value) return;
+  if (!canActOnSelected.value) { actionError.value = `Ticket is claimed by ${assigneeName(selected.value) || 'someone else'}.`; return; }
+  const ticketId = selected.value.id;
+  const initialText = draft.value;
+  const initialMode = composerMode.value;
+  const sequence = ++draftGenerationSequence;
+  generatingDraft.value = true; actionError.value = '';
   try {
     if (!selected.value.claimed_by_user_id) {
-      await api.post(`/support-tickets/${selected.value.id}/claim`, {}, { skipGlobalLoading: true });
+      await api.post(`/support-tickets/${ticketId}/claim`, {}, { skipGlobalLoading: true });
     }
-    const body = {};
     const guide = String(guidance ?? '').trim();
-    if (guide) body.regenerationGuidance = guide;
-    const r = await api.post(`/support-tickets/${selected.value.id}/generate-response`, body, {
-      skipGlobalLoading: true
-    });
+    const r = await api.post(`/support-tickets/${ticketId}/generate-response`, guide ? { regenerationGuidance: guide } : {}, { skipGlobalLoading: true });
+    if (Number(selectedId.value) !== Number(ticketId) || sequence !== draftGenerationSequence) return;
     const text = String(r.data?.suggestedAnswer || '').trim();
-    draftSources.value = Array.isArray(r.data?.draftSources) ? r.data.draftSources : [];
-    if (!text) {
-      actionError.value = 'No draft was generated.';
+    draftSources.value = r.data?.draftSources || [];
+    draftWarnings.value = r.data?.reviewWarnings || [];
+    selected.value = { ...selected.value, ai_draft_response: text, ai_draft_review_state: 'pending', draft_sources: draftSources.value, ai_draft_snapshot_id: r.data?.draftSnapshotId || null, ai_draft_thread_revision: r.data?.lastMessageId ?? null };
+    if (!text) { actionError.value = r.data?.suppressionReason || 'No reply draft is needed for this message.'; return; }
+    if (draft.value !== initialText || composerMode.value !== initialMode) {
+      emailNotice.value = 'A new draft is ready. Your edits have been kept; choose Use draft to replace them.';
       return;
     }
-    if (replace) {
-      draft.value = text;
-    } else {
-      const existing = draft.value.trim();
-      draft.value = existing ? `${existing}\n\n---\n\n${text}` : text;
-    }
-    composerMode.value = 'answer';
-    selected.value = {
-      ...selected.value,
-      ai_draft_response: text,
-      ai_draft_review_state: 'pending',
-      draft_sources: draftSources.value
-    };
-    const found = tickets.value.find((x) => x.id === selected.value.id);
-    if (found) {
-      found.ai_draft_response = text;
-      found.ai_draft_review_state = 'pending';
-    }
+    draftSnapshotId.value = r.data?.draftSnapshotId || null;
+    draftThreadRevision.value = r.data?.lastMessageId ?? null;
+    lastMessageId.value = Number(r.data?.lastMessageId || lastMessageId.value);
+    setReplyDraft(replace || !initialText.trim() ? text : `${initialText.trim()}\n\n${text}`);
+    const found = tickets.value.find((x) => Number(x.id) === Number(ticketId));
+    if (found) Object.assign(found, { ai_draft_response: text, ai_draft_review_state: 'pending' });
     showRegenGuidance.value = false;
-    await loadResponsePlan(selected.value.id);
+    await loadResponsePlan(ticketId);
   } catch (e) {
-    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate draft';
-  } finally {
-    generatingDraft.value = false;
-  }
+    if (Number(selectedId.value) === Number(ticketId)) actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate draft';
+  } finally { if (sequence === draftGenerationSequence) generatingDraft.value = false; }
 }
 
 async function runRegenWithGuidance() {
@@ -2384,10 +2521,11 @@ async function runRegenWithGuidance() {
 }
 
 function useAiDraft() {
+  draftSnapshotId.value = selected.value?.ai_draft_snapshot_id || null;
+  draftThreadRevision.value = selected.value?.ai_draft_thread_revision ?? null;
   const text = String(selected.value?.ai_draft_response || '').trim();
   if (!text) return;
-  draft.value = text;
-  composerMode.value = 'answer';
+  setReplyDraft(text);
 }
 
 async function copyAiDraft() {
@@ -2456,6 +2594,7 @@ async function markDraftSent() {
 }
 
 async function submitOfficialAnswer() {
+  if (isEmailTicket.value) return sendMessage();
   if (!selected.value?.id || !draft.value.trim()) return;
   if (!canActOnSelected.value) {
     actionError.value = `Ticket is claimed by ${assigneeName(selected.value) || 'someone else'}.`;
@@ -2577,13 +2716,15 @@ watch(
     const found = tickets.value.find((t) => t.id === n);
     if (found) selectTicket(found);
     else {
-      selectedId.value = n;
-      loadMessages(n);
+      selectTicket({ id: n, agency_id: agencyStore.currentAgency?.id || null });
     }
   }
 );
 
 onMounted(async () => {
+  messagePollTimer = setInterval(() => {
+    if (selectedId.value && isEmailTicket.value && !sending.value && !messagesLoading.value && !document.hidden) loadMessages(selectedId.value, { quiet: true });
+  }, 30000);
   onResize();
   window.addEventListener('resize', onResize);
   if (!isSchoolStaff.value) {
@@ -2622,13 +2763,14 @@ onMounted(async () => {
     const found = tickets.value.find((t) => t.id === qid);
     if (found) selectTicket(found);
     else {
-      selectedId.value = qid;
-      await loadMessages(qid);
+      selectTicket({ id: qid, agency_id: agencyStore.currentAgency?.id || null });
     }
   }
 });
 
 onUnmounted(() => {
+  if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
+  clearInterval(messagePollTimer);
   clearTimeout(searchDebounceTimer);
   window.removeEventListener('resize', onResize);
 });
@@ -2637,6 +2779,14 @@ defineExpose({ loadAll, clearSelection });
 </script>
 
 <style scoped>
+.email-sender-controls { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 0; }
+.email-sender-controls label { display: grid; gap: 4px; font-size: 12px; }
+.email-sender-controls select { padding: 7px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: var(--bg-card, white); color: inherit; }
+.email-sender-controls p { flex-basis: 100%; margin: 0; font-size: 12px; }
+.email-envelope { display: flex; flex-wrap: wrap; gap: 5px; font-size: 11px; color: var(--text-secondary, #555); margin-bottom: 8px; }
+.email-envelope strong { margin-left: auto; }
+.email-delivery-notice { padding: 8px 10px; background: var(--bg-secondary, #eef4f1); border-radius: 6px; font-size: 13px; }
+
 .website-ticket-brand{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 8px}.website-ticket-brand img{width:36px;height:30px;object-fit:contain;background:white;border-radius:4px}
 
 .ticket-desk {
@@ -3565,6 +3715,19 @@ defineExpose({ loadAll, clearSelection });
   .detail-main { grid-template-columns: 1fr; }
   .meta-sidebar { display: none; }
   .conversation-col { border-right: none; }
+}
+
+/* On a phone, a wrapped header and full reply editor cannot share a fixed-height
+   pane without collapsing the received conversation. Let the focused ticket
+   scroll as one page; the desktop split pane keeps its existing behavior. */
+@media (max-width: 640px) {
+  .ticket-desk--focus { height: auto; min-height: calc(100dvh - 48px); }
+  .ticket-desk--focus .desk-body { flex: 0 0 auto; overflow: visible; }
+  .ticket-desk--focus .detail-main { flex: 0 0 auto; display: block; }
+  .ticket-desk--focus .conversation-col { overflow: visible; }
+  .ticket-desk--focus .conversation-scroll { flex: 0 0 auto; overflow: visible; }
+  .ticket-desk--focus .detail-header,
+  .ticket-desk--focus .composer { position: static; }
 }
 
 /* Follow the selected platform appearance. */

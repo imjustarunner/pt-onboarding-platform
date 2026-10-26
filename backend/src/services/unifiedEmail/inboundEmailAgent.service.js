@@ -44,6 +44,8 @@ import {
   ingestPersonalMailboxInbound,
   isPersonalMailboxIdentity
 } from '../personalMailbox.service.js';
+import { ingestSupportTicketEmail } from '../supportTicketEmailInbound.service.js';
+import { isManagedSupportIdentity } from '../supportTicketEmailPolicy.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -288,7 +290,7 @@ async function findSchoolContextByInboundAddresses({ agencyId, addresses }) {
   try {
     const placeholders = list.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT sp.school_organization_id, a.name AS school_name
+      `SELECT sp.school_organization_id, sp.itsco_email, a.name AS school_name
        FROM school_profiles sp
        JOIN agencies a ON a.id = sp.school_organization_id
        LEFT JOIN organization_affiliations oa
@@ -307,7 +309,8 @@ async function findSchoolContextByInboundAddresses({ agencyId, addresses }) {
     if (!row?.school_organization_id) return null;
     return {
       schoolOrganizationId: Number(row.school_organization_id),
-      schoolName: row.school_name || null
+      schoolName: row.school_name || null,
+      mailboxAddress: row.itsco_email || null
     };
   } catch {
     return null;
@@ -1082,6 +1085,45 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       } catch (error) {
         // Leave unread for retry; never send private family text to workplace support queues.
         console.warn('[EmailAgent] family command will retry:', error?.code || error?.status || 'processing_failed');
+        continue;
+      }
+    }
+
+    // School/support mail is a human conversation. Save both sides in one
+    // canonical ticket before legacy own-sender filters discard staff copies.
+    // This path only drafts; every external response requires an explicit send.
+    if (agencyId && !routed.technology && !isTechnologyIdentity(identity)) {
+      const schoolContext = await findSchoolContextByInboundAddresses({ agencyId,
+        addresses: [routed.matchedAddress, ...routed.to, ...routed.cc, ...(routed.deliveredTo || [])] });
+      const managed = isManagedSupportIdentity(identity, { agencyId,
+        schoolAddresses: schoolContext?.mailboxAddress ? [schoolContext.mailboxAddress] : [] });
+      if (managed) {
+        const [[staffSender]] = await pool.execute(`SELECT u.id,u.role FROM users u
+          WHERE (LOWER(TRIM(u.email))=? OR LOWER(TRIM(u.username))=? OR LOWER(TRIM(u.work_email))=? OR LOWER(TRIM(u.personal_email))=?)
+            AND u.role NOT IN ('school_staff','client_guardian')
+            AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+            AND (u.role='super_admin' OR EXISTS (SELECT 1 FROM user_agencies ua
+              WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)) LIMIT 1`,
+        [fromEmail, fromEmail, fromEmail, fromEmail, agencyId]);
+        const [[sharedSender]] = await pool.execute(`SELECT id FROM email_sender_identities
+          WHERE agency_id=? AND LOWER(TRIM(from_email))=? AND is_active=1 LIMIT 1`, [agencyId, fromEmail]);
+        const staffCopy = !!staffSender || !!sharedSender || (schoolContext?.mailboxAddress
+          && String(schoolContext.mailboxAddress).toLowerCase() === fromEmail);
+        const saved = await ingestSupportTicketEmail({ agencyId,
+          schoolOrganizationId: schoolContext?.schoolOrganizationId || null,
+          fromEmail, fromDisplayName, subject, bodyText,
+          messageId: hdrs.get('message-id') || `gmail:${id}`, threadId: full.data?.threadId || null,
+          inReplyTo: hdrs.get('in-reply-to') || null, referencesHeader: hdrs.get('references') || null,
+          gmailMessageId: id, gmail, payload, recipients: routed.to || [], cc: routed.cc || [],
+          headers: { autoSubmitted: hdrs.get('auto-submitted') || null,
+            listId: String(hdrs.get('list-id') || '').slice(0, 200), listUnsubscribe: !!hdrs.get('list-unsubscribe') },
+          receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),
+          staffCopy, staffUserId: staffSender?.id || null, generateDraft: !staffCopy });
+        if (saved.handled) results.draftedToTickets += staffCopy ? 0 : 1;
+        else results.ignored += 1;
+        await gmail.users.messages.modify({ userId: 'me', id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId,
+            ...(saved.handled && !staffCopy ? [needsHumanLabelId] : [])] } });
         continue;
       }
     }

@@ -42,7 +42,7 @@ function extractEmbeddingValues(data) {
   return null;
 }
 
-async function embedViaVertex({ text, taskType = 'RETRIEVAL_DOCUMENT' }) {
+async function embedViaVertex({ text, taskType = 'RETRIEVAL_DOCUMENT', sensitive = false }) {
   const projectId = getProjectId();
   const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
   const modelName = String(process.env.VERTEX_EMBEDDING_MODEL || DEFAULT_VERTEX_EMBEDDING_MODEL).trim()
@@ -69,7 +69,8 @@ async function embedViaVertex({ text, taskType = 'RETRIEVAL_DOCUMENT' }) {
   });
 
   if (!resp.ok) {
-    const details = String(await resp.text()).slice(0, 1000);
+    const responseText = await resp.text();
+    const details = sensitive ? 'Sensitive request details withheld' : String(responseText).slice(0, 1000);
     const err = new Error('Vertex embedding request failed');
     err.status = resp.status;
     err.details = details;
@@ -134,7 +135,7 @@ export function hashEmbeddingContent(text) {
  * Embed text for retrieval. Uses Vertex when configured, else GEMINI_API_KEY.
  * taskType: RETRIEVAL_DOCUMENT | RETRIEVAL_QUERY (Vertex only; ignored on API key path).
  */
-export async function embedTextForRetrieval(text, { taskType = 'RETRIEVAL_DOCUMENT' } = {}) {
+export async function embedTextForRetrieval(text, { taskType = 'RETRIEVAL_DOCUMENT', vertexOnly = false, sensitive = false } = {}) {
   const content = String(text || '').trim();
   if (!content) {
     const err = new Error('Text is required for embedding');
@@ -144,12 +145,13 @@ export async function embedTextForRetrieval(text, { taskType = 'RETRIEVAL_DOCUME
 
   const useVertex = shouldUseVertex();
   const hasApiKey = !!String(process.env.GEMINI_API_KEY || '').trim();
+  if (vertexOnly && !useVertex) throw Object.assign(new Error('An approved Vertex configuration is required for support email retrieval'), { status: 503 });
 
   if (useVertex) {
     try {
-      return await embedViaVertex({ text: content, taskType });
+      return await embedViaVertex({ text: content, taskType, sensitive });
     } catch (vertexErr) {
-      if (hasApiKey) {
+      if (hasApiKey && !vertexOnly) {
         console.warn(
           `[Embedding] Vertex unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY`
         );
@@ -166,10 +168,10 @@ export async function embedTextForRetrieval(text, { taskType = 'RETRIEVAL_DOCUME
   throw err;
 }
 
-export async function embedQueryForRetrieval(text) {
-  return embedTextForRetrieval(text, { taskType: 'RETRIEVAL_QUERY' });
+export async function embedQueryForRetrieval(text, options = {}) {
+  return embedTextForRetrieval(text, { ...options, taskType: 'RETRIEVAL_QUERY' });
 }
 
-export async function embedDocumentForRetrieval(text) {
-  return embedTextForRetrieval(text, { taskType: 'RETRIEVAL_DOCUMENT' });
+export async function embedDocumentForRetrieval(text, options = {}) {
+  return embedTextForRetrieval(text, { ...options, taskType: 'RETRIEVAL_DOCUMENT' });
 }

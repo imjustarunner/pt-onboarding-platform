@@ -3,7 +3,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import TicketDeskView from '../TicketDeskView.vue';
 
 const mocks = vi.hoisted(() => ({
-  api: { get: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn() },
   auth: { user: null },
   agency: {},
   route: { query: {}, params: {} },
@@ -26,6 +26,7 @@ const queueCalls = () => mocks.api.get.mock.calls.filter(([url]) => url === '/su
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
   mocks.auth.user = { id: 7, role: 'super_admin' };
   const tenant = { id: 2, name: 'ITSCO', organization_type: 'agency' };
   Object.assign(mocks.agency, { currentAgency: tenant, agencies: [tenant], userAgencies: [tenant] });
@@ -50,7 +51,7 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 
 async function render(props = {}) {
-  wrapper = shallowMount(TicketDeskView, { props });
+  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { RouterLink: true } } });
   await flushPromises();
 }
 
@@ -119,5 +120,81 @@ describe('TicketDeskView queue navigation', () => {
     await render(props);
     expect(mocks.api.get).toHaveBeenCalledWith('/support-tickets/mine', expect.any(Object));
     expect(queueCalls()).toHaveLength(0);
+  });
+});
+
+const emailTicket = { ...assignedTicket, source_channel: 'email', source_email_from: 'school@example.org', subject: 'School email' };
+const emailOptions = [{ id: 12, identityKey: 'schools', fromEmail: 'schools@itsco.health', teamDisplayName: 'ITSCO Schools', staffDisplayName: 'Hannah · ITSCO' }];
+function emailFixture() {
+  const originalGet = mocks.api.get.getMockImplementation();
+  mocks.api.get.mockImplementation(async (url, options) => {
+    if (url === '/support-tickets') return { data: [emailTicket, { ...otherTicket, claimed_by_user_id: 7 }] };
+    if (url === '/support-tickets/101/messages') return { data: { ticket: emailTicket, messages: [], senderOptions: emailOptions, lastMessageId: 41 } };
+    if (url === '/support-tickets/102/messages') return { data: { ticket: { ...otherTicket, claimed_by_user_id: 7 }, messages: [{ id: 50, body: 'Second conversation' }] } };
+    return originalGet(url, options);
+  });
+}
+describe('Support email composer safeguards', () => {
+  it('keeps private notes separate from external replies across navigation and reload', async () => {
+    emailFixture(); await render();
+    await wrapper.find('.ticket-row').trigger('click'); await flushPromises();
+    await wrapper.find('.composer-textarea').setValue('Hello, here is the answer.');
+    await button('Internal note').trigger('click');
+    expect(wrapper.find('.composer-textarea').element.value).toBe('');
+    await wrapper.find('.composer-textarea').setValue('Private staff discussion');
+    await button('Reply').trigger('click');
+    expect(wrapper.find('.composer-textarea').element.value).toBe('Hello, here is the answer.');
+    await button('Next').trigger('click'); await flushPromises();
+    expect(wrapper.find('.composer-textarea').element.value).toBe('');
+    await button('Previous').trigger('click'); await flushPromises();
+    expect(wrapper.find('.composer-textarea').element.value).toBe('Hello, here is the answer.');
+    await button('Internal note').trigger('click');
+    expect(wrapper.find('.composer-textarea').element.value).toBe('Private staff discussion');
+    wrapper.unmount(); await render();
+    await wrapper.find('.ticket-row').trigger('click'); await flushPromises();
+    expect(wrapper.find('.composer-textarea').element.value).toBe('Private staff discussion');
+    await button('Reply').trigger('click');
+    expect(wrapper.find('.composer-textarea').element.value).toBe('Hello, here is the answer.');
+  });
+
+  it('does not replace the selected conversation with a late response from another ticket', async () => {
+    let resolveFirst;
+    const first = new Promise((resolve) => { resolveFirst = resolve; });
+    emailFixture(); const originalGet = mocks.api.get.getMockImplementation();
+    mocks.api.get.mockImplementation((url, options) => url === '/support-tickets/101/messages' ? first : originalGet(url, options));
+    await render(); await wrapper.find('.ticket-row').trigger('click');
+    await button('Next').trigger('click'); await flushPromises();
+    resolveFirst({ data: { ticket: emailTicket, messages: [{ id: 41, body: 'Wrong late conversation' }] } });
+    await flushPromises();
+    expect(wrapper.find('.detail-id').text()).toBe('Ticket #102');
+    expect(wrapper.text()).toContain('Second conversation');
+    expect(wrapper.text()).not.toContain('Wrong late conversation');
+  });
+
+  it('keeps a failed reply and reuses its request identity instead of submitting another email', async () => {
+    emailFixture(); mocks.api.post.mockResolvedValue({ data: { emailReply: { status: 'failed', sent: false } } });
+    await render(); await wrapper.find('.ticket-row').trigger('click'); await flushPromises();
+    await wrapper.find('.composer-textarea').setValue('A human response');
+    await button('Send reply').trigger('click'); await flushPromises();
+    expect(wrapper.find('.composer-textarea').element.value).toBe('A human response');
+    expect(wrapper.text()).toContain('Delivery was not confirmed');
+    const firstRequest = mocks.api.post.mock.calls[0][1];
+    expect(firstRequest).toMatchObject({ body: 'A human response', senderIdentityId: 12, senderMode: 'staff', expectedLastMessageId: 41, isInternal: false });
+    expect(firstRequest.clientRequestId).toBeTruthy();
+    await button('Send reply').trigger('click'); await flushPromises();
+    expect(mocks.api.post.mock.calls[1][1].clientRequestId).toBe(firstRequest.clientRequestId);
+  });
+
+  it('keeps a new draft on a different ticket when an earlier send finishes', async () => {
+    emailFixture(); let finishSend;
+    mocks.api.post.mockImplementation(() => new Promise((resolve) => { finishSend = resolve; }));
+    await render(); await wrapper.find('.ticket-row').trigger('click'); await flushPromises();
+    await wrapper.find('.composer-textarea').setValue('First ticket reply');
+    await button('Send reply').trigger('click');
+    await button('Next').trigger('click'); await flushPromises();
+    await wrapper.find('.composer-textarea').setValue('Second ticket work');
+    finishSend({ data: { emailReply: { status: 'sent', sent: true } } }); await flushPromises();
+    expect(wrapper.find('.detail-id').text()).toBe('Ticket #102');
+    expect(wrapper.find('.composer-textarea').element.value).toBe('Second ticket work');
   });
 });

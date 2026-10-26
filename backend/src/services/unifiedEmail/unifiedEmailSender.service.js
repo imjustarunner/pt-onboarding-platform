@@ -230,6 +230,7 @@ export async function finalizeOutboundContent({
   const useStaffSignature = !portal && generatedByUserId && (
     tt === 'hub_email' || (
       src === 'manual' &&
+      tt !== 'support_ticket_reply_team' &&
       !tt.startsWith('provider_update_') &&
       !['compliance_digest', 'pre_hire_admin_review_access', 'prehire_portal_access'].includes(tt) &&
       !['billing', 'collections'].includes(identity?.identity_key)
@@ -242,7 +243,14 @@ export async function finalizeOutboundContent({
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (portalEmailBrand) {
+  if (['support_ticket_reply', 'support_ticket_reply_team'].includes(tt)) {
+    // Support conversations use the selected staff/team label and managed
+    // reply address. Never append a personal mailbox signature to these emails.
+    const label = String(identity?.display_name || '').trim();
+    const alreadySigned = label && String(text || '').trim().endsWith(label);
+    signed = { text: label && !alreadySigned ? `${String(text || '').trim()}\n\n${label}` : text,
+      html: html && label && !alreadySigned ? `${html}<p>${escapeHtml(label)}</p>` : html };
+  } else if (portalEmailBrand) {
     signed = { text, html: renderPortalEmail({brand:portalEmailBrand,text,html}) };
   } else if (framedPortal) {
     // Approval-held messages already contain the reviewed portal frame.
@@ -1350,7 +1358,9 @@ export async function sendEmailFromIdentity({
       queued: true,
       pendingApproval: true,
       communicationId: comm.id,
-      reason: usedFallbackSender ? 'fallback_sender_requires_approval' : 'requires_approval'
+      reason: usedFallbackSender ? 'fallback_sender_requires_approval' : 'requires_approval',
+      bodyText: signedContent.text,
+      bodyHtml: signedContent.html
     };
   }
 
@@ -1457,6 +1467,8 @@ export async function sendEmailFromIdentity({
     threadId: finalThreadId,
     communicationId: comm?.id || null,
     redirected: !!redirected.redirected,
-    originalTo: redirected.originalTo || null
+    originalTo: redirected.originalTo || null,
+    bodyText: signedContent.text,
+    bodyHtml: signedContent.html
   };
 }

@@ -56,7 +56,7 @@ function mapPromptNote(row) {
   };
 }
 
-export async function listActivePromptNotes(agencyId, { limit = 12 } = {}) {
+export async function listActivePromptNotes(agencyId, { limit = 12, schoolOrganizationId = null } = {}) {
   const aid = safeInt(agencyId);
   if (!aid) return [];
   const lim = Math.max(1, Math.min(Number(limit) || 12, 24));
@@ -65,9 +65,10 @@ export async function listActivePromptNotes(agencyId, { limit = 12 } = {}) {
      FROM support_ai_prompt_notes
      WHERE agency_id = ?
        AND is_active = TRUE
+       AND (school_organization_id IS NULL OR school_organization_id = ?)
      ORDER BY created_at DESC
      LIMIT ${lim}`,
-    [aid]
+    [aid, schoolOrganizationId ? Number(schoolOrganizationId) : null]
   );
   return (rows || []).map(mapPromptNote).filter(Boolean);
 }
@@ -291,7 +292,7 @@ export async function dismissReplyProposal(proposalId, { reviewedByUserId = null
   return getReplyProposal(pid);
 }
 
-export async function buildAgencyPromptGuardrailsBlock(agencyId) {
-  const notes = await listActivePromptNotes(agencyId);
+export async function buildAgencyPromptGuardrailsBlock(agencyId, { schoolOrganizationId = null } = {}) {
+  const notes = await listActivePromptNotes(agencyId, { schoolOrganizationId });
   return buildPromptGuardrailsBlock(notes);
 }

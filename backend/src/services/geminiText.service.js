@@ -155,7 +155,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
  * Attempt the public Generative Language API (GEMINI_API_KEY) path, trying the
  * configured model then known-good fallbacks. Returns a result or throws.
  */
-async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null, thinkingBudget, sensitive, systemInstruction, jsonMode }) {
+async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null, thinkingBudget, sensitive, systemInstruction, jsonMode, allowModelFallback = true }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not configured');
@@ -163,21 +163,21 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = nul
     throw err;
   }
   const configuredModel = String(model || process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
-  const candidates = buildCandidateModels(configuredModel);
+  const candidates = allowModelFallback ? buildCandidateModels(configuredModel) : [configuredModel];
   let lastErr = null;
   for (const modelName of candidates) {
     try {
       return await performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive, systemInstruction, jsonMode });
     } catch (err) {
       lastErr = err;
-      if (!isModelLevelError(err?.status)) throw err;
+      if (!allowModelFallback || !isModelLevelError(err?.status)) throw err;
       console.warn(`[Gemini] model "${modelName}" rejected (HTTP ${err?.status}); trying next candidate`);
     }
   }
   throw lastErr || new Error('Gemini request failed for all candidate models');
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, vertexOnly = false, sensitive = false, systemInstruction, jsonMode = false }) {
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, vertexOnly = false, sensitive = false, systemInstruction, jsonMode = false, allowModelFallback = true }) {
   const useVertex = shouldUseVertex();
   if (vertexOnly && !useVertex) throw Object.assign(new Error('An approved Vertex configuration is required'), { status: 503 });
   const hasApiKey = !!(process.env.GEMINI_API_KEY || '').trim();
@@ -195,7 +195,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
     // every caller (translation, note writer, etc.) keeps working.
     try {
       const token = await getAccessToken();
-      const candidates = buildCandidateModels(configuredModel);
+      const candidates = allowModelFallback ? buildCandidateModels(configuredModel) : [configuredModel];
       let lastErr = null;
       for (const modelName of candidates) {
         try {
@@ -206,7 +206,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
           lastErr = err;
           // Model-level errors (bad/denied model) → try next model. Anything else
           // (auth/quota/network) won't be fixed by swapping models, so stop looping.
-          if (!isModelLevelError(err?.status)) throw err;
+          if (!allowModelFallback || !isModelLevelError(err?.status)) throw err;
           console.warn(`[Vertex] model "${modelName}" rejected (HTTP ${err?.status}); trying next candidate`);
         }
       }
@@ -216,13 +216,13 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
         console.warn(
           `[Vertex] unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY path`
         );
-        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode });
+        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode, allowModelFallback });
       }
       throw vertexErr;
     }
   }
 
-  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode });
+  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode, allowModelFallback });
 }
 
 // Optional reasoning configuration; callers that omit it retain existing defaults.

@@ -13,6 +13,7 @@ import {
   deidentifySchoolReplyText,
   mapRetrievalMatchesToLibraryEntries,
   rankHybridReplyMatches,
+  rankHistoricalReplyCandidates,
   REPLY_EMBEDDING_SOURCE_TYPES,
   hashReplyEmbeddingContent
 } from '../utils/schoolSupportReplyRetrieval.shared.js';
@@ -24,6 +25,7 @@ import {
   getIntentKeywords
 } from '../utils/schoolSupportReplyLibrary.shared.js';
 import { listReplyLibraryEntries } from './schoolSupportReplyLibrary.service.js';
+import { decryptTicketMessageRow, decryptTicketRow } from '../utils/supportTicketCrypto.js';
 
 function safeInt(v) {
   const n = parseInt(v, 10);
@@ -203,7 +205,7 @@ export async function indexReplyLibraryEntry(entry) {
   const replyExcerpt = deidentifySchoolReplyText(entry.bodyTemplate || entry.body_template || '');
   if (!searchText.trim() || !replyExcerpt.trim()) return { skipped: 'empty_content' };
 
-  const { values, modelName } = await embedDocumentForRetrieval(searchText);
+  const { values, modelName } = await embedDocumentForRetrieval(searchText, { vertexOnly: true, sensitive: true });
   await upsertEmbeddingRow({
     agencyId,
     schoolOrganizationId: entry.schoolOrganizationId || entry.school_organization_id || null,
@@ -226,7 +228,25 @@ export async function indexTicketAnswerForRetrieval(ticket, { answer = null, cli
   if (!agencyId || !ticketId) return { skipped: 'invalid_ticket' };
   if (String(ticket?.source_channel || '').toLowerCase() !== 'email') return { skipped: 'not_email_ticket' };
 
-  const finalAnswer = String(answer || ticket?.answer || '').trim();
+  // Closing a ticket used to populate answer/answered_at without sending email.
+  // Only the provider-confirmed ledger can establish a reusable sent response.
+  let delivered;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT m.* FROM support_ticket_email_messages e
+       JOIN support_ticket_messages m ON m.id = e.ticket_message_id
+       WHERE e.ticket_id = ? AND e.direction = 'outbound' AND e.send_status = 'sent'
+         AND e.gmail_message_id IS NOT NULL AND COALESCE(m.is_internal, 0) = 0
+         AND COALESCE(m.is_deleted, 0) = 0
+       ORDER BY e.sent_at DESC, e.id DESC LIMIT 1`, [ticketId]
+    );
+    delivered = rows?.[0] ? decryptTicketMessageRow(rows[0]) : null;
+  } catch { return { skipped: 'delivery_evidence_unavailable' }; }
+  if (!delivered?.body || delivered.body.includes('[Unable to decrypt]')) return { skipped: 'no_confirmed_email_delivery' };
+  ticket = decryptTicketRow(ticket);
+
+  const finalAnswer = String(delivered.body).trim();
+  if (answer && String(answer).trim() !== finalAnswer) return { skipped: 'answer_not_confirmed_sent' };
   if (!finalAnswer) return { skipped: 'empty_answer' };
 
   let scrubClient = client;
@@ -249,7 +269,7 @@ export async function indexTicketAnswerForRetrieval(ticket, { answer = null, cli
   const replyExcerpt = deidentifySchoolReplyText(finalAnswer, scrubTerms);
   if (!searchText.trim() || !replyExcerpt.trim()) return { skipped: 'empty_content' };
 
-  const { values, modelName } = await embedDocumentForRetrieval(searchText);
+  const { values, modelName } = await embedDocumentForRetrieval(searchText, { vertexOnly: true, sensitive: true });
   await upsertEmbeddingRow({
     agencyId,
     schoolOrganizationId: ticket?.school_organization_id || null,
@@ -281,7 +301,7 @@ export async function indexGmailSentPairForRetrieval({
     return { skipped: 'invalid_payload' };
   }
 
-  const { values, modelName } = await embedDocumentForRetrieval(searchText);
+  const { values, modelName } = await embedDocumentForRetrieval(searchText, { vertexOnly: true, sensitive: true });
   await upsertEmbeddingRow({
     agencyId: aid,
     schoolOrganizationId,
@@ -330,7 +350,7 @@ export async function indexUserCommunicationForRetrieval(row, { agencyId = null 
     scrubTerms: []
   });
   const replyExcerpt = deidentifySchoolReplyText(answer);
-  const { values, modelName } = await embedDocumentForRetrieval(searchText);
+  const { values, modelName } = await embedDocumentForRetrieval(searchText, { vertexOnly: true, sensitive: true });
   await upsertEmbeddingRow({
     agencyId: aid,
     schoolOrganizationId: null,
@@ -352,9 +372,9 @@ async function listActiveEmbeddingsForAgency({ agencyId, schoolOrganizationId = 
   const aid = safeInt(agencyId);
   if (!aid) return [];
   const params = [aid];
-  let schoolClause = '';
+  let schoolClause = 'AND school_organization_id IS NULL';
   if (schoolOrganizationId) {
-    schoolClause = 'AND (school_organization_id IS NULL OR school_organization_id = ?)';
+    schoolClause = "AND ((source_type = 'library' AND school_organization_id IS NULL) OR school_organization_id = ?)";
     params.push(Number(schoolOrganizationId));
   }
   const lim = Math.max(1, Math.min(Number(limit) || 500, 1000));
@@ -363,6 +383,7 @@ async function listActiveEmbeddingsForAgency({ agencyId, schoolOrganizationId = 
      FROM school_support_reply_embeddings
      WHERE agency_id = ?
        AND is_active = 1
+       AND source_type <> 'ticket_answer'
        ${schoolClause}
      ORDER BY updated_at DESC
      LIMIT ${lim}`,
@@ -391,7 +412,7 @@ export async function searchReplyKnowledgeSemantically({
     schoolOrganizationId,
     includeInactive: false,
     limit: 120
-  });
+  }).catch(() => []);
   const embeddingRows = await listActiveEmbeddingsForAgency({ agencyId: aid, schoolOrganizationId });
 
   if (!embeddingRows.length) {
@@ -418,7 +439,7 @@ export async function searchReplyKnowledgeSemantically({
       question,
       intentKey: inferredIntent
     });
-    const embedded = await embedQueryForRetrieval(queryText);
+    const embedded = await embedQueryForRetrieval(queryText, { vertexOnly: true, sensitive: true });
     queryVector = embedded.values;
   } catch (err) {
     console.warn('[schoolSupportReplyRetrieval] query embedding failed:', err?.message || err);
@@ -441,17 +462,71 @@ export async function matchReplyKnowledgeForTicket({
   subject = '',
   question = '',
   intentKey = null,
-  limit = 4
+  limit = 4,
+  excludeTicketId = null
 } = {}) {
-  const ranked = await searchReplyKnowledgeSemantically({
+  const [ranked, deliveredHistory] = await Promise.all([
+    searchReplyKnowledgeSemantically({
     agencyId,
     schoolOrganizationId,
     subject,
     question,
     intentKey,
     limit
-  });
-  return mapRetrievalMatchesToLibraryEntries(ranked);
+    }).catch(() => []),
+    listDeliveredReplyHistory({ agencyId, schoolOrganizationId, excludeTicketId }).catch(() => [])
+  ]);
+  const matches = mapRetrievalMatchesToLibraryEntries(ranked)
+    .filter((entry) => !excludeTicketId || Number(entry.sourceTicketId) !== Number(excludeTicketId));
+  const history = rankHistoricalReplyCandidates({ candidates: deliveredHistory, subject, question, intentKey, limit });
+  return [...matches, ...history]
+    .sort((a, b) => (Number(b.retrievalScore) || 0) - (Number(a.retrievalScore) || 0))
+    .filter((entry, i, all) => all.findIndex((other) => other.id === entry.id || (other.sourceTicketId && other.sourceTicketId === entry.sourceTicketId)) === i)
+    .slice(0, Math.max(1, Math.min(Number(limit) || 4, 8)));
+}
+
+/** Same-school, provider-confirmed email pairs. Never use closure notes or internal messages. */
+export async function listDeliveredReplyHistory({ agencyId, schoolOrganizationId = null, excludeTicketId = null } = {}) {
+  const aid = safeInt(agencyId);
+  if (!aid) return [];
+  const [rows] = await pool.execute(
+    `SELECT e.ticket_id, e.ticket_message_id, t.source_email_subject, t.subject,
+            t.ai_draft_metadata_json, c.full_name AS client_full_name,
+            c.initials AS client_initials, c.identifier_code AS client_identifier_code,
+            m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.encryption_key_id,
+            inbound.body AS inbound_body, inbound.body_ciphertext AS inbound_ciphertext,
+            inbound.body_iv AS inbound_iv, inbound.body_auth_tag AS inbound_auth_tag,
+            inbound.encryption_key_id AS inbound_key_id
+     FROM support_ticket_email_messages e
+     JOIN support_tickets t ON t.id = e.ticket_id AND t.agency_id = e.agency_id
+     LEFT JOIN clients c ON c.id = t.client_id AND c.agency_id = t.agency_id
+     JOIN support_ticket_messages m ON m.id = e.ticket_message_id
+     JOIN support_ticket_messages inbound ON inbound.id = (
+       SELECT prior.ticket_message_id FROM support_ticket_email_messages prior
+       WHERE prior.ticket_id = e.ticket_id AND prior.direction = 'inbound'
+         AND COALESCE(prior.sent_at, prior.created_at) <= COALESCE(e.sent_at, e.created_at)
+       ORDER BY COALESCE(prior.sent_at, prior.created_at) DESC, prior.id DESC LIMIT 1
+     )
+     WHERE e.agency_id = ? AND t.school_organization_id <=> ?
+       AND (? IS NULL OR t.id <> ?) AND e.direction = 'outbound' AND e.send_status = 'sent'
+       AND e.gmail_message_id IS NOT NULL AND COALESCE(m.is_internal, 0) = 0
+       AND COALESCE(m.is_deleted, 0) = 0 AND COALESCE(inbound.is_internal, 0) = 0
+       AND COALESCE(inbound.is_deleted, 0) = 0
+     ORDER BY COALESCE(e.sent_at, e.created_at) DESC, e.id DESC LIMIT 80`,
+    [aid, safeInt(schoolOrganizationId), safeInt(excludeTicketId), safeInt(excludeTicketId)]
+  );
+  return (rows || []).map((row) => {
+    const question = decryptTicketMessageRow({ body: row.inbound_body, body_ciphertext: row.inbound_ciphertext, body_iv: row.inbound_iv, body_auth_tag: row.inbound_auth_tag, encryption_key_id: row.inbound_key_id }).body;
+    const answer = decryptTicketMessageRow(row).body;
+    const subject = row.source_email_subject || row.subject || '';
+    const metadata = parseJson(row.ai_draft_metadata_json, {}) || {};
+    const scrubTerms = [
+      ...collectScrubTermsFromClient({ full_name: row.client_full_name, initials: row.client_initials, identifier_code: row.client_identifier_code }),
+      ...String(row.client_full_name || '').split(/\s+/).filter((part) => part.length >= 3),
+      ...(Array.isArray(metadata.extractedClientReferences) ? metadata.extractedClientReferences.filter((value) => typeof value === 'string') : [])
+    ];
+    return { ticketId: row.ticket_id, messageId: row.ticket_message_id, subject, question, answer, scrubTerms, intentKey: inferIntentFromTicket({ subject, question }) };
+  }).filter((pair) => pair.question && pair.answer && !`${pair.question} ${pair.answer}`.includes('[Unable to decrypt]'));
 }
 
 export async function reindexAgencyReplyEmbeddings(agencyId, { limit = 300 } = {}) {

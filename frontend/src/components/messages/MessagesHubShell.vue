@@ -1624,6 +1624,8 @@ const personNewDrafts = computed(() => openNewDrafts.value.filter(d => selected.
 function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value && (!['drafts','needs_attention'].includes(navId.value) || ['all','email'].includes(channel)) ? navId.value : 'inbox');}
 function composeEmail(mode='new') {
   if (mode === 'new') return openNewConversation('email');
+  const supportTicketId = conversationPreview.value?.conversation?.support_ticket_id || selectedConversation.value?.support_ticket_id;
+  if (supportTicketId) return router.push({ path: route.params.organizationSlug ? `/${route.params.organizationSlug}/tickets` : '/tickets', query: { ticketId: supportTicketId } });
   const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
   openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:mode==='new'?selected.value?.email:undefined});
