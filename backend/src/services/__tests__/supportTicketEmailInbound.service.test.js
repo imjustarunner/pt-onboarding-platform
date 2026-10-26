@@ -1,9 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
-import { ingestSupportTicketEmail, loadLinkedSupportClientDraftFacts } from '../supportTicketEmailInbound.service.js';
+import { generateInboundSupportDraft, ingestSupportTicketEmail, loadLinkedSupportClientDraftFacts } from '../supportTicketEmailInbound.service.js';
 import { parseSupportGmailMessage, reconcileSupportTicketThreadFromGmail } from '../supportTicketGmailReconciliation.service.js';
 test.after(() => pool.end());
+
+test('automatic suppression clears a legacy draft and snapshot link only at the generated conversation revision', async () => {
+  const updates = [], snapshots = [];
+  const raw = { id: 7, agency_id: 2, question: 'Newsletter', ai_draft_response: 'Old inappropriate newsletter reply',
+    ai_draft_metadata_json: { draftSnapshotId: 91, inboundEmailHeaders: { listId: 'newsletter' } } };
+  const database = { async execute(sql, values) {
+    if (sql.startsWith('SELECT * FROM support_tickets')) return [[raw]];
+    if (sql.startsWith('SELECT m.*')) return [[{ id: 10, body: 'Newsletter', email_direction: 'inbound' }]];
+    if (sql.startsWith('UPDATE support_tickets')) { updates.push({ sql, values }); return [{ affectedRows: 1 }]; }
+    throw new Error(`Unexpected suppression SQL ${sql}`);
+  } };
+  const result = await generateInboundSupportDraft({ ticketId: 7, sourceMessageId: 10, agencyId: 2, intakeComplete: true }, {
+    database, listTicketAttachments: async () => [],
+    review: { getLatestDraftSnapshot: async () => null, recordDraftSnapshot: async (value) => snapshots.push(value) },
+    generateSupportEmailDraft: async () => ({ text: '', suppressed: true, suppressionReason: 'informational_broadcast', metadata: { promptVersion: 'current' } })
+  });
+  assert.equal(result.suppressed, true);
+  assert.equal(snapshots.length, 0);
+  assert.equal(updates.length, 1);
+  const { sql, values } = updates[0];
+  assert.match(sql, /ai_draft_response=NULL,ai_draft_status='suppressed'/);
+  assert.match(sql, /AND \?=\(SELECT COALESCE\(MAX\(m.id\),0\)/);
+  assert.deepEqual(values.slice(1), [7, 10]);
+  const metadata = JSON.parse(values[0]);
+  assert.equal(metadata.draftSnapshotId, null);
+  assert.equal(metadata.suppressed, true);
+  assert.equal(metadata.suppressionReason, 'informational_broadcast');
+  assert.equal(metadata.threadRevision, '10');
+  assert.deepEqual(metadata.inboundEmailHeaders, { listId: 'newsletter' });
+});
 
 function clientFactsFixture({ scope = true, membership = true, providerFailure = null, providers = [{ id: 12, first_name: 'Drew', last_name: 'Therapist' }], primarySchool = 8 } = {}) {
   const reads = [], lookups = [];

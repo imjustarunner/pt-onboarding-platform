@@ -1,5 +1,6 @@
 import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
 import { generateSupportEmailDraft } from '../services/supportEmailDraft.service.js';
+import { loadLinkedSupportClientDraftFacts } from '../services/supportTicketEmailInbound.service.js';
 import { recordDraftSnapshot } from '../services/supportReplyReview.service.js';
 import { assignTechnologyTicket } from '../services/technologySupport.service.js';
 import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
@@ -2689,12 +2690,9 @@ export const generateSupportTicketResponse = async (req, res, next) => {
         [ticket.claimed_by_user_id || req.user.id]);
       const intake = await ingestTicketAttachmentsFromGmail({ ticket, strict: true });
       const attachments = intake?.attachments || await listTicketAttachments(ticketId);
-      const assignedProviders = ticket.client_id ? await listProvidersAssignedToClientInSchool({
-        clientId: ticket.client_id, schoolOrganizationId: ticket.school_organization_id }) : [];
-      const client = ticket.client_id ? await Client.findById(ticket.client_id, { includeSensitive: true }) : null;
-      const generated = await generateSupportEmailDraft({ ticket, messages: messageRows, attachments,
-        claimant: claimants?.[0] || null, client,
-        verifiedFacts: assignedProviders.map((p) => ({ key: 'assigned_provider', value: [p.first_name, p.last_name].filter(Boolean).join(' '), source: 'Current active client assignment in this school', shareable: true })),
+      const linkedClientFacts = await loadLinkedSupportClientDraftFacts(ticket);
+      const generated = await generateSupportEmailDraft({ ticket, ...linkedClientFacts, messages: messageRows, attachments,
+        claimant: claimants?.[0] || null,
         regenerationGuidance: String(req.body?.regenerationGuidance || '').trim(),
         intakeComplete: intake?.incomplete !== true && intake?.complete !== false });
       const [current] = await pool.execute(
