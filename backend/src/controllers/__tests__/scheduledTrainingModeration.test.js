@@ -1,4 +1,4 @@
-import {beforeEach,it,expect,vi} from 'vitest';
+import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({access:vi.fn(),execute:vi.fn(),signal:vi.fn(),member:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../services/scheduledTraining.service.js',()=>({trainingAccess:m.access,trainingError:(status,message)=>Object.assign(new Error(message),{status}),createScheduledTraining:vi.fn(),trainingRoster:vi.fn()}));
@@ -7,7 +7,9 @@ vi.mock('../../services/vonageVideo.service.js',()=>({default:{sendSignal:m.sign
 vi.mock('../../services/meetingJoinPolicy.service.js',()=>({hasActiveMeetingMembership:m.member}));
 import {trainingHand,updateTraining,getTraining} from '../scheduledTraining.controller.js';
 const response=()=>({json:vi.fn()});
-beforeEach(()=>{vi.clearAllMocks();m.access.mockResolvedValue({event:{id:7,status:'ACTIVE'},proctor:false});m.execute.mockResolvedValue([{affectedRows:1}]);});
+const futureTraining={id:7,status:'ACTIVE',provider_id:2,agency_visible:1,start_at:'2026-10-27 12:00:00'};
+beforeEach(()=>{vi.clearAllMocks();vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-26T12:00:00Z'));m.access.mockResolvedValue({event:{id:7,status:'ACTIVE'},proctor:false});m.execute.mockResolvedValue([{affectedRows:1}]);});
+afterEach(()=>vi.restoreAllMocks());
 it('allows attendees to raise their own hand, but never approve themselves or impersonate another attendee',async()=>{
  const res=response(),next=vi.fn();await trainingHand({params:{eventId:7},user:{id:4},body:{action:'raise'}},res,next);expect(res.json).toHaveBeenCalledWith({ok:true});
  for(const body of [{action:'approve'},{action:'deny',userId:5},{action:'raise',userId:5}]){m.execute.mockClear();await trainingHand({params:{eventId:7},user:{id:4},body},res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));expect(m.execute).not.toHaveBeenCalled();}
@@ -21,13 +23,25 @@ it('mute all revokes previous individual approvals so reconnecting attendees rem
 it('does not allow camera or microphone changes when the actor is not a proctor',async()=>{m.access.mockRejectedValue(Object.assign(new Error('Proctors only'),{status:403}));const next=vi.fn();await updateTraining({params:{eventId:7},user:{id:4},body:{videoAllowed:true,muteAll:false}},response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.execute).not.toHaveBeenCalled();});
 
 it.each([['provider',false],['support',true],['admin',true]])('filters declined training RSVP data server-side for %s',async(role,canSeeDeclined)=>{
- m.access.mockResolvedValue({event:{id:7,status:'ACTIVE',provider_id:2,agency_visible:1},proctor:false});
+ m.access.mockResolvedValue({event:futureTraining,proctor:false});
  m.execute.mockImplementation(async sql=>sql.startsWith('SELECT u.id,')?[[{id:4,name:'Accepted',rsvp:'accepted'},{id:5,name:'Declined',rsvp:'declined',rsvp_decline_reason:'Private reason'}]]:[[]]);
  const res=response(),next=vi.fn();await getTraining({params:{eventId:7},user:{id:4,role}},res,next);
  expect(next).not.toHaveBeenCalled();const result=res.json.mock.calls[0][0];
  expect(result.canRegister).toBe(true);expect(result.canSeeDeclined).toBe(canSeeDeclined);
  expect(result.participants.map(p=>p.id)).toEqual(canSeeDeclined?[4,5]:[4]);
  if(!canSeeDeclined)expect(JSON.stringify(result)).not.toContain('Private reason');
+});
+
+it.each([
+ ['2026-10-26T11:59:59Z',true],
+ ['2026-10-26T12:00:00Z',false],
+ ['2026-10-26T12:00:01Z',false]
+])('allows registration only before the configured cutoff (now: %s)',async(now,canRegister)=>{
+ Date.now.mockReturnValue(Date.parse(now));
+ m.access.mockResolvedValue({event:{...futureTraining,meeting_settings_json:{registrationClosesAt:'2026-10-26T12:00:00Z'}},proctor:false});
+ m.execute.mockResolvedValue([[]]);
+ const res=response(),next=vi.fn();await getTraining({params:{eventId:7},user:{id:4,role:'provider'}},res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({canRegister,registrationClosesAt:'2026-10-26T12:00:00.000Z'}));
 });
 
 it('lets a proctor permit an invited attendee to speak without requiring a raised hand',async()=>{

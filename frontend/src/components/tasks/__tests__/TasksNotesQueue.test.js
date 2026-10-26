@@ -59,14 +59,16 @@ describe('Tasks and Note Workspace share the ToDo Queue', () => {
     expect(wrapper.find('[data-tour=notes-scope]').exists()).toBe(false);
     for (const panel of panels) {
       expect(panel.findAll('.na-wq-item')).toHaveLength(2);
-      expect(panel.text()).toContain('1 not started · 1 in progress');
+      expect(panel.get('.na-wq-chip--pending').text()).toBe('1 Not started');
+      expect(panel.get('.na-wq-chip--started').text()).toBe('1 In progress');
       expect(panel.text()).not.toContain('Different legacy task');
     }
     saveWorkQueue(501, [{ ...queued, status: 'started', docStatus: 'started' }, { ...started, status: 'signed', docStatus: 'signed' }]);
     await flushPromises();
     for (const panel of panels) {
       expect(panel.findAll('.na-wq-item')).toHaveLength(1);
-      expect(panel.text()).toContain('0 not started · 1 in progress');
+      expect(panel.get('.na-wq-chip--pending').text()).toBe('0 Not started');
+      expect(panel.get('.na-wq-chip--started').text()).toBe('1 In progress');
     }
     await panels[0].find('select').setValue('client');
     expect(panels[0].find('select').element.value).toBe('client');
