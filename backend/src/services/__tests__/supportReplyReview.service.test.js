@@ -202,7 +202,13 @@ describe('immutable support reply review', () => {
 
   it('durably sends one generic digest across two concurrent scheduler workers and retries', async () => {
     const db = memoryDb(); let sends = 0;
-    const options = { db, now: () => new Date('2026-10-27T00:01:00Z'), sendNotice: async ({ notice }) => { sends += 1; assert.doesNotMatch(notice.text, /Latest received email|Original school email/); return { id: 'gmail-notice' }; } };
+    const options = { db, now: () => new Date('2026-10-27T00:01:00Z'), sendNotice: async ({ notice }) => {
+      sends += 1;
+      assert.doesNotMatch(notice.text, /Latest received email|Original school email/);
+      assert.match(notice.text, /Conversations reviewed: 1\nDrafts captured: 0\nConfirmed sent replies: 0\nReplies without a captured draft: 0/);
+      assert.match(notice.text, /\/itsco\/admin\/support-review\?date=2026-10-26&agencyId=2/);
+      return { id: 'gmail-notice' };
+    } };
     const a = createSupportReplyReviewService(options), b = createSupportReplyReviewService(options);
     await Promise.all([a.runDigestTick(), b.runDigestTick()]);
     await a.runDigestTick();

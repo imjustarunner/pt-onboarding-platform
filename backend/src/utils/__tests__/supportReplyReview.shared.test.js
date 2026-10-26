@@ -56,10 +56,22 @@ describe('support review calendar and policy', () => {
     assert.equal(deliveryState({ deliveryStatus: 'sent', verifiedCommunicationSent: true }), 'sent');
   });
 
-  it('produces a generic sign-in notice without conversation or staff content', () => {
-    const notice = buildReviewNotice({ date: '2026-10-26', url: 'https://app.itsco.health/itsco/admin/support-review?date=2026-10-26', body: 'private student detail', claimantName: 'Hannah' });
+  it('summarizes counts in the sign-in notice without conversation or staff content', () => {
+    const notice = buildReviewNotice({ date: '2026-10-26', url: 'https://app.itsco.health/itsco/admin/support-review?date=2026-10-26&agencyId=2',
+      totals: { tickets: 8, drafts: 6, sent: 5, missingDraft: 2, body: 'private student detail' }, body: 'private student detail', claimantName: 'Hannah' });
     assert.match(notice.text, /Sign in/);
     assert.match(notice.text, /support-review\?date=/);
+    assert.match(notice.text, /agencyId=2/);
+    assert.match(notice.text, /Conversations reviewed: 8\nDrafts captured: 6\nConfirmed sent replies: 5\nReplies without a captured draft: 2/);
     assert.doesNotMatch(JSON.stringify(notice), /private student detail|Hannah/);
+  });
+
+  it('does not expose arbitrary values or present limited counts as a complete summary', () => {
+    const notice = buildReviewNotice({ date: '2026-10-26', url: '/review', incomplete: true,
+      totals: { tickets: 'private school detail', drafts: -1, sent: 0, missingDraft: NaN } });
+    assert.doesNotMatch(notice.text, /private school detail/);
+    assert.match(notice.text, /Conversations reviewed: Unavailable/);
+    assert.match(notice.text, /Confirmed sent replies: 0/);
+    assert.match(notice.text, /counts are incomplete/);
   });
 });

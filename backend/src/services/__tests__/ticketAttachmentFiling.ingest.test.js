@@ -16,7 +16,7 @@ describe('emailed registration packets', () => {
     const result = await persistGmailAttachmentsForTicket({ ticketId: 10, gmail, gmailMessageId: 'synthetic-message', payload: { parts: [{ filename: 'registration.pdf', mimeType: 'application/pdf', body: { attachmentId: 'synthetic-attachment', size: buffer.length } }] } });
     expect(result.saved).toBe(1);
     expect(mocks.save.mock.calls[0][0].equals(buffer)).toBe(true);
-    expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO support_ticket_attachments'), [10, 'registration.pdf', expect.stringContaining('uploads/ticket_attachments/ticket_10/'), 'application/pdf', buffer.length]);
+    expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO support_ticket_attachments'), [10, null, 'registration.pdf', expect.stringContaining('uploads/ticket_attachments/ticket_10/'), 'application/pdf', buffer.length]);
     expect(mocks.getGmailClient).not.toHaveBeenCalled();
   });
 });

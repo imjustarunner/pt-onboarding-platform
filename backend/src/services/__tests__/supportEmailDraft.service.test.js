@@ -62,7 +62,7 @@ describe('evidence-grounded support drafts', () => {
 
   it('provides attachment receipt separately from content review and rejects a false missing-file claim', async () => {
     let prompt;
-    await assert.rejects(generateSupportEmailDraft(input({ attachments: [{ id: 7, file_name: 'referral.pdf', mime_type: 'application/pdf' }] }), {
+    await assert.rejects(generateSupportEmailDraft(input({ attachments: [{ id: 7, file_name: 'referral.pdf', mime_type: 'application/pdf', created_at: ticket.created_at }] }), {
       generateText: async (args) => { prompt = args.prompt; return model('I do not see any attachments. Please resend the packet.')(); }
     }), (error) => error.validationIssues.includes('contradicts_attachment_receipt'));
     assert.match(prompt, /referral\.pdf/);
@@ -81,7 +81,7 @@ describe('evidence-grounded support drafts', () => {
   });
 
   it('preserves an explicit sender-stated client-to-provider request without claiming an assignment', () => {
-    const context = buildSupportEmailDraftContext(input({ ticket: { ...ticket, question: 'This is the packet for CaseOne to see Jordan virtually. The portal is down.' } }));
+    const context = buildSupportEmailDraftContext(input({ ticket: { ...ticket, question: 'This is the packet for CaseOne to see Jordan virtually. The portal is down.' }, attachments: [{ id: 1, file_name: 'packet.pdf', created_at: ticket.created_at }] }));
     assert.deepEqual(context.referralRelationships, [{ client: 'CaseOne', requestedProvider: 'Jordan', source: 'ticket:51:received', status: 'sender_requested_not_verified_assignment' }]);
     assert.ok(context.participants.some((p) => p.name === 'Jordan' && p.role.includes('not a verified assignment')));
     assert.ok(validateSupportEmailDraft("I see Jordan's referral to CaseOne.", context).includes('reversed_referral_participants'));
@@ -209,10 +209,88 @@ describe('evidence-grounded support drafts', () => {
   });
 
   it('rejects the older false not-attached phrasing against a completed attachment inventory', () => {
-    const context = buildSupportEmailDraftContext(input({ attachments: [{ id: 1, file_name: 'packet.pdf' }] }));
+    const context = buildSupportEmailDraftContext(input({ attachments: [{ id: 1, file_name: 'packet.pdf', created_at: ticket.created_at }] }));
     const issues = validateSupportEmailDraft('It looks like the packets were not attached to this ticket.', context);
     assert.ok(issues.includes('contradicts_attachment_receipt'));
     assert.ok(issues.includes('ticket_language'));
+  });
+
+  it('keeps three older files as history when a new inbound arrives without attachments', () => {
+    const messages = [
+      { id: 1, body: ticket.question, author_role: 'school_staff', created_at: ticket.created_at },
+      { id: 2, body: 'Could you check on the portal issue?', author_role: 'school_staff', created_at: '2026-10-21T08:00:00Z' }
+    ];
+    for (const linked of [true, false]) {
+      const context = buildSupportEmailDraftContext(input({ messages, intakeMessageId: 2, attachments: [1,2,3].map(id => ({ id, file_name: `old-${id}.pdf`, support_ticket_message_id: linked ? 1 : null, created_at: '2026-10-20T08:00:01Z' })) }));
+      assert.equal(context.attachments.currentMessageId, 2);
+      assert.equal(context.attachments.files.length, 0);
+      assert.equal(context.attachments.conversationFiles.length, 3);
+      assert.ok(validateSupportEmailDraft('I can see the three attachments here.', context).includes('unsupported_current_attachment_receipt'));
+      assert.deepEqual(validateSupportEmailDraft('I can see the three files from your earlier email. I will check on the login issue.', context), []);
+    }
+  });
+
+  it('corrects a model that mistakes old attachments for the latest email and retains honest source labels', async () => {
+    let calls = 0;
+    const result = await generateSupportEmailDraft(input({ intakeMessageId: 2, messages: [
+      { id: 1, body: ticket.question, author_role: 'school_staff', created_at: ticket.created_at },
+      { id: 2, body: 'Could you check on the portal issue?', author_role: 'school_staff', created_at: '2026-10-21T08:00:00Z' }
+    ], attachments: [1,2,3].map(id => ({ id, file_name: `old-${id}.pdf`, support_ticket_message_id: 1 })) }), {
+      generateText: async (options) => {
+        calls += 1;
+        if (calls === 1) return model('I can see the three attachments here.')();
+        assert.match(options.prompt, /unsupported_current_attachment_receipt/);
+        return model('I will check on the portal issue and follow up.')();
+      }
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.metadata.correctedDraft, true);
+    assert.ok(result.metadata.draftSources.filter(source => source.type === 'attachment').every(source => source.detail.includes('not proof of receipt with the latest email')));
+  });
+
+  it('uses canonical support_ticket_message_id to separate a newly received file from earlier files', () => {
+    const context = buildSupportEmailDraftContext(input({ intakeMessageId: 2, messages: [
+      { id: 1, body: ticket.question, author_role: 'school_staff', created_at: ticket.created_at },
+      { id: 2, body: 'Here is the corrected packet.', author_role: 'school_staff', created_at: '2026-10-21T08:00:00Z' }
+    ], attachments: [
+      { id: 1, file_name: 'packet.pdf', support_ticket_message_id: 1 },
+      { id: 2, file_name: 'packet.pdf', support_ticket_message_id: 2 }
+    ] }));
+    assert.deepEqual(context.attachments.files.map(file => file.id), [2]);
+    assert.deepEqual(context.attachments.conversationFiles.map(file => file.id), [1]);
+    assert.equal(context.attachments.files[0].provenance, 'current_message_link');
+  });
+
+  it('does not invent receipt or missing-file claims from unattributed legacy files', () => {
+    const context = buildSupportEmailDraftContext(input({ messages: [
+      { id: 2, body: 'I sent the corrected packet. Can you help?', author_role: 'school_staff', created_at: '2026-10-21T08:00:00Z' }
+    ], attachments: [{ id: 1, file_name: 'packet.pdf' }] }));
+    assert.equal(context.attachments.files.length, 0);
+    assert.equal(context.attachments.unattributedFiles.length, 1);
+    assert.equal(context.attachments.currentMessageInventoryKnown, false);
+    assert.ok(context.unresolvedFacts.includes('current_message_attachment_attribution_uncertain'));
+    assert.ok(validateSupportEmailDraft('I can see the packet attached here.', context).includes('unsupported_current_attachment_receipt'));
+    assert.ok(validateSupportEmailDraft('I do not see any attachments. Please resend the packet.', context).includes('unconfirmed_current_attachment_status'));
+    assert.deepEqual(validateSupportEmailDraft('I will check on your request and follow up.', context), []);
+  });
+
+  it('preserves bounded legacy original-intake receipt while excluding later and manual files', () => {
+    const context = buildSupportEmailDraftContext(input({ messages: [{ id: 1, body: ticket.question, author_role: 'school_staff', created_at: ticket.created_at }], attachments: [
+      { id: 1, file_name: 'original.pdf', created_at: '2026-10-20 08:00:01' },
+      { id: 2, file_name: 'later.pdf', created_at: '2026-10-21 08:00:01' },
+      { id: 3, file_name: 'manual.pdf', created_at: '2026-10-20 08:00:01', uploaded_by_user_id: 8 }
+    ] }));
+    assert.deepEqual(context.attachments.files.map(file => file.id), [1]);
+    assert.equal(context.attachments.files[0].provenance, 'legacy_original_intake_window');
+    assert.deepEqual(context.attachments.unattributedFiles.map(file => file.id), [2,3]);
+  });
+
+  it('cannot reuse an ingestion completion flag bound to an earlier email', () => {
+    const context = buildSupportEmailDraftContext(input({ ticket: { ...ticket, ai_draft_metadata_json: { attachmentsIngested: true, attachmentsIngestedMessageId: 1 } }, messages: [
+      { id: 2, body: 'A new request', author_role: 'school_staff', created_at: '2026-10-21T08:00:00Z' }
+    ] }));
+    assert.equal(context.attachments.complete, false);
+    assert.equal(classifySupportEmailDraft(context).reason, 'attachment_ingestion_incomplete');
   });
 
   it('continues with explicit provenance warnings when historical retrieval is unavailable', async () => {

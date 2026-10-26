@@ -35,6 +35,22 @@ test('automatic suppression clears a legacy draft and snapshot link only at the 
   assert.deepEqual(metadata.inboundEmailHeaders, { listId: 'newsletter' });
 });
 
+test('late attachment completion for an earlier inbound cannot generate or suppress the latest draft', async () => {
+  const database = { async execute(sql) {
+    if (sql.startsWith('SELECT * FROM support_tickets')) return [[{ id: 7, agency_id: 2 }]];
+    if (sql.startsWith('SELECT m.*')) return [[
+      { id: 10, email_direction: 'inbound', created_at: '2026-10-25T10:00:00Z' },
+      { id: 12, email_direction: 'inbound', created_at: '2026-10-26T10:00:00Z' }
+    ]];
+    throw new Error(`An earlier receipt must not update latest draft: ${sql}`);
+  } };
+  const result = await generateInboundSupportDraft({ ticketId: 7, sourceMessageId: 10, agencyId: 2, intakeComplete: true }, {
+    database, review: { getLatestDraftSnapshot: async () => { throw new Error('No earlier-source snapshot lookup'); } },
+    generateSupportEmailDraft: async () => { throw new Error('No earlier-source generation'); }
+  });
+  assert.equal(result, null);
+});
+
 function clientFactsFixture({ scope = true, membership = true, providerFailure = null, providers = [{ id: 12, first_name: 'Drew', last_name: 'Therapist' }], primarySchool = 8 } = {}) {
   const reads = [], lookups = [];
   const ticket = { client_id: 22, agency_id: 2, school_organization_id: 8 };
@@ -230,6 +246,21 @@ test('attachment failure defers generation and acknowledgement; retry repairs at
   assert.equal(retry.duplicate, true);
   assert.equal(f.generations.length, 1);
   assert.equal(f.statements.filter((s) => s.sql.startsWith('INSERT INTO support_ticket_messages')).length, 1);
+}));
+
+test('new inbound clears earlier attachment completion before a failed inventory and binds the repaired receipt to this message', async () => withKey(async () => {
+  const f = fixture({ attachmentFailure: true });
+  f.ticket.ai_draft_metadata_json = { attachmentsIngested: true, attachmentsIngestedMessageId: 4, attachmentsIngestedGmailMessageId: 'old-gmail' };
+  await assert.rejects(ingestSupportTicketEmail(base, f.dependencies), { code: 'SUPPORT_EMAIL_ATTACHMENTS_PENDING' });
+  const invalidation = f.statements.find((s) => s.sql.includes("'$.attachmentsIngested',CAST('false' AS JSON)"));
+  assert.ok(invalidation);
+  assert.match(invalidation.sql, /'\$\.attachmentsIngestedMessageId',NULL,'\$\.attachmentsIngestedGmailMessageId',NULL/);
+  assert.equal(f.statements.some((s) => s.sql.includes("'$.attachmentsIngested',CAST('true' AS JSON)")), false);
+  f.dependencies.persistAttachments = async () => ({ complete: true, incomplete: false });
+  await ingestSupportTicketEmail(base, f.dependencies);
+  const completion = f.statements.find((s) => s.sql.includes("'$.attachmentsIngested',CAST('true' AS JSON)"));
+  assert.deepEqual(completion.values, [11, 'gmail1', 7, 11]);
+  assert.match(completion.sql, /AND \?=\(SELECT e.ticket_message_id/);
 }));
 
 test('duplicate Gmail retry still completes a failed immutable external review snapshot', async () => withKey(async () => {

@@ -305,8 +305,8 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
       const [[agency]] = await db.execute('SELECT slug FROM agencies WHERE id = ? LIMIT 1', [config.agencyId]);
       if (!reviewer?.email || !agency?.slug) throw reviewError('Reviewer membership, email, or agency route is unavailable', 409, 'support_review_recipient_unavailable');
       const base = String(process.env.FRONTEND_URL || 'https://app.itsco.health').replace(/\/$/, '');
-      const url = `${base}/${encodeURIComponent(agency.slug)}/admin/support-review?date=${encodeURIComponent(date)}`;
-      const notice = buildReviewNotice({ date, url });
+      const url = `${base}/${encodeURIComponent(agency.slug)}/admin/support-review?date=${encodeURIComponent(date)}&agencyId=${config.agencyId}`;
+      const notice = buildReviewNotice({ date, url, totals: review.totals, incomplete: review.coverage.truncated });
       // Fence expired workers before either notification or transport side effect.
       const [deliveryClaim] = await db.execute("UPDATE support_reply_review_digests SET counts_json = ?, status = 'sending', attempted_at = ? WHERE id = ? AND status = 'building' AND claim_token = ?", [JSON.stringify(review.totals), sqlDate(now()), digest.id, claimToken]);
       if (!deliveryClaim.affectedRows) return { id: digest.id, status: 'lease_lost' };
