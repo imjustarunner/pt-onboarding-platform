@@ -38,7 +38,11 @@
     />
 
     <div v-else-if="section.key === 'pin'" class="pu-panel">
-      <p><strong>To complete this step:</strong> create or reset your six-digit Quick View code, save it somewhere safe, then choose the confirmation button below. App-password preparation and optional passkeys do not block this step.</p>
+      <template v-if="recipient?.signIn?.method==='google'">
+        <p>You can continue this update with your existing Google sign-in. Quick View, app-password preparation and passkeys can be set up later.</p>
+        <button type="button" class="pu-btn primary" data-testid="defer-sso-setup" :disabled="saving || quickViewResetBusy || recipient?.previewOnly" @click="markComplete({ssoSetupDeferred:true})">Keep Google sign-in — save and continue</button>
+      </template>
+      <p><strong>To set up Quick View:</strong> create or reset your six-digit code, save it somewhere safe, then choose the confirmation button below. App-password preparation and optional passkeys do not block this step.</p>
       <template v-if="newPasscode || !quickViewAlreadySet"><button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
       <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><button v-if="section.data?.quickViewVideoUrl" type="button" class="pu-btn training-video-button" @click="openTrainingVideo({url:section.data.quickViewVideoUrl,title:'Quick View instructions',trigger:$event.currentTarget})">▶ Watch Quick View instructions</button><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
       <p>Your agency’s Quick View: <a :href="recipient?.quickViewUrl" target="_blank" rel="noopener noreferrer">{{recipient?.quickViewUrl}}</a></p>
@@ -488,7 +492,7 @@ async function saveSectionPayload(payload) {
         ...payload
       });
     }
-    if(props.section.key==='pin'&&payload.completed&&payload.data?.codeStoredSafely){quickViewCodeAcknowledged.value=true;quickViewError.value='';}
+    if(props.section.key==='pin'&&payload.completed&&(payload.data?.codeStoredSafely||payload.data?.ssoSetupDeferred===true)){quickViewCodeAcknowledged.value=true;quickViewError.value='';}
     // Navigating or submitting must not rewrite this successful confirmation as
     // an incomplete draft. Edits made during the request still remain dirty.
     draftBaseline = savedDraft;

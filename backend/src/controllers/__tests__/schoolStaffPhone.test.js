@@ -8,6 +8,8 @@ vi.mock('../../services/schoolGroupSubscription.service.js', async importOrigina
   resolveGroupEmailForSchool: vi.fn().mockResolvedValue(null),
   readSchoolGroupSubscriptions: vi.fn().mockResolvedValue(new Map())
 }));
+vi.mock('../../services/schoolStaffWelcomeEmail.service.js',()=>({sendSchoolStaffWelcomeEmail:vi.fn(async()=>({id:'sent'}))}));
+import {sendSchoolStaffWelcomeEmail} from '../../services/schoolStaffWelcomeEmail.service.js';
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import Agency from '../../models/Agency.model.js';
@@ -89,4 +91,15 @@ it('returns the school number without copying it into the staff override', async
   pool.execute.mockImplementation(async sql => [sql.includes('JOIN users u') ? [user] : []]);
   await listSchoolStaff(req, res, next);
   expect(res.json).toHaveBeenCalledWith([expect.objectContaining({ phone_number: null, effective_phone_number: '303-555-0100' })]);
+});
+
+it('queues a welcome containing the added school and exact permissions using the parent agency sender',async()=>{
+ Agency.findById.mockResolvedValue({id:20,name:'Test School',slug:'test-school',organization_type:'school'});
+ OrganizationAffiliation.getActiveAgencyIdForOrganization.mockResolvedValue(2);
+ User.getAgencies.mockResolvedValue([{id:999,slug:'unrelated-school'},{id:20,slug:'test-school'}]);
+ req.body={email:user.email,isSchoolAdmin:true,isScheduler:true};
+ await addSchoolStaff(req,res,next);expect(next).not.toHaveBeenCalled();
+ setImmediate.mock.calls[0][0]();await new Promise(resolve=>setTimeout(resolve,10));
+ expect(sendSchoolStaffWelcomeEmail).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,schoolOrganizationId:20,userId:42,actorUserId:3,schoolName:'Test School',isSchoolAdmin:true,isScheduler:true,accessUrl:expect.stringContaining('/test-school/passwordless-login/test-token')}));
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({emailSent:false,emailQueued:true}));
 });

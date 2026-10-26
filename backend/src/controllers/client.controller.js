@@ -8333,17 +8333,18 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       const allowOverCapacityReq =
         req.body?.allow_over_capacity === true || req.body?.allow_over_capacity === 1 || req.body?.allow_over_capacity === '1';
 
-      // Active rows for this client+org+provider (may be multiple weekdays after migration 713).
-      const [activeRows] = await connection.execute(
-        `SELECT id, is_active, service_day
+      // Serialize retries, and include inactive rows: the unique key survives termination.
+      await connection.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [clientId]);
+      const [assignmentRows] = await connection.execute(
+        `SELECT id, is_active, is_primary, service_day
          FROM client_provider_assignments
-         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ? AND is_active = TRUE
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
          FOR UPDATE`,
         [clientId, orgId, providerUserId]
       );
-      const activeList = activeRows || [];
+      const activeList = (assignmentRows || []).filter(row => Number(row.is_active) === 1);
       const existingSameDay =
-        activeList.find((r) => (r.service_day == null && serviceDay == null) || String(r.service_day || '') === String(serviceDay || '')) ||
+        [...activeList, ...(assignmentRows || [])].find((r) => (r.service_day == null && serviceDay == null) || String(r.service_day || '') === String(serviceDay || '')) ||
         null;
 
       const [siblingRows] = await connection.execute(
@@ -8372,25 +8373,36 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         allowOverCapacityReq || (!!serviceDay && !existingSameDay && siblingCount > 0 && !moveSingleDayRow);
 
       // Refund + take when moving the only active row from one weekday to another.
-      if (moveSingleDayRow && singleActive?.service_day && serviceDay) {
+      if (moveSingleDayRow && serviceDay) {
         const fromDay = String(singleActive.service_day || '');
-        await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: fromDay, delta: +1 });
-        const take = await adjustProviderSlots(connection, {
+        if (slotConsumingClient && fromDay) await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: fromDay, delta: +1 });
+        const take = slotConsumingClient ? await adjustProviderSlots(connection, {
           providerUserId,
           schoolId: orgId,
           dayOfWeek: serviceDay,
           delta: -1,
           allowNegative: allowNegativeSlot
-        });
+        }) : { ok: true };
         if (!take.ok) {
           await connection.rollback();
           return res.status(400).json({ error: { message: take.reason } });
         }
+        if (existingSameDay) {
+          // Moving back to a prior day restores its row, rather than colliding with it.
+          await connection.execute(
+            `UPDATE client_provider_assignments SET is_active = FALSE, is_primary = FALSE,
+             updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [userId, singleActive.id]
+          );
+        }
+        if (requestedPrimary || singleActive.is_primary) {
+          await connection.execute('UPDATE client_provider_assignments SET is_primary = FALSE WHERE client_id = ?', [clientId]);
+        }
         await connection.execute(
           `UPDATE client_provider_assignments
-           SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP${requestedPrimary ? ', is_primary = TRUE' : ''}
+           SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP${requestedPrimary || singleActive.is_primary ? ', is_primary = TRUE' : ''}
            WHERE id = ?`,
-          [serviceDay, userId, singleActive.id]
+          [serviceDay, userId, existingSameDay?.id || singleActive.id]
         );
       } else {
         // Refund if reactivating/updating the same row and weekday changes (should not happen when keyed by day, kept for safety)

@@ -163,6 +163,14 @@ jobs:
           backend/src/services/__tests__/scheduling.providerUpdateReview.test.js
           backend/src/services/__tests__/scheduleSummaryPrivacy.service.test.js
           backend/src/models/__tests__/scheduling.virtualHoursBatch.test.js
+      - name: School account access, welcome mail, and assignment restoration
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.school-support.config.js
+      - name: Provider update SSO completion
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.security-notifications.config.js
       - name: Scheduling form and display regressions
         working-directory: frontend
         run: >-
@@ -197,6 +205,10 @@ jobs:
           src/utils/__tests__/scheduleSummaryRequests.test.js
           src/utils/__tests__/officeRequestWindows.test.js
           src/views/__tests__/DashboardScheduleStartup.test.js
+          src/components/provider/__tests__/ProviderUpdateQuickView.test.js
+          src/components/school/redesign/__tests__/SchoolAdminAccessRequests.test.js
+          src/components/school/redesign/__tests__/SchoolStaffPanel.phone.test.js
+          src/components/school/redesign/__tests__/SchoolStaffPanel.recovery.test.js
           src/components/provider/__tests__/ProviderUpdateOfficeSchedule.test.js
           src/components/provider/__tests__/ProviderHoursFocus.test.js
           src/utils/__tests__/providerUpdateCalendar.test.js

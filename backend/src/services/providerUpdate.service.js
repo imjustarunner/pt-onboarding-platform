@@ -773,8 +773,9 @@ export async function getRecipientBundle(recipient, {push: providedPush = null, 
   const officeReview=sectionList.find(s=>s.key==='office_review');
   if(officeReview?.completed){const current=await listOpenForBookingForProvider(recipient.provider_user_id,recipient.agency_id);const confirmed=(officeReview.data.confirmedAssignmentIds||[]).map(Number);if(current.some(i=>!confirmed.includes(i.id))){officeReview.completed=false;officeReview.status='in_progress';}}
   const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
+  const signIn=await getProviderUpdateSignIn(recipient.provider_user_id,recipient.agency_id);
   const quickViewSection=sectionList.find(s=>s.key==='pin');
-  if(quickViewSection){
+  if(quickViewSection && !(signIn.method==='google' && quickViewSection.data.ssoSetupDeferred===true)){
     const status=await getCredentialStatus(recipient.provider_user_id);
     quickViewSection.data={...quickViewSection.data,quickView:{hasPasscode:status.hasPasscode,isLocked:status.isLocked}};
     const versionChanged=quickViewSection.data.confirmedPasscodeVersion != null && Number(quickViewSection.data.confirmedPasscodeVersion)!==Number(status.passcodeVersion);
@@ -858,7 +859,7 @@ export async function getRecipientBundle(recipient, {push: providedPush = null, 
       displayRole: records.displayRole?.label || null,
       quickViewUrl:agency?.quickViewUrl || null,
       agencySlug:agency?.slug || null,
-      signIn:await getProviderUpdateSignIn(recipient.provider_user_id,recipient.agency_id),
+      signIn,
       email: recipient.email,
       finalizedAt: recipient.finalized_at,
       lockedAt: recipient.locked_at,

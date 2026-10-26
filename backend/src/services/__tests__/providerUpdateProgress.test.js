@@ -11,6 +11,7 @@ vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn()}));
 vi.mock('../providerUpdateCompletionEmail.service.js',()=>({ensureProviderUpdateCompletionEmail:vi.fn(async()=>({id:'sent'}))}));
 vi.mock('../providerUpdateTime.service.js',()=>({recordUpdateTime:vi.fn(),submitCompletedUpdateTime:vi.fn(),createUpdateTimeClaim:vi.fn(),updateTimeSummary:vi.fn(async()=>({sections:{}}))}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({id:2,slug:'itsco'}))}}));
+import {getProviderUpdateSignIn} from '../providerUpdateSignIn.service.js';
 import pool from '../../config/database.js';
 import {getRecipientBundle,finalizeRecipient,getMyCompletedRecipient,listRecipients} from '../providerUpdate.service.js';
 import {getCredentialStatus} from '../quickViewAuth.service.js';
@@ -22,7 +23,7 @@ const keys=['specialties','notification_prefs'];
 const config=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,keys.includes(k)]));
 const recipient={id:1,push_id:2,provider_user_id:7,agency_id:2,previewOnly:true,section_config_json:config};
 let progress;
-beforeEach(()=>{vi.clearAllMocks();progress=[];pool.execute.mockImplementation(async sql=>sql.includes('provider_update_pushes')?[[{id:2,section_config_json:config}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[{key:'specialties',options:['Anxiety','Depression','Grief']}],clinicalFocus:{top:{specialties:[]},excluded:{specialties:[]}}});getStaffCommunicationChoices.mockResolvedValue({needsReview:true,reviewedAt:null});});
+beforeEach(()=>{vi.clearAllMocks();getProviderUpdateSignIn.mockResolvedValue({method:"password"});progress=[];pool.execute.mockImplementation(async sql=>sql.includes('provider_update_pushes')?[[{id:2,section_config_json:config}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[{key:'specialties',options:['Anxiety','Depression','Grief']}],clinicalFocus:{top:{specialties:[]},excluded:{specialties:[]}}});getStaffCommunicationChoices.mockResolvedValue({needsReview:true,reviewedAt:null});});
 it('keeps unanswered sections Not started without saving anything',async()=>{
  const bundle=await getRecipientBundle(recipient);
  expect(bundle.sections).toHaveLength(2);
@@ -163,4 +164,13 @@ it('excludes a school section that is not applicable from an unfinished roster c
  });
  expect((await listRecipients(2,2))[0]).toMatchObject({sections_completed:1,sections_total:1});
  expect(pool.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+});
+
+it.each([['google',true],['password',false]])('only retains optional setup completion while the account uses %s',async(method,completed)=>{
+ getProviderUpdateSignIn.mockResolvedValue({method});
+ getCredentialStatus.mockResolvedValue({hasPasscode:false,isLocked:true});
+ progress=[{section_key:'pin',status:'completed',completed:1,data_json:{ssoSetupDeferred:true}}];
+ const bundle=await getRecipientBundle({...recipient,section_config_json:pinConfig});
+ expect(bundle.sections[0].completed).toBe(completed);
+ expect(bundle.progress.completed).toBe(Number(completed));
 });

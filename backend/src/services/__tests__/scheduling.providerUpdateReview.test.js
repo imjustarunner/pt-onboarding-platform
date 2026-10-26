@@ -206,3 +206,17 @@ it('allows an unfinished contact draft without requiring an email or updating ac
  await expect(persistReviewSection({...recipient,section_config_json:{contact_info:true}},'contact_info',{contact:{personalEmail:''}},false)).resolves.toBeUndefined();
  expect(saveProviderReviewProfile).not.toHaveBeenCalled();
 });
+
+it('allows server-verified Google accounts to defer setup without recording a false code confirmation', async () => {
+ getProviderUpdateSignIn.mockResolvedValue({method:'google'});
+ getCredentialStatus.mockResolvedValue({hasPasscode:false,isLocked:true});
+ const data={ssoSetupDeferred:true,quickViewConfirmed:true,codeStoredSafely:true,passcode:'private'};
+ await persistReviewSection(recipient,'pin',data,true);
+ expect(data).toEqual({ssoSetupDeferred:true,reviewedAt:expect.any(String)});
+ expect(getCredentialStatus).not.toHaveBeenCalled();
+});
+it('rejects SSO deferral for password accounts and incomplete section saves', async () => {
+ getProviderUpdateSignIn.mockResolvedValue({method:'password'});
+ await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},true)).rejects.toThrow('Google sign-in');
+ await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},false)).rejects.toThrow();
+});

@@ -4385,7 +4385,7 @@ export const addSchoolStaff = async (req, res, next) => {
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const portalSlug = org?.portal_url || org?.slug || null;
     const setupUrl = portalSlug
       ? `${frontendBase}/${portalSlug}/passwordless-login/${setupLink.token}`
       : `${frontendBase}/passwordless-login/${setupLink.token}`;
@@ -4394,14 +4394,11 @@ export const addSchoolStaff = async (req, res, next) => {
       .filter(Boolean)
       .map((e) => String(e).trim().toLowerCase())
       .find((e) => e.includes('@'));
-    const senderName = req.user?.first_name || req.user?.email || 'Primary Contact';
     const addedUserId = user.id;
     const addedEmail = user.email || email;
     const addedFirstName = user.first_name || '';
     const addedLastName = user.last_name || '';
-    const setupToken = setupLink.token;
     const setupExpiresAt = setupLink.expiresAt;
-    const agencyIdForEmail = userAgencies?.[0]?.id || null;
     const orgName = org?.name || org?.official_name || `School #${orgId}`;
 
     const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
@@ -4434,7 +4431,8 @@ export const addSchoolStaff = async (req, res, next) => {
       },
       setupLink: setupUrl,
       setupExpiresAt,
-      emailSent: !!to,
+      emailSent: false,
+      emailQueued: !!to,
       message: to
         ? 'School staff added. Setup email is being sent.'
         : 'School staff added; share the setup link manually'
@@ -4444,48 +4442,16 @@ export const addSchoolStaff = async (req, res, next) => {
       void (async () => {
         if (to) {
           try {
-            const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-            const agency = agencyIdForEmail ? await Agency.findById(agencyIdForEmail) : null;
-            const template = await EmailTemplateService.getTemplateForAgency(agencyIdForEmail, 'invitation');
-            let subject = 'Set up your school portal account';
-            let body = `You have been added to the school portal. Set up your account using this link (expires in 7 days):\n${setupUrl}`;
-            if (template?.body) {
-              const params = await EmailTemplateService.collectParameters(user, agency, {
-                passwordlessToken: setupToken,
-                senderName
-              });
-              const rendered = EmailTemplateService.renderTemplate(template, params);
-              subject = rendered.subject || subject;
-              body = rendered.body || body;
-            }
-            const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-            const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
-            const EmailService = (await import('../services/email.service.js')).default;
-            const identity = await resolvePreferredSenderIdentityForAgency({
-              agencyId: agencyIdForEmail || null,
-              preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
+            const { sendSchoolStaffWelcomeEmail } = await import('../services/schoolStaffWelcomeEmail.service.js');
+            const delivery = await sendSchoolStaffWelcomeEmail({
+              agencyId: activeAgencyId, schoolOrganizationId: orgId,
+              userId: addedUserId, actorUserId: actorId, to,
+              firstName: addedFirstName, schoolName: orgName,
+              isSchoolAdmin: assignSchoolAdmin, isScheduler: assignScheduler,
+              accessUrl: setupUrl, setup: true
             });
-            if (identity?.id) {
-              await sendEmailFromIdentity({
-                senderIdentityId: identity.id,
-                to,
-                subject,
-                text: body,
-                html: null,
-                source: 'auto'
-              });
-            } else {
-              await EmailService.sendEmail({
-                to,
-                subject,
-                text: body,
-                html: null,
-                fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-                fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-                replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-                source: 'auto',
-                agencyId: agencyIdForEmail || null
-              });
+            if (delivery?.blocked || delivery?.skipped || delivery?.queued) {
+              console.warn('[addSchoolStaff] Welcome email not yet sent:', delivery.reason || 'queued');
             }
           } catch (err) {
             console.error('[addSchoolStaff] Failed to send setup email:', err);

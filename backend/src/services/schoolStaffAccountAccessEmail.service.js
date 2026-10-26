@@ -996,7 +996,7 @@ async function resolveTechnologyReplyTo(agencyId) {
 
 /**
  * Welcome + portal access email after school onboarding completes (or manual backfill).
- * From: Notifications@ (preferred). Reply-To: Technology@.
+ * From: Notifications@. Reply-To: Support@.
  * Includes a set-password token link when includeSetPasswordLink is true.
  */
 export async function sendSchoolOnboardingStaffPortalAccessEmail({
@@ -1033,35 +1033,9 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
     if (school) urlAgency = school;
   }
 
-  let template;
-  try {
-    template = await getAccessEmailTemplate(aid, ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE);
-  } catch {
-    template = await getAccessEmailTemplate(aid, ACCOUNT_ACCESS_EMAIL_TYPES.portal_access);
-    template = {
-      ...template,
-      subject: '{{AGENCY_NAME}} Portal Access for {{SCHOOL_NAME}}',
-      body:
-        'Hello {{FIRST_NAME}},\n\nWelcome to the {{AGENCY_NAME}} school staff portal for {{SCHOOL_NAME}}.\n\n' +
-        '{{INVITED_BY_NAME}} invited you to join this school account.\n\n' +
-        'Your access role: {{ACCESS_ROLE}}\n{{JOB_TITLE_LINE}}Username: {{USERNAME}}\n\n' +
-        (includeSetPasswordLink
-          ? 'Set your password using this secure link (expires {{TOKEN_EXPIRES_AT}} / in {{TOKEN_EXPIRES_HOURS}} hours):\n{{RESET_TOKEN_LINK}}\n\n'
-          : '') +
-        'Sign in anytime here:\n{{PORTAL_LOGIN_LINK}}\n\n' +
-        'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.\n\n' +
-        'If you did not expect this email, you can ignore it.\n\n—\n{{SENDER_NAME}}\n{{AGENCY_NAME}}\n'
-    };
-  }
-
-  const sender = await resolveSenderIdentityForSend({
-    agencyId: aid,
-    templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
-    preferredKeys: ['notifications', 'technology', 'login_recovery']
-  });
-  if (!sender?.identity?.id) {
-    return { sent: false, reason: 'no_sender_identity' };
-  }
+  const { schoolNotificationIdentities, schoolStaffWelcomeContent } = await import('./schoolStaffWelcomeEmail.service.js');
+  const identities = await schoolNotificationIdentities(aid);
+  const sender = { identity: { id: identities.senderIdentityId, display_name: tenantAgency.name }, usedFallback: false };
 
   const hours = Math.min(720, Math.max(1, Number(tokenExpiresHours) || ONBOARDING_TOKEN_EXPIRES_HOURS));
   let passwordlessToken = null;
@@ -1072,28 +1046,6 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
     expiresAt = tokenResult.expiresAt;
   }
 
-  let subjectTpl = template.subject;
-  let bodyTpl = template.body;
-  if (!includeSetPasswordLink) {
-    bodyTpl = String(bodyTpl || '')
-      .replace(
-        /Set your password using this secure link \(expires \{\{TOKEN_EXPIRES_AT\}\} \/ in \{\{TOKEN_EXPIRES_HOURS\}\} hours\):\n\{\{RESET_TOKEN_LINK\}\}\n\n/gi,
-        ''
-      )
-      .replace(/If you have not set a password yet[\s\S]*?\{\{RESET_TOKEN_LINK\}\}\n*/gi, '')
-      .replace(/\{\{RESET_TOKEN_LINK\}\}/g, '')
-      .replace(
-        /Access your portal:\n\{\{PORTAL_LOGIN_LINK\}\}/gi,
-        'Sign in with the password you created during onboarding:\n{{PORTAL_LOGIN_LINK}}'
-      );
-    if (!/PORTAL_LOGIN_LINK/.test(bodyTpl)) {
-      bodyTpl +=
-        '\n\nSign in with the password you created during onboarding:\n{{PORTAL_LOGIN_LINK}}\n';
-    }
-  }
-
-  const title = String(jobTitle || user.title || '').trim();
-  const jobTitleLine = title ? `Job title: ${title}\n` : '';
   const parameters = await EmailTemplateService.collectParameters(user, urlAgency, {
     passwordlessToken,
     senderName:
@@ -1104,8 +1056,6 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
   parameters.SCHOOL_NAME = String(schoolName || urlAgency?.name || 'your school').trim();
   parameters.INVITED_BY_NAME = String(invitedByName || 'Your school administrator').trim();
   parameters.ACCESS_ROLE = String(accessRoleLabel || 'School Staff').trim();
-  parameters.JOB_TITLE = title;
-  parameters.JOB_TITLE_LINE = jobTitleLine;
   parameters.TOKEN_EXPIRES_HOURS = String(hours);
   parameters.TOKEN_EXPIRES_AT = expiresAt
     ? formatTokenExpiresAt(expiresAt)
@@ -1113,12 +1063,15 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
   parameters.SENDER_NAME =
     parameters.SENDER_NAME || sender.identity.display_name || tenantAgency.name || '';
 
-  const rendered = EmailTemplateService.renderTemplate(
-    { subject: subjectTpl, body: bodyTpl },
-    parameters
-  );
-  const subject = applyMissingPlaceholders(rendered.subject);
-  const body = applyMissingPlaceholders(rendered.body);
+  const welcome = schoolStaffWelcomeContent({
+    firstName: user.first_name, schoolName: parameters.SCHOOL_NAME,
+    isSchoolAdmin: /admin|primary/i.test(parameters.ACCESS_ROLE),
+    isScheduler: /scheduler/i.test(parameters.ACCESS_ROLE),
+    accessUrl: includeSetPasswordLink ? parameters.RESET_TOKEN_LINK : parameters.PORTAL_LOGIN_LINK,
+    setup: includeSetPasswordLink, setupExpiresHours: hours
+  });
+  const subject = welcome.subject;
+  const body = welcome.text;
 
   let comm = null;
   try {
@@ -1126,7 +1079,7 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
       userId: uid,
       agencyId: aid,
       templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
-      templateId: template.id || null,
+      templateId: null,
       subject,
       body,
       generatedByUserId: actorUserId,
@@ -1137,13 +1090,13 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
     comm = null;
   }
 
-  const replyTo = await resolveTechnologyReplyTo(aid);
+  const replyTo = identities.replyToOverride;
   const result = await sendEmailFromIdentity({
     senderIdentityId: sender.identity.id,
     to,
     subject,
     text: body,
-    html: textToHtml(body),
+    html: welcome.html,
     source,
     templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
     usedFallbackSender: !!sender.usedFallback,

@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import express from 'express';
+import {getSchoolAdminRequests,createSchoolAdminRequest,decideSchoolAdminRequest} from '../controllers/schoolAdminAccessRequest.controller.js';
 import {
   getSchoolClients,
   schoolPortalEmail,
@@ -207,6 +208,9 @@ router.post('/:organizationId/emails/:messageId/read', authenticate, schoolPorta
 router.get('/:organizationId/emails/:messageId/attachments/:attachmentId', authenticate, schoolPortalEmail.attachment);
 router.post('/:organizationId/emails', authenticate, schoolEmailSendLimit, schoolPortalEmail.send);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
+router.get('/:organizationId/school-admin-requests', authenticate, getSchoolAdminRequests);
+router.post('/:organizationId/school-admin-requests', authenticate, createSchoolAdminRequest);
+router.patch('/:organizationId/school-admin-requests/:requestId', authenticate, decideSchoolAdminRequest);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
 router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolStaff);
 router.post('/:organizationId/school-staff/:userId/send-reset-password', authenticate, sendSchoolStaffResetPassword);

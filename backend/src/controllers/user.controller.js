@@ -10791,6 +10791,35 @@ export const createCurrentEmployee = async (req, res, next) => {
     const Agency = (await import('../models/Agency.model.js')).default;
     const agency = await Agency.findById(parseInt(agencyId));
 
+    // School staff created from the general admin screen receive the same
+    // school-specific welcome as staff added from a school portal.
+    if (finalRole === 'school_staff') {
+      const schools = (userAgencies || []).filter(org => org.organization_type === 'school');
+      setImmediate(() => {
+        void (async () => {
+          const { sendSchoolStaffWelcomeEmail } = await import('../services/schoolStaffWelcomeEmail.service.js');
+          for (const school of schools) {
+            try {
+              const [[contact]] = await pool.execute(
+                'SELECT is_school_admin,is_primary,is_scheduler FROM school_contacts WHERE school_organization_id=? AND LOWER(email)=LOWER(?) LIMIT 1',
+                [school.id, workEmail.trim()]
+              );
+              await sendSchoolStaffWelcomeEmail({
+                agencyId: Number(agencyId), schoolOrganizationId: school.id,
+                userId: user.id, actorUserId: req.user.id, to: workEmail.trim(),
+                firstName: user.first_name, schoolName: school.name,
+                isSchoolAdmin: !!(contact?.is_school_admin || contact?.is_primary),
+                isScheduler: !!contact?.is_scheduler, setup: true, setupExpiresHours: 48,
+                accessUrl: buildPublicAppUrl(school, `passwordless-login/${passwordlessTokenResult.token}`)
+              });
+            } catch (error) {
+              console.error('[createCurrentEmployee] School welcome failed:', error?.message || error);
+            }
+          }
+        })().catch(error => console.error('[createCurrentEmployee] School welcomes failed:', error?.message || error));
+      });
+    }
+
     res.status(201).json({
       message: 'Current employee created successfully',
       user: {

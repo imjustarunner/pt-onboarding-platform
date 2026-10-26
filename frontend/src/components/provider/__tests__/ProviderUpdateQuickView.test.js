@@ -70,3 +70,15 @@ it('keeps the displayed code and completion controls available when saving fails
  await save().trigger('click');await flushPromises();expect(w.text()).toContain('Please reconnect');expect(w.get('[role=status]').text()).toContain('004123');expect(w.emitted('saved')).toBeUndefined();expect(await w.vm.saveDraft()).toBe(false);
  await save().trigger('click');await flushPromises();expect(w.emitted('saved')).toHaveLength(1);expect(await w.vm.saveDraft()).toBe(true);w.unmount();
 });
+
+it.each(['me','token'])('lets a Google account defer unavailable code setup (%s)',async mode=>{
+ const w=render({mode,token:'invitation',recipient:{providerUserId:7,agencyId:2,signIn:{method:'google'}},section:{key:'pin',data:{quickView:{hasPasscode:false,isLocked:true}}}});
+ await w.get('[data-testid=defer-sso-setup]').trigger('click');await flushPromises();
+ expect(api.put).toHaveBeenCalledWith(mode==='me'?'/provider-update/me/sections/pin':'/public/provider-update/invitation/sections/pin',expect.objectContaining({completed:true,data:expect.objectContaining({ssoSetupDeferred:true})}));
+ expect(api.post).not.toHaveBeenCalled();expect(w.emitted('saved')).toHaveLength(1);w.unmount();
+});
+it('hides deferral for password accounts and disables it for previews',async()=>{
+ const w=render();expect(w.find('[data-testid=defer-sso-setup]').exists()).toBe(false);w.unmount();
+ const preview=render({recipient:{previewOnly:true,signIn:{method:'google'}}});
+ const button=preview.get('[data-testid=defer-sso-setup]');expect(button.element.disabled).toBe(true);await button.trigger('click');expect(api.put).not.toHaveBeenCalled();preview.unmount();
+});

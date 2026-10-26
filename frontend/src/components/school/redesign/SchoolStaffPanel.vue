@@ -43,6 +43,12 @@
     <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
     <div v-if="success" class="ssp-alert ssp-alert-success">{{ success }}</div>
 
+    <SchoolAdminAccessRequests
+      v-if="['school_staff', 'admin', 'super_admin', 'support'].includes(roleNorm)"
+      :school-organization-id="Number(schoolOrganizationId)"
+      @approved="load"
+    />
+
     <section v-if="schoolGroupEmail || currentUserStaff" class="ssp-admin-box ssp-subscription-box">
       <h3>Group email subscription</h3>
       <p class="ssp-role-help">
@@ -605,6 +611,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
+import SchoolAdminAccessRequests from './SchoolAdminAccessRequests.vue';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import {
