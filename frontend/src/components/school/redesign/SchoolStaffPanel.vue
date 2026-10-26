@@ -312,6 +312,11 @@
             <input v-model="addRoleTitle" type="text" placeholder="e.g., Special Education Director" />
           </div>
         </label>
+        <label class="ssp-field">
+          <span>Phone override (optional)</span>
+          <input v-model="addPhoneNumber" class="ssp-plain-input" type="tel" maxlength="20" :placeholder="schoolPhoneNumber || 'Use school main number'" />
+          <small>{{ phoneDefaultHelp }}</small>
+        </label>
         <label class="ssp-field ssp-field-role">
           <span>Access role</span>
           <select v-model="addAccessRole" class="ssp-select">
@@ -503,6 +508,11 @@
             <input v-model="editForm.roleTitle" class="ssp-plain-input" type="text" placeholder="e.g., Special Education Director" />
           </label>
           <label class="ssp-field">
+            <span>Phone override (optional)</span>
+            <input v-model="editForm.phoneNumber" class="ssp-plain-input" type="tel" maxlength="20" :placeholder="schoolPhoneNumber || 'Use school main number'" />
+            <small>{{ phoneDefaultHelp }}</small>
+          </label>
+          <label class="ssp-field">
             <span>Group email subscription</span>
             <select v-model="editForm.groupEmailSubscription" class="ssp-select">
               <option value="" disabled>Could not verify current subscription</option>
@@ -666,6 +676,10 @@ const ticketsPath = computed(() => {
 
 const staff = ref([]);
 const schoolGroupEmail = ref('');
+const schoolPhoneNumber = ref('');
+const phoneDefaultHelp = computed(() => schoolPhoneNumber.value
+  ? `Leave blank to use the school main number: ${schoolPhoneNumber.value}.`
+  : 'Leave blank to use the school main number once it is saved in school settings.');
 const currentUserStaff = computed(() => staff.value.find((s) => Number(s.id) === Number(currentUserId.value)) || null);
 const loading = ref(false);
 const error = ref('');
@@ -682,6 +696,7 @@ const adding = ref(false);
 const addName = ref('');
 const addEmail = ref('');
 const addRoleTitle = ref('');
+const addPhoneNumber = ref('');
 const addAccessRole = ref('standard');
 const addGroupEmailSubscription = ref('all_mail');
 const addSuccess = ref('');
@@ -689,7 +704,7 @@ const addFormRef = ref(null);
 
 const showEditModal = ref(false);
 const editTarget = ref(null);
-const editForm = ref({ firstName: '', lastName: '', email: '', roleTitle: '', groupEmailSubscription: 'all_mail' });
+const editForm = ref({ firstName: '', lastName: '', email: '', roleTitle: '', phoneNumber: '', groupEmailSubscription: 'all_mail' });
 const savingEdit = ref(false);
 const savingSubscriptionId = ref(null);
 const settingPrimaryId = ref(null);
@@ -1018,7 +1033,7 @@ const load = async () => {
     loading.value = true;
     error.value = '';
     photoLoadFailed.value = {};
-    const r = await api.get(`/school-portal/${props.schoolOrganizationId}/school-staff`);
+    const r = await api.get(`/school-portal/${props.schoolOrganizationId}/school-staff`, { params: { includeContext: true } });
     const data = r.data;
     if (Array.isArray(data)) {
       staff.value = data;
@@ -1027,10 +1042,12 @@ const load = async () => {
       staff.value = Array.isArray(data?.staff) ? data.staff : [];
       schoolGroupEmail.value = data?.schoolGroupEmail || staff.value.find((s) => s.school_group_email)?.school_group_email || '';
     }
+    schoolPhoneNumber.value = data?.schoolPhoneNumber || staff.value.find((s) => s.school_phone_number)?.school_phone_number || '';
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load school staff';
     staff.value = [];
     schoolGroupEmail.value = '';
+    schoolPhoneNumber.value = '';
   } finally {
     loading.value = false;
   }
@@ -1043,6 +1060,7 @@ const openEdit = (u) => {
     lastName: u.last_name || '',
     email: u.email || '',
     roleTitle: u.role_title || '',
+    phoneNumber: u.phone_number || '',
     groupEmailSubscription: normalizeGroupSubscription(u.group_email_subscription, '')
   };
   showEditModal.value = true;
@@ -1115,6 +1133,7 @@ const saveEdit = async () => {
       lastName: lastName || undefined,
       email,
       roleTitle,
+      phoneNumber: String(editForm.value.phoneNumber || '').trim(),
       isSchoolAdmin: !!u.is_school_admin,
       isScheduler: !!u.is_scheduler
     });
@@ -1241,6 +1260,7 @@ const addStaff = async () => {
       email,
       fullName: addName.value.trim() || undefined,
       roleTitle: addRoleTitle.value.trim() || undefined,
+      phoneNumber: addPhoneNumber.value.trim() || undefined,
       isSchoolAdmin: roleFlags.isSchoolAdmin,
       isScheduler: roleFlags.isScheduler,
       groupEmailSubscription: addGroupEmailSubscription.value
@@ -1248,6 +1268,7 @@ const addStaff = async () => {
     addName.value = '';
     addEmail.value = '';
     addRoleTitle.value = '';
+    addPhoneNumber.value = '';
     addAccessRole.value = 'standard';
     addGroupEmailSubscription.value = 'all_mail';
     addSuccess.value = 'Staff added. They should appear in the list now; a setup email is being sent.';

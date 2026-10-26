@@ -3,6 +3,7 @@ import { visibleSchoolRosterClients } from '../services/clientTerminationRoster.
 import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
 import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 import { createSchoolStaffRecoveryHandler } from './schoolStaffRecovery.controller.js';
+import { parseSchoolStaffPhone, schoolStaffPhone } from '../utils/schoolStaffPhone.js';
 /**
  * School Portal Controller
  * Handles restricted school portal views and client list access
@@ -3794,6 +3795,7 @@ export const listSchoolStaff = async (req, res, next) => {
          u.status,
          u.created_at,
          u.profile_photo_path,
+         u.phone_number,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
          u.passwordless_token_expires_at,
@@ -3866,10 +3868,16 @@ export const listSchoolStaff = async (req, res, next) => {
         group_email_subscription_verified: liveSubscriptions.get(emailNorm) != null,
         saved_group_email_subscription: flags.groupEmailSubscription || 'all_mail',
         school_group_email: schoolGroupEmail,
+        phone_number: String(r.phone_number || '').trim() || null,
+        school_phone_number: String(organization.phone_number || '').trim() || null,
+        effective_phone_number: schoolStaffPhone(r, organization),
         needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
       };
     });
 
+    if (String(req.query?.includeContext || '') === 'true') {
+      return res.json({ staff: result, schoolGroupEmail, schoolPhoneNumber: String(organization.phone_number || '').trim() || null });
+    }
     res.json(result);
   } catch (e) {
     next(e);
@@ -4273,6 +4281,7 @@ export const addSchoolStaff = async (req, res, next) => {
     const email = emailRaw ? String(emailRaw).trim().toLowerCase() : '';
     const assignSchoolAdmin = req.body?.isSchoolAdmin === true;
     const assignScheduler = req.body?.isScheduler === true;
+    const phoneNumber = parseSchoolStaffPhone(req.body?.phoneNumber);
     const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : undefined;
     const groupEmailSubscription = req.body?.groupEmailSubscription !== undefined || req.body?.subscription !== undefined
       ? normalizeGroupSubscription(req.body.groupEmailSubscription || req.body.subscription)
@@ -4338,6 +4347,9 @@ export const addSchoolStaff = async (req, res, next) => {
     }
 
     await User.assignToAgency(user.id, orgId);
+    if (phoneNumber !== undefined) {
+      await User.update(user.id, { phoneNumber });
+    }
     queueSchoolStaffGoogleGroupSync({
       schoolOrganizationId: orgId,
       email,
@@ -4553,6 +4565,7 @@ export const updateSchoolStaff = async (req, res, next) => {
 
     const firstName = req.body?.firstName !== undefined ? String(req.body.firstName || '').trim() : undefined;
     const lastName = req.body?.lastName !== undefined ? String(req.body.lastName || '').trim() : undefined;
+    const phoneNumber = parseSchoolStaffPhone(req.body?.phoneNumber);
     const email = req.body?.email !== undefined ? String(req.body.email || '').trim().toLowerCase() : undefined;
     const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : undefined;
     if (email !== undefined && (!email || !email.includes('@'))) {
@@ -4563,6 +4576,7 @@ export const updateSchoolStaff = async (req, res, next) => {
     if (firstName !== undefined) updates.firstName = firstName || 'School';
     if (lastName !== undefined) updates.lastName = lastName || 'Staff';
     if (email !== undefined) updates.email = email;
+    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
 
     if (Object.keys(updates).length) {
       await User.update(targetUserId, updates);

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { schoolStaffPhone } from '../utils/schoolStaffPhone.js';
 import { paperPacketRoiExpiresAtYmd } from '../utils/paperPacketRoiExpiry.js';
 import {
   sqlNonEmpty,
@@ -171,8 +172,7 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
-           u.work_phone,
-           u.personal_phone,
+           school.phone_number AS school_phone_number,
            u.title,
            u.role AS role_key,
            u.status,
@@ -180,6 +180,7 @@ class ClientSchoolStaffRoiAccess {
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
+         JOIN agencies school ON school.id = ua.agency_id
          WHERE ua.agency_id = ?
            AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
@@ -200,8 +201,7 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
-           u.work_phone,
-           u.personal_phone,
+           school.phone_number AS school_phone_number,
            u.title,
            u.role AS role_key,
            u.status,
@@ -209,6 +209,7 @@ class ClientSchoolStaffRoiAccess {
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
+         JOIN agencies school ON school.id = ua.agency_id
          WHERE ua.agency_id = ?
            AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
@@ -224,7 +225,7 @@ class ClientSchoolStaffRoiAccess {
       first_name: row.first_name || null,
       last_name: row.last_name || null,
       email: row.email || null,
-      phone_number: String(row.phone_number || row.work_phone || row.personal_phone || '').trim() || null,
+      phone_number: schoolStaffPhone(row, { phone_number: row.school_phone_number }),
       role_key: row.role_key || 'school_staff',
       role_title: String(row.contact_role_title || row.title || '').trim() || null,
       status: row.status || null
@@ -245,8 +246,7 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
-           u.work_phone,
-           u.personal_phone,
+           school.phone_number AS school_phone_number,
            u.title,
            u.role AS role_key,
            u.status,
@@ -272,6 +272,7 @@ class ClientSchoolStaffRoiAccess {
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
+         JOIN agencies school ON school.id = ua.agency_id
          LEFT JOIN client_school_staff_roi_access a
            ON a.client_id = ?
           AND a.school_organization_id = ua.agency_id
@@ -299,8 +300,7 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
-           u.work_phone,
-           u.personal_phone,
+           school.phone_number AS school_phone_number,
            u.title,
            u.role AS role_key,
            u.status,
@@ -326,6 +326,7 @@ class ClientSchoolStaffRoiAccess {
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
+         JOIN agencies school ON school.id = ua.agency_id
          LEFT JOIN client_school_staff_roi_access a
            ON a.client_id = ?
           AND a.school_organization_id = ua.agency_id
@@ -350,7 +351,7 @@ class ClientSchoolStaffRoiAccess {
         first_name: row.first_name || null,
         last_name: row.last_name || null,
         email: row.email || null,
-        phone_number: String(row.phone_number || row.work_phone || row.personal_phone || '').trim() || null,
+        phone_number: schoolStaffPhone(row, { phone_number: row.school_phone_number }),
         role_key: row.role_key || 'school_staff',
         role_title: String(row.contact_role_title || row.title || '').trim() || null,
         status: row.status || null,
