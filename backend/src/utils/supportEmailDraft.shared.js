@@ -5,7 +5,7 @@ import { parseMetadataJson } from './schoolSupportDraftSources.shared.js';
 export const SUPPORT_EMAIL_DRAFT_VERSION = 'evidence-first-2026-10-26-v3';
 export const SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION = `You draft unsent school-support emails for human review. Accuracy takes priority over sounding helpful.
 Never say work is completed or underway unless a verifiedAction records that state. Do not promise uploads, routing, forwarding to another team, assignments, contact with other people, appointment changes or deadlines without supporting accepted actions. Ordinary future commitments to review/check the request, clarify available options, and follow up are appropriate suggestions for the staff member to accept by sending. For a referral plus a portal issue, a useful next step is "I will review the referral and check on the login issue"; never substitute an unverified "I will get these uploaded/routed" or "I will pass this to our team". Record intended follow-ups in proposedFollowUps; do not describe them as already underway.
-Only the completed attachment inventory proves received email files. A parent taking referral forms home is NOT ITSCO receiving completed packets. An empty email inventory also does NOT prove ITSCO never received paperwork through another route. Do not claim either receipt or nonreceipt across other routes. Never invent a paperwork prerequisite, including "once the forms are returned we can begin intake"; only a supplied verified policy can establish that requirement. Do not promise timing such as "shortly", "soon", or "today" without a recorded commitment.
+Only attachments.files proves which files belong to the CURRENT incoming email. attachments.conversationFiles belongs to other conversation messages; refer to those only as earlier files, never as newly received. attachments.unattributedFiles has unknown email provenance and proves neither receipt nor absence in the latest email. When currentMessageInventoryKnown is false, never claim the latest email has no files or ask for a resend on that basis. Receipt does not mean content review. A parent taking referral forms home is NOT ITSCO receiving completed packets. An empty email inventory also does NOT prove ITSCO never received paperwork through another route. Do not claim either receipt or nonreceipt across other routes. Never invent a paperwork prerequisite, including "once the forms are returned we can begin intake"; only a supplied verified policy can establish that requirement. Do not promise timing such as "shortly", "soon", or "today" without a recorded commitment.
 Do not attach a client/patient role to an ambiguous personal name. Prefer "the children", "the referral", or "the therapist" when names are unnecessary or roles uncertain. A packet for a child TO SEE a provider is not a packet for two children. Capacity statements about named people do not identify the children.
 Acknowledge the actual obstacle, such as a portal outage, and the request. Preserve constraints and answer only with available evidence. Never ask the sender to repeat their already clear purpose or an internal assignment staff must verify.
 Sound like one thoughtful person: a brief specific acknowledgement, a useful answer, and the next step. Prefer "I can see the attachment here" to "the attachment has been received". Avoid "has been noted", "is acknowledged", and repeated file names or sensitive details. Usually 2–4 sentences are enough. A family's loss deserves a brief compassionate acknowledgement, without repeating private circumstances unnecessarily.
@@ -31,6 +31,53 @@ const timestamp = (value) => value instanceof Date ? value.toISOString() : text(
 const nameOf = (row) => text(row?.name || row?.displayName || row?.display_name || [row?.first_name, row?.last_name].filter(Boolean).join(' '), 160);
 const staffRoles = new Set(['admin', 'support', 'staff', 'super_admin']);
 const escapePattern = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const dateMs = (value) => {
+  if (!value) return NaN;
+  if (value instanceof Date) return +value;
+  const raw = String(value);
+  return Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw) ? `${raw.replace(' ', 'T')}Z` : raw);
+};
+
+export function scopeSupportEmailAttachments({ ticket, original, latestInbound, messages, attachments, intakeComplete, intakeMessageId }) {
+  const latestId = Number(latestInbound.id) || null;
+  const completionId = Number(intakeMessageId) || null;
+  const complete = !!intakeComplete && (!completionId || completionId === latestId);
+  const intakeAt = dateMs(ticket.created_at);
+  const latestAt = dateMs(latestInbound.at);
+  const inbounds = messages.filter((message) => message.direction === 'inbound');
+  const isOriginalIntake = latestInbound === original || (inbounds.length === 1
+    && latestInbound.body === original.body && Number.isFinite(intakeAt) && Number.isFinite(latestAt)
+    && Math.abs(latestAt - intakeAt) <= 5 * 60 * 1000);
+  const files = [], conversationFiles = [], unattributedFiles = [];
+  for (const row of array(attachments).filter((a) => !bool(a?.is_internal) && !bool(a?.is_deleted))) {
+    const messageId = Number(row.support_ticket_message_id || row.source_message_id || row.message_id) || null;
+    const receivedAt = timestamp(row.created_at);
+    const receivedMs = dateMs(row.created_at);
+    const file = {
+      id: row.id || null, evidenceId: `attachment:${row.id || 'unknown'}`,
+      filename: text(row.file_name || row.filename || row.name, 255),
+      mimeType: text(row.mime_type || row.mimeType, 100), size: Number(row.file_size || row.size || 0),
+      messageId, receivedAt, contentReviewed: false
+    };
+    if (messageId && messageId === latestId) {
+      files.push({ ...file, provenance: 'current_message_link' });
+    } else if (messageId) {
+      conversationFiles.push({ ...file, provenance: 'other_message_link' });
+    } else if (complete && isOriginalIntake && !row.uploaded_by_user_id
+        && Number.isFinite(intakeAt) && Number.isFinite(receivedMs)
+        && receivedMs >= intakeAt - 5000 && receivedMs <= intakeAt + 5 * 60 * 1000) {
+      // Legacy original-intake rows predate the message FK. This narrow window
+      // never promotes an unlinked file into a later follow-up's inventory.
+      files.push({ ...file, provenance: 'legacy_original_intake_window' });
+    } else if (Number.isFinite(receivedMs) && Number.isFinite(latestAt) && receivedMs < latestAt) {
+      conversationFiles.push({ ...file, provenance: 'file_predates_latest_inbound' });
+    } else {
+      unattributedFiles.push({ ...file, provenance: 'message_attribution_unknown' });
+    }
+  }
+  return { complete, currentMessageId: latestId, currentMessageInventoryKnown: complete && unattributedFiles.length === 0,
+    files, conversationFiles, unattributedFiles };
+}
 
 // A narrow explicit relationship is evidence of what the sender requested,
 // never proof of a matched client or an accepted clinical assignment.
@@ -71,15 +118,15 @@ function normalizeMessage(row) {
 export function buildSupportEmailDraftContext({
   ticket = {}, messages = [], attachments = [], claimant = null, client = null,
   participants = [], verifiedFacts = [], verifiedActions = [], intakeComplete = true,
-  regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = []
+  regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = [], intakeMessageId = null
 } = {}) {
   const meta = parseMetadataJson(ticket.ai_draft_metadata_json) || {};
   const effectiveHeaders = Object.keys(headers || {}).length ? headers : (meta.inboundEmailHeaders || {});
-  const publicMessages = array(messages)
+  const allPublicMessages = array(messages)
     .filter((m) => !bool(m?.is_deleted) && !bool(m?.is_internal) && !['system', 'event'].includes(String(m?.author_role || '').toLowerCase()))
     .map(normalizeMessage)
-    .sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0) || Number(a.id) - Number(b.id))
-    .slice(-40);
+    .sort((a, b) => (dateMs(a.at) || 0) - (dateMs(b.at) || 0) || Number(a.id) - Number(b.id));
+  const publicMessages = allPublicMessages.slice(-40);
   const original = {
     evidenceId: `ticket:${ticket.id || 'new'}:received`,
     from: text(ticket.source_email_from || ticket.created_by_email, 320),
@@ -91,16 +138,8 @@ export function buildSupportEmailDraftContext({
   };
   const latestInbound = publicMessages.filter((m) => m.direction === 'inbound').at(-1) || original;
   const referralRelationships = extractSenderReferralRelationships(latestInbound);
-  const inventory = array(attachments).filter((a) => !bool(a?.is_internal) && !bool(a?.is_deleted)).map((a) => ({
-    id: a.id || null,
-    evidenceId: `attachment:${a.id || 'unknown'}`,
-    filename: text(a.file_name || a.filename || a.name, 255),
-    mimeType: text(a.mime_type || a.mimeType, 100),
-    size: Number(a.file_size || a.size || 0),
-    messageId: a.source_message_id || a.message_id || null,
-    receivedAt: timestamp(a.created_at),
-    contentReviewed: false
-  }));
+  const inventory = scopeSupportEmailAttachments({ ticket, original, latestInbound, messages: allPublicMessages,
+    attachments, intakeComplete, intakeMessageId: intakeMessageId || meta.attachmentsIngestedMessageId });
   const ownerId = Number(ticket.claimed_by_user_id) || null;
   const suppliedClaimantId = Number(claimant?.id || claimant?.userId) || null;
   const ownerName = ownerId && ownerId === suppliedClaimantId ? nameOf(claimant) : '';
@@ -131,7 +170,8 @@ export function buildSupportEmailDraftContext({
   const actions = array(verifiedActions).filter((a) => a?.id && a?.source && ['completed', 'approved', 'in_progress'].includes(a.status))
     .map((a) => ({ evidenceId: `action:${a.id}`, title: text(a.title, 240), status: a.status, ownerUserId: Number(a.ownerUserId || a.assigned_to_user_id) || null, source: text(a.source, 240) }));
   const unresolvedFacts = [...new Set(array(contextUnknowns).map((value) => text(value, 500)).filter(Boolean))].slice(0, 12);
-  if (!intakeComplete) unresolvedFacts.push('attachment_ingestion_incomplete');
+  if (!inventory.complete) unresolvedFacts.push('attachment_ingestion_incomplete');
+  if (inventory.unattributedFiles.length) unresolvedFacts.push('current_message_attachment_attribution_uncertain');
   if (!owner.name) unresolvedFacts.push('claimant_identity_unconfirmed');
   if (meta.matchReason === 'ambiguous' || array(meta.matchCandidates).length > 1) unresolvedFacts.push('client_identity_ambiguous');
   if ([original.body, ...publicMessages.map((m) => m.body)].some((body) => body.includes('[Unable to decrypt]'))) unresolvedFacts.push('conversation_decryption_failed');
@@ -142,7 +182,7 @@ export function buildSupportEmailDraftContext({
     agencyId: Number(ticket.agency_id) || null,
     schoolOrganizationId: Number(ticket.school_organization_id) || null,
     agencyName: text(agencyName || ticket.agency_name || 'ITSCO', 160),
-    original, latestInbound, messages: publicMessages, attachments: { complete: !!intakeComplete, files: inventory },
+    original, latestInbound, messages: publicMessages, attachments: inventory,
     claimant: owner, participants: roles, referralRelationships, verifiedFacts: facts, verifiedActions: actions,
     intentKey: inferIntentFromTicket({ ...ticket, question: latestInbound.body, ai_draft_metadata_json: null }),
     unconfirmedReferences: array(meta.extractedClientReferences).map((r) => text(r, 160)),
@@ -196,7 +236,7 @@ export function buildSupportEmailDraftPrompt(context, { knowledgeMatches = [], p
     '- Keep participant roles separate. Do not infer a student from a name, a therapist from a guess, or a client match from unconfirmedReferences. If identity is ambiguous, avoid any client-specific status disclosure and leave the issue for staff review.',
     '- Omit personal names when their roles are not verified or they are unnecessary to answer. If the sender describes two children separately from names associated with full schedules, do not use those names for the children. Preserve "client to see provider" relationships instead of joining their names with "and".',
     '- For a simple acknowledgement of a received packet, say "the referral packet"; repeating client/provider names adds no value. A sender-stated requested provider is not a confirmed assignment. Never reverse the referralRelationships mapping.',
-    '- Attachment inventory establishes receipt only, not content, completeness, filing, approval or review. An empty complete inventory means no files are recorded here; it does not prove the sender forgot them. Never request re-upload when files are present.',
+    '- attachments.files establishes receipt for the latest incoming email only, not content, filing, approval or review. conversationFiles is other-message history, not new receipt; refer to those only as earlier files. unattributedFiles cannot establish attachment receipt or absence for the latest email. If currentMessageInventoryKnown is false, do not claim files are missing or request a resend. Even a known empty current inventory does not establish nonreceipt through another route.',
     '- Do not claim I/we reviewed, sent, updated, booked, called, contacted, processed, approved or completed anything unless the specific completed verifiedAction supports it. Never invent links, schedules, availability, deadlines, credentials or procedural policy.',
     '- Ordinary future review/check/follow-up commitments are appropriate for the staff member to accept by sending this draft; also list them in proposedFollowUps. Do not promise an actual upload, assignment, schedule change, contact with a third party, or deadline unless a verifiedAction supports it.',
     '- Work that is merely proposed must not be described as underway: avoid "we are checking", "we are reviewing", or "we are working on it" without an in_progress verifiedAction. A natural "I will check" or "I can review" is appropriate; it does not establish that work has already started.',
@@ -223,8 +263,21 @@ export function validateSupportEmailDraft(reply, context) {
   if (/\{\{[^}]+\}\}|\[(?:your|staff|sender|recipient|first|last|full|client|school|email|phone|name|signature)[^\]]*\]/i.test(body)) issues.push('unresolved_placeholder');
   if (/\bticket\s*(?:#|number|has been|was|is (?:closed|resolved))|\b(?:this|your support) ticket\b|\bsupport queue\b/i.test(body)) issues.push('ticket_language');
   if (context.attachments.files.length && /\b(?:no|not any|missing) attachments?\b|\b(?:did not|didn't|do not|don't|cannot|can't) (?:see|receive|find) (?:any |the |your )?(?:attachments?|packets?|files?)\b|\b(?:packets?|files?|attachments?)\s+(?:(?:were|are|was|is|have been)\s+)?(?:not|never)\s+(?:attached|received|included|provided)\b/i.test(body)) issues.push('contradicts_attachment_receipt');
-  if (!context.attachments.files.length && /\b(?:i|we)(?:['’]ve| have)?\s+(?:already )?received\b[^.!?\n]{0,100}\b(?:packets?|attachments?|files?|referrals?)\b/i.test(body)) issues.push('unsupported_attachment_receipt');
-  if (!context.attachments.files.length && /\b(?:i|we)(?:['’]ve| have| have not| haven't| haven't yet| have not yet| did not| didn't| do not| don't)?\s+(?:not |yet )*received\b[^.!?\n]{0,100}\b(?:packets?|attachments?|files?|referrals?)\b/i.test(body)) issues.push('unsupported_document_receipt_status');
+  // Old files in a conversation are not proof that the latest email carried
+  // attachments. Unknown legacy attribution also cannot justify a missing-file
+  // claim. A specifically historical acknowledgement may use earlier files.
+  for (const sentence of body.match(/[^.!?\n]+(?:[.!?]|$)/g) || []) {
+    const historical = /\b(?:earlier|previous|prior|already on file|from your last (?:email|message))\b/i.test(sentence)
+      && !/\b(?:new|latest|just sent|this email|this message)\b/i.test(sentence)
+      && context.attachments.conversationFiles.length > 0;
+    const negative = /\b(?:no|missing|unavailable) (?:attachments?|packets?|files?|documents?)\b|\b(?:attachments?|packets?|files?|documents?)\b[^.!?\n]{0,35}\b(?:missing|unavailable|not attached|not received|not included)\b|\b(?:not|never|haven['’]t|didn['’]t|don['’]t|can['’]t|cannot)\b[^.!?\n]{0,100}\b(?:see|received?|find|attached|included)\b/i.test(sentence);
+    const fileClaim = /\b(?:i|we)\b[^.!?\n]{0,25}\b(?:see|have|received)\b[^.!?\n]{0,120}\b(?:attachments?|packets?|files?|documents?|referrals?)\b|\b(?:thanks|thank you)\b[^.!?\n]{0,30}\b(?:sending|attaching)\b[^.!?\n]{0,120}\b(?:attachments?|packets?|files?|documents?)\b|\b(?:attachments?|packets?|files?|documents?)\b[^.!?\n]{0,40}\b(?:is|are|was|were)\s+(?:attached|received|included|here)\b/i.test(sentence);
+    if (!historical && !negative && fileClaim && !context.attachments.files.length) issues.push('unsupported_current_attachment_receipt');
+    if (!historical && !context.attachments.files.length && /\b(?:i|we)(?:['’]ve| have)?\s+(?:already )?received\b[^.!?\n]{0,100}\b(?:packets?|attachments?|files?|referrals?)\b/i.test(sentence)) issues.push('unsupported_attachment_receipt');
+    if (!historical && !context.attachments.files.length && /\b(?:i|we)(?:['’]ve| have| have not| haven't| haven't yet| have not yet| did not| didn't| do not| don't)?\s+(?:not |yet )*received\b[^.!?\n]{0,100}\b(?:packets?|attachments?|files?|referrals?)\b/i.test(sentence)) issues.push('unsupported_document_receipt_status');
+    if (!historical && negative && !context.attachments.currentMessageInventoryKnown
+        && /\b(?:attachments?|packets?|files?|documents?)\b/i.test(sentence)) issues.push('unconfirmed_current_attachment_status');
+  }
   if (!context.verifiedActions.some((a) => a.status === 'completed')
       && /\b(?:i|we)(?:(?:['’]ve| have| had)| (?:already|just))?\s+(?:already |just )?(?:reviewed|sent|updated|booked|called|contacted|processed|approved|completed|filed|scheduled|created|added|removed)\b/i.test(body)) issues.push('unsupported_completed_action');
   const hasAcceptedAction = context.verifiedActions.some((a) => ['approved', 'in_progress'].includes(a.status) && a.ownerUserId === context.claimant.id);

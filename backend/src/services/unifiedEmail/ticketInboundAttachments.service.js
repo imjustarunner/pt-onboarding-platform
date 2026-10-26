@@ -60,9 +60,9 @@ export function collectGmailAttachmentParts(payload) {
   return out;
 }
 
-async function hasAttachmentsTable() {
+async function hasAttachmentsTable(database = pool) {
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await database.execute(
       `SELECT COUNT(*) AS cnt
        FROM information_schema.tables
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_attachments'`
@@ -73,12 +73,12 @@ async function hasAttachmentsTable() {
   }
 }
 
-export async function listTicketAttachments(ticketId) {
-  if (!(await hasAttachmentsTable())) return [];
+export async function listTicketAttachments(ticketId, database = pool) {
+  if (!(await hasAttachmentsTable(database))) return [];
   const tid = Number(ticketId || 0);
   if (!tid) return [];
-  const [rows] = await pool.execute(
-    `SELECT a.id, a.ticket_id, a.support_ticket_message_id, a.file_name, a.file_path, a.mime_type, a.file_size, a.created_at,
+  const [rows] = await database.execute(
+    `SELECT a.id, a.ticket_id, a.support_ticket_message_id, a.uploaded_by_user_id, a.file_name, a.file_path, a.mime_type, a.file_size, a.created_at,
        t.client_id AS client_document_client_id,
        (SELECT d.id FROM client_phi_documents d
         WHERE d.client_id = t.client_id AND d.removed_at IS NULL
@@ -119,8 +119,8 @@ export async function readTicketAttachmentBuffer(row) {
   return buffer;
 }
 
-async function insertAttachmentRow({ ticketId, ticketMessageId = null, filename, path, mimeType, size }) {
-  const [result] = await pool.execute(
+async function insertAttachmentRow({ ticketId, ticketMessageId = null, filename, path, mimeType, size }, database = pool) {
+  const [result] = await database.execute(
     `INSERT INTO support_ticket_attachments
       (ticket_id, support_ticket_message_id, uploaded_by_user_id, file_name, file_path, mime_type, file_size)
      VALUES (?, ?, NULL, ?, ?, ?, ?)`,
@@ -147,12 +147,13 @@ export async function persistGmailAttachmentsForTicket({
   gmailMessageId = null,
   payload = null,
   strict = false
-} = {}) {
-  if (!(await hasAttachmentsTable())) return { saved: 0, skipped: 'table_missing', complete: false, incomplete: true };
+} = {}, dependencies = {}) {
+  const database = dependencies.database || pool;
+  if (!(await hasAttachmentsTable(database))) return { saved: 0, skipped: 'table_missing', complete: false, incomplete: true };
   const tid = Number(ticketId || 0);
   if (!tid || !payload) return { saved: 0, skipped: 'missing_payload', complete: false, incomplete: true };
 
-  const existing = await listTicketAttachments(tid);
+  const existing = await (dependencies.listTicketAttachments || listTicketAttachments)(tid, database);
   const existingNames = new Set((existing || []).map((a) => String(a.file_name || '').toLowerCase()));
   const existingPaths = new Set((existing || []).map((a) => String(a.file_path || '')));
   const parts = collectGmailAttachmentParts(payload);
@@ -166,7 +167,15 @@ export async function persistGmailAttachmentsForTicket({
     const sanitized = StorageService.sanitizeFilename(part.filename || 'attachment');
     const sourceKey = gmailMessageId ? createHash('sha256').update(`${gmailMessageId}:${part.partId || part.attachmentId || partIndex}:${part.filename}`).digest('hex') : null;
     const stablePath = sourceKey ? `uploads/ticket_attachments/ticket_${tid}/gmail-${sourceKey}-${sanitized}` : null;
-    if (stablePath && existingPaths.has(stablePath)) continue;
+    if (stablePath && existingPaths.has(stablePath)) {
+      // Exact provider-message/part identity proves attribution. Filename alone
+      // cannot move an earlier email's file into the current inventory.
+      if (ticketMessageId && existing.some((a) => a.file_path === stablePath && !a.support_ticket_message_id)) {
+        await database.execute(`UPDATE support_ticket_attachments SET support_ticket_message_id=?
+          WHERE ticket_id=? AND file_path=? AND support_ticket_message_id IS NULL`, [ticketMessageId, tid, stablePath]);
+      }
+      continue;
+    }
     if (!strict && key && existingNames.has(key)) continue;
     let buffer = null;
     try {
@@ -196,7 +205,7 @@ export async function persistGmailAttachmentsForTicket({
         path: gcsPath,
         mimeType: part.mimeType,
         size: buffer.length
-      });
+      }, database);
       existingNames.add(key);
       existingPaths.add(gcsPath);
       saved += 1;
@@ -212,9 +221,11 @@ function normalizeRfc822MessageId(value) {
   return String(value || '').trim().replace(/^<|>$/g, '');
 }
 
-export async function ingestTicketAttachmentsFromGmail({ ticket } = {}) {
+export async function ingestTicketAttachmentsFromGmail({ ticket } = {}, dependencies = {}) {
   if (!ticket?.id) return { saved: 0, skipped: 'no_ticket', complete: false, incomplete: true };
-  const existing = await listTicketAttachments(ticket.id);
+  const database = dependencies.database || pool;
+  const listAttachments = dependencies.listTicketAttachments || listTicketAttachments;
+  const existing = await listAttachments(ticket.id, database);
 
   let metadata = ticket.ai_draft_metadata_json;
   if (typeof metadata === 'string') {
@@ -224,14 +235,32 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}) {
       metadata = {};
     }
   }
-  if (metadata?.attachmentsIngested) {
-    return { saved: 0, skipped: 'already_ingested', attachments: existing, complete: true };
+  const [[latest]] = await database.execute(`SELECT e.ticket_message_id,e.gmail_message_id,e.internet_message_id
+    FROM support_ticket_email_messages e JOIN support_ticket_messages m ON m.id=e.ticket_message_id
+    WHERE e.ticket_id=? AND e.direction='inbound' AND COALESCE(m.is_deleted,0)=0
+    ORDER BY COALESCE(e.sent_at,m.created_at) DESC,e.id DESC LIMIT 1`, [ticket.id]);
+  let ticketMessageId = Number(latest?.ticket_message_id) || null;
+  if (!latest) {
+    const [legacy] = await database.execute(`SELECT id FROM support_ticket_messages WHERE ticket_id=?
+      AND author_role='system_email' AND COALESCE(is_deleted,0)=0 ORDER BY id ASC LIMIT 2`, [ticket.id]);
+    if (legacy.length > 1) return { saved: 0, skipped: 'inbound_source_ambiguous', complete: false, incomplete: true, attachments: existing };
+    ticketMessageId = Number(legacy[0]?.id) || null;
   }
-  const gmailMessageId = metadata?.gmailMessageId || metadata?.gmail_message_id || null;
-  const rfcId = normalizeRfc822MessageId(ticket.source_email_message_id);
+  const gmailMessageId = latest ? latest.gmail_message_id : metadata?.gmailMessageId || metadata?.gmail_message_id || null;
+  const rfcId = normalizeRfc822MessageId(latest?.internet_message_id || (!latest ? ticket.source_email_message_id : null));
+  const completion = (complete, gmailId = gmailMessageId) => ({
+    attachmentsIngested: complete, attachmentsIngestedMessageId: ticketMessageId,
+    attachmentsIngestedGmailMessageId: gmailId || null
+  });
+  const source = { intakeMessageId: ticketMessageId, currentMessageId: ticketMessageId, gmailMessageId };
+  if (metadata?.attachmentsIngested && ticketMessageId && Number(metadata.attachmentsIngestedMessageId) === ticketMessageId
+      && gmailMessageId && metadata.attachmentsIngestedGmailMessageId === gmailMessageId) {
+    return { saved: 0, skipped: 'already_ingested', attachments: existing, complete: true, incomplete: false,
+      ...source, attachmentCompletion: completion(true) };
+  }
   if (!gmailMessageId && !rfcId) return { saved: 0, skipped: 'no_gmail_id', complete: false, incomplete: true };
 
-  const gmail = await getGmailClient();
+  const gmail = await (dependencies.getGmailClient || getGmailClient)();
   let gmailId = gmailMessageId;
   if (!gmailId && rfcId) {
     const list = await gmail.users.messages.list({
@@ -244,28 +273,31 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}) {
   if (!gmailId) return { saved: 0, skipped: 'gmail_not_found', complete: false, incomplete: true };
 
   const full = await gmail.users.messages.get({ userId: 'me', id: gmailId, format: 'full' });
-  const result = await persistGmailAttachmentsForTicket({
+  const result = await (dependencies.persistAttachments || persistGmailAttachmentsForTicket)({
     ticketId: ticket.id,
+    ticketMessageId,
     gmail,
     gmailMessageId: gmailId,
     payload: full.data?.payload || null,
     strict: true
-  });
-  if (result.complete) await markAttachmentsIngested(ticket.id, { ...metadata, gmailMessageId: gmailId });
-  const attachments = await listTicketAttachments(ticket.id);
-  return { ...result, attachments };
+  }, { database });
+  if (result.complete && ticketMessageId) await markTicketInboundAttachmentsComplete({ ticketId: ticket.id,
+    ticketMessageId, gmailMessageId: gmailId }, database);
+  const attachments = await listAttachments(ticket.id, database);
+  return { ...result, attachments, ...source, gmailMessageId: gmailId, attachmentCompletion: completion(result.complete === true, gmailId) };
 }
 
-async function markAttachmentsIngested(ticketId, metadata) {
-  try {
-    const next = { ...(metadata && typeof metadata === 'object' ? metadata : {}), attachmentsIngested: true };
-    await pool.execute(
-      `UPDATE support_tickets SET ai_draft_metadata_json = ? WHERE id = ?`,
-      [JSON.stringify(next), Number(ticketId)]
-    );
-  } catch {
-    // best-effort
-  }
+export async function markTicketInboundAttachmentsComplete({ ticketId, ticketMessageId, gmailMessageId }, database = pool) {
+  if (!ticketId || !ticketMessageId || !gmailMessageId) return;
+  // A delayed earlier receipt must not mark the latest inbound email complete.
+  await database.execute(`UPDATE support_tickets t SET ai_draft_metadata_json=JSON_SET(
+    COALESCE(ai_draft_metadata_json,JSON_OBJECT()),'$.attachmentsIngested',CAST('true' AS JSON),
+    '$.attachmentsIngestedMessageId',?,'$.attachmentsIngestedGmailMessageId',?)
+    WHERE t.id=? AND ?=(SELECT e.ticket_message_id FROM support_ticket_email_messages e
+      JOIN support_ticket_messages m ON m.id=e.ticket_message_id
+      WHERE e.ticket_id=t.id AND e.direction='inbound' AND COALESCE(m.is_deleted,0)=0
+      ORDER BY COALESCE(e.sent_at,m.created_at) DESC,e.id DESC LIMIT 1)`,
+  [ticketMessageId, gmailMessageId, ticketId, ticketMessageId]);
 }
 
 export function parseLikelyClientName(subject, bodyText = '') {

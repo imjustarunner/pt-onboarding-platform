@@ -2694,6 +2694,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       const generated = await generateSupportEmailDraft({ ticket, ...linkedClientFacts, messages: messageRows, attachments,
         claimant: claimants?.[0] || null,
         regenerationGuidance: String(req.body?.regenerationGuidance || '').trim(),
+        intakeMessageId: intake?.intakeMessageId || null,
         intakeComplete: intake?.incomplete !== true && intake?.complete !== false });
       const [current] = await pool.execute(
         'SELECT MAX(id) AS revision FROM support_ticket_messages WHERE ticket_id = ? AND COALESCE(is_deleted, 0) = 0', [ticketId]);
@@ -2705,7 +2706,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
         threadRevision: String(revision), model: generated.modelName, provider: 'vertex',
         sourceEvidence: generated.metadata }) : null;
       const draftSnapshotId = snapshot?.id || snapshot?.snapshotId || snapshot;
-      const metadata = { ...parseMetadataJson(ticket.ai_draft_metadata_json), ...generated.metadata,
+      const metadata = { ...parseMetadataJson(ticket.ai_draft_metadata_json), ...intake?.attachmentCompletion, ...generated.metadata,
         draftSnapshotId, threadRevision: String(revision), suppressed: generated.suppressed,
         suppressionReason: generated.suppressionReason || null };
       const connection = await pool.getConnection();

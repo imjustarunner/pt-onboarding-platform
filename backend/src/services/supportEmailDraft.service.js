@@ -27,7 +27,9 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     draftSources: [
       { type: 'ticket', id: context.ticketId, label: 'Received email and current conversation' },
       ...context.messages.map((m) => ({ type: 'ticket_message', id: m.id, label: `${m.direction}: ${m.authorName || m.authorRole}`, detail: m.at })),
-      ...context.attachments.files.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Receipt confirmed; contents not reviewed' })),
+      ...context.attachments.files.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Current incoming email file; contents not reviewed', provenance: a.provenance, messageId: a.messageId })),
+      ...context.attachments.conversationFiles.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Other conversation file; not proof of receipt with the latest email', provenance: a.provenance, messageId: a.messageId })),
+      ...context.attachments.unattributedFiles.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Email-message attribution unknown; not receipt evidence for the latest email', provenance: a.provenance, messageId: null })),
       ...context.verifiedFacts.map((f) => ({ type: 'verified_fact', id: f.evidenceId, label: f.key, detail: f.source }))
     ]
   };
@@ -74,6 +76,8 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     context.original.evidenceId,
     ...context.messages.map((m) => m.evidenceId),
     ...context.attachments.files.map((a) => a.evidenceId),
+    ...context.attachments.conversationFiles.map((a) => a.evidenceId),
+    ...context.attachments.unattributedFiles.map((a) => a.evidenceId),
     ...context.verifiedFacts.map((f) => f.evidenceId),
     ...context.verifiedActions.map((a) => a.evidenceId)
   ]);

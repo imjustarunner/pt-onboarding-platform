@@ -99,6 +99,13 @@ export function deliveryState(input) {
   return status;
 }
 
-export function buildReviewNotice({ date, url }) {
-  return { subject: 'Your support email review is ready', text: `Your support email review for ${date} is ready. Sign in to compare received messages, generated drafts, and recorded delivery results.\n\n${url}\n\nThe review identifies missing drafts and replies without verified delivery evidence.` };
+export function buildReviewNotice({ date, url, totals = {}, incomplete = false }) {
+  const count = (key) => Number.isSafeInteger(totals[key]) && totals[key] >= 0 ? totals[key] : 'Unavailable';
+  const summary = [
+    `Conversations reviewed: ${count('tickets')}`,
+    `Drafts captured: ${count('drafts')}`,
+    `Confirmed sent replies: ${count('sent')}`,
+    `Replies without a captured draft: ${count('missingDraft')}`
+  ].join('\n');
+  return { subject: 'Your support email review is ready', text: `Your support email review for ${date} is ready.\n\n${summary}${incomplete ? '\nThese counts are incomplete because the review reached its display limit.' : ''}\n\nSign in to compare received messages, generated drafts, and recorded delivery results:\n${url}\n\nThe review identifies missing drafts and replies without verified delivery evidence.` };
 }

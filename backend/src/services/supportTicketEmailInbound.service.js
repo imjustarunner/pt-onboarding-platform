@@ -4,7 +4,7 @@ import { encryptSupportEmailText as prepareEncryptedTicketText } from './support
 import { replyMessageIds } from '../utils/emailThreading.js';
 import { emailHash, emailKey, parseEmailList, supportEmailError } from './supportTicketEmailPolicy.js';
 import { preserveSupportTicketEmailCanonical, resolveSupportTicketEmailThread } from './supportTicketEmail.service.js';
-import { listTicketAttachments, persistGmailAttachmentsForTicket } from './unifiedEmail/ticketInboundAttachments.service.js';
+import { listTicketAttachments, markTicketInboundAttachmentsComplete, persistGmailAttachmentsForTicket } from './unifiedEmail/ticketInboundAttachments.service.js';
 
 async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId }, db) {
   const ids = [...new Set([messageId, ...replyMessageIds(inReplyTo, referencesHeader)].filter(Boolean))].slice(0, 40);
@@ -121,7 +121,9 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
           await db.execute(`UPDATE support_tickets SET status='open',updated_at=CURRENT_TIMESTAMP,
             ai_draft_response=NULL,ai_draft_status='needs_review',ai_draft_review_state='pending',
             ai_draft_metadata_json=JSON_SET(COALESCE(ai_draft_metadata_json,JSON_OBJECT()),
-              '$.inboundEmailHeaders',CAST(? AS JSON),'$.gmailMessageId',?,'$.fromDisplayName',?),
+              '$.inboundEmailHeaders',CAST(? AS JSON),'$.gmailMessageId',?,'$.fromDisplayName',?,
+              '$.attachmentsIngested',CAST('false' AS JSON),
+              '$.attachmentsIngestedMessageId',NULL,'$.attachmentsIngestedGmailMessageId',NULL),
             source_email_thread_id=COALESCE(?,source_email_thread_id) WHERE id=?`,
           [JSON.stringify({ autoSubmitted: String(input.headers?.autoSubmitted || '').slice(0, 100),
             listId: String(input.headers?.listId || '').slice(0, 200), listUnsubscribe: !!input.headers?.listUnsubscribe }),
@@ -140,9 +142,14 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
   if (ignored) return { handled: false, ignored: true };
   if (payload && gmailMessageId) {
     const attachments = await persistAttachments({ ticketId: ticket.id, ticketMessageId, gmail, gmailMessageId, payload, strict: true });
-    if (attachments?.incomplete || attachments?.skipped === 'table_missing') {
+    if (attachments?.complete !== true || attachments?.incomplete || attachments?.skipped === 'table_missing') {
       throw supportEmailError('Email attachments are still being saved. Retry before drafting.', 503, 'SUPPORT_EMAIL_ATTACHMENTS_PENDING');
     }
+    if (attachments?.complete === true && !staffCopy && !preserveTicketState) {
+      await markTicketInboundAttachmentsComplete({ ticketId: ticket.id, ticketMessageId, gmailMessageId }, database);
+    }
+  } else if (!staffCopy && !appOriginReceipt && generateDraft) {
+    throw supportEmailError('The current email attachment inventory is unavailable. Retry before drafting.', 503, 'SUPPORT_EMAIL_ATTACHMENTS_PENDING');
   }
   if (staffCopy && !appOriginReceipt) {
     const review = dependencies.review || await import('./supportReplyReview.service.js');
@@ -238,11 +245,18 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
   const { recordDraftSnapshot, getLatestDraftSnapshot } = dependencies.review || await import('./supportReplyReview.service.js');
   const [[raw]] = await database.execute('SELECT * FROM support_tickets WHERE id=? AND agency_id=?', [ticketId, agencyId]);
   if (!raw || raw.topic === 'technology') return null;
-  const [messages] = await database.execute(`SELECT m.*,e.direction AS email_direction,e.from_email AS email_from,
+  const [messages] = await database.execute(`SELECT m.*,e.direction AS email_direction,e.from_email AS email_from,e.sent_at,
     e.send_status AS email_delivery_status FROM support_ticket_messages m
     LEFT JOIN support_ticket_email_messages e ON e.ticket_message_id=m.id
     WHERE m.ticket_id=? AND COALESCE(m.is_deleted,0)=0 ORDER BY m.id ASC`, [ticketId]);
   const revision = String(messages.at(-1)?.id || 0);
+  const latestInbound = messages.filter((m) => m.email_direction === 'inbound'
+    || (!m.email_direction && ['system_email', 'school_staff'].includes(m.author_role)))
+    .sort((a, b) => (new Date(a.sent_at || a.created_at).getTime() || 0) - (new Date(b.sent_at || b.created_at).getTime() || 0)
+      || Number(a.id) - Number(b.id)).at(-1);
+  // An attachment retry for an earlier email cannot replace or suppress the
+  // current message's draft after a newer inbound has already been saved.
+  if (latestInbound && Number(latestInbound.id) !== Number(sourceMessageId)) return null;
   const existing = await getLatestDraftSnapshot({ ticketId, agencyId, sourceMessageId, threadRevision: revision });
   if (existing) return existing;
   const attachments = await (dependencies.listTicketAttachments || listTicketAttachments)(ticketId);
@@ -254,7 +268,7 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
   }
   const linkedClientFacts = await loadLinkedSupportClientDraftFacts(raw, { database, findClient: dependencies.findClient });
   const generated = await generateSupportEmailDraft({ ticket: decryptTicketRow(raw), ...linkedClientFacts,
-    messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete,
+    messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete, intakeMessageId: sourceMessageId,
     headers: intakeMetadata.inboundEmailHeaders || {} });
   if (!generated?.text) {
     if (generated?.suppressed) {
