@@ -1011,7 +1011,7 @@ function supervisionServiceCodesForParticipant({ participantRole, sessionType })
   const role = String(participantRole || '').trim().toLowerCase();
   const st = String(sessionType || 'individual').trim().toLowerCase();
   if (role === 'supervisor') {
-    if (st === 'group') return ['99416', '99415'];
+    if (st === 'group') return ['99416'];
     return ['99415'];
   }
   // Supervisees are paid via literal MEETING after 100h (99414 tracks requirements only).

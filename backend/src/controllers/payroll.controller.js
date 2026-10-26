@@ -3585,7 +3585,7 @@ export const getPayrollPeriod = async (req, res, next) => {
             .catch(() => 0);
         const [mileage, medcancel, reimbursement, timeClaims, eventTime, pto] = await Promise.all([
           countSql(`SELECT COUNT(*) AS cnt FROM payroll_mileage_claims WHERE agency_id = ? AND status = 'submitted'`),
-          countSql(`SELECT COUNT(*) AS cnt FROM payroll_medcancel_claims WHERE agency_id = ? AND status = 'submitted'`),
+          Promise.resolve(0),
           countSql(`SELECT COUNT(*) AS cnt FROM payroll_reimbursement_claims WHERE agency_id = ? AND status = 'submitted'`),
           countSql(`SELECT COUNT(*) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type <> 'skill_builder_event'`),
           countSql(`SELECT COUNT(DISTINCT JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kioskPunchInId'))) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type = 'skill_builder_event' AND JSON_EXTRACT(payload_json, '$.kioskPunchInId') IS NOT NULL`),
@@ -5095,7 +5095,7 @@ function mapSupervisionServiceCodeForPayroll({ participantRole, sessionType, par
   const role = String(participantRole || '').trim().toLowerCase();
   const st = String(sessionType || 'individual').trim().toLowerCase();
   if (role === 'supervisor' || isProviderPlusRole(participantUserRole)) {
-    if (st === 'group') return ['99416', '99415'];
+    if (st === 'group') return ['99416'];
     return ['99415'];
   }
   // Supervisee compensation is staged as MEETING (not 99414/99416).
@@ -13836,10 +13836,7 @@ export const runPayrollPeriod = async (req, res, next) => {
       payrollPeriodId,
       agencyId: period.agency_id
     });
-    const pendingMedcancelCount = await PayrollMedcancelClaim.countUnresolvedForPeriod({
-      payrollPeriodId,
-      agencyId: period.agency_id
-    });
+    const pendingMedcancelCount = 0; // MedCancel submissions are retired from payroll review.
     const pendingReimbursementCount = await PayrollReimbursementClaim.countUnresolvedForPeriod({
       payrollPeriodId,
       agencyId: period.agency_id
@@ -15116,9 +15113,8 @@ export const switchUserHourlyDualRateContract = async (req, res, next) => {
 
 export const getAgencyMileageRates = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
 
     const rows = await AgencyMileageRate.listForAgency(agencyId);
     // Ensure tiers 1..3 exist in response for easy UI binding.
@@ -16365,9 +16361,8 @@ export const getMileageAnnualSummary = async (req, res, next) => {
 
 export const listMileageClaims = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
 
     const status = req.query.status ? String(req.query.status) : null;
     const suggestedPayrollPeriodId = req.query.suggestedPeriodId ? parseInt(req.query.suggestedPeriodId, 10) : null;
@@ -16377,6 +16372,9 @@ export const listMileageClaims = async (req, res, next) => {
     const rows = await PayrollMileageClaim.listForAgency({
       agencyId,
       status,
+      unpostedOnly: String(req.query.unpostedOnly) === 'true',
+      limit: req.query.limit,
+      offset: req.query.offset,
       suggestedPayrollPeriodId,
       targetPayrollPeriodId,
       userId
@@ -17586,9 +17584,8 @@ export const patchCompanyCardExpense = async (req, res, next) => {
 
 export const listReimbursementClaims = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
 
     const status = req.query.status ? String(req.query.status) : null;
     const suggestedPayrollPeriodId = req.query.suggestedPeriodId ? parseInt(req.query.suggestedPeriodId, 10) : null;
@@ -18956,7 +18953,7 @@ function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {}, ext
       unit: extra.unit || 'hour'
     });
   };
-  push('direct', 'Therapy Rate', 'direct', rateCard?.direct_rate);
+  push('direct', 'Direct Rate', 'direct', rateCard?.direct_rate);
   push('indirect', 'Indirect Rate', 'indirect', rateCard?.indirect_rate);
   push('other_1', titles.title1 || 'Other 1', 'other_1', rateAmountForSlot(rateCard, 'other_1', titles));
   const b2 = String(rateCard?.other_rate_2_bucket || 'other').toLowerCase();
@@ -19031,9 +19028,8 @@ export const getTimeClaimMeetingAttendance = async (req, res, next) => {
 
 export const listTimeClaims = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
 
     const status = req.query.status ? String(req.query.status) : null;
     const suggestedPayrollPeriodId = req.query.suggestedPeriodId ? parseInt(req.query.suggestedPeriodId, 10) : null;
@@ -19043,6 +19039,10 @@ export const listTimeClaims = async (req, res, next) => {
     const rows = await PayrollTimeClaim.listForAgency({
       agencyId,
       status,
+      excludeEventTime: true,
+      unpostedOnly: String(req.query.unpostedOnly) === 'true',
+      limit: req.query.limit,
+      offset: req.query.offset,
       suggestedPayrollPeriodId,
       targetPayrollPeriodId,
       userId
@@ -19097,7 +19097,7 @@ export const listTimeClaims = async (req, res, next) => {
         if (categoryGroup === 'support_activity' || code === 'MEETING') {
           rateLabel = 'Support Activity rate';
         } else if (code) {
-          rateLabel = `${code} rate`;
+          rateLabel = ({ '99415': 'Individual Supervision Rate', '99416': 'Group Supervision Rate' })[code] || `${code} rate`;
         } else if (mt) {
           rateLabel = 'Support Activity rate';
         } else if (bucketHint === 'direct') {
@@ -19119,10 +19119,10 @@ export const listTimeClaims = async (req, res, next) => {
             if (!sc || seenCodes.has(sc)) continue;
             seenCodes.add(sc);
             const unitRaw = String(rr.rate_unit || 'per_unit').trim().toLowerCase();
-            const unitLabel = unitRaw === 'per_hour' ? 'hour' : 'unit';
+            const unitLabel = ['99414', '99415', '99416', 'MEETING'].includes(sc) || unitRaw === 'per_hour' ? 'hour' : 'unit';
             extraRates.push({
               key: `comp_${sc}`,
-              label: `${sc} (compensation table)`,
+              label: ({ MEETING: 'Support Activity Rate', '99415': 'Individual Supervision Rate', '99416': 'Group Supervision Rate' })[sc] || `${sc} (compensation table)`,
               bucket: 'direct',
               amount: Number(rr.rate_amount || 0),
               unit: unitLabel
@@ -19134,12 +19134,14 @@ export const listTimeClaims = async (req, res, next) => {
           const payCtx = await loadUserPaySystemContext({
             agencyId,
             userId: Number(row.user_id),
-            periodEnd: new Date()
+            periodEnd: new Date(row.claim_date)
           });
           const rp = payCtx?.rateProfile;
           const reduced = !!payCtx?.status?.useReducedRates;
           if (payCtx?.enabled && rp) {
             extraRates.push(
+              { key: 'ps_supervision_individual', label: 'Individual Supervision Rate', bucket: 'indirect', amount: roleCompensationRate(rp.roleCompensation, '99415') },
+              { key: 'ps_supervision_group', label: 'Group Supervision Rate', bucket: 'indirect', amount: roleCompensationRate(rp.roleCompensation, '99416') },
               { key: 'ps_credit', label: reduced ? 'Pay system credit (probation/MWR)' : 'Pay system credit', bucket: 'direct', amount: reduced ? (rp.creditRateProbation ?? rp.creditRate) : rp.creditRate },
               { key: 'ps_hcode', label: reduced ? 'Pay system H-code (probation/MWR)' : 'Pay system H-code', bucket: 'direct', amount: reduced ? (rp.hcodeRateProbation ?? rp.hcodeRate) : rp.hcodeRate },
               { key: 'ps_indirect', label: 'Pay system indirect', bucket: 'indirect', amount: rp.indirectRate },
@@ -19550,6 +19552,13 @@ export const patchTimeClaim = async (req, res, next) => {
     const body = req.body || {};
     const action = String(body.action || '').toLowerCase();
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
+    if (claim.target_payroll_period_id) {
+      const assignedPeriod = await PayrollPeriod.findById(claim.target_payroll_period_id);
+      if (isEffectivelyPostedOrFinalized(assignedPeriod)) {
+        return res.status(409).json({ error: { message: 'Cannot change a claim in a posted/finalized pay period' } });
+      }
+    }
+
 
     if (action === 'approve') {
       if (await isUnpaidInternActivity(claim)) return res.status(409).json({ error: { message: 'This is unpaid intern indirect time. Attendance stays in meeting history; reject or withdraw the payroll claim.' } });
@@ -19898,6 +19907,10 @@ export const patchTimeClaim = async (req, res, next) => {
             idx === 0 ? { ...a, minutes: Math.round(creditsHoursRaw * 60), payBucket: bucket } : a
           ));
         }
+      }
+      if (amountExplicit) {
+        nextPayload.amountExplicit = true;
+        nextPayload.payRateAmountOverride = true;
       }
       if (rateKey) {
         nextPayload.payRateKey = rateKey;
@@ -21218,9 +21231,8 @@ export const deleteMyPtoRequest = async (req, res, next) => {
  */
 export const getPendingSubmissionsSummary = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
 
     // Count submitted PTO requests with submitter names.
     const [ptoRows] = await pool.execute(
@@ -21239,7 +21251,6 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
     // exclude it from `time` and count distinct punch sessions as `event_time`.
     const claimQueries = [
       ['mileage', `SELECT COUNT(*) AS cnt FROM payroll_mileage_claims WHERE agency_id = ? AND status = 'submitted'`],
-      ['medcancel', `SELECT COUNT(*) AS cnt FROM payroll_medcancel_claims WHERE agency_id = ? AND status = 'submitted'`],
       ['reimbursement', `SELECT COUNT(*) AS cnt FROM payroll_reimbursement_claims WHERE agency_id = ? AND status = 'submitted'`],
       ['time', `SELECT COUNT(*) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type <> 'skill_builder_event'`],
       ['event_time', `SELECT COUNT(DISTINCT JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kioskPunchInId'))) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type = 'skill_builder_event' AND JSON_EXTRACT(payload_json, '$.kioskPunchInId') IS NOT NULL`],
@@ -21282,9 +21293,8 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
 
 export const listPtoRequests = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
     // Accept comma-separated statuses (e.g. "submitted,approved,rejected") or a single value.
     const statusParam = req.query.status ? String(req.query.status) : 'submitted';
     const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
@@ -22870,9 +22880,8 @@ export const syncMeetingAttendance = async (req, res, next) => {
 
 export const listEventTimeSubmissions = async (req, res, next) => {
   try {
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
+    if (!agencyId) return;
 
     const status = req.query.status ? String(req.query.status) : 'submitted';
     const suggestedPeriodId = req.query.suggestedPeriodId ? parseInt(req.query.suggestedPeriodId, 10) : null;

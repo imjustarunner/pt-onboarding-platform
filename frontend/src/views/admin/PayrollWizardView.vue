@@ -1109,10 +1109,10 @@ const stepsAll = [
   {
     key: 'claims',
     title: 'Approve Submitted Claims',
-    description: 'Review and approve time claims, mileage, reimbursements, and MedCancel that employees submitted for this pay period.',
+    description: 'Review and approve time claims, mileage, and reimbursements that employees submitted for this pay period.',
     tip: 'Approve what belongs in this period. You can leave the rest — Run Payroll will ask to carry skipped claims to the next period.',
     checklist: [
-      'Review Time Claims, Mileage, Reimbursements, and MedCancel',
+      'Review Time Claims, Mileage, and Reimbursements',
       'Approve items that belong in this pay period',
       'Reject or leave for later anything that does not'
     ],
@@ -1607,11 +1607,9 @@ const pendingClaimsConfirmMessage = (data) => {
   const parts = [];
   const t = Number(data?.pendingTime?.count || 0);
   const m = Number(data?.pendingMileage?.count || 0);
-  const mc = Number(data?.pendingMedcancel?.count || 0);
   const r = Number(data?.pendingReimbursement?.count || 0);
   if (t) parts.push(`${t} time claim(s)`);
   if (m) parts.push(`${m} mileage`);
-  if (mc) parts.push(`${mc} MedCancel`);
   if (r) parts.push(`${r} reimbursement(s)`);
   const list = parts.length ? parts.join(', ') : 'pending submissions';
   return (
@@ -1628,7 +1626,7 @@ const runPayrollRequest = async (params = {}) => {
   const deferred = resp.data?.deferredClaims;
   const left = deferred?.leftBehind || {};
   const leftCount =
-    Number(left.time || 0) + Number(left.mileage || 0) + Number(left.medcancel || 0) + Number(left.reimbursement || 0);
+    Number(left.time || 0) + Number(left.mileage || 0) + Number(left.reimbursement || 0);
   if (leftCount > 0) {
     actionMessage.value =
       `Payroll ran successfully. ${leftCount} skipped claim(s) were left for the next period — approve them there when ready.`;
@@ -1702,7 +1700,7 @@ const runPayrollInWizard = async () => {
     if (
       e?.response?.status === 409 &&
       data.allowPendingClaims &&
-      (data.pendingTime || data.pendingMileage || data.pendingMedcancel || data.pendingReimbursement)
+      (data.pendingTime || data.pendingMileage || data.pendingReimbursement)
     ) {
       const ok = window.confirm(pendingClaimsConfirmMessage(data));
       if (ok) {

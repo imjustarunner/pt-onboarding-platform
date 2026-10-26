@@ -666,7 +666,7 @@ export async function createSupervisorSupervisionTimeClaim({
   }
 
   const sessionType = String(session?.session_type || 'individual').trim().toLowerCase() || 'individual';
-  const supervisorCodes = sessionType === 'group' ? ['99416', '99415'] : ['99415'];
+  const supervisorCodes = sessionType === 'group' ? ['99416'] : ['99415'];
   const claimDate = mysqlDateYmd(session.start_at);
   const eligibility = await userEligibleForSupervisionTimeClaim({
     agencyId,

@@ -2335,7 +2335,7 @@
                         <th>Participant</th>
                         <th>Date</th>
                         <th class="right">Hours</th>
-                        <th>Service code</th>
+                        <th>Activity</th>
                         <th class="right">Rate</th>
                         <th class="right">Amount</th>
                         <th>Transcript</th>
@@ -2357,7 +2357,7 @@
                           <div class="muted">to {{ fmtDateTime(r.endAt) }}</div>
                         </td>
                         <td class="right">{{ fmtNum(Number(r.totalHours || 0)) }}</td>
-                        <td>{{ r?.pay?.serviceCode || '—' }}</td>
+                        <td>{{ r.sessionType === 'group' ? 'Group supervision' : 'Individual supervision' }}</td>
                         <td class="right">
                           <span v-if="Number(r?.pay?.rateAmount || 0) > 0">{{ fmtMoney(Number(r?.pay?.rateAmount || 0)) }}</span>
                           <span v-else class="muted">—</span>
@@ -2723,70 +2723,6 @@
               </div>
             </div>
 
-            <div class="card" style="margin-top: 12px;">
-              <h3 class="card-title" style="margin: 0 0 6px 0;">MedCancel Submissions (Pending)</h3>
-              <div class="hint">Payroll cannot be run while MedCancel submissions for this pay period are still pending approval.</div>
-              <div v-if="pendingMedcancelError" class="warn-box" style="margin-top: 8px;">{{ pendingMedcancelError }}</div>
-              <div v-if="pendingMedcancelLoading" class="muted" style="margin-top: 8px;">Loading pending submissions…</div>
-              <div v-else-if="!pendingMedcancelClaims.length" class="muted" style="margin-top: 8px;">No pending MedCancel submissions for this pay period.</div>
-              <div v-else class="table-wrap" style="margin-top: 10px;">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Submitted</th>
-                      <th>Submitted by</th>
-                      <th>Date</th>
-                      <th class="right">Units</th>
-                      <th class="right">Pay period</th>
-                      <th class="right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="c in pendingMedcancelClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
-                      <td>{{ submittedAtYmd(c) }}</td>
-                      <td>{{ submitterLabel(c) }}</td>
-                      <td>{{ fmtClaimDate(c.claim_date) }}</td>
-                      <td class="right">{{ fmtNum(Number(c.units ?? 0)) }}</td>
-                      <td class="right">
-                        <select v-model="medcancelTargetPeriodByClaimId[c.id]" :disabled="approvingMedcancelClaimId === c.id">
-                          <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-                        </select>
-                      </td>
-                      <td class="right">
-                        <div class="actions" style="justify-content: flex-end; margin: 0;">
-                          <button class="btn btn-secondary btn-sm" @click="openMedcancelReview(c)" type="button">
-                            Review
-                          </button>
-                          <button class="btn btn-primary btn-sm" @click="approveMedcancelClaim(c)" :disabled="approvingMedcancelClaimId === c.id || !isValidTargetPeriodId(medcancelTargetPeriodByClaimId[c.id]) || isTargetPeriodLocked(medcancelTargetPeriodByClaimId[c.id])">
-                            {{ approvingMedcancelClaimId === c.id ? 'Approving…' : 'Approve' }}
-                          </button>
-                          <button class="btn btn-secondary btn-sm" @click="returnMedcancelClaim(c)" :disabled="approvingMedcancelClaimId === c.id">
-                            Send back…
-                          </button>
-                          <button class="btn btn-danger btn-sm" @click="rejectMedcancelClaim(c)" :disabled="approvingMedcancelClaimId === c.id">
-                            Reject
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
-                <button class="btn btn-secondary" @click="loadAllPendingMedcancelClaims" :disabled="pendingMedcancelLoading || !agencyId">
-                  Refresh pending
-                </button>
-                <button class="btn btn-secondary" @click="loadPendingMedcancelClaims" :disabled="pendingMedcancelLoading || !selectedPeriodId">
-                  This pay period only
-                </button>
-                <button class="btn btn-secondary" @click="loadAllPendingMedcancelClaims" :disabled="pendingMedcancelLoading || !agencyId">
-                  Show all pending (any period)
-                </button>
-              </div>
-            </div>
 
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Reimbursement Submissions (Pending)</h3>
@@ -3426,51 +3362,6 @@
               </div>
             </div>
 
-            <div class="card" style="margin-top: 12px;">
-              <h3 class="card-title" style="margin: 0 0 6px 0;">Approved Med Cancel (This pay period)</h3>
-              <div class="hint">After approval, claims leave “Pending” and appear here (and in provider totals).</div>
-              <div v-if="approvedMedcancelListError" class="warn-box" style="margin-top: 8px;">{{ approvedMedcancelListError }}</div>
-              <div v-if="approvedMedcancelListLoading" class="muted" style="margin-top: 8px;">Loading approved Med Cancel…</div>
-              <div v-else-if="!approvedMedcancelClaims.length" class="muted" style="margin-top: 8px;">No approved Med Cancel claims for this pay period.</div>
-              <div v-else class="table-wrap" style="margin-top: 10px;">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Date</th>
-                      <th class="right">Services</th>
-                      <th class="right">Amount</th>
-                      <th class="right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="c in approvedMedcancelClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
-                      <td>{{ fmtClaimDate(c.claim_date) }}</td>
-                      <td class="right">{{ fmtNum(Number(c.units ?? 0)) }}</td>
-                      <td class="right">{{ fmtMoney(Number(c.applied_amount || 0)) }}</td>
-                      <td class="right">
-                        <div class="actions" style="justify-content: flex-end; margin: 0;">
-                          <button
-                            class="btn btn-secondary btn-sm"
-                            type="button"
-                            @click="unapproveMedcancelClaim(c)"
-                            :disabled="unapprovingMedcancelClaimId === c.id || isTargetPeriodLocked(c.target_payroll_period_id)"
-                          >
-                            {{ unapprovingMedcancelClaimId === c.id ? 'Unapproving…' : 'Unapprove' }}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
-                <button class="btn btn-secondary" @click="loadApprovedMedcancelClaimsList" :disabled="approvedMedcancelListLoading || !selectedPeriodId">
-                  Refresh approved Med Cancel
-                </button>
-              </div>
-            </div>
 
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Approved Reimbursements (This pay period)</h3>
@@ -6652,6 +6543,7 @@
 </template>
 
 <script setup>
+import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import PayrollTodoNotes from '../../components/payroll/PayrollTodoNotes.vue';
 import { workingPeriods, claimInWorkingPeriods } from '../../utils/payrollWorkingPeriods';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
@@ -8512,6 +8404,7 @@ const splitSummary = (c) => {
 };
 
 const timeTypeLabel = (c) => {
+  if (supervisionActivityLabel(c)) return supervisionActivityLabel(c);
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training/Outreach';
   if (t === 'training_focus_completion') return 'Training Focus Completion';
@@ -10418,7 +10311,6 @@ const dashboardPendingCount = computed(() => {
   }).length;
   return (
     (pendingMileageClaims.value || []).length
-    + (pendingMedcancelClaims.value || []).length
     + (pendingReimbursementClaims.value || []).length
     + (pendingTimeClaims.value || []).length
     + eventPending
@@ -10516,8 +10408,7 @@ const openPendingFromDashboard = () => {
     ['eventTime', 'event_time'],
     ['timeClaims', 'time'],
     ['mileage', 'mileage'],
-    ['reimbursement', 'reimbursement'],
-    ['medcancel', 'medcancel']
+    ['reimbursement', 'reimbursement']
   ];
   const first = order.find(([key]) => Number(counts[key] || 0) > 0);
   const query = first ? { tab: first[1] } : {};
@@ -14618,7 +14509,6 @@ const runPayroll = async () => {
         try {
           if (data.pendingTime) await loadPendingTimeClaims();
           if (data.pendingMileage) await loadPendingMileageClaims();
-          if (data.pendingMedcancel) await loadPendingMedcancelClaims();
         } catch { /* ignore */ }
       }
       return;
@@ -14908,7 +14798,6 @@ watch(showStageModal, async (open) => {
     loadServiceCodeRules(),
     loadMileageRates(),
     loadAllPendingMileageClaims(),
-    loadAllPendingMedcancelClaims(),
     loadAllPendingReimbursementClaims(),
     loadAllPendingTimeClaims(),
     loadPendingHolidayBonusClaims(),
@@ -14918,7 +14807,6 @@ watch(showStageModal, async (open) => {
     loadApprovedHolidayBonusClaimsAmount(),
     loadApprovedReimbursementClaimsAmount(),
     loadApprovedMileageClaimsList(),
-    loadApprovedMedcancelClaimsList(),
     loadApprovedHolidayBonusClaimsList(),
     loadApprovedReimbursementClaimsList(),
     loadManualPayLines(),

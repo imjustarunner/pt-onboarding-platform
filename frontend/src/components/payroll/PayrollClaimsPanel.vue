@@ -22,9 +22,6 @@
       <button type="button" class="pcp-tab" :class="{ active: tab === 'reimbursement' }" @click="tab = 'reimbursement'">
         Reimbursements <span v-if="reimbClaims.length" class="pcp-count">{{ reimbClaims.length }}</span>
       </button>
-      <button type="button" class="pcp-tab" :class="{ active: tab === 'medcancel' }" @click="tab = 'medcancel'">
-        MedCancel <span v-if="medClaims.length" class="pcp-count">{{ medClaims.length }}</span>
-      </button>
     </div>
 
     <div v-if="error" class="pcp-error">{{ error }}</div>
@@ -129,36 +126,6 @@
         </div>
       </div>
 
-      <!-- MedCancel -->
-      <div v-else class="pcp-body">
-        <div v-if="!medClaims.length" class="pcp-muted">No pending MedCancel submissions for this pay period.</div>
-        <div v-else class="pcp-table-wrap">
-          <table class="pcp-table">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Date</th>
-                <th>Client</th>
-                <th class="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in medClaims" :key="c.id">
-                <td>{{ providerName(c) }}</td>
-                <td>{{ fmtDate(c.claim_date || c.service_date) }}</td>
-                <td>{{ c.client_hint || c.client_name || '—' }}</td>
-                <td class="right">
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveMed(c)">
-                    {{ busyId === c.id ? '…' : 'Approve' }}
-                  </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id || locked" @click="rejectMed(c)">Reject</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <div class="pcp-footer">
         <span class="pcp-muted">
           {{ totalPending }} pending total
@@ -213,6 +180,7 @@
 </template>
 
 <script setup>
+import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import MeetingClaimDetails from './MeetingClaimDetails.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
@@ -249,7 +217,6 @@ const closeTimeClaimView = () => {
 const timeClaims = ref([]);
 const mileageClaims = ref([]);
 const reimbClaims = ref([]);
-const medClaims = ref([]);
 const agencyUsers = ref([]);
 
 const locked = computed(() => {
@@ -258,7 +225,7 @@ const locked = computed(() => {
 });
 
 const totalPending = computed(
-  () => timeClaims.value.length + mileageClaims.value.length + reimbClaims.value.length + medClaims.value.length
+  () => timeClaims.value.length + mileageClaims.value.length + reimbClaims.value.length
 );
 
 const nameForUserId = (uid) => {
@@ -293,6 +260,7 @@ const fmtHours = (c) => {
 };
 
 const timeTypeLabel = (c) => {
+  if (supervisionActivityLabel(c)) return supervisionActivityLabel(c);
   const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
   if (t === 'indirect_time') {
@@ -338,11 +306,10 @@ const reload = async () => {
     const usersPromise = agencyUsers.value.length
       ? Promise.resolve({ data: agencyUsers.value })
       : api.get('/payroll/agency-users', { params: { agencyId: props.agencyId } }).catch(() => ({ data: [] }));
-    const [timeResp, mileResp, reimbResp, medResp, usersResp] = await Promise.all([
+    const [timeResp, mileResp, reimbResp, usersResp] = await Promise.all([
       api.get('/payroll/time-claims', { params: claimParams }),
       api.get('/payroll/mileage-claims', { params: claimParams }),
       api.get('/payroll/reimbursement-claims', { params: claimParams }),
-      api.get('/payroll/medcancel-claims', { params: claimParams }),
       usersPromise
     ]);
     if (!agencyUsers.value.length) agencyUsers.value = usersResp.data || [];
@@ -357,7 +324,6 @@ const reload = async () => {
     timeClaims.value = (timeResp.data || []).filter((r) => !isEventTime(r) && actionableForPeriod(r));
     mileageClaims.value = (mileResp.data || []).filter(actionableForPeriod);
     reimbClaims.value = (reimbResp.data || []).filter(actionableForPeriod);
-    medClaims.value = (medResp.data || []).filter(actionableForPeriod);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending submissions';
   } finally {
@@ -448,23 +414,6 @@ const rejectReimb = (c) => {
   if (reason === null) return;
   return withBusy(c.id, () =>
     api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() })
-  );
-};
-
-const approveMed = (c) =>
-  withBusy(c.id, (override) =>
-    api.patch(`/payroll/medcancel-claims/${c.id}`, {
-      action: 'approve',
-      targetPayrollPeriodId: Number(props.periodId),
-      ...(override ? { overrideDeadline: true } : {})
-    })
-  );
-
-const rejectMed = (c) => {
-  const reason = window.prompt('Rejection reason (optional):', '') ?? null;
-  if (reason === null) return;
-  return withBusy(c.id, () =>
-    api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() })
   );
 };
 

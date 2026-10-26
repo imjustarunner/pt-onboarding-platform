@@ -85,6 +85,8 @@ class PayrollTimeClaim {
   static async listForAgency({
     agencyId,
     status = null,
+    unpostedOnly = false,
+    excludeEventTime = false,
     suggestedPayrollPeriodId = null,
     targetPayrollPeriodId = null,
     userId = null,
@@ -115,13 +117,26 @@ class PayrollTimeClaim {
       params.push(Number(userId));
     }
 
+    if (excludeEventTime) conds.push("c.claim_type <> 'skill_builder_event'");
+    if (unpostedOnly) {
+      conds.push("c.status = 'approved'", "p.id IS NOT NULL", "LOWER(p.status) NOT IN ('posted', 'finalized')",
+        'p.posted_at IS NULL', 'p.finalized_at IS NULL', 'p.posted_by_user_id IS NULL', 'p.finalized_by_user_id IS NULL');
+    }
+
     const [rows] = await pool.execute(
       `SELECT c.*,
+              p.period_start AS approved_period_start,
+              p.period_end AS approved_period_end,
+              p.status AS target_period_status,
+              approver.first_name AS approved_by_first_name,
+              approver.last_name AS approved_by_last_name,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_time_claims c
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
+       LEFT JOIN payroll_periods p ON p.id = c.target_payroll_period_id AND p.agency_id = c.agency_id
+       LEFT JOIN users approver ON approver.id = c.approved_by_user_id
        WHERE ${conds.join(' AND ')}
        ORDER BY c.status ASC, c.claim_date DESC, c.id DESC
        LIMIT ${lim} OFFSET ${off}`,

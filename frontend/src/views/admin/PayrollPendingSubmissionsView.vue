@@ -8,7 +8,7 @@
         </button>
         <h1>Pending Submissions</h1>
         <p class="pps-subtitle">
-          Approve PTO, time, event time, mileage, reimbursements, and MedCancel — then apply them to an upcoming pay period.
+          Approve PTO, time, event time, mileage, and reimbursements — then apply them to an upcoming pay period.
           Changes use the same APIs as Payroll Stage, so they appear everywhere immediately.
         </p>
       </div>
@@ -44,7 +44,6 @@
         <div class="pps-stat"><span class="pps-stat-n">{{ eventTimePendingCount }}</span><span class="pps-stat-l">Event</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ mileageClaims.length }}</span><span class="pps-stat-l">Mileage</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ reimbClaims.length }}</span><span class="pps-stat-l">Reimb.</span></div>
-        <div class="pps-stat"><span class="pps-stat-n">{{ medClaims.length }}</span><span class="pps-stat-l">MedCancel</span></div>
       </div>
     </div>
 
@@ -63,9 +62,6 @@
       </button>
       <button type="button" class="pps-tab" :class="{ active: tab === 'reimbursement' }" @click="setTab('reimbursement')">
         Reimbursements <span v-if="reimbClaims.length" class="pps-count">{{ reimbClaims.length }}</span>
-      </button>
-      <button type="button" class="pps-tab" :class="{ active: tab === 'medcancel' }" @click="setTab('medcancel')">
-        MedCancel <span v-if="medClaims.length" class="pps-count">{{ medClaims.length }}</span>
       </button>
     </div>
 
@@ -447,7 +443,9 @@
               <tr>
                 <th>Provider</th>
                 <th>Date</th>
+                <th>Rate / Tier</th>
                 <th class="right">Miles</th>
+                <th class="right">Est.</th>
                 <th>Post to</th>
                 <th class="right">Actions</th>
               </tr>
@@ -456,7 +454,14 @@
               <tr v-for="c in mileageClaims" :key="c.id" :class="{ 'row-highlight': focusUserId && Number(c.user_id) === focusUserId }">
                 <td>{{ claimName(c) }}</td>
                 <td>{{ fmtDate(c.claim_date || c.drive_date || c.trip_date) }}</td>
-                <td class="right">{{ Number(c.eligible_miles ?? c.miles ?? c.total_miles ?? 0).toFixed(1) }}</td>
+                <td>
+                  <select v-if="mileageUsesTier(c, mileageRates.settings)" v-model.number="mileageTierById[c.id]" :disabled="busyId === `mileage-${c.id}`" :aria-label="`Mileage tier for ${claimName(c)}`">
+                    <option v-for="tier in [1, 2, 3]" :key="tier" :value="tier">Tier {{ tier }}</option>
+                  </select>
+                  <span v-else>{{ fmtMoney(mileageRates.settings?.standardMileageRatePerMile) }} / mi</span>
+                </td>
+                <td class="right">{{ mileageBillableMiles(c).toFixed(2) }}</td>
+                <td class="right">{{ fmtMoney(mileageEstimate(c, mileageRates, mileageTierById[c.id])) }}</td>
                 <td>
                   <select v-model="claimTargetByKey[`mileage-${c.id}`]" :disabled="busyId === `mileage-${c.id}`">
                     <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">
@@ -525,50 +530,45 @@
         </div>
       </div>
 
-      <!-- MedCancel -->
-      <div v-else-if="tab === 'medcancel'" class="card pps-panel">
-        <div class="pps-panel-head">
-          <div>
-            <h2>MedCancel</h2>
-            <p class="hint">Approve pending MedCancel claims into an open pay period.</p>
-          </div>
-        </div>
-        <div v-if="actionError" class="pps-error">{{ actionError }}</div>
-        <div v-if="!medClaims.length" class="muted">No pending MedCancel claims.</div>
-        <div v-else class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Date</th>
-                <th>Client</th>
-                <th>Post to</th>
-                <th class="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in medClaims" :key="c.id" :class="{ 'row-highlight': focusUserId && Number(c.user_id) === focusUserId }">
-                <td>{{ claimName(c) }}</td>
-                <td>{{ fmtDate(c.claim_date || c.service_date) }}</td>
-                <td>{{ c.client_hint || c.client_name || '—' }}</td>
-                <td>
-                  <select v-model="claimTargetByKey[`med-${c.id}`]" :disabled="busyId === `med-${c.id}`">
-                    <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">
-                      {{ periodRangeLabel(p) }}{{ isPeriodLocked(p) ? ' (locked)' : '' }}
-                    </option>
-                  </select>
-                </td>
-                <td class="right">
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === `med-${c.id}` || !isValidOpenPeriod(claimTargetByKey[`med-${c.id}`])" @click="approveMed(c)">
-                    {{ busyId === `med-${c.id}` ? '…' : 'Approve' }}
-                  </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `med-${c.id}`" @click="rejectMed(c)">Reject</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section v-if="tab === 'mileage'" class="card pps-panel" style="margin-top: 20px;">
+        <div class="pps-panel-head"><div><h2>Approved Mileage Claims</h2><p class="hint">Approved for payroll. Claims remain here until their pay period is posted.</p></div></div>
+        <div v-if="!approvedMileageClaims.length" class="muted">No approved mileage claims in unposted pay periods.</div>
+        <div v-else class="table-wrap"><table class="table">
+          <thead><tr><th>Provider</th><th>Date</th><th>Rate / Tier</th><th class="right">Miles</th><th class="right">Est.</th><th>Approved by</th><th>Post to</th></tr></thead>
+          <tbody><tr v-for="c in approvedMileageClaims" :key="c.id">
+            <td>{{ claimName(c) }}</td><td>{{ fmtDate(c.drive_date) }}</td>
+            <td><span :class="['pps-tier', `pps-tier-${c.tier_level}`]">{{ mileageTierLabel(c) }}</span></td>
+            <td class="right">{{ mileageBillableMiles(c).toFixed(2) }}</td><td class="right">{{ fmtMoney(c.applied_amount) }}</td>
+            <td>{{ approvedByLabel(c) }}</td><td>{{ approvedPeriodLabel(c) }}</td>
+          </tr></tbody>
+        </table></div>
+      </section>
+
+      <section v-if="tab === 'time'" class="card pps-panel" style="margin-top: 20px;">
+        <div class="pps-panel-head"><div><h2>Approved Time Claims</h2><p class="hint">Review and adjust approved claims until their pay period is posted.</p></div></div>
+        <div v-if="!approvedTimeClaims.length" class="muted">No approved time claims in unposted pay periods.</div>
+        <div v-else class="table-wrap"><table class="table">
+          <thead><tr><th>Provider</th><th>Date</th><th>Type</th><th>Bucket</th><th class="right">Hours</th><th>Rate / Pay</th><th class="right">Total pay</th><th>Post to</th><th class="right">Actions</th></tr></thead>
+          <tbody><tr v-for="c in approvedTimeClaims" :key="c.id" class="row-approved">
+            <td>{{ claimName(c) }}</td><td>{{ fmtDate(c.claim_date) }}</td><td>{{ timeTypeLabel(c) }}</td>
+            <td><select v-model="approvedTimeEdits[c.id].bucket" :disabled="busyId === `time-${c.id}`" :aria-label="`Pay bucket for ${claimName(c)}`" @change="approvedTimeEdits[c.id].dirty = true">
+              <option value="indirect">Indirect</option><option value="direct">Direct</option><option value="other_1">Other 1</option><option value="other_2">Other 2</option><option value="other_3">Other 3</option>
+            </select></td>
+            <td><input v-model="approvedTimeEdits[c.id].hours" type="number" min="0" step="0.01" style="width: 85px;" :disabled="busyId === `time-${c.id}`" :aria-label="`Approved hours for ${claimName(c)}`" @input="recalculateApprovedTime(c)" /></td>
+            <td><select v-model="approvedTimeEdits[c.id].rateKey" :disabled="busyId === `time-${c.id}`" :aria-label="`Pay rate for ${claimName(c)}`" @change="selectApprovedRate(c)">
+              <option value="approved_rate">{{ approvedTimeDraft(c).rateLabel }} · {{ fmtMoney(approvedTimeDraft(c).rateAmount) }} / hr (approved)</option>
+              <option v-for="r in (c.payEstimate?.availableRates || []).filter((r) => r.key !== 'approved_rate')" :key="r.key" :value="r.key">{{ r.label }} · {{ fmtMoney(r.amount) }} / {{ r.unit === 'unit' ? 'unit' : 'hr' }}</option>
+            </select></td>
+            <td class="right"><strong>{{ fmtMoney(approvedTimeEdits[c.id].amount) }}</strong></td>
+            <td><select :value="c.target_payroll_period_id" :disabled="busyId === `time-${c.id}` || approvedTimeEdits[c.id].dirty" :aria-label="`Pay period for ${claimName(c)}`" @change="moveApprovedTime(c, $event)">
+              <option v-if="!periodsForSelect.some((p) => Number(p.id) === Number(c.target_payroll_period_id))" :value="c.target_payroll_period_id">{{ approvedPeriodLabel(c) }}</option>
+              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">{{ periodRangeLabel(p) }}{{ isPeriodLocked(p) ? ' (locked)' : '' }}</option>
+            </select></td>
+            <td class="right"><button class="btn btn-primary btn-sm" :disabled="busyId === `time-${c.id}` || !approvedTimeEdits[c.id].dirty" @click="saveApprovedTime(c)">Save</button>
+              <button class="btn btn-secondary btn-sm" :disabled="busyId === `time-${c.id}`" @click="unapproveTime(c)">Unapprove</button></td>
+          </tr></tbody>
+        </table></div>
+      </section>
     </template>
 
     <!-- Event time edit modal -->
@@ -859,6 +859,7 @@
 </template>
 
 <script setup>
+import { supervisionActivityLabel, mileageUsesTier, mileageBillableMiles, mileageEstimate, approvedTimeDraft } from '../../utils/payrollSubmissionReview';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
@@ -903,7 +904,11 @@ const ptoBalancesByUserId = ref({});
 const timeClaims = ref([]);
 const mileageClaims = ref([]);
 const reimbClaims = ref([]);
-const medClaims = ref([]);
+const approvedTimeClaims = ref([]);
+const approvedMileageClaims = ref([]);
+const approvedTimeEdits = reactive({});
+const mileageRates = ref({ rates: [], settings: {} });
+const mileageTierById = reactive({});
 const claimTargetByKey = reactive({});
 const timeHoursOverrideById = reactive({});
 const timeBucketById = reactive({});
@@ -1011,8 +1016,7 @@ const totalPending = computed(
     timeClaims.value.length +
     eventTimePendingCount.value +
     mileageClaims.value.length +
-    reimbClaims.value.length +
-    medClaims.value.length
+    reimbClaims.value.length
 );
 
 /** Late minutes in the EVENT timezone (not the viewer's browser timezone). */
@@ -1221,7 +1225,7 @@ const periodRangeLabel = (p) => {
 
 const isPeriodLocked = (p) => {
   const st = String(p?.status || '').toLowerCase();
-  return st === 'posted' || st === 'finalized';
+  return st === 'posted' || st === 'finalized' || !!p?.posted_at || !!p?.finalized_at || !!p?.posted_by_user_id || !!p?.finalized_by_user_id;
 };
 
 const isValidOpenPeriod = (periodId) => {
@@ -1277,6 +1281,7 @@ const fmtHours = (c) => {
 };
 
 const timeTypeLabel = (c) => {
+  if (supervisionActivityLabel(c)) return supervisionActivityLabel(c);
   const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
   if (t === 'tutoring_session') return c.payload?.part === 'indirect' ? 'Tutoring indirect allowance' : `Tutoring · ${Number(c.payload?.units || 0)} units`;
@@ -1481,17 +1486,19 @@ const seedClaimTargets = (prefix, list) => {
 };
 
 const loadPeriods = async () => {
-  if (!agencyId.value) return;
+  const requestedAgencyId = agencyId.value;
+  if (!requestedAgencyId) return;
   try {
     await api.post(
       '/payroll/periods/ensure-future',
       { months: 6, pastPeriods: 4 },
-      { params: { agencyId: agencyId.value } }
+      { params: { agencyId: requestedAgencyId } }
     );
   } catch { /* best-effort gap fill */ }
   const resp = await api.get('/payroll/periods', {
-    params: { agencyId: agencyId.value, alignedOnly: 'false' }
+    params: { agencyId: requestedAgencyId, alignedOnly: 'false' }
   });
+  if (agencyId.value !== requestedAgencyId) return;
   periods.value = resp.data || [];
   if (!defaultTargetPeriodId.value) {
     defaultTargetPeriodId.value = pickDefaultOpenPeriod();
@@ -1499,20 +1506,25 @@ const loadPeriods = async () => {
 };
 
 const loadUsers = async () => {
-  if (!agencyId.value) return;
+  const requestedAgencyId = agencyId.value;
+  if (!requestedAgencyId) return;
   try {
-    const resp = await api.get('/payroll/agency-users', { params: { agencyId: agencyId.value } });
+    const resp = await api.get('/payroll/agency-users', { params: { agencyId: requestedAgencyId } });
+    if (agencyId.value !== requestedAgencyId) return;
     agencyUsers.value = resp.data || [];
   } catch {
+    if (agencyId.value !== requestedAgencyId) return;
     agencyUsers.value = [];
   }
 };
 
 const loadPto = async () => {
-  if (!agencyId.value) return;
+  const requestedAgencyId = agencyId.value;
+  if (!requestedAgencyId) return;
   const resp = await api.get('/payroll/pto-requests', {
-    params: { agencyId: agencyId.value, status: 'submitted,approved,rejected,deferred' }
+    params: { agencyId: requestedAgencyId, status: 'submitted,approved,rejected,deferred' }
   });
+  if (agencyId.value !== requestedAgencyId) return;
   ptoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
   for (const r of ptoRequests.value) {
     if (ptoTargetById[r.id] == null) ptoTargetById[r.id] = ptoDefaultTarget(r);
@@ -1524,7 +1536,7 @@ const loadPto = async () => {
       .filter((uid) => next[uid] === undefined)
       .map(async (uid) => {
         try {
-          const b = await api.get(`/payroll/users/${uid}/pto-balances`, { params: { agencyId: agencyId.value } });
+          const b = await api.get(`/payroll/users/${uid}/pto-balances`, { params: { agencyId: requestedAgencyId } });
           next[uid] = {
             sickHours: Number(b.data?.balances?.sickHours ?? 0),
             trainingHours: Number(b.data?.balances?.trainingHours ?? 0), schoolSupportHours:Number(b.data?.balances?.schoolSupportHours||0)
@@ -1534,49 +1546,125 @@ const loadPto = async () => {
         }
       })
   );
-  ptoBalancesByUserId.value = next;
+  if (agencyId.value === requestedAgencyId) ptoBalancesByUserId.value = next;
 };
 
+const loadClaimRows = async (path, params) => {
+  const rows = [];
+  const limit = 200;
+  for (let offset = 0; ; offset += limit) {
+    const response = await api.get(path, { params: { ...params, limit, offset } });
+    const page = Array.isArray(response.data) ? response.data : [];
+    rows.push(...page);
+    if (page.length < limit) return rows;
+  }
+};
+
+const requestError = (error) => error?.response?.data?.error?.message
+  || error?.response?.data?.message || error?.message || 'Unable to load submissions';
+
 const loadClaims = async () => {
-  if (!agencyId.value) return;
-  const params = { agencyId: agencyId.value, status: 'submitted' };
-  const [timeResp, mileResp, reimbResp, medResp] = await Promise.all([
-    api.get('/payroll/time-claims', { params }),
-    api.get('/payroll/mileage-claims', { params }),
-    api.get('/payroll/reimbursement-claims', { params }),
-    api.get('/payroll/medcancel-claims', { params })
-  ]);
-  timeClaims.value = (timeResp.data || []).filter((r) => r && !isEventTime(r));
-  mileageClaims.value = mileResp.data || [];
-  reimbClaims.value = reimbResp.data || [];
-  medClaims.value = medResp.data || [];
+  const requestedAgencyId = agencyId.value;
+  if (!requestedAgencyId) return;
+  const params = { agencyId: requestedAgencyId, status: 'submitted' };
+  const approvedParams = { ...params, status: 'approved', unpostedOnly: true };
+  const queues = [
+    ['Time claims', () => loadClaimRows('/payroll/time-claims', params), timeClaims],
+    ['Mileage claims', () => loadClaimRows('/payroll/mileage-claims', params), mileageClaims],
+    ['Reimbursements', async () => (await api.get('/payroll/reimbursement-claims', { params })).data, reimbClaims],
+    ['Approved time claims', () => loadClaimRows('/payroll/time-claims', approvedParams), approvedTimeClaims],
+    ['Approved mileage claims', () => loadClaimRows('/payroll/mileage-claims', approvedParams), approvedMileageClaims],
+    ['Mileage rates', async () => (await api.get('/payroll/mileage-rates', { params: { agencyId: requestedAgencyId } })).data, mileageRates]
+  ];
+  const results = await Promise.allSettled(queues.map(([, request]) => request()));
+  if (agencyId.value !== requestedAgencyId) return;
+  const failures = [];
+  results.forEach((result, index) => {
+    const [label, , destination] = queues[index];
+    if (result.status === 'fulfilled') destination.value = result.value || [];
+    else {
+      destination.value = destination === mileageRates ? { rates: [], settings: {} } : [];
+      failures.push(`${label}: ${requestError(result.reason)}`);
+    }
+  });
+  timeClaims.value = timeClaims.value.filter((r) => r && !isEventTime(r));
+  approvedTimeClaims.value = approvedTimeClaims.value.filter((r) => r && !isEventTime(r));
+  if (failures.length) pageError.value = failures.join(' · ');
   seedClaimTargets('time', timeClaims.value);
   seedClaimTargets('mileage', mileageClaims.value);
   seedClaimTargets('reimb', reimbClaims.value);
-  seedClaimTargets('med', medClaims.value);
-  for (const c of timeClaims.value || []) {
-    if (timeBucketById[c.id] == null) {
-      timeBucketById[c.id] = timeClaimApproveBucket(c);
-    }
+  for (const c of mileageClaims.value) mileageTierById[c.id] ??= Number(c.tier_level || 1);
+  for (const c of approvedTimeClaims.value) {
+    if (!approvedTimeEdits[c.id]?.dirty) approvedTimeEdits[c.id] = approvedTimeDraft(c);
+  }
+  for (const c of timeClaims.value) {
+    timeBucketById[c.id] ??= timeClaimApproveBucket(c);
     if (timeHoursOverrideById[c.id] == null || timeHoursOverrideById[c.id] === '') {
-      const h = claimHoursValue(c);
-      if (h > 0) timeHoursOverrideById[c.id] = String(h);
+      timeHoursOverrideById[c.id] = String(claimHoursValue(c));
     }
   }
 };
 
+const fmtMoney = (value) => value == null || !Number.isFinite(Number(value)) ? '—' : `$${Number(value).toFixed(2)}`;
+const mileageTierLabel = (c) => c.rate_per_mile != null && !c.tier_level
+  ? `${fmtMoney(c.rate_per_mile)} / mi` : `Tier ${c.tier_level || '—'}`;
+const approvedPeriodLabel = (c) => c.approved_period_start
+  ? `${fmtDate(c.approved_period_start)} → ${fmtDate(c.approved_period_end)}` : periodLabelForId(c.target_payroll_period_id);
+const approvedByLabel = (c) => [c.approved_by_first_name, c.approved_by_last_name].filter(Boolean).join(' ')
+  || nameForUserId(c.approved_by_user_id);
+const recalculateApprovedTime = (c) => {
+  const edit = approvedTimeEdits[c.id];
+  edit.amount = Math.round(Number(edit.hours) * Number(edit.rateAmount) * 100) / 100;
+  edit.dirty = true;
+};
+const selectApprovedRate = (c) => {
+  const edit = approvedTimeEdits[c.id];
+  const rate = edit.rateKey === 'approved_rate' ? approvedTimeDraft(c)
+    : (c.payEstimate?.availableRates || []).find((r) => r.key === edit.rateKey);
+  if (!rate) return;
+  edit.rateAmount = edit.rateKey === 'approved_rate' ? rate.rateAmount : rate.amount;
+  edit.rateLabel = rate.label ?? rate.rateLabel;
+  recalculateApprovedTime(c);
+};
+const saveApprovedTime = (c) => {
+  const edit = approvedTimeEdits[c.id];
+  if (edit.hours === '' || !Number.isFinite(Number(edit.hours)) || Number(edit.hours) < 0) {
+    actionError.value = 'Enter valid non-negative hours.';
+    return;
+  }
+  return withBusy(`time-${c.id}`, () => api.patch(`/payroll/time-claims/${c.id}`, {
+    action: 'update', bucket: edit.bucket, creditsHours: Number(edit.hours), appliedAmount: edit.amount,
+    amountExplicit: true, rateKey: edit.rateKey, rateAmount: edit.rateAmount, rateLabel: edit.rateLabel
+  }), async () => {
+    edit.dirty = false;
+    await loadClaims();
+  });
+};
+const unapproveTime = (c) => withBusy(`time-${c.id}`,
+  () => api.patch(`/payroll/time-claims/${c.id}`, { action: 'unapprove' }), loadClaims);
+const moveApprovedTime = (c, event) => {
+  const targetPayrollPeriodId = Number(event.target.value);
+  event.target.value = c.target_payroll_period_id;
+  if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
+  return withBusy(`time-${c.id}`, (override = {}) => api.patch(`/payroll/time-claims/${c.id}`, {
+    action: 'move', targetPayrollPeriodId, ...override
+  }), loadClaims);
+};
+
 const loadEventTimeSubmissions = async () => {
-  if (!agencyId.value) return;
+  const requestedAgencyId = agencyId.value;
+  if (!requestedAgencyId) return;
   try {
     eventTimeLoading.value = true;
     const resp = await api.get('/payroll/event-time-submissions', {
       params: {
-        agencyId: agencyId.value,
+        agencyId: requestedAgencyId,
         // Match Payroll Stage: deferred event times stay in the pending queue
         // (e.g. auto clock-out / send-back), not only freshly submitted ones.
         status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted,deferred'
       }
     });
+    if (agencyId.value !== requestedAgencyId) return;
     let submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
 
     // Only auto-dismiss mistaken 0h Direct claims on Indirect-only events (cap = 0).
@@ -1594,12 +1682,13 @@ const loadEventTimeSubmissions = async () => {
       if (empties.length) {
         await Promise.all(empties.map((s) => dismissEmptyDirectClaim(s).catch(() => null)));
         const refreshed = await api.get('/payroll/event-time-submissions', {
-          params: { agencyId: agencyId.value, status: 'submitted,deferred' }
+          params: { agencyId: requestedAgencyId, status: 'submitted,deferred' }
         });
         submissions = Array.isArray(refreshed.data?.submissions) ? refreshed.data.submissions : submissions;
       }
     }
 
+    if (agencyId.value !== requestedAgencyId) return;
     eventTimeSubmissions.value = submissions;
     const aligned = (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1);
     const def = Number(defaultTargetPeriodId.value || 0) || null;
@@ -1623,6 +1712,7 @@ const loadEventTimeSubmissions = async () => {
       eventTimeTargetPeriodByPunchId[s.punchInId] = matchedAligned ? matchedAligned.id : def;
     }
   } catch (e) {
+    if (agencyId.value !== requestedAgencyId) return;
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load event time submissions';
     eventTimeSubmissions.value = [];
   } finally {
@@ -1641,8 +1731,13 @@ const reloadAll = async () => {
   pageError.value = '';
   actionError.value = '';
   try {
-    await Promise.all([loadPeriods(), loadUsers()]);
-    await Promise.all([loadPto(), loadClaims(), loadEventTimeSubmissions()]);
+    const setup = await Promise.allSettled([loadPeriods(), loadUsers()]);
+    const results = await Promise.allSettled([loadPto(), loadClaims(), loadEventTimeSubmissions()]);
+    const labels = ['Pay periods', 'Providers', 'PTO requests', 'Claims', 'Event times'];
+    const failures = [...setup, ...results].flatMap((result, index) =>
+      result.status === 'rejected' ? [`${labels[index]}: ${requestError(result.reason)}`] : []
+    );
+    if (failures.length) pageError.value = [pageError.value, ...failures].filter(Boolean).join(' · ');
   } catch (e) {
     pageError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending submissions';
   } finally {
@@ -1837,7 +1932,7 @@ const approveTime = async (c) => {
     const hrsLabel = Number.isFinite(hours) ? Number(hours).toFixed(2) : '—';
     actionSuccess.value =
       `Approved ${claimName(c)} — ${bucketLabel} · ${hrsLabel} hrs · ${payPreview} ` +
-      `posted to ${periodLabel}. It left this queue; open that pay period’s Approved Time Claims / Payroll Stage to review.`;
+      `assigned to ${periodLabel}. Review it in Approved Time Claims below.`;
   }
 };
 
@@ -1857,7 +1952,8 @@ const approveMileage = (c) => {
   return withBusy(
     `mileage-${c.id}`,
     (override = {}) =>
-      api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId, ...override }),
+      api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId,
+        ...(mileageUsesTier(c, mileageRates.value.settings) ? { tierLevel: mileageTierById[c.id] } : {}), ...override }),
     loadClaims
   );
 };
@@ -1889,27 +1985,6 @@ const rejectReimb = (c) => {
   return withBusy(
     `reimb-${c.id}`,
     () => api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() }),
-    loadClaims
-  );
-};
-
-const approveMed = (c) => {
-  const targetPayrollPeriodId = Number(claimTargetByKey[`med-${c.id}`] || 0);
-  if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
-  return withBusy(
-    `med-${c.id}`,
-    (override = {}) =>
-      api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId, ...override }),
-    loadClaims
-  );
-};
-
-const rejectMed = (c) => {
-  const reason = window.prompt('Rejection reason (optional):', '') ?? null;
-  if (reason === null) return;
-  return withBusy(
-    `med-${c.id}`,
-    () => api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() }),
     loadClaims
   );
 };
@@ -2057,13 +2132,12 @@ const returnEventTimeSubmission = async (submission) => {
 
 const applyRouteQuery = () => {
   const t = String(route.query?.tab || '').toLowerCase();
-  if (['pto', 'time', 'event_time', 'mileage', 'reimbursement', 'medcancel'].includes(t)) tab.value = t;
+  if (['pto', 'time', 'event_time', 'mileage', 'reimbursement'].includes(t)) tab.value = t;
   else if (String(route.query?.type || '').toLowerCase().includes('pto') || String(route.query?.type || '').toLowerCase().includes('sick')) tab.value = 'pto';
   else if (String(route.query?.type || '').toLowerCase().includes('event')) tab.value = 'event_time';
   else if (String(route.query?.type || '').toLowerCase() === 'time') tab.value = 'time';
   else if (String(route.query?.type || '').toLowerCase() === 'mileage') tab.value = 'mileage';
   else if (String(route.query?.type || '').toLowerCase().includes('reimb')) tab.value = 'reimbursement';
-  else if (String(route.query?.type || '').toLowerCase().includes('med')) tab.value = 'medcancel';
 
   const uid = Number(route.query?.userId || 0);
   focusUserId.value = Number.isFinite(uid) && uid > 0 ? uid : null;
@@ -2077,15 +2151,29 @@ const selectFirstPendingTabIfNeeded = () => {
     ['event_time', eventTimePendingCount.value],
     ['time', timeClaims.value.length],
     ['mileage', mileageClaims.value.length],
-    ['reimbursement', reimbClaims.value.length],
-    ['medcancel', medClaims.value.length]
+    ['reimbursement', reimbClaims.value.length]
   ];
   const first = order.find(([, n]) => Number(n || 0) > 0);
   if (first) setTab(first[0]);
 };
 
 watch(agencyId, async (id, prev) => {
-  if (id && id !== prev) await reloadAll();
+  if (id === prev) return;
+  periods.value = [];
+  agencyUsers.value = [];
+  defaultTargetPeriodId.value = null;
+  ptoRequests.value = [];
+  ptoBalancesByUserId.value = {};
+  timeClaims.value = [];
+  mileageClaims.value = [];
+  reimbClaims.value = [];
+  approvedTimeClaims.value = [];
+  approvedMileageClaims.value = [];
+  eventTimeSubmissions.value = [];
+  for (const map of [claimTargetByKey, ptoTargetById, timeBucketById, timeHoursOverrideById, approvedTimeEdits, mileageTierById, eventTimeTargetPeriodByPunchId]) {
+    for (const key of Object.keys(map)) delete map[key];
+  }
+  if (id) await reloadAll();
 });
 
 watch(
@@ -2112,6 +2200,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.pps-tier { display: inline-block; padding: 4px 10px; border-radius: 16px; white-space: nowrap; }
+.pps-tier-1 { background: #d5eef8; color: #164d62; }
+.pps-tier-2 { background: #ffebc6; color: #724300; }
+.pps-tier-3 { background: #eadef5; color: #5f3582; }
+
 .pps-page {
   --pps-forest: #1E3A34;
   --pps-mint: #E8F5E9;
