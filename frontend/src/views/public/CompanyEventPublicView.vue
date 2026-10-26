@@ -49,6 +49,8 @@
           </a>
         </div>
 
+        <EventTravelPanel v-if="isEmployee" :event-id="eventId" />
+
         <!-- Photo strip (horizontal scroll, all images) -->
         <div v-if="allImages.length > 0" class="event-photo-strip">
           <button
@@ -360,6 +362,7 @@
 </template>
 
 <script setup>
+import EventTravelPanel from '../../components/events/EventTravelPanel.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -383,6 +386,7 @@ const rsvpName = ref('');
 
 /** Logged-in user (if any) — used to pre-fill and bypass name/email fields. */
 const authUser = computed(() => authStore.isAuthenticated ? authStore.user : null);
+const isEmployee = computed(() => ['provider', 'provider_plus', 'supervisor', 'supervisee', 'staff', 'support', 'admin', 'super_admin', 'clinical_practice_assistant'].includes(authUser.value?.role));
 
 /** Inline RSVP / registration form state. */
 const regForm = reactive({

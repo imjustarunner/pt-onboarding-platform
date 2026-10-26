@@ -142,3 +142,13 @@ describe('check-in reminder scheduling and pay defaults', () => {
     vi.unstubAllEnvs();
   });
 });
+
+it('refreshes existing travel directions without adding a second policy section or publishing an update', () => {
+  const source = { sections: [{ slug: 'indirect-services', status: 'ready', bodyHtml: '<h4>Approved event time</h4><p>Use the event page to enter actual travel start and end times for each direction.</p>' }] };
+  applyEventTimeHandbookAmendment(source, 'itsco');
+  expect(source.sections[0].bodyHtml).toContain('Log travel time');
+  expect(source.sections[0].bodyHtml.match(/<h4>/g)).toHaveLength(1);
+  const update = [{ id: 4, status: 'draft', changed_content: "<h4>Approved events and travel</h4><p>Enter each direction's actual start and end times on the event page without duplicating event attendance time.</p>" }];
+  applyEventTimeReviewAmendment(update, 'itsco'); expect(update[0].status).toBe('draft');
+  expect(update[0].changed_content).toContain('staff event check-in page');
+});

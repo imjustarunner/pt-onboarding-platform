@@ -33,20 +33,7 @@
             <button v-if="participation.clockedIn" type="button" class="btn btn-primary" :disabled="busy || !participation.canCheckOut" @click="punch('check-out')">Check out</button>
             <button v-else-if="participation.assigned" type="button" class="btn btn-primary" :disabled="busy || !participation.canCheckIn" @click="punch('check-in')">Check in</button>
           </section>
-          <section v-if="participation?.assigned || participation?.lastPunch">
-            <h2>Travel time</h2>
-            <p>Record actual travel to and from this event as Support Activity → Approved Travel, paid at your Support Activity rate. Submit each direction separately from time checked in at the event.</p>
-            <form @submit.prevent="submitTravel">
-              <label>Travel direction<select v-model="travelDirection" required><option value="to_event">To the event</option><option value="from_event">From the event</option></select></label>
-              <p>Enter times in your device timezone: {{ deviceTimezone }}.</p>
-              <div class="travel-fields">
-                <label>Travel started<input v-model="travelStartedAt" type="datetime-local" required /></label>
-                <label>Travel ended<input v-model="travelEndedAt" type="datetime-local" :min="travelStartedAt" required /></label>
-              </div>
-              <label class="attestation"><input v-model="travelAttestation" type="checkbox" required /> This is my actual travel time and I have not logged it elsewhere.</label>
-              <button type="submit" class="btn btn-secondary" :disabled="busy || !travelAttestation || !travelStartedAt || !travelEndedAt">Submit travel for review</button>
-            </form>
-          </section>
+          <EventTravelPanel v-if="participation" :event-id="eventId" :participation="participation" />
         </template>
         <p v-if="notice" role="status" class="notice">{{ notice }}</p>
       </template>
@@ -56,6 +43,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue';
+import EventTravelPanel from '../../components/events/EventTravelPanel.vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -73,11 +61,6 @@ const busy = ref(false);
 const error = ref('');
 const notice = ref('');
 const response = ref('');
-const travelStartedAt = ref('');
-const travelEndedAt = ref('');
-const travelAttestation = ref(false);
-const travelDirection = ref('to_event');
-const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const responseLabel = computed(() => ({ yes: 'Interested', maybe: 'Maybe', no: 'Unavailable' })[response.value] || response.value);
 const formatDate = (value) => value ? new Date(value).toLocaleString() : '';
 const staffEndpoint = () => `/company-events/staff/${eventId.value}/${encodeURIComponent(token.value)}`;
@@ -96,20 +79,6 @@ async function punch(action) {
   busy.value = true; error.value = ''; notice.value = '';
   try { await api.post(`/me/company-events/${eventId.value}/${action}`, {}); await loadParticipation(); notice.value = action === 'check-in' ? 'Checked in. Your event time is being recorded.' : 'Checked out. Your event time was saved.'; }
   catch (e) { error.value = e?.response?.data?.error?.message || 'Could not record your event time.'; }
-  finally { busy.value = false; }
-}
-async function submitTravel() {
-  if (busy.value || !travelAttestation.value) return;
-  const start = new Date(travelStartedAt.value);
-  const end = new Date(travelEndedAt.value);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) { error.value = 'Travel end must be after travel start.'; return; }
-  busy.value = true; error.value = ''; notice.value = '';
-  try {
-    const { data } = await api.post(`/me/company-events/${eventId.value}/travel-context`, { travelStartedAt: start.toISOString(), travelEndedAt: end.toISOString(), travelDirection: travelDirection.value, attestation: true });
-    await api.post('/payroll/me/time-claims', data);
-    notice.value = 'Travel time submitted for review.';
-    travelStartedAt.value = ''; travelEndedAt.value = ''; travelAttestation.value = false;
-  } catch (e) { error.value = e?.response?.data?.error?.message || 'Could not submit travel time.'; }
   finally { busy.value = false; }
 }
 onMounted(async () => {

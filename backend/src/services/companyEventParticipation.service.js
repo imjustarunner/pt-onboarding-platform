@@ -24,17 +24,17 @@ export async function loadEmployeeEvent({ eventId, userId, db = pool }) {
   return event;
 }
 
-export async function employeeAssignedToEvent({ event, userId, date, db = pool }) {
+export async function employeeAssignedToEvent({ event, userId, date, anyDate = false, db = pool }) {
   const [rows] = await db.execute(
     `SELECT 1 AS assigned FROM company_event_provider_assignments WHERE company_event_id = ? AND provider_user_id = ?
      UNION ALL
      SELECT 1 FROM company_event_session_providers sp
      JOIN company_event_session_dates sd ON sd.id = sp.session_date_id AND sd.company_event_id = sp.company_event_id
-     WHERE sp.company_event_id = ? AND sp.agency_id = ? AND sp.provider_user_id = ? AND sp.assignment_status = 'finalized' AND sd.session_date = ?
+     WHERE sp.company_event_id = ? AND sp.agency_id = ? AND sp.provider_user_id = ? AND sp.assignment_status = 'finalized' ${anyDate ? '' : 'AND sd.session_date = ?'}
      UNION ALL
      SELECT 1 FROM skills_group_providers gp JOIN skills_groups g ON g.id = gp.skills_group_id
      WHERE g.company_event_id = ? AND g.agency_id = ? AND gp.provider_user_id = ? LIMIT 1`,
-    [event.id, userId, event.id, event.agency_id, userId, date, event.id, event.agency_id, userId]);
+    [event.id, userId, event.id, event.agency_id, userId, ...(anyDate ? [] : [date]), event.id, event.agency_id, userId]);
   return !!rows?.length;
 }
 
@@ -49,6 +49,7 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
   const event = await loadEmployeeEvent({ eventId, userId, db });
   const date = utcDateToZonedYmd(now, event.timezone);
   const assigned = await employeeAssignedToEvent({ event, userId, date, db });
+  const canSubmitTravel = assigned || await employeeAssignedToEvent({ event, userId, anyDate: true, db });
   const [punches] = await db.execute(
     'SELECT id, punch_type, punched_at, session_id FROM skill_builders_event_kiosk_punches WHERE company_event_id = ? AND user_id = ? ORDER BY punched_at DESC, id DESC LIMIT 1', [event.id, userId]);
   const last = punches?.[0] || null;
@@ -56,7 +57,7 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
   const isEventDay = await isEmployeeEventDay({ event, date, db });
   const canManage = ['super_admin', 'admin', 'support', 'staff'].includes(String(event.user_role || '').toLowerCase())
     || await isEventCoordinator({ userId, agencyId: event.agency_id, eventId: event.id });
-  return { eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), assigned, clockedIn, isEventDay, canManage,
+  return { eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), assigned, canSubmitTravel, clockedIn, isEventDay, canManage,
     canCheckIn: assigned && isEventDay && Number(event.is_active) === 1 && event.school_event_status !== 'canceled' && !clockedIn, canCheckOut: clockedIn,
     timezone: event.timezone || 'America/Denver', today: date,
     lastPunch: last ? { id: Number(last.id), type: last.punch_type, at: toUtcIso(last.punched_at), sessionId: last.session_id } : null,

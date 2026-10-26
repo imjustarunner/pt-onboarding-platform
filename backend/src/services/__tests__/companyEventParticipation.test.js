@@ -1,7 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
-import { eventTravelInterval, validateEventTravelPayload, employeeAssignedToEvent, loadEmployeeEvent, isEmployeeEventDay, recordEmployeeEventParticipation } from '../companyEventParticipation.service.js';
+import { eventTravelInterval, validateEventTravelPayload, employeeAssignedToEvent, loadEmployeeEvent, isEmployeeEventDay, getEmployeeEventParticipation, recordEmployeeEventParticipation } from '../companyEventParticipation.service.js';
 import PayrollTimeClaim from '../../models/PayrollTimeClaim.model.js';
 import { recordSkillBuilderEventClockIn, recordSkillBuilderEventClockOut } from '../skillBuildersEventKioskPunch.service.js';
 import { loadEventPayrollContext } from '../eventPayrollRate.service.js';
@@ -162,4 +162,16 @@ test('a public school edit cannot persist a new coordinator without an authentic
   t.mock.method(pool, 'getConnection', async () => db);
   await assert.rejects(saveEventOperations({ eventId: 4, agencyId: 2, actorUserId: null, operations: { coordinatorUserIds: [7] } }), /signed-in agency event manager/);
   assert.deepEqual(actions, ['rollback', 'release']);
+});
+
+test('keeps travel entry available after an assigned date without opening check-in on a different date', async () => {
+  const db = { execute: async (sql, args) => {
+    if (sql.includes('FROM company_events e')) return [[{ ...event, user_role: 'admin' }]];
+    if (sql.includes('FROM company_event_provider_assignments')) return [sql.includes('sd.session_date = ?') ? [] : [{ assigned: 1 }]];
+    if (sql.includes('SELECT id, punch_type')) return [[]];
+    if (sql.includes('SELECT session_date')) return [[{ session_date: '2026-10-24' }]];
+    throw new Error(sql);
+  } };
+  const p = await getEmployeeEventParticipation({ eventId: 4, userId: 9, db, now: new Date('2026-10-26T18:00:00Z') });
+  assert.equal(p.assigned, false); assert.equal(p.canSubmitTravel, true); assert.equal(p.canCheckIn, false);
 });

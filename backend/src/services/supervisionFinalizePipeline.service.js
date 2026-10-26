@@ -1,3 +1,6 @@
+import { resolveHourlySuperviseePay } from './hourlySupervisionPay.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import { isStudentIntern } from './internMeetingPolicy.service.js';
 import {reconcileSupervisorClaim} from './supervisionPayrollCorrection.service.js';
@@ -813,47 +816,91 @@ export async function createSupervisorSupervisionTimeClaim({
   }
 }
 
-/**
- * Optional 99414 supervisee claim path — same hourly-or-rate gate as supervisor claims.
- * Currently unused by finalize (hours accrue via supervision_session_hour_credits), but
- * kept so any future/manual 99414 claim creation shares S8 eligibility rules.
- */
-export async function createSuperviseeSupervisionTimeClaim({
-  session,
-  userId,
-  rollups = [],
-  actorUserId = null
-} = {}) {
-  const sid = Number(session?.id || 0);
-  const agencyId = Number(session?.agency_id || 0);
-  const superviseeId = Number(userId || session?.supervisee_user_id || 0);
-  if (!sid || !agencyId || !superviseeId) {
-    return { ok: false, skipped: true, reason: 'missing_session' };
+/** Create reviewable claims for paid hourly supervisees; candidate hours remain independent. */
+export async function createSuperviseeSupervisionTimeClaim({ session, userId, rollups = [], actorUserId = null } = {}) {
+  const sid = Number(session?.id), agencyId = Number(session?.agency_id);
+  const uid = Number(userId || session?.supervisee_user_id);
+  if (!sid || !agencyId || !uid) return { ok: false, skipped: true, reason: 'missing_session' };
+  const claimDate = utcDateToZonedYmd(parseUtcDate(session.start_at), session.event_timezone || 'America/Denver');
+  const pay = await resolveHourlySuperviseePay({ agencyId, userId: uid, asOf: claimDate });
+  if (!pay?.payable) return { ok: true, skipped: true, reason: 'not_paid_hourly_supervisee' };
+  const minutes = Math.round(Number(rollups.find(r => Number(r.user_id) === uid)?.total_seconds || 0) / 60);
+  if (!(minutes > 0)) return { ok: true, skipped: true, reason: 'no_attendance' };
+  const sessionType = String(session.session_type || 'individual').toLowerCase();
+  if (sessionType === 'group') {
+    const attendees = await SupervisionSession.listAttendees(sid);
+    const attendee = attendees.find(a => Number(a.user_id) === uid);
+    if (Number(attendee?.is_required) !== 1) return { ok: true, skipped: true, reason: 'optional_group_attendance' };
   }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[locked]] = await conn.execute('SELECT id, status FROM supervision_sessions WHERE id = ? FOR UPDATE', [sid]);
+    if (locked?.status !== 'FINALIZED') {
+      await conn.rollback(); return { ok: true, skipped: true, reason: 'not_finalized' };
+    }
+    const [claims] = await conn.execute(
+      `SELECT c.id, c.status, c.payload_json, p.status AS period_status, p.posted_at, p.finalized_at
+       FROM payroll_time_claims c LEFT JOIN payroll_periods p ON p.id = c.target_payroll_period_id
+       WHERE c.agency_id = ? AND c.user_id = ? AND c.claim_type = 'indirect_time'
+         AND c.status IN ('submitted', 'needs_changes', 'approved', 'deferred', 'paid')
+         AND (c.claim_date = ? OR CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.supervisionSessionId')) AS UNSIGNED) = ?)
+       FOR UPDATE`, [agencyId, uid, claimDate, sid]);
+    const linked = claims.find(c => Number(parseClaimPayload(c).supervisionSessionId) === sid);
+    if (linked) { await conn.commit(); return { ok: true, skipped: true, claimId: linked.id, reason: 'duplicate_found' }; }
+    // Match only a supervision entry with the same actual duration and exact local interval.
+    // Ambiguous existing supervision is held for review rather than risking a second payment.
+    const supervisionClaims = claims.filter(c => {
+      const p = parseClaimPayload(c);
+      return !p.supervisionSessionId && (p.allocations || []).some(a =>
+        ['supervision', 'clinical_supervision_sa'].includes(a.serviceTypeKey));
+    });
+    const matching = supervisionClaims.filter(c => manualSupervisionMatches(c, session, minutes));
+    if (matching.length === 1) {
+      const claim = matching[0];
+      if (claim.status === 'paid' || ['posted', 'finalized'].includes(claim.period_status) || claim.posted_at || claim.finalized_at) {
+        await conn.commit(); return { ok: true, skipped: true, claimId: claim.id, reason: 'existing_posted_manual_claim' };
+      }
+      const payload = { ...parseClaimPayload(claim), supervisionSessionId: sid, sessionType, participantRole: 'supervisee',
+        supervisionLinkSource: 'attendance_match' };
+      await conn.execute('UPDATE payroll_time_claims SET payload_json = ? WHERE id = ?', [JSON.stringify(payload), claim.id]);
+      await conn.commit(); return { ok: true, skipped: true, claimId: claim.id, reason: 'manual_claim_linked' };
+    }
+    if (supervisionClaims.length) {
+      await conn.commit(); return { ok: true, skipped: true, reason: 'existing_manual_supervision_needs_review', claimIds: supervisionClaims.map(c => c.id) };
+    }
+    const serviceType = await ensureSupervisionServiceType(agencyId);
+    const win = await computeSubmissionWindow({ agencyId, effectiveDateYmd: claimDate, submittedAt: new Date(),
+      timeZone: session.event_timezone || 'America/Denver', hardStopPolicy: '60_days' });
+    if (!serviceType?.id || !win?.ok) {
+      await conn.rollback(); return { ok: false, skipped: true, reason: win?.errorMessage || 'missing_service_type' };
+    }
+    const payload = { description: `${sessionType === 'group' ? 'Group' : 'Individual'} supervision`,
+      entryMethod: 'manual', allocationMode: 'duration', totalMinutes: minutes, bucket: 'indirect', attestation: true,
+      source: 'supervision_session_finalize', supervisionSessionId: sid, sessionType, participantRole: 'supervisee',
+      hourlySupervision: true, serviceCode: 'MEETING',
+      allocations: [{ serviceTypeId: Number(serviceType.id), serviceTypeKey: 'supervision', serviceTypeLabel: 'Supervision',
+        minutes, payBucket: 'indirect', note: `Supervision session #${sid} (${sessionType})` }] };
+    const [result] = await conn.execute(
+      `INSERT INTO payroll_time_claims
+       (agency_id, user_id, submitted_by_user_id, status, claim_type, claim_date, payload_json, suggested_payroll_period_id, bucket, credits_hours)
+       VALUES (?, ?, ?, 'submitted', 'indirect_time', ?, ?, ?, 'indirect', ?)`,
+      [agencyId, uid, actorUserId || uid, claimDate, JSON.stringify(payload), win.suggestedPayrollPeriodId || null, clampHours(minutes / 60)]);
+    await conn.commit(); return { ok: true, created: true, claimId: result.insertId, minutes };
+  } catch (error) { await conn.rollback(); throw error; } finally { conn.release(); }
+}
 
-  const sessionType = String(session?.session_type || 'individual').trim().toLowerCase() || 'individual';
-  const superviseeCodes = sessionType === 'group' ? ['99416', '99414'] : ['99414'];
-  const claimDate = mysqlDateYmd(session.start_at);
-  const eligibility = await userEligibleForSupervisionTimeClaim({
-    agencyId,
-    userId: superviseeId,
-    serviceCodes: superviseeCodes,
-    asOf: claimDate
-  });
-  if (!eligibility.eligible) {
-    return { ok: true, skipped: true, reason: eligibility.reason || 'not_eligible_for_claim' };
-  }
+function parseClaimPayload(claim) {
+  return typeof claim.payload_json === 'string' ? JSON.parse(claim.payload_json) : (claim.payload_json || {});
+}
 
-  // No automatic claim creation yet — eligibility gate only.
-  return {
-    ok: true,
-    skipped: true,
-    reason: 'supervisee_claim_not_auto_created',
-    eligible: true,
-    eligibilityReason: eligibility.reason,
-    rollupSeconds: Number((rollups || []).find((r) => Number(r.user_id) === superviseeId)?.total_seconds || 0),
-    actorUserId: actorUserId ? Number(actorUserId) : null
-  };
+export function manualSupervisionMatches(claim, session, minutes) {
+  const p = parseClaimPayload(claim);
+  const parts = value => new Intl.DateTimeFormat('en-GB', { timeZone: session.event_timezone || 'America/Denver',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(parseUtcDate(value));
+  return Number(p.totalMinutes) === minutes
+    && (p.startTime || p.allocations?.[0]?.startTime) === parts(session.start_at)
+    && (p.endTime || p.allocations?.[0]?.endTime) === parts(session.end_at);
 }
 
 export async function maybePullTranscriptAndSummarize({ session, actorUserId = null, force = true } = {}) {
@@ -939,6 +986,15 @@ export async function reverseSupervisionFinalizeSideEffects({ session } = {}) {
   }
 
   await pool.execute(
+    `UPDATE payroll_time_claims SET status = 'withdrawn'
+     WHERE agency_id = ? AND status IN ('submitted', 'needs_changes', 'deferred')
+       AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.source')) = 'supervision_session_finalize'
+       AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.participantRole')) = 'supervisee'
+       AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.supervisionSessionId')) AS UNSIGNED) = ?`,
+    [agencyId, sid]
+  );
+
+  await pool.execute(
     'UPDATE supervision_sessions SET supervisor_time_claim_id = NULL WHERE id = ? LIMIT 1',
     [sid]
   );
@@ -985,6 +1041,16 @@ export async function runSupervisionFinalizeSideEffects({
   } catch (e) {
     console.warn('[supervisionFinalize] supervisor claim failed', e?.message || e);
     out.claim = { ok: false, error: e?.message || 'claim_failed' };
+  }
+
+  out.superviseeClaims = [];
+  for (const userId of await resolveSuperviseeUserIds(session)) {
+    try {
+      out.superviseeClaims.push(await createSuperviseeSupervisionTimeClaim({ session, userId, rollups, actorUserId }));
+    } catch (error) {
+      console.warn('[supervisionFinalize] hourly supervisee claim failed', error?.message);
+      out.superviseeClaims.push({ ok: false, userId, error: error?.message || 'claim_failed' });
+    }
   }
 
   try {

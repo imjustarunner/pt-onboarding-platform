@@ -1,3 +1,4 @@
+import { resolveHourlySuperviseePay } from '../services/hourlySupervisionPay.service.js';
 import { validateFfsExcess, persistFfsExcessClaim } from '../services/ffsExcessTime.service.js';
 import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
 import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
@@ -5336,7 +5337,7 @@ function superviseeSessionPayable({ userId, serviceDate, eligibleByUserId, start
   return dos >= startDate;
 }
 
-async function buildResolvedSupervisionUnitsByUserCode({
+export async function buildResolvedSupervisionUnitsByUserCode({
   payrollPeriodId,
   agencyId,
   periodStart,
@@ -5383,6 +5384,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
          CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
        ))) AS participant_role,
        LOWER(TRIM(COALESCE(u.role, ''))) AS participant_user_role,
+       COALESCE(u.is_hourly_worker, 0) AS is_hourly_worker,
        COALESCE(ssa.is_compensable_snapshot, 0) AS is_compensable_snapshot,
        SUM(COALESCE(ssar.total_seconds, 0)) AS total_seconds
      FROM supervision_session_attendance_rollups ssar
@@ -5406,6 +5408,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
          CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
        ))),
        LOWER(TRIM(COALESCE(u.role, ''))),
+       COALESCE(u.is_hourly_worker, 0),
        COALESCE(ssa.is_compensable_snapshot, 0)`;
   let appRows = [];
   try {
@@ -5446,6 +5449,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
     ) {
       continue;
     }
+    if (!isSupervisor && Number(r.is_hourly_worker) === 1 && !prelicensedUserIds.has(uid)) continue;
     const minutes = Number(r.total_seconds || 0) / 60;
     if (!(Number.isFinite(minutes) && minutes > 0)) continue;
 
@@ -19094,7 +19098,9 @@ export const listTimeClaims = async (req, res, next) => {
         const code = String(payload.serviceCode || '').trim();
         const mt = String(payload.meetingType || '').trim();
         const categoryGroup = String(payload.categoryGroup || '').trim().toLowerCase();
-        if (categoryGroup === 'support_activity' || code === 'MEETING') {
+        if (payload.hourlySupervision) {
+          rateLabel = 'Hourly Supervision Rate';
+        } else if (categoryGroup === 'support_activity' || code === 'MEETING') {
           rateLabel = 'Support Activity rate';
         } else if (code) {
           rateLabel = ({ '99415': 'Individual Supervision Rate', '99416': 'Group Supervision Rate' })[code] || `${code} rate`;
@@ -19394,6 +19400,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
     if (type === 'meeting_training' && payload.source === 'meeting_compensation_auto') {
       const hourlyRate = await meetingClaimHourlyRate(claim);
       return hourlyRate == null ? null : Math.round(hrs * hourlyRate * 100) / 100;
+    }
+
+    if (payload.source === 'supervision_session_finalize' && payload.participantRole === 'supervisee' && payload.hourlySupervision) {
+      const pay = await resolveHourlySuperviseePay({ agencyId: Number(claim.agency_id), userId: Number(claim.user_id), asOf: claim.claim_date, rateCard });
+      return pay?.payable ? Math.round(hrs * pay.rateAmount * 100) / 100 : null;
     }
 
     const claimBucket = normalizeTimeClaimBucket(

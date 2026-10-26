@@ -8,6 +8,8 @@ export default {
       'src/controllers/__tests__/payrollSubmissions.test.js',
       'src/controllers/__tests__/payrollApprovedVisibility.test.js',
       'src/services/__tests__/supervisionUnpaidHours.test.js',
+      'src/services/__tests__/hourlySupervisionPay.test.js',
+      'src/services/__tests__/events.checkin.test.js',
       'src/controllers/__tests__/supervisionPayrollRates.test.js',
       'src/controllers/__tests__/supplementalPayrollRates.test.js',
       'src/services/__tests__/supervisionPayrollCorrection.test.js'

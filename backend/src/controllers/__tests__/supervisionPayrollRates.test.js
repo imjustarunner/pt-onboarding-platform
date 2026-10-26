@@ -33,3 +33,10 @@ it('keeps unpaid candidate attendance visible without marking it payable', async
   const result = await logs({ participant_role: 'supervisee', session_type: 'individual' });
   expect((result.logs || result.rows || result)[0]).toMatchObject({ totalHours: 1, pay: { payable: false, computedAmount: 0 } });
 });
+
+it('shows paid hourly supervisees at their existing indirect rate with no candidate hours', async () => {
+  m.user.mockResolvedValue({ is_hourly_worker: 1, credential: 'BA', role: 'provider' });
+  m.execute.mockResolvedValue([[{ supervision_is_prelicensed: 0 }]]); m.rate.mockResolvedValue(null); m.card.mockResolvedValue({ indirect_rate: 21 });
+  const result = await logs({ participant_role: 'supervisee', session_type: 'individual', total_seconds: 3720 });
+  expect(result.logs[0].pay).toMatchObject({ payable: true, rateAmount: 21, computedAmount: 21.63 });
+});

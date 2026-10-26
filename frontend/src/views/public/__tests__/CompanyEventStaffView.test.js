@@ -53,4 +53,11 @@ describe('staff event participation', () => {
     expect(api.post).toHaveBeenNthCalledWith(2, '/payroll/me/time-claims', claim);
     expect(wrapper.text()).toContain('Travel time submitted for review');
   });
+  it('shows travel after an assigned date even without a kiosk punch', async () => {
+    state.participation = { assigned: false, canSubmitTravel: true, isEventDay: false };
+    const wrapper = await render();
+    expect(wrapper.findAll('input[type="datetime-local"]')).toHaveLength(2);
+    expect(button(wrapper, 'Check in')).toBeUndefined();
+  });
+
 });

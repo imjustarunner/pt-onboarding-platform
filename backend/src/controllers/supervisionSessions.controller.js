@@ -1,3 +1,4 @@
+import { resolveHourlySuperviseePay } from '../services/hourlySupervisionPay.service.js';
 import { hasClinicalSupervisionHistory } from '../services/clinicalSupervisionHistory.service.js';
 import { makeSupervisionRecurring } from '../services/supervisionRecurrenceEdit.service.js';
 import { userBelongsToAgency } from '../services/supervisionSignup.service.js';
@@ -1481,7 +1482,8 @@ async function resolveSupervisionPayForParticipant({
   userId,
   participantRole,
   sessionType,
-  asOfDate
+  asOfDate,
+  isRequired = false
 }) {
   const uid = Number(userId || 0);
   const aId = Number(agencyId || 0);
@@ -1546,6 +1548,14 @@ async function resolveSupervisionPayForParticipant({
       payable: true,
       reason: rateBreakdown.find((r) => r.reason)?.reason || null
     };
+  }
+
+  const hourlyPay = await resolveHourlySuperviseePay({ agencyId: aId, userId: uid, asOf, rateCard });
+  if (hourlyPay) {
+    if (sessionType === 'group' && !isRequired) return { ...hourlyPay, payable: false, reason: 'optional_group_attendance' };
+    return { ...hourlyPay, serviceCodes, rateUnit: 'per_hour', rateAmountTotalPerHour: hourlyPay.rateAmount,
+      rateBreakdown: [{ ...hourlyPay, rateUnit: 'per_hour' }],
+      reason: hourlyPay.payable ? null : 'missing_hourly_supervision_rate' };
   }
 
   const eligibility = await getSupervisionPayEligibility({ agencyId: aId, userId: uid });
@@ -3154,7 +3164,8 @@ export const listSupervisionAttendanceLogs = async (req, res, next) => {
         userId: Number(r.user_id),
         participantRole,
         sessionType: String(r.session_type || 'individual'),
-        asOfDate: String(r.start_at || '').slice(0, 10)
+        asOfDate: parseUtcDate(r.start_at)?.toISOString().slice(0, 10),
+        isRequired: Number(r.is_required) === 1
       });
       const hours = Number(r.total_seconds || 0) / 3600;
       const unitHours = Number.isFinite(hours) ? Math.round(hours * 100) / 100 : 0;
@@ -3269,7 +3280,8 @@ export const exportSupervisionAttendanceLogsCsv = async (req, res, next) => {
         userId: Number(r.user_id),
         participantRole,
         sessionType: String(r.session_type || 'individual'),
-        asOfDate: String(r.start_at || '').slice(0, 10)
+        asOfDate: parseUtcDate(r.start_at)?.toISOString().slice(0, 10),
+        isRequired: Number(r.is_required) === 1
       });
       const totalSeconds = Number(r.total_seconds || 0);
       const totalHours = Math.round((totalSeconds / 3600) * 100) / 100;

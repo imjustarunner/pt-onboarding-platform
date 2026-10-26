@@ -4,7 +4,8 @@ import CompanyEventPublicView from '../CompanyEventPublicView.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { eventId: '8' } }), useRouter: () => ({ replace: vi.fn() }) }));
-vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ isAuthenticated: false, user: null }) }));
+const auth = vi.hoisted(() => ({ isAuthenticated: false, user: null }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => auth }));
 const wrappers = [];
 const event = { id: 8, title: 'Bowling night', eventType: 'company_event', rsvpMode: 'yes_no_maybe', publicRegistrationEnabled: true, attendeeSmsEnabled: true };
 const data = { event, branding: { agencyName: 'ITSCO' }, smsConsentDisclosure: { enabled: true, disclosure: 'Texts are optional. Reply STOP to opt out.', termsUrl: '/sms-terms', privacyUrl: '/privacy' } };
@@ -14,7 +15,7 @@ async function enterRegistration(wrapper) {
   await wrapper.find('input[type="email"]').setValue('pat@example.com');
   await wrapper.find('.rsvp-choice--yes').trigger('click');
 }
-beforeEach(() => { localStorage.clear(); api.get.mockResolvedValue({ data }); api.post.mockResolvedValue({ data: { managementToken: 'guest-secret', smsConsentStatus: 'pending_review' } }); });
+beforeEach(() => { auth.isAuthenticated = false; auth.user = null; localStorage.clear(); api.get.mockResolvedValue({ data }); api.post.mockResolvedValue({ data: { managementToken: 'guest-secret', smsConsentStatus: 'pending_review' } }); });
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.clearAllMocks(); });
 
 describe('public attendee registration', () => {
@@ -98,4 +99,15 @@ describe('public attendee registration', () => {
     expect(wrapper.find('.attendee-check-in button').attributes('disabled')).toBeDefined();
     expect(wrapper.find('.attendee-check-in').text()).toContain('Check-in opens on the event day');
   });
+});
+
+it('shows the travel form on the event detail page for assigned employees', async () => {
+  auth.isAuthenticated = true; auth.user = { id: 7, role: 'provider' };
+  api.get.mockImplementation(url => Promise.resolve({ data: url.includes('/participation') ? { canSubmitTravel: true } : data }));
+  const wrapper = await render();
+  expect(wrapper.get('.event-travel-panel').findAll('input[type="datetime-local"]')).toHaveLength(2);
+});
+it('keeps employee payroll controls off the public guest page', async () => {
+  const wrapper = await render(); expect(wrapper.find('.event-travel-panel').exists()).toBe(false);
+  expect(api.get.mock.calls.some(([url]) => url.includes('/participation'))).toBe(false);
 });

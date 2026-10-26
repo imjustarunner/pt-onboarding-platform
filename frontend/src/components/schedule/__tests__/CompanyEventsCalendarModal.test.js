@@ -58,3 +58,11 @@ it('requests the selected available session and refreshes its pending status', a
   await wrapper.get('select').setValue('relevant');
   expect(wrapper.text()).toContain('Request pending');
 });
+
+it('opens travel entry directly from the events calendar', async () => {
+  await open();
+  api.get.mockResolvedValueOnce({ data: { canSubmitTravel: true } });
+  await wrapper.findAll('button').find(b => b.text() === 'Log travel time').trigger('click'); await flushPromises();
+  expect(api.get).toHaveBeenCalledWith('/me/company-events/1/participation');
+  expect(wrapper.get('.event-travel-panel').findAll('input[type="datetime-local"]')).toHaveLength(2);
+});
