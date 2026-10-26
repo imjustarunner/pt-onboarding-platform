@@ -5,7 +5,7 @@ import pool from '../../config/database.js';
 import { ingestTicketAttachmentsFromGmail, persistGmailAttachmentsForTicket } from '../unifiedEmail/ticketInboundAttachments.service.js';
 test.after(() => pool.end());
 
-function harness({ metadata = {}, complete = true, latest = { ticket_message_id: 12, gmail_message_id: 'current-gmail', internet_message_id: '<current@test>' }, legacy = [] } = {}) {
+function harness({ metadata = {}, complete = true, latest = { ticket_message_id: 12, gmail_message_id: 'current-gmail', internet_message_id: '<current@test>' }, legacy = [], headers = [] } = {}) {
   const updates = [], fetched = [], persisted = [];
   const database = { async execute(sql, values) {
     assert.equal((sql.match(/\?/g) || []).length, values.length);
@@ -14,7 +14,7 @@ function harness({ metadata = {}, complete = true, latest = { ticket_message_id:
     if (sql.startsWith('UPDATE support_tickets')) { updates.push({ sql, values }); return [{ affectedRows: 1 }]; }
     throw new Error(`Unexpected attachment query ${sql}`);
   } };
-  const gmail = { users: { messages: { get: async ({ id }) => { fetched.push(id); return { data: { payload: { mimeType: 'text/plain' } } }; } } } };
+  const gmail = { users: { messages: { get: async ({ id }) => { fetched.push(id); return { data: { payload: { mimeType: 'text/plain', headers } } }; } } } };
   return { ticket: { id: 7, source_email_message_id: '<original@test>', ai_draft_metadata_json: metadata }, updates, fetched, persisted,
     dependencies: { database, getGmailClient: async () => gmail,
       listTicketAttachments: async () => [{ id: 1, file_name: 'earlier.pdf', support_ticket_message_id: 4 }],
@@ -33,12 +33,14 @@ test('old attachment-complete flag cannot skip latest inbound inventory or promo
 });
 
 test('completion cache is accepted only for both current canonical message and Gmail message', async () => {
-  const f = harness({ metadata: { attachmentsIngested: true, attachmentsIngestedMessageId: 12, attachmentsIngestedGmailMessageId: 'current-gmail' } });
+  const f = harness({ metadata: { attachmentsIngested: true, attachmentsIngestedMessageId: 12, attachmentsIngestedGmailMessageId: 'current-gmail',
+    inboundEmailHeaders: { listUnsubscribe: true }, inboundEmailHeadersMessageId: 12, inboundEmailHeadersGmailMessageId: 'current-gmail' } });
   const result = await ingestTicketAttachmentsFromGmail({ ticket: f.ticket }, f.dependencies);
   assert.equal(result.skipped, 'already_ingested');
   assert.equal(result.intakeMessageId, 12);
   assert.equal(result.complete, true);
   assert.equal(f.fetched.length, 0);
+  assert.equal(result.headers.listUnsubscribe, true);
   const stale = harness({ metadata: { attachmentsIngested: true, attachmentsIngestedMessageId: 12, attachmentsIngestedGmailMessageId: 'different-gmail' } });
   await ingestTicketAttachmentsFromGmail({ ticket: stale.ticket }, stale.dependencies);
   assert.deepEqual(stale.fetched, ['current-gmail']);
@@ -49,8 +51,30 @@ test('successful manual inventory returns exact completion binding and guards pe
   const result = await ingestTicketAttachmentsFromGmail({ ticket: f.ticket }, f.dependencies);
   assert.deepEqual(result.attachmentCompletion, { attachmentsIngested: true, attachmentsIngestedMessageId: 12, attachmentsIngestedGmailMessageId: 'current-gmail' });
   assert.equal(result.intakeMessageId, 12);
-  assert.deepEqual(f.updates[0].values, [12, 'current-gmail', 7, 12]);
+  assert.deepEqual(f.updates[0].values.slice(0, 2), [12, 'current-gmail']);
+  assert.deepEqual(f.updates[0].values.slice(-2), [7, 12]);
   assert.match(f.updates[0].sql, /AND \?=\(SELECT e.ticket_message_id/);
+});
+
+test('historical completion refreshes missing or stale classification headers without persisting files again', async () => {
+  for (const staleHeaders of [{}, { inboundEmailHeaders: { listUnsubscribe: false }, inboundEmailHeadersMessageId: 4, inboundEmailHeadersGmailMessageId: 'old-gmail' }]) {
+    const f = harness({ metadata: { attachmentsIngested: true, attachmentsIngestedMessageId: 12,
+      attachmentsIngestedGmailMessageId: 'current-gmail', ...staleHeaders }, headers: [
+      { name: 'Auto-Submitted', value: 'no' }, { name: 'List-ID', value: 'school-news' },
+      { name: 'List-Unsubscribe', value: '<https://example.test/private-token>' },
+      { name: 'To', value: 'private-person@example.test' }
+    ] });
+    const result = await ingestTicketAttachmentsFromGmail({ ticket: f.ticket }, f.dependencies);
+    assert.deepEqual(f.fetched, ['current-gmail']);
+    assert.equal(f.persisted.length, 0);
+    assert.equal(result.skipped, 'already_ingested_headers_refreshed');
+    assert.deepEqual(result.headers, { autoSubmitted: 'no', listId: 'school-news', listUnsubscribe: true });
+    assert.deepEqual(result.headerMetadata, { inboundEmailHeaders: result.headers,
+      inboundEmailHeadersMessageId: 12, inboundEmailHeadersGmailMessageId: 'current-gmail' });
+    assert.match(f.updates[0].sql, /'\$\.inboundEmailHeaders',CAST\(\? AS JSON\)/);
+    assert.deepEqual(f.updates[0].values.slice(-4), [12, 'current-gmail', 7, 12]);
+    assert.doesNotMatch(JSON.stringify(result), /private-token|private-person/);
+  }
 });
 
 test('multiple legacy inbound messages without provenance remain incomplete instead of reusing original Gmail ID', async () => {

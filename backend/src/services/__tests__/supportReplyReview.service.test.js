@@ -9,14 +9,22 @@ after(() => { if (originalKey === undefined) delete process.env.CLIENT_CHAT_ENCR
 function memoryDb() {
   const config = { agency_id: 2, reviewer_user_id: 507, pilot_user_ids_json: '[559,555]', time_zone: 'America/Denver', send_time: '18:00', weekdays_only: 1, is_enabled: 1, created_at: new Date('2026-10-26T12:00:00Z') };
   const ticket = { id: 10, agency_id: 2, claimed_by_user_id: 559, source_channel: 'email', question: 'Original school email', subject: 'Schedule', source_email_received_at: new Date('2026-10-26T15:00:00Z') };
-  const state = { config, ticket, revision: 11, snapshots: [], digests: [], notifications: [], mail: [], sentCommunications: new Set(), queries: [], denyMember: false };
+  const state = { config, ticket, revision: 11, snapshots: [], digests: [], notifications: [], mail: [], sentCommunications: new Set(), queries: [], denyMember: false,
+    inbound: [{ id: 11, body: 'Latest received email', received_at: new Date('2026-10-26T16:00:00Z'), internet_message_id: '<school-incoming@school>' }], externalReceipts: [] };
   return { state, async execute(sql, params = []) {
     state.queries.push({ sql, params });
     if (sql.startsWith('SELECT * FROM support_reply_pilot_config')) return [[config]];
     if (sql.startsWith('SELECT agency_id FROM user_agencies')) return [state.denyMember ? [] : [{ agency_id: 2 }]];
     if (sql.startsWith('SELECT * FROM support_tickets')) return [Number(params[0]) === 10 && Number(params[1]) === 2 ? [ticket] : []];
     if (sql.includes('MAX(id), 0) AS revision')) return [[{ revision: state.revision }]];
-    if (sql.startsWith('SELECT m.*, e.internet_message_id')) return [[{ id: 11, body: 'Latest received email', received_at: new Date('2026-10-26T16:00:00Z'), internet_message_id: '<school-incoming@school>' }]];
+    if (sql.startsWith('SELECT m.*, e.internet_message_id')) {
+      let rows = state.inbound, index = 2;
+      if (sql.includes('COALESCE(e.sent_at, m.created_at) <= ?')) { const cutoff = new Date(`${params[index++].replace(' ', 'T')}Z`); rows = rows.filter((r) => r.received_at <= cutoff); }
+      const source = sql.includes('(e.ticket_message_id = ?) DESC') ? params[index++] : null;
+      return [rows.slice().sort((a, b) => Number(b.id === source) - Number(a.id === source) || b.received_at - a.received_at).slice(0, 1)];
+    }
+    if (sql.startsWith('SELECT * FROM support_ticket_email_messages')) return [state.externalReceipts.filter((e) => e.agency_id === params[0] && e.ticket_id === params[1] && e.ticket_message_id === params[2] && e.send_status === 'sent' && e.gmail_message_id && e.sent_at && !e.communication_id && !e.client_request_key)];
+    if (sql.startsWith('SELECT e.* FROM support_ticket_email_messages e')) return [state.externalReceipts.filter((e) => e.agency_id === params[0] && e.ticket_id === params[1] && e.ticket_message_id === params[2] && e.direction === 'inbound' && e.send_status === 'received' && e.gmail_message_id && e.sent_at && !e.communication_id && !e.client_request_key && ['provider', 'provider_plus'].includes(e.role))];
     if (sql.startsWith('SELECT * FROM support_reply_review_snapshots')) {
       let rows = state.snapshots;
       if (sql.includes('request_key = ?')) rows = rows.filter((s) => s.agency_id === params[0] && s.request_key === params[1]);
@@ -30,6 +38,7 @@ function memoryDb() {
         if (sql.includes('occurred_at <= ?')) { const cutoff = new Date(`${params[index++].replace(' ', 'T')}Z`); rows = rows.filter((s) => s.occurred_at <= cutoff); }
         rows = rows.slice().reverse();
       }
+      else if (sql.includes("snapshot_kind = 'external_reply'")) rows = rows.filter((s) => s.agency_id === params[0] && s.ticket_id === params[1] && s.ticket_message_id === params[2] && s.snapshot_kind === 'external_reply').slice().reverse();
       return [sql.includes('LIMIT 1') && !sql.includes('LIMIT 15001') ? rows.slice(0, 1) : rows];
     }
     if (sql.startsWith('INSERT INTO support_reply_review_snapshots')) {
@@ -101,6 +110,15 @@ describe('immutable support reply review', () => {
     const service = createSupportReplyReviewService({ db, encrypt: () => { throw new Error('missing key'); } });
     await assert.rejects(service.recordDraftSnapshot({ ...input, body: 'private response' }), { status: 503 });
     assert.equal(db.state.snapshots.length, 0);
+  });
+
+  it('uses the latest incoming email when a generation revision is an internal or outbound message', async () => {
+    const db = memoryDb(); db.state.revision = 15;
+    db.state.inbound.push({ id: 14, body: 'Newest actual incoming email', received_at: new Date('2026-10-26T16:30:00Z'), internet_message_id: '<latest@school>' });
+    const service = createSupportReplyReviewService({ db });
+    const draft = await service.recordDraftSnapshot({ ...input, threadRevision: '15', sourceMessageId: 15, body: 'Draft after an internal note' });
+    assert.equal(draft.originalReceived.body, 'Newest actual incoming email');
+    assert.equal(draft.sourceMessageId, '14');
   });
 
   it('rejects stale generation and draft IDs belonging to another ticket', async () => {
@@ -184,6 +202,85 @@ describe('immutable support reply review', () => {
     assert.ok(review.rows[0].coverageFlags.includes('delivery_snapshot_missing'));
   });
 
+  it('never captures a future incoming message or future ticket seed for a historical reply', async () => {
+    const db = memoryDb();
+    const service = createSupportReplyReviewService({ db });
+    const reply = await service.captureExternalReplyReview({ ...input, body: 'Earlier outbound message', ticketMessageId: 12,
+      transportMessageId: 'gmail-before-incoming', occurredAt: '2026-10-26T14:00:00Z' });
+    assert.equal(reply.originalReceived.available, false);
+    assert.equal(reply.originalReceived.body, '');
+    assert.equal(reply.originalReceived.receivedAt, null);
+    assert.equal(reply.sourceMessageId, null);
+    const review = await service.dailyReview({ agencyId: 2, date: '2026-10-26' });
+    assert.ok(review.rows[0].coverageFlags.includes('original_email_unavailable'));
+  });
+
+  it('appends one corrected external source while retaining the original immutable reply and sent count', async () => {
+    const db = memoryDb();
+    const service = createSupportReplyReviewService({ db });
+    const first = await service.captureExternalReplyReview({ ...input, body: 'Exact signed historical reply', ticketMessageId: 12,
+      transportMessageId: 'gmail-reply', occurredAt: '2026-10-26T17:00:00Z' });
+    const originalCiphertext = db.state.snapshots[0].payload_encrypted;
+    db.state.inbound.push({ id: 14, body: 'Recovered incoming email that was answered', received_at: new Date('2026-10-26T16:30:00Z'), internet_message_id: '<recovered@school>' });
+    db.state.externalReceipts.push({ agency_id: 2, ticket_id: 10, ticket_message_id: 12, send_status: 'sent', gmail_message_id: 'gmail-reply', sent_at: '2026-10-26T17:00:00Z' });
+    const correction = await service.reconcileExternalReplySourceEvidence({ ...input, ticketMessageId: 12 });
+    const retry = await service.reconcileExternalReplySourceEvidence({ ...input, ticketMessageId: 12 });
+    assert.equal(correction.corrected, true);
+    assert.equal(correction.supersedesSnapshotId, first.id);
+    assert.equal(retry.corrected, false);
+    assert.equal(retry.snapshotId, correction.snapshotId);
+    assert.equal(db.state.snapshots.length, 2);
+    assert.equal(db.state.snapshots[0].payload_encrypted, originalCiphertext);
+    const review = await service.dailyReview({ agencyId: 2, date: '2026-10-26' });
+    assert.equal(review.totals.sent, 1);
+    assert.equal(review.totals.externalReplies, 1);
+    assert.equal(review.rows[0].originalReceived.body, 'Recovered incoming email that was answered');
+    assert.equal(review.rows[0].comparison.sentBody, first.body);
+    assert.equal(review.rows[0].deliveries[0].occurredAt.toISOString(), first.occurredAt.toISOString());
+    await assert.rejects(service.reconcileExternalReplySourceEvidence({ ...input, agencyId: 9, ticketMessageId: 12 }), { code: 'support_review_external_receipt_required' });
+    db.state.externalReceipts[0].gmail_message_id = 'different-provider-receipt';
+    await assert.rejects(service.reconcileExternalReplySourceEvidence({ ...input, ticketMessageId: 12 }), { code: 'support_review_external_receipt_mismatch' });
+  });
+
+  it('preserves actual generated draft provenance during external history source repair', async () => {
+    const db = memoryDb();
+    const service = createSupportReplyReviewService({ db, now: () => new Date('2026-10-26T16:15:00Z') });
+    const draft = await service.recordDraftSnapshot({ ...input, body: 'Actual draft' });
+    await service.captureExternalReplyReview({ ...input, draftSnapshotId: draft.id, body: 'Actual reply', ticketMessageId: 12,
+      transportMessageId: 'gmail-reply', occurredAt: '2026-10-26T17:00:00Z' });
+    db.state.inbound.push({ id: 14, body: 'Recovered message', received_at: new Date('2026-10-26T16:30:00Z'), internet_message_id: '<recovered@school>' });
+    db.state.externalReceipts.push({ agency_id: 2, ticket_id: 10, ticket_message_id: 12, send_status: 'sent', gmail_message_id: 'gmail-reply', sent_at: '2026-10-26T17:00:00Z' });
+    const result = await service.reconcileExternalReplySourceEvidence({ ...input, ticketMessageId: 12 });
+    assert.equal(result.corrected, false);
+    assert.equal(result.reason, 'draft_provenance_preserved');
+    assert.equal(db.state.snapshots.length, 2);
+  });
+
+  it('retains misclassified historical evidence but excludes corrected provider mail from sent totals', async () => {
+    const db = memoryDb();
+    const service = createSupportReplyReviewService({ db });
+    const original = await service.captureExternalReplyReview({ ...input, actorUserId: 900, body: 'Provider asking the team for help', ticketMessageId: 12,
+      transportMessageId: 'gmail-provider', occurredAt: '2026-10-26T17:00:00Z' });
+    const ciphertext = db.state.snapshots[0].payload_encrypted;
+    db.state.externalReceipts.push({ agency_id: 2, ticket_id: 10, ticket_message_id: 12, direction: 'inbound', send_status: 'received', gmail_message_id: 'gmail-provider', sent_at: '2026-10-26T17:00:00Z', role: 'provider' });
+    db.state.mail.push({ ticket_id: 10, ticket_message_id: 12, direction: 'inbound', body: 'Provider asking the team for help', sent_at: '2026-10-26T17:00:00Z' });
+    // Canonical receipt truth already prevents a false sent count before repair finishes.
+    assert.equal((await service.dailyReview({ agencyId: 2, date: '2026-10-26' })).totals.sent, 0);
+    const marker = await service.recordIncomingClassificationCorrection({ ...input, ticketMessageId: 12 });
+    const retry = await service.recordIncomingClassificationCorrection({ ...input, ticketMessageId: 12 });
+    assert.equal(marker.snapshotId, retry.snapshotId);
+    assert.equal(marker.supersedesSnapshotId, original.id);
+    assert.equal(db.state.snapshots.length, 2);
+    assert.equal(db.state.snapshots[0].payload_encrypted, ciphertext);
+    const review = await service.dailyReview({ agencyId: 2, date: '2026-10-26' });
+    assert.equal(review.totals.sent, 0);
+    assert.equal(review.totals.externalReplies, 0);
+    assert.equal(review.totals.missingDraft, 0);
+    assert.equal(review.rows[0].deliveries.length, 0);
+    assert.ok(review.rows[0].coverageFlags.includes('historical_direction_corrected'));
+    await assert.rejects(service.recordIncomingClassificationCorrection({ ...input, agencyId: 9, ticketMessageId: 12 }), { code: 'support_review_incoming_receipt_required' });
+  });
+
   it('does not count a deterministic signature as an edit to an accepted draft', async () => {
     const db = memoryDb();
     const service = createSupportReplyReviewService({ db, now: () => new Date('2026-10-26T17:00:00Z') });
@@ -192,6 +289,21 @@ describe('immutable support reply review', () => {
     const review = await service.dailyReview({ agencyId: 2, date: '2026-10-26' });
     assert.equal(review.rows[0].comparison.edited, false);
     assert.equal(review.rows[0].comparison.sentBody, 'Unchanged draft\n\nVerified staff signature');
+  });
+
+  it('never calls an unreadable linked draft an edited response', async () => {
+    const db = memoryDb();
+    const service = createSupportReplyReviewService({ db });
+    const draft = await service.recordDraftSnapshot({ ...input, body: 'Generated draft' });
+    await service.captureSentReview({ ...input, draftSnapshotId: draft.id, ticketMessageId: 12, composedBody: 'Actual reply', body: 'Actual signed reply', deliveryStatus: 'sent', transportMessageId: 'gmail-confirmed' });
+    db.state.snapshots.find((s) => s.id === draft.id).payload_encrypted = 'unreadable encrypted evidence';
+    const review = await service.dailyReview({ agencyId: 2, date: '2026-10-26' });
+    assert.equal(review.rows[0].comparison.draftId, draft.id);
+    assert.equal(review.rows[0].comparison.generatedDraft, null);
+    assert.equal(review.rows[0].comparison.edited, null);
+    assert.equal(review.rows[0].comparison.draftUnavailable, true);
+    assert.equal(review.rows[0].comparison.missingDraft, false);
+    assert.ok(review.rows[0].coverageFlags.includes('encrypted_evidence_unavailable'));
   });
 
   it('checks actual membership even when an administrator supplies another agency ID', async () => {

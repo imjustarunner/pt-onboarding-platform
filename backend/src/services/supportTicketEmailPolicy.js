@@ -4,6 +4,12 @@ import { replyMessageIds } from '../utils/emailThreading.js';
 export const emailKey = (value) => String(value || '').trim().toLowerCase();
 export const emailHash = (value) => createHash('sha256').update(String(value)).digest('hex');
 
+// An agency account is not proof of speaking for support. Providers, including
+// provider_plus, routinely email support as requesters from their work address.
+export function isSupportEmailResponderRole(role) {
+  return ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant'].includes(emailKey(role));
+}
+
 export function chooseCanonicalSupportTicket(rows = []) {
   return [...rows].sort((a, b) => {
     const mapped = (row) => Number(row.canonical_ticket_id) === Number(row.id);

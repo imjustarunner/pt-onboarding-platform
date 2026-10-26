@@ -6,7 +6,43 @@ import { emailHash, emailKey, parseEmailList, supportEmailError } from './suppor
 import { preserveSupportTicketEmailCanonical, resolveSupportTicketEmailThread } from './supportTicketEmail.service.js';
 import { listTicketAttachments, markTicketInboundAttachmentsComplete, persistGmailAttachmentsForTicket } from './unifiedEmail/ticketInboundAttachments.service.js';
 
-async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId }, db) {
+const verifiedHistoryThreads = new WeakMap();
+
+/** Internal capability minted only from a complete, matching Gmail thread. */
+export function verifySupportTicketHistoryThread({ providerThread, agencyId, ticketId, threadId }) {
+  if (!Number.isSafeInteger(Number(agencyId)) || Number(agencyId) < 1
+      || !Number.isSafeInteger(Number(ticketId)) || Number(ticketId) < 1 || !threadId
+      || providerThread?.id !== threadId || !Array.isArray(providerThread.messages)
+      || providerThread.messages.some((m) => m.threadId !== threadId)) {
+    throw supportEmailError('The historical Gmail thread did not match its requested ticket source.', 409, 'SUPPORT_HISTORY_THREAD_UNVERIFIED');
+  }
+  const proof = Object.freeze({});
+  verifiedHistoryThreads.set(proof, { agencyId: Number(agencyId), ticketId: Number(ticketId), threadId });
+  return proof;
+}
+
+function hasVerifiedHistoryScope(input) {
+  const proof = verifiedHistoryThreads.get(input.historyThreadVerification);
+  return !!proof && input.preserveTicketState === true && input.generateDraft === false && input.createIfMissing === false
+    && proof.agencyId === Number(input.agencyId) && proof.ticketId === Number(input.targetTicketId) && proof.threadId === input.threadId;
+}
+
+async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId, verifiedHistory = false }, db) {
+  if (verifiedHistory) {
+    // Group rewriting can make the historic seed's From differ from its real
+    // author. A verified backfill may recover that mail only into its fixed,
+    // unambiguous target; live intake still uses participant matching below.
+    const [[target]] = await db.execute(`SELECT * FROM support_tickets WHERE id=? AND agency_id=?
+      AND source_channel='email' AND BINARY source_email_thread_id=BINARY ? FOR UPDATE`, [targetTicketId, agencyId, threadId]);
+    if (!target) return null;
+    const [scopes] = await db.execute(`SELECT school_organization_id,client_id,topic FROM support_tickets
+      WHERE agency_id=? AND source_channel='email' AND BINARY source_email_thread_id=BINARY ? LIMIT 501`, [agencyId, threadId]);
+    const scopeKey = (t) => JSON.stringify([Number(t.school_organization_id) || null, Number(t.client_id) || null, t.topic ?? null]);
+    if (!scopes.length || scopes.length > 500 || scopes.some((scope) => scopeKey(scope) !== scopeKey(target))) {
+      throw supportEmailError('The historical Gmail thread has more than one ticket scope.', 409, 'SUPPORT_HISTORY_SCOPE_AMBIGUOUS');
+    }
+    return target;
+  }
   const ids = [...new Set([messageId, ...replyMessageIds(inReplyTo, referencesHeader)].filter(Boolean))].slice(0, 40);
   const conditions = [], params = [agencyId];
   if (threadId) { conditions.push('t.source_email_thread_id=?'); params.push(threadId); }
@@ -70,7 +106,8 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
       // recording an external reply would replace that provenance in the digest.
       appOriginReceipt = receipt.direction === 'outbound' && !!(receipt.communication_id || receipt.client_request_key);
     } else {
-      ticket = await findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail: from, staffCopy, targetTicketId: input.targetTicketId }, db);
+      ticket = await findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail: from, staffCopy,
+        targetTicketId: input.targetTicketId, verifiedHistory: hasVerifiedHistoryScope(input) }, db);
       if (ticket && !input.targetTicketId) {
         const canonical = await resolveSupportTicketEmailThread(ticket, db);
         if (canonical.canonicalTicketId !== Number(ticket.id)) {
@@ -122,12 +159,13 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
             ai_draft_response=NULL,ai_draft_status='needs_review',ai_draft_review_state='pending',
             ai_draft_metadata_json=JSON_SET(COALESCE(ai_draft_metadata_json,JSON_OBJECT()),
               '$.inboundEmailHeaders',CAST(? AS JSON),'$.gmailMessageId',?,'$.fromDisplayName',?,
+              '$.inboundEmailHeadersMessageId',?,'$.inboundEmailHeadersGmailMessageId',?,
               '$.attachmentsIngested',CAST('false' AS JSON),
               '$.attachmentsIngestedMessageId',NULL,'$.attachmentsIngestedGmailMessageId',NULL),
             source_email_thread_id=COALESCE(?,source_email_thread_id) WHERE id=?`,
           [JSON.stringify({ autoSubmitted: String(input.headers?.autoSubmitted || '').slice(0, 100),
             listId: String(input.headers?.listId || '').slice(0, 200), listUnsubscribe: !!input.headers?.listUnsubscribe }),
-            gmailMessageId, input.fromDisplayName || null, threadId, ticket.id]);
+            gmailMessageId, input.fromDisplayName || null, ticketMessageId, gmailMessageId, threadId, ticket.id]);
         }
       }
     }
@@ -242,6 +280,7 @@ export async function loadLinkedSupportClientDraftFacts(ticket, dependencies = {
 export async function generateInboundSupportDraft({ ticketId, sourceMessageId, agencyId, intakeComplete }, dependencies = {}) {
   const database = dependencies.database || pool;
   const generateSupportEmailDraft = dependencies.generateSupportEmailDraft || (await import('./supportEmailDraft.service.js')).generateSupportEmailDraft;
+  const assessSupportEmailDraftReuse = dependencies.assessSupportEmailDraftReuse || (await import('./supportEmailDraft.service.js')).assessSupportEmailDraftReuse;
   const { recordDraftSnapshot, getLatestDraftSnapshot } = dependencies.review || await import('./supportReplyReview.service.js');
   const [[raw]] = await database.execute('SELECT * FROM support_tickets WHERE id=? AND agency_id=?', [ticketId, agencyId]);
   if (!raw || raw.topic === 'technology') return null;
@@ -257,8 +296,6 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
   // An attachment retry for an earlier email cannot replace or suppress the
   // current message's draft after a newer inbound has already been saved.
   if (latestInbound && Number(latestInbound.id) !== Number(sourceMessageId)) return null;
-  const existing = await getLatestDraftSnapshot({ ticketId, agencyId, sourceMessageId, threadRevision: revision });
-  if (existing) return existing;
   const attachments = await (dependencies.listTicketAttachments || listTicketAttachments)(ticketId);
   let intakeMetadata = raw.ai_draft_metadata_json || {};
   if (typeof intakeMetadata === 'string') { try { intakeMetadata = JSON.parse(intakeMetadata); } catch { intakeMetadata = {}; } }
@@ -267,9 +304,14 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
     [[claimant]] = await database.execute('SELECT id,first_name,last_name FROM users WHERE id=?', [raw.claimed_by_user_id]);
   }
   const linkedClientFacts = await loadLinkedSupportClientDraftFacts(raw, { database, findClient: dependencies.findClient });
-  const generated = await generateSupportEmailDraft({ ticket: decryptTicketRow(raw), ...linkedClientFacts,
-    messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete, intakeMessageId: sourceMessageId,
-    headers: intakeMetadata.inboundEmailHeaders || {} });
+  const draftInput = { ticket: decryptTicketRow(raw), ...linkedClientFacts,
+    messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete, intakeMessageId: sourceMessageId };
+  const existing = await getLatestDraftSnapshot({ ticketId, agencyId, sourceMessageId, threadRevision: revision });
+  const reuse = assessSupportEmailDraftReuse(draftInput, existing);
+  if (existing && reuse.reusable) return existing;
+  // Classification precedes reuse: fresh broadcast headers can suppress an old
+  // draft at the same message revision without deleting its immutable snapshot.
+  const generated = await generateSupportEmailDraft(draftInput);
   if (!generated?.text) {
     if (generated?.suppressed) {
       // Suppression is a persisted generation outcome. An old newsletter draft
@@ -288,13 +330,21 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
   }
   const snapshot = await recordDraftSnapshot({ ticketId, agencyId, actorUserId: null, body: generated.text,
     sourceMessageId, threadRevision: revision, model: generated.modelName, provider: generated.provider,
-    sourceEvidence: generated.metadata, requestKey: `inbound:${sourceMessageId}:${revision}` });
+    sourceEvidence: generated.metadata,
+    requestKey: `inbound:${sourceMessageId}:${revision}:${generated.metadata?.evidenceFingerprint || reuse.context.evidenceFingerprint}${existing?.id ? `:replaces:${existing.id}` : ''}` });
+  // Concurrent generation retries share a request key. The immutable winner is
+  // the exact draft staff must see, even when this request produced other text.
+  if (snapshot?.readable === false || !String(snapshot?.body || '').trim()) {
+    throw supportEmailError('Saved reply draft is unavailable. The email has been saved.', 503, 'SUPPORT_DRAFT_PENDING');
+  }
+  const savedMetadata = snapshot.sourceEvidence && typeof snapshot.sourceEvidence === 'object' && !Array.isArray(snapshot.sourceEvidence)
+    ? snapshot.sourceEvidence : generated.metadata;
   // A slow generator must not replace a draft after a new inbound or sent reply.
   await database.execute(`UPDATE support_tickets t SET ai_draft_response=?,ai_draft_status='needs_review',
     ai_draft_generated_at=CURRENT_TIMESTAMP,draft_generated_at=CURRENT_TIMESTAMP,ai_draft_review_state='pending',
     ai_draft_metadata_json=? WHERE t.id=? AND ?=(SELECT COALESCE(MAX(m.id),0) FROM support_ticket_messages m
       WHERE m.ticket_id=t.id AND COALESCE(m.is_deleted,0)=0)`,
-  [generated.text, JSON.stringify({ ...intakeMetadata, ...generated.metadata, draftSnapshotId: snapshot.id || snapshot.draftSnapshotId,
+  [snapshot.body, JSON.stringify({ ...intakeMetadata, ...savedMetadata, draftSnapshotId: snapshot.id || snapshot.draftSnapshotId,
     suppressed: false, suppressionReason: null, threadRevision: revision, sourceMessageId }), ticketId, Number(revision)]);
-  return generated;
+  return { ...generated, text: snapshot.body, metadata: savedMetadata };
 }

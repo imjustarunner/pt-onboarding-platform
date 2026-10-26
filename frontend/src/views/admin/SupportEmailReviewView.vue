@@ -56,14 +56,24 @@
               <h2 :id="`subject-${row.ticketId}`">{{ row.subject || 'Email conversation' }}</h2>
               <p>{{ row.owner?.name || 'Unclaimed conversation' }} <span class="separator">·</span> Ticket #{{ row.ticketId }}</p>
             </div>
-            <span v-if="row.comparison?.edited === true" class="badge edited">Draft edited before sending</span>
-            <span v-else-if="row.comparison?.edited === false" class="badge">Draft used unchanged</span>
-            <span v-else-if="row.comparison?.missingDraft" class="badge warning">No captured draft to compare</span>
+            <span v-if="comparisonFor(row)?.draftUnavailable" class="badge warning">Saved draft unavailable</span>
+            <span v-else-if="comparisonFor(row)?.edited === true" class="badge edited">Draft edited before sending</span>
+            <span v-else-if="comparisonFor(row)?.edited === false" class="badge">Draft used unchanged</span>
+            <span v-else-if="comparisonFor(row)?.missingDraft" class="badge warning">No captured draft to compare</span>
             <span v-else class="badge neutral">No confirmed sent reply</span>
           </header>
 
           <div v-if="row.coverageFlags?.length" class="row-notices">
             <span v-for="flag in row.coverageFlags" :key="flag">{{ flagLabel(flag) }}</span>
+          </div>
+
+          <div v-if="confirmedSent(row).length > 1" class="reply-picker">
+            <label :for="`reply-${row.ticketId}`">Reply to review</label>
+            <select :id="`reply-${row.ticketId}`" v-model="selectedReplies[row.ticketId]">
+              <option v-for="(delivery, index) in confirmedSent(row)" :key="delivery.id" :value="delivery.id">
+                {{ index + 1 }} of {{ confirmedSent(row).length }} · {{ formatTime(delivery.occurredAt) }}{{ delivery.external ? ' · Sent outside the app' : '' }}
+              </option>
+            </select>
           </div>
 
           <div class="comparison-grid">
@@ -76,14 +86,15 @@
             <section class="comparison-column drafted">
               <h3><span class="step-number">2</span> Generated draft</h3>
               <p class="message-meta">Saved before staff edits · not an email send</p>
-              <pre v-if="row.comparison?.generatedDraft" class="email-body">{{ row.comparison.generatedDraft }}</pre>
-              <p v-else class="unavailable">{{ row.draftSnapshots?.length ? 'No reply draft was produced for this message.' : 'No original draft was captured.' }}</p>
+              <pre v-if="comparisonFor(row)?.generatedDraft" class="email-body">{{ comparisonFor(row).generatedDraft }}</pre>
+              <p v-else-if="comparisonFor(row)?.draftUnavailable" class="unavailable">The saved draft could not be read.</p>
+              <p v-else class="unavailable">No original draft was captured for this message.</p>
             </section>
             <section class="comparison-column actual">
               <h3><span class="step-number">3</span> Actually sent</h3>
               <p class="message-meta">{{ confirmedSent(row).length ? `${confirmedSent(row).length} confirmed sent ${confirmedSent(row).length === 1 ? 'reply' : 'replies'}` : 'No confirmed email delivery' }}</p>
               <template v-if="confirmedSent(row).length">
-                <div v-for="delivery in confirmedSent(row)" :key="delivery.id" class="sent-message">
+                <div v-for="delivery in [selectedSent(row)]" :key="delivery.id" class="sent-message">
                   <div class="delivery-heading"><span class="badge sent">Sent{{ delivery.external ? ' outside the app' : '' }}</span><time>{{ formatTime(delivery.occurredAt) }}</time></div>
                   <pre class="email-body">{{ delivery.body || 'The sent message body is unavailable.' }}</pre>
                 </div>
@@ -145,6 +156,7 @@ function mountainToday() {
 const selectedDate = ref(validDate(route.query.date) ? String(route.query.date) : mountainToday());
 const agencyId = computed(() => Number(route.query.agencyId || agencyStore.currentAgency?.id || 0));
 const report = ref(null);
+const selectedReplies = ref({});
 const loading = ref(false);
 const error = ref('');
 let requestVersion = 0;
@@ -157,7 +169,23 @@ const scheduleLabel = computed(() => {
 });
 const total = (key) => report.value?.totals?.[key] ?? '—';
 const confirmedSent = (row) => (row.deliveries || []).filter((delivery) => delivery.status === 'sent');
-const receivedFor = (row) => row.draftSnapshots?.find((draft) => draft.id === row.comparison?.draftId)?.originalReceived || row.originalReceived;
+const selectedSent = (row) => confirmedSent(row).find((delivery) => delivery.id === selectedReplies.value[row.ticketId]) || confirmedSent(row).at(-1);
+const draftFor = (row, delivery) => row.draftSnapshots?.find((draft) => draft.id === delivery?.draftSnapshotId);
+function comparisonFor(row) {
+  const delivery = selectedSent(row);
+  if (!delivery || delivery === confirmedSent(row).at(-1)) return row.comparison;
+  const draft = draftFor(row, delivery);
+  const usable = draft?.readable !== false && !!String(draft?.body || '').trim();
+  return { draftId: draft?.id, generatedDraft: usable ? draft.body : null, missingDraft: !draft,
+    draftUnavailable: !!draft && !usable, edited: !usable ? null
+    : delivery.composedBody != null ? String(delivery.composedBody).trim() !== String(draft.body).trim()
+    : String(delivery.body).trim() === String(draft.body).trim() ? false : null };
+}
+function receivedFor(row) {
+  const delivery = selectedSent(row);
+  if (delivery && delivery !== confirmedSent(row).at(-1)) return draftFor(row, delivery)?.originalReceived || delivery.originalReceived;
+  return row.draftSnapshots?.find((draft) => draft.id === row.comparison?.draftId)?.originalReceived || delivery?.originalReceived || row.originalReceived;
+}
 const statusLabel = (status) => ({ sent: 'Sent', failed: 'Failed — not confirmed sent', queued: 'Queued — not yet sent', sending: 'Sending — awaiting confirmation', skipped: 'Not sent', unknown: 'Delivery unconfirmed', held: 'Held for review', pending: 'Pending — not yet sent' }[status] || 'Delivery unconfirmed');
 const statusClass = (status) => status === 'sent' ? 'sent' : status === 'failed' ? 'failed' : 'neutral';
 function flagLabel(value) {
@@ -181,6 +209,7 @@ async function loadReview() {
     const response = await api.get('/support-email-review', { params: { agencyId: agencyId.value, date: selectedDate.value }, skipGlobalLoading: true });
     if (version !== requestVersion) return;
     report.value = response.data;
+    selectedReplies.value = Object.fromEntries((response.data?.rows || []).map((row) => [row.ticketId, confirmedSent(row).at(-1)?.id]));
   } catch (err) {
     if (version !== requestVersion) return;
     error.value = err?.response?.data?.error?.message || 'The email review could not be loaded. Please try again.';
@@ -228,6 +257,9 @@ summary { cursor: pointer; font-weight: 600; }
 .badge.neutral { background: #f1f2f4; color: #66717f; }
 .badge.warning { background: #fff3dc; color: #805f25; }
 .row-notices { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 22px 14px; color: #805f25; font-size: 12px; }
+.reply-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 0 22px 18px; font-size: 12px; }
+.reply-picker label { font-weight: 600; }
+.reply-picker select { max-width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--border-color, #d8dfe6); border-radius: 6px; font: inherit; color: inherit; background: var(--bg-primary, #fff); }
 .comparison-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--border-color, #e0e6ea); }
 .comparison-column { padding: 20px 22px 24px; min-width: 0; }
 .comparison-column + .comparison-column { border-left: 1px solid var(--border-color, #e0e6ea); }

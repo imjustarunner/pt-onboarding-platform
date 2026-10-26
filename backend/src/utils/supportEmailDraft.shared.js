@@ -121,7 +121,6 @@ export function buildSupportEmailDraftContext({
   regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = [], intakeMessageId = null
 } = {}) {
   const meta = parseMetadataJson(ticket.ai_draft_metadata_json) || {};
-  const effectiveHeaders = Object.keys(headers || {}).length ? headers : (meta.inboundEmailHeaders || {});
   const allPublicMessages = array(messages)
     .filter((m) => !bool(m?.is_deleted) && !bool(m?.is_internal) && !['system', 'event'].includes(String(m?.author_role || '').toLowerCase()))
     .map(normalizeMessage)
@@ -137,6 +136,9 @@ export function buildSupportEmailDraftContext({
     at: timestamp(ticket.source_email_received_at || ticket.created_at)
   };
   const latestInbound = publicMessages.filter((m) => m.direction === 'inbound').at(-1) || original;
+  const headerMessageId = Number(meta.inboundEmailHeadersMessageId) || null;
+  const staleStoredHeaders = headerMessageId && headerMessageId !== (Number(latestInbound.id) || null);
+  const effectiveHeaders = Object.keys(headers || {}).length ? headers : (staleStoredHeaders ? {} : (meta.inboundEmailHeaders || {}));
   const referralRelationships = extractSenderReferralRelationships(latestInbound);
   const inventory = scopeSupportEmailAttachments({ ticket, original, latestInbound, messages: allPublicMessages,
     attachments, intakeComplete, intakeMessageId: intakeMessageId || meta.attachmentsIngestedMessageId });
@@ -170,6 +172,7 @@ export function buildSupportEmailDraftContext({
   const actions = array(verifiedActions).filter((a) => a?.id && a?.source && ['completed', 'approved', 'in_progress'].includes(a.status))
     .map((a) => ({ evidenceId: `action:${a.id}`, title: text(a.title, 240), status: a.status, ownerUserId: Number(a.ownerUserId || a.assigned_to_user_id) || null, source: text(a.source, 240) }));
   const unresolvedFacts = [...new Set(array(contextUnknowns).map((value) => text(value, 500)).filter(Boolean))].slice(0, 12);
+  if (staleStoredHeaders && !Object.keys(headers || {}).length) unresolvedFacts.push('latest_inbound_email_headers_unconfirmed');
   if (!inventory.complete) unresolvedFacts.push('attachment_ingestion_incomplete');
   if (inventory.unattributedFiles.length) unresolvedFacts.push('current_message_attachment_attribution_uncertain');
   if (!owner.name) unresolvedFacts.push('claimant_identity_unconfirmed');
