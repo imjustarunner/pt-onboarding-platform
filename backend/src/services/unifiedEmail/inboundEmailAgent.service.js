@@ -45,7 +45,7 @@ import {
   isPersonalMailboxIdentity
 } from '../personalMailbox.service.js';
 import { ingestSupportTicketEmail } from '../supportTicketEmailInbound.service.js';
-import { isManagedSupportIdentity } from '../supportTicketEmailPolicy.js';
+import { isManagedSupportIdentity, isSupportEmailResponderRole } from '../supportTicketEmailPolicy.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -1105,9 +1105,10 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             AND (u.role='super_admin' OR EXISTS (SELECT 1 FROM user_agencies ua
               WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)) LIMIT 1`,
         [fromEmail, fromEmail, fromEmail, fromEmail, agencyId]);
-        const [[sharedSender]] = await pool.execute(`SELECT id FROM email_sender_identities
+        const [[sharedSender]] = await pool.execute(`SELECT * FROM email_sender_identities
           WHERE agency_id=? AND LOWER(TRIM(from_email))=? AND is_active=1 LIMIT 1`, [agencyId, fromEmail]);
-        const staffCopy = !!staffSender || !!sharedSender || (schoolContext?.mailboxAddress
+        const staffCopy = isSupportEmailResponderRole(staffSender?.role) || isManagedSupportIdentity(sharedSender, { agencyId,
+          schoolAddresses: schoolContext?.mailboxAddress ? [schoolContext.mailboxAddress] : [] }) || (schoolContext?.mailboxAddress
           && String(schoolContext.mailboxAddress).toLowerCase() === fromEmail);
         const saved = await ingestSupportTicketEmail({ agencyId,
           schoolOrganizationId: schoolContext?.schoolOrganizationId || null,
@@ -1118,7 +1119,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           headers: { autoSubmitted: hdrs.get('auto-submitted') || null,
             listId: String(hdrs.get('list-id') || '').slice(0, 200), listUnsubscribe: !!hdrs.get('list-unsubscribe') },
           receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),
-          staffCopy, staffUserId: staffSender?.id || null, generateDraft: !staffCopy });
+          staffCopy, staffUserId: staffCopy ? staffSender?.id || null : null,
+          createdByUserId: !staffCopy ? staffSender?.id || null : null, generateDraft: !staffCopy });
         if (saved.handled) results.draftedToTickets += staffCopy ? 0 : 1;
         else results.ignored += 1;
         await gmail.users.messages.modify({ userId: 'me', id,

@@ -1,5 +1,5 @@
-import { emailHash, emailKey } from './supportTicketEmailPolicy.js';
-import { ingestSupportTicketEmail } from './supportTicketEmailInbound.service.js';
+import { emailHash, emailKey, isManagedSupportIdentity, isSupportEmailResponderRole } from './supportTicketEmailPolicy.js';
+import { ingestSupportTicketEmail, verifySupportTicketHistoryThread } from './supportTicketEmailInbound.service.js';
 import { resolveSupportTicketEmailThread } from './supportTicketEmail.service.js';
 
 const addresses = (value) => [...new Set((String(value || '').match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map(emailKey))];
@@ -28,13 +28,15 @@ export function parseSupportGmailMessage(message, { ownAddresses = [], staff = [
     }
   }
   const sender = staff.find((s) => [s.email, s.work_email, s.personal_email, s.username].map(emailKey).includes(from));
+  const staffCopy = isSupportEmailResponderRole(sender?.role) || own.has(from);
   return { fromEmail: from, fromDisplayName: String(h.get('from') || '').replace(/<[^>]*>/g, '').replace(/^"|"$/g, '').trim(),
     messageId: h.get('message-id') || `gmail:${message.id}`, gmailMessageId: message.id,
     threadId: message.threadId, subject: h.get('subject') || '', bodyText: plainBody(message.payload),
     inReplyTo: h.get('in-reply-to') || null, referencesHeader: h.get('references') || null,
     recipients: addresses(h.get('to')), cc: addresses(h.get('cc')), payload: message.payload,
-    receivedAt: new Date(Number(message.internalDate) || Date.now()), staffCopy: !!sender || own.has(from),
-    staffUserId: sender?.id || null,
+    receivedAt: new Date(Number(message.internalDate) || Date.now()), staffCopy,
+    staffUserId: staffCopy ? sender?.id || null : null,
+    createdByUserId: !staffCopy ? sender?.id || null : null,
     automated: (h.get('auto-submitted') && h.get('auto-submitted').toLowerCase() !== 'no') || /^(mailer-daemon|postmaster)@/i.test(from) };
 }
 
@@ -44,6 +46,8 @@ export async function reconcileSupportTicketThreadFromGmail({ agencyId, ticketId
   ownAddresses = [], staff = [], since = null, apply = false, outboundOnly = false }, dependencies = {}) {
   const ingest = dependencies.ingest || ingestSupportTicketEmail;
   const thread = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'full' });
+  const historyThreadVerification = apply && !outboundOnly
+    ? verifySupportTicketHistoryThread({ providerThread: thread.data, agencyId, ticketId, threadId }) : null;
   const messages = [...(thread.data?.messages || [])].sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
   const result = { ticketId, threadId, received: 0, staffReplies: 0, skipped: 0, captured: 0, duplicates: 0, apply };
   let previousInbound = null;
@@ -68,7 +72,7 @@ export async function reconcileSupportTicketThreadFromGmail({ agencyId, ticketId
     }
     if (parsed.staffCopy) result.staffReplies += 1; else result.received += 1;
     if (!apply) continue;
-    const saved = await ingest({ ...parsed, agencyId, targetTicketId: ticketId, gmail,
+    const saved = await ingest({ ...parsed, agencyId, targetTicketId: ticketId, gmail, historyThreadVerification,
       createIfMissing: false, generateDraft: false, preserveTicketState: true });
     if (saved.handled) result.captured += 1;
     if (saved.duplicate) result.duplicates += 1;
@@ -94,13 +98,15 @@ export async function runSupportTicketGmailReconciliation({ limit = 20 } = {}, d
         AND (s.last_checked_at IS NULL OR s.last_checked_at<NOW()-INTERVAL 5 MINUTE)
       ORDER BY COALESCE(s.last_checked_at,'1970-01-01') ASC,(t.claimed_by_user_id IS NOT NULL) DESC,t.id DESC LIMIT 500`, [agencyId]);
     if (!tickets.length) continue;
-    const [identities] = await database.execute('SELECT from_email FROM email_sender_identities WHERE agency_id=? AND is_active=1', [agencyId]);
+    const [identities] = await database.execute('SELECT * FROM email_sender_identities WHERE agency_id=? AND is_active=1', [agencyId]);
     const [schools] = await database.execute(`SELECT DISTINCT sp.itsco_email FROM school_profiles sp JOIN organization_affiliations oa
       ON oa.organization_id=sp.school_organization_id WHERE oa.agency_id=? AND oa.is_active=1`, [agencyId]);
-    const [staff] = await database.execute(`SELECT DISTINCT u.id,u.email,u.work_email,u.personal_email,u.username FROM users u
+    const [staff] = await database.execute(`SELECT DISTINCT u.id,u.role,u.email,u.work_email,u.personal_email,u.username FROM users u
       JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
       WHERE u.role NOT IN ('school_staff','client_guardian') AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0`, [agencyId]);
-    const ownAddresses = [...identities.map((i) => i.from_email), ...schools.map((s) => s.itsco_email)].filter(Boolean);
+    const schoolAddresses = schools.map((s) => s.itsco_email).filter(Boolean);
+    const ownAddresses = [...identities.filter((i) => isManagedSupportIdentity(i, { agencyId, schoolAddresses }))
+      .map((i) => i.from_email), ...schoolAddresses];
     const groups = new Map();
     for (const ticket of tickets) {
       if (!groups.has(ticket.source_email_thread_id)) groups.set(ticket.source_email_thread_id, []);

@@ -6,13 +6,40 @@ import {
 } from '../utils/supportEmailDraft.shared.js';
 import { summarizeLibrarySources } from '../utils/schoolSupportReplyLibrary.shared.js';
 
-/** No persistence and no email send: callers snapshot this result before offering it for review. */
-export async function generateSupportEmailDraft(input, dependencies = {}) {
-  const context = buildSupportEmailDraftContext({
+function currentDraftContext(input) {
+  return buildSupportEmailDraftContext({
     ...input,
     ticket: decryptTicketRow(input.ticket),
     messages: (input.messages || []).map(decryptTicketMessageRow)
   });
+}
+
+/** Pure preflight. Current suppression evidence always takes priority over cache reuse. */
+export function assessSupportEmailDraftReuse(input, snapshot = null) {
+  const context = currentDraftContext(input);
+  const classification = classifySupportEmailDraft(context);
+  const evidence = snapshot?.sourceEvidence && typeof snapshot.sourceEvidence === 'object' && !Array.isArray(snapshot.sourceEvidence)
+    ? snapshot.sourceEvidence : {};
+  let reason = 'compatible_evidence';
+  let validationIssues = [];
+  if (classification.suppressed) reason = 'current_evidence_suppressed';
+  else if (!snapshot) reason = 'no_snapshot';
+  else if (snapshot.readable === false || !String(snapshot.body || '').trim()) reason = 'snapshot_unreadable';
+  else if (Number(snapshot.ticketId) !== Number(context.ticketId) || Number(snapshot.agencyId) !== Number(context.agencyId)
+      || (context.latestInbound.id && String(snapshot.sourceMessageId) !== String(context.latestInbound.id))) reason = 'snapshot_scope_changed';
+  else if (evidence.evidenceFingerprint !== context.evidenceFingerprint) reason = 'evidence_changed';
+  else if (evidence.promptVersion !== SUPPORT_EMAIL_DRAFT_VERSION) reason = 'draft_standard_changed';
+  else if (snapshot.provider !== 'vertex' || snapshot.model !== (process.env.SUPPORT_EMAIL_DRAFT_MODEL || 'gemini-2.5-pro')) reason = 'draft_model_changed';
+  else {
+    validationIssues = validateSupportEmailDraft(snapshot.body, context);
+    if (validationIssues.length) reason = 'draft_validation_failed';
+  }
+  return { reusable: reason === 'compatible_evidence', reason, context, classification, validationIssues };
+}
+
+/** No persistence and no email send: callers snapshot this result before offering it for review. */
+export async function generateSupportEmailDraft(input, dependencies = {}) {
+  const context = currentDraftContext(input);
   const classification = classifySupportEmailDraft(context);
   const baseMetadata = {
     promptVersion: SUPPORT_EMAIL_DRAFT_VERSION,

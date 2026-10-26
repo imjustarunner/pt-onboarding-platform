@@ -64,6 +64,57 @@ describe('daily support email review', () => {
     wrapper.unmount();
   });
 
+  it('pairs each selected reply with its own incoming email and saved draft', async () => {
+    const data = payload();
+    const row = data.rows[0];
+    row.draftSnapshots[1].originalReceived = { body: 'A later incoming question.' };
+    row.deliveries.push({ id: 23, status: 'sent', body: 'The later reply.', draftSnapshotId: 11,
+      occurredAt: '2026-10-26T17:00:00Z', originalReceived: { body: 'A later incoming question.' } });
+    row.comparison = { draftId: 11, generatedDraft: 'Second draft version.', missingDraft: false };
+    api.get.mockResolvedValue({ data });
+    const wrapper = mount(SupportEmailReviewView); await flushPromises();
+    expect(wrapper.find('.received').text()).toContain('A later incoming question.');
+    expect(wrapper.find('.drafted').text()).toContain('Second draft version.');
+    expect(wrapper.find('.actual').text()).toContain('The later reply.');
+    expect(wrapper.find('.actual').text()).not.toContain('The final reply that was sent.');
+    await wrapper.find('.reply-picker select').setValue(20);
+    expect(wrapper.find('.received').text()).toContain('The exact received email used for this draft.');
+    expect(wrapper.find('.drafted').text()).toContain('First draft, saved before any edits.');
+    expect(wrapper.find('.actual').text()).toContain('The final reply that was sent.');
+    expect(wrapper.find('.actual').text()).not.toContain('The later reply.');
+    wrapper.unmount();
+  });
+
+  it('does not borrow a later email or draft for an earlier reply without captured evidence', async () => {
+    const data = payload();
+    data.rows[0].deliveries.unshift({ id: 19, status: 'sent', body: 'An early reply.',
+      occurredAt: '2026-10-26T14:00:00Z' });
+    api.get.mockResolvedValue({ data });
+    const wrapper = mount(SupportEmailReviewView); await flushPromises();
+    await wrapper.find('.reply-picker select').setValue(19);
+    expect(wrapper.find('.received').text()).toContain('not captured');
+    expect(wrapper.find('.received').text()).not.toContain('The original question.');
+    expect(wrapper.find('.drafted').text()).not.toContain('First draft');
+    expect(wrapper.find('.actual').text()).toContain('An early reply.');
+    expect(wrapper.text()).toContain('No captured draft to compare');
+    wrapper.unmount();
+  });
+
+  it('does not call an unreadable saved draft edited or missing', async () => {
+    const data = payload();
+    data.rows[0].draftSnapshots.unshift({ id: 9, readable: false, body: null });
+    data.rows[0].deliveries.unshift({ id: 19, status: 'sent', body: 'An early reply.', composedBody: 'An early reply.',
+      draftSnapshotId: 9, occurredAt: '2026-10-26T14:00:00Z' });
+    api.get.mockResolvedValue({ data });
+    const wrapper = mount(SupportEmailReviewView); await flushPromises();
+    await wrapper.find('.reply-picker select').setValue(19);
+    expect(wrapper.find('.conversation-heading').text()).toContain('Saved draft unavailable');
+    expect(wrapper.find('.conversation-heading').text()).not.toContain('Draft edited before sending');
+    expect(wrapper.find('.conversation-heading').text()).not.toContain('No captured draft to compare');
+    expect(wrapper.find('.drafted').text()).toContain('The saved draft could not be read.');
+    wrapper.unmount();
+  });
+
   it('treats a missing draft and unconfirmed delivery as unknown rather than unchanged or sent', async () => {
     const data = payload();
     data.rows[0].draftSnapshots = [];
@@ -72,7 +123,7 @@ describe('daily support email review', () => {
     api.get.mockResolvedValue({ data });
     const wrapper = mount(SupportEmailReviewView); await flushPromises();
     expect(wrapper.text()).toContain('No captured draft to compare');
-    expect(wrapper.find('.drafted').text()).toContain('No original draft was captured.');
+    expect(wrapper.find('.drafted').text()).toContain('No original draft was captured for this message.');
     expect(wrapper.find('.actual').text()).toContain('No confirmed email delivery');
     expect(wrapper.text()).not.toContain('Draft used unchanged');
     wrapper.unmount();

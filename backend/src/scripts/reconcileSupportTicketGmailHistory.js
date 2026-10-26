@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { getSupportGmailReadClient } from '../services/unifiedEmail/supportGmailReadClient.js';
 import { reconcileSupportTicketThreadFromGmail } from '../services/supportTicketGmailReconciliation.service.js';
 import { resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
+import { isManagedSupportIdentity } from '../services/supportTicketEmailPolicy.js';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : fallback; };
@@ -22,13 +23,15 @@ try {
     if (!groups.has(thread)) groups.set(thread, []);
     groups.get(thread).push(ticket);
   }
-  const [identities] = await pool.execute('SELECT from_email FROM email_sender_identities WHERE agency_id=? AND is_active=1', [agencyId]);
+  const [identities] = await pool.execute('SELECT * FROM email_sender_identities WHERE agency_id=? AND is_active=1', [agencyId]);
   const [schools] = await pool.execute(`SELECT DISTINCT sp.itsco_email FROM school_profiles sp
     JOIN organization_affiliations oa ON oa.organization_id=sp.school_organization_id WHERE oa.agency_id=? AND oa.is_active=1`, [agencyId]);
-  const [staff] = await pool.execute(`SELECT DISTINCT u.id,u.email,u.work_email,u.personal_email,u.username FROM users u
+  const [staff] = await pool.execute(`SELECT DISTINCT u.id,u.role,u.email,u.work_email,u.personal_email,u.username FROM users u
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
     WHERE u.role NOT IN ('school_staff','client_guardian') AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0`, [agencyId]);
-  const ownAddresses = [...identities.map((i) => i.from_email), ...schools.map((s) => s.itsco_email)].filter(Boolean);
+  const schoolAddresses = schools.map((s) => s.itsco_email).filter(Boolean);
+  const ownAddresses = [...identities.filter((i) => isManagedSupportIdentity(i, { agencyId, schoolAddresses }))
+    .map((i) => i.from_email), ...schoolAddresses];
   const gmail = await getSupportGmailReadClient();
   const since = new Date(Date.now() - days * 86400000);
   const results = [];

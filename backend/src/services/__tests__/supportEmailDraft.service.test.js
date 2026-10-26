@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateSupportEmailDraft } from '../supportEmailDraft.service.js';
+import { assessSupportEmailDraftReuse, generateSupportEmailDraft } from '../supportEmailDraft.service.js';
 import { encryptChatText } from '../chatEncryption.service.js';
 import { buildSupportEmailDraftContext, classifySupportEmailDraft, validateSupportEmailDraft } from '../../utils/supportEmailDraft.shared.js';
 
@@ -206,6 +206,61 @@ describe('evidence-grounded support drafts', () => {
     assert.equal(classifySupportEmailDraft(reply).suppressed, false);
     const school = buildSupportEmailDraftContext(input({ ticket: { ...ticket, question: 'The portal is down. Here is our referral packet. Unsubscribe from this group.' }, headers }));
     assert.equal(classifySupportEmailDraft(school).suppressed, false);
+  });
+
+  it('suppresses historical broadcast intake after current-message provider headers are restored, without calling the model', async () => {
+    const question = 'Get booked across booking channels. You only pay for new bookings. Unsubscribe.';
+    const result = await generateSupportEmailDraft(input({ ticket: { ...ticket, subject: 'Attract more new patients', question,
+      ai_draft_metadata_json: { inboundEmailHeaders: { autoSubmitted: '', listId: '', listUnsubscribe: true }, inboundEmailHeadersMessageId: 21 }
+    }, messages: [{ id: 21, author_role: 'system_email', email_direction: 'inbound', body: question, created_at: ticket.created_at }] }), {
+      generateText: () => assert.fail('restored broadcast evidence must suppress before generation')
+    });
+    assert.equal(result.status, 'suppressed');
+    assert.equal(result.suppressionReason, 'marketing_or_newsletter');
+  });
+
+  it('does not apply stale automated-message headers to a later human reply', () => {
+    const context = buildSupportEmailDraftContext(input({ ticket: { ...ticket,
+      ai_draft_metadata_json: { inboundEmailHeaders: { autoSubmitted: 'auto-generated', listUnsubscribe: true }, inboundEmailHeadersMessageId: 1 }
+    }, messages: [{ id: 2, author_role: 'school_staff', body: 'Could you help with this referral?', created_at: '2026-10-21T08:00:00Z' }] }));
+    assert.equal(context.headers.autoSubmitted, '');
+    assert.ok(context.unresolvedFacts.includes('latest_inbound_email_headers_unconfirmed'));
+    assert.equal(classifySupportEmailDraft(context).suppressed, false);
+  });
+
+  it('reuses a readable draft only for identical current evidence and standards', () => {
+    const args = input({ messages: [{ id: 2, body: 'Could you help with the login issue?', author_role: 'school_staff', created_at: ticket.created_at }] });
+    const context = buildSupportEmailDraftContext(args);
+    const snapshot = { id: 90, kind: 'draft', ticketId: ticket.id, agencyId: ticket.agency_id, sourceMessageId: 2,
+      body: 'I will check on the login issue.', readable: true, provider: 'vertex', model: process.env.SUPPORT_EMAIL_DRAFT_MODEL || 'gemini-2.5-pro',
+      sourceEvidence: { evidenceFingerprint: context.evidenceFingerprint, promptVersion: context.version } };
+    assert.equal(assessSupportEmailDraftReuse(args, snapshot).reusable, true);
+    for (const changed of [
+      { headers: { listUnsubscribe: true } },
+      { attachments: [{ id: 1, support_ticket_message_id: 2, file_name: 'packet.pdf' }] },
+      { intakeComplete: false },
+      { ticket: { ...ticket, claimed_by_user_id: 9 }, claimant: { id: 9, name: 'Other Staff' } }
+    ]) assert.equal(assessSupportEmailDraftReuse({ ...args, ...changed }, snapshot).reusable, false);
+    assert.equal(assessSupportEmailDraftReuse(args, { ...snapshot, readable: false }).reusable, false);
+    assert.equal(assessSupportEmailDraftReuse(args, { ...snapshot, sourceEvidence: {} }).reusable, false);
+    assert.equal(assessSupportEmailDraftReuse(args, { ...snapshot, sourceEvidence: { ...snapshot.sourceEvidence, promptVersion: 'older' } }).reusable, false);
+  });
+
+  it('freshly recovered broadcast headers invalidate a same-message snapshot without a model call', () => {
+    const question = 'Get booked across booking channels. You only pay for new bookings. Unsubscribe.';
+    const args = input({ ticket: { ...ticket, subject: 'Attract more new patients', question }, messages: [
+      { id: 2, author_role: 'system_email', email_direction: 'inbound', body: question, created_at: ticket.created_at }
+    ] });
+    const oldContext = buildSupportEmailDraftContext(args);
+    const snapshot = { id: 90, ticketId: ticket.id, agencyId: ticket.agency_id, sourceMessageId: 2,
+      body: 'Thank you for reaching out.', readable: true, provider: 'vertex', model: process.env.SUPPORT_EMAIL_DRAFT_MODEL || 'gemini-2.5-pro',
+      sourceEvidence: { evidenceFingerprint: oldContext.evidenceFingerprint, promptVersion: oldContext.version } };
+    const decision = assessSupportEmailDraftReuse({ ...args, headers: { listUnsubscribe: true } }, snapshot);
+    assert.equal(decision.reusable, false);
+    assert.equal(decision.reason, 'current_evidence_suppressed');
+    assert.equal(decision.classification.reason, 'marketing_or_newsletter');
+    assert.equal(snapshot.body, 'Thank you for reaching out.');
+    assert.equal(snapshot.sourceEvidence.evidenceFingerprint, oldContext.evidenceFingerprint);
   });
 
   it('rejects the older false not-attached phrasing against a completed attachment inventory', () => {

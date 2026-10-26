@@ -74,22 +74,27 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
     const [[latest]] = await db.execute('SELECT COALESCE(MAX(id), 0) AS revision FROM support_ticket_messages WHERE ticket_id = ? AND COALESCE(is_deleted, 0) = 0', [ticketId]);
     const threadRevision = String(latest?.revision || 0);
     if (input.threadRevision != null && String(input.threadRevision) !== threadRevision && !input.allowHistoricalRevision) throw reviewError('Conversation changed; refresh the draft', 409, 'support_review_stale_draft');
-    const sourceClause = input.sourceMessageId != null && id(input.sourceMessageId) ? ' AND e.ticket_message_id = ?' : '';
+    const sourceOrder = input.sourceMessageId != null && id(input.sourceMessageId) ? '(e.ticket_message_id = ?) DESC, ' : '';
+    const cutoffClause = input.occurredAt ? ' AND COALESCE(e.sent_at, m.created_at) <= ?' : '';
     const [messages] = await db.execute(`SELECT m.*, e.internet_message_id, e.gmail_message_id, COALESCE(e.sent_at, m.created_at) AS received_at
       FROM support_ticket_email_messages e JOIN support_ticket_messages m ON m.id = e.ticket_message_id
-      WHERE e.ticket_id = ? AND e.agency_id = ? AND e.direction = 'inbound' AND COALESCE(m.is_deleted, 0) = 0${sourceClause}
-      ORDER BY COALESCE(e.sent_at, m.created_at) DESC, m.id DESC LIMIT 1`, [ticketId, agencyId, ...(sourceClause ? [id(input.sourceMessageId)] : [])]);
+      WHERE e.ticket_id = ? AND e.agency_id = ? AND e.direction = 'inbound' AND COALESCE(m.is_deleted, 0) = 0${cutoffClause}
+      ORDER BY ${sourceOrder}COALESCE(e.sent_at, m.created_at) DESC, m.id DESC LIMIT 1`, [ticketId, agencyId, ...(cutoffClause ? [sqlDate(input.occurredAt)] : []), ...(sourceOrder ? [id(input.sourceMessageId)] : [])]);
     const message = messages[0] ? decryptTicketMessageRow(messages[0]) : null;
-    if ((message?.body ?? ticket.question) === '[Unable to decrypt]') throw reviewError('Original email evidence cannot be decrypted', 503, 'support_review_source_unavailable');
+    const seedReceivedAt = ticket.source_email_received_at || ticket.created_at;
+    const seedAvailable = !input.occurredAt || (seedReceivedAt && new Date(seedReceivedAt) <= new Date(input.occurredAt));
+    const seedBody = seedAvailable ? ticket.question : '';
+    if ((message?.body ?? seedBody) === '[Unable to decrypt]') throw reviewError('Original email evidence cannot be decrypted', 503, 'support_review_source_unavailable');
     return {
       ticket, threadRevision,
       originalReceived: {
-        body: message?.body ?? ticket.question ?? '',
-        receivedAt: message?.received_at || ticket.source_email_received_at || ticket.created_at,
-        sourceMessageId: message?.id || ticket.source_email_message_id || null,
-        internetMessageId: message?.internet_message_id || ticket.source_email_message_id || null,
+        body: message?.body ?? seedBody ?? '',
+        receivedAt: message?.received_at || (seedAvailable ? seedReceivedAt : null),
+        sourceMessageId: message?.id || (seedAvailable ? ticket.source_email_message_id : null) || null,
+        internetMessageId: message?.internet_message_id || (seedAvailable ? ticket.source_email_message_id : null) || null,
         gmailMessageId: message?.gmail_message_id || null,
-        subject: ticket.source_email_subject || ticket.subject || ''
+        subject: ticket.source_email_subject || ticket.subject || '',
+        available: !!message || !!seedAvailable
       }
     };
   }
@@ -174,7 +179,8 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
     }
     const status = deliveryState({ ...input, verifiedCommunicationSent });
     const source = await sourceContext({ ...input, allowHistoricalRevision: true });
-    const draft = await resolveDraftSnapshotForSend({ ...input, automaticOnly: !!input.external && !input.actorUserId, sourceMessageId: input.sourceMessageId ?? source.originalReceived.sourceMessageId });
+    const draft = source.originalReceived.available === false && !input.draftSnapshotId ? null
+      : await resolveDraftSnapshotForSend({ ...input, automaticOnly: !!input.external && !input.actorUserId, sourceMessageId: input.sourceMessageId ?? source.originalReceived.sourceMessageId });
     return insertSnapshot({ ...input, kind: input.external ? 'external_reply' : 'delivery', deliveryStatus: status,
       draftSnapshotId: draft?.id || null, sourceMessageId: input.sourceMessageId ?? source.originalReceived.sourceMessageId,
       threadRevision: input.threadRevision ?? draft?.threadRevision ?? source.threadRevision }, {
@@ -190,6 +196,78 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
   async function captureExternalReplyReview(input) {
     if (!input.transportMessageId || !input.occurredAt) throw reviewError('External reply requires Gmail message evidence and original send time');
     return captureSentReview({ ...input, deliveryStatus: 'sent', external: true, idempotencyKey: input.idempotencyKey || `gmail:${input.transportMessageId}` });
+  }
+
+  /** Explicit history repair: append corrected received-email evidence without
+   * changing a delivered reply, its original record, or any generated draft. */
+  async function reconcileExternalReplySourceEvidence({ agencyId, ticketId, ticketMessageId }) {
+    const db = await database();
+    const [receipts] = await db.execute(`SELECT * FROM support_ticket_email_messages
+      WHERE agency_id = ? AND ticket_id = ? AND ticket_message_id = ? AND direction = 'outbound'
+        AND send_status = 'sent' AND gmail_message_id IS NOT NULL AND sent_at IS NOT NULL
+        AND communication_id IS NULL AND client_request_key IS NULL LIMIT 1`, [id(agencyId), id(ticketId), id(ticketMessageId)]);
+    if (!receipts[0]) throw reviewError('Verified external reply receipt is required', 409, 'support_review_external_receipt_required');
+    const [rows] = await db.execute(`SELECT * FROM support_reply_review_snapshots
+      WHERE agency_id = ? AND ticket_id = ? AND ticket_message_id = ? AND snapshot_kind = 'external_reply'
+      ORDER BY id DESC LIMIT 1`, [id(agencyId), id(ticketId), id(ticketMessageId)]);
+    const previous = mapSnapshot(rows[0]);
+    if (!previous?.readable || previous.status !== 'sent') throw reviewError('Existing external reply evidence is unavailable', 503, 'support_review_source_unavailable');
+    if (String(previous.transportMessageId) !== String(receipts[0].gmail_message_id)
+      || new Date(previous.occurredAt).getTime() !== new Date(receipts[0].sent_at).getTime()) {
+      throw reviewError('External delivery evidence does not match its receipt', 409, 'support_review_external_receipt_mismatch');
+    }
+    // A real generated draft retains the exact incoming evidence it used.
+    if (previous.draftSnapshotId) return { corrected: false, snapshotId: previous.id, reason: 'draft_provenance_preserved' };
+    const source = await sourceContext({ agencyId, ticketId, occurredAt: previous.occurredAt, allowHistoricalRevision: true });
+    const comparable = (value) => ({ body: String(value?.body ?? ''),
+      receivedAt: value?.receivedAt ? new Date(value.receivedAt).toISOString() : null,
+      internetMessageId: value?.internetMessageId || null });
+    const normalized = comparable(source.originalReceived);
+    if (JSON.stringify(comparable(previous.originalReceived)) === JSON.stringify(normalized)) return { corrected: false, snapshotId: previous.id };
+    const fingerprint = hashReviewKey(JSON.stringify(normalized));
+    const correction = { supersedesSnapshotId: previous.id, reason: 'historical_received_evidence_reconciled', sourceFingerprint: fingerprint };
+    const result = await insertSnapshot({ agencyId, ticketId, ticketMessageId, kind: 'external_reply',
+      actorUserId: previous.actorUserId, deliveryStatus: previous.status, transportMessageId: previous.transportMessageId,
+      communicationId: previous.communicationId, occurredAt: previous.occurredAt,
+      sourceMessageId: source.originalReceived.sourceMessageId, threadRevision: previous.threadRevision,
+      model: previous.model, provider: previous.provider, errorCode: previous.errorCode,
+      idempotencyKey: `source-correction:${ticketMessageId}:${fingerprint}` }, {
+      body: previous.body, composedBody: previous.composedBody ?? null, originalReceived: source.originalReceived,
+      internetMessageId: previous.internetMessageId || null, external: true, authorUnconfirmed: previous.authorUnconfirmed,
+      sourceEvidence: previous.sourceEvidence || [], missingDraft: previous.missingDraft,
+      deliveryEvidence: previous.deliveryEvidence, correction
+    });
+    return { corrected: true, snapshotId: result.id, supersedesSnapshotId: previous.id, originalAvailable: source.originalReceived.available };
+  }
+
+  /** Append an audit marker after a verified historical receipt was corrected
+   * from a presumed team reply to an incoming provider request. */
+  async function recordIncomingClassificationCorrection({ agencyId, ticketId, ticketMessageId }) {
+    const db = await database();
+    const [receipts] = await db.execute(`SELECT e.* FROM support_ticket_email_messages e
+      JOIN support_ticket_messages m ON m.id = e.ticket_message_id JOIN users u ON u.id = m.author_user_id
+      WHERE e.agency_id = ? AND e.ticket_id = ? AND e.ticket_message_id = ? AND e.direction = 'inbound'
+        AND e.send_status = 'received' AND e.gmail_message_id IS NOT NULL AND e.sent_at IS NOT NULL
+        AND e.communication_id IS NULL AND e.client_request_key IS NULL
+        AND u.role IN ('provider', 'provider_plus') LIMIT 1`, [id(agencyId), id(ticketId), id(ticketMessageId)]);
+    if (!receipts[0]) throw reviewError('Verified incoming provider receipt is required', 409, 'support_review_incoming_receipt_required');
+    const [rows] = await db.execute(`SELECT * FROM support_reply_review_snapshots
+      WHERE agency_id = ? AND ticket_id = ? AND ticket_message_id = ? AND snapshot_kind = 'external_reply'
+      ORDER BY id DESC LIMIT 1`, [id(agencyId), id(ticketId), id(ticketMessageId)]);
+    const previous = mapSnapshot(rows[0]);
+    if (!previous?.readable || previous.status !== 'sent' || previous.draftSnapshotId
+      || String(previous.transportMessageId) !== String(receipts[0].gmail_message_id)
+      || new Date(previous.occurredAt).getTime() !== new Date(receipts[0].sent_at).getTime()) {
+      throw reviewError('Incoming classification does not match the original external evidence', 409, 'support_review_classification_mismatch');
+    }
+    const marker = await insertSnapshot({ agencyId, ticketId, ticketMessageId, kind: 'classification',
+      actorUserId: previous.actorUserId, deliveryStatus: 'received', transportMessageId: previous.transportMessageId,
+      occurredAt: previous.occurredAt, sourceMessageId: ticketMessageId, threadRevision: previous.threadRevision,
+      idempotencyKey: `incoming-provider-classification:${ticketMessageId}` }, {
+      excludeFromDeliveryReview: true, external: false,
+      correction: { supersedesSnapshotId: previous.id, reason: 'provider_request_reclassified', previousDirection: 'outbound', direction: 'inbound', previousStatus: 'sent' }
+    });
+    return { snapshotId: marker.id, supersedesSnapshotId: previous.id };
   }
 
   async function getDeliveryReviewEvidence({ agencyId, ticketId, ticketMessageId }) {
@@ -232,7 +310,8 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
       const allDrafts = events.filter((s) => s.kind === 'draft');
       const latestDelivery = new Map();
       for (const event of events.filter((s) => s.kind !== 'draft')) latestDelivery.set(event.ticketMessageId ? `message:${event.ticketMessageId}` : event.transportMessageId ? `transport:${event.transportMessageId}` : `event:${event.id}`, event);
-      const deliveries = [...latestDelivery.values()].filter((s) => inWindow(s.occurredAt, window));
+      const incomingMessages = new Set(emailRows.filter((e) => Number(e.ticket_id) === Number(ticket.id) && e.direction === 'inbound').map((e) => Number(e.ticket_message_id)));
+      const deliveries = [...latestDelivery.values()].filter((s) => !s.excludeFromDeliveryReview && !incomingMessages.has(Number(s.ticketMessageId)) && inWindow(s.occurredAt, window));
       const linkedMessages = new Set(events.map((s) => Number(s.ticketMessageId)).filter(Boolean));
       for (const email of emailRows.filter((e) => Number(e.ticket_id) === Number(ticket.id) && e.direction === 'outbound' && !linkedMessages.has(Number(e.ticket_message_id)) && inWindow(e.sent_at || e.created_at, window))) {
         const sentEvidence = email.send_status === 'sent' && (email.gmail_message_id || email.communication_id) && email.sent_at;
@@ -246,6 +325,7 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
       const latestDraft = relevantDrafts.at(-1) || null;
       const sent = deliveries.filter((s) => s.status === 'sent').at(-1) || null;
       const comparisonDraft = sent ? allDrafts.find((s) => s.id === sent.draftSnapshotId) : latestDraft;
+      const readableComparisonDraft = comparisonDraft?.readable !== false && !!String(comparisonDraft?.body || '').trim();
       // Compare a reply with the message it answered, even when no draft exists.
       // Later incoming mail must not replace the immutable received-email evidence.
       const latestInbound = emailRows.filter((e) => Number(e.ticket_id) === Number(ticket.id) && e.direction === 'inbound'
@@ -256,6 +336,8 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
         ? { body: decryptTicketMessageRow(latestInbound).body, receivedAt: latestInbound.sent_at || latestInbound.created_at, sourceMessageId: latestInbound.ticket_message_id }
         : { body: seedAvailable ? ticket.question || '' : '', receivedAt: seedAvailable ? seedReceivedAt : null, sourceMessageId: seedAvailable ? ticket.source_email_message_id : null });
       const coverageFlags = [];
+      if (originalReceived?.available === false) coverageFlags.push('original_email_unavailable');
+      if (events.some((s) => s.kind === 'classification')) coverageFlags.push('historical_direction_corrected');
       if (deliveries.some((s) => s.immutableSnapshotMissing)) coverageFlags.push('delivery_snapshot_missing');
       if (events.some((s) => !s.readable)) coverageFlags.push('encrypted_evidence_unavailable');
       if (latestDraft && !deliveries.some((s) => s.status === 'sent' && s.draftSnapshotId === latestDraft.id)) { coverageFlags.push('latest_draft_not_sent'); totals.unsentDrafts += 1; }
@@ -270,11 +352,12 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
       }
       return { ticketId: Number(ticket.id), subject: ticket.subject, owner: { id: id(ticket.claimed_by_user_id), name: [ticket.owner_first_name, ticket.owner_last_name].filter(Boolean).join(' ') },
         originalReceived, draftSnapshots: relevantDrafts, deliveries, coverageFlags,
-        comparison: { draftId: comparisonDraft?.id || null, generatedDraft: comparisonDraft?.body || null, sentBody: sent?.body || null,
+        comparison: { draftId: comparisonDraft?.id || null, generatedDraft: readableComparisonDraft ? comparisonDraft.body : null, sentBody: sent?.body || null,
           composedBody: sent?.composedBody ?? null,
-          edited: sent && comparisonDraft ? sent.composedBody != null
+          edited: sent && readableComparisonDraft ? sent.composedBody != null
             ? String(sent.composedBody).trim() !== String(comparisonDraft.body).trim()
             : String(sent.body).trim() === String(comparisonDraft.body).trim() ? false : null : null,
+          draftUnavailable: !!comparisonDraft && !readableComparisonDraft,
           missingDraft: !!sent && !comparisonDraft } };
     });
     const [digests] = await db.execute('SELECT * FROM support_reply_review_digests WHERE agency_id = ? AND local_date = ? LIMIT 1', [config.agencyId, window.date]);
@@ -371,7 +454,7 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
   }
 
   return { getConfig, authorize, saveConfig, recordDraftSnapshot, getLatestDraftSnapshot, resolveDraftSnapshotForSend,
-    captureSentReview, captureExternalReplyReview, getDeliveryReviewEvidence, dailyReview, processDigest, runDigestTick };
+    captureSentReview, captureExternalReplyReview, reconcileExternalReplySourceEvidence, recordIncomingClassificationCorrection, getDeliveryReviewEvidence, dailyReview, processDigest, runDigestTick };
 }
 
 const service = createSupportReplyReviewService();
@@ -380,6 +463,8 @@ export const getLatestDraftSnapshot = (...args) => service.getLatestDraftSnapsho
 export const resolveDraftSnapshotForSend = (...args) => service.resolveDraftSnapshotForSend(...args);
 export const captureSentReview = (...args) => service.captureSentReview(...args);
 export const captureExternalReplyReview = (...args) => service.captureExternalReplyReview(...args);
+export const reconcileExternalReplySourceEvidence = (...args) => service.reconcileExternalReplySourceEvidence(...args);
+export const recordIncomingClassificationCorrection = (...args) => service.recordIncomingClassificationCorrection(...args);
 export const getDeliveryReviewEvidence = (...args) => service.getDeliveryReviewEvidence(...args);
 export const runSupportReplyReviewDigestTick = (...args) => service.runDigestTick(...args);
 export default service;

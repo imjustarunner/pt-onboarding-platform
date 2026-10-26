@@ -221,6 +221,17 @@ function normalizeRfc822MessageId(value) {
   return String(value || '').trim().replace(/^<|>$/g, '');
 }
 
+function classificationHeaders(summary = {}) {
+  return { autoSubmitted: String(summary.autoSubmitted || '').slice(0, 100),
+    listId: String(summary.listId || '').slice(0, 200), listUnsubscribe: !!summary.listUnsubscribe };
+}
+
+function payloadClassificationHeaders(payload) {
+  const headers = new Map((payload?.headers || []).map((h) => [String(h.name || '').toLowerCase(), String(h.value || '')]));
+  return classificationHeaders({ autoSubmitted: headers.get('auto-submitted'),
+    listId: headers.get('list-id'), listUnsubscribe: !!headers.get('list-unsubscribe') });
+}
+
 export async function ingestTicketAttachmentsFromGmail({ ticket } = {}, dependencies = {}) {
   if (!ticket?.id) return { saved: 0, skipped: 'no_ticket', complete: false, incomplete: true };
   const database = dependencies.database || pool;
@@ -253,10 +264,16 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}, dependen
     attachmentsIngestedGmailMessageId: gmailId || null
   });
   const source = { intakeMessageId: ticketMessageId, currentMessageId: ticketMessageId, gmailMessageId };
-  if (metadata?.attachmentsIngested && ticketMessageId && Number(metadata.attachmentsIngestedMessageId) === ticketMessageId
-      && gmailMessageId && metadata.attachmentsIngestedGmailMessageId === gmailMessageId) {
+  const attachmentCacheValid = metadata?.attachmentsIngested && ticketMessageId && Number(metadata.attachmentsIngestedMessageId) === ticketMessageId
+    && gmailMessageId && metadata.attachmentsIngestedGmailMessageId === gmailMessageId;
+  const headerCacheValid = metadata?.inboundEmailHeaders && ticketMessageId && Number(metadata.inboundEmailHeadersMessageId) === ticketMessageId
+    && gmailMessageId && metadata.inboundEmailHeadersGmailMessageId === gmailMessageId;
+  const headerMetadata = (headers, gmailId) => ({ inboundEmailHeaders: headers,
+    inboundEmailHeadersMessageId: ticketMessageId, inboundEmailHeadersGmailMessageId: gmailId || null });
+  if (attachmentCacheValid && headerCacheValid) {
+    const headers = classificationHeaders(metadata.inboundEmailHeaders);
     return { saved: 0, skipped: 'already_ingested', attachments: existing, complete: true, incomplete: false,
-      ...source, attachmentCompletion: completion(true) };
+      ...source, attachmentCompletion: completion(true), headers, headerMetadata: headerMetadata(headers, gmailMessageId) };
   }
   if (!gmailMessageId && !rfcId) return { saved: 0, skipped: 'no_gmail_id', complete: false, incomplete: true };
 
@@ -273,7 +290,11 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}, dependen
   if (!gmailId) return { saved: 0, skipped: 'gmail_not_found', complete: false, incomplete: true };
 
   const full = await gmail.users.messages.get({ userId: 'me', id: gmailId, format: 'full' });
-  const result = await (dependencies.persistAttachments || persistGmailAttachmentsForTicket)({
+  const headers = payloadClassificationHeaders(full.data?.payload);
+  // Earlier imports may have verified files without keeping classification
+  // headers. Refresh those headers without downloading or inserting files again.
+  const result = attachmentCacheValid ? { saved: 0, complete: true, incomplete: false, skipped: 'already_ingested_headers_refreshed' }
+    : await (dependencies.persistAttachments || persistGmailAttachmentsForTicket)({
     ticketId: ticket.id,
     ticketMessageId,
     gmail,
@@ -282,22 +303,25 @@ export async function ingestTicketAttachmentsFromGmail({ ticket } = {}, dependen
     strict: true
   }, { database });
   if (result.complete && ticketMessageId) await markTicketInboundAttachmentsComplete({ ticketId: ticket.id,
-    ticketMessageId, gmailMessageId: gmailId }, database);
+    ticketMessageId, gmailMessageId: gmailId, headers }, database);
   const attachments = await listAttachments(ticket.id, database);
-  return { ...result, attachments, ...source, gmailMessageId: gmailId, attachmentCompletion: completion(result.complete === true, gmailId) };
+  return { ...result, attachments, ...source, gmailMessageId: gmailId, attachmentCompletion: completion(result.complete === true, gmailId),
+    headers, headerMetadata: headerMetadata(headers, gmailId) };
 }
 
-export async function markTicketInboundAttachmentsComplete({ ticketId, ticketMessageId, gmailMessageId }, database = pool) {
+export async function markTicketInboundAttachmentsComplete({ ticketId, ticketMessageId, gmailMessageId, headers }, database = pool) {
   if (!ticketId || !ticketMessageId || !gmailMessageId) return;
   // A delayed earlier receipt must not mark the latest inbound email complete.
   await database.execute(`UPDATE support_tickets t SET ai_draft_metadata_json=JSON_SET(
     COALESCE(ai_draft_metadata_json,JSON_OBJECT()),'$.attachmentsIngested',CAST('true' AS JSON),
-    '$.attachmentsIngestedMessageId',?,'$.attachmentsIngestedGmailMessageId',?)
+    '$.attachmentsIngestedMessageId',?,'$.attachmentsIngestedGmailMessageId',?
+    ${headers ? ",'$.inboundEmailHeaders',CAST(? AS JSON),'$.inboundEmailHeadersMessageId',?,'$.inboundEmailHeadersGmailMessageId',?" : ''})
     WHERE t.id=? AND ?=(SELECT e.ticket_message_id FROM support_ticket_email_messages e
       JOIN support_ticket_messages m ON m.id=e.ticket_message_id
       WHERE e.ticket_id=t.id AND e.direction='inbound' AND COALESCE(m.is_deleted,0)=0
       ORDER BY COALESCE(e.sent_at,m.created_at) DESC,e.id DESC LIMIT 1)`,
-  [ticketMessageId, gmailMessageId, ticketId, ticketMessageId]);
+  [ticketMessageId, gmailMessageId, ...(headers ? [JSON.stringify(classificationHeaders(headers)), ticketMessageId, gmailMessageId] : []),
+    ticketId, ticketMessageId]);
 }
 
 export function parseLikelyClientName(subject, bodyText = '') {
