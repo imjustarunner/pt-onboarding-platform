@@ -202,6 +202,7 @@ import guardianPortalRoutes from './routes/guardianPortal.routes.js';
 import providerSelfRoutes from './routes/providerSelf.routes.js';
 import staffRoutes from './routes/staff.routes.js';
 import supportTicketsRoutes from './routes/supportTickets.routes.js';
+import supportEmailReviewRoutes from './routes/supportEmailReview.routes.js';
 import schoolSupportReplyLibraryRoutes from './routes/schoolSupportReplyLibrary.routes.js';
 import orgEscalationsRoutes from './routes/orgEscalations.routes.js';
 import plannedOutsRoutes from './routes/plannedOuts.routes.js';
@@ -1129,6 +1130,7 @@ app.use('/api/provider-scheduling', providerSchedulingRoutes);
 app.use('/api/provider-self', providerSelfRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/support-tickets', supportTicketsRoutes);
+app.use('/api/support-email-review', supportEmailReviewRoutes);
 app.use('/api/school-support-reply-library', schoolSupportReplyLibraryRoutes);
 app.use('/api/escalations', orgEscalationsRoutes);
 app.use('/api/planned-outs', plannedOutsRoutes);
@@ -2356,6 +2358,34 @@ if (!isBootstrap) {
 
   scheduleDailyDigest();
   setInterval(scheduleDailyDigest, 15 * 60 * 1000);
+
+  // The supervised support-email pilot uses a durable per-agency/day claim.
+  // Its notice contains only a sign-in link; conversation evidence stays in-app.
+  let supportReviewDigestRunning = false;
+  let lastSupportGmailReconciliationAt = 0;
+  const scheduleSupportReplyReview = async () => {
+    if (supportReviewDigestRunning) return;
+    supportReviewDigestRunning = true;
+    try {
+      const { reconcileSupportTicketEmailDeliveries } = await import('./services/supportTicketEmailDeliveryReconcile.service.js');
+      await reconcileSupportTicketEmailDeliveries();
+      if (Date.now() - lastSupportGmailReconciliationAt >= 5 * 60 * 1000) {
+        lastSupportGmailReconciliationAt = Date.now();
+        try {
+          const { runSupportTicketGmailReconciliation } = await import('./services/supportTicketGmailReconciliation.service.js');
+          await runSupportTicketGmailReconciliation({ limit: 20 });
+        } catch (error) {
+          if (error?.code !== 'ER_NO_SUCH_TABLE') console.warn('[support-gmail-reconciliation]', error?.code || 'scheduler_failed');
+        }
+      }
+      const { runSupportReplyReviewDigestTick } = await import('./services/supportReplyReview.service.js');
+      await runSupportReplyReviewDigestTick();
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') console.warn('[support-reply-review]', error?.code || 'scheduler_failed');
+    } finally { supportReviewDigestRunning = false; }
+  };
+  scheduleSupportReplyReview();
+  setInterval(scheduleSupportReplyReview, 60 * 1000).unref();
 
   // Durable arrival fallback, shared safely across always-on Cloud Run replicas.
   let arrivalTickRunning=false;

@@ -21,6 +21,9 @@ import { computeResponseTimeMetrics } from './unifiedInboxAi.service.js';
 import { sendClinicalSms, parseSmsConversationTarget } from './clinicalSmsSend.service.js';
 import { resolveSchedulePresetAt } from './availabilityWindow.service.js';
 import { DEFAULT_SCHEDULE_TZ } from '../utils/zonedWallTime.util.js';
+import { sendSupportTicketEmailReply } from './supportTicketEmail.service.js';
+import { encryptSupportEmailText } from './supportEmailEncryption.js';
+import { supportEmailError } from './supportTicketEmailPolicy.js';
 
 const UNDO_WINDOW_MS = 20 * 1000;
 const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
@@ -182,8 +185,15 @@ export async function getAttentionSummary({ agencyId, userId, scopeToUserId = nu
 }
 
 export async function getConversationDetail(conversationId, { userId, markRead = true } = {}) {
-  const conv = await CommunicationConversation.findById(conversationId);
+  let conv = await CommunicationConversation.findById(conversationId);
   if (!conv) return null;
+  let ticketThreadRevision = null;
+  if (conv.support_ticket_id && conv.channel === 'email') {
+    await syncEmailTicketsToInbox({ agencyId: conv.agency_id, ticketId: conv.support_ticket_id, limit: 1 });
+    conv = await CommunicationConversation.findById(conversationId);
+    const [[latest]] = await pool.execute('SELECT MAX(id) AS id FROM support_ticket_messages WHERE ticket_id=? AND COALESCE(is_deleted,0)=0', [conv.support_ticket_id]);
+    ticketThreadRevision = Number(latest?.id || 0);
+  }
   let messages = await CommunicationConversation.listMessages(conversationId);
   const hydrated = await hydrateChannelMessages(conv);
   if (hydrated) messages = hydrated;
@@ -191,7 +201,7 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   if (markRead && userId) {
     await CommunicationConversation.markRead(conversationId, userId);
   }
-  return { conversation: conv, messages, context, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };
+  return { conversation: conv, messages, context, ticketThreadRevision, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };
 }
 
 export async function updateConversation(conversationId, patch, { userId } = {}) {
@@ -279,6 +289,30 @@ export async function replyToConversation(conversationId, payload, { userId } = 
 
   const mode = String(payload.mode || 'reply').toLowerCase(); // reply | reply_all | forward | internal
   const isInternal = mode === 'internal' || !!payload.isInternalNote;
+
+  if (conv.support_ticket_id && conv.channel === 'email') {
+    if (isInternal) {
+      const text = String(payload.text || '').trim();
+      if (!text) throw supportEmailError('An internal note is required.', 400);
+      const enc = encryptSupportEmailText(text);
+      const [saved] = await pool.execute(`INSERT INTO support_ticket_messages
+        (ticket_id,author_user_id,author_role,body,body_ciphertext,body_iv,body_auth_tag,encryption_key_id,is_internal)
+        VALUES (?,?,'internal',?,?,?,?,?,1)`, [conv.support_ticket_id, userId, enc.plain, enc.ciphertext, enc.iv, enc.authTag, enc.keyId]);
+      await syncEmailTicketsToInbox({ agencyId: conv.agency_id, ticketId: conv.support_ticket_id, limit: 1 });
+      return { messageId: saved.insertId, ticketMessageId: saved.insertId, sent: false, internal: true };
+    }
+    if (mode !== 'reply' || payload.scheduledSendAt || payload.schedulePreset || payload.cc?.length || payload.bcc?.length) {
+      throw supportEmailError('Use Reply in the linked ticket to send to the school contact from the shared address.', 400);
+    }
+    const result = await sendSupportTicketEmailReply({ ticketId: conv.support_ticket_id, actorUserId: userId,
+      body: payload.text, clientRequestId: payload.clientRequestId, expectedLastMessageId: payload.expectedLastMessageId,
+      draftSnapshotId: payload.draftSnapshotId || null, senderIdentityId: payload.senderIdentityId || null,
+      senderMode: payload.senderMode || 'staff', attachments: payload.attachments || null,
+      desiredStatus: payload.setStatus === 'resolved' ? 'closed' : 'answered' });
+    if (!result.sent) throw supportEmailError(result.status === 'queued'
+      ? 'Reply is waiting for approval. It has not been sent.' : 'Reply was not confirmed as sent. Review its delivery status in the ticket.', 409);
+    return { ...result, ticketMessageId: result.messageId };
+  }
 
   if (isInternal) {
     const msgId = await CommunicationConversation.addMessage({
@@ -515,6 +549,7 @@ async function deliverOutboundEmail({
   referencesHeader = null,
   personalReminderId = null
 }) {
+  if (conv.support_ticket_id) throw supportEmailError('Send this reply from the linked support ticket so its shared sender and history are preserved.', 409);
   let mailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox });
   if(personalReminderId) {
     const {personalReplySendMailbox}=await import('./personalThreadReminder.service.js');

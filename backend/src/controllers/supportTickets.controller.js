@@ -1,3 +1,6 @@
+import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
+import { generateSupportEmailDraft } from '../services/supportEmailDraft.service.js';
+import { recordDraftSnapshot } from '../services/supportReplyReview.service.js';
 import { assignTechnologyTicket } from '../services/technologySupport.service.js';
 import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
 import pool from '../config/database.js';
@@ -2280,7 +2283,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
       messageParams
     );
     const list = Array.isArray(mRows) ? mRows : [];
-    const normalized = list.map((m) => {
+    let normalized = list.map((m) => {
       const decrypted = decryptTicketMessageRow(m);
       if (hasSoftDelete && (m?.is_deleted === 1 || m?.is_deleted === true)) {
         return { ...decrypted, body: '', is_deleted: 1 };
@@ -2288,25 +2291,36 @@ export const listSupportTicketMessages = async (req, res, next) => {
       return decrypted;
     });
 
-    let attachments = [];
-    try {
-      if (String(ticket.source_channel || '').toLowerCase() === 'email') {
-        const ingested = await ingestTicketAttachmentsFromGmail({ ticket }).catch(() => null);
-        attachments = ingested?.attachments || (await listTicketAttachments(ticketId));
-        if ((attachments || []).some((a) => a.is_pdf)) {
-          await ensurePacketUploadActionsForTicket(ticket).catch(() => null);
-        }
-      } else {
-        attachments = await listTicketAttachments(ticketId);
-      }
-    } catch {
-      attachments = [];
+    const attachments = await listTicketAttachments(ticketId).catch(() => []);
+    const staffEmail = !hideInternal && String(ticket.source_channel || '').toLowerCase() === 'email';
+    const emailDeliveries = staffEmail ? await listTicketEmailDeliveryMetadata(ticketId) : [];
+    const deliveryByMessage = new Map(emailDeliveries.map((d) => [Number(d.ticket_message_id), d]));
+    const emailThread = staffEmail ? await resolveSupportTicketEmailThread(ticket) : null;
+    const senderOptions = staffEmail ? await listSupportTicketSenderOptions({ ticket, actorUserId: req.user.id }) : [];
+    if (staffEmail && emailThread?.canonicalTicketId && Number(emailThread.canonicalTicketId) !== ticketId) {
+      const [threadRows] = await pool.execute(`SELECT m.*, u.first_name AS author_first_name, u.last_name AS author_last_name
+        FROM support_ticket_messages m JOIN support_ticket_email_messages e ON e.ticket_message_id = m.id
+        LEFT JOIN users u ON u.id = m.author_user_id
+        WHERE m.ticket_id = ? AND COALESCE(m.is_deleted, 0) = 0 AND COALESCE(m.is_internal, 0) = 0
+        ORDER BY m.created_at ASC, m.id ASC`, [emailThread.canonicalTicketId]);
+      const threadDeliveries = await listTicketEmailDeliveryMetadata(emailThread.canonicalTicketId);
+      for (const delivery of threadDeliveries) deliveryByMessage.set(Number(delivery.ticket_message_id), delivery);
+      const existingIds = new Set(normalized.map((m) => Number(m.id)));
+      normalized = [...normalized, ...threadRows.filter((m) => !existingIds.has(Number(m.id))).map(decryptTicketMessageRow)]
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
     }
+    const metadata = parseMetadataJson(ticket.ai_draft_metadata_json);
 
     res.json({
       ticket: enrichTicketForClient(ticket),
-      messages: normalized,
-      emailReply: res.locals.websiteEmailReply || null,
+      messages: normalized.map((m) => ({ ...m, email_delivery: deliveryByMessage.get(Number(m.id)) || null })),
+      emailReply: res.locals.emailReply || res.locals.websiteEmailReply || null,
+      senderOptions,
+      canonicalTicketId: emailThread?.canonicalTicketId || null,
+      lastMessageId: Math.max(0, ...list.filter((m) => !m.is_deleted).map((m) => Number(m.id))),
+      draftSnapshotId: metadata?.draftSnapshotId || null,
+      draftThreadRevision: metadata?.threadRevision ?? null,
+      draftWarnings: metadata?.reviewWarnings || [],
       attachments
     });
   } catch (e) {
@@ -2338,13 +2352,14 @@ export const createSupportTicketMessage = async (req, res, next) => {
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
+    let access = null;
     const isTicketCreator = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
     if (role === 'client_guardian') {
       if (!isTicketCreator) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     } else {
-      const access = await ensureOrgAccess(req, ticket.school_organization_id);
+      access = await ensureOrgAccess(req, ticket.school_organization_id);
       if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
       if (!(await actorCanAccessTicketTopic(req, ticket))) {
         return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
@@ -2421,6 +2436,16 @@ export const createSupportTicketMessage = async (req, res, next) => {
       } catch {
         parentId = null;
       }
+    }
+
+    if (String(ticket.source_channel || '').toLowerCase() === 'email' && !wantInternal && isAgencyAdminUser(req)) {
+      res.locals.emailReply = await sendSupportTicketEmailReply({
+        ticketId, actorUserId: req.user.id, actorRole: role, body, parentMessageId: parentId,
+        senderIdentityId: req.body?.senderIdentityId, senderMode: req.body?.senderMode || 'staff',
+        clientRequestId: req.body?.clientRequestId, draftSnapshotId: req.body?.draftSnapshotId,
+        expectedLastMessageId: req.body?.expectedLastMessageId, desiredStatus: 'answered'
+      });
+      return listSupportTicketMessages(req, res, next);
     }
 
     await insertTicketMessageRow({
@@ -2644,6 +2669,66 @@ export const generateSupportTicketResponse = async (req, res, next) => {
         schoolOrganizationId: ticket.school_organization_id
       });
       if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+    }
+
+    if (!(await actorCanAccessTicketTopic(req, ticket))) {
+      return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+    }
+    if (String(ticket.source_channel || '').toLowerCase() === 'email') {
+      if (ticket.claimed_by_user_id && Number(ticket.claimed_by_user_id) !== Number(req.user.id)) {
+        return res.status(409).json({ error: { message: 'This ticket is claimed by another team member. Reassign it before changing its draft.' } });
+      }
+      const [messageRows] = await pool.execute(
+        `SELECT m.*, u.first_name AS author_first_name, u.last_name AS author_last_name,
+           e.direction AS email_direction, e.from_email AS email_from, e.send_status AS email_delivery_status, e.sent_at
+         FROM support_ticket_messages m LEFT JOIN users u ON u.id = m.author_user_id
+         LEFT JOIN support_ticket_email_messages e ON e.ticket_message_id = m.id
+         WHERE m.ticket_id = ? AND COALESCE(m.is_deleted, 0) = 0 ORDER BY m.id ASC`, [ticketId]);
+      const revision = Math.max(0, ...messageRows.map((m) => Number(m.id)));
+      const [claimants] = await pool.execute('SELECT id, first_name, last_name, role FROM users WHERE id = ?',
+        [ticket.claimed_by_user_id || req.user.id]);
+      const intake = await ingestTicketAttachmentsFromGmail({ ticket, strict: true });
+      const attachments = intake?.attachments || await listTicketAttachments(ticketId);
+      const assignedProviders = ticket.client_id ? await listProvidersAssignedToClientInSchool({
+        clientId: ticket.client_id, schoolOrganizationId: ticket.school_organization_id }) : [];
+      const client = ticket.client_id ? await Client.findById(ticket.client_id, { includeSensitive: true }) : null;
+      const generated = await generateSupportEmailDraft({ ticket, messages: messageRows, attachments,
+        claimant: claimants?.[0] || null, client,
+        verifiedFacts: assignedProviders.map((p) => ({ key: 'assigned_provider', value: [p.first_name, p.last_name].filter(Boolean).join(' '), source: 'Current active client assignment in this school', shareable: true })),
+        regenerationGuidance: String(req.body?.regenerationGuidance || '').trim(),
+        intakeComplete: intake?.incomplete !== true && intake?.complete !== false });
+      const [current] = await pool.execute(
+        'SELECT MAX(id) AS revision FROM support_ticket_messages WHERE ticket_id = ? AND COALESCE(is_deleted, 0) = 0', [ticketId]);
+      if (Number(current?.[0]?.revision || 0) !== revision) {
+        return res.status(409).json({ error: { message: 'A new message arrived while drafting. Refresh the conversation and generate again.' } });
+      }
+      const snapshot = generated.text ? await recordDraftSnapshot({ ticketId, agencyId: ticket.agency_id,
+        actorUserId: req.user.id, body: generated.text || '',
+        threadRevision: String(revision), model: generated.modelName, provider: 'vertex',
+        sourceEvidence: generated.metadata }) : null;
+      const draftSnapshotId = snapshot?.id || snapshot?.snapshotId || snapshot;
+      const metadata = { ...parseMetadataJson(ticket.ai_draft_metadata_json), ...generated.metadata,
+        draftSnapshotId, threadRevision: String(revision), suppressed: generated.suppressed,
+        suppressionReason: generated.suppressionReason || null };
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [[locked]] = await connection.execute('SELECT claimed_by_user_id FROM support_tickets WHERE id = ? FOR UPDATE', [ticketId]);
+        const [[latest]] = await connection.execute('SELECT MAX(id) AS revision FROM support_ticket_messages WHERE ticket_id = ? AND COALESCE(is_deleted, 0) = 0', [ticketId]);
+        if (Number(latest?.revision || 0) !== revision || Number(locked?.claimed_by_user_id || 0) !== Number(ticket.claimed_by_user_id || 0)) {
+          const error = new Error('The conversation or owner changed while drafting. Refresh and generate again.');
+          error.status = 409; throw error;
+        }
+        await connection.execute(`UPDATE support_tickets SET ai_draft_response = ?, ai_draft_generated_at = CURRENT_TIMESTAMP,
+          ai_draft_status = ?, ai_draft_review_state = 'pending', ai_draft_review_note = NULL, ai_draft_reviewed_at = NULL,
+          ai_draft_reviewed_by_user_id = NULL, ai_draft_metadata_json = ? WHERE id = ?`,
+          [generated.text || null, generated.suppressed ? 'suppressed' : 'needs_review', JSON.stringify(metadata), ticketId]);
+        await connection.commit();
+      } catch (error) { await connection.rollback(); throw error; }
+      finally { connection.release(); }
+      return res.json({ suggestedAnswer: generated.text || '', draftSources: generated.metadata?.draftSources || [],
+        draftSnapshotId, lastMessageId: revision, reviewWarnings: generated.metadata?.reviewWarnings || [],
+        suppressed: generated.suppressed, suppressionReason: generated.suppressionReason });
     }
 
     const createdByName = [ticket.created_by_first_name, ticket.created_by_last_name].filter(Boolean).join(' ').trim();
@@ -2966,6 +3051,10 @@ export const markSupportTicketDraftSent = async (req, res, next) => {
     const access = await ensureOrgAccess(req, ticket.school_organization_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    if (String(ticket.source_channel || '').toLowerCase() === 'email') {
+      return res.status(409).json({ error: { message: 'Email delivery is recorded automatically when a reply is sent.' } });
+    }
+
     await pool.execute(
       `UPDATE support_tickets
        SET sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP),
@@ -3019,6 +3108,20 @@ export const answerSupportTicket = async (req, res, next) => {
 
     const access = await ensureOrgAccess(req, ticket.school_organization_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    if (!(await actorCanAccessTicketTopic(req, ticket))) {
+      return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+    }
+    if (String(ticket.source_channel || '').toLowerCase() === 'email') {
+      const emailReply = await sendSupportTicketEmailReply({
+        ticketId, actorUserId: req.user.id, actorRole: req.user.role, body: answer,
+        senderIdentityId: req.body?.senderIdentityId, senderMode: req.body?.senderMode || 'staff',
+        clientRequestId: req.body?.clientRequestId, draftSnapshotId: req.body?.draftSnapshotId,
+        expectedLastMessageId: req.body?.expectedLastMessageId, desiredStatus: status
+      });
+      const [updated] = await pool.execute('SELECT * FROM support_tickets WHERE id = ?', [ticketId]);
+      return res.json({ ...enrichTicketForClient(updated?.[0]), emailReply });
+    }
 
     // Enforce ownership:
     // - If already claimed by another user, block answering.
@@ -3539,26 +3642,14 @@ export const closeSupportTicket = async (req, res, next) => {
     const access = await ensureOrgAccess(req, ticket.school_organization_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    await pool.execute(
-      `UPDATE support_tickets
-       SET status = 'closed',
-           answered_by_user_id = ?,
-           answered_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [req.user.id, ticketId]
-    );
-
-    // Best-effort: append closure note to thread.
-    try {
-      if (await hasSupportTicketMessagesTable()) {
-        await pool.execute(
-          `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
-           VALUES (?, NULL, ?, ?, ?)`,
-          [ticketId, req.user.id, String(req.user?.role || ''), 'Ticket closed']
-        );
-      }
-    } catch {
-      // ignore
+    if (!(await actorCanAccessTicketTopic(req, ticket))) {
+      return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+    }
+    await pool.execute("UPDATE support_tickets SET status = 'closed' WHERE id = ?", [ticketId]);
+    if (await hasSupportTicketMessagesTable()) {
+      await insertTicketMessageRow({ ticketId, parentId: null, authorUserId: req.user.id,
+        authorRole: String(req.user.role || ''), body: 'Ticket closed', isInternal: true,
+        requireEncryption: ticket.source_channel === 'email' });
     }
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);

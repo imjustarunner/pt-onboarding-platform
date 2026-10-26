@@ -249,7 +249,7 @@ function buildDraftReplyStep({ ticket, priorSteps = [] }) {
       step.type === RESPONSE_PLAN_STEP_TYPES.MATCH_CLIENT &&
       step.status === RESPONSE_PLAN_STEP_STATUS.BLOCKED
   );
-  const isAnswered = ['answered', 'closed'].includes(String(ticket?.status || '').toLowerCase()) || !!ticket?.sent_at;
+  const isAnswered = !!ticket?.sent_at;
   const hasDraft = !!String(ticket?.ai_draft_response || '').trim();
   if (isAnswered && hasDraft) {
     return {
@@ -258,6 +258,15 @@ function buildDraftReplyStep({ ticket, priorSteps = [] }) {
       title: 'Draft reply',
       detail: 'Reply sent to school',
       status: RESPONSE_PLAN_STEP_STATUS.DONE
+    };
+  }
+  if (blocked) {
+    return {
+      step: 0,
+      type: RESPONSE_PLAN_STEP_TYPES.DRAFT_REPLY,
+      title: 'Draft reply',
+      detail: 'Resolve client match before reviewing a reply',
+      status: RESPONSE_PLAN_STEP_STATUS.BLOCKED
     };
   }
   if (hasDraft) {
@@ -281,7 +290,7 @@ function buildDraftReplyStep({ ticket, priorSteps = [] }) {
 }
 
 function buildNotifyStep({ ticket, priorSteps = [] }) {
-  const isAnswered = ['answered', 'closed'].includes(String(ticket?.status || '').toLowerCase()) || !!ticket?.sent_at;
+  const isAnswered = !!ticket?.sent_at;
   if (isAnswered) {
     return {
       step: 0,
@@ -300,15 +309,18 @@ function buildNotifyStep({ ticket, priorSteps = [] }) {
   const pendingActions = priorSteps.filter(
     (step) =>
       step.type === RESPONSE_PLAN_STEP_TYPES.ACTION_ITEM &&
-      [RESPONSE_PLAN_STEP_STATUS.NEEDS_APPROVAL, RESPONSE_PLAN_STEP_STATUS.FAILED].includes(step.status)
+      ![RESPONSE_PLAN_STEP_STATUS.DONE, RESPONSE_PLAN_STEP_STATUS.SKIPPED].includes(step.status)
   );
 
   let detail = 'Review draft and send from Ticket Desk';
   let status = RESPONSE_PLAN_STEP_STATUS.READY;
   if (pendingActions.length) {
-    detail = `${pendingActions.length} suggested action${pendingActions.length === 1 ? '' : 's'} still need approval`;
+    detail = `${pendingActions.length} action${pendingActions.length === 1 ? '' : 's'} still need completion or review`;
     status = RESPONSE_PLAN_STEP_STATUS.BLOCKED;
-  } else if (!draftReady) {
+  } else if (priorSteps.some((step) => step.status === RESPONSE_PLAN_STEP_STATUS.BLOCKED)) {
+    detail = 'Resolve required facts before sending';
+    status = RESPONSE_PLAN_STEP_STATUS.BLOCKED;
+  } else if (!draftReady || !String(ticket?.ai_draft_response || '').trim()) {
     detail = 'Prepare a reply draft first';
     status = RESPONSE_PLAN_STEP_STATUS.BLOCKED;
   }
@@ -332,9 +344,9 @@ export function buildResponsePlanSteps({
   const meta = metadata || parseMetadataJson(ticket?.ai_draft_metadata_json);
   const coreSteps = [
     buildMatchClientStep({ ticket, client, metadata: meta }),
-    buildPullStatusStep({ ticket, client, metadata: meta, checklistItems }),
-    buildDraftReplyStep({ ticket, priorSteps: [] })
+    buildPullStatusStep({ ticket, client, metadata: meta, checklistItems })
   ];
+  coreSteps.push(buildDraftReplyStep({ ticket, priorSteps: coreSteps }));
 
   const actionSteps = (Array.isArray(actionItems) ? actionItems : []).map((action) => ({
     step: 0,

@@ -530,7 +530,11 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         </article>
       </div>
 
-      <footer class="uc-composer">
+      <footer v-if="conv.support_ticket_id && conv.channel === 'email'" class="uc-composer">
+        <p>Continue with the assigned person and the shared school email address.</p>
+        <a class="uc-btn primary" :href="`/tickets?ticketId=${conv.support_ticket_id}`">Open conversation to reply</a>
+      </footer>
+      <footer v-else class="uc-composer">
         <p v-if="isCallLike" class="uc-channel-hint">
           Call/voicemail threads are read-only here. Add an internal note, or open Calls for recordings and dial-back.
         </p>

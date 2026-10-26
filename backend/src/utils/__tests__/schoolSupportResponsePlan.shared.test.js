@@ -88,4 +88,24 @@ describe('schoolSupportResponsePlan.shared', () => {
     assert.equal(plan.steps.at(-1).status, RESPONSE_PLAN_STEP_STATUS.DONE);
     assert.equal(computeResponsePlanStatus(plan.steps), RESPONSE_PLAN_STATUS.COMPLETED);
   });
+
+  it('does not interpret ticket closure as an emailed reply', () => {
+    const plan = buildResponsePlan({ ticket: { id: 61, status: 'closed', subject: 'General question', ai_draft_response: 'Draft only' } });
+    assert.notEqual(plan.status, RESPONSE_PLAN_STATUS.COMPLETED);
+    assert.notEqual(plan.steps.at(-1).status, RESPONSE_PLAN_STEP_STATUS.DONE);
+    assert.doesNotMatch(plan.steps.at(-1).detail, /Reply sent/);
+  });
+
+  it('blocks a stored draft and send step when the required client match remains unresolved', () => {
+    const plan = buildResponsePlan({ ticket: { id: 62, subject: 'Client status update', question: 'Where is the paperwork?', ai_draft_response: 'Here is an update.' } });
+    assert.equal(plan.steps.find((step) => step.type === RESPONSE_PLAN_STEP_TYPES.DRAFT_REPLY).status, RESPONSE_PLAN_STEP_STATUS.BLOCKED);
+    assert.equal(plan.steps.at(-1).status, RESPONSE_PLAN_STEP_STATUS.BLOCKED);
+  });
+
+  it('does not call a send ready when there is no draft or approved actions have not executed', () => {
+    const empty = buildResponsePlan({ ticket: { id: 63, subject: 'General question' } });
+    assert.equal(empty.steps.at(-1).status, RESPONSE_PLAN_STEP_STATUS.BLOCKED);
+    const pending = buildResponsePlan({ ticket: { id: 64, subject: 'General question', ai_draft_response: 'We created the account.' }, actionItems: [{ id: 7, title: 'Create account', status: 'approved' }] });
+    assert.equal(pending.steps.at(-1).status, RESPONSE_PLAN_STEP_STATUS.BLOCKED);
+  });
 });

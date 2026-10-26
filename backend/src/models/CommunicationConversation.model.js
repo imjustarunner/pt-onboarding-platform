@@ -1,5 +1,20 @@
 import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
+import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
+
+async function hydrateTicketMessageBodies(messages) {
+  const ids = [...new Set(messages.map((m) => Number(m?.support_ticket_message_id)).filter(Boolean))];
+  if (!ids.length) return messages;
+  const [rows] = await pool.execute(`SELECT * FROM support_ticket_messages WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  const byId = new Map(rows.map((row) => [Number(row.id), decryptTicketMessageRow(row)]));
+  return messages.map((m) => {
+    if (!m.support_ticket_message_id) return m;
+    const canonical = byId.get(Number(m.support_ticket_message_id));
+    if (!canonical || Number(canonical.is_deleted)) return { ...m, body_text: '', body_html: null, send_status: 'cancelled' };
+    return { ...m, body_text: canonical.body, body_html: null,
+      is_internal_note: !!canonical.is_internal || m.is_internal_note };
+  });
+}
 
 function parseJson(v, fallback = null) {
   if (v == null) return fallback;
@@ -758,7 +773,7 @@ class CommunicationConversation {
        LIMIT ${lim}`,
       [conversationId]
     );
-    const messages = rows.reverse().map(mapMessage);
+    const messages = (await hydrateTicketMessageBodies(rows.reverse().map(mapMessage))).filter((m) => m.send_status !== 'cancelled');
     if (!messages.length) return messages;
     const ids = messages.map((m) => m.id);
     const [atts] = await pool.execute(
@@ -838,7 +853,8 @@ class CommunicationConversation {
       `SELECT * FROM communication_messages WHERE id = ? LIMIT 1`,
       [messageId]
     );
-    return mapMessage(rows[0] || null);
+    const [message] = await hydrateTicketMessageBodies(rows[0] ? [mapMessage(rows[0])] : []);
+    return message?.send_status === 'cancelled' ? null : message || null;
   }
 
   static async updateMessage(messageId, updates = {}) {

@@ -135,28 +135,26 @@ export function rankHybridReplyMatches({
 
   const ranked = [];
   for (const row of embeddingRows || []) {
+    if (row.isActive === false || row.is_active === 0 || row.is_active === false) continue;
     const sourceType = String(row.sourceType || row.source_type || '').toLowerCase();
     const sourceId = Number(row.sourceId || row.source_id || 0) || null;
     const sourceRef = row.sourceRef || row.source_ref || null;
     const semanticScore = queryVector
       ? cosineSimilarity(queryVector, row.embedding || row.embedding_json || [])
       : 0;
+    const historicalTerms = tokenizeReplyLibraryQuery(row.searchText || row.search_text || row.title || '');
     const keywordScore = sourceType === REPLY_EMBEDDING_SOURCE_TYPES.LIBRARY
       ? (keywordScores.get(sourceId) || 0)
-      : 0;
+      : queryTerms.filter((term) => term.length >= 4 && historicalTerms.includes(term)).length * 3;
     const hybridScore = combineHybridRetrievalScore({ keywordScore, semanticScore });
     if (hybridScore <= 0) continue;
     if (!keywordScore && semanticScore < semanticMinScore) continue;
 
     let entry = null;
     if (sourceType === REPLY_EMBEDDING_SOURCE_TYPES.LIBRARY) {
-      entry = byLibraryId.get(sourceId) || {
-        id: sourceId,
-        title: row.title,
-        bodyTemplate: row.replyExcerpt || row.reply_excerpt,
-        intentKey: row.intentKey || row.intent_key,
-        retrievalSource: 'library'
-      };
+      // A stale embedding must never reactivate an archived/deleted template.
+      entry = byLibraryId.get(sourceId);
+      if (!entry || entry.isActive === false) continue;
     } else if (sourceType === REPLY_EMBEDDING_SOURCE_TYPES.TICKET_ANSWER
       || sourceType === REPLY_EMBEDDING_SOURCE_TYPES.GMAIL_SENT
       || sourceType === REPLY_EMBEDDING_SOURCE_TYPES.USER_COMMUNICATION) {
@@ -170,6 +168,7 @@ export function rankHybridReplyMatches({
           : (sourceType === REPLY_EMBEDDING_SOURCE_TYPES.USER_COMMUNICATION ? 'user_communication' : 'ticket_answer'),
         sourceTicketId: sourceType === REPLY_EMBEDDING_SOURCE_TYPES.TICKET_ANSWER ? sourceId : null
       };
+      entry.historicalQuestion = row.historicalQuestion || row.searchText || row.search_text || null;
     }
 
     ranked.push({
@@ -215,4 +214,29 @@ export function mapRetrievalMatchesToLibraryEntries(ranked = []) {
           ? 'user_communication'
           : (row.entry?.retrievalSource || 'library')
   }));
+}
+
+/** Rank paired sent correspondence when embeddings are unavailable or not yet indexed. */
+export function rankHistoricalReplyCandidates({ candidates = [], subject = '', question = '', intentKey = 'general', limit = 4 } = {}) {
+  const queryTerms = tokenizeReplyLibraryQuery(`${subject} ${question}`).filter((term) => term.length >= 4);
+  return candidates.map((candidate) => {
+    const terms = new Set(tokenizeReplyLibraryQuery(`${candidate.subject || ''} ${candidate.question || ''}`));
+    const overlap = queryTerms.filter((term) => terms.has(term)).length;
+    const sameIntent = intentKey !== 'general' && normalizeIntentKey(candidate.intentKey) === intentKey;
+    return { candidate, overlap, score: overlap * 3 + (sameIntent ? 4 : 0) };
+  }).filter((row) => row.overlap >= 2 || (row.overlap >= 1 && row.score >= 7))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(1, Math.min(Number(limit) || 4, 8)))
+    .map(({ candidate, score }) => ({
+      id: `history-message-${candidate.messageId}`,
+      title: `Historical sent reply: ${deidentifySchoolReplyText(candidate.subject || 'Email conversation', candidate.scrubTerms)}`.slice(0, 255),
+      historicalQuestion: deidentifySchoolReplyText(candidate.question, candidate.scrubTerms).slice(0, 2400),
+      bodyTemplate: deidentifySchoolReplyText(candidate.answer, candidate.scrubTerms).slice(0, 2400),
+      intentKey: normalizeIntentKey(candidate.intentKey),
+      retrievalSource: 'ticket_email_sent',
+      approvalStatus: 'unreviewed_history',
+      sourceTicketId: candidate.ticketId,
+      sourceMessageId: candidate.messageId,
+      retrievalScore: normalizeKeywordScore(score)
+    }));
 }

@@ -26,7 +26,7 @@ const TYPES_BY_CATEGORY = {
   tasks_messaging: [
     'task_overdue', 'inbound_client_message', 'support_safety_net_alert', 'client_note',
     'chat_message', 'task_comment_mention', 'escalation_mention', 'support_ticket_created',
-    'support_ticket_forwarded_to_provider', 'referral_directory_pending_approval',
+    'support_ticket_forwarded_to_provider', 'support_reply_pilot_review', 'referral_directory_pending_approval',
     'voicemail_received', 'custom_task_assigned', 'custom_task_unlocked',
     'task_list_activity'
   ],
