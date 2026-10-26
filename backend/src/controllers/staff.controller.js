@@ -1,5 +1,5 @@
 import { listEnrolledProviders } from './publicAgencyServices.controller.js';
-import { providerProfileUrl } from '../../../frontend/src/utils/providerProfileLinks.js';
+import { providerProfileUrl } from '../../../frontend/src/navigation/providerProfileLinks.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
