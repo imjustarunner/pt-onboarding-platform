@@ -232,42 +232,55 @@ export async function loadLinkedSupportClientDraftFacts(ticket, dependencies = {
   return result;
 }
 
-export async function generateInboundSupportDraft({ ticketId, sourceMessageId, agencyId, intakeComplete }) {
-  const { generateSupportEmailDraft } = await import('./supportEmailDraft.service.js');
-  const { recordDraftSnapshot, getLatestDraftSnapshot } = await import('./supportReplyReview.service.js');
-  const [[raw]] = await pool.execute('SELECT * FROM support_tickets WHERE id=? AND agency_id=?', [ticketId, agencyId]);
+export async function generateInboundSupportDraft({ ticketId, sourceMessageId, agencyId, intakeComplete }, dependencies = {}) {
+  const database = dependencies.database || pool;
+  const generateSupportEmailDraft = dependencies.generateSupportEmailDraft || (await import('./supportEmailDraft.service.js')).generateSupportEmailDraft;
+  const { recordDraftSnapshot, getLatestDraftSnapshot } = dependencies.review || await import('./supportReplyReview.service.js');
+  const [[raw]] = await database.execute('SELECT * FROM support_tickets WHERE id=? AND agency_id=?', [ticketId, agencyId]);
   if (!raw || raw.topic === 'technology') return null;
-  const [messages] = await pool.execute(`SELECT m.*,e.direction AS email_direction,e.from_email AS email_from,
+  const [messages] = await database.execute(`SELECT m.*,e.direction AS email_direction,e.from_email AS email_from,
     e.send_status AS email_delivery_status FROM support_ticket_messages m
     LEFT JOIN support_ticket_email_messages e ON e.ticket_message_id=m.id
     WHERE m.ticket_id=? AND COALESCE(m.is_deleted,0)=0 ORDER BY m.id ASC`, [ticketId]);
   const revision = String(messages.at(-1)?.id || 0);
   const existing = await getLatestDraftSnapshot({ ticketId, agencyId, sourceMessageId, threadRevision: revision });
   if (existing) return existing;
-  const attachments = await listTicketAttachments(ticketId);
+  const attachments = await (dependencies.listTicketAttachments || listTicketAttachments)(ticketId);
   let intakeMetadata = raw.ai_draft_metadata_json || {};
   if (typeof intakeMetadata === 'string') { try { intakeMetadata = JSON.parse(intakeMetadata); } catch { intakeMetadata = {}; } }
   let claimant = null;
   if (raw.claimed_by_user_id) {
-    [[claimant]] = await pool.execute('SELECT id,first_name,last_name FROM users WHERE id=?', [raw.claimed_by_user_id]);
+    [[claimant]] = await database.execute('SELECT id,first_name,last_name FROM users WHERE id=?', [raw.claimed_by_user_id]);
   }
-  const linkedClientFacts = await loadLinkedSupportClientDraftFacts(raw);
+  const linkedClientFacts = await loadLinkedSupportClientDraftFacts(raw, { database, findClient: dependencies.findClient });
   const generated = await generateSupportEmailDraft({ ticket: decryptTicketRow(raw), ...linkedClientFacts,
     messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete,
     headers: intakeMetadata.inboundEmailHeaders || {} });
   if (!generated?.text) {
-    if (generated?.suppressed) return generated;
+    if (generated?.suppressed) {
+      // Suppression is a persisted generation outcome. An old newsletter draft
+      // must disappear, but a slow classification cannot clear a newer reply.
+      await database.execute(`UPDATE support_tickets t SET ai_draft_response=NULL,ai_draft_status='suppressed',
+        ai_draft_generated_at=CURRENT_TIMESTAMP,draft_generated_at=CURRENT_TIMESTAMP,ai_draft_review_state='pending',
+        ai_draft_review_note=NULL,ai_draft_reviewed_at=NULL,ai_draft_reviewed_by_user_id=NULL,
+        ai_draft_metadata_json=? WHERE t.id=? AND ?=(SELECT COALESCE(MAX(m.id),0) FROM support_ticket_messages m
+          WHERE m.ticket_id=t.id AND COALESCE(m.is_deleted,0)=0)`,
+      [JSON.stringify({ ...intakeMetadata, ...generated.metadata, suppressed: true,
+        suppressionReason: generated.suppressionReason || null, draftSnapshotId: null,
+        threadRevision: revision, sourceMessageId }), ticketId, Number(revision)]);
+      return generated;
+    }
     throw supportEmailError('Reply draft generation is pending. The email has been saved.', 503, 'SUPPORT_DRAFT_PENDING');
   }
   const snapshot = await recordDraftSnapshot({ ticketId, agencyId, actorUserId: null, body: generated.text,
     sourceMessageId, threadRevision: revision, model: generated.modelName, provider: generated.provider,
     sourceEvidence: generated.metadata, requestKey: `inbound:${sourceMessageId}:${revision}` });
   // A slow generator must not replace a draft after a new inbound or sent reply.
-  await pool.execute(`UPDATE support_tickets t SET ai_draft_response=?,ai_draft_status='needs_review',
+  await database.execute(`UPDATE support_tickets t SET ai_draft_response=?,ai_draft_status='needs_review',
     ai_draft_generated_at=CURRENT_TIMESTAMP,draft_generated_at=CURRENT_TIMESTAMP,ai_draft_review_state='pending',
     ai_draft_metadata_json=? WHERE t.id=? AND ?=(SELECT COALESCE(MAX(m.id),0) FROM support_ticket_messages m
       WHERE m.ticket_id=t.id AND COALESCE(m.is_deleted,0)=0)`,
   [generated.text, JSON.stringify({ ...intakeMetadata, ...generated.metadata, draftSnapshotId: snapshot.id || snapshot.draftSnapshotId,
-    threadRevision: revision, sourceMessageId }), ticketId, Number(revision)]);
+    suppressed: false, suppressionReason: null, threadRevision: revision, sourceMessageId }), ticketId, Number(revision)]);
   return generated;
 }
