@@ -1,0 +1,7 @@
+{
+  "checks": [
+    "A consumed recovery link is rejected.",
+    "Returning to Login after that used link does not restore the previous provider username."
+  ],
+  "passed": true
+}

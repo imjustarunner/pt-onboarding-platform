@@ -1,0 +1,7 @@
+{
+  "communicationId": 4164,
+  "mailbox": "testing@itsco.health",
+  "received": null,
+  "status": "not_independently_verified",
+  "reason": "The read-only lookup of this exact message in the recipient mailbox returned HTTP 401. Sent-message headers and the family in-app copy were verified separately; a sent receipt is not proof of physical inbox arrival."
+}

@@ -1,0 +1,8 @@
+{
+  "userId": 1440,
+  "checks": [
+    "Live family invoices, payment preference, plan status, and share controls render in Spanish.",
+    "Existing synthetic installment plans remain active and actual payment is unavailable."
+  ],
+  "passed": true
+}

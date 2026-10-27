@@ -1,0 +1,11 @@
+{
+  "account": "second-parent",
+  "userId": 1456,
+  "checks": [
+    "Fresh browser login passed.",
+    "Second guardian accepted the requested share through the UI.",
+    "Second guardian sees only its $60 test share and cannot pay."
+  ],
+  "errors": [],
+  "passed": true
+}

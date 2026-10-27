@@ -1,0 +1,40 @@
+Release verification — October 27, 2026
+
+Functional backend release 2576b981e deployed successfully:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40562933114
+
+Final frontend release c7056dec7 deployed successfully:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40565247285
+
+Billing regression workflow for c7056dec7 passed:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40565247336
+
+Scheduling workflow jobs for c7056dec7 passed in UTC and America/Denver;
+the provider-offboarding job also passed:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40565247335
+
+The backend directory is identical at 2576b981e and c7056dec7:
+Git tree 66d525acd31570e82264b983fa4c581566e8f685.
+Later frontend-only commits also queued redundant backend deployment runs;
+they do not contain a different backend implementation.
+
+Local validation included the 75-test focused backend retest suite,
+33 portal-invitation tests, and 22 focused frontend billing, navigation, and
+language tests after the final edits. Production frontend builds passed.
+Earlier in this follow-up, the broader family-email and family-interface
+regression suites also passed. Git diff whitespace validation passed.
+
+Live browser and API evidence is recorded separately in this directory.
+Only synthetic demo records were changed. No local Docker was used.
+No real card was charged and no insurance claim was transmitted.
+
+Still requiring the coordinator's broad daily coverage:
+- Original School EN/ES and Office EN family browser downloads and forms;
+  stored complete signed school PDFs were inspected directly here.
+- All remaining older completed-form viewers, intake permutations, and any
+  untranslated server-authored or legacy UI text encountered in those journeys.
+- Physical arrival of recovery email 4164 in the testing inbox. Its transport
+  headers and recipient-specific in-app email copy are verified, but an
+  independent recipient-mailbox read returned HTTP 401.
+
+This is a verified follow-up to the reported blockers, not a full-suite PASS.

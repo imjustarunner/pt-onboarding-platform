@@ -1,0 +1,14 @@
+{
+  "account": "recovery-parent",
+  "userId": 1440,
+  "checks": [
+    "Fresh browser login passed.",
+    "Family accepted its proposed installment plan through the UI; no payment button or autopay.",
+    "First guardian requested a 50/50 share of retained balance 18 through the UI.",
+    "Guardian appointment page loads.",
+    "Spanish dashboard renders with Spanish document language.",
+    "Another family’s appointments remain denied."
+  ],
+  "errors": [],
+  "passed": true
+}

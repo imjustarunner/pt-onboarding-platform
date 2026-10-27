@@ -1,0 +1,12 @@
+{
+  "account": "support",
+  "userId": 1434,
+  "checks": [
+    "Fresh browser login passed.",
+    "Account Support loads at a single tenant prefix and opens client 2271.",
+    "Support has no billing-management link; user directory API returns 403."
+  ],
+  "errors": [],
+  "directoryStatus": 403,
+  "passed": true
+}

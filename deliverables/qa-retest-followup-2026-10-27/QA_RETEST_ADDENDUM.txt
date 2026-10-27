@@ -1,0 +1,181 @@
+ITSCOLLC QA RETEST ADDENDUM — OCTOBER 27, 2026
+New instructions and evidence; keep previously distributed runbooks unchanged.
+
+SCOPE
+Use only agency 450 (ITSCOLLC), tenant slug auricwell-qa-demo, and its synthetic
+school/clinical organizations. Continue the existing 5 a.m. America/Denver run.
+Keep the existing maximum of 30 clients and 10 providers. Retain the synthetic
+records for inspection; do not create a second daily scheduler.
+
+Normal sign-in: https://app.itsco.health/auricwell-qa-demo/login
+Account Support: https://app.itsco.health/auricwell-qa-demo/admin/account-support
+Biller desk: https://app.itsco.health/auricwell-qa-demo/admin/family-billing?agencyId=450
+
+LIVE CHECKS COMPLETED
+1. Fresh browser logins succeeded for Avery 1433, support 1434, Cameron 1438,
+   Alex 1439, biller 1453, recovery parent 1440 and second parent 1456.
+   Avery and Cameron's passwords were not changed. Replace stale browser
+   autofill with the supplied private credentials; use separate browser profiles.
+
+2. Account Support loads at one tenant prefix and opens Rowan 2271.
+   Support does not receive the billing-management link. Its users-directory
+   API request returns 403. Do not give support or the bots administrator access.
+   The biller receives the scoped balance-management link through its existing
+   billing permission; it remains a support-role account, not an administrator.
+
+3. Harper 2272 appears in Alex's client list. The previous frontend filter hid
+   assigned clients whose enrollment status was still PACKET. Provider ownership
+   and tenant filters are retained. The screenshot uses Show full names.
+
+4. Retained draft 261 is now linked to synthetic appointment 77 / clinical
+   session 128. Its clinical note is 75, signed by Alex and cosigned by Cameron.
+   Treatment plan 48 belongs to this test workflow. Original draft content and
+   clinical-note audit history were retained. The normal recent-notes workflow
+   has retired draft 261 from the draft queue; inspect signed note 75 now.
+   This was verified through the normal application
+   APIs; Alex's browser also sees note 75 among that session's artifacts.
+   No insurance claim was transmitted. Do not create a duplicate replacement
+   for draft 261 or try to sign an appointment-free draft again.
+
+5. Guardian Appointments loads for recovery parent 1440 and Rowan 2271.
+   A direct attempt to read unrelated Harper appointments remains 403.
+   Appointment access follows the active family relationship and its appointment
+   restrictions. Adult dependent disclosures and clinical-document permissions
+   remain separate; scheduling access does not grant clinical chart access.
+
+6. A family can switch to Spanish; the dashboard and document language become
+   Spanish. Language preference is stored per signed-in account, not shared
+   across all people using the browser. Enrollment language supplies the default.
+   Family billing, plan, and balance-sharing controls have also been translated.
+   User-entered content and older signed documents retain their original language.
+
+SIGNED ENROLLMENT COPIES
+The family signed-copies panel now lists a complete signed enrollment PDF in
+addition to individual documents. Downloads require authentication and the
+correct child/signer relationship. A multi-child combined PDF is never used as
+a fallback for an individual child's download.
+
+The old item labeled Spanish HIPAA was generated release-of-information content
+with an incorrect template label. Its label now follows the recorded ROI audit.
+Original signatures and signed file contents were not rewritten.
+
+The retained School EN submission 1279 contains 33 pages, including the English
+privacy notice; School ES 1280 contains 34 pages, including the Spanish notice.
+These stored files were inspected directly. Confirm the visible download under
+each original family account, and verify another family's copy remains denied.
+
+NEW CHARGES, SHARES AND PLANS — VERIFIED FIXTURES
+Charges are created when a self-pay appointment is completed or a chargeable
+attendance outcome is recorded. Reserving a future slot alone is not the proof
+of a completed-service charge. Test that distinction explicitly.
+
+Appointment 78 / clinical session 129 -> balance 17, $120 total.
+  Automatic 50/50 allocation: parent 1440 $60 (allocation 21), parent 1456 $60
+  (allocation 22). The biller proposed plan 2 through the UI: three $20
+  installments beginning November 2, 2026. Parent 1440 accepted through the UI.
+
+Appointment 79 / clinical session 130 -> balance 18, $120 total.
+  The alternating rule initially assigned the entire charge to parent 1440.
+  Parent 1440 then requested a 50/50 share through the portal. Parent 1456
+  accepted through the portal. Each now sees its own $60 share.
+
+Appointment 80 / clinical session 131 -> balance 19, $120 total.
+  The next charge under the alternating rule went to parent 1456, proving the
+  A/B rotation. The future billing rule has since been restored to 50/50.
+
+Every balance remains held as synthetic_demo: amount due now is $0, actual
+payments are disabled, and the test installment plan cannot collect money.
+Do not remove this hold to test the buttons. This protection applies to the
+demo only; ordinary verified self-pay remains payable in the real product.
+
+RETAIN THESE PRIOR TEST FIXTURES
+Keep reminder appointments 68 (Nov 3), 69 (Oct 29), 70 (Oct 30), and 71 (Nov 5).
+Keep late cancellation 75 ($80), no-show 76 ($100), and their test balances.
+Keep earlier assessment sessions, notes, and plan 1. Do not modify real clients,
+real providers, real charges, or the existing ITSCO campaign/active phone numbers.
+
+EMAIL, RECOVERY AND SHARED-BROWSER RETEST
+Use testing@itsco.health for redirected synthetic mail. The original recipient's
+in-app email list must also show its own receipt. A sent transport receipt alone
+does not prove arrival in the physical inbox; verify that separately.
+
+The demo's official email display name is now ITSCOLLC. A further recovery check
+caught the clinical-enrollment URL overriding the ITSCO app host with AuricWell.
+That override is corrected for this isolated demo. New recovery/login links must
+use app.itsco.health/auricwell-qa-demo; do not reuse an older emailed link.
+
+Opening recovery clears the previous portal username shortcut. A deliberate
+Remember me choice remains supported. Browser password-manager autofill is
+outside the application's storage; use separate profiles for different users.
+
+NEXT MORNING'S CHECKS
+- Recheck the original four families' appointments and complete signed copies.
+- Verify Spanish defaults for the original Spanish families, booking, cancellation,
+  billing explanations, plans, and messages. Record any remaining English UI.
+- Open signed enrollment copies and completed forms in read-only views; no edit
+  or re-sign controls should be offered. Do not mutate signed records to test this.
+- Inspect note 75 from Alex and Cameron, including signature/cosign history.
+  Support may see permitted status information but must not open note bodies.
+- Inspect balance 17 / plan 2 and the accepted balance 18 split. For another
+  sharing test use a fresh synthetic charge, not the already accepted request.
+- Verify all required guardian acceptances occur before allocations change.
+- Continue Exchange, scheduling, cancellation/SMS, secure messaging, and email
+  coverage from the earlier addenda. This focused retest is not a new full-suite pass.
+- Report PASS / FAIL / BLOCKED / NOT RUN separately, with IDs, expected vs actual
+  results, screenshots, timestamp/timezone, and the deployed commit being tested.
+
+EVIDENCE AND RELEASE NOTES
+The JSON files and screenshots in this new directory record this follow-up's
+own API and browser checks. Earlier bot ZIP screenshots were not available in
+this workspace and are not represented as reviewed here.
+
+Application fixes: 0d60a5aaf
+Scheduling regression correction: 00495cfa8
+Demo clinical portal/recovery domain correction: 2576b981e
+Spanish family billing controls: 79abafbac
+Remaining Spanish family labels and earlier-record requests: c7056dec7
+
+Do not paste passwords, bearer tokens, reset tokens, or live signed download URLs
+into screenshots, Git, or the morning brief. Credential updates are provided
+separately in the owner's private secrets directory.
+
+FINAL ORIGINAL OFFICE ES RETEST
+The original Office ES account 1450 (Kendall, Harper 2272) was restored using the
+normal recovery form, and the replacement password passed a separate fresh
+browser login. Update the bot vault entry “AuricWell QA family QA-OfficeES-1027”
+from the owner's private office-es-1027.json. Its old saved password is superseded.
+
+This original family defaults to Spanish without manually choosing a language.
+Its Appointments request succeeds. The complete signed enrollment 1278 downloads
+through the signed-copies UI as a 26-page PDF containing Spanish privacy content.
+The signed-copies panel offers downloads and no editable form controls. A request
+for another family's complete enrollment copy returns 403. This does not claim
+that every older completed-form viewer has been exhaustively retested.
+
+Recovery email 4164 appears in this family's in-app email list and is addressed
+to testing@itsco.health. Actual sent-message headers use AuricWell Portal with
+reply-to support@itsco.health. The message displays ITSCOLLC and a Spanish
+care-team footer. Reset, misdirected-message report, and opt-out links all use
+app.itsco.health. A plottwisthq.com URL remains only as an open-tracking image;
+it is not a clickable recovery or support link.
+
+The owner has a private consolidated credential list for 11 known test accounts.
+It intentionally excludes the owner-only setup administrator. Other original
+daily-family passwords remain in the bot vault and were not changed here.
+
+SIGNED-NOTE ACCESS CHECK
+The final signed/cosigned note 75 was tested directly: support 1434 and biller
+1453 each receive HTTP 403 for the note body. Cameron 1438 receives HTTP 200 and
+the note records Alex 1439's signature and Cameron 1438's cosign. This replaces
+the earlier weak check against an unsigned note.
+
+DELIVERY VERIFICATION LIMIT
+The message's sent headers, testing-address routing, correct clickable domains,
+and original recipient's in-app copy are verified. An independent read-only
+lookup in the physical testing mailbox returned HTTP 401, so physical arrival
+of this particular new recovery message must be confirmed by the inbox owner
+or the bot. Do not label a transport receipt as confirmed physical delivery.
+
+USED RECOVERY LINK CHECK
+A browser retest of the consumed Office ES reset link received HTTP 401.
+Returning to Login did not restore the prior provider username.

@@ -1,0 +1,46 @@
+{
+  "userId": 1450,
+  "clientId": 2272,
+  "checks": [
+    "Fresh Spanish recovery email uses ITSCOLLC, the ITSCO app tenant path, and the testing inbox redirect.",
+    "Recovery displays the family username and clears the previous provider shortcut.",
+    "Office ES recovery completed; replacement password saved privately for the bot vault.",
+    "Original Office ES family defaults to Spanish without a language toggle.",
+    "The same recovery email appears in this family’s own in-app email inbox.",
+    "Replacement Office ES credential signs in successfully in a separate fresh browser.",
+    "Full signed enrollment PDF downloads from the read-only signed-copies panel.",
+    "Original Office ES family appointment access succeeds.",
+    "Another family’s complete enrollment copy is denied.",
+    "Actual sent email HTML uses ITSCOLLC and a Spanish care-team footer; reset, report, and opt-out actions use the ITSCO app host."
+  ],
+  "email": {
+    "id": 4164,
+    "subject": "[Demo test → qa.family.officees.20261027@example.com] ITSCOLLC: Restablezca su contraseña",
+    "transportStatus": "sent",
+    "deliveredTo": "testing@itsco.health",
+    "resetOrigin": "https://app.itsco.health",
+    "sentHeaders": {
+      "to": "testing@itsco.health",
+      "from": "AuricWell Portal <portal@auricwell.com>",
+      "reply-to": "support@itsco.health"
+    },
+    "html": {
+      "hasSpanishFooter": true,
+      "hasAgencyBrand": true,
+      "clickableWebLinkHosts": [
+        "app.itsco.health"
+      ],
+      "supportAddress": "support@itsco.health",
+      "trackingImageHost": "plottwisthq.com",
+      "trackingResourceExplanation": "The legacy host occurs only in an open-tracking image, not the reset or footer action links."
+    }
+  },
+  "credentialFile": "/Users/mendez/PTOnboardingApp/secrets/auricwell-qa/office-es-1027.json",
+  "signedCopy": {
+    "submissionId": 1278,
+    "pages": 26,
+    "hasSpanishPrivacyNotice": true,
+    "hasEnrollment": true
+  },
+  "passed": true
+}

@@ -1,0 +1,10 @@
+{
+  "account": "provider",
+  "userId": 1433,
+  "checks": [
+    "Fresh browser login passed.",
+    "Provider client workspace loaded."
+  ],
+  "errors": [],
+  "passed": true
+}

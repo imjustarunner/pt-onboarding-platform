@@ -1,0 +1,26 @@
+{
+  "agencyId": 450,
+  "noteId": 75,
+  "clinicalSessionId": 128,
+  "checks": [
+    "support cannot read the now-signed clinical note body (403).",
+    "biller cannot read the now-signed clinical note body (403).",
+    "Supervisor can inspect the signed note; both recorded signer IDs and timestamps match."
+  ],
+  "support": {
+    "status": 403
+  },
+  "biller": {
+    "status": 403
+  },
+  "supervisor": {
+    "status": 200
+  },
+  "signature": {
+    "providerId": 1439,
+    "supervisorId": 1438,
+    "signedAt": "2026-10-27T18:21:07.000Z",
+    "cosignedAt": "2026-10-27T18:21:08.000Z"
+  },
+  "passed": true
+}

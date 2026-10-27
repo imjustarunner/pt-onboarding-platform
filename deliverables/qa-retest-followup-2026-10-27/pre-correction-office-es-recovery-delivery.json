@@ -1,0 +1,30 @@
+{
+  "userId": 1450,
+  "agencyId": 450,
+  "requestStatus": 200,
+  "communication": {
+    "id": 4163,
+    "subject": "[Demo test → qa.family.officees.20261027@example.com] ITSCO: AuricWell QA Mental Health — DEMO: Restablezca su contraseña",
+    "recipientAddress": "qa.family.officees.20261027@example.com",
+    "deliveryStatus": "sent",
+    "linkDestinations": [
+      {
+        "origin": "https://auricwell.com",
+        "path": "/[tenant]/reset-password/[redacted]"
+      }
+    ],
+    "metadataKeys": [
+      "originalTo",
+      "deliveredTo",
+      "testInboxRedirect",
+      "demoOrFakeRecipient"
+    ]
+  },
+  "bodyFormat": {
+    "type": "string",
+    "length": 478,
+    "startsWithHtml": false,
+    "startsWithJson": false
+  },
+  "inboxMessages": []
+}

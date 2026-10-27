@@ -1,0 +1,104 @@
+{
+  "agencyId": 450,
+  "clientId": 2271,
+  "syntheticOnly": true,
+  "realCollectionAttempted": false,
+  "sessions": [
+    {
+      "label": "split",
+      "ruleSet": true,
+      "appointmentId": 78,
+      "clinicalSessionId": 129,
+      "settlement": {
+        "settled": true,
+        "outcome": "completed",
+        "bookingPackage": null,
+        "practitionerPackage": null,
+        "paymentStatus": "fee_pending",
+        "feeCents": 12000
+      },
+      "rows": [
+        {
+          "receivableId": 17,
+          "allocationId": 21,
+          "payerUserId": 1440,
+          "balanceCents": 6000,
+          "demoAmountCents": 6000,
+          "dueCents": 0,
+          "canPay": false,
+          "holdReason": "synthetic_demo",
+          "sourceKey": "78"
+        },
+        {
+          "receivableId": 17,
+          "allocationId": 22,
+          "payerUserId": 1456,
+          "balanceCents": 6000,
+          "demoAmountCents": 6000,
+          "dueCents": 0,
+          "canPay": false,
+          "holdReason": "synthetic_demo",
+          "sourceKey": "78"
+        }
+      ],
+      "verified": true
+    },
+    {
+      "label": "alternateA",
+      "ruleSet": true,
+      "appointmentId": 79,
+      "clinicalSessionId": 130,
+      "settlement": {
+        "settled": true,
+        "outcome": "completed",
+        "bookingPackage": null,
+        "practitionerPackage": null,
+        "paymentStatus": "fee_pending",
+        "feeCents": 12000
+      },
+      "rows": [
+        {
+          "receivableId": 18,
+          "allocationId": 23,
+          "payerUserId": 1440,
+          "balanceCents": 12000,
+          "demoAmountCents": 12000,
+          "dueCents": 0,
+          "canPay": false,
+          "holdReason": "synthetic_demo",
+          "sourceKey": "79"
+        }
+      ],
+      "verified": true
+    },
+    {
+      "label": "alternateB",
+      "appointmentId": 80,
+      "clinicalSessionId": 131,
+      "settlement": {
+        "settled": true,
+        "outcome": "completed",
+        "bookingPackage": null,
+        "practitionerPackage": null,
+        "paymentStatus": "fee_pending",
+        "feeCents": 12000
+      },
+      "rows": [
+        {
+          "receivableId": 19,
+          "allocationId": 24,
+          "payerUserId": 1456,
+          "balanceCents": 12000,
+          "demoAmountCents": 12000,
+          "dueCents": 0,
+          "canPay": false,
+          "holdReason": "synthetic_demo",
+          "sourceKey": "80"
+        }
+      ],
+      "verified": true
+    }
+  ],
+  "restored5050": true,
+  "passed": true
+}

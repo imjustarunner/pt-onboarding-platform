@@ -1,0 +1,13 @@
+{
+  "account": "supervisee",
+  "userId": 1439,
+  "checks": [
+    "Fresh browser login passed.",
+    "Harper is visible in Alex’s client list."
+  ],
+  "errors": [],
+  "note75": {
+    "id": 75
+  },
+  "passed": true
+}

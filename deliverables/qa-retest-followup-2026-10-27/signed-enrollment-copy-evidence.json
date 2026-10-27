@@ -1,0 +1,59 @@
+{
+  "method": "Retained synthetic records and stored signed PDFs; original school-family browser downloads remain a bot retest.",
+  "copies": [
+    {
+      "userId": 1449,
+      "clientId": 2271,
+      "documents": [
+        {
+          "id": 1277
+        }
+      ]
+    },
+    {
+      "userId": 1450,
+      "clientId": 2272,
+      "documents": [
+        {
+          "id": 1278
+        }
+      ]
+    },
+    {
+      "userId": 1451,
+      "clientId": 2273,
+      "documents": [
+        {
+          "id": 1279
+        }
+      ]
+    },
+    {
+      "userId": 1452,
+      "clientId": 2274,
+      "documents": [
+        {
+          "id": 1280
+        }
+      ]
+    }
+  ],
+  "schoolPdfs": [
+    {
+      "submissionId": 1279,
+      "pages": 33,
+      "englishPrivacyNotice": true,
+      "spanishPrivacyNotice": false,
+      "informedConsent": true,
+      "policy": true
+    },
+    {
+      "submissionId": 1280,
+      "pages": 34,
+      "englishPrivacyNotice": true,
+      "spanishPrivacyNotice": true,
+      "informedConsent": true,
+      "policy": true
+    }
+  ]
+}

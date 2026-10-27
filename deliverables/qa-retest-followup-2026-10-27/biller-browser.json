@@ -1,0 +1,14 @@
+{
+  "account": "biller",
+  "userId": 1453,
+  "checks": [
+    "Fresh browser login passed.",
+    "Account Support loads at a single tenant prefix and opens client 2271.",
+    "Biller sees share percentages, one payer, and alternating future-charge options.",
+    "Biller proposed three $20 installments through the UI."
+  ],
+  "errors": [],
+  "payerName": "Recovery parent QA",
+  "createdPlanId": 2,
+  "passed": true
+}
