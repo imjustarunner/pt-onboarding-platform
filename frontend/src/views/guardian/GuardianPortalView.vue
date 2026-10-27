@@ -9,7 +9,7 @@
         <PortalContextPicker :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
         <PortalContextPicker class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('All family profiles, grouped by agency. Choosing a profile also switches the agency.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
         <PortalContextPicker v-if="selectedServices.length > 1" :label="ft('Service & provider')" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
-        <div v-else-if="selectedService" class="single-profile"><small>{{ ft("Service & provider") }}</small><strong>{{selectedService.label}} · {{selectedService.provider_name || ft("Provider being assigned")}}</strong></div>
+        <div v-else-if="selectedService" class="single-profile"><small>{{ ft("Service & provider") }}</small><strong>{{ft(selectedService.label)}} · {{selectedService.provider_name || ft("Provider being assigned")}}</strong></div>
         <button class="more-family" type="button" @click="navigatePortal('family')">{{ ft(familyHomeLabel) }} <span>{{ allFamilyProfiles.length }}</span></button>
       </div>
     </template>
@@ -43,7 +43,7 @@
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
                 <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
-                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{service.label}}<small>{{service.provider_name || ft("Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
+                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{ft(service.label)}}<small>{{service.provider_name || ft("Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
               </article></div>
             </section>
 
@@ -897,11 +897,11 @@ const profilePickerGroups = computed(() => familyAgencies.value.map(agency => ({
     agencyId: agency.id,
     label: profileLabel(profile),
     initials: initialsFromLabel(childDisplayName(profile).split(' — ')[0]),
-    description: profile.relationship_type === 'self' ? 'Your profile' : profileSchool(profile)?.name || 'Family member'
+    description: profile.relationship_type === 'self' ? ft('Your profile') : profileSchool(profile)?.name || ft('Family member')
   }))
 })).filter(group => group.options.length));
 const servicePickerGroups = computed(() => [{ options: selectedServices.value.map(service => ({
-  value: service.id, label: service.label, description: service.provider_name || 'Provider being assigned'
+  value: service.id, label: ft(service.label), description: service.provider_name || ft('Provider being assigned')
 })) }]);
 function profileAgencyLogo(profile) { return profile?.agency_logo_url || tenantLegalProfiles[profile?.agency_slug]?.logo || ''; }
 const portalAccountLabel = computed(() => allFamilyProfiles.value.some(p => p.relationship_type !== 'self') ? 'Family portal' : 'Wellness portal');
@@ -996,7 +996,7 @@ const portalNavigation = computed(() => {
   const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
-  if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:standardsLearningVisible.value?`${selectedFirstName.value}’s learning plan`:`${selectedFirstName.value}’s care plan`,icon:'plan'});
+  if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:ft(standardsLearningVisible.value?'{name}’s learning plan':'{name}’s care plan',{name:selectedFirstName.value}),icon:'plan'});
 
   if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
   items.unshift({key:'family',label:familyHomeLabel.value,icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
