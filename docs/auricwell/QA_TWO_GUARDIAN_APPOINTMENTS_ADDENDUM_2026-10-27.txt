@@ -34,3 +34,9 @@ Screenshots of both guardian appointment views, provider schedule, individual re
 
 Implementation verification
 Focused tests cover both guardian SMS identities, wrong/shared sender handling, individual preferences and revoked access, independent delivery records, cancellation attribution/privacy, late-reply races, fee acknowledgment, existing queued-reminder expansion, and linked replacement wording. Existing scheduling, family-email and guardian portal regression suites were also run. A new live two-phone same-dependent exchange is not yet certified by these automated tests.
+
+RELEASE VERIFICATION — October 27, 2026
+Code commit: fe7cf637aac74538b29df6c6aa4a8d9a75b4f107, pushed to main.
+Backend deployment 40596552777 succeeded. Cloud Run revision onboarding-backend-g40596552777a1 is ready and receives 100% of traffic.
+GitHub Scheduling regressions and Guardian billing and insurance follow-up both passed. Migration 1702_appointment_guardian_recipients was applied and its three columns verified.
+Read-only demo checks confirmed Jules (2277) has two authorized guardians (1459 and 1460), both email-enabled; neither is currently SMS-enabled for that dependent. Existing test phones still resolve uniquely to Rowan (2271, ending 7000) and Harper (2272, ending 2875). No phone assignments were changed and no live two-parent SMS test was claimed.
