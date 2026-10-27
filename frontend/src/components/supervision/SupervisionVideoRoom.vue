@@ -46,6 +46,7 @@
       @recreate-room="$emit('recreate-room')"
       @meeting-ended="$emit('meeting-ended', $event)"
       @interview-guest-ended="$emit('interview-guest-ended', $event)"
+      @training-state-changed="$emit('training-state-changed')"
       @hand-raised-change="$emit('hand-raised-change', $event)"
       @hands-map-change="$emit('hands-map-change', $event)"
       @audio-map-change="$emit('audio-map-change', $event)"
@@ -124,6 +125,7 @@ function reportConnection(event, detail) {
 defineEmits([
   'disconnected',
   'connected',
+  'training-state-changed',
   'error',
   'recreate-room',
   'update:tileFocus',

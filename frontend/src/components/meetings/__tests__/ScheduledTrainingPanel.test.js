@@ -6,7 +6,7 @@ import Panel from '../ScheduledTrainingPanel.vue';
 afterEach(()=>{vi.clearAllMocks();});
 const data=proctor=>({event:{id:7,title:'Crisis Training',videoAllowed:false,videoDefaultOn:false,muteAll:true},proctor,assets:[],participants:[{id:1,name:'Trainer',isHost:true},{id:4,name:'Student',is_required:1}],hands:[{user_id:4,status:proctor?'raised':'denied',name:'Student'}],approvedIds:[]});
 it('offers private chat to the trainer after a denied hand without exposing proctor controls',async()=>{m.get.mockResolvedValue({data:data(false)});const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();expect(w.text()).toContain('Please use private chat');expect(w.text()).not.toContain('Mute all attendees');await w.findAll('button').find(b=>b.text()==='Message Trainer').trigger('click');expect(w.emitted('private-chat')).toEqual([[1]]);w.unmount();});
-it('allows proctors to approve a hand and revoke approvals by muting all',async()=>{m.get.mockResolvedValue({data:data(true)});const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Allow unmute').trigger('click');expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/hand',{action:'approve',userId:4});await w.findAll('button').find(b=>b.text()==='Mute all attendees').trigger('click');expect(m.patch).toHaveBeenCalledWith('/team-meetings/7/training',{muteAll:true});w.unmount();});
+it('allows proctors to approve a hand and revoke approvals by muting all',async()=>{m.get.mockResolvedValue({data:data(true)});const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Allow unmute').trigger('click');expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/hand',{action:'approve',userId:4});await w.findAll('button').find(b=>b.text()==='Mute all attendees').trigger('click');expect(m.patch).toHaveBeenCalledWith('/team-meetings/7/training',{muteAll:true},{skipGlobalLoading:true,timeout:10000});w.unmount();});
 it('uses the authenticated invitation identity even if a different account is in the browser store',async()=>{
  const value=data(false);value.viewerUserId=8;value.hands=[{user_id:8,status:'approved'}];m.get.mockResolvedValue({data:value});
  const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();expect(w.text()).toContain('Your request was approved');w.unmount();
@@ -57,4 +57,30 @@ it('prevents a second RSVP while saving a decline',async()=>{
  await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');await w.get('textarea').setValue('Unavailable');
  await w.get('form').trigger('submit');await w.get('form').trigger('submit');expect(m.post).toHaveBeenCalledTimes(1);expect(w.get('textarea').element.disabled).toBe(true);expect(w.text()).not.toContain('I’m attending');
  finish({data:{ok:true}});await flushPromises();w.unmount();
+});
+
+it('confirms camera permission without hiding the meeting while the follow-up refresh is slow',async()=>{
+ const value=data(true);m.get.mockResolvedValueOnce({data:value});m.patch.mockResolvedValue({data:{ok:true}});
+ const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();
+ let finish;m.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ await w.get('input[type=checkbox]').setValue(true);await flushPromises();
+ expect(m.patch).toHaveBeenCalledWith('/team-meetings/7/training',{videoAllowed:true},{skipGlobalLoading:true,timeout:10000});
+ expect(w.emitted('state').at(-1)[0].event.videoAllowed).toBe(true);
+ expect(w.get('input[type=checkbox]').element.checked).toBe(true);
+ expect(w.get('input[type=checkbox]').element.disabled).toBe(true);
+ finish({data:{...value,event:{...value.event,videoAllowed:true}}});await flushPromises();
+ expect(w.get('input[type=checkbox]').element.disabled).toBe(false);w.unmount();
+});
+
+it('ignores an old poll that finishes after the trainer enables cameras',async()=>{
+ const value=data(true);m.get.mockResolvedValueOnce({data:value});m.patch.mockResolvedValue({data:{ok:true}});
+ const w=mount(Panel,{props:{eventId:7,live:true}});await flushPromises();
+ let finishOld;m.get.mockImplementationOnce(()=>new Promise(resolve=>{finishOld=resolve;}));
+ const pending=w.vm.load();await flushPromises();
+ m.get.mockResolvedValueOnce({data:{...value,event:{...value.event,videoAllowed:true}}});
+ await w.get('input[type=checkbox]').setValue(true);await flushPromises();
+ const savedCount=w.emitted('state').length;
+ finishOld({data:value});await pending;await flushPromises();
+ expect(w.emitted('state').slice(savedCount).every(([state])=>state.event.videoAllowed)).toBe(true);
+ expect(w.get('input[type=checkbox]').element.checked).toBe(true);w.unmount();
 });

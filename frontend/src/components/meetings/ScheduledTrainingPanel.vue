@@ -31,8 +31,8 @@
    <div v-if="!live && activeTab==='RSVP'"><h4>{{ state.canSeeDeclined ? 'RSVP responses' : 'Attending' }}</h4><p v-if="!visibleResponses.length">No confirmed attendees yet.</p><ul><li v-for="person in visibleResponses" :key="person.id"><strong>{{person.name}}</strong> <span class="rsvp-status" :class="`rsvp-status--${person.rsvp || 'pending'}`">{{person.rsvp==='declined'?'Not attending':person.rsvp==='accepted'?'Attending':'Pending'}}</span><span v-if="person.rsvp_decline_reason"> · Reason: {{person.rsvp_decline_reason}}</span></li></ul></div>
    <p v-if="state.proctor && (live || activeTab==='Overview')">You are a proctor / trainer.</p>
    <div v-if="state.proctor && (live || activeTab==='Overview')" class="training-controls">
-    <label><input type="checkbox" :checked="state.event.videoAllowed" @change="change({videoAllowed:$event.target.checked})" /> Allow attendee video</label>
-    <label><input type="checkbox" :checked="state.event.videoDefaultOn" :disabled="!state.event.videoAllowed" @change="change({videoDefaultOn:$event.target.checked})" /> Attendee video on by default</label>
+    <label><input type="checkbox" :checked="state.event.videoAllowed" :disabled="saving" @change="change({videoAllowed:$event.target.checked})" /> Allow attendee video</label>
+    <label><input type="checkbox" :checked="state.event.videoDefaultOn" :disabled="saving || !state.event.videoAllowed" @change="change({videoDefaultOn:$event.target.checked})" /> Attendee video on by default</label>
     <label><input type="checkbox" :checked="state.event.agencyVisible" @change="change({agencyVisible:$event.target.checked})" /> Show on agency schedule</label>
     <button v-if="live" type="button" @click="change({muteAll:true})">Mute all attendees</button><button v-if="live && state.event.muteAll" type="button" @click="change({muteAll:false})">Allow attendees to unmute</button>
     <label>RSVP deadline (your local time)<input v-model="registrationDeadline" type="datetime-local" /></label><button type="button" :disabled="!registrationDeadline" @click="change({registrationClosesAt: new Date(registrationDeadline).toISOString()})">Save RSVP deadline</button>
@@ -56,6 +56,7 @@
 <script setup>
 import {ref,computed,watch,onUnmounted,nextTick} from 'vue';
 import api from '../../services/api';
+import {createMeetingRefresh} from '../../utils/meetingRefresh';
 import {useAuthStore} from '../../store/auth';
 import MeetingAgendaPanel from './MeetingAgendaPanel.vue';
 import MeetingAttendancePanel from './MeetingAttendancePanel.vue';
@@ -63,6 +64,9 @@ import MeetingNotesPanel from './MeetingNotesPanel.vue';
 import MeetingGoalsActionsPanel from './MeetingGoalsActionsPanel.vue';
 const props=defineProps({eventId:{type:[Number,String],required:true},live:Boolean});const emit=defineEmits(['state','private-chat','rsvp-saved']);
 const auth=useAuthStore(),state=ref(null),error=ref(''),busy=ref(false),topic=ref('');let timer=null;
+let refresh=createMeetingRefresh();
+let stateVersion=0;
+const saving=ref(false);
 const activeTab=ref('Overview');
 const registrationDeadline=ref('');
 const formatDeadline=value=>new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:state.value?.event.timeZone || 'America/Denver'}).format(new Date(value));
@@ -79,8 +83,17 @@ const raisedHands=computed(()=>state.value?.hands.filter(p=>p.status==='raised')
 const proctors=computed(()=>state.value?.participants.filter(p=>p.isHost || Number(p.is_cohost)) || []);
 const trainingTime=computed(()=>{const format=new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:state.value?.event.timeZone || 'America/Denver'});const date=v=>new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(v)?v:`${String(v).replace(' ','T')}Z`);return `${format.format(date(state.value.event.startAt))} – ${format.format(date(state.value.event.endAt))} (${state.value.event.timeZone})`;});
 const base=computed(()=>`/team-meetings/${props.eventId}/training`);
-async function load(){try{const {data}=await api.get(base.value,{skipGlobalLoading:true});if(!state.value){topic.value=data.event.topic || ''; if(data.registrationClosesAt){const d=new Date(data.registrationClosesAt);registrationDeadline.value=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}}state.value=data;error.value='';emit('state',data);}catch(e){error.value=e.response?.data?.error?.message || 'Could not load training.';}}
-watch(()=>[props.eventId,props.live],()=>{state.value=null;clearInterval(timer);void load();if(props.live)timer=setInterval(load,2500);},{immediate:true});onUnmounted(()=>clearInterval(timer));
+async function readTraining(){
+ const path=base.value,version=stateVersion;
+ const {data}=await api.get(path,{skipGlobalLoading:true,timeout:10000});
+ if(path!==base.value || version!==stateVersion)return;
+ if(!state.value){topic.value=data.event.topic || '';if(data.registrationClosesAt){const d=new Date(data.registrationClosesAt);registrationDeadline.value=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}}
+ state.value=data;error.value='';emit('state',data);
+}
+async function load(){try{await refresh.run(readTraining);}catch(e){error.value=e.response?.data?.error?.message || 'Training controls are temporarily unavailable. Retrying…';}}
+watch(()=>props.eventId,()=>{state.value=null;refresh=createMeetingRefresh();void load();},{immediate:true});
+watch(()=>props.live,live=>{clearInterval(timer);if(live)timer=setInterval(load,10000);},{immediate:true});
+onUnmounted(()=>clearInterval(timer));
 async function rsvp(response){
  if(rsvpSaving.value || (response==='declined' && Number(myInvitation.value?.is_required) && !declineReason.value.trim()))return;
  rsvpSaving.value=true;error.value='';
@@ -92,7 +105,19 @@ async function rsvp(response){
  }catch(e){error.value=e.response?.data?.error?.message || 'Could not save RSVP.';}
  finally{rsvpSaving.value=false;}
 }
-async function change(body){try{await api.patch(base.value,body);await load();}catch(e){error.value=e.response?.data?.error?.message || 'Could not update training.';}}
+async function change(body){
+ if(saving.value)return;
+ saving.value=true;error.value='';
+ try{
+  await api.patch(base.value,body,{skipGlobalLoading:true,timeout:10000});
+  // The server accepted this permission. Reflect it immediately without
+  // remounting the room or automatically enabling anyone's camera.
+  stateVersion+=1;
+  state.value={...state.value,event:{...state.value.event,...body}};emit('state',state.value);
+  await refresh.afterChange(readTraining);
+ }catch(e){error.value=e.response?.data?.error?.message || 'Could not refresh training controls. Please try again.';}
+ finally{saving.value=false;}
+}
 async function hand(action,userId){try{await api.post(`${base.value}/hand`,{action,userId});await load();return true;}catch(e){error.value=e.response?.data?.error?.message || 'Could not update hand.';return false;}}
 async function deny(id){if(await hand('deny',id))emit('private-chat',id);}
 async function upload(e){const file=e.target.files?.[0];if(!file)return;busy.value=true;try{const fd=new FormData();fd.append('file',file);await api.post(`${base.value}/assets`,fd);await load();e.target.value='';}catch(e){error.value=e.response?.data?.error?.message || 'Upload failed.';}finally{busy.value=false;}}

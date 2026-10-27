@@ -249,6 +249,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
 import api from '../../services/api';
+import { createMeetingRefresh } from '../../utils/meetingRefresh';
 import { useAuthStore } from '../../store/auth';
 import { t, useMeetingLang, batchTranslateMessages } from '../../composables/useMeetingI18n.js';
 
@@ -325,6 +326,7 @@ const answerDraftById = new Map();
 const emojiList = ['👍', '❤️', '😊', '🎉', '👏', '💡', '🙏', '🔥', '✅', '😅', '😮', '🎯'];
 const CHAT_COLORS = ['#2563eb', '#059669', '#d97706', '#db2777', '#7c3aed', '#0891b2', '#dc2626', '#4f46e5', '#0d9488', '#ca8a04'];
 let pollTimer = null;
+let activityRefresh = createMeetingRefresh();
 let toastTimer = null;
 let initialLoadDone = false;
 
@@ -555,7 +557,7 @@ async function persistActivity(activityType, payload) {
         ...payload,
         authorName: ownDisplayName.value
       }
-    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    }, { skipGlobalLoading: true, skipAuthRedirect: true, timeout: 10000 });
     return resp?.data?.id ?? null;
   }
   const base = activityApiBase();
@@ -567,11 +569,15 @@ async function persistActivity(activityType, payload) {
       ...payload,
       authorName: ownDisplayName.value
     }
-  }, { skipGlobalLoading: true, skipAuthRedirect: true });
+  }, { skipGlobalLoading: true, skipAuthRedirect: true, timeout: 10000 });
   return resp?.data?.id ?? null;
 }
 
-async function loadActivity({ quiet = false } = {}) {
+async function loadActivity(options = {}) {
+  try { await activityRefresh.run(() => readActivity(options)); } catch { /* readActivity reports foreground failures. */ }
+}
+
+async function readActivity({ quiet = false } = {}) {
   const guestPath = isGuestActivity.value ? guestActivityPath() : null;
   const base = guestPath || activityApiBase();
   if (!base) return;
@@ -580,9 +586,11 @@ async function loadActivity({ quiet = false } = {}) {
   try {
     const resp = await api.get(base, {
       params: { limit: 500 },
+      timeout: 10000,
       skipGlobalLoading: true,
       skipAuthRedirect: true
     });
+    if (base !== (isGuestActivity.value ? guestActivityPath() : activityApiBase())) return;
     const list = Array.isArray(resp?.data?.activity) ? resp.data.activity : [];
     const prevIds = new Set(seenIds);
     const newCounts = { chat: 0, polls: 0, qa: 0 };
@@ -652,6 +660,7 @@ async function loadActivity({ quiet = false } = {}) {
     if (!quiet) {
       error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load chat';
     }
+    throw e;
   } finally {
     if (!quiet) loading.value = false;
   }
@@ -858,6 +867,7 @@ watch(tab, (t) => { unread[t] = 0; });
 watch(
   () => [props.eventId, props.sessionId, props.joinToken, props.joinIdentity],
   () => {
+    activityRefresh = createMeetingRefresh();
     seenIds.clear();
     answerDraftById.clear();
     initialLoadDone = false;

@@ -66,17 +66,19 @@ const _stormError = (scope) => {
 // 429s, pause ALL outbound API calls for a short cooldown so capacity can
 // come back online.
 const RATE_LIMIT_COOLDOWN_MS = 20000;
-const RATE_LIMIT_TRIP_THRESHOLD = 3;
+const RATE_LIMIT_TRIP_THRESHOLD = 3; // 429s within the window before global pause
 const RATE_LIMIT_WINDOW_MS = 10000;
 let _rateLimitHits = [];
 let _rateLimitedUntil = 0;
 let _rateLimitLastLogAt = 0;
+const _sessionRateLimits = new Map();
+const isSessionRecovery = config => /^(?:get \/auth\/session-lock-config|post \/auth\/(?:session-activity|verify-session-pin|logout))$/.test(_stormKeyOf(config));
 
-const _rateLimitError = () => {
+const _rateLimitError = (retryAt = _rateLimitedUntil) => {
   const err = new Error('API temporarily rate-limited; cooling down');
   err.code = 'ERR_RATE_LIMITED';
   err.__rateLimited = true;
-  err.retryAt = _rateLimitedUntil;
+  err.retryAt = retryAt;
   err.response = { status: 429, data: { error: { message: 'Too many requests — cooling down' } } };
   return err;
 };
@@ -92,6 +94,13 @@ export function apiRateLimitRetryAt() {
 
 function noteRateLimitResponse(error) {
   const now = Date.now();
+  if (isSessionRecovery(error.config)) {
+    const key = _stormKeyOf(error.config);
+    const until = Math.max(_sessionRateLimits.get(key) || 0, rateLimitRetryAt(error, now, 5000));
+    _sessionRateLimits.set(key, until);
+    error.retryAt = until;
+    return;
+  }
   _rateLimitHits = _rateLimitHits.filter(t => now - t <= RATE_LIMIT_WINDOW_MS);
   _rateLimitHits.push(now);
   const fallbackMs = _rateLimitHits.length >= RATE_LIMIT_TRIP_THRESHOLD ? RATE_LIMIT_COOLDOWN_MS : 5000;
@@ -108,7 +117,10 @@ function checkRequestStorm(config) {
   const key = _stormKeyOf(config);
 
   // Global 429 cooldown — fail fast, do not touch the network.
-  if (now < _rateLimitedUntil) throw _rateLimitError();
+  // A background meeting poll must not block the user's explicit resume.
+  // Recovery still honors its own server Retry-After and the storm limits.
+  const until = isSessionRecovery(config) ? (_sessionRateLimits.get(key) || 0) : _rateLimitedUntil;
+  if (now < until) throw _rateLimitError(until);
 
   // Honor active cooldowns first — fail fast with no network usage.
   if (now < (_stormTrippedUntil.get('__global__') || 0)) throw _stormError('__global__');

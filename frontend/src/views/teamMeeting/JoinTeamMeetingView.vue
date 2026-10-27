@@ -282,6 +282,7 @@
               @meeting-ended="onMeetingEnded"
               @interview-guest-ended="onInterviewGuestEndedSignal"
               @hands-map-change="onHandsMapChange"
+              @training-state-changed="trainingPanelRef?.load()"
               @hand-raised-change="isTraining && trainingPanelRef?.hand($event ? 'raise' : 'lower')"
               @audio-map-change="onAudioMapChange"
               @transcript-control="onRemoteTranscriptControl"
@@ -627,6 +628,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
+import { createMeetingRefresh } from '../../utils/meetingRefresh';
 import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
@@ -1288,13 +1290,19 @@ function stopCompletionPolling() {
   }
 }
 
+const completionRefresh = createMeetingRefresh();
 async function pollMeetingCompletion() {
+  try { await completionRefresh.run(readMeetingCompletion); } catch { /* Keep the connected room during a temporary API failure. */ }
+}
+
+async function readMeetingCompletion() {
   const eid = meetingJoinRef.value || resolvedEventId.value || eventId.value;
   if (!eid || intentionalLeave.value || meetingCompletedAt.value) return;
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
       skipAuthRedirect: true,
-      skipGlobalLoading: true
+      skipGlobalLoading: true,
+      timeout: 10000
     });
     const data = resp?.data || {};
     if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }
@@ -1310,13 +1318,14 @@ async function pollMeetingCompletion() {
   } catch (e) {
     if (e?.response?.data?.interviewGuestEnded) onInterviewGuestEndedSignal(e.response.data);
     else if (Number(e?.response?.status) === 410) onMeetingEnded();
+    else throw e;
   }
 }
 
 function startCompletionPolling() {
   stopCompletionPolling();
   pollMeetingCompletion();
-  completionPollInterval = setInterval(pollMeetingCompletion, 4000);
+  completionPollInterval = setInterval(pollMeetingCompletion, 10000);
 }
 
 async function sendPresence(action = 'heartbeat') {
@@ -1348,7 +1357,8 @@ async function pollAdmission() {
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
       skipAuthRedirect: true,
-      skipGlobalLoading: true
+      skipGlobalLoading: true,
+      timeout: 10000
     });
     const data = resp?.data || {};
     if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }

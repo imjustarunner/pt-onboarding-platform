@@ -82,6 +82,26 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost','Attendee']);expect(wrapper.find('.vsr__stage--grid').exists()).toBe(true);expect(videoSdk.session.disconnect).not.toHaveBeenCalled();wrapper.unmount();
   });
 
+  it.each([true,false])('keeps a connected training publisher and camera choice when video is allowed (trainer=%s)',async proctor=>{
+    const publisher={on:vi.fn(),destroy:vi.fn(),publishVideo:vi.fn(),publishAudio:vi.fn()};
+    videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});
+    const policy={userId:proctor?1:4,proctor,primaryId:1,proctorIds:[1],approvedIds:[],muteAll:true,videoAllowed:false,canUnmute:proctor};
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'camera-permission',token:'eyJ.test.token',trainingPolicy:policy,startMuted:!proctor,startVideoOff:!proctor,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session.publish.mockImplementation((_publisher,callback)=>callback(null));videoSdk.connectCallback(null);await flushPromises();
+    const current=videoSdk.session;current.disconnect.mockClear();publisher.publishVideo.mockClear();
+    current._handlers['signal:training_state_changed']({data:'{}'});
+    expect(wrapper.emitted('training-state-changed')).toHaveLength(1);
+    expect(wrapper.props('trainingPolicy').videoAllowed).toBe(false);
+    await wrapper.setProps({trainingPolicy:{...policy,videoAllowed:true},tileFocus:'equal'});
+    expect(videoSdk.session).toBe(current);expect(current.disconnect).not.toHaveBeenCalled();
+    expect(publisher.destroy).not.toHaveBeenCalled();expect(videoSdk.initPublisher).toHaveBeenCalledTimes(1);
+    expect(wrapper.vm.publishVideo).toBe(proctor);
+    expect(publisher.publishVideo).not.toHaveBeenCalledWith(true);
+    if(!proctor){await wrapper.get('button[title="Turn camera on"]').trigger('click');expect(publisher.publishVideo).toHaveBeenCalledWith(true);}
+    expect(wrapper.emitted('disconnected')).toBeUndefined();wrapper.unmount();
+  });
+
   it('ignores participant end signals in clinical rooms and waits for an actual server disconnection', async () => {
     const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'clinical',token:'eyJ.test.token',serverManagedEnd:true,playJoinTone:false}});
     await flushPromises();await vi.dynamicImportSettled();

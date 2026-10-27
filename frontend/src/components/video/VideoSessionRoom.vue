@@ -600,6 +600,7 @@ const emit = defineEmits([
   'connected',
   'disconnected',
   'connection-status',
+  'training-state-changed',
   'request-rejoin',
   'error',
   'stream-created',
@@ -2459,6 +2460,11 @@ async function connect() {
 
       }
       emit('stream-destroyed', event);
+    });
+
+    // Signals are refresh hints only; permissions still come from the API.
+    session.on('signal:training_state_changed', () => {
+      if (props.trainingPolicy) emit('training-state-changed');
     });
 
     session.on('sessionReconnecting', () => {

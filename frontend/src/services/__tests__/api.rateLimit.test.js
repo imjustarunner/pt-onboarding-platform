@@ -60,3 +60,14 @@ it('retains the longer fallback for a burst of responses without Retry-After', a
   await throttle({}); await throttle({}); await throttle({});
   expect(api.apiRateLimitRetryAt()).toBe(Date.now() + 20000);
 });
+
+it('allows session resume during background cooldown but respects a recovery-specific Retry-After', async () => {
+ await throttle({'retry-after':'120'});
+ const resume=()=>m.request({method:'post',url:'/auth/session-activity',headers:{},skipGlobalLoading:true});
+ expect(request).toThrow('cooling down');expect(resume).not.toThrow();
+ const error={config:{method:'post',url:'/auth/session-activity'},response:{status:429,headers:{'retry-after':'30'},data:'Rate exceeded.'}};
+ await expect(m.error(error)).rejects.toBe(error);
+ expect(resume).toThrow('cooling down');
+ vi.advanceTimersByTime(30000);
+ expect(resume).not.toThrow();expect(request).toThrow('cooling down');
+});
