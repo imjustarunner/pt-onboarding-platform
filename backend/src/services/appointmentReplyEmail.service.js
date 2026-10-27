@@ -19,22 +19,24 @@ export function createAppointmentReplyEmailService(deps) {
     if (!appointment || Number(appointment.agencyId)!==Number(notification.agency_id)
         || Number(appointment.providerUserId)!==Number(notification.user_id) || appointment.status!=='canceled_by_client') return {skipped:true,reason:'appointment_scope_mismatch'};
     const user = await deps.user(notification.user_id);
-    if (!user?.email || !await deps.activeMember(user.id,appointment.agencyId)) return {skipped:true,reason:'inactive_recipient'};
-    if (!await deps.enabled({userId:user.id,userRole:user.role,agencyId:appointment.agencyId,type:notification.type,channel:'email'})) return {skipped:true,reason:'email_disabled'};
+    const workEmail = String(user?.work_email || user?.email || '').trim();
+    if (!workEmail || !await deps.activeMember(user.id,appointment.agencyId)) return {skipped:true,reason:'inactive_recipient'};
+    // Required operational notice to the work account. Optional personal-email
+    // preferences do not suppress it, and personal_email is never a fallback.
     const url = await deps.scheduleUrl(appointment.agencyId);
-    return deps.send({agencyId:appointment.agencyId,userId:user.id,to:user.email,triggerKey:'client_appointment_reply',
+    return deps.send({agencyId:appointment.agencyId,userId:user.id,to:workEmail,triggerKey:'client_appointment_reply',
       templateType:'client_appointment_reply',source:'auto',...cancellationProviderEmail(appointment,url)});
   };
 }
 
 export async function sendAppointmentReplyEmail(notification, context) {
   if (notification?.type !== 'client_appointment_reply' || context?.appointmentReply?.intent !== 'cancel' || context?.appointmentReply?.applied !== true) return {skipped:true,reason:'not_applied_cancellation'};
-  const [{default:Appointment},{default:User},{default:Agency},{default:pool},{isNotificationChannelEnabled},
+  const [{default:Appointment},{default:User},{default:Agency},{default:pool},
     {sendScheduleNotificationEmail},{buildPublicAppUrl}] = await Promise.all([
     import('../models/Appointment.model.js'),import('../models/User.model.js'),import('../models/Agency.model.js'),
-    import('../config/database.js'),import('./notificationPreferences.service.js'),import('./scheduleNotificationEmail.service.js'),import('../utils/publicPortalUrl.js')]);
+    import('../config/database.js'),import('./scheduleNotificationEmail.service.js'),import('../utils/publicPortalUrl.js')]);
   return createAppointmentReplyEmailService({appointment:id=>Appointment.findById(id),user:id=>User.findById(id),
     activeMember:async(userId,agencyId)=>(await pool.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1 LIMIT 1',[userId,agencyId]))[0].length===1,
-    enabled:isNotificationChannelEnabled,send:sendScheduleNotificationEmail,
+    send:sendScheduleNotificationEmail,
     scheduleUrl:async id=>buildPublicAppUrl(await Agency.findById(id),'dashboard?tab=my_schedule')})(notification,context);
 }
