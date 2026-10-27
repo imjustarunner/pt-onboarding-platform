@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { normalizePhoneExtension } from '../utils/staffWorkContact.js';
 import { directBillingAgencyIds, managedBillingAgencies } from '../services/managedBillingAccess.service.js';
 import bcrypt from 'bcrypt';
+import { changeAccountLifecycle } from '../services/accountLifecycle.service.js';
 
 /**
  * Short-lived cache for User.getAgencies().
@@ -710,7 +711,7 @@ class User {
     return rows;
   }
 
-  static async archive(id, archivedByUserId, archivedByAgencyId = null) {
+  static async archive(id, archivedByUserId, archivedByAgencyId = null, audit = {}) {
     // Check if archived_by_agency_id column exists
     let hasAgencyColumn = false;
     try {
@@ -722,27 +723,20 @@ class User {
       console.error('Error checking for archived_by_agency_id column:', err);
     }
 
-    // Immediately set status to ARCHIVED (no 7-day waiting period)
-    if (hasAgencyColumn) {
-      const [result] = await pool.execute(
-        `UPDATE users 
-         SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ?, archived_by_agency_id = ? 
-         WHERE id = ?`,
-        [archivedByUserId, archivedByAgencyId, id]
-      );
-      return result.affectedRows > 0;
-    } else {
-      const [result] = await pool.execute(
-        `UPDATE users 
-         SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ? 
-         WHERE id = ?`,
-        [archivedByUserId, id]
-      );
-      return result.affectedRows > 0;
-    }
+    const result = await changeAccountLifecycle({
+      userId: id, actorUserId: archivedByUserId, agencyId: archivedByAgencyId,
+      source: audit.source || 'user_archive', reason: audit.reason || 'Account archived by an administrator.',
+      mutate: async (conn) => (await conn.execute(
+        `UPDATE users SET status = 'ARCHIVED', is_archived = TRUE, is_active = FALSE,
+         archived_at = NOW(), archived_by_user_id = ?
+         ${hasAgencyColumn ? ', archived_by_agency_id = ?' : ''} WHERE id = ?`,
+        hasAgencyColumn ? [archivedByUserId, archivedByAgencyId, id] : [archivedByUserId, id]
+      ))[0]
+    });
+    return result.affectedRows > 0;
   }
 
-  static async restore(id, userAgencyIds = []) {
+  static async restore(id, userAgencyIds = [], actorUserId = null) {
     // Check if archived_by_agency_id column exists
     let hasAgencyColumn = false;
     try {
@@ -754,21 +748,20 @@ class User {
       console.error('Error checking for archived_by_agency_id column:', err);
     }
 
-    if (hasAgencyColumn && userAgencyIds.length > 0) {
-      // Only restore if user's agency matches archived_by_agency_id
-      const placeholders = userAgencyIds.map(() => '?').join(',');
-      const [result] = await pool.execute(
-        `UPDATE users SET is_archived = FALSE, archived_at = NULL, archived_by_user_id = NULL, archived_by_agency_id = NULL WHERE id = ? AND is_archived = TRUE AND archived_by_agency_id IN (${placeholders})`,
-        [id, ...userAgencyIds]
-      );
-      return result.affectedRows > 0;
-    } else {
-      const [result] = await pool.execute(
-        'UPDATE users SET is_archived = FALSE, archived_at = NULL, archived_by_user_id = NULL WHERE id = ? AND is_archived = TRUE',
-        [id]
-      );
-      return result.affectedRows > 0;
-    }
+    const scoped = hasAgencyColumn && userAgencyIds.length > 0;
+    const placeholders = userAgencyIds.map(() => '?').join(',');
+    const result = await changeAccountLifecycle({
+      userId: id, actorUserId, source: 'user_archive_restored',
+      reason: 'Account removed from the archive; login activation remains a separate action.',
+      mutate: async (conn) => (await conn.execute(
+        `UPDATE users SET is_archived = FALSE, archived_at = NULL, archived_by_user_id = NULL
+         ${hasAgencyColumn ? ', archived_by_agency_id = NULL' : ''}
+         WHERE id = ? AND is_archived = TRUE
+         ${scoped ? `AND archived_by_agency_id IN (${placeholders})` : ''}`,
+        scoped ? [id, ...userAgencyIds] : [id]
+      ))[0]
+    });
+    return result.affectedRows > 0;
   }
 
   static async delete(id, userAgencyIds = []) {
@@ -2660,19 +2653,18 @@ class User {
     return !!rows?.length;
   }
 
-  static async disableSchoolStaffLogin(userId, actorUserId = null) {
+  static async disableSchoolStaffLogin(userId, actorUserId = null, schoolOrganizationId = null) {
     const uid = Number(userId || 0);
     if (!uid) return false;
 
     const user = await this.findById(uid);
     if (!user || String(user.role || '').toLowerCase() !== 'school_staff') return false;
 
-    await this.updateStatus(uid, 'ARCHIVED', actorUserId || null);
-    try {
-      await this.update(uid, { isActive: false });
-    } catch {
-      // ignore on older deployments
-    }
+    await this.updateStatus(uid, 'ARCHIVED', actorUserId || null, {
+      source: 'school_staff_last_school_removed',
+      reason: 'The staff member was removed from their last school assignment.',
+      agencyId: schoolOrganizationId
+    });
     try {
       await this.markTokenAsUsed(uid);
     } catch {
@@ -3055,7 +3047,7 @@ class User {
     return [];
   }
 
-  static async updateStatus(userId, status, actorUserId = null) {
+  static async updateStatus(userId, status, actorUserId = null, audit = {}) {
     let completedHire = false;
     let preserveTestExpiration = false;
     if (status === 'ACTIVE_EMPLOYEE') {
@@ -3090,6 +3082,10 @@ class User {
     if (status === 'ACTIVE_EMPLOYEE') {
       updates.push('status = ?');
       updates.push('completed_at = ?');
+      // These must change in one statement: the archive guard trigger otherwise
+      // forces is_active back to false when an old archive flag remains set.
+      updates.push('is_archived = FALSE', 'is_active = TRUE');
+      updates.push('archived_at = NULL', 'archived_by_user_id = NULL', 'archived_by_agency_id = NULL');
       // Activation must not remove the separate, bounded demo-access window.
       if (!preserveTestExpiration) updates.push('status_expires_at = NULL');
       updates.push('terminated_at = NULL');
@@ -3111,7 +3107,8 @@ class User {
       updates.push('status = ?');
       updates.push('is_archived = TRUE');
       updates.push('archived_at = NOW()');
-      values.push('ARCHIVED');
+      updates.push('is_active = FALSE', 'archived_by_user_id = ?', 'archived_by_agency_id = ?');
+      values.push('ARCHIVED', actorUserId || null, audit.agencyId || null);
     } else if (status === 'INACTIVE_EMPLOYEE') {
       updates.push('status = ?');
       updates.push('is_active = FALSE');
@@ -3162,10 +3159,14 @@ class User {
     }
 
     values.push(userId);
-    await pool.execute(
-      `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
-      values
-    );
+    await changeAccountLifecycle({
+      userId, actorUserId, agencyId: audit.agencyId, actorType: audit.actorType,
+      source: audit.source || 'user_status_change',
+      reason: audit.reason || `Account status set to ${status}.`,
+      mutate: async (conn) => (await conn.execute(
+        `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values
+      ))[0]
+    });
     return this.findById(userId);
   }
 
@@ -3174,31 +3175,27 @@ class User {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    // Snapshot work emails before archive so we can remove hire Google Groups.
-    let pending = [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT id, email, work_email, username, login_is_group_email
-         FROM users
-         WHERE status = 'TERMINATED_PENDING'
-           AND termination_date <= ?
-           AND (is_archived IS NULL OR is_archived = FALSE)`,
-        [sevenDaysAgo]
-      );
-      pending = rows || [];
-    } catch {
-      pending = [];
-    }
-
-    // Archive TERMINATED_PENDING users if termination_date is 7+ days ago
-    const [archiveResult] = await pool.execute(
-      `UPDATE users 
-       SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW() 
-       WHERE status = 'TERMINATED_PENDING' 
-       AND termination_date <= ? 
-       AND (is_archived IS NULL OR is_archived = FALSE)`,
-      [sevenDaysAgo]
+    // Recheck each candidate under its row lock so concurrent reactivation is
+    // not overwritten. Every automatic archive gets its own committed evidence.
+    const [candidates] = await pool.execute(
+      `SELECT id, email, work_email, username, login_is_group_email FROM users
+       WHERE status = 'TERMINATED_PENDING' AND termination_date <= ?
+       AND (is_archived IS NULL OR is_archived = FALSE)`, [sevenDaysAgo]
     );
+    const pending = [];
+    for (const row of candidates) {
+      const result = await changeAccountLifecycle({
+        userId: row.id, actorType: 'system', source: 'terminated_user_expiration',
+        reason: 'Seven days elapsed after the termination date.',
+        mutate: async (conn) => (await conn.execute(
+          `UPDATE users SET status = 'ARCHIVED', is_archived = TRUE, is_active = FALSE,
+           archived_at = NOW(), archived_by_user_id = NULL, archived_by_agency_id = NULL
+           WHERE id = ? AND status = 'TERMINATED_PENDING' AND termination_date <= ?
+           AND (is_archived IS NULL OR is_archived = FALSE)`, [row.id, sevenDaysAgo]
+        ))[0]
+      });
+      if (result.affectedRows > 0) pending.push(row);
+    }
 
     if (pending.length) {
       try {
@@ -3216,7 +3213,7 @@ class User {
     }
 
     return {
-      archived: archiveResult.affectedRows
+      archived: pending.length
     };
   }
 

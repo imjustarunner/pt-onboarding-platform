@@ -2,7 +2,7 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 
 import { networkEvidence } from '../utils/securityEvidence.js';
 
-export async function logAuditEvent(req, { actionType, agencyId = null, metadata = null, userId = null } = {}) {
+export async function logAuditEvent(req, { actionType, agencyId = null, metadata = null, userId = null, targetType = null, targetId = null } = {}) {
   if (!actionType) return;
   const uid = Number(userId || req?.user?.id || 0) || null;
   try {
@@ -13,7 +13,9 @@ export async function logAuditEvent(req, { actionType, agencyId = null, metadata
       ipAddress: (req?.evidenceContext || networkEvidence(req || {})).clientIp,
       userAgent: req?.headers?.['user-agent'] ? String(req.headers['user-agent']).slice(0, 255) : null,
       sessionId: req?.user?.sessionId || null,
-      metadata: metadata || null
+      metadata: targetType || targetId != null
+        ? { ...metadata, targetType, targetId }
+        : metadata || null
     });
   } catch (err) {
     // Best-effort logging; never throw, but surface the cause so a broken

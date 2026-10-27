@@ -3796,6 +3796,7 @@ export const listSchoolStaff = async (req, res, next) => {
          u.created_at,
          u.profile_photo_path,
          u.phone_number,
+         u.is_active,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
          u.passwordless_token_expires_at,
@@ -3871,6 +3872,7 @@ export const listSchoolStaff = async (req, res, next) => {
         phone_number: String(r.phone_number || '').trim() || null,
         school_phone_number: String(organization.phone_number || '').trim() || null,
         effective_phone_number: schoolStaffPhone(r, organization),
+        is_active: r.is_active == null || Number(r.is_active) === 1,
         needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
       };
     });
@@ -4051,7 +4053,7 @@ export const removeSchoolStaff = async (req, res, next) => {
     }
     const stillHasSchoolAccess = await User.hasAnySchoolAgencyMembership(targetUserId);
     if (!stillHasSchoolAccess) {
-      await User.disableSchoolStaffLogin(targetUserId, actorId);
+      await User.disableSchoolStaffLogin(targetUserId, actorId, orgId);
     }
 
     if (targetEmail) {
@@ -4077,6 +4079,8 @@ export const removeSchoolStaff = async (req, res, next) => {
         schoolOrganizationId: orgId,
         actorRole,
         actorIsSchoolAdmin: isSchoolAdmin,
+        accountArchived: !stillHasSchoolAccess,
+        archiveReason: !stillHasSchoolAccess ? 'last_school_assignment_removed' : null,
         removedEmail: u.email || targetEmail || null
       }
     }).catch(() => {});
@@ -4210,16 +4214,10 @@ export const activateSchoolStaff = async (req, res, next) => {
       temporaryPassword,
       expiresInHours
     );
-    try {
-      await User.updateStatus(targetUserId, 'ACTIVE_EMPLOYEE', actorId || null);
-    } catch {
-      // ignore
-    }
-    try {
-      await User.update(targetUserId, { isActive: true });
-    } catch {
-      // ignore
-    }
+    await User.updateStatus(targetUserId, 'ACTIVE_EMPLOYEE', actorId || null, {
+      source: 'school_portal_staff_activated', agencyId: orgId,
+      reason: 'School staff account explicitly activated from the school portal.'
+    });
 
     res.json({
       ok: true,
@@ -4335,16 +4333,10 @@ export const addSchoolStaff = async (req, res, next) => {
       }
     }
 
-    try {
-      await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', actorId);
-    } catch {
-      // ignore
-    }
-    try {
-      await User.update(user.id, { isActive: true });
-    } catch {
-      // ignore
-    }
+    await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', actorId, {
+      source: 'school_portal_staff_added', agencyId: orgId,
+      reason: 'Staff member added to a school through the school portal.'
+    });
 
     await User.assignToAgency(user.id, orgId);
     if (phoneNumber !== undefined) {

@@ -251,6 +251,10 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: School staff reactivation and archive audit
+        env:
+          ACCOUNT_LIFECYCLE_MYSQL_TEST: '1'
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.account-lifecycle.config.js
       - name: Provider archive cleanup and scheduling integration
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

@@ -1673,7 +1673,10 @@ export const archiveUser = async (req, res, next) => {
     }
     
     // Archive user - this will immediately set status to ARCHIVED
-    const archived = await User.archive(parseInt(id), req.user.id, archivedByAgencyId);
+    const archived = await User.archive(parseInt(id), req.user.id, archivedByAgencyId, {
+      source: 'admin_account_archive',
+      reason: String(req.body?.reason || req.body?.note || '').trim().slice(0, 2000) || 'Account archived from user administration.'
+    });
     
     if (!archived) {
       return res.status(404).json({ error: { message: 'User not found' } });
@@ -1887,7 +1890,7 @@ export const restoreUser = async (req, res, next) => {
       userAgencyIds = userAgencies.map(a => a.id);
     }
     
-    const restored = await User.restore(parseInt(id), userAgencyIds);
+    const restored = await User.restore(parseInt(id), userAgencyIds, req.user.id);
     
     if (!restored) {
       return res.status(404).json({ error: { message: 'User not found, not archived, or you do not have permission to restore it' } });
@@ -2166,10 +2169,9 @@ export const deleteMe = async (req, res, next) => {
       });
     }
 
-    await pool.execute(
-      `UPDATE users SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW() WHERE id = ?`,
-      [user.id]
-    );
+    await User.updateStatus(user.id, 'ARCHIVED', user.id, {
+      source: 'account_self_deleted', reason: 'The account holder confirmed deletion of their own account.'
+    });
 
     // Scrub direct identifiers while keeping the user row for referential integrity and audit trails.
     const closedEmail = `account-closed-u${user.id}-${Date.now()}@invalid.invalid`;
@@ -10558,7 +10560,10 @@ export const updateUserStatus = async (req, res, next) => {
       }
     }
 
-    const updatedUser = await User.updateStatus(id, statusUpper, req.user.id);
+    const updatedUser = await User.updateStatus(id, statusUpper, req.user.id, {
+      source: 'admin_status_change',
+      reason: String(note || '').trim().slice(0, 2000) || `Administrator set account status to ${statusUpper}.`
+    });
     if (!updatedUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }

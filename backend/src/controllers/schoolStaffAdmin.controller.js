@@ -1113,16 +1113,10 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
     }
 
     // School staff do not have a workflow: ensure they are ACTIVE immediately.
-    try {
-      await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', req.user?.id || null);
-    } catch {
-      // ignore (older deployments without full status lifecycle)
-    }
-    try {
-      await User.update(user.id, { isActive: true });
-    } catch {
-      // ignore (older deployments)
-    }
+    await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', req.user?.id || null, {
+      source: 'school_admin_staff_added', agencyId: orgId,
+      reason: 'Staff member added to a school through agency administration.'
+    });
 
     // Ensure membership exists.
     await User.assignToAgency(user.id, orgId);
@@ -1213,16 +1207,10 @@ export const activateSchoolStaffUser = async (req, res, next) => {
     }
 
     const temporaryPasswordResult = await User.setTemporaryPassword(userId, temporaryPassword, 24 * 7);
-    try {
-      await User.updateStatus(userId, 'ACTIVE_EMPLOYEE', req.user?.id || null);
-    } catch {
-      // ignore
-    }
-    try {
-      await User.update(userId, { isActive: true });
-    } catch {
-      // ignore
-    }
+    await User.updateStatus(userId, 'ACTIVE_EMPLOYEE', req.user?.id || null, {
+      source: 'school_admin_staff_activated', agencyId: orgId,
+      reason: 'School staff account explicitly activated through agency administration.'
+    });
 
     res.json({
       ok: true,
@@ -1277,11 +1265,10 @@ export const revokeSchoolStaffAccess = async (req, res, next) => {
     }
     const stillHasSchoolAccess = await User.hasAnySchoolAgencyMembership(userId);
     if (!stillHasSchoolAccess) {
-      await User.disableSchoolStaffLogin(userId, req.user?.id || null);
+      await User.disableSchoolStaffLogin(userId, req.user?.id || null, orgId);
     }
     res.json({ ok: true });
   } catch (error) {
     next(error);
   }
 };
-

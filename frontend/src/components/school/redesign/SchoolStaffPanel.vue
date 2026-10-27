@@ -151,6 +151,7 @@
             <div class="ssp-name">{{ displayName(u) }}</div>
             <div class="ssp-badges">
               <span v-if="u.needs_activation" class="ssp-badge ssp-badge-pending">Needs activation</span>
+              <span v-if="u.is_active === false" class="ssp-badge ssp-badge-pending" title="Inactive accounts are excluded from new school ROIs and printable packets.">Inactive account</span>
               <span v-if="u.is_school_admin" class="ssp-badge ssp-badge-admin">School Admin</span>
               <span v-if="u.is_scheduler" class="ssp-badge ssp-badge-scheduler">Scheduler</span>
             </div>

@@ -103,3 +103,23 @@ it('queues a welcome containing the added school and exact permissions using the
  expect(sendSchoolStaffWelcomeEmail).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,schoolOrganizationId:20,userId:42,actorUserId:3,schoolName:'Test School',isSchoolAdmin:true,isScheduler:true,accessUrl:expect.stringContaining('/test-school/passwordless-login/test-token')}));
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({emailSent:false,emailQueued:true}));
 });
+
+
+it('does not claim success or assign the school when reactivation fails', async () => {
+  const error = new Error('Account audit unavailable');
+  User.updateStatus.mockRejectedValueOnce(error);
+  req.body = { email: user.email, isSchoolAdmin: true };
+  await addSchoolStaff(req, res, next);
+  expect(next).toHaveBeenCalledWith(error);
+  expect(res.status).not.toHaveBeenCalledWith(201);
+  expect(User.assignToAgency).not.toHaveBeenCalled();
+  expect(setImmediate).not.toHaveBeenCalled();
+});
+
+it('reports the inactive account flag even when a staff account has active status', async () => {
+  user.status = 'ACTIVE_EMPLOYEE';
+  pool.execute.mockImplementation(async sql => [sql.includes('JOIN users u') ? [user] : []]);
+  await listSchoolStaff(req, res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledWith([expect.objectContaining({ status: 'ACTIVE_EMPLOYEE', is_active: false })]);
+});

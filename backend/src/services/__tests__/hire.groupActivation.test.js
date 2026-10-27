@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), submitted: vi.fn(), ready: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute }, onTableWrite: vi.fn() }));
+vi.mock('../accountLifecycle.service.js', () => ({ changeAccountLifecycle: async ({ mutate }) => mutate({ execute: m.execute }) }));
 vi.mock('../hireJourney.service.js', () => ({ requireOnboardingSubmitted: m.submitted }));
 vi.mock('../hireGroupEmail.service.js', () => ({ ensureHireGroupEmailForActivation: m.ready }));
 import User from '../../models/User.model.js';
