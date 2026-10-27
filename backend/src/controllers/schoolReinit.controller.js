@@ -1304,6 +1304,7 @@ export async function createPublicSchoolEvent(req, res, next) {
     }
 
     const event = await createSchoolPortalEvent({
+      eventVenue: req.body || {},
       agencyId: cycle.agency_id,
       organizationId: cycle.school_organization_id,
       userId: actor.userId || null,
@@ -1351,6 +1352,7 @@ export async function updatePublicSchoolEvent(req, res, next) {
     if (!agencyId) return res.status(400).json({ error: { message: 'School is not linked to an agency' } });
 
     const event = await updateSchoolPortalEvent({
+      eventVenue: req.body || {},
       eventId,
       organizationId: cycle.school_organization_id,
       agencyId,
