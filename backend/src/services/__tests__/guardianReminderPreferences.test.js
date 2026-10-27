@@ -16,10 +16,10 @@ it('lets an authorized recipient review personal choices without requiring appoi
   expect(ClientGuardian.listClientsForGuardian).toHaveBeenCalledWith({ guardianUserId: 10, requiredClinicalScope: null });
   expect(getClientPreferences).toHaveBeenCalledWith(2, 1, 10);
 });
-it('preserves clinical authorization for appointment viewing', async () => {
+it('requires an active guardian relationship for appointment viewing', async () => {
   ClientGuardian.listClientsForGuardian.mockResolvedValue([]);
   await expect(listGuardianAppointments({ userId: 10, clientId: 1 })).rejects.toMatchObject({ status: 403 });
-  expect(ClientGuardian.listClientsForGuardian).toHaveBeenCalledWith({ guardianUserId: 10, requiredClinicalScope: 'session_frequency' });
+  expect(ClientGuardian.listClientsForGuardian).toHaveBeenCalledWith({ guardianUserId: 10, requiredClinicalScope: null });
 });
 it('ignores client-supplied recipient and agency IDs when saving choices', async () => {
   await guardianReminderPreferences({ userId: 10, clientId: 1, input: { agencyId: 999, guardianUserId: 999, channels: { sms: true, email: false } } });
