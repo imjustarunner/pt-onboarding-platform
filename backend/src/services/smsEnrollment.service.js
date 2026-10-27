@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { getSmsSender, recordSmsPermission, isSmsSuppressed } from './smsCompliance.service.js';
 import { smsPolicyError, validateSmsRegistration, validateSmsConsentEvidence } from '../utils/smsCompliancePolicy.js';
 import { staffCommunicationKey, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
 async function prepareEnrollment({ from, phone, purpose, status, evidence, actorUserId }) {
@@ -85,13 +86,23 @@ export async function saveSmsRegistration({ numberId, registration, actorUserId 
   const [numbers] = await pool.execute('SELECT id, agency_id FROM twilio_numbers WHERE id = ? AND is_active = TRUE', [numberId]);
   if (!numbers[0]) throw smsPolicyError('sms_unknown_sender', 'Number not found');
   const [conflicts] = await pool.execute(
-    `SELECT r.number_id FROM sms_sender_registrations r JOIN twilio_numbers n ON n.id = r.number_id
+    `SELECT r.number_id, n.agency_id, JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.brandId')) AS brand_id FROM sms_sender_registrations r JOIN twilio_numbers n ON n.id = r.number_id
      WHERE (r.campaign_id = ? AND JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.brandId')) <> ?)
         OR ((r.campaign_id = ? OR JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.brandId')) = ?)
             AND NOT (n.agency_id <=> ?))
-     LIMIT 1`, [registration.campaignId, registration.brandId, registration.campaignId, registration.brandId, numbers[0].agency_id]
+     `, [registration.campaignId, registration.brandId, registration.campaignId, registration.brandId, numbers[0].agency_id]
   );
-  if (conflicts.length) throw smsPolicyError('sms_cross_tenant_campaign', 'A campaign cannot be shared across independent agencies or brands');
+  if (conflicts.length) {
+    // This owner-approved QA workspace belongs to ITSCO itself. Its record access
+    // remains isolated; only the exact ITSCO service sender may share the brand.
+    const [[agency]] = await pool.execute('SELECT id, slug, feature_flags FROM agencies WHERE id = ?', [numbers[0].agency_id]);
+    const flags = typeof agency?.feature_flags === 'string' ? JSON.parse(agency.feature_flags) : agency?.feature_flags;
+    const sameItscoBusiness = Number(numberId) === 2 && isAuricwellQaAgency(agency)
+      && flags?.qaSandbox?.smsSponsorAgencyId === 2
+      && registration.brandId === 'BRC2ZW3' && registration.campaignId === 'VCV2DNM4'
+      && conflicts.every(row => Number(row.agency_id) === 2 && row.brand_id === registration.brandId);
+    if (!sameItscoBusiness) throw smsPolicyError('sms_cross_tenant_campaign', 'A campaign cannot be shared across independent agencies or brands');
+  }
   const [peers] = await pool.execute('SELECT registration_json FROM sms_sender_registrations WHERE campaign_id = ? AND number_id <> ?', [registration.campaignId, numberId]);
   const program = (value) => JSON.stringify([
     ...['provider', 'brandId', 'brandName', 'legalName', 'resellerId', 'website', 'privacyUrl', 'termsUrl', 'supportContact', 'keywordOwner'].map((key) => value[key]),

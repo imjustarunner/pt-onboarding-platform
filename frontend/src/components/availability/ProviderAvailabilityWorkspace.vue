@@ -43,9 +43,9 @@ const selected=ref(null),dialog=ref(null),detail=ref(null),detailLoading=ref(fal
 const clientSearch=ref(''),clients=ref([]),clientSearched=ref(false);
 const name=p=>[p.first_name,p.last_name].filter(Boolean).join(' ');
 const prefix=computed(()=>route.params.organizationSlug?`/${route.params.organizationSlug}`:'');
-const scheduleLink=computed(()=>({path:`${prefix.value}/admin/users/${selected.value?.id}`,query:{agencyId:props.agencyId,tab:'schedule_availability'}}));
+const scheduleLink=computed(()=>({path:`${prefix.value}/dashboard`,query:{tab:'my_schedule',scheduleViewAs:selected.value?.id}}));
 const clientLink=c=>({path:`${prefix.value}/admin/clients/${c.id}`,query:{agencyId:props.agencyId}});
-const profileLink=p=>({path:`${prefix.value}/admin/users/${p.id}`,query:{agencyId:props.agencyId,section:'service-availability'}});
+const profileLink=p=>auth.user?.role==='support'?({path:`${prefix.value}/dashboard`,query:{tab:'my_schedule',scheduleViewAs:p.id}}):({path:`${prefix.value}/admin/users/${p.id}`,query:{agencyId:props.agencyId,section:'service-availability'}});
 const canPreferences=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
 const tabs=computed(()=>[{id:'openings',label:'Openings & conflicts'},...(canPreferences.value?[{id:'preferences',label:'Preferences'},{id:'clients',label:'Assign clients'}]:[]),{id:'hours',label:'Add / remove hours'}]);
 const filtered=computed(()=>providers.value.filter(p=>name(p).toLowerCase().includes(search.value.trim().toLowerCase())&&(!statusFilter.value||(statusFilter.value==='closed'?!p.preferences?.acceptingNewClients:statusFilter.value==='accepting'?p.preferences?.seesClients&&p.preferences?.acceptingNewClients:p.preferences?.[statusFilter.value]))));

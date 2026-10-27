@@ -2283,7 +2283,7 @@ const routes = [
     component: () => import('../views/admin/UserProfileView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
+      requiresRole: ['admin', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
       organizationSlug: true
     }
   },
@@ -2293,7 +2293,7 @@ const routes = [
     component: () => import('../views/admin/UserManager.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
+      requiresRole: ['admin', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
       organizationSlug: true
     }
   },
@@ -3215,13 +3215,13 @@ const routes = [
   {
     path: '/:organizationSlug/admin/find-providers',
     name: 'OrganizationAdminFindProviders',
-    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    component: () => import('../views/FindProviderWorkspaceView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'supervisor'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/supervisor/availability-lab',
     name: 'OrganizationSupervisorAvailabilityLab',
-    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    component: () => import('../views/FindProviderWorkspaceView.vue'),
     meta: { requiresAuth: true, requiresRole: ['supervisor'], organizationSlug: true }
   },
   // Legacy agency slug route (backward compatibility)
@@ -3757,7 +3757,7 @@ const routes = [
     component: () => import('../views/admin/UserProfileView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant']
+      requiresRole: ['admin', 'super_admin', 'clinical_practice_assistant']
     }
   },
   {
@@ -3766,7 +3766,7 @@ const routes = [
     component: () => import('../views/admin/UserManager.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant']
+      requiresRole: ['admin', 'super_admin', 'clinical_practice_assistant']
     }
   },
   {
@@ -4798,13 +4798,13 @@ const routes = [
   {
     path: '/admin/find-providers',
     name: 'AdminFindProviders',
-    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    component: () => import('../views/FindProviderWorkspaceView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'supervisor'] }
   },
   {
     path: '/supervisor/availability-lab',
     name: 'SupervisorAvailabilityLab',
-    component: () => import('../views/SupervisorAvailabilityLabView.vue'),
+    component: () => import('../views/FindProviderWorkspaceView.vue'),
     meta: { requiresAuth: true, requiresRole: ['supervisor'] }
   },
   {

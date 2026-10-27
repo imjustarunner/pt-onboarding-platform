@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),care:vi.fn(),eligible:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>m}}));
 vi.mock('../staffCareEligibility.service.js',()=>({staffCareEligibility:m.eligible,readStaffCareEligibility:m.care}));
-import { evaluateClientSessionBooking, requireClientSessionBooking, saveClientSessionBookingRollout } from '../clientSessionBookingRollout.service.js';
+import { evaluateClientSessionBooking, requireClientSessionBooking, saveClientSessionBookingRollout, sessionBookingProviders } from '../clientSessionBookingRollout.service.js';
 const policy={revision:3,entries:[{providerUserId:12,enabled:true},{providerUserId:30,enabled:true}]};
 const input={providerUserIds:[12],enabled:true,transitionReviewed:true,note:'Reviewed October cohort',revision:3};
-beforeEach(()=>{vi.clearAllMocks();m.care.mockResolvedValue({canProvideCare:true});m.eligible.mockImplementation(row=>({canProvideCare:row.id!==99}));m.execute.mockImplementation(async sql=>sql.startsWith('SELECT feature_flags')?[[{feature_flags:{clientSessionBookingRollout:policy,keep:true}}]]:sql.includes('FROM users u')?[[{id:12,first_name:'Legal',preferred_name:'Preferred',last_name:'Name'},{id:30,first_name:'Other'},{id:99,first_name:'Nonclient staff'}]]:[{affectedRows:1}]);});
+beforeEach(()=>{vi.clearAllMocks();m.care.mockResolvedValue({canProvideCare:true});m.eligible.mockImplementation(row=>({canProvideCare:row.id!==99}));m.execute.mockImplementation(async sql=>sql.startsWith('SELECT id,slug')?[[{id:2,slug:'real',feature_flags:{}}]]:sql.startsWith('SELECT feature_flags')?[[{feature_flags:{clientSessionBookingRollout:policy,keep:true}}]]:sql.includes('FROM users u')?[[{id:12,first_name:'Legal',preferred_name:'Preferred',last_name:'Name'},{id:30,first_name:'Other'},{id:99,first_name:'Nonclient staff'}]]:[{affectedRows:1}]);});
 describe('explicit provider session booking transition',()=>{
  it('defaults closed and requires an exact enabled provider entry',()=>{
   for(const providerId of [0,13,null])expect(evaluateClientSessionBooking(policy,providerId).enabled).toBe(false);
@@ -39,4 +39,16 @@ describe('explicit provider session booking transition',()=>{
    await expect(saveClientSessionBookingRollout({agencyId:2,actorUserId:5,input:{...input,...patch}})).rejects.toThrow();
   expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);expect(m.commit).not.toHaveBeenCalled();
  });
+});
+
+it('admits only explicitly allowlisted synthetic providers in the isolated QA practice', async () => {
+ const provider={id:1433,email:'qa.provider.auricwell@example.com',role:'provider',is_demo:1};
+ const qa={id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders:[{id:1433,email:provider.email}]}}};
+ let agency=qa;
+ m.execute.mockImplementation(async sql => sql.includes('FROM agencies')?[[agency]]:[[provider,{...provider,id:1439},{...provider,id:7,is_demo:0,email:'real@clinic.test'}]]);
+ expect(await sessionBookingProviders(450)).toEqual([{id:1433,name:''}]);
+ agency={...qa,feature_flags:{}};
+ expect((await sessionBookingProviders(450)).map(p=>p.id)).toEqual([7]);
+ agency={id:2,slug:'itsco',feature_flags:{}};
+ expect((await sessionBookingProviders(2)).map(p=>p.id)).toEqual([7]);
 });

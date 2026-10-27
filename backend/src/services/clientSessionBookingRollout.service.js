@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { parseFeatureFlags } from './medicalBillingFlags.service.js';
 import { staffCareEligibility, readStaffCareEligibility } from './staffCareEligibility.service.js';
 
@@ -29,13 +30,15 @@ export async function requireClientSessionBooking(agencyId, providerUserId, db =
   return review;
 }
 export async function sessionBookingProviders(agencyId, db = pool) {
-  const [rows] = await db.execute(`SELECT u.id,u.first_name,u.preferred_name,u.last_name,u.role,u.credential,u.status,u.is_active,
+  const [[agency]] = await db.execute('SELECT id,slug,feature_flags FROM agencies WHERE id = ?', [agencyId]);
+  const qa = isAuricwellQaAgency(agency);
+  const [rows] = await db.execute(`SELECT u.id,u.email,u.is_demo,u.first_name,u.preferred_name,u.last_name,u.role,u.credential,u.status,u.is_active,
       u.sees_clients,u.has_provider_access,ua.agency_role,COALESCE(ua.is_active,1) AS membership_active,p.public_details_json
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
     LEFT JOIN provider_public_profiles p ON p.user_id=u.id
-    WHERE COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
-    ORDER BY u.last_name,u.first_name`, [agencyId]);
-  return rows.filter(row => staffCareEligibility(row, agencyId).canProvideCare).map(row => ({
+    WHERE COALESCE(u.is_archived,0)=0 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
+    ORDER BY u.last_name,u.first_name`, [agencyId, qa ? 1 : 0]);
+  return rows.filter(row => (!qa ? !Number(row.is_demo) : allowQaExchangeRecipient(agency, row)) && staffCareEligibility(row, agencyId).canProvideCare).map(row => ({
     id: Number(row.id), name: `${row.preferred_name || row.first_name || ''} ${row.last_name || ''}`.trim()
   }));
 }

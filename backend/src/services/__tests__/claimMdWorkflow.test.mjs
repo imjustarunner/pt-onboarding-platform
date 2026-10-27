@@ -101,7 +101,8 @@ test('invalid response cursors roll back instead of silently skipping data', asy
 test('adapter keeps AccountKey server-owned and rejects HTTP-200 error bodies', async t => {
   let request;
   t.mock.method(globalThis, 'fetch', async (url, options) => { request = options; return { ok: true, text: async () => JSON.stringify({ payer: [] }) }; });
-  await requestEligibilityJson({ accountKey: 'ours', payload: { AccountKey: 'attacker' } });
+  t.mock.method(pool, 'execute', async()=>[[{id:2,slug:'itsco',feature_flags:{}}]]);
+  await requestEligibilityJson({ agencyId:2, accountKey: 'ours', payload: { AccountKey: 'attacker' } });
   assert.equal(request.body.get('AccountKey'), 'ours');
   t.mock.method(globalThis, 'fetch', async () => ({ ok: true, text: async () => JSON.stringify({ error: { message: 'Secret detail' } }) }));
   await assert.rejects(fetchPayers({ accountKey: 'ours', payerName: 'Test' }), e => !e.message.includes('Secret detail'));
@@ -109,7 +110,8 @@ test('adapter keeps AccountKey server-owned and rejects HTTP-200 error bodies', 
 test('an ambiguous upload failure makes exactly one network attempt', async t => {
   let calls = 0;
   t.mock.method(globalThis, 'fetch', async () => { calls++; throw new Error('timeout'); });
-  await assert.rejects(uploadClaims({ accountKey: 'ours', fileContents: '{"claim":[]}' }));
+  t.mock.method(pool, 'execute', async()=>[[{id:2,slug:'itsco',feature_flags:{}}]]);
+  await assert.rejects(uploadClaims({ agencyId:2, accountKey: 'ours', fileContents: '{"claim":[]}' }));
   assert.equal(calls, 1);
 });
 

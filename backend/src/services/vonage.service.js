@@ -138,8 +138,8 @@ class VonageService {
   static async getIncomingNumber({ incomingPhoneNumberSid }) {
     const vonage = this.getClient();
     const msisdn = String(incomingPhoneNumberSid || '').replace(/^\+/, '');
-    const result = await vonage.numbers.getOwnedNumbers({ msisdn });
-    const number = (result?.numbers || [])[0] || null;
+    const result = await vonage.numbers.getOwnedNumbers({ pattern: msisdn, searchPattern: 1 });
+    const number = (result?.numbers || []).find(n => String(n.msisdn) === msisdn) || null;
     if (!number) throw new Error(`Vonage number not found: ${msisdn}`);
     return {
       smsUrl: number.moHttpUrl || number.mo_http_url || null,

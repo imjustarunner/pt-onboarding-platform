@@ -3,11 +3,12 @@
     <div class="na-start-hero">
       <div class="na-start-icon" aria-hidden="true">✨</div>
       <h1>No note selected</h1>
-      <p>Select a note from the library, open a to-do from the work queue, or create a new note to begin.</p>
+      <p v-if="sessionLinkedOnly">This workspace opens drafts and signed notes connected to a scheduled session or billing encounter, along with the client’s treatment plans. Choose an existing item below, or open a session on your schedule and use Quick note to start its draft.</p>
+      <p v-else>Select a note from the library, open a to-do from the work queue, or create a new note to begin.</p>
     </div>
 
     <div class="na-start-actions">
-      <button type="button" class="na-start-btn na-start-btn--primary" @click="$emit('create')">
+      <button v-if="!sessionLinkedOnly" type="button" class="na-start-btn na-start-btn--primary" @click="$emit('create')">
         <span class="na-start-btn-icon" aria-hidden="true">+</span>
         <span class="na-start-btn-text">
           <strong>Create New Note</strong>
@@ -43,7 +44,7 @@
     <div class="na-start-ways">
       <h2>Ways to begin</h2>
       <div class="na-start-ways-grid">
-        <button type="button" class="na-start-way" @click="$emit('create')">
+        <button v-if="!sessionLinkedOnly" type="button" class="na-start-way" @click="$emit('create')">
           <span aria-hidden="true">+</span>
           <div>
             <strong>Create new note</strong>
@@ -81,6 +82,7 @@
 
 <script setup>
 defineProps({
+  sessionLinkedOnly: { type: Boolean, default: false },
   hasNextInProgress: { type: Boolean, default: false },
   hasNextInQueue: { type: Boolean, default: false }
 });

@@ -1,3 +1,4 @@
+import { assertLiveClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
  * AccountKey is required on every call. Responses are passthrough JSON/text.
@@ -38,7 +39,8 @@ async function postForm(path, fields = {}) {
 /**
  * Upload a claim file (JSON/CSV/837P content as string).
  */
-export async function uploadClaims({ accountKey, fileContents, filename = 'claims.json' }) {
+export async function uploadClaims({ agencyId, accountKey, fileContents, filename = 'claims.json' }) {
+  await assertLiveClearinghouseAgency(agencyId);
   const body = new FormData();
   body.append('AccountKey', accountKey);
   body.append('Filename', filename);
@@ -70,7 +72,8 @@ export async function fetchEraData({ accountKey, eraId }) {
   return postForm('/eradata/', { AccountKey: accountKey, eraid: eraId });
 }
 
-export async function requestEligibilityJson({ accountKey, payload }) {
+export async function requestEligibilityJson({ agencyId, accountKey, payload }) {
+  await assertLiveClearinghouseAgency(agencyId);
   return postForm('/eligdata/', {
     ...(payload && typeof payload === 'object' ? payload : {}),
     AccountKey: accountKey
@@ -81,7 +84,8 @@ export function fetchPayers({ accountKey, payerId, payerName }) {
   return postForm('/payerlist/', { AccountKey: accountKey, payerid: payerId, payer_name: payerName });
 }
 
-export function requestEnrollment({ accountKey, payerId, enrollmentType, practice, npi, contact, contactEmail }) {
+export async function requestEnrollment({ agencyId, accountKey, payerId, enrollmentType, practice, npi, contact, contactEmail }) {
+  await assertLiveClearinghouseAgency(agencyId);
   return postForm('/enroll/', { AccountKey: accountKey, payerid: payerId, enroll_type: enrollmentType,
     prov_taxid: String(practice.tax_id || '').replace(/\D/g, ''), prov_npi: npi,
     prov_name_l: practice.name, contact, contact_email: contactEmail, contact_phone: practice.phone_number,

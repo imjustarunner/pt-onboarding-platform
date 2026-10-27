@@ -24,11 +24,11 @@
           Client Exchange
         </router-link>
         <button v-if="!isSscSstcTenant && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'))" @click="showBulkAssignModal = true" class="btn btn-secondary">Assign Documents</button>
-        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary um-add-user-btn">{{ isSscSstcTenant ? '+ Create member' : '+ Add user' }}</button>
+        <button v-if="canManageAccounts" @click="showCreateModal = true" class="btn btn-primary um-add-user-btn">{{ isSscSstcTenant ? '+ Create member' : '+ Add user' }}</button>
         <button v-if="isSscSstcTenant" @click="openTempAddMembersModal" class="btn btn-secondary">Add Existing Members</button>
         <button v-if="isSscSstcTenant" @click="openTempMergeModal" class="btn btn-secondary">Merge Members</button>
         <button v-if="isSscSstcTenant" @click="toggleAssistantManagersView" class="btn btn-secondary">{{ assistantManagersOnly ? 'All Members' : 'Assistant Managers' }}</button>
-        <button v-else-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
+        <button v-else-if="canManageAccounts" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
         <button
           v-if="!isSscSstcTenant && (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support')"
           type="button"
@@ -264,7 +264,7 @@
                 <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                 <option value="provider_plus">Provider Plus</option>
                 <option value="staff">Staff</option>
-                <option value="support">Staff (Admin Tools)</option>
+                <option value="support">Support</option>
                 <option value="admin">Admin</option>
                 <option value="super_admin">Super Admin</option>
               </select>
@@ -337,7 +337,7 @@
             <div class="users-table-toolbar" data-tour="users-table-toolbar">
               <span class="um-found-count">{{ rosterEditorMode ? 'Roster editor' : columnViewMode ? 'Column view' : `${directoryResultCount} found` }}</span>
               <button
-                v-if="!isSscSstcTenant"
+                v-if="!isSscSstcTenant && canManageAccounts"
                 type="button"
                 class="btn btn-secondary btn-sm"
                 :class="{ active: rosterEditorMode }"
@@ -791,7 +791,7 @@
     </div>
 
     <!-- Create/Edit Modal -->
-    <div v-if="(showCreateModal || editingUser) && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" class="modal-overlay" @click="closeModal">
+    <div v-if="(showCreateModal || editingUser) && canManageAccounts" class="modal-overlay" @click="closeModal">
       <div class="modal-content large" @click.stop>
         <h2>{{ editingUser ? 'Edit User' : 'Create New User' }}</h2>
         
@@ -816,7 +816,7 @@
                 <select v-model="userForm.role" required>
                   <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
                   <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
+                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Support</option>
                   <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                   <option value="provider_plus">Provider Plus</option>
                   <option value="staff">Staff</option>
@@ -1166,7 +1166,7 @@
             <select v-model="userForm.role" required>
               <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
+              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Support</option>
               <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
               <option value="provider_plus">Provider Plus</option>
               <option value="client_guardian">Guardian</option>
@@ -1842,6 +1842,7 @@ const formatSscClubRole = (u) => {
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
+const canManageAccounts = computed(() => ['admin', 'super_admin'].includes(user.value?.role));
 const isSuperAdmin = computed(() => user.value?.role === 'super_admin');
 const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
@@ -3750,7 +3751,7 @@ const formatRole = (role) => {
   const roleMap = {
     'super_admin': 'Super Admin',
     'admin': 'Admin',
-    'support': 'Staff (Admin Tools)',
+    'support': 'Support',
     'supervisor': 'Provider',
     'clinical_practice_assistant': 'CPA',
     'staff': 'Staff',

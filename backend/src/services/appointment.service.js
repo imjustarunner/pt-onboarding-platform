@@ -562,7 +562,8 @@ export async function cancelAppointment(appointmentId, {
   followUpMessage = null,
   clientId = null,
   waive = false,
-  waiverReason = null
+  waiverReason = null,
+  expectedFeeCents = null
 } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
@@ -617,6 +618,11 @@ export async function cancelAppointment(appointmentId, {
       code: 'CANCEL_REASON_REQUIRED',
       evaluation
     });
+  }
+
+  if (expectedFeeCents !== null && Number(evaluation.recommendedFeeCents || 0) !== expectedFeeCents) {
+    throw Object.assign(new Error('The cancellation fee changed. Review the current fee before confirming.'),
+      { status: 409, code: 'CANCELLATION_FEE_CHANGED' });
   }
 
   const nextStatus = Appointment.normalizeStatus(

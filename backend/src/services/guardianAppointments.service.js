@@ -32,8 +32,8 @@ export async function requireGuardianCancellation({ userId, clientId, appointmen
   return client;
 }
 
-export async function cancelGuardianAppointments({ userId, clientId, appointmentId, scope = 'single', reason, confirmed, agencyId,serviceId }) {
-  if (confirmed !== true) throw fail('Confirm cancellation. Existing cancellation-fee rules still apply.');
+export async function cancelGuardianAppointments({ userId, clientId, appointmentId, scope = 'single', reason, confirmed, agencyId,serviceId, previewOnly = false, acknowledgedFees = [] }) {
+  if (!previewOnly && confirmed !== true) throw fail('Review the cancellation fee and confirm cancellation.');
   if (!['single', 'future'].includes(scope)) throw fail('Choose this appointment or all future sessions in this series.');
   const clean = validateGuardianAppointmentRequest({ type: 'cancel', reason }).reason;
   const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
@@ -69,6 +69,7 @@ export async function cancelGuardianAppointments({ userId, clientId, appointment
     }
     const { evaluateCancel } = await import('./bookingCancellationPolicy.service.js');
     const candidates = [];
+    const fees = [];
     // Validate the entire selection before cancelling any appointment.
     for (const id of ids) {
       const appointment = await Appointment.findById(id);
@@ -79,6 +80,16 @@ export async function cancelGuardianAppointments({ userId, clientId, appointment
       const evaluation = await evaluateCancel({ appointment, actorRole: 'guardian', clientId });
       if (!evaluation.allowed) throw fail(evaluation.blockReason || 'Cancellation is not allowed by the current policy.', 403);
       candidates.push(appointment);
+      fees.push({ appointmentId: appointment.id, policyId: evaluation.policy?.id || null,
+        feeCents: Number(evaluation.recommendedFeeCents || 0), noticeHours: evaluation.policy?.noticeHours ?? null });
+    }
+    const preview = { scope, fees, totalFeeCents: fees.reduce((total, fee) => total + fee.feeCents, 0) };
+    if (previewOnly) return preview;
+    if (fees.some(fee => fee.feeCents > 0 && !Array.isArray(acknowledgedFees)
+      || fee.feeCents > 0 && !acknowledgedFees.some(ack => Number(ack.appointmentId) === Number(fee.appointmentId)
+        && ack.feeCents === fee.feeCents && ack.policyId === fee.policyId))) {
+      throw Object.assign(fail('Cancellation fees changed or have not been acknowledged. Review them before confirming.', 409),
+        { code: 'CANCELLATION_FEE_ACK_REQUIRED' });
     }
     const { cancelAppointment } = await import('./appointment.service.js');
     if (scope === 'future' && series?.booking_plan_id) {
@@ -90,7 +101,7 @@ export async function cancelGuardianAppointments({ userId, clientId, appointment
     }
     const cancelled = [];
     for (const appointment of candidates) {
-      await cancelAppointment(appointment.id, { actorUserId: userId, actorRole: 'guardian', clientId, reason: clean });
+      await cancelAppointment(appointment.id, { actorUserId: userId, actorRole: 'guardian', clientId, reason: clean, expectedFeeCents: fees.find(fee => fee.appointmentId === appointment.id).feeCents });
       await db.execute("UPDATE guardian_appointment_requests SET status='approved',decided_by_user_id=?,decided_at=UTC_TIMESTAMP() WHERE appointment_id=? AND client_id=? AND status='pending'", [userId, appointment.id, clientId]);
       cancelled.push(appointment.id);
     }

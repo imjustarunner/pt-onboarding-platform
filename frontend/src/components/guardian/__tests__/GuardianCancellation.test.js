@@ -3,15 +3,18 @@ import {mount,flushPromises} from '@vue/test-utils';
 vi.mock('../../../services/api.js',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 import api from '../../../services/api.js';
 import Panel from '../GuardianAppointmentsPanel.vue';
-beforeEach(()=>{vi.resetAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[{id:1,startAt:'2099-10-10 16:00:00',status:'scheduled',requests:[]}]}:{channels:{email:true,sms:false}}}));api.post.mockResolvedValue({data:{cancelledCount:2}});});
+beforeEach(()=>{vi.resetAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[{id:1,startAt:'2099-10-10 16:00:00',status:'scheduled',requests:[]}]}:{channels:{email:true,sms:false}}}));api.post.mockImplementation(async url=>({data:url.endsWith('cancel-preview')?{fees:[{appointmentId:1,policyId:3,feeCents:8000}],totalFeeCents:8000}:{cancelledCount:2}}));});
 it('requires confirmation and sends the selected series scope to immediate cancellation',async()=>{
  const w=mount(Panel,{props:{clientId:8}});await flushPromises();
  expect(w.find('article form').exists()).toBe(false);await w.findAll('.appointment-actions button')[1].trigger('click');
  const form=w.find('article form');await form.find('textarea').setValue('Changing our schedule');
  await form.findAll('select')[1].setValue('future');
+ await form.trigger('submit');await flushPromises();
+ expect(w.text()).toContain('$80.00');
+ expect(api.post).not.toHaveBeenCalledWith('/guardian-portal/clients/8/appointments/1/cancel',expect.anything());
  expect(form.find('button:not([type=button])').attributes('disabled')).toBeDefined();
  await form.find('input[type=checkbox]').setValue(true);await form.trigger('submit');await flushPromises();
- expect(api.post).toHaveBeenCalledWith('/guardian-portal/clients/8/appointments/1/cancel',expect.objectContaining({scope:'future',confirmed:true}));expect(w.text()).toContain('Cancellation confirmed');w.unmount();
+ expect(api.post).toHaveBeenCalledWith('/guardian-portal/clients/8/appointments/1/cancel',expect.objectContaining({scope:'future',confirmed:true,acknowledgedFees:[{appointmentId:1,policyId:3,feeCents:8000}]}));expect(w.text()).toContain('Cancellation confirmed');w.unmount();
 });
 it('keeps provider approval for rescheduling and disables preview mutations',async()=>{
  const w=mount(Panel,{props:{clientId:8}});await flushPromises();

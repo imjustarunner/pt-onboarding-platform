@@ -9,11 +9,11 @@ export function isAuricwellQaAgency(agency) {
     && flags?.qaSandbox?.syntheticOnly === true;
 }
 
-// QA SMS is limited to the owner's original provider phone. Client/guardian
-// messages remain email-only even if a tester accidentally opts into texts.
+// The owner explicitly authorized staff, care and appointment tests to this phone.
+// Registration, purpose consent, preferences and STOP are still enforced by the sender.
 export function allowQaSmsDelivery(agency, {to,purpose,clientId}={}) {
   if (![450,451,452].includes(Number(agency?.id)) && !String(agency?.slug||'').startsWith(AURICWELL_QA_SLUG)) return true;
-  return isAuricwellQaAgency(agency) && purpose==='workforce' && !clientId
+  return isAuricwellQaAgency(agency) && ['workforce','care','reminders'].includes(purpose)
     && String(to||'').replace(/\D/g,'')==='16189107000';
 }
 

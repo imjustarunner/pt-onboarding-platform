@@ -666,7 +666,7 @@ const allSections = computed(() => [
   {
     id: 'clients-guardians',
     label: 'Clients & Guardians',
-    desc: 'School clients, guardians, new intakes, and exchange.',
+    desc: 'School clients, guardians, new enrollments, and exchange.',
     tone: 'cyan',
     icon: icon.clients,
     cards: [

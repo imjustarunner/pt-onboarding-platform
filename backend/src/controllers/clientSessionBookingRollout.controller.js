@@ -1,11 +1,11 @@
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { clientSessionBookingAccess, readClientSessionBookingRollout, sessionBookingProviders, saveClientSessionBookingRollout } from '../services/clientSessionBookingRollout.service.js';
-const managers = new Set(['admin', 'super_admin', 'support']);
+const managers = new Set(['admin', 'super_admin']);
 async function scope(req, manage = false) {
   const agencyId = Number(req.body?.agencyId || req.query?.agencyId);
   if (!Number.isSafeInteger(agencyId) || agencyId < 1) throw Object.assign(new Error('Choose a practice.'), { status: 400 });
   await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-  if (manage && !managers.has(req.user.role)) throw Object.assign(new Error('Practice administration or support access is required.'), { status: 403 });
+  if (manage && !managers.has(req.user.role)) throw Object.assign(new Error('Practice administrator access is required.'), { status: 403 });
   return agencyId;
 }
 export async function getClientSessionBookingAccess(req, res, next) {

@@ -37,7 +37,7 @@ export function pickLivingDisclosureParties(currentProviders = [], signedProvide
 const DEFAULT_COPY_EN = {
   title: 'DISCLOSURE STATEMENT',
   introHtml: `<p>This document is MANDATORY for all mental health professions in Colorado. The specific agency within the Department that has responsibility specifically for licensed and unlicensed psychotherapists is:</p>
-<p><em>Department of Regulatory Agencies<br/>Division of Profession and Occupations<br/>Healthcare Professions Programs<br/>State Board Specific to Each Clinician/Provider is Listed with Each Individual<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
+<p><em>Department of Regulatory Agencies<br/>Division of Professions and Occupations<br/>Healthcare Professions Programs<br/>State Board Specific to Each Clinician/Provider is Listed with Each Individual<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
 <p>The purpose of this document is to explain the levels of regulation applicable to mental health professionals under the Mental Health Practice Act and the differences between licensure, registration, and certification, including the educational, experience, and training requirements applicable to the particular level of regulation. The direct entity covered by this document can be found below, as well as the Clinicians and Providers who are employees of that entity.</p>
 <p><em>Note: The Clinicians and Providers listed below are subject to change. This document will be sent, acknowledged, and signed by clients or their parent/guardian’s at the time of intake and accurate information about their specific clinician/provider will be listed.</em></p>`,
   doraHtml: '',
@@ -58,7 +58,7 @@ const DEFAULT_COPY_EN = {
 const DEFAULT_COPY_ES = {
   title: 'DECLARACION DE DIVULGACION',
   introHtml: `<p>Este documento es OBLIGATORIO para todas las profesiones de salud mental en Colorado.</p>
-<p><em>Department of Regulatory Agencies<br/>Division of Profession and Occupations<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
+<p><em>Department of Regulatory Agencies<br/>Division of Professions and Occupations<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
 <p>El proposito de este documento es explicar los niveles de regulacion aplicables a los profesionales de salud mental. La entidad cubierta y los clinicos/proveedores empleados aparecen a continuacion.</p>
 <p><em>Nota: Los clinicos y proveedores listados estan sujetos a cambio.</em></p>`,
   doraHtml: '',

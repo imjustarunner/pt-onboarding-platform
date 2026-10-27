@@ -8,7 +8,7 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
   try {
     // Check if any admin exists
     const users = await User.findAll();
-    const hasAdmin = users.some(user => user.role === 'admin');
+    const hasAdmin = users.some(user => ['admin', 'super_admin'].includes(user.role));
     
     // If no admin exists, allow registration
     if (!hasAdmin) {
@@ -30,7 +30,7 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
       return res.status(security.state.phase === 'expired' ? 401 : 423).json({ error: { code: security.state.phase === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_LOCKED', message: 'Unlock your session or sign in again.' }, session: security.state, policy: security.policy });
     }
     
-    if (decoded.role !== 'admin' && decoded.role !== 'super_admin' && decoded.role !== 'support') {
+    if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     

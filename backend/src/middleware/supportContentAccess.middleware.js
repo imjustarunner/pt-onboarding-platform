@@ -33,3 +33,11 @@ export function supportProfileUpdateOnly(req, res, next) {
   }
   return next();
 }
+
+// Account provisioning is not a support, provider, or staff capability.
+export function requireAccountAdministrator(req, res, next) {
+  if (!['admin', 'super_admin'].includes(String(req.user?.role || '').trim().toLowerCase())) {
+    return res.status(403).json({ error: { code: 'ACCOUNT_ADMIN_REQUIRED', message: 'An administrator must manage user accounts.' } });
+  }
+  return next();
+}

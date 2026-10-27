@@ -14,7 +14,7 @@ describe('Support navigation permissions', () => {
     expect((await route.matched.at(-1).components.default()).default.__name).toBe('MySupervisionAgreementsView');
     expect(router.resolve('/supervision/agreements').meta.requiresAuth).toBe(true);
   });
-  it.each(['/admin/settings', '/auricwell-qa-demo/admin/settings',
+  it.each(['/admin/users', '/auricwell-qa-demo/admin/users', '/admin/users/1433', '/auricwell-qa-demo/admin/users/1433', '/admin/settings', '/auricwell-qa-demo/admin/settings',
     '/admin/email-settings', '/auricwell-qa-demo/admin/email-settings'])('denies administrative settings at %s', path => {
     const route = router.resolve(path);
     expect(route.matched.length).toBeGreaterThan(0);

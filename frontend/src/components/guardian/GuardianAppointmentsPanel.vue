@@ -1,6 +1,7 @@
 <template>
   <section class="guardian-appointments" aria-label="Appointments">
     <header><h2>Appointments</h2><button type="button" @click="load" :disabled="loading">Refresh</button></header>
+    <GuardianClinicalBooking v-if="!preview" :client-id="clientId" @booked="load" />
     <p>Your next appointments are shown first. Open an appointment to make a change.</p>
     <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">Family notification settings</button>
     <details v-if="!familyNotifications && !preview && preferences">
@@ -54,23 +55,28 @@
       <div v-if="canRequest(a)" class="appointment-actions"><button type="button" @click="openAction(a,'reschedule')">Request a new time</button><button type="button" @click="openAction(a,'cancel')">{{ a.serviceSetting?.isSchool ? 'Report an absence' : 'Cancel appointment' }}</button></div>
       <form v-if="canRequest(a) && editingId === a.id" :ref="el => { if(el && editingId === a.id) actionForm = el; }" @submit.prevent="submit(a)">
         <h4>{{ draft(a).type === 'reschedule' ? 'Request a new time' : a.serviceSetting?.isSchool ? 'Report an absence' : 'Cancel appointment' }}</h4><button type="button" @click="editingId=null">Close without changes</button>
-        <label>Action <select v-model="draft(a).type"><option value="cancel">Cancel appointment</option><option value="reschedule">Request rescheduling</option></select></label>
-        <label v-if="draft(a).type === 'cancel'">Cancel <select v-model="draft(a).scope"><option value="single">Only this appointment</option><option value="future">All future sessions in this recurring series</option></select></label>
+        <label>Action <select v-model="draft(a).type" @change="clearReview(a)"><option value="cancel">Cancel appointment</option><option value="reschedule">Request rescheduling</option></select></label>
+        <label v-if="draft(a).type === 'cancel'">Cancel <select v-model="draft(a).scope" @change="clearReview(a)"><option value="single">Only this appointment</option><option value="future">All future sessions in this recurring series</option></select></label>
         <label>Reason (required)<textarea v-model="draft(a).reason" required maxlength="2000" rows="2" /></label>
         <p>Your reason will be visible to the authorized guardians and care team.</p>
-        <label v-if="draft(a).type === 'cancel'"><input v-model="draft(a).confirmed" type="checkbox" required /> I confirm cancellation of the selected session(s). Existing cancellation-fee rules still apply.</label>
-        <button :disabled="busy || !draft(a).reason.trim() || (draft(a).type === 'cancel' && !draft(a).confirmed)">{{ draft(a).type === 'cancel' ? (draft(a).scope === 'future' ? 'Cancel all future sessions' : 'Cancel appointment') : 'Request provider approval' }}</button>
+        <section v-if="draft(a).type === 'cancel' && draft(a).review" aria-label="Cancellation fee review">
+          <p><strong>{{ draft(a).review.totalFeeCents ? `Cancellation fee: ${money(draft(a).review.totalFeeCents)}` : 'No cancellation fee applies.' }}</strong></p>
+          <p v-for="fee in draft(a).review.fees" :key="fee.appointmentId">Appointment #{{ fee.appointmentId }}: {{ money(fee.feeCents) }}</p>
+          <label><input v-model="draft(a).confirmed" type="checkbox" required /> I confirm cancellation of these sessions and acknowledge the {{ money(draft(a).review.totalFeeCents) }} total fee.</label>
+        </section>
+        <button :disabled="busy || !draft(a).reason.trim() || (draft(a).type === 'cancel' && draft(a).review && !draft(a).confirmed)">{{ draft(a).type === 'cancel' ? (!draft(a).review ? 'Review cancellation' : draft(a).scope === 'future' ? 'Cancel all future sessions' : 'Confirm cancellation') : 'Request provider approval' }}</button>
       </form>
     </article>
   </section>
 </template>
 <script setup>
 import { ref, reactive, watch, nextTick } from 'vue';
+import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
 const editingId=ref(null),actionForm=ref(null);
-async function openAction(a,type){draft(a).type=type;draft(a).confirmed=false;editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
+async function openAction(a,type){draft(a).type=type;clearReview(a);editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
 const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),drafts=reactive({});let sequence=0;
 const selectedSlots = reactive({}), selectedFormats = reactive({});
@@ -112,8 +118,32 @@ async function load(){const own=++sequence;appointments.value=[];preferences.val
   if(own===sequence)preferences.value=response.data;
 }}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}
 async function savePreferences(){const own=sequence;busy.value=true;error.value='';preferenceNotice.value='';try{const{data}=await api.put(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,preferences.value);if(own===sequence){preferences.value=data;preferenceNotice.value='Your preferences were saved. Text delivery still requires recorded consent.';}}catch(e){error.value=e.response?.data?.error?.message||'Preferences could not be saved.';}finally{busy.value=false;}}
-async function submit(a){if(busy.value)return;const own=sequence;const cancel=draft(a).type==='cancel';busy.value=true;error.value='';notice.value='';try{await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/${cancel ? 'cancel' : 'requests'}`,draft(a));delete drafts[a.id];editingId.value=null;if(own===sequence){notice.value=cancel?'Cancellation confirmed. Selected sessions are canceled; existing cancellation-fee rules apply.':'Rescheduling request sent for provider approval.';await load();}}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Your request could not be saved. Refresh to see current appointment status before retrying.';}finally{busy.value=false;}}
-watch(()=>props.clientId,()=>{notice.value='';editingId.value=null;Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
+const money = cents => new Intl.NumberFormat(undefined, {style:'currency',currency:'USD'}).format(cents / 100);
+function clearReview(a) { draft(a).review=null; draft(a).confirmed=false; }
+async function submit(a) {
+  if (busy.value) return;
+  const own=sequence, cancel=draft(a).type==='cancel';
+  busy.value=true; error.value=''; notice.value='';
+  try {
+    const base=`/guardian-portal/clients/${props.clientId}/appointments/${a.id}`;
+    if (cancel && !draft(a).review) {
+      const {data}=await api.post(`${base}/cancel-preview`,draft(a));
+      if (own===sequence) { draft(a).review=data; draft(a).confirmed=false; }
+      return;
+    }
+    await api.post(`${base}/${cancel ? 'cancel' : 'requests'}`, {
+      ...draft(a), acknowledgedFees: cancel ? draft(a).review?.fees : undefined
+    });
+    delete drafts[a.id]; editingId.value=null;
+    if (own===sequence) { notice.value=cancel ? 'Cancellation confirmed.' : 'Rescheduling request sent for provider approval.'; await load(); }
+  } catch(e) {
+    if (own===sequence) {
+      if (cancel) clearReview(a);
+      error.value=e.response?.data?.error?.message||'Your request could not be saved. Refresh to see current appointment status before retrying.';
+    }
+  } finally { busy.value=false; }
+}
+watch(()=>props.clientId,()=>{notice.value='';editingId.value=null;Object.keys(drafts).forEach(k=>delete drafts[k]);Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
 </script>
 <style scoped>
 .guardian-appointments article{margin:16px 0;padding:20px!important;border:1px solid #dce4ee;border-left:4px solid #2467a7;border-radius:12px;background:#fff}.guardian-appointments h3{font-size:20px;margin:0 0 8px}.appointment-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.appointment-actions button{background:#eff5fc;color:#174473;border:1px solid #c7d7e8;border-radius:8px}.guardian-appointments form{background:#f4f7fb;padding:18px;border-radius:10px;margin-top:16px}.guardian-appointments input[type=checkbox]{width:20px;height:20px}.guardian-appointments button{min-height:42px}

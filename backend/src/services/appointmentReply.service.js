@@ -222,9 +222,24 @@ export async function applyAppointmentReply({
     );
   } else if (intent === 'cancel') {
     try {
+      const { evaluateCancel } = await import('./bookingCancellationPolicy.service.js');
+      const evaluation = await evaluateCancel({ appointment: appt, actorRole: 'client', clientId });
+      if (!evaluation.allowed) throw new Error(evaluation.blockReason || 'Cancellation needs staff review.');
+      if (Number(evaluation.recommendedFeeCents) > 0) {
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const { buildPublicAppUrl } = await import('../utils/publicPortalUrl.js');
+        const agency = await Agency.findById(aid);
+        const portal = `${buildPublicAppUrl(agency, 'guardian')}?panel=appointments&clientId=${Number(clientId)||''}&appointmentId=${appt.id}`;
+        const amount = (evaluation.recommendedFeeCents / 100).toFixed(2);
+        await notifyProviderInApp(appt, 'Cancellation awaiting fee acknowledgment',
+          `The family requested cancellation of appointment #${appt.id}. They must acknowledge the $${amount} fee before it is canceled.`);
+        return { reviewId, intent, status: 'pending_review', appointmentId: appt.id, clientReply: 'fee_ack_required',
+          ackMessage: `Canceling now has a $${amount} fee. Your appointment is still scheduled. Review and confirm the fee in your secure account: ${portal}` };
+      }
       const { cancelAppointment } = await import('./appointment.service.js');
       await cancelAppointment(appt.id, {
         status: 'canceled_by_client',
+        expectedFeeCents: 0,
         actorRole: 'client',
         actorUserId: null,
         clientId: clientId || null,

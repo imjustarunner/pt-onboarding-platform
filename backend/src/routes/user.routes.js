@@ -1,4 +1,4 @@
-import { excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
+import { requireAccountAdministrator, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
 import { getMyAccountAccess, revealMyAccountTempPassword } from '../controllers/myAccountAccess.controller.js';
 import express from 'express';
 import { checkUserLoginHelp, sendUserLoginHelp } from '../controllers/loginHelp.controller.js';
@@ -98,14 +98,14 @@ router.get('/', authenticate, (req, res, next) => {
 }, getAllUsers);
 router.get('/grid/fields', authenticate, requireBackofficeAdmin, getUserGridFields);
 router.get('/grid', authenticate, requireBackofficeAdmin, getUserGrid);
-router.put('/grid/cells', authenticate, requireBackofficeAdmin, putUserGridCells);
-router.put('/grid/bulk', authenticate, requireBackofficeAdmin, putUserGridBulk);
-router.post('/grid/bulk-archive', authenticate, requireBackofficeAdmin, postUserGridBulkArchive);
-router.post('/grid/bulk-delete', authenticate, requireBackofficeAdmin, postUserGridBulkDelete);
-router.post('/grid/:userId/file', authenticate, requireBackofficeAdmin, gridUpload.single('file'), postUserGridFile);
+router.put('/grid/cells', authenticate, requireAccountAdministrator, requireBackofficeAdmin, putUserGridCells);
+router.put('/grid/bulk', authenticate, requireAccountAdministrator, requireBackofficeAdmin, putUserGridBulk);
+router.post('/grid/bulk-archive', authenticate, requireAccountAdministrator, requireBackofficeAdmin, postUserGridBulkArchive);
+router.post('/grid/bulk-delete', authenticate, requireAccountAdministrator, requireBackofficeAdmin, postUserGridBulkDelete);
+router.post('/grid/:userId/file', authenticate, requireAccountAdministrator, requireBackofficeAdmin, gridUpload.single('file'), postUserGridFile);
 router.get('/guardians', authenticate, requireBackofficeAdmin, getGuardianUsers);
-router.post('/guardians/bulk/delete-preview', authenticate, requireBackofficeAdmin, getGuardiansBulkDeletePreview);
-router.delete('/guardians/bulk', authenticate, requireBackofficeAdmin, bulkDeleteGuardians);
+router.post('/guardians/bulk/delete-preview', authenticate, excludeSupportSettings, requireBackofficeAdmin, getGuardiansBulkDeletePreview);
+router.delete('/guardians/bulk', authenticate, excludeSupportSettings, requireBackofficeAdmin, bulkDeleteGuardians);
 router.get('/ai-query', authenticate, requireBackofficeAdmin, aiQueryUsers);
 router.get('/duplicates', authenticate, requireBackofficeAdmin, getPeopleDuplicates);
 router.get('/tests', authenticate, requireBackofficeAdmin, getPeopleTests);
@@ -142,7 +142,7 @@ router.put('/:userId/agencies/:agencyId/practice-categories', authenticate, putU
 router.post('/:userId/agencies/:agencyId/practice-categories/:category', authenticate, postUserAgencyPracticeCategory);
 router.delete('/:userId/agencies/:agencyId/practice-categories/:category', authenticate, deleteUserAgencyPracticeCategory);
 router.get('/agency-provider-portal/:agencyId', authenticate, getAgencyProviderPortalSettings);
-router.put('/agency-provider-portal/:agencyId', authenticate, upsertAgencyProviderPortalSettings);
+router.put('/agency-provider-portal/:agencyId', authenticate, excludeSupportSettings, upsertAgencyProviderPortalSettings);
 router.get('/:id/affiliated-portals', authenticate, getAffiliatedPortals);
 router.get('/:id/external-calendars', authenticate, getUserExternalCalendars);
 router.post('/:id/external-calendars', authenticate, createUserExternalCalendar);
@@ -210,40 +210,40 @@ router.get('/:id/onboarding-checklist', authenticate, getOnboardingChecklist);
 router.post('/:id/onboarding-checklist/:itemId/complete', authenticate, markChecklistItemComplete);
 router.get('/:id/training-focuses', authenticate, getUserTrainingFocuses);
 router.get('/:id/training-focuses/:focusId/path', authenticate, getTrainingFocusPath);
-router.post('/:id/mark-complete', authenticate, requireBackofficeAdmin, markUserComplete);
-router.post('/:id/mark-terminated', authenticate, requireBackofficeAdmin, markUserTerminated);
-router.post('/:id/mark-active', authenticate, requireBackofficeAdmin, markUserActive);
-router.post('/:id/promote-to-onboarding', authenticate, requireBackofficeAdmin, promoteToOnboarding);
-router.post('/current-employee', authenticate, requireBackofficeAdmin, createCurrentEmployee);
-router.post('/:id/deactivate', authenticate, requireBackofficeAdmin, deactivateUser);
-router.post('/:id/set-inactive', authenticate, requireBackofficeAdmin, setStaffInactive);
-router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveUser);
-router.post('/:id/restore', authenticate, requireBackofficeAdmin, restoreUser);
-router.delete('/:id', authenticate, requireBackofficeAdmin, deleteUser);
+router.post('/:id/mark-complete', authenticate, excludeSupportSettings, requireBackofficeAdmin, markUserComplete);
+router.post('/:id/mark-terminated', authenticate, excludeSupportSettings, requireBackofficeAdmin, markUserTerminated);
+router.post('/:id/mark-active', authenticate, excludeSupportSettings, requireBackofficeAdmin, markUserActive);
+router.post('/:id/promote-to-onboarding', authenticate, excludeSupportSettings, requireBackofficeAdmin, promoteToOnboarding);
+router.post('/current-employee', authenticate, requireAccountAdministrator, requireBackofficeAdmin, createCurrentEmployee);
+router.post('/:id/deactivate', authenticate, excludeSupportSettings, requireBackofficeAdmin, deactivateUser);
+router.post('/:id/set-inactive', authenticate, excludeSupportSettings, requireBackofficeAdmin, setStaffInactive);
+router.post('/:id/archive', authenticate, excludeSupportSettings, requireBackofficeAdmin, archiveUser);
+router.post('/:id/restore', authenticate, excludeSupportSettings, requireBackofficeAdmin, restoreUser);
+router.delete('/:id', authenticate, excludeSupportSettings, requireBackofficeAdmin, deleteUser);
 router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
 
 // Lifecycle tab routes (admin, support, super_admin + hiring-capable staff)
 // Lifecycle: backoffice admins + clinical practice assistants
 router.get('/:id/lifecycle', authenticate, requireBackofficeAdminOrCpa, getUserLifecycle);
 router.get('/:id/district-background-processes', authenticate, requireBackofficeAdminOrCpa, getUserDistrictBackgroundProcesses);
-router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdminOrCpa, updateLifecycleDates);
-router.patch('/:id/lifecycle/credentials', authenticate, requireBackofficeAdminOrCpa, updateLifecycleCredentials);
-router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOrCpa, updateSeparationInfo);
+router.patch('/:id/lifecycle/dates', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, updateLifecycleDates);
+router.patch('/:id/lifecycle/credentials', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, updateLifecycleCredentials);
+router.patch('/:id/lifecycle/separation', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, updateSeparationInfo);
 router.get('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, getFederalBackgroundExpirationYears);
-router.patch('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, updateFederalBackgroundExpirationYears);
-router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdminOrCpa, toggleLifecycleChecklistItem);
-router.patch('/:id/lifecycle/checklist/:definitionId/schedule', authenticate, requireBackofficeAdminOrCpa, setLifecycleChecklistScheduledAt);
-router.post('/:id/lifecycle/checklist/:definitionId/not-applicable', authenticate, requireBackofficeAdminOrCpa, setLifecycleChecklistNotApplicable);
-router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, uploadLifecycleChecklistAttachment);
+router.patch('/:id/lifecycle/federal-background-expiration-years', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, updateFederalBackgroundExpirationYears);
+router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, toggleLifecycleChecklistItem);
+router.patch('/:id/lifecycle/checklist/:definitionId/schedule', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, setLifecycleChecklistScheduledAt);
+router.post('/:id/lifecycle/checklist/:definitionId/not-applicable', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, setLifecycleChecklistNotApplicable);
+router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, uploadLifecycleChecklistAttachment);
 router.get('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, downloadLifecycleChecklistAttachment);
-router.delete('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, deleteLifecycleChecklistAttachment);
-router.post('/:id/lifecycle/sync', authenticate, requireBackofficeAdminOrCpa, syncLifecycle);
+router.delete('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, deleteLifecycleChecklistAttachment);
+router.post('/:id/lifecycle/sync', authenticate, excludeSupportSettings, requireBackofficeAdminOrCpa, syncLifecycle);
 
 // Pending status endpoints
 router.get('/:id/pending/status', authenticate, checkPendingCompletionStatus);
 router.post('/:id/pending/complete', authenticate, markPendingComplete);
 router.get('/:id/pending/completion-summary', authenticate, getPendingCompletionSummary);
-router.post('/:id/move-to-active', authenticate, requireBackofficeAdmin, movePendingToActive); // Admin/support/super admin only
-router.delete('/:id/pending/wipe-data', authenticate, requireBackofficeAdmin, wipePendingUserData);
+router.post('/:id/move-to-active', authenticate, excludeSupportSettings, requireBackofficeAdmin, movePendingToActive); // Admin/support/super admin only
+router.delete('/:id/pending/wipe-data', authenticate, excludeSupportSettings, requireBackofficeAdmin, wipePendingUserData);
 
 export default router;

@@ -61,7 +61,7 @@
         </div>
       </div>
 
-      <button type="button" class="cnl-new" @click="$emit('new')">
+      <button v-if="allowCreate" type="button" class="cnl-new" @click="$emit('new')">
         <span aria-hidden="true">+</span> {{ newLabel }}
       </button>
 
@@ -295,7 +295,7 @@
               <div><dt>Created</dt><dd>{{ previewRow.created_at ? shortCreated(previewRow.created_at) : '—' }}</dd></div>
             </dl>
             <div class="cnl-detail-actions">
-              <button type="button" class="cnl-new" @click="openPreviewed">Open note</button>
+              <button v-if="allowCreate" type="button" class="cnl-new" @click="openPreviewed">Open note</button>
               <button
                 v-if="canDeleteRow(previewRow)"
                 type="button"
@@ -340,6 +340,7 @@ import { SOAP_SECTION_DEFS, soapSectionTextFromDraft } from '../../utils/noteAid
 import ClinicalNoteDetailFetcher from './ClinicalNoteDetailFetcher.vue';
 
 const props = defineProps({
+  allowCreate: { type: Boolean, default: true },
   title: { type: String, default: 'Note Library' },
   newLabel: { type: String, default: 'New Note' },
   drafts: { type: Array, default: () => [] },

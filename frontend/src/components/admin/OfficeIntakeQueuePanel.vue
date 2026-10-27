@@ -3,9 +3,9 @@
     <!-- Header -->
     <div class="oiq-header">
       <div class="oiq-header-copy">
-        <h1 class="oiq-title">New Intakes</h1>
+        <h1 class="oiq-title">New Enrollments</h1>
         <p class="oiq-subtitle">
-          Prospective clients from interest forms and office intake awaiting a first provider assignment.
+          Prospective clients from interest forms and office enrollment awaiting a first provider assignment.
         </p>
       </div>
       <div class="oiq-header-actions">

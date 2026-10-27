@@ -57,7 +57,7 @@ export async function ensureAppointmentClinicalLink(appointmentId, actorUserId =
           throw Object.assign(new Error('Service location does not belong to this agency'), { status: 403 });
         }
       }
-      const isTelehealth = String(appointment.modality || '').toUpperCase() === 'TELEHEALTH';
+      const isTelehealth = ['TELEHEALTH', 'VIRTUAL'].includes(String(appointment.modality || '').toUpperCase());
       await clinicalPool.execute(
         `INSERT INTO clinical_sessions
          (agency_id, client_id, appointment_id, provider_user_id, rendering_provider_user_id, source_timezone,

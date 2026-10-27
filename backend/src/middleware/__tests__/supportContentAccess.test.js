@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { excludeSupportClinicalContent, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../supportContentAccess.middleware.js';
+import { requireAccountAdministrator, excludeSupportClinicalContent, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../supportContentAccess.middleware.js';
 import { requireClinicalChart, requireClinicalNoteSigning } from '../medicalBilling.middleware.js';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{listBillingAgencyIds:vi.fn()}}));
@@ -27,4 +27,12 @@ it('allows ordinary self-profile changes but blocks changing another staff accou
 });
 it('keeps password/credential operations on the support account itself',()=>{
   const res=response(),next=vi.fn();supportOwnAccountOnly({user:{id:1434,role:'support'},params:{id:'1433'}},res,next);expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();
+});
+
+it.each(['support','staff','provider','provider_plus','clinical_practice_assistant','supervisor','club_manager'])('does not allow %s to create staff accounts or edit the roster',role=>{
+ const res=response(),next=vi.fn();requireAccountAdministrator({user:{id:1434,role,effectiveRole:'admin'}},res,next);
+ expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();
+});
+it.each(['admin','super_admin'])('retains account management for %s',role=>{
+ const next=vi.fn();requireAccountAdministrator({user:{role}},response(),next);expect(next).toHaveBeenCalledOnce();
 });

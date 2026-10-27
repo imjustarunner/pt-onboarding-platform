@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 it('immediately cancels only the authorized series through the existing policy path', async () => {
   expect(await cancelGuardianAppointments(input)).toMatchObject({ cancelledCount: 2, appointmentIds: [1, 2] });
-  expect(m.cancel).toHaveBeenNthCalledWith(1, 1, { actorUserId: 9, actorRole: 'guardian', clientId: 8, reason: input.reason });
+  expect(m.cancel).toHaveBeenNthCalledWith(1, 1, { actorUserId: 9, actorRole: 'guardian', clientId: 8, reason: input.reason, expectedFeeCents: 0 });
   const selection = m.execute.mock.calls.find(([sql]) => sql.includes('SELECT DISTINCT a.id'));
   expect(selection[0]).toContain('a.provider_user_id=?');
   expect(selection[1]).toEqual([8, 2, 7, 'series-a', 'series-a', 5, 5]);
@@ -70,4 +70,26 @@ it('limits the upcoming display to six without changing reservations', async () 
   expect(m.execute.mock.calls[0][0]).toContain('LIMIT 6');
   expect(m.execute.mock.calls[1][0]).toContain('a.start_at<UTC_TIMESTAMP()');
   expect(m.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
+});
+
+it('previews every fee without canceling appointments or stopping a series', async () => {
+  m.evaluate.mockResolvedValue({allowed:true,policy:{id:3,noticeHours:24},recommendedFeeCents:8000});
+  const result=await cancelGuardianAppointments({...input,confirmed:false,previewOnly:true});
+  expect(result.totalFeeCents).toBe(16000);
+  expect(result.fees).toEqual([1,2].map(appointmentId=>({appointmentId,policyId:3,feeCents:8000,noticeHours:24})));
+  expect(m.cancel).not.toHaveBeenCalled();
+  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
+it('rejects missing or stale fee acknowledgement before any cancellation', async () => {
+  m.evaluate.mockResolvedValue({allowed:true,policy:{id:3},recommendedFeeCents:8000});
+  for(const acknowledgedFees of [undefined,[],[{appointmentId:1,policyId:3,feeCents:0}],null]) {
+    await expect(cancelGuardianAppointments({...input,acknowledgedFees})).rejects.toMatchObject({status:409,code:'CANCELLATION_FEE_ACK_REQUIRED'});
+  }
+  expect(m.cancel).not.toHaveBeenCalled();
+});
+it('passes each acknowledged fee to the final cancellation guard', async () => {
+  m.evaluate.mockResolvedValue({allowed:true,policy:{id:3},recommendedFeeCents:8000});
+  await cancelGuardianAppointments({...input,acknowledgedFees:[1,2].map(appointmentId=>({appointmentId,policyId:3,feeCents:8000}))});
+  expect(m.cancel).toHaveBeenCalledTimes(2);
+  expect(m.cancel).toHaveBeenCalledWith(1,expect.objectContaining({expectedFeeCents:8000}));
 });

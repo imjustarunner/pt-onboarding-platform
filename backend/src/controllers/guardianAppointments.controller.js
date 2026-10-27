@@ -2,7 +2,7 @@ import { guardianReminderPreferences, listGuardianAppointments, requestGuardianA
 import { cancelGuardianAppointments } from '../services/guardianAppointments.service.js';
 export const cancel = async (req,res,next) => { try {
   if (req.guardianPreviewMode) return res.status(403).json({ error: { message: 'Preview cannot cancel appointments' } });
-  res.json(await cancelGuardianAppointments({ userId: req.user.id, clientId: Number(req.params.clientId), agencyId:req.query.agencyId||req.body?.agencyId,serviceId:req.query.serviceId||req.body?.serviceId, appointmentId: Number(req.params.appointmentId), scope: req.body?.scope, reason: req.body?.reason, confirmed: req.body?.confirmed }));
+  res.json(await cancelGuardianAppointments({ userId: req.user.id, clientId: Number(req.params.clientId), agencyId:req.query.agencyId||req.body?.agencyId,serviceId:req.query.serviceId||req.body?.serviceId, appointmentId: Number(req.params.appointmentId), scope: req.body?.scope, reason: req.body?.reason, confirmed: req.body?.confirmed, acknowledgedFees: req.body?.acknowledgedFees }));
 } catch (e) { next(e); } };
 export const list = async (req,res,next) => {try { if(req.guardianPreviewMode)return res.json({appointments:[]});res.json({appointments:await listGuardianAppointments({userId:req.user.id,clientId:Number(req.params.clientId),agencyId:req.query.agencyId,serviceId:req.query.serviceId})}); } catch(e){next(e);} };
 export const requestChange = async (req,res,next) => {try {if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot request changes'}});res.status(201).json(await requestGuardianAppointmentChange({userId:req.user.id,clientId:Number(req.params.clientId),agencyId:req.query.agencyId||req.body?.agencyId,serviceId:req.query.serviceId||req.body?.serviceId,appointmentId:Number(req.params.appointmentId),type:req.body?.type,reason:req.body?.reason}));}catch(e){next(e);} };
@@ -17,3 +17,10 @@ export const savePreferences = async (req, res, next) => {
   try { if (req.guardianPreviewMode) return res.status(403).json({ error: { message: 'Preview cannot change preferences' } });
     res.json(await guardianReminderPreferences({ userId: req.user.id, clientId: Number(req.params.clientId), input: req.body })); } catch (e) { next(e); }
 };
+
+export const cancelPreview = async (req, res, next) => { try {
+  if (req.guardianPreviewMode) return res.status(403).json({ error: { message: 'Preview cannot access appointment changes' } });
+  res.json(await cancelGuardianAppointments({ userId: req.user.id, clientId: Number(req.params.clientId),
+    agencyId: req.query.agencyId || req.body?.agencyId, serviceId: req.query.serviceId || req.body?.serviceId,
+    appointmentId: Number(req.params.appointmentId), scope: req.body?.scope, reason: req.body?.reason, previewOnly: true }));
+} catch (e) { next(e); } };

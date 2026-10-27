@@ -1,3 +1,4 @@
+import { assertLiveClearinghouseAgency } from '../syntheticClearinghouseGuard.service.js';
 import { normalizePolicy } from '../clientInsurance.service.js';
 import {
   buildClaimMdJsonClaim,
@@ -446,6 +447,7 @@ export async function reviewSubmission(ctx, id, input) {
   });
 }
 export async function transmitClaim(ctx, id, input) {
+  await assertLiveClearinghouseAgency(await owningAgency(ctx, pool));
   requirePermission(ctx, "billing");
   requireCapability(ctx, "billing");
   const config = integration(ctx, "claims", true);
@@ -476,6 +478,7 @@ export async function transmitClaim(ctx, id, input) {
   });
   try {
     const response = await uploadClaims({
+      agencyId: await owningAgency(ctx, pool),
       accountKey: key,
       fileContents: JSON.stringify({
         claim: [reserved.data.submissionSnapshot.payload],
@@ -612,6 +615,7 @@ export async function checkEligibility(ctx, patientId) {
     b = ctx.settings.billingIdentity;
   if (!b?.billingNpi) throw fail(409, "Configure practice billing NPI.");
   const response = await requestEligibilityJson({
+    agencyId: await owningAgency(ctx, pool),
     accountKey: claimKey(ctx),
     payload: {
       payerid: i.primary.payerId,

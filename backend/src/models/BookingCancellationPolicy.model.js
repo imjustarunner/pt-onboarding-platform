@@ -25,6 +25,7 @@ function mapRow(r) {
     bookingPackageId: r.booking_package_id == null ? null : Number(r.booking_package_id),
     noticeHours: Number(r.notice_hours ?? 24),
     lateFeeCents: Number(r.late_fee_cents || 0),
+    noShowFeeCents: r.no_show_fee_cents == null ? null : Number(r.no_show_fee_cents),
     latePackageAction: String(r.late_package_action || 'forfeit'),
     complimentaryCancelsPerPeriod: Number(r.complimentary_cancels_per_period || 0),
     periodDays: Number(r.period_days || 90),
@@ -68,6 +69,8 @@ class BookingCancellationPolicy {
   }
 
   static normalizePayload(body = {}, agencyId) {
+    const noShowFee = body.noShowFeeCents ?? body.no_show_fee_cents;
+    if (noShowFee != null && (!Number.isSafeInteger(Number(noShowFee)) || Number(noShowFee) < 0)) throw Object.assign(new Error('No-show fee must be a nonnegative number of cents'), { status: 400 });
     const name = String(body.name || '').trim();
     if (!name) throw Object.assign(new Error('name is required'), { status: 400 });
     const scopeLevel = String(body.scopeLevel || body.scope_level || 'tenant').toLowerCase();
@@ -94,6 +97,7 @@ class BookingCancellationPolicy {
         ? Number(body.bookingPackageId ?? body.booking_package_id) || null
         : null,
       noticeHours: Math.max(0, Number(body.noticeHours ?? body.notice_hours ?? 24) || 0),
+      noShowFeeCents: noShowFee == null ? null : Number(noShowFee),
       lateFeeCents: Math.max(0, Number(body.lateFeeCents ?? body.late_fee_cents ?? 0) || 0),
       latePackageAction,
       complimentaryCancelsPerPeriod: Math.max(0, Number(body.complimentaryCancelsPerPeriod ?? body.complimentary_cancels_per_period ?? 0) || 0),
@@ -110,12 +114,12 @@ class BookingCancellationPolicy {
     const [result] = await pool.execute(
       `INSERT INTO booking_cancellation_policies
         (agency_id, name, description, scope_level, business_type, tenant_service_id, booking_package_id,
-         notice_hours, late_fee_cents, late_package_action, complimentary_cancels_per_period, period_days,
+         notice_hours, late_fee_cents, no_show_fee_cents, late_package_action, complimentary_cancels_per_period, period_days,
          allow_client_cancel, require_reason, is_active, sort_order, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       [
         p.agencyId, p.name, p.description, p.scopeLevel, p.businessType, p.tenantServiceId, p.bookingPackageId,
-        p.noticeHours, p.lateFeeCents, p.latePackageAction, p.complimentaryCancelsPerPeriod, p.periodDays,
+        p.noticeHours, p.lateFeeCents, p.noShowFeeCents, p.latePackageAction, p.complimentaryCancelsPerPeriod, p.periodDays,
         p.allowClientCancel ? 1 : 0, p.requireReason ? 1 : 0, p.sortOrder, createdByUserId || null
       ]
     );
@@ -129,13 +133,13 @@ class BookingCancellationPolicy {
     await pool.execute(
       `UPDATE booking_cancellation_policies
        SET name = ?, description = ?, scope_level = ?, business_type = ?, tenant_service_id = ?,
-           booking_package_id = ?, notice_hours = ?, late_fee_cents = ?, late_package_action = ?,
+           booking_package_id = ?, notice_hours = ?, late_fee_cents = ?, no_show_fee_cents = ?, late_package_action = ?,
            complimentary_cancels_per_period = ?, period_days = ?, allow_client_cancel = ?,
            require_reason = ?, is_active = ?, sort_order = ?
        WHERE id = ? AND agency_id = ?`,
       [
         p.name, p.description, p.scopeLevel, p.businessType, p.tenantServiceId, p.bookingPackageId,
-        p.noticeHours, p.lateFeeCents, p.latePackageAction, p.complimentaryCancelsPerPeriod, p.periodDays,
+        p.noticeHours, p.lateFeeCents, p.noShowFeeCents, p.latePackageAction, p.complimentaryCancelsPerPeriod, p.periodDays,
         p.allowClientCancel ? 1 : 0, p.requireReason ? 1 : 0, p.isActive ? 1 : 0, p.sortOrder,
         existing.id, existing.agencyId
       ]

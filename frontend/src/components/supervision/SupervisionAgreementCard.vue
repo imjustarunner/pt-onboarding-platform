@@ -1,6 +1,6 @@
 <template>
   <section class="agreement-card">
-    <header><div><span class="eyebrow">{{ agreement.document.agencyName }}</span><h3>Supervision agreement</h3><p>{{ agreement.document.parties.map(p => p.name).join(' · ') }}</p></div><span class="status">{{ agreement.complete ? 'Both signatures saved' : 'Signature needed' }}</span></header>
+    <header><div><span class="eyebrow">{{ agreement.document.agencyName }}</span><h3>Supervision agreement #{{ agreement.id }}</h3><p>{{ agreement.document.parties.map(p => p.name).join(' · ') }}</p></div><span class="status">{{ agreement.complete ? 'Both signatures saved' : 'Signature needed' }}</span></header>
     <p>Supervisor: {{ agreement.supervisorSignedAt ? 'Signed' : 'Awaiting signature' }} · Supervisee: {{ agreement.superviseeSignedAt ? 'Signed' : 'Awaiting signature' }}</p>
     <p>Sign the current in-app agreement even if you previously signed a paper copy. Both your signature and your assigned supervisor’s countersignature are required. Supervision transcription can proceed while signatures are pending.</p>
     <details :open="!mySigned"><summary>Review the agreement and signatures</summary><iframe :srcdoc="agreement.html" sandbox="" title="Supervision agreement" /></details>
@@ -9,7 +9,7 @@
       <div class="signature-tabs"><button type="button" :aria-pressed="mode === 'type'" @click="mode='type'">Type signature</button><button type="button" :aria-pressed="mode === 'draw'" @click="mode='draw'">Draw with finger or pointer</button></div>
       <label v-if="mode === 'type'">Your full name<input v-model="typedName" autocomplete="name" maxlength="255" required class="typed"></label>
       <AdaptiveSignatureCapture v-else v-model="signatureData" />
-      <button class="btn btn-primary" :disabled="busy || !accepted || !(mode === 'type' ? typedName.trim() : signatureData)">{{ busy ? 'Saving signature…' : 'Sign this agreement' }}</button>
+      <button type="button" class="btn btn-primary" @click="sign" :disabled="busy || !accepted || !(mode === 'type' ? typedName.trim() : signatureData)">{{ busy ? 'Saving signature…' : 'Sign this agreement' }}</button>
     </form>
     <button v-if="agreement.supervisorSignedAt || agreement.superviseeSignedAt" type="button" class="btn btn-secondary" @click="download">Download signed copy</button>
     <p v-if="error" role="alert">{{ error }}</p>
@@ -23,7 +23,7 @@ const props=defineProps({agreement:{type:Object,required:true},baseUrl:{type:Str
 const emit=defineEmits(['signed']);
 const accepted=ref(false),typedName=ref(''),signatureData=ref(''),mode=ref('type'),busy=ref(false),error=ref('');
 const mySigned=computed(()=>props.agreement.myRole==='supervisor'?props.agreement.supervisorSignedAt:props.agreement.superviseeSignedAt);
-async function sign(){busy.value=true;error.value='';try{const {data}=await (props.http||api).post(`${props.baseUrl}/${props.agreement.id}/sign`,{accepted:accepted.value,typedName:mode.value==='type'?typedName.value:null,signatureData:mode.value==='draw'?signatureData.value:null,documentHash:props.agreement.documentHash});emit('signed',data);}catch(e){error.value=e.response?.data?.error?.message||'Unable to save your signature.';}finally{busy.value=false;}}
+async function sign(){if(busy.value||!accepted.value||!(mode.value==='type'?typedName.value.trim():signatureData.value))return;busy.value=true;error.value='';try{const {data}=await (props.http||api).post(`${props.baseUrl}/${props.agreement.id}/sign`,{accepted:accepted.value,typedName:mode.value==='type'?typedName.value:null,signatureData:mode.value==='draw'?signatureData.value:null,documentHash:props.agreement.documentHash});emit('signed',data);}catch(e){error.value=e.response?.data?.error?.message||'Unable to save your signature.';}finally{busy.value=false;}}
 async function download(){try{const {data}=await (props.http||api).get(`${props.baseUrl}/${props.agreement.id}/pdf`,{responseType:'blob'});const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download='supervision-agreement.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){error.value='Unable to download the agreement.';}}
 </script>
 <style scoped>

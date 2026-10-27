@@ -161,7 +161,7 @@
                   <select v-model="form.role" :disabled="!unwrap(ctx.canChangeRole)">
                     <option v-if="unwrap(ctx.canAssignSuperAdmin)" value="super_admin">Super Admin</option>
                     <option v-if="unwrap(ctx.canAssignAdmin)" value="admin">Admin</option>
-                    <option v-if="unwrap(ctx.canAssignSupport)" value="support">Staff (Admin Tools)</option>
+                    <option v-if="unwrap(ctx.canAssignSupport)" value="support">Support</option>
                     <option v-if="unwrap(ctx.canAssignAssistantAdmin)" value="assistant_admin">Assistant Admin</option>
                     <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                     <option value="provider_plus">Provider Plus</option>

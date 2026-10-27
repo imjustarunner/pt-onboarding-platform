@@ -68,7 +68,7 @@
         :class="{ active: cmViewMode === 'intakes' }"
         @click="cmViewMode = 'intakes'"
       >
-        New Intakes
+        New Enrollments
         <span v-if="pendingIntakeCount" class="cm-view-badge">{{ pendingIntakeCount }}</span>
       </button>
         <button

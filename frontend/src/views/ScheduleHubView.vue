@@ -770,7 +770,7 @@ const allSections = computed(() => [
   {
     id: 'clients-guardians',
     label: 'Clients & Guardians',
-    desc: 'Agency clients, guardians, new intakes, and exchange.',
+    desc: 'Agency clients, guardians, new enrollments, and exchange.',
     tone: 'cyan',
     icon: icon.clients,
     cards: [
@@ -791,7 +791,7 @@ const allSections = computed(() => [
         id: 'office-hub',
         title: 'Office Hub',
         shortDesc: 'Office intakes, waitlist, and today’s activity.',
-        desc: 'Operational command center for office enrollments — new intakes, clinical review, waitlist, and provider signals.',
+        desc: 'Operational command center for office enrollments — new enrollments, clinical review, waitlist, and provider signals.',
         cta: 'Open →',
         to: orgTo('/admin/office-hub'),
         tone: 'teal',

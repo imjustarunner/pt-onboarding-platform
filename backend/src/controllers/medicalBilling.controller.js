@@ -1,3 +1,4 @@
+import { assertLiveClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { validateScreeningSignature, completeH0002Screening, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
@@ -2815,6 +2816,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Review and explicitly approve this claim before submitting' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    await assertLiveClearinghouseAgency(agencyId);
     const connection = await resolveClaimMdConnection(agencyId);
     requireClaimMdTransmission(connection);
     if (req.body.accountMode !== connection.mode) return res.status(409).json({ error: { message: 'The connection mode changed. Review the account mode again.' } });
@@ -2847,7 +2849,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       await db.commit();
     } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
     // A transport failure stays queued: never automatically repeat a possibly successful upload.
-    const result = await uploadClaims({ accountKey: connection.accountKey, fileContents: JSON.stringify({ claim: [payload] }), filename: `claim-${claimId}.json` });
+    const result = await uploadClaims({ agencyId, accountKey: connection.accountKey, fileContents: JSON.stringify({ claim: [payload] }), filename: `claim-${claimId}.json` });
     const ack = asList(result.claim).find(row => String(row.remote_claimid || '') === String(payload.remote_claimid));
     if (!ack?.claimmd_id && !ack?.claimid) throw Object.assign(new Error('Claim.MD did not acknowledge this claim. Reconcile its status before retrying.'), { status: 502 });
     const accepted = ack.status === 'A';

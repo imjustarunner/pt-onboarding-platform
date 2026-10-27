@@ -116,7 +116,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     return { to: recipient, from: sender.phone_number, body, registration: sender.registration, controlReply: true };
   }
   if (!allowQaSmsDelivery({id:sender.agency_id,slug:sender.agency_slug,feature_flags:sender.agency_feature_flags},{to:recipient,purpose,clientId})) {
-    throw smsPolicyError('sms_qa_recipient_blocked','QA texts are limited to the demo provider; client and guardian texts are disabled.');
+    throw smsPolicyError('sms_qa_recipient_blocked','QA texts are limited to the owner-approved testing phone.');
   }
   const registration = sender.registration;
   if (validateSmsRegistration(registration).length) throw smsPolicyError('sms_campaign_not_ready', 'SMS campaign registration and number linking must be verified before sending');

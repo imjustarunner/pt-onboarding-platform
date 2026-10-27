@@ -84,6 +84,7 @@
       <ClinicalNoteLibrarySidebar
         v-if="!isEmbedded"
         title="Note Library"
+        :allow-create="!demoLinkedWorkspace"
         :drafts="recentDrafts"
         :work-queue-items="workQueueItems"
         :signed-sessions="signedNoteSessions"
@@ -159,6 +160,7 @@
 
         <NoteAidStartPage
           v-if="showStartPage"
+          :session-linked-only="demoLinkedWorkspace"
           :has-next-in-progress="!!nextInProgressRow"
           :has-next-in-queue="!!nextInQueueItem"
           @create="beginCreateNote"
@@ -1786,6 +1788,7 @@ function returnToLogTime() {
 }
 
 const contactDocumentationCount = ref(0);
+const demoLinkedWorkspace = computed(() => Number(agencyStore.currentAgency?.id) === 450 && agencyStore.currentAgency?.slug === 'auricwell-qa-demo');
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const bookingContext = computed(() => {
   const officeEventId = Number(route.query?.officeEventId || route.query?.office_event_id || 0) || null;
@@ -9768,7 +9771,7 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-.na-shell--embedded {
+.na-app--embedded .na-shell.na-shell--embedded {
   grid-template-columns: minmax(0, 1fr);
 }
 

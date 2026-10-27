@@ -1,3 +1,4 @@
+import * as guardianSessionBooking from '../controllers/guardianSessionBooking.controller.js';
 import { listSharedFiles,sharedFile } from '../services/guardianFileShares.service.js';
 import { guardianCheckins } from '../services/guardianCheckins.service.js';
 import { authorizedClient } from '../services/guardianAppointments.service.js';
@@ -94,10 +95,14 @@ router.use((req, res, next) => {
 
 router.get('/account',requireActiveStatus,async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access account details'}});res.set('Cache-Control','no-store').json(await familyAccount(req.user.id));}catch(e){next(e);}});
 router.put('/account',requireActiveStatus,rateLimit({windowMs:60000,max:10}),async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot edit account details'}});res.json(await updateFamilyAccount({userId:req.user.id,agencyId:Number(req.body.agencyId),input:req.body}));}catch(e){next(e);}});
+router.get('/clients/:clientId/session-booking', guardianSessionBooking.options);
+router.get('/clients/:clientId/session-booking/slots', guardianSessionBooking.slots);
+router.post('/clients/:clientId/session-booking', guardianSessionBooking.book);
 router.get('/clients/:clientId/appointments', guardianAppointments.list);
 router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
 router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);
 router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
+router.post('/clients/:clientId/appointments/:appointmentId/cancel-preview', guardianAppointments.cancelPreview);
 router.post('/clients/:clientId/appointments/:appointmentId/cancel', guardianAppointments.cancel);
 router.post('/clients/:clientId/appointments/:appointmentId/replacement-offer', replacementResponse);
 router.get('/clients/:clientId/notification-history', listClientNotificationHistory);

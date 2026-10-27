@@ -63,3 +63,20 @@ it('does not promise START when the registered program does not support restarti
   const sendConfirmation=vi.fn();await enrollSmsRecipient({...enrollment,sendConfirmation});
   expect(sendConfirmation.mock.calls[0][0].body).not.toContain('START');
 });
+
+it('permits only the owner-approved ITSCO test sender to share the ITSCO brand',async()=>{
+ const approved={...registration,brandId:'BRC2ZW3',campaignId:'VCV2DNM4'};
+ pool.execute.mockResolvedValueOnce([[{id:2,agency_id:450}]])
+  .mockResolvedValueOnce([[{number_id:3,agency_id:2,brand_id:'BRC2ZW3'}]])
+  .mockResolvedValueOnce([[{id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,smsSponsorAgencyId:2}}}]])
+  .mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([{}]);
+ await saveSmsRegistration({numberId:2,registration:approved,actorUserId:1435});
+ expect(pool.execute.mock.calls.at(-1)[0]).toContain('INSERT INTO sms_sender_registrations');
+});
+it.each([['different workspace',451,'BRC2ZW3'],['different brand',450,'OTHER']])('rejects sharing for %s',async(_,agencyId,brandId)=>{
+ pool.execute.mockResolvedValueOnce([[{id:2,agency_id:agencyId}]])
+  .mockResolvedValueOnce([[{agency_id:2,brand_id:brandId}]])
+  .mockResolvedValueOnce([[{id:agencyId,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,smsSponsorAgencyId:2}}}]]);
+ await expect(saveSmsRegistration({numberId:2,registration:{...registration,brandId,campaignId:'VCV2DNM4'},actorUserId:1435}))
+  .rejects.toMatchObject({code:'sms_cross_tenant_campaign'});
+});

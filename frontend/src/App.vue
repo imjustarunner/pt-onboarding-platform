@@ -603,7 +603,7 @@
                       <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeAllNavMenus">Tools and Resources</router-link>
                       <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeAllNavMenus">Program Overview</router-link>
                       <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeAllNavMenus">Provider Booking Interface</router-link>
-                      <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
+                      <router-link :to="orgTo('/admin/users')" v-if="user?.role !== 'support' && (isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant')" @click="closeAllNavMenus">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                       <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeAllNavMenus">Guardians</router-link>
                       <div
                         v-if="canSeeClientsNavGroup"
@@ -1688,7 +1688,7 @@
                   <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Tools and Resources</router-link>
                   <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Program Overview</router-link>
                   <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Provider Booking Interface</router-link>
-                  <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-group-trigger">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
+                  <router-link :to="orgTo('/admin/users')" v-if="user?.role !== 'support' && (isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant')" @click="closeMobileMenu" class="mobile-nav-group-trigger">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                   <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-group-trigger">Guardians</router-link>
                   <div v-if="canSeeClientsNavGroup" class="directory-clients-flyout mobile-clients-nav-split">
                     <router-link

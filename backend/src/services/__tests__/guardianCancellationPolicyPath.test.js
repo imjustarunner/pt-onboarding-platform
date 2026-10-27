@@ -38,3 +38,9 @@ it('can release an expired package reservation while preserving cancellation fee
  expect(m.usage).toHaveBeenCalledWith(expect.objectContaining({entitlementId:21,mode:'release'}));
  expect(m.update).toHaveBeenCalledWith(1,expect.objectContaining({cancellationFeeCents:2500}));
 });
+
+it('does not apply a fee that changed after the family reviewed it', async()=>{
+ await expect(cancelAppointment(1,{actorUserId:9,actorRole:'guardian',clientId:8,reason:'Cancel',expectedFeeCents:0}))
+  .rejects.toMatchObject({status:409,code:'CANCELLATION_FEE_CHANGED'});
+ expect(m.update).not.toHaveBeenCalled();expect(m.release).not.toHaveBeenCalled();
+});
