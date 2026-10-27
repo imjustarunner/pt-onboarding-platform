@@ -87,6 +87,15 @@ function parseStartAt(startAt) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+export function sessionReminderTime(appointment) {
+  const start = parseStartAt(appointment.startAt);
+  if (!start) return 'the scheduled time';
+  const options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' };
+  const timeZone = appointment.sourceTimezone || appointment.timeZone || appointment.timezone || 'America/Denver';
+  try { return new Intl.DateTimeFormat('en-US', { ...options, timeZone }).format(start); }
+  catch { return new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'America/Denver' }).format(start); }
+}
+
 export function offsetToMinutes(value, unit) {
   const v = Math.max(0, Number(value) || 0);
   const u = String(unit || 'hours').toLowerCase();
@@ -473,7 +482,7 @@ export async function buildDeliveryPlan(appointmentId) {
         templateKey: conf.templateKey || 'booking_confirmation',
         messageBody: conf.message || buildConfirmationMessage({
           title: appt.title,
-          when: appt.startAt
+          when: sessionReminderTime(appt)
         }),
         sendImmediately: true
       });
@@ -504,7 +513,7 @@ export async function buildDeliveryPlan(appointmentId) {
         templateKey: std.templateKey || 'standard_reminder',
         messageBody: std.message || buildReminderMessage({
           title: appt.title,
-          when: appt.startAt,
+          when: sessionReminderTime(appt),
           askConfirmation: askConfirm
         })
       });
@@ -529,7 +538,7 @@ export async function buildDeliveryPlan(appointmentId) {
         templateKey: rule.templateKey || null,
         messageBody: rule.message || buildReminderMessage({
           title: appt.title,
-          when: appt.startAt,
+          when: sessionReminderTime(appt),
           askConfirmation: askConfirm
         })
       });
@@ -744,7 +753,7 @@ export async function scheduleDefaultCadenceReminders(appointmentId, {
     const scheduledFor = toMysqlDateTime(when);
     const messageBody = buildReminderMessage({
       title: appt.title,
-      when: appt.startAt,
+      when: sessionReminderTime(appt),
       askConfirmation: true
     });
     try {
@@ -882,11 +891,11 @@ async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointmen
 
 function defaultMessage(appt, kind, requiresConfirmation) {
   if (kind === 'confirmation' || String(kind).startsWith('confirmation')) {
-    return buildConfirmationMessage({ title: appt.title, when: appt.startAt });
+    return buildConfirmationMessage({ title: appt.title, when: sessionReminderTime(appt) });
   }
   return buildReminderMessage({
     title: appt.title,
-    when: appt.startAt,
+    when: sessionReminderTime(appt),
     askConfirmation: !!requiresConfirmation
   });
 }
