@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
@@ -142,17 +143,11 @@ async function computeProviderUsedByDay({ connection, schoolId, providerUserId, 
     const [legacyCounts] = await connection.execute(
       `SELECT c.service_day, COUNT(*) AS cnt
        FROM clients c
-       LEFT JOIN client_provider_assignments cpa
-         ON cpa.organization_id = c.organization_id
-        AND cpa.client_id = c.id
-        AND cpa.provider_user_id = c.provider_id
-        AND cpa.service_day = c.service_day
-        AND cpa.is_active = TRUE
        WHERE c.organization_id = ?
          AND c.provider_id = ?
          AND c.service_day IN (${dPlaceholders})
          AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
-         AND cpa.client_id IS NULL
+         AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}
        GROUP BY c.service_day`,
       [orgId, pid, ...dayList]
     );
@@ -364,17 +359,11 @@ export const getProviderSchoolAssignments = async (req, res, next) => {
           const [legacyCounts] = await pool.execute(
             `SELECT c.service_day, COUNT(*) AS cnt
              FROM clients c
-             LEFT JOIN client_provider_assignments cpa
-               ON cpa.organization_id = c.organization_id
-              AND cpa.client_id = c.id
-              AND cpa.provider_user_id = c.provider_id
-              AND cpa.service_day = c.service_day
-              AND cpa.is_active = TRUE
              WHERE c.organization_id = ?
                AND c.provider_id = ?
                AND c.service_day IN (${dPlaceholders})
                AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
-               AND cpa.client_id IS NULL
+               AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}
              GROUP BY c.service_day`,
             [orgId, providerId, ...days]
           );

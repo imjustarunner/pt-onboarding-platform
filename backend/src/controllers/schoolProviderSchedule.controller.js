@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -431,8 +432,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
     }
 
     // Best-effort: compute slots_used from actual assigned clients (for badge correctness),
-    // including legacy clients.provider_id assignments without double-counting clients that
-    // already have a matching client_provider_assignments row.
+    // using legacy fields only for clients without scoped assignment history at this school.
     try {
       const providerIds = Array.from(byProvider.keys()).map((v) => parseInt(v, 10)).filter(Boolean);
       if (providerIds.length > 0) {
@@ -487,16 +487,10 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
           const [legacyCounts] = await pool.execute(
             `SELECT c.provider_id AS provider_user_id, c.service_day, COUNT(*) AS cnt
              FROM clients c
-             LEFT JOIN client_provider_assignments cpa
-               ON cpa.organization_id = c.organization_id
-              AND cpa.client_id = c.id
-              AND cpa.provider_user_id = c.provider_id
-              AND cpa.service_day = c.service_day
-              AND cpa.is_active = TRUE
              WHERE c.organization_id = ?
                AND c.provider_id IN (${p})
                AND c.service_day IN (${d})
-               AND cpa.client_id IS NULL
+               AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}
              GROUP BY c.provider_id, c.service_day`,
             [orgId, ...providerIds, ...days]
           );
@@ -699,6 +693,7 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
            c.organization_id = ?
            AND c.provider_id = ?
            AND c.service_day = ?
+           AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}
          ))
          AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
        ORDER BY c.initials ASC`,

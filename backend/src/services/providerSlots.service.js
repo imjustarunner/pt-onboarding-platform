@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -149,11 +150,8 @@ export async function reconcileSlotsForProviderReturningFromLeave(providerUserId
       const [legacyRows] = await pool.execute(
         `SELECT COUNT(*) AS cnt
          FROM clients c
-         LEFT JOIN client_provider_assignments cpa
-           ON cpa.organization_id = c.organization_id AND cpa.client_id = c.id
-           AND cpa.provider_user_id = c.provider_id AND cpa.service_day = c.service_day AND cpa.is_active = TRUE
          WHERE c.organization_id = ? AND c.provider_id = ? AND c.service_day = ?
-           AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED' AND cpa.client_id IS NULL`,
+           AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED' AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}`,
         [orgId, uid, day]
       );
       used += Number(legacyRows?.[0]?.cnt || 0);
@@ -203,7 +201,7 @@ export async function adjustProviderSlots(connection, { providerUserId, schoolId
       if (orgId && pid && day) {
         let used = 0;
         // Prefer client_provider_assignments if present; also include legacy clients.provider_id assignments
-        // that do not have a matching active client_provider_assignments row.
+        // only when the client has no scoped assignment history at this school.
         try {
           const [cpaRows] = await connection.execute(
             `SELECT COUNT(*) AS cnt
@@ -220,17 +218,11 @@ export async function adjustProviderSlots(connection, { providerUserId, schoolId
           const [legacyRows] = await connection.execute(
             `SELECT COUNT(*) AS cnt
              FROM clients c
-             LEFT JOIN client_provider_assignments cpa
-               ON cpa.organization_id = c.organization_id
-              AND cpa.client_id = c.id
-              AND cpa.provider_user_id = c.provider_id
-              AND cpa.service_day = c.service_day
-              AND cpa.is_active = TRUE
              WHERE c.organization_id = ?
                AND c.provider_id = ?
                AND c.service_day = ?
                AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
-               AND cpa.client_id IS NULL`,
+               AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}`,
             [orgId, pid, day]
           );
           used += Number(legacyRows?.[0]?.cnt || 0);

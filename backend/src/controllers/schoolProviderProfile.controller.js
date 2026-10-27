@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -621,8 +622,7 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
 
     // Provider caseload for availability/status:
     // - Prefer `client_provider_assignments` when present
-    // - ALSO include legacy `clients.provider_id/service_day` assignments (bulk upload paths),
-    //   without double-counting clients that already have a matching cpa row.
+    // - Use legacy provider/day fields only before scoped assignment history exists at this school.
     let clientRows = [];
     if (activeDays.length > 0) {
       const placeholders = activeDays.map(() => '?').join(',');
@@ -656,16 +656,10 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
         const [rows] = await pool.execute(
           `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, c.roi_expires_at, c.service_day
            FROM clients c
-           LEFT JOIN client_provider_assignments cpa
-             ON cpa.organization_id = c.organization_id
-            AND cpa.client_id = c.id
-            AND cpa.provider_user_id = c.provider_id
-            AND cpa.service_day = c.service_day
-            AND cpa.is_active = TRUE
            WHERE c.organization_id = ?
              AND c.provider_id = ?
              AND c.service_day IN (${placeholders})
-             AND cpa.client_id IS NULL
+             AND ${LEGACY_PROVIDER_ASSIGNMENT_FILTER}
            ORDER BY c.service_day ASC, c.initials ASC`,
           [orgId, providerUserId, ...activeDays]
         );
