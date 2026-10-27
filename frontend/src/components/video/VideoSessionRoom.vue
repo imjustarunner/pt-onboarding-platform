@@ -1841,6 +1841,7 @@ function forceMediaFill(container) {
 const localInitials = computed(() => initialsFromLabel(props.localName));
 
 let session = null;
+let videoSdk = null;
 let screenPublisher = null;
 let screenPublisherHost = null;
 let publisher = null;
@@ -2389,6 +2390,7 @@ async function connect() {
   try {
     const mod = await import('@vonage/client-sdk-video');
     const OT = mod?.default || mod;
+    videoSdk = OT;
     if (!OT?.initSession) {
       throw new Error('Vonage Video client SDK failed to load.');
     }
@@ -2848,8 +2850,10 @@ async function toggleScreenShare() {
     return;
   }
   try {
-    const mod = await import('@vonage/client-sdk-video');
-    const OT = mod?.default || mod;
+    // Safari requires screen capture to start directly in the click handler.
+    // connect() has already loaded the SDK; do not yield before initPublisher.
+    const OT = videoSdk;
+    if (!OT) throw new Error('Reconnect to the session before sharing your screen.');
     // Publish into a hidden off-screen container so the local publisher DOM
     // never conflicts with the remote screen subscriber rendering in screenEl.
     const offscreen = document.createElement('div');
@@ -2893,6 +2897,10 @@ async function toggleScreenShare() {
     clearScreenShareTile();
     const name = String(err?.name || '');
     const msg = String(err?.message || '');
+    if (/InvalidAccess|InvalidState/.test(name)) {
+      showConnectionNotice('Click Share screen again while this session tab is active.');
+      return;
+    }
     showConnectionNotice(name.includes('MEDIA_ACCESS') || /permission|denied|blocked|NotAllowed/i.test(msg)
       ? 'Screen share was blocked. Allow screen sharing in your browser, then try again.'
       : (msg || 'Could not share your screen.'));

@@ -633,3 +633,21 @@ describe('meeting speaker playback recovery',()=>{
   wrapper.unmount();
  });
 });
+
+
+it('starts screen capture synchronously from the click without losing Safari user activation', async () => {
+ const publisher={on:vi.fn(),publishAudio:vi.fn(),publishVideo:vi.fn(),destroy:vi.fn(),getAudioSource:()=>null};
+ videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});
+ const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'safari-share',token:'eyJ.test.token',playJoinTone:false,startMuted:true}});
+ await flushPromises();await vi.dynamicImportSettled();
+ videoSdk.session.publish.mockImplementation((_p,done)=>done(null));videoSdk.connectCallback(null);await flushPromises();
+ videoSdk.initPublisher.mockClear();
+ const sharing=wrapper.vm.toggleScreenShare();
+ // This assertion deliberately runs before yielding to any promise/microtask.
+ expect(videoSdk.initPublisher).toHaveBeenCalledWith(expect.any(HTMLElement),expect.objectContaining({videoSource:'screen'}),expect.any(Function));
+ await sharing;await flushPromises();
+ expect(wrapper.text()).toContain('Stop share');
+ await wrapper.vm.toggleScreenShare();
+ expect(videoSdk.session.unpublish).toHaveBeenCalledWith(publisher);
+ wrapper.unmount();
+});

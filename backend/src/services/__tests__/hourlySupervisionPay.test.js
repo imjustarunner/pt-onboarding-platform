@@ -50,22 +50,28 @@ it('holds ambiguous manual supervision for review and does not rewrite a posted 
   expect(await generate()).toMatchObject({ reason: 'existing_posted_manual_claim' });
   expect(m.conn.execute.mock.calls.some(([sql]) => /^(INSERT|UPDATE)/.test(sql))).toBe(false);
 });
-it.each([{ role: 'provider', title: 'Clinical intern' }, { credential: 'LPCC' }, { is_hourly_worker: 0 }])('does not create hourly claims for unpaid interns or candidates: %j', async identity => {
+it.each([{ role: 'provider', title: 'Clinical intern' }, { credential: 'LPCC' }, { credential: 'LPCC', title: 'Facilitator' }, { title: 'Counselor candidate' }])('pays hourly staff regardless of candidate status or internship title: %j', async identity => {
   m.user.mockResolvedValue({ is_hourly_worker: 1, credential: 'BA', role: 'provider', ...identity });
+  m.execute.mockResolvedValue([[{ user_id: 488, supervision_is_prelicensed: 1 }]]);
+  expect(await generate()).toMatchObject({ created: true, minutes: 62 });
+  expect(claims[0].payload_json).toMatchObject({ hourlySupervision: true });
+});
+it.each([{ credential: 'LPCC' }, { title: 'Clinical intern' }, { credential: 'BA' }])('does not use hourly compensation for non-hourly staff: %j', async identity => {
+  m.user.mockResolvedValue({ is_hourly_worker: 0, role: 'provider', ...identity });
   expect(await generate()).toMatchObject({ skipped: true }); expect(m.conn.beginTransaction).not.toHaveBeenCalled();
 });
-it('preserves explicit candidate gating and a deliberately zero meeting rate', async () => {
-  m.execute.mockResolvedValue([[{ supervision_is_prelicensed: 1 }]]);
-  expect(await generate()).toMatchObject({ skipped: true });
-  m.execute.mockResolvedValue([[{ supervision_is_prelicensed: 0 }]]); m.rate.mockResolvedValue({ rate_amount: 0 });
+it('preserves a deliberately zero meeting rate and requires agency membership', async () => {
+  m.rate.mockResolvedValue({ rate_amount: 0 });
   expect(await generate()).toMatchObject({ skipped: true }); expect(claims).toHaveLength(0);
+  m.rate.mockResolvedValue(null); m.execute.mockResolvedValue([[]]);
+  expect(await generate()).toMatchObject({ skipped: true });
 });
 it('requires actual attendance and mandatory group participation', async () => {
   expect(await createSuperviseeSupervisionTimeClaim({ session, rollups: [] })).toMatchObject({ reason: 'no_attendance' });
   expect(await createSuperviseeSupervisionTimeClaim({ session: { ...session, session_type: 'group' }, rollups: [{ user_id: 488, total_seconds: 3600 }] })).toMatchObject({ reason: 'optional_group_attendance' });
 });
 it('calculates the automatic claim at the hourly rate before any provider-update rollout', async () => {
-  m.execute.mockImplementation(async sql => sql.includes('supervision_is_prelicensed') ? [[{ supervision_is_prelicensed: 0 }]] : [[]]);
+  m.execute.mockImplementation(async sql => sql.includes('FROM user_agencies') ? [[{ user_id: 488 }]] : [[]]);
   const amount = await computeDefaultAppliedAmountForTimeClaim({ claim: { agency_id: 6, user_id: 488, claim_type: 'indirect_time', claim_date: '2026-10-19', credits_hours: 1.03,
     payload: { source: 'supervision_session_finalize', participantRole: 'supervisee', hourlySupervision: true, totalMinutes: 62, serviceCode: 'MEETING' } }, rateCard: { indirect_rate: 21 }, approveCreditsHours: 1.03 });
   expect(amount).toBe(21.63);
@@ -81,4 +87,14 @@ it('matches manual supervision on the local event date across UTC midnight', asy
   expect(await createSuperviseeSupervisionTimeClaim({ session: { ...session, start_at: '2026-10-20 02:00:00', end_at: '2026-10-20 03:02:00' }, rollups: [{ user_id: 488, total_seconds: 3720 }] })).toMatchObject({ reason: 'manual_claim_linked' });
   const query = m.conn.execute.mock.calls.find(([sql]) => sql.includes('FROM payroll_time_claims c'));
   expect(query[1][2]).toBe('2026-10-19');
+});
+
+it('does not double-pay hourly candidates through staged payroll after they reach 100 hours', async () => {
+  m.execute.mockImplementation(async sql => {
+    if (sql.includes('FROM user_agencies ua')) return [[{ user_id: 488, is_hourly_worker: 1, credential: 'LPCC', supervision_is_prelicensed: 1, supervision_start_date: '2025-01-01', supervision_start_individual_hours: 50, supervision_start_group_hours: 50 }]];
+    if (sql.includes('AS is_hourly_worker')) return [[{ user_id: 488, service_date: '2026-10-19', session_type: 'individual', participant_role: 'supervisee', participant_user_role: 'provider', is_hourly_worker: 1, total_seconds: 3720 }]];
+    return [[]];
+  });
+  const units = await buildResolvedSupervisionUnitsByUserCode({ payrollPeriodId: 911, agencyId: 6, periodStart: '2026-10-10', periodEnd: '2026-10-23' });
+  expect(units.size).toBe(0);
 });

@@ -1,3 +1,4 @@
+import { assertNoManualSupervisionClaim } from '../services/supervisionSubmissionPolicy.js';
 import { resolveHourlySuperviseePay } from '../services/hourlySupervisionPay.service.js';
 import { validateFfsExcess, persistFfsExcessClaim } from '../services/ffsExcessTime.service.js';
 import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
@@ -5450,7 +5451,7 @@ export async function buildResolvedSupervisionUnitsByUserCode({
     ) {
       continue;
     }
-    if (!isSupervisor && Number(r.is_hourly_worker) === 1 && !prelicensedUserIds.has(uid)) continue;
+    if (!isSupervisor && Number(r.is_hourly_worker) === 1) continue;
     const minutes = Number(r.total_seconds || 0) / 60;
     if (!(Number.isFinite(minutes) && minutes > 0)) continue;
 
@@ -18358,7 +18359,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       || (Array.isArray(payload.allocations) ? payload.allocations : []).some(a => (a.serviceTypeKey || a.typeKey) === 'approved_travel')) {
       return res.status(409).json({ error: { message: 'Use Submit → Event travel reimbursement to submit travel time and mileage together.' } });
     }
-    if(payload.source==='supervision_payroll_correction')return res.status(400).json({error:{message:'Supervision corrections must originate from the verified supervision record.'}});
+    await assertNoManualSupervisionClaim(payload);
     if (payload.ffsExcess && (claimType !== 'indirect_time' || payload.eventWorkType || payload.source)) return res.status(400).json({error:{message:'Use a clinical FFS indirect-time request without an automated source.'}});
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
 
@@ -18468,13 +18469,6 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         || hw.has_supervisor_privileges === '1'
         || String(hw.role || '').toLowerCase() === 'supervisor';
 
-      // Auto supervision finalize (99415/99416) may still create via API for salaried supervisors.
-      const supervisionCode = String(payload?.serviceCode || '').trim().toUpperCase();
-      const allocKey = String(payload?.allocations?.[0]?.serviceTypeKey || '').trim().toLowerCase();
-      const isSupervisionFinalize = String(payload?.source || '').trim() === 'supervision_session_finalize'
-        || ['99415', '99416'].includes(supervisionCode)
-        || allocKey === 'supervision';
-
       const requestedCategory = String(payload?.categoryGroup || '').trim().toLowerCase();
       let categoryGroup = ['indirect_service', 'support_activity', 'supervision_note', 'admin_duties'].includes(requestedCategory)
         ? requestedCategory
@@ -18505,7 +18499,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         })
         : false;
 
-      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize && !hasAssignedIndirectAccess && !supplementalContext.effective && !payload.ffsExcess) {
+      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !hasAssignedIndirectAccess && !supplementalContext.effective && !payload.ffsExcess) {
         return res.status(403).json({
           error: { message: 'Indirect Service Time is for hourly employees only. Use Support Activity Time instead.' }
         });
@@ -18559,7 +18553,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       }
 
       // Ensure allocation service types match the claim category group.
-      if (typeIds.length && !isSupervisionFinalize) {
+      if (typeIds.length) {
         const types = await PayrollIndirectServiceType.findByIds(typeIds);
         const byId = new Map(types.map((t) => [Number(t.id), t]));
         const expectedBucket = categoryGroup === 'support_activity'
@@ -18603,11 +18597,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         || String(payload?.noteAidUsedDuringSession || '').toLowerCase() === 'true';
 
       // Pay code: Support → MEETING; Supervision Note → Admin Time; Indirect → rate card.
-      // Preserve explicit serviceCode for supervision finalize (99415/99416).
-      let serviceCode = String(payload?.serviceCode || '').trim() || null;
-      if (!isSupervisionFinalize || !serviceCode) {
-        serviceCode = serviceCodeForCategoryGroup(categoryGroup);
-      }
+      const serviceCode = serviceCodeForCategoryGroup(categoryGroup);
 
       // Always credit as indirect for PTO (Support Activity included).
       const claimBucket = 'indirect';
@@ -18849,6 +18839,8 @@ export const updateMyTimeClaim = async (req, res, next) => {
       : {};
     if (claim.payload?.ffsExcess && (!payloadIn.ffsExcess || Number(payloadIn.ffsExcess.periodId)!==Number(claim.payload.ffsExcess.periodId))) return res.status(400).json({error:{message:'Keep this request in its original pay period and edit it using the clinical FFS calculator.'}});
     if (payloadIn.eventTravelReportId || payloadIn.eventTravelReport || payloadIn.source === 'event_travel_report') return res.status(409).json({ error: { message: 'Use the Event travel reimbursement form.' } });
+    await assertNoManualSupervisionClaim(claim.payload);
+    await assertNoManualSupervisionClaim(payloadIn);
     const claimMinutes = (payloadIn.excessIndirect||claim.payload?.excessIndirect||payloadIn.ffsExcess||claim.payload?.ffsExcess) ? v=>{const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;} : toMinutes;
     const allocations = Array.isArray(payloadIn.allocations) ? payloadIn.allocations : [];
     const cleaned = [];

@@ -44,7 +44,7 @@ export async function supervisionEmailPeople(session) {
   return rows.map(r=>({...r,name:[r.first_name,r.last_name].filter(Boolean).join(' '),status:r.rsvp==='declined'?'DECLINED':r.rsvp==='accepted'?'SIGNED_UP':'INVITED',participant_role:Number(r.id)===Number(session.provider_id)?'host':'supervisee',isPresenter:false}));
  }
 
- const [rows]=await pool.execute(`SELECT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.email,u.work_email,u.role,u.credential,u.title,u.employment_type,a.status,a.is_required,a.participant_role,a.decline_reason,a.is_compensable_snapshot,
+ const [rows]=await pool.execute(`SELECT u.id,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.email,u.work_email,u.role,u.credential,u.title,u.employment_type,u.is_hourly_worker,a.status,a.is_required,a.participant_role,a.decline_reason,a.is_compensable_snapshot,
  ua.supervision_is_prelicensed,ua.supervision_is_compensable,ua.supervision_start_date,
  COALESCE(sa.individual_hours,0) AS supervision_individual_hours,COALESCE(sa.group_hours,0) AS supervision_group_hours,
  (SELECT cp.status FROM supervision_case_presentations cp WHERE cp.session_id=a.session_id AND cp.presenter_user_id=u.id LIMIT 1) presentationStatus,

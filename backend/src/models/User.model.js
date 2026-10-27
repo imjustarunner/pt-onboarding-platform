@@ -1,3 +1,5 @@
+import { isSupervisionCandidate, isSupervisionPayEligibleHours } from '../utils/supervisionHoursGate.util.js';
+import { isStudentIntern } from '../utils/studentIntern.js';
 import { assertFullSuiteIdentity, fullSuiteIdentityAllowed } from '../services/productIdentity.service.js';
 import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
@@ -2511,15 +2513,21 @@ class User {
 
     const placeholders = ids.map(() => '?').join(', ');
     const [rows] = await pool.execute(
-      `SELECT user_id, supervision_is_compensable
-       FROM user_agencies
-       WHERE agency_id = ?
-         AND user_id IN (${placeholders})`,
+      `SELECT ua.user_id, ua.supervision_is_compensable, ua.supervision_is_prelicensed,
+              u.credential, u.title, u.role, u.employment_type, u.is_hourly_worker,
+              COALESCE(sa.individual_hours, 0) AS individual_hours,
+              COALESCE(sa.group_hours, 0) AS group_hours
+       FROM user_agencies ua
+       JOIN users u ON u.id = ua.user_id
+       LEFT JOIN supervision_accounts sa ON sa.agency_id = ua.agency_id AND sa.user_id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND ua.user_id IN (${placeholders})`,
       [agencyId, ...ids]
     );
     const out = {};
     for (const row of rows || []) {
-      out[Number(row.user_id)] = row.supervision_is_compensable === 1 || row.supervision_is_compensable === true || String(row.supervision_is_compensable || '') === '1';
+      out[Number(row.user_id)] = Number(row.is_hourly_worker) === 1 || (Number(row.supervision_is_compensable) === 1 && !isStudentIntern(row)
+        && (!isSupervisionCandidate(row) || isSupervisionPayEligibleHours({ individualHours: row.individual_hours, groupHours: row.group_hours })));
     }
     return out;
   }

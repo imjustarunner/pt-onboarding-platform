@@ -41,3 +41,11 @@ export function isSupervisionPayEligibleHours({ individualHours = 0, groupHours 
   const total = ind + grp;
   return ind >= 50 - 1e-9 && total >= 100 - 1e-9;
 }
+
+/** Identify candidates independently of their pay basis; hourly pay uses its own path. */
+export function isSupervisionCandidate(person = {}) {
+  return Number(person.supervision_is_prelicensed) === 1
+    || /\b(LPCC|LMFTC|MFTC|LSW|SWC|LPC-A|candidate|pre[- ]?licensed)\b/i.test(
+      [person.credential, person.title, person.jobTitle].filter(Boolean).join(' ')
+    );
+}

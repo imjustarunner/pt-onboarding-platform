@@ -6,7 +6,7 @@ vi.mock('../../models/SupervisionSessionArtifact.model.js', () => ({ default: { 
 vi.mock('../../services/supervisionAgreement.service.js', () => ({ isMentalHealthAgency: async () => true }));
 vi.mock('../../services/meetingJoinPolicy.service.js', () => ({ hasActiveMeetingMembership: async () => true }));
 vi.mock('../supervisionSessions.controller.js', () => ({ finalizeSupervisionSession: m.finalize }));
-import { createManualSupervision } from '../supervisionManual.controller.js';
+import { createManualSupervision, finishManualSupervision } from '../supervisionManual.controller.js';
 let original, attendance, duplicates;
 beforeEach(() => {
   vi.resetAllMocks(); duplicates = false;
@@ -57,4 +57,17 @@ it('rolls back the session when encrypted note persistence fails', async () => {
   const { next } = await create();
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'Encryption unavailable' }));
   expect(m.rollback).toHaveBeenCalled(); expect(m.commit).not.toHaveBeenCalled();
+});
+
+it.each([20, 99])('rejects standalone supervision logs from a supervisee or unrelated actor %s', async actor => {
+  expect((await create({ relatedSessionId: 0 }, actor)).next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  expect(m.beginTransaction).not.toHaveBeenCalled();
+});
+it('does not let the supervisee finish or submit a manual recording', async () => {
+  m.execute.mockResolvedValue([[{ session_id: 102, agency_id: 2, supervisor_user_id: 10, supervisee_user_id: 20, status: 'MANUAL_RECORDING' }]]);
+  const next = vi.fn();
+  await finishManualSupervision({ user: { id: 20 }, params: { id: 102 }, body: { approve: false } }, {}, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  expect(m.execute.mock.calls.some(([sql]) => /^(INSERT|UPDATE)/.test(sql))).toBe(false);
+  expect(m.finalize).not.toHaveBeenCalled();
 });

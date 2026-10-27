@@ -150,3 +150,13 @@ it('loads recipient-specific eligibility and balances for the invitation instead
  expect(email.html).toContain('Mandatory · Not compensated');expect(email.text).toContain('Frequency: Every two weeks');
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN supervision_accounts'),expect.arrayContaining([2]));
 });
+
+it.each([[1,'Mandatory · Compensated'],[0,'Mandatory · Not compensated']])('uses hourly status when describing candidate supervision pay (hourly=%s)', async (hourly,label) => {
+ m.execute.mockImplementation(async sql => sql.startsWith('SELECT u.id') ? [[
+  {id:3,first_name:'Host'},
+  {id:8,first_name:'Ada',status:'INVITED',is_required:1,participant_role:'supervisee',credential:'LPCC',is_hourly_worker:hourly,supervision_is_prelicensed:1,is_compensable_snapshot:1,supervision_individual_hours:0,supervision_group_hours:0}
+ ]] : [[]]);
+ const result=await prepareSupervisionEmail({session,user,kind:'invitation'});
+ expect(result.text).toContain(label);expect(result.html).toContain(label);
+ expect(m.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT u.id'))[0]).toContain('u.is_hourly_worker');
+});

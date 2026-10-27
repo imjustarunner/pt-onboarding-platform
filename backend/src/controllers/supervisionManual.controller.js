@@ -26,7 +26,7 @@ export function validateManualSupervision(input) {
 }
 async function assignment(req,assignmentId) {
   const [[a]]=await pool.execute('SELECT * FROM supervisor_assignments WHERE id=?',[assignmentId]);
-  if(!a||!['clinical','billing'].includes(a.supervisor_type)||![Number(a.supervisor_id),Number(a.supervisee_id)].includes(Number(req.user.id)))fail('Use your current supervisor assignment.');
+  if(!a||!['clinical','billing'].includes(a.supervisor_type)||Number(a.supervisor_id)!==Number(req.user.id) || Number(a.supervisee_id)===Number(req.user.id))fail('Only the assigned supervisor can submit supervision from My Dashboard → Supervision → the supervisee’s area.');
   if(!await hasActiveMeetingMembership(a.agency_id,req.user.id)||!await isMentalHealthAgency(a.agency_id))fail('Access denied.');
   return a;
 }
@@ -36,7 +36,7 @@ export async function listManualSupervision(req,res,next){try{
   const [assignments]=await pool.execute(`SELECT sa.*,CONCAT(s.first_name,' ',s.last_name) AS supervisor_name FROM supervisor_assignments sa JOIN users s ON s.id=sa.supervisor_id WHERE sa.agency_id=? AND sa.supervisee_id=? AND (sa.supervisor_id=? OR sa.supervisee_id=?) AND sa.supervisor_type IN ('clinical','billing')`,[aid,uid,req.user.id,req.user.id]);
   if(!assignments.length)return res.json({assignments:[],entries:[]});
   const [entries]=await pool.execute(`SELECT m.*,ss.start_at,ss.end_at,ss.session_type,ss.status FROM supervision_manual_entries m JOIN supervision_sessions ss ON ss.id=m.session_id WHERE m.agency_id=? AND m.supervisee_user_id=? AND (m.supervisor_user_id=? OR m.supervisee_user_id=?) ORDER BY m.created_at DESC LIMIT 100`,[aid,uid,req.user.id,req.user.id]);
-  res.set('Cache-Control','no-store').json({assignments,entries,actorUserId:req.user.id});
+  res.set('Cache-Control','no-store').json({assignments:assignments.filter(a=>Number(a.supervisor_id)===Number(req.user.id) && Number(a.supervisee_id)!==Number(req.user.id)),entries,actorUserId:req.user.id});
 }catch(e){next(e);}}
 export async function createManualSupervision(req,res,next){let db;try{
   const input=validateManualSupervision(req.body),a=await assignment(req,Number(req.body.assignmentId));
@@ -78,7 +78,7 @@ export async function createManualSupervision(req,res,next){let db;try{
 export async function finishManualSupervision(req,res,next){let db;try{
   db=await pool.getConnection();await db.beginTransaction();
   const [[m]]=await db.execute('SELECT m.*,ss.status FROM supervision_manual_entries m JOIN supervision_sessions ss ON ss.id=m.session_id WHERE m.session_id=? FOR UPDATE',[req.params.id]);
-  if(!m||![Number(m.supervisor_user_id),Number(m.supervisee_user_id)].includes(Number(req.user.id))||!await hasActiveMeetingMembership(m.agency_id,req.user.id))fail('Access denied.');
+  if(!m||Number(m.supervisor_user_id)!==Number(req.user.id) || Number(m.supervisee_user_id)===Number(req.user.id)||!await hasActiveMeetingMembership(m.agency_id,req.user.id))fail('Access denied.');
   if(m.status==='MANUAL_RECORDING'){
     const end=sqlDate(new Date());await db.execute("UPDATE supervision_sessions SET end_at=?,status='MANUAL_PENDING' WHERE id=?",[end,m.session_id]);
     await db.execute("UPDATE meeting_transcription_controls SET paused=1,stopped=1,revision=revision+1 WHERE meeting_type='supervision' AND meeting_id=?",[m.session_id]);

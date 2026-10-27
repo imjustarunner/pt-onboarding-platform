@@ -53,3 +53,20 @@ it('allows approved post-threshold compensation only on or after the effective d
  expect(supervisionAttendance(session,{...person,is_required:0}).label).toBe('Optional · Not compensated');
  expect(supervisionAttendance(session,{...person,id:1,supervision_individual_hours:0}).label).toBe('Mandatory · Compensated');
 });
+
+it.each([{title:'Licensed professional counselor candidate'}, {credential:'Pre-licensed counselor'}, {credential:'LPCC',title:'Facilitator',is_hourly_worker:0}])('does not promise compensation for candidates despite a saved paid flag: %j', person => {
+ expect(supervisionAttendance(session,{id:9,is_required:1,is_compensable_snapshot:1,supervision_is_prelicensed:0,...person}).label).toBe('Mandatory · Not compensated');
+});
+
+it('refreshes candidate eligibility for recurring invitations created before the threshold', () => {
+ const person={id:9,credential:'LPCC',is_required:1,is_compensable_snapshot:0,supervision_is_compensable:1,supervision_start_date:'2025-01-01',supervision_individual_hours:50,supervision_group_hours:50};
+ expect(supervisionAttendance(session,person).label).toBe('Mandatory · Compensated');
+ expect(supervisionAttendance(session,{...person,supervision_group_hours:49}).label).toBe('Mandatory · Not compensated');
+ expect(supervisionAttendance(session,{...person,is_compensable_snapshot:1,supervision_is_compensable:0}).label).toBe('Mandatory · Not compensated');
+});
+
+it.each([{credential:'LPCC',supervision_is_prelicensed:1}, {title:'Counseling intern'}, {credential:'BA'}])('marks mandatory hourly supervision compensated without the candidate hour gate: %j', person => {
+ const hourly={id:9,is_hourly_worker:1,is_required:1,is_compensable_snapshot:0,supervision_is_compensable:0,supervision_individual_hours:0,supervision_group_hours:0,...person};
+ expect(supervisionAttendance(session,hourly).label).toBe('Mandatory · Compensated');
+ expect(supervisionAttendance(session,{...hourly,is_required:0}).label).toBe('Optional · Not compensated');
+});

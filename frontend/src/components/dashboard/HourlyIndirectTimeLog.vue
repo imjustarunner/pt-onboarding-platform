@@ -340,9 +340,8 @@
               </div>
               <p class="itl-disclaimer">
                 Virtual meetings are automatically recorded for payroll review — duplicate submissions are not
-                required. This includes supervision, training, and onboarding meetings. If a meeting was not
-                automatically recorded, submit it here, verify with your supervisor, or check My time records for those
-                automatically recorded time. Peer-to-peer meetings are never compensable unless at the direction of administrative staff.
+                required. Supervision must be recorded by your assigned supervisor in My Dashboard → Supervision → your supervisee area.
+                For training and onboarding meetings, check My time records before submitting time that was not automatically recorded. Peer-to-peer meetings are never compensable unless at the direction of administrative staff.
               </p>
             </div>
 
@@ -635,10 +634,7 @@ const indirectSessionStore = useIndirectTimeSessionStore();
 const router = useRouter();
 const route = useRoute();
 
-const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction', 'approved_travel']);
-
-/** Support activities hidden from supervisors (they use Supervisor's Meeting instead). */
-const SUPERVISOR_HIDDEN_SUPPORT_TYPE_KEYS = new Set(['clinical_supervision_sa']);
+const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction', 'approved_travel', 'clinical_supervision_sa', 'supervision']);
 
 /** Categories that often overlap with automatically recorded meeting/training claims. */
 const AUTO_CLAIM_WARN_TYPE_KEYS = new Set([
@@ -690,7 +686,7 @@ const supportServiceTypes = computed(() =>
   (serviceTypes.value || []).filter((t) => {
     const b = normalizePayBucket(t.payBucket || t.pay_bucket);
     if (b !== 'support' && b !== 'other_1') return false;
-    if (isSupervisorUser.value && SUPERVISOR_HIDDEN_SUPPORT_TYPE_KEYS.has(typeKeyOf(t))) return false;
+    if (isExcludedIndirectType(t)) return false;
     return true;
   })
 );

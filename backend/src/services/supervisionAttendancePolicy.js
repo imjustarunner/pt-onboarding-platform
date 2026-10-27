@@ -1,4 +1,4 @@
-import { isSupervisionPayEligibleHours, normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
+import { isSupervisionCandidate, isSupervisionPayEligibleHours, normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { isStudentIntern } from '../utils/studentIntern.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from './meetingSettingsPolicy.js';
@@ -10,13 +10,13 @@ export function supervisionAttendance(session, person = {}) {
   const host = [session.supervisor_user_id, session.co_facilitator_user_id]
     .some(id => Number(id) > 0 && Number(id) === Number(person.id ?? person.user_id));
   const required = host || session.session_type === 'individual' || Boolean(person.isPresenter) || Boolean(Number(person.is_required));
-  if (isStudentIntern(person)) return {
+  const hourly = Number(person.is_hourly_worker) === 1;
+  if (!hourly && isStudentIntern(person)) return {
     tier: required ? 'mandatory' : 'optional',
     label: `${required ? 'Mandatory' : 'Optional'} · Unpaid internship time`,
     description: 'This supervision is unpaid. Record your attended time as indirect hours toward your master’s internship requirements. ' + (required ? 'RSVP in the app. If you cannot attend, provide a reason there.' : 'RSVP in the app only if you plan to attend. No response or reason is needed if you will not attend.') + ' Email replies do not update attendance.'
   };
-  const prelicensed = Number(person.supervision_is_prelicensed) === 1
-    || /\b(LPCC|LMFTC|MFTC|LSW|SWC|LPC-A)\b/i.test(String(person.credential || ''));
+  const prelicensed = !hourly && isSupervisionCandidate(person);
   const belowThreshold = !host && prelicensed && !isSupervisionPayEligibleHours({
     individualHours: person.supervision_individual_hours, groupHours: person.supervision_group_hours
   });
@@ -24,10 +24,14 @@ export function supervisionAttendance(session, person = {}) {
   const sessionDate = parseUtcDate(session.start_at);
   const beforeEffectiveDate = !host && prelicensed && (!startDate || (sessionDate &&
     new Intl.DateTimeFormat('en-CA',{timeZone:session.event_timezone || 'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(sessionDate) < startDate));
-  const compensationFlag = person.is_compensable_snapshot ?? person.supervision_is_compensable;
+  // Recurring invitations may have been created before the candidate qualified.
+  // Re-evaluate their current approved setting with the current hours gate.
+  const compensationFlag = prelicensed
+    ? person.supervision_is_compensable ?? person.is_compensable_snapshot
+    : person.is_compensable_snapshot ?? person.supervision_is_compensable;
   const compensated = required && !belowThreshold && !beforeEffectiveDate
-    && (host || Number(compensationFlag) === 1);
-  const unpaid = !required || belowThreshold || beforeEffectiveDate || (!host && compensationFlag != null && Number(compensationFlag) === 0);
+    && (host || hourly || Number(compensationFlag) === 1);
+  const unpaid = !required || belowThreshold || beforeEffectiveDate || (!host && !hourly && compensationFlag != null && Number(compensationFlag) === 0);
   const payDescription = belowThreshold
     ? 'This supervision is not compensated under your current eligibility. Compensation requires at least 50 individual supervision hours and 100 total supervision hours.'
     : compensated ? 'This supervision is compensated according to your approved eligibility and rate.'
