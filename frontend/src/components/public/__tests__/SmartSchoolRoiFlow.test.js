@@ -43,8 +43,9 @@ const roiContext = {
   ]
 };
 
-function mountFlow(extraProps = {}) {
+function mountFlow(extraProps = {}, options = {}) {
   return mount(SmartSchoolRoiFlow, {
+    ...options,
     props: {
       publicKey: 'abc123',
       sessionToken: 'session-token',
@@ -118,20 +119,37 @@ it('groups staff on one section, requires each decision, and scrolls on section 
   await filledIntro(wrapper);
   expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'instant' });
   await wrapper.get('button.btn-primary').trigger('click');
-  await wrapper.get('.choice-card').trigger('click');
+  await wrapper.get('input[type="radio"]').setValue();
   await wrapper.get('button.btn-primary').trigger('click');
-  await wrapper.get('.choice-card').trigger('click');
+  await wrapper.get('input[type="radio"]').setValue();
   await wrapper.get('button.btn-primary').trigger('click');
   expect(wrapper.text()).toContain('Staff Person'); expect(wrapper.text()).toContain('Second Staff');
   expect(wrapper.findAll('input[type="radio"]:checked')).toHaveLength(0);
-  await wrapper.get('input[name="staffDecision_99"][value="roi"]').element.closest('label').click();
+  await wrapper.get('input[name="staffDecision_99"][value="roi"]').setValue();
   await wrapper.get('button.btn-primary').trigger('click');
   expect(wrapper.text()).toContain('Choose ROI All Active');
-  await wrapper.get('input[name="staffDecision_100"][value="none"]').element.closest('label').click();
+  await wrapper.get('input[name="staffDecision_100"][value="none"]').setValue();
   await wrapper.get('button.btn-primary').trigger('click');
   expect(wrapper.text()).not.toContain('School staff approval');
   await wrapper.findAll('button').find(b => b.text() === 'Back').trigger('click');
   expect(wrapper.get('input[name="staffDecision_99"][value="roi"]').element.checked).toBe(true);
   expect(wrapper.get('input[name="staffDecision_100"][value="none"]').element.checked).toBe(true);
+  wrapper.unmount();
+});
+
+it('keeps an acknowledgement visibly checked when its label is clicked', async () => {
+  localStorage.clear();
+  const wrapper = mountFlow({}, { attachTo: document.body });
+  await filledIntro(wrapper);
+  await wrapper.get('button.btn-primary').trigger('click');
+  const radio = wrapper.get('input[name="ack_esign_consent"]');
+  expect(radio.element.checked).toBe(false);
+  radio.element.closest('label').click();
+  await wrapper.vm.$nextTick();
+  expect(radio.element.checked).toBe(true);
+  await wrapper.get('button.btn-primary').trigger('click');
+  expect(wrapper.text()).toContain('Care planning');
+  await wrapper.findAll('button').find(button => button.text() === 'Back').trigger('click');
+  expect(wrapper.get('input[name="ack_esign_consent"]').element.checked).toBe(true);
   wrapper.unmount();
 });

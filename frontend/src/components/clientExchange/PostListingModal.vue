@@ -115,7 +115,7 @@
           <button type="button" class="btn btn-primary" :disabled="!selectedClientId || (destination === 'provider' && !targetProviderUserId) || submitting || posted || summaryLoading || !!summaryError" @click="submit">
             {{ submitting ? 'Sending…' : 'Send referral' }}
           </button>
-          <button type="button" class="btn btn-secondary" @click="posted ? $emit('posted') : $emit('close')">{{ posted ? 'Done' : 'Cancel' }}</button>
+          <button type="button" class="btn btn-secondary" @click="posted ? $emit('posted', postedListing) : $emit('close')">{{ posted ? 'Done' : 'Cancel' }}</button>
         </div>
       </template>
     </div>
@@ -162,6 +162,7 @@ const matchingPreferences = ref({});
 const notes = ref('');
 const submitting = ref(false);
 const posted = ref(false);
+const postedListing = ref(null);
 const submitError = ref('');
 const sharedSummary = ref({});
 const summaryLoading = ref(false);
@@ -251,7 +252,13 @@ async function submit() {
       },
       notes: notes.value || null
     });
-    const delivery = response.data?.listing?.notifications;
+    postedListing.value = response.data?.listing;
+    if (postedListing.value?.alreadyPosted) {
+      posted.value = true;
+      submitError.value = `Referral #${postedListing.value.id} already exists. Your new notes and preferences were not saved. Open the existing referral to review its details before withdrawing or replacing it.`;
+      return;
+    }
+    const delivery = postedListing.value?.notifications;
     if (delivery?.failed || delivery?.queued) {
       posted.value = true;
       submitError.value = delivery.failed
@@ -259,7 +266,8 @@ async function submit() {
         : 'Client posted. Matching emails are awaiting approval in Communications.';
       return;
     }
-    emit('posted');
+    posted.value = true;
+    emit('posted', postedListing.value);
   } catch (e) {
     submitError.value = e?.response?.data?.error?.message || e?.message || 'Failed to post listing';
   } finally {

@@ -9,7 +9,7 @@
   >
     <template v-if="compact">
       <div class="lc-compact-row">
-        <strong class="lc-client-label">{{ clientLabel || 'Client' }}</strong>
+        <strong class="lc-client-label">{{ clientLabel || 'Client' }} · #{{ listing.id }}</strong>
         <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge lc-pending-badge--compact">
           {{ listing.pendingRequestCount }}
         </span>
@@ -26,7 +26,7 @@
             {{ listing.pendingRequestCount }} pending request{{ listing.pendingRequestCount === 1 ? '' : 's' }}
           </span>
         </div>
-        <div class="lc-meta muted">Posted {{ formatDate(listing.createdAt) }}</div>
+        <div class="lc-meta muted">Referral #{{ listing.id }} · Posted {{ formatDate(listing.createdAt) }}</div>
       </div>
 
       <ClientExchangeSummary :listing="listing" />

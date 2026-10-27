@@ -474,6 +474,7 @@ export async function getListingAudit(req,res,next) {
     if(!row)return res.status(404).json({error:{message:'Listing not found'}});
     if(!await assertAgencyAccess(req,row.agency_id))return res.status(403).json({error:{message:'Forbidden'}});
     const {getExchangeAudit}=await import('../services/clientExchangeAudit.service.js');
-    res.json(await getExchangeAudit(id));
+    const {currentExchangeAudit}=await import('../services/clientExchangeCurrentAudit.service.js');
+    res.json(await currentExchangeAudit(await getExchangeAudit(id), row.agency_id));
   }catch(error){next(error);}
 }

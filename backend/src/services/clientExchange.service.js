@@ -220,6 +220,15 @@ async function getRawListingById(listingId) {
   return rows?.[0] || null;
 }
 
+// Internal matching input. Callers must authorize tenant access before using this;
+// return only decision explanations to support, never this clinical summary.
+export async function getListingForMatching(listingId) {
+  const row = await getRawListingById(listingId);
+  if (!row) return null;
+  await hydrateListingSummary(row);
+  return mapListingRow(row);
+}
+
 export async function getListingById(listingId, { viewerUserId, viewerRole } = {}) {
   const row = await getRawListingById(listingId);
   if (!row) return null;

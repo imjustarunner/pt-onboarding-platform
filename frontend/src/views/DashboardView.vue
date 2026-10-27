@@ -3280,7 +3280,7 @@ const scheduleViewContextLine = computed(() => {
   }
   if (isViewingAnotherUserOnMySchedule.value) {
     const name = scheduleSubjectDisplayName.value || 'this team member';
-    return `Showing ${name}'s calendar — the same weekly view they see. Admin preview; you are still ${you}.`;
+    return `Showing ${name}'s calendar — the same weekly view they see. You are still ${you}.`;
   }
   return `Your calendar · ${you}`;
 });

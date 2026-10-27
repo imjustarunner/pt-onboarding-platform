@@ -4,12 +4,13 @@
     <button type="button" @click="load" :disabled="loading">{{ loading ? 'Loading…' : 'Refresh audit' }}</button>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="audit">
-      <p>{{ matched.length }} currently matched · {{ unmatched.length }} not matched or needing review</p>
+      <p>{{ matched.length }} {{ audit.matchesEvaluatedAt ? 'currently matched' : 'matched at last evaluation' }} · {{ unmatched.length }} not matched or needing review</p>
       <p>{{ audit.views?.total || 0 }} detail views · {{ audit.views?.unique_viewers || 0 }} unique viewers since {{ audit.trackingStartedAt ? new Date(audit.trackingStartedAt).toLocaleString() : 'tracking began' }}. Earlier views were not tracked.</p>
+      <p v-if="audit.matchesEvaluatedAt">Matching checked {{ new Date(audit.matchesEvaluatedAt).toLocaleString() }}. Refresh checks current settings and does not send notifications.</p>
       <p v-if="!audit.run">No delivery evaluation has been recorded yet.</p>
       <p v-else-if="!audit.run.evaluated_at">Matching notifications are queued.</p>
-      <p v-else>Evaluated {{ new Date(audit.run.evaluated_at).toLocaleString() }}<span v-if="audit.run.error_code"> · Some results need review.</span></p>
-      <p>Sent means accepted by the sending service, not proof of reading. Current matches can differ from the original posting. Days and times need manual review.</p>
+      <p v-else>Notification evaluation {{ new Date(audit.run.evaluated_at).toLocaleString() }}<span v-if="audit.run.error_code"> · Some results need review.</span></p>
+      <p>Sent means accepted by the sending service, not proof of reading. Delivery receipts describe the original notification attempts; current matches can differ. Days and times need manual review.</p>
       <details v-for="group in [{title:'Matched providers',rows:matched},{title:'Providers not matched / needing review',rows:unmatched}]" :key="group.title">
         <summary>{{ group.title }} ({{ group.rows.length }})</summary>
         <article v-for="provider in group.rows" :key="provider.userId">

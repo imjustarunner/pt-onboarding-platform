@@ -61,3 +61,18 @@ it('uses initials in the exchange regardless of the chart display mode', async (
   expect(wrapper.findComponent({ name: 'ListingCard' }).props('clientLabel')).toBe('AB');
   expect(wrapper.text()).not.toContain('Synthetic Name'); wrapper.unmount();
 });
+it('shows the saved referral reference and opens its details after posting', async () => {
+  const listing = { id: 12, status: 'open', notes: 'Synthetic referral notes' };
+  mocks.user = { id: 7, role: 'provider' };
+  mocks.store = reactive({ currentAgency: { id: 450 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
+  mocks.route.query = {};
+  mocks.get.mockImplementation(async url => ({ data: url.endsWith('/12') ? { listing, requests: [] } : { listings: [listing], requests: [] } }));
+  const wrapper = makeWrapper(); await flushPromises();
+  await wrapper.findAll('button').find(button => button.text() === 'Internal referral').trigger('click');
+  wrapper.findComponent({ name: 'PostListingModal' }).vm.$emit('posted', listing);
+  await flushPromises();
+  expect(wrapper.find('[role="status"]').text()).toContain('Referral #12 posted');
+  expect(wrapper.text()).toContain('Synthetic referral notes');
+  expect(wrapper.find('.cep-detail-posted').text()).toContain('Referral #12');
+  wrapper.unmount();
+});

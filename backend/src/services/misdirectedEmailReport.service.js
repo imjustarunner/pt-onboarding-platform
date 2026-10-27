@@ -3,20 +3,12 @@
  */
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import { agencyEmailOrigin } from './agencyEmailOrigin.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS } from '../constants/supportTicketSources.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 
 function sha256(v) {
   return crypto.createHash('sha256').update(String(v)).digest('hex');
-}
-
-function publicAppBaseUrl() {
-  return String(
-    process.env.APP_PUBLIC_URL ||
-      process.env.FRONTEND_URL ||
-      process.env.CORS_ORIGIN ||
-      'https://plottwisthq.com'
-  ).replace(/\/$/, '');
 }
 
 function normalizeEmail(email) {
@@ -59,7 +51,7 @@ export async function createMisdirectedEmailReportLink({
     return null;
   }
 
-  return `${publicAppBaseUrl()}/report-misdirected-email/${encodeURIComponent(rawToken)}`;
+  return `${await agencyEmailOrigin(agencyId)}/report-misdirected-email/${encodeURIComponent(rawToken)}`;
 }
 
 export async function resolveMisdirectedReportToken(rawToken) {

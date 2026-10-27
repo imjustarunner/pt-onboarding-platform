@@ -96,6 +96,7 @@
       </div>
     </div>
 
+    <div v-if="postingReceipt" class="cep-banner cep-banner--info" role="status">{{ postingReceipt }}</div>
     <div v-if="error" class="cep-banner cep-banner--warn">{{ error }}</div>
 
     <!-- Split layout -->
@@ -198,7 +199,7 @@
               <strong class="cep-detail-client-label">{{ listingClientLabel(selectedListing) }}</strong>
               <span class="cep-detail-type">{{ formatClientType(selectedListing.clientType) }}</span>
             </div>
-            <p class="cep-detail-posted">Posted {{ formatDate(selectedListing.createdAt) }}</p>
+            <p class="cep-detail-posted">Referral #{{ selectedListing.id }} · Posted {{ formatDate(selectedListing.createdAt) }}</p>
           </div>
           <button type="button" class="cep-close-detail" @click="selectedListingId = null" title="Close">✕</button>
         </div>
@@ -287,7 +288,7 @@
     </div>
 
     <!-- Post listing modal -->
-    <NewReferralModal v-if="showNewReferral" :agency-id="agencyId" @close="showNewReferral = false" @posted="showNewReferral = false; onPosted()" />
+    <NewReferralModal v-if="showNewReferral" :agency-id="agencyId" @close="showNewReferral = false" @posted="onPosted" />
     <PostListingModal
       v-if="showPostModal"
       :agency-id="agencyId"
@@ -337,6 +338,7 @@ const showPostModal = ref(false);
 const selectedListingId = ref(null);
 const searchQuery = ref('');
 const actionPending = ref(false);
+const postingReceipt = ref('');
 const requestMessages = reactive({});
 
 const selectedListing = computed(() => {
@@ -517,9 +519,19 @@ function openPostModal() {
   showPostModal.value = true;
 }
 
-async function onPosted() {
+async function onPosted(listing) {
   showPostModal.value = false;
+  showNewReferral.value = false;
+  postingReceipt.value = listing?.id
+    ? `Referral #${listing.id} ${listing.alreadyPosted ? 'already exists; the saved details are shown below.' : 'posted. Review the saved details and matching results below.'}`
+    : 'Referral saved. Refresh or select the referral to review its details.';
   await load();
+  const saved = listings.value.find(row => row.id === Number(listing?.id));
+  if (saved) {
+    searchQuery.value = '';
+    activeTab.value = ['open', 'requested'].includes(saved.status) ? 'open' : 'closed';
+    selectListing(saved);
+  }
 }
 
 watch(() => route.query?.listingId, (id) => {
@@ -536,6 +548,7 @@ watch(agencyId, () => {
   requestsByListing.value = {};
   selectedListingId.value = null;
   showPostModal.value = false;
+  postingReceipt.value = '';
   error.value = '';
   loading.value = false;
   load();

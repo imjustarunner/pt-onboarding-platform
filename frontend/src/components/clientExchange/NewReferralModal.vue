@@ -32,7 +32,7 @@
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <div class="actions">
           <button type="submit" class="btn btn-primary" :disabled="busy || parsing || posted">{{ busy ? 'Saving…' : clientId ? 'Continue posting referral' : 'Post referral and notify support' }}</button>
-          <button type="button" class="btn btn-secondary" :disabled="busy" @click="posted ? $emit('posted') : $emit('close')">{{ posted ? 'Done' : 'Close' }}</button>
+          <button type="button" class="btn btn-secondary" :disabled="busy" @click="posted ? $emit('posted', postedListing) : $emit('close')">{{ posted ? 'Done' : 'Close' }}</button>
         </div>
       </form>
     </div>
@@ -58,6 +58,7 @@ const error = ref('');
 const showImport = ref(false);
 const imported = ref(false);
 const posted = ref(false);
+const postedListing = ref(null);
 async function readDemographics() {
   if (!records.demographics.trim() || clientId.value || parsing.value) return;
   parsing.value = true;
@@ -83,8 +84,11 @@ async function submit() {
     if (!imported.value && Object.values(records).some(text => text.trim())) { showImport.value = true; return; }
     const { data } = await api.post('/client-exchange/listings', { agencyId: props.agencyId, clientId: clientId.value });
     posted.value = true;
+    postedListing.value = data.listing;
+    if (data.listing?.alreadyPosted) { error.value = `Referral #${data.listing.id} already exists. Open it to review the saved details. No duplicate referral or matching notifications were created.`; return; }
     if (data.listing?.notifications?.failed) { error.value = 'Referral posted and support task created, but some matching emails could not be sent.'; return; }
-    emit('posted');
+    if (data.listing?.notifications?.queued) { error.value = `Referral #${data.listing.id} posted. Matching emails are awaiting approval in Communications.`; return; }
+    emit('posted', postedListing.value);
   } catch (e) { error.value = `${clientId.value ? 'Client and support task are saved. ' : ''}${e.response?.data?.error?.message || e.message || 'Unable to post referral'}`; }
   finally { busy.value = false; }
 }

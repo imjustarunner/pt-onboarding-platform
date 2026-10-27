@@ -1,0 +1,208 @@
+{
+  "at": "2026-10-27T10:33:02.715Z",
+  "checks": [
+    {
+      "role": "support",
+      "path": "/api/client-exchange/listings/12/audit",
+      "status": 200,
+      "providers": [
+        {
+          "userId": 1433,
+          "matched": false,
+          "checks": [
+            {
+              "field": "accepting",
+              "reason": "Provider sees clients and has intake availability.",
+              "status": "pass"
+            },
+            {
+              "field": "format",
+              "reason": "No compatible visit format is open for new clients.",
+              "status": "fail"
+            },
+            {
+              "field": "provider_gender",
+              "reason": "Provider gender preference is absent or cannot be verified.",
+              "status": "unknown"
+            },
+            {
+              "field": "age",
+              "reason": "Client age or provider age coverage is unknown.",
+              "status": "unknown"
+            },
+            {
+              "field": "clinical_exclusions",
+              "reason": "No recognized clinical concern is explicitly excluded.",
+              "status": "pass"
+            },
+            {
+              "field": "diagnoses",
+              "reason": "No recognized diagnosis or provider specialty coverage to verify.",
+              "status": "unknown"
+            },
+            {
+              "field": "concerns",
+              "reason": "Clinical concern or provider specialty coverage is unknown.",
+              "status": "unknown"
+            },
+            {
+              "field": "service",
+              "reason": "Service type coverage is not verified.",
+              "status": "unknown"
+            },
+            {
+              "field": "insurance_exclusions",
+              "reason": "Insurance is not explicitly excluded.",
+              "status": "pass"
+            },
+            {
+              "field": "insurance_credential",
+              "reason": "Insurance credential rules allow this referral.",
+              "status": "pass"
+            },
+            {
+              "field": "insurance",
+              "reason": "Provider insurance acceptance is unknown.",
+              "status": "unknown"
+            },
+            {
+              "field": "schedule",
+              "reason": "Requested days, times, and exact office location require manual review; calendar overlap is not checked.",
+              "status": "unknown"
+            }
+          ],
+          "email": {
+            "reason": "Provider did not match this evaluation.",
+            "status": "not_sent"
+          },
+          "sms": {
+            "reason": "Provider did not match this evaluation.",
+            "status": "not_sent"
+          }
+        }
+      ]
+    },
+    {
+      "role": "provider",
+      "path": "/api/communications/qa-email-inbox",
+      "status": 423,
+      "error": "Unlock your session to continue."
+    },
+    {
+      "role": "support",
+      "path": "/api/communications/qa-email-inbox",
+      "status": 200,
+      "address": "qa.support.auricwell@example.com",
+      "emails": [
+        {
+          "id": 3944,
+          "deliveryStatus": "sent"
+        },
+        {
+          "id": 3924,
+          "deliveryStatus": "sent"
+        }
+      ]
+    },
+    {
+      "role": "recovery-parent",
+      "path": "/api/communications/qa-email-inbox",
+      "status": 200,
+      "address": "qa.recovery.parent.20261025@example.com",
+      "emails": [
+        {
+          "id": 3945,
+          "deliveryStatus": "sent"
+        },
+        {
+          "id": 3928,
+          "deliveryStatus": "sent"
+        }
+      ]
+    },
+    {
+      "role": "support",
+      "path": "/api/clinical-notes/context?agencyId=450",
+      "status": 403,
+      "message": "Support can view documentation status, but cannot open clinical records."
+    },
+    {
+      "role": "support",
+      "path": "/api/agencies/450/settings-people-snapshot",
+      "status": 403,
+      "message": "Administrator access is required for agency configuration."
+    },
+    {
+      "role": "support",
+      "path": "/api/client-exchange/listings?agencyId=2",
+      "status": 403,
+      "message": "Forbidden"
+    },
+    {
+      "role": "public",
+      "path": "/api/public/agency-services/auricwell-qa-demo/providers/1433/slots?serviceType=counseling&programType=VIRTUAL&weekStart=2026-10-26",
+      "status": 200,
+      "online": true,
+      "slotCount": 16,
+      "firstSlot": {
+        "startAt": "2026-10-27T19:00:00.000Z",
+        "endAt": "2026-10-27T20:00:00.000Z",
+        "buildingId": null,
+        "buildingName": null,
+        "roomId": null,
+        "roomLabel": null,
+        "sessionType": "INTAKE",
+        "frequency": "WEEKLY",
+        "purpose": "ONGOING",
+        "careTypes": [
+          "INDIVIDUAL",
+          "COUPLES",
+          "FAMILY"
+        ],
+        "modality": "VIRTUAL",
+        "programType": "VIRTUAL",
+        "recurrence": {
+          "isRecurring": true,
+          "frequency": "WEEKLY"
+        },
+        "bookingMode": "NEW_CLIENT"
+      }
+    },
+    {
+      "role": "public",
+      "path": "/api/public-intake/[public-link]",
+      "status": 200,
+      "timezone": "America/Denver",
+      "keys": [
+        "link",
+        "recaptcha",
+        "organization",
+        "agency",
+        "communicationConsent",
+        "intakeLegal",
+        "officeCommunications",
+        "branding",
+        "issuedLink",
+        "boundClient",
+        "roiContext",
+        "disclosureContext",
+        "packetSectionContexts",
+        "jobDescription",
+        "templates"
+      ]
+    },
+    {
+      "role": "public",
+      "path": "/api/public-intake/[public-link]/disclosure-context",
+      "status": 200,
+      "keys": [
+        "disclosureContext"
+      ],
+      "providerIds": [
+        1433,
+        1438,
+        1439
+      ]
+    }
+  ]
+}

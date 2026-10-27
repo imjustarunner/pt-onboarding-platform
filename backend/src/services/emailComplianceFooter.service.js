@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import pool from '../config/database.js';
 import { isEmailOptedOut } from './emailOptOut.service.js';
 import { lookupSchoolStaffGroupContext } from './schoolGroupSubscription.service.js';
-import { publicAppBaseUrl } from './contactReminderToken.service.js';
+import { agencyEmailOrigin } from './agencyEmailOrigin.service.js';
 
 export const CONFIDENTIALITY_DISCLAIMER = [
   'CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!',
@@ -52,7 +52,7 @@ export async function createEmailOptOutLink({ email, agencyId = null, userId = n
     return null;
   }
 
-  return `${publicAppBaseUrl()}/email-opt-out/${encodeURIComponent(rawToken)}`;
+  return `${await agencyEmailOrigin(agencyId)}/email-opt-out/${encodeURIComponent(rawToken)}`;
 }
 
 /**

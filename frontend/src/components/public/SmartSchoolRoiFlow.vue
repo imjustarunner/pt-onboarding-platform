@@ -207,10 +207,10 @@
         {{ tr('This acknowledgement is required to continue.', 'Este reconocimiento es requerido para continuar.') }}
       </p>
       <div class="choice-row">
-        <label class="choice-card" @click.prevent="form.requiredAcknowledgements[currentAck.id] = true">
+        <label class="choice-card">
           <input
             :name="`ack_${currentAck.id}`"
-            :checked="form.requiredAcknowledgements[currentAck.id] === true"
+            v-model="form.requiredAcknowledgements[currentAck.id]"
             :value="true"
             type="radio"
           />
@@ -233,10 +233,10 @@
         {{ tr('This authorization is required to provide services in the school setting.', 'Esta autorizacion es requerida para brindar servicios en el entorno escolar.') }}
       </p>
       <div class="choice-row">
-        <label class="choice-card" @click.prevent="form.waiverItems[currentWaiver.id] = 'accept'">
+        <label class="choice-card">
           <input
             :name="`waiverDecision_${currentWaiver?.id || 'current'}`"
-            :checked="form.waiverItems[currentWaiver.id] === 'accept'"
+            v-model="form.waiverItems[currentWaiver.id]"
             value="accept"
             type="radio"
           />
@@ -245,11 +245,10 @@
         <label
           v-if="!currentWaiver?.requiredAccept"
           class="choice-card"
-          @click.prevent="form.waiverItems[currentWaiver.id] = 'decline'"
         >
           <input
             :name="`waiverDecision_${currentWaiver?.id || 'current'}`"
-            :checked="form.waiverItems[currentWaiver.id] === 'decline'"
+            v-model="form.waiverItems[currentWaiver.id]"
             value="decline"
             type="radio"
           />
@@ -286,9 +285,8 @@
             'ROI All Active: they may speak about treatment goals and progress and can access this client’s referral documents.',
             'ROI All Active: pueden hablar sobre las metas y el progreso del tratamiento y acceder a los documentos de referencia de este cliente.'
           )"
-          @click.prevent="form.staffDecisions[currentStaff.schoolStaffUserId] = 'roi_docs'"
         >
-          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'roi_docs'" value="roi_docs" type="radio" />
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="roi_docs" type="radio" />
           <span>
             <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
             <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
@@ -304,9 +302,8 @@
             'ROI (Speak): same portal access as ROI Active, and they may speak with the provider about treatment goals and progress. Referral documents stay hidden.',
             'ROI (Speak): mismo acceso al portal que ROI Active, y pueden hablar con el proveedor sobre las metas y el progreso del tratamiento. Los documentos de referencia permanecen ocultos.'
           )"
-          @click.prevent="form.staffDecisions[currentStaff.schoolStaffUserId] = 'roi'"
         >
-          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'roi'" value="roi" type="radio" />
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="roi" type="radio" />
           <span>
             <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
             <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
@@ -322,9 +319,8 @@
             'No ROI on file for this staff member. They cannot open this client in the school portal.',
             'Sin ROI en archivo para este miembro del personal. No pueden abrir este cliente en el portal escolar.'
           )"
-          @click.prevent="form.staffDecisions[currentStaff.schoolStaffUserId] = 'none'"
         >
-          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'none'" value="none" type="radio" />
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="none" type="radio" />
           <span>
             <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
             <span class="choice-detail">{{ tr('Deny all for this staff member. They cannot open this client or receive treatment-related disclosures.', 'Denegar todo para este miembro del personal. No pueden abrir este cliente ni recibir divulgaciones relacionadas con el tratamiento.') }}</span>
@@ -428,8 +424,8 @@
         <div class="staff-email" v-if="programmedRecipient?.phone">{{ programmedRecipient.phone }}</div>
       </div>
       <div class="choice-row">
-        <label class="choice-card choice-card--detail" @click.prevent="selectProgrammedExternalDecision('roi_docs')">
-          <input name="programmedExternalDecision" :checked="form.programmedExternalDecision === 'roi_docs'" value="roi_docs" type="radio" />
+        <label class="choice-card choice-card--detail">
+          <input name="programmedExternalDecision" v-model="form.programmedExternalDecision" @change="selectProgrammedExternalDecision(form.programmedExternalDecision)" value="roi_docs" type="radio" />
           <span>
             <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
             <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
@@ -439,8 +435,8 @@
             </ul>
           </span>
         </label>
-        <label class="choice-card choice-card--detail" @click.prevent="selectProgrammedExternalDecision('roi')">
-          <input name="programmedExternalDecision" :checked="form.programmedExternalDecision === 'roi'" value="roi" type="radio" />
+        <label class="choice-card choice-card--detail">
+          <input name="programmedExternalDecision" v-model="form.programmedExternalDecision" @change="selectProgrammedExternalDecision(form.programmedExternalDecision)" value="roi" type="radio" />
           <span>
             <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
             <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
@@ -449,8 +445,8 @@
             </ul>
           </span>
         </label>
-        <label class="choice-card choice-card--detail" @click.prevent="selectProgrammedExternalDecision('none')">
-          <input name="programmedExternalDecision" :checked="form.programmedExternalDecision === 'none'" value="none" type="radio" />
+        <label class="choice-card choice-card--detail">
+          <input name="programmedExternalDecision" v-model="form.programmedExternalDecision" @change="selectProgrammedExternalDecision(form.programmedExternalDecision)" value="none" type="radio" />
           <span>
             <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
             <span class="choice-detail">{{ tr('Deny all for this recipient.', 'Denegar todo para este destinatario.') }}</span>

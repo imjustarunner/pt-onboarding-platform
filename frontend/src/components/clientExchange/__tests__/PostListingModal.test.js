@@ -51,3 +51,19 @@ it('prefills client fit selections and includes edits in the posted referral',as
  const edited={...saved,modalities:['EMDR']};editor.vm.$emit('update:modelValue',edited);await wrapper.find('.btn-primary').trigger('click');await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings',expect.objectContaining({preferences:expect.objectContaining({matchingPreferences:edited})}));wrapper.unmount();
 });
+it('keeps duplicate referral edits visible and clearly says they were not saved', async () => {
+  mocks.post.mockResolvedValue({ data: { listing: { id: 12, alreadyPosted: true, notes: 'Original notes' } } });
+  const wrapper = mount(Modal, { props: { agencyId: 450, presetClientId: 2264, lockClient: true } });
+  await flushPromises();
+  await wrapper.find('textarea[placeholder^="Why"]').setValue('New notes');
+  await wrapper.find('.btn-primary').trigger('click'); await flushPromises();
+  expect(wrapper.text()).toContain('Referral #12 already exists');
+  expect(wrapper.text()).toContain('Your new notes and preferences were not saved');
+  expect(wrapper.find('textarea[placeholder^="Why"]').element.value).toBe('New notes');
+  expect(wrapper.emitted('posted')).toBeUndefined();
+  expect(wrapper.find('.btn-primary').attributes('disabled')).toBeDefined();
+  await wrapper.find('.modal-actions .btn-secondary').trigger('click');
+  expect(wrapper.emitted('posted')[0][0]).toMatchObject({ id: 12, alreadyPosted: true });
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+  wrapper.unmount();
+});

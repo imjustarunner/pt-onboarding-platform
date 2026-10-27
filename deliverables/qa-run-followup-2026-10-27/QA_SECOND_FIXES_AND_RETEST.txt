@@ -1,0 +1,53 @@
+AuricWell QA — additional fixes and retest instructions, October 27, 2026
+Forward this alongside QA_RUN_FOLLOWUP_ADDENDUM.txt. Earlier instructions remain intact.
+
+Live verification of first deployment (95d889c421dc51eecb6d4fb9699ee549c39bd9b8)
+Backend workflow 40487620568 and frontend workflow 40487620567 succeeded.
+- Provider 1433: availability settings, staff calendar, Tasks, Note Workspace, Library and Client Exchange render. Library no longer returns the company-guide permission error.
+- Public virtual booking: online scheduling true, 16 future openings in the week of October 26. Intake link returns America/Denver. Disclosure contains only 1433, 1438 and 1439.
+- Support 1434: can view provider 1433's calendar and Exchange listing 12. API checks deny clinical-note context, agency configuration and agency 2's Exchange with 403.
+- Support and recovery-parent recipients can read their own recorded reset emails via the QA email inbox. This is separate from proving external arrival or the family portal's full Messages interaction.
+- Supervisee 1439 signs in using the existing saved credential and sees agreement 413. No credential rotation occurred.
+
+Additional source fixes in this delivery
+- Referral cards and posting results show a reference number. Opening a successful posting selects its saved details and matching audit.
+- Reposting an existing referral now explicitly says that the new notes/preferences were NOT saved. The dialog retains entered notes. Existing referrals are not overwritten and duplicate alerts are not sent.
+- Refresh audit recalculates current matching using the same evaluator as notification delivery. It retains original delivery receipts and does not send messages. Previously the interface called yesterday's saved result current.
+- School ROI acknowledgements and permissions now use native radio selection so a selected answer remains visibly checked, including after going back.
+- Recovery and other agency emails use the sending agency's app host for opt-out/misdirected-email footer links. QA links use app.itsco.health. Token validation and existing access checks remain in force.
+- Viewing another provider's calendar no longer labels a support user's view “Admin preview.” The user keeps their actual account and permissions.
+Validation: 69 backend tests covering these services and support/isolation policies; 23 frontend tests including native ROI-label selection, duplicate referral handling, receipts and matching audit. Production build status is recorded below after completion.
+
+Correct support and supervision paths
+Find providers and open their scheduling tools:
+https://app.itsco.health/auricwell-qa-demo/admin/find-providers
+Support's provider calendar:
+https://app.itsco.health/auricwell-qa-demo/dashboard?tab=my_schedule&scheduleViewAs=1433
+Exchange and existing referral audit:
+https://app.itsco.health/auricwell-qa-demo/client-exchange?listingId=12
+Supervision agreement:
+https://app.itsco.health/auricwell-qa-demo/supervision/agreements
+The URL segment /admin/find-providers is shared with coordination staff; it does not grant an administrator role. /supervisor-availability is not a registered page and must not be used.
+
+Run pacing
+Keep one browser context per person. Stagger launches. Navigate using application links rather than repeatedly reloading the entire dashboard. Start with at least 45 seconds between full page loads and no simultaneous cold launches from the same IP. On HTTP 429, pause new activity for the indicated cooldown (at least 60 seconds if none is supplied), then retry the affected page. Do not rotate IPs or bypass protection. Report any throttling during ordinary navigation.
+The shared Cloud Armor threshold is still 500 requests/minute/IP. Automatic approval review rejected raising it to 2,000 because that would weaken a shared security control beyond the demo scope. Only the response code was changed from misleading HTML 403 to 429. Application authentication and recovery limits are unchanged.
+
+How to retest Exchange
+1. Use support to open listing 12 and Refresh audit. Capture the new evaluation time and expand every reason. Old email receipts may still say not sent: refreshing is read-only.
+2. The earlier saved evaluation rejected 1433 for visit-format availability. Compare the fresh evaluation after the provider's current agency availability settings load. Do not treat unknown insurance, age or specialty coverage as a verified match.
+3. Use a distinct synthetic client/referral within the 30-client cap for a new notification attempt. Do not repost listing 12 expecting new notes or a new alert.
+4. Use initial placement/transfer for an unassigned client. Additional services retains a current therapist and requires one to be assigned first.
+5. Record referral ID, typed notes, saved notes, match reasons, provider claim response and assignment result. Verify both external email and each recipient's own “Email for …” inbox.
+6. Dates, times and exact office overlap currently require manual review. Language, location, capacity and structured self-pay matching are not fully implemented; do not report these as automated matching passes.
+
+Open checks — no overall PASS yet
+- Fresh school/office EN/ES packets must be signed against the corrected disclosure roster and produce a real completion receipt. Packets 1268–1271 remain needs_review; their old consent must not be treated as covering a newly populated disclosure.
+- Actual booking, reschedule, same-day cancellation, reminders, provider claim/assignment, and supervisee note/cosign still need complete journeys and receipts.
+- Original Oct 25 office clients were filed under the school; their retained classification has not been silently rewritten. Oct 26 office clients are under clinic 452.
+- The guardian portal remains largely English; Spanish intake alone does not establish a translated portal. Residual Spanish labels, placeholders, date entry and e-sign timezone labels remain open.
+- No training quiz assignment has been verified. A working Library page does not prove quiz readiness.
+- Inactive-account and expired-temporary-password fixtures remain unprovisioned.
+- Current recurring virtual openings end November 1. Provider bots need to publish future openings normally before later runs.
+
+Production build: PASS (55.56 seconds). The additional fixes above are awaiting the deployment triggered by this commit; post-deployment results will be appended below.
