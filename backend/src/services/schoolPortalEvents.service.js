@@ -8,6 +8,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import ProviderAvailabilityService from './providerAvailability.service.js';
 import { materializeSessionsForEvent } from './companyEventSessionDates.service.js';
+import { prepareEventVenueUpdate, saveEventVenue } from './companyEventVenue.service.js';
 
 export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_back_to_school',
@@ -330,6 +331,8 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     organizationId: row.organization_id != null ? Number(row.organization_id) : null,
     title: row.title || '',
     description: row.description || '',
+    eventLocationName: String(row.event_location_name || '').trim(),
+    eventLocationAddress: String(row.event_location_address || '').trim() || String(row.public_location_address || '').trim(),
     eventType,
     category: eventTypeToCategory(eventType),
     startsAt: row.starts_at,
@@ -554,6 +557,7 @@ export async function loadSchoolMeta(organizationId) {
 }
 
 export async function createSchoolPortalEvent({
+  eventVenue = {},
   eventOperations = {},
   canAssignEventCoordinators = false,
   agencyId,
@@ -578,6 +582,7 @@ export async function createSchoolPortalEvent({
   const operations = await validateEventOperations({ body: eventOperations, actorUserId: userId, agencyId, canAssignCoordinators: canAssignEventCoordinators });
   const eventType = categoryToEventType(category);
   if (!eventType) throw Object.assign(new Error('Invalid event category'), { status: 400 });
+  const venue = await prepareEventVenueUpdate({ body: eventVenue, organizationId, requireAddress: eventType === 'school_outreach' });
 
   const start = startsAt instanceof Date ? startsAt : new Date(startsAt);
   const end = endsAt instanceof Date ? endsAt : new Date(endsAt);
@@ -801,6 +806,7 @@ export async function createSchoolPortalEvent({
   }
 
   const eventId = Number(insertResult.insertId);
+  await saveEventVenue({ eventId, agencyId, venue });
   await materializeSessionsForEvent(pool, { companyEventId: eventId });
   await syncSchoolEventAnnouncement({
     organizationId,
@@ -820,6 +826,7 @@ export async function createSchoolPortalEvent({
 }
 
 export async function updateSchoolPortalEvent({
+  eventVenue = {},
   eventOperations = {},
   canAssignEventCoordinators = false,
   eventId,
@@ -855,6 +862,7 @@ export async function updateSchoolPortalEvent({
 
   const eventType = category ? categoryToEventType(category) : String(existing.event_type);
   if (!eventType) throw Object.assign(new Error('Invalid event category'), { status: 400 });
+  const venue = await prepareEventVenueUpdate({ body: eventVenue, existing, organizationId, requireAddress: eventType === 'school_outreach' });
 
   const start = startsAt ? (startsAt instanceof Date ? startsAt : new Date(startsAt)) : new Date(existing.starts_at);
   const end = endsAt ? (endsAt instanceof Date ? endsAt : new Date(endsAt)) : new Date(existing.ends_at);
@@ -1044,6 +1052,7 @@ export async function updateSchoolPortalEvent({
     }
   }
 
+  await saveEventVenue({ eventId, agencyId, venue });
   if (status !== 'canceled') {
     await materializeSessionsForEvent(pool, { companyEventId: eventId });
   }
@@ -1790,6 +1799,7 @@ export async function listSchoolIdsForDistrict(agencyId, districtName) {
  * Returns created events + shared districtBroadcastId.
  */
 export async function createDistrictSchoolEvents({
+  eventVenue = {},
   eventOperations = {},
   canAssignEventCoordinators = false,
   agencyId,
@@ -1828,6 +1838,7 @@ export async function createDistrictSchoolEvents({
     try {
       // eslint-disable-next-line no-await-in-loop
       const event = await createSchoolPortalEvent({
+        eventVenue,
         eventOperations, canAssignEventCoordinators,
         agencyId,
         organizationId,
@@ -1876,6 +1887,7 @@ export async function createDistrictSchoolEvents({
  * Visible in Caseload Hub, Outreach Hub Events, and provider company-events calendar; not on school portals.
  */
 export async function createDistrictOutreachEvent({
+  eventVenue = {},
   eventOperations = {},
   canAssignEventCoordinators = false,
   agencyId,
@@ -1947,6 +1959,7 @@ export async function createDistrictOutreachEvent({
   const reportTime = parseSchoolEventWallTime(employeeReportTime);
   const nextDetailsUrl = normalizeDetailsUrl(detailsUrl) ?? null;
   const eventType = 'school_outreach';
+  const venue = await prepareEventVenueUpdate({ body: eventVenue, requireAddress: true });
 
   let insertResult;
   try {
@@ -2011,6 +2024,7 @@ export async function createDistrictOutreachEvent({
   }
 
   const eventId = Number(insertResult.insertId);
+  await saveEventVenue({ eventId, agencyId: aid, venue });
   await materializeSessionsForEvent(pool, { companyEventId: eventId });
 
   await saveEventOperations({ eventId: eventId, agencyId, actorUserId: userId, operations });
@@ -2019,6 +2033,7 @@ export async function createDistrictOutreachEvent({
 }
 
 export async function updateDistrictOutreachEvent({
+  eventVenue = {},
   eventOperations = {},
   canAssignEventCoordinators = false,
   eventId,
@@ -2054,6 +2069,7 @@ export async function updateDistrictOutreachEvent({
   if (!existing) {
     throw Object.assign(new Error('District outreach event not found'), { status: 404 });
   }
+  const venue = await prepareEventVenueUpdate({ body: eventVenue, existing, requireAddress: true });
   const operations = await validateEventOperations({ body: eventOperations, existing, actorUserId: userId, agencyId, canAssignCoordinators: canAssignEventCoordinators });
 
   const nextTitle = title !== undefined ? String(title || '').trim() : existing.title;
@@ -2177,6 +2193,7 @@ export async function updateDistrictOutreachEvent({
     );
   }
 
+  await saveEventVenue({ eventId: eid, agencyId: aid, venue });
   await materializeSessionsForEvent(pool, { companyEventId: eid });
   await saveEventOperations({ eventId: eid, agencyId, actorUserId: userId, operations });
   const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eid]);
@@ -2233,6 +2250,7 @@ export async function deleteDistrictOutreachEvent({ eventId, agencyId, userId = 
  * Shared fields (title, type, times, etc.) are applied to each school copy.
  */
 export async function updateDistrictSchoolEvents({
+  eventVenue = {},
   eventOperations = {},
   canAssignEventCoordinators = false,
   agencyId,
@@ -2284,6 +2302,7 @@ export async function updateDistrictSchoolEvents({
             title, description, eventType: category ? categoryToEventType(category) : undefined,
             startsAt, endsAt, timezone, detailsUrl, schoolEventStatus }))
         : await updateSchoolPortalEvent({
+        eventVenue,
         eventOperations, canAssignEventCoordinators,
         eventId: Number(row.id),
         organizationId: Number(row.organization_id),

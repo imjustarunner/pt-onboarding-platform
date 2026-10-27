@@ -160,6 +160,15 @@
                 <input v-model.trim="draft.title" class="input" maxlength="255" />
               </div>
               <div class="form-group">
+                <label class="sb-ce-lbl" for="sb-ce-venue-name">Venue name (optional)</label>
+                <input id="sb-ce-venue-name" v-model.trim="draft.eventLocationName" class="input" maxlength="255" />
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl" for="sb-ce-venue-address">Venue address</label>
+                <input id="sb-ce-venue-address" v-model.trim="draft.eventLocationAddress" class="input" maxlength="500" placeholder="Full street address, city, state, ZIP" />
+                <small class="form-help">Used for event directions and travel reimbursement distances.</small>
+              </div>
+              <div class="form-group">
                 <label class="sb-ce-lbl">Event type</label>
                 <select v-model="eventTypeSelection" class="input" @change="applyEventTypeSelection">
                   <option v-for="opt in EVENT_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -934,7 +943,7 @@
               <div v-if="draft.inPersonPublic" class="form-group">
                 <label class="sb-ce-lbl">Venue address</label>
                 <textarea
-                  v-model.trim="draft.publicLocationAddress"
+                  v-model.trim="draft.eventLocationAddress"
                   class="input"
                   rows="2"
                   placeholder="Full address for maps and driving-distance search"
@@ -1581,6 +1590,8 @@ function emptyDraft() {
   return {
     title: '',
     description: '',
+    eventLocationName: '',
+    eventLocationAddress: '',
     eventType: 'company_event',
     splashContent: '',
     timezone: 'UTC',
@@ -1641,7 +1652,6 @@ function emptyDraft() {
     registrationFormUrl: '',
     publicListingDetails: '',
     inPersonPublic: false,
-    publicLocationAddress: '',
     publicAgeMin: '',
     publicAgeMax: '',
     publicSessionLabel: '',
@@ -1899,6 +1909,8 @@ function populateFromEvent(event) {
   draft.value = {
     title: event.title || '',
     description: event.description || '',
+    eventLocationName: event.eventLocationName || '',
+    eventLocationAddress: event.eventLocationAddress || event.publicLocationAddress || '',
     eventType: event.eventType || 'company_event',
     splashContent: event.splashContent || '',
     timezone: editTz,
@@ -1978,7 +1990,6 @@ function populateFromEvent(event) {
     registrationFormUrl: String(event.registrationFormUrl || '').trim(),
     publicListingDetails: String(event.publicListingDetails || '').trim(),
     inPersonPublic: !!event.inPersonPublic,
-    publicLocationAddress: String(event.publicLocationAddress || '').trim(),
     publicAgeMin:
       event.publicAgeMin != null && event.publicAgeMin !== '' ? String(Number(event.publicAgeMin)) : '',
     publicAgeMax:
@@ -2713,6 +2724,9 @@ function validateAndBuildPersistPayload() {
   if (!draft.value.title.trim()) {
     return { ok: false, error: 'Title is required.' };
   }
+  if ((draft.value.eventLocationName || draft.value.eventType === 'school_outreach') && !draft.value.eventLocationAddress) {
+    return { ok: false, error: 'Add the venue’s full street address, city, state, and ZIP.' };
+  }
   if (!startsAt || !endsAt || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
     return { ok: false, error: 'Start and end dates are required.' };
   }
@@ -2738,6 +2752,8 @@ function validateAndBuildPersistPayload() {
   const payload = {
     title: draft.value.title,
     description: draft.value.description,
+    eventLocationName: draft.value.eventLocationName,
+    eventLocationAddress: draft.value.eventLocationAddress,
     eventType: draft.value.eventType || 'company_event',
     splashContent: draft.value.splashContent,
     startsAt: startsAtIso,
@@ -2820,7 +2836,7 @@ function validateAndBuildPersistPayload() {
     publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
     inPersonPublic: !!draft.value.inPersonPublic,
     publicLocationAddress: draft.value.inPersonPublic
-      ? String(draft.value.publicLocationAddress || '').trim() || null
+      ? String(draft.value.eventLocationAddress || '').trim() || null
       : null,
     publicAgeMin: (() => {
       const s = String(draft.value.publicAgeMin || '').trim();

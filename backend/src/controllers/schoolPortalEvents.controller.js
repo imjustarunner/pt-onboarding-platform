@@ -426,6 +426,7 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
     }
 
     const event = await createSchoolPortalEvent({
+      eventVenue: req.body || {},
       eventOperations: req.body || {},
       canAssignEventCoordinators: ['super_admin', 'admin', 'staff', 'support'].includes(String(req.user?.role || '').toLowerCase()),
       agencyId,
@@ -484,6 +485,7 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
     }
 
     const event = await updateSchoolPortalEvent({
+      eventVenue: req.body || {},
       eventOperations: req.body || {},
       canAssignEventCoordinators: ['super_admin', 'admin', 'staff', 'support'].includes(String(req.user?.role || '').toLowerCase()),
       eventId,
@@ -680,6 +682,7 @@ export const updateDistrictSchoolEventHandler = async (req, res, next) => {
     }
 
     const result = await updateDistrictSchoolEvents({
+      eventVenue: req.body || {},
       eventOperations: req.body || {},
       canAssignEventCoordinators: ['super_admin', 'admin', 'staff', 'support'].includes(String(req.user?.role || '').toLowerCase()),
       agencyId,
@@ -733,6 +736,7 @@ export const createDistrictSchoolEventHandler = async (req, res, next) => {
     });
 
     const result = await createDistrictSchoolEvents({
+      eventVenue: req.body || {},
       eventOperations: req.body || {},
       canAssignEventCoordinators: ['super_admin', 'admin', 'staff', 'support'].includes(String(req.user?.role || '').toLowerCase()),
       agencyId,
@@ -773,6 +777,7 @@ export const createDistrictOutreachEventHandler = async (req, res, next) => {
     }
 
     const event = await createDistrictOutreachEvent({
+      eventVenue: req.body || {},
       eventOperations: req.body || {},
       canAssignEventCoordinators: ['super_admin', 'admin', 'staff', 'support'].includes(String(req.user?.role || '').toLowerCase()),
       agencyId,
@@ -808,6 +813,7 @@ export const updateDistrictOutreachEventHandler = async (req, res, next) => {
     const parsed = parseSchoolEventBody(req.body || {});
 
     const event = await updateDistrictOutreachEvent({
+      eventVenue: req.body || {},
       eventOperations: req.body || {},
       canAssignEventCoordinators: ['super_admin', 'admin', 'staff', 'support'].includes(String(req.user?.role || '').toLowerCase()),
       eventId,

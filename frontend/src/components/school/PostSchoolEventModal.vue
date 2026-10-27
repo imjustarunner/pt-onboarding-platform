@@ -82,8 +82,20 @@
 
           <label class="field">
             <span class="lbl">Details</span>
-            <textarea v-model="form.description" rows="3" class="textarea" placeholder="Location, what families should expect, etc." />
+            <textarea v-model="form.description" rows="3" class="textarea" placeholder="What families should expect, arrival instructions, etc." />
           </label>
+
+          <template v-if="!isCalendarOnlyCategory">
+            <label class="field">
+              <span class="lbl">Venue name (optional)</span>
+              <input v-model.trim="form.eventLocationName" aria-label="Venue name" class="input" maxlength="255" placeholder="e.g., Community center" />
+            </label>
+            <label class="field">
+              <span class="lbl">Venue address</span>
+              <input v-model.trim="form.eventLocationAddress" aria-label="Venue address" class="input" maxlength="500" placeholder="Full street address, city, state, ZIP" />
+              <span class="hint">Used for event directions and travel reimbursement distances. Enter the actual event location, including when it differs from the school.</span>
+            </label>
+          </template>
 
           <label v-if="editEvent" class="field">
             <span class="lbl">Status</span>
@@ -432,6 +444,8 @@ const form = reactive({
   category: 'back_to_school',
   title: '',
   description: '',
+  eventLocationName: '',
+  eventLocationAddress: '',
   date: '',
   endDate: '',
   reportTime: '',
@@ -671,12 +685,20 @@ const submit = async () => {
       error.value = 'Enter a start date and an end date on or after it. For events, the end time must be after the start time.';
       return;
     }
+    if (!isCalendarOnlyCategory.value && (isOutreachCreate.value || isOutreachEvent.value || form.eventLocationName) && !form.eventLocationAddress) {
+      error.value = 'Add the venue’s full street address, city, state, and ZIP.';
+      return;
+    }
     if (!isCalendarOnlyCategory.value && eventPaymentError(form)) { error.value = eventPaymentError(form); return; }
     const payload = withReinitIdentity({
       ...(!isCalendarOnlyCategory.value && canEditOperations.value ? eventOperationsPayload(form) : {}),
       category: isDistrictOutreachCreate.value || isDistrictOutreachEvent.value ? 'outreach' : form.category,
       title: form.title.trim(),
       description: form.description.trim(),
+      ...(!isCalendarOnlyCategory.value ? {
+        eventLocationName: form.eventLocationName.trim(),
+        eventLocationAddress: form.eventLocationAddress.trim()
+      } : {}),
       startsAt: range.startsAt,
       endsAt: range.endsAt,
       timezone: form.timezone || schoolTimezone.value || SCHOOL_EVENT_FALLBACK_TIMEZONE,
@@ -831,6 +853,8 @@ const hydrateFromEdit = () => {
   form.category = e.category || 'back_to_school';
   form.title = e.title || '';
   form.description = e.description || '';
+  form.eventLocationName = e.eventLocationName || '';
+  form.eventLocationAddress = e.eventLocationAddress || e.publicLocationAddress || '';
   form.date = toZonedDateInput(e.startsAt, tz);
   form.endDate = toZonedDateInput(e.endsAt, tz);
   form.reportTime = wallTimeToInput(e.employeeReportTime);

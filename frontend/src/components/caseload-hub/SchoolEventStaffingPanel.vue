@@ -424,6 +424,8 @@ const editEventPayload = computed(() => {
     id: e.id,
     title: e.title,
     description: e.description,
+    eventLocationName: e.eventLocationName || '',
+    eventLocationAddress: e.eventLocationAddress || e.publicLocationAddress || '',
     category: eventTypeToCategory(e.eventType),
     startsAt: e.startsAt,
     endsAt: e.endsAt,
