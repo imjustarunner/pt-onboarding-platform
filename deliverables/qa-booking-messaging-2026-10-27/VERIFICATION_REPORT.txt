@@ -53,3 +53,11 @@ DISPLAY CHANGE REQUESTED DURING VERIFICATION
 Families can see a recorded service price as reference while coverage/payment responsibility is pending, with their share marked Pending and $0 due. Previously recorded copays are clearly distinguished from a full service price. Confirmed self-pay remains payable through the existing completed-service and agreed-price path without an insurance eligibility response. Synthetic demo balances remain noncollectible. The same distinctions are included in downloadable statements.
 The frontend production build passed with an 8 GB Node heap; an initial default-heap attempt ran out of memory. The 9a04b4ffa backend deployment completed successfully: https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40531446423
 The subsequent reference-price display change still requires its own deployment verification below.
+
+REFERENCE-PRICE VISUAL CHECK
+Local browser renders show the $120 service price, pending share, and $0 due during coverage review; confirmed self-pay shows $120 due and its normal payment action. Pending-state mobile layout was checked at 390 px with no horizontal overflow. Screenshots are labeled as local previews. No actual payment was attempted. Main source release: 0574a91c65db41a83051a4d44878a70f54ea9e56.
+GitHub guardian billing and scheduling regression workflows both passed for this release.
+
+LIVE BILLING DISPLAY VERIFIED
+The deployed fictional-parent page now shows the $80 late-cancellation, $100 no-show, and $120 session examples. The same authenticated API returned all three with dueCents=0 and canPay=false; the rendered page has no Make a payment button. See family-demo-balances-live.png and family-balance-verification.json. No real money was collected.
+The owner additionally requested verification of recurring 50/50 splits, alternating payers, and payment plans. A new payer-arrangements addendum will record that work; it is not covered by the earlier booking pass.

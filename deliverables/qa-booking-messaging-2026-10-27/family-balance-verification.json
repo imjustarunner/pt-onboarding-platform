@@ -1,59 +1,41 @@
 {
+  "actorId": 1440,
   "agencyId": 450,
   "clientId": 2271,
-  "syntheticOnly": true,
   "realCollectionAttempted": false,
-  "payerAcceptance": {
-    "success": true
-  },
-  "allocations": [
-    {
-      "receivableId": 13,
-      "result": {
-        "success": true
-      }
-    },
-    {
-      "receivableId": 14,
-      "result": {
-        "success": true
-      }
-    },
-    {
-      "receivableId": 15,
-      "result": {
-        "success": true
-      }
-    }
-  ],
   "balances": [
     {
       "receivableId": 13,
       "clientId": 2271,
       "payerUserId": 1440,
-      "totalCents": null,
-      "status": "review",
-      "holdReason": "insurance_review",
-      "canPay": false
+      "demoAmountCents": 8000,
+      "dueCents": 0,
+      "canPay": false,
+      "description": "Late cancellation",
+      "explanation": "Test balance only. Nothing is due and payments are disabled."
     },
     {
       "receivableId": 14,
       "clientId": 2271,
       "payerUserId": 1440,
-      "totalCents": null,
-      "status": "review",
-      "holdReason": "insurance_review",
-      "canPay": false
+      "demoAmountCents": 10000,
+      "dueCents": 0,
+      "canPay": false,
+      "description": "Missed appointment",
+      "explanation": "Test balance only. Nothing is due and payments are disabled."
     },
     {
       "receivableId": 15,
       "clientId": 2271,
       "payerUserId": 1440,
-      "totalCents": null,
-      "status": "review",
-      "holdReason": "insurance_review",
-      "canPay": false
+      "demoAmountCents": 12000,
+      "dueCents": 0,
+      "canPay": false,
+      "description": "Counseling session",
+      "explanation": "Test balance only. Nothing is due and payments are disabled."
     }
   ],
-  "passed": true
+  "apiPassed": true,
+  "browserPassed": true,
+  "summary": "Your verified amount due\n$0.00\nOnly your assigned share; excludes holds and pending payments\nPayment plans\n0\nReview schedules and authorization below\nPayment setup tasks\n0\nComplete your card verification and waiver"
 }

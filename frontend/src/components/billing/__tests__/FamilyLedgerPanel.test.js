@@ -67,3 +67,18 @@ it('offers payment for confirmed self-pay instead of showing pending coverage',a
  const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();
  expect(w.find('.ledger-summary').text()).toContain('$120.00');expect(w.find('.coverage-review').exists()).toBe(false);expect(button(w,'Make a payment')).toBeDefined();expect(w.text()).toContain('Visit · Self-pay');w.unmount();
 });
+
+it('allows the demo payer to arrange a split and accept a manual plan while payment stays disabled',async()=>{
+ balances=[{receivableId:13,allocationId:13,clientId:2271,isOwnShare:true,billingState:'review',status:'review',demoAmountCents:8000,dueCents:0,balanceCents:0,canPay:false,canArrangePayments:true,autoPayAvailable:false}];
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:450},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.text()).toContain('Request to share this balance');expect(button(w,'Make a payment')).toBeUndefined();
+ balances=[{...balances[0],plan:{id:4,status:'proposed',autoPay:false,installments:[{id:1,dueDate:'2099-11-01',balanceCents:4000},{id:2,dueDate:'2099-12-01',balanceCents:4000}]}}];
+ await button(w,'Refresh').trigger('click');await flushPromises();
+ expect(w.text()).toContain('Payment plan');expect(w.text()).not.toContain('Automatically pay installments');
+ await w.find('details input').setValue('Synthetic Parent');api.post.mockResolvedValue({data:{success:true}});await button(w,'Accept payment plan').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/family-billing/plans/4/accept',expect.objectContaining({agencyId:450,autoPay:false,consent:expect.objectContaining({signatureName:'Synthetic Parent'})}));expect(button(w,'Make a payment')).toBeUndefined();w.unmount();
+});
+it('lets the owning payer cancel an automatic plan even when its balance is held',async()=>{
+ balances=[{receivableId:13,allocationId:13,isOwnShare:true,billingState:'review',canPay:false,canArrangePayments:false,dueCents:0,plan:{id:4,status:'active',autoPay:true,installments:[]}}];api.post.mockResolvedValue({data:{success:true}});
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();await button(w,'Cancel plan').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/family-billing/plans/4/cancel',{agencyId:1});w.unmount();
+});

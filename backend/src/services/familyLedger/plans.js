@@ -4,6 +4,24 @@ import { encryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { cents, dateOnly, today, transaction, allocationDue, assertCollectible } from './policy.js';
 import { lockAllocation, payAllocation, activeCard } from './payments.js';
 import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
+import { isAuricwellQaAgency } from '../../utils/auricwellQaPolicy.js';
+import { sourcePayload } from './receivables.js';
+import { assertLedgerIntegrity } from './integrity.js';
+
+// A synthetic schedule can be reviewed and signed without releasing its balance
+// for collection. All actual payment paths still use assertCollectible.
+export async function assertPlanable(receivable, db = pool, { autoPay = false } = {}) {
+  if (receivable.source_type !== 'qa_appointment') return assertCollectible(receivable, db);
+  if (autoPay || Number(receivable.agency_id) !== 450 || receivable.status !== 'review'
+    || receivable.hold_reason !== 'synthetic_demo' || receivable.disputed_at) {
+    throw billingError(409, 'Demo plans can be arranged without automatic payment; the synthetic balance must remain on hold.');
+  }
+  const payload = sourcePayload(receivable);
+  if (payload.syntheticOnly !== true || payload.noCollection !== true) throw billingError(409, 'Synthetic plan evidence is missing.');
+  const [[agency]] = await db.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=?', [receivable.agency_id]);
+  if (!isAuricwellQaAgency(agency)) throw billingError(409, 'Synthetic plan setup requires the isolated demo organization.');
+  await assertLedgerIntegrity(receivable, db);
+}
 
 export const PLAN_TERMS_VERSION='family-payment-plan-2026-09-v1';
 export function validateInstallments(installments,total) {
@@ -15,7 +33,7 @@ export function validateInstallments(installments,total) {
 export function installmentBalances(installments,paid){let remaining=Math.max(0,Number(paid));return installments.map(i=>{const used=Math.min(Number(i.amount_cents),remaining);remaining-=used;return {...i,balance_cents:Number(i.amount_cents)-used};});}
 export async function proposePlan({agencyId,allocationId,installments,actorUserId}) {
   return transaction(async db=>{
-    const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);await assertCollectible(receivable,db);
+    const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);await assertPlanable(receivable,db);
     if(!allocation.payer_user_id)throw billingError(409,'Assign a responsible payer first');
     const rows=validateInstallments(installments,allocationDue(allocation));
     if(rows[0].dueDate<today())throw billingError(400,'The first installment cannot be in the past');
@@ -33,7 +51,7 @@ export async function acceptPlan({agencyId,planId,userId,autoPay,consent,ip,user
     const [lookup]=await db.execute('SELECT * FROM family_payment_plans WHERE id=? AND agency_id=?',[planId,agencyId]);
     if(!lookup.length||Number(lookup[0].payer_user_id)!==Number(userId))throw billingError(403,'Payment plan belongs to another payer');
     const {receivable,allocation}=await lockAllocation(agencyId,lookup[0].allocation_id,db);
-    const payer=await requireResponsiblePayer(userId,receivable.client_id,agencyId,db);await assertCollectible(receivable,db);
+    const payer=await requireResponsiblePayer(userId,receivable.client_id,agencyId,db);await assertPlanable(receivable,db,{autoPay:!!autoPay});
     const [rows]=await db.execute('SELECT * FROM family_payment_plans WHERE id=? FOR UPDATE',[planId]);const plan=rows[0];
     if(plan.status!=='proposed'||Number(plan.paid_before_cents)!==Number(allocation.paid_cents))throw billingError(409,'The balance or plan changed; request an updated plan');
     if(autoPay)await activeCard(agencyId,receivable.client_id,userId,db);

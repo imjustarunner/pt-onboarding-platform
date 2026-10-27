@@ -34,7 +34,9 @@ export async function listBalances({agencyId,userId,clientId=null,staff=false,ov
     if(!staff){if(value.fulfillmentError)value.fulfillmentError='Your payment is recorded. The office is reviewing service activation.';delete value.sourceKey;delete value.sourceType;value.serviceDomain=['clinical','mental_health','unknown'].includes(value.serviceDomain)?'Services':value.serviceDomain;}
     const [plans]=await pool.execute("SELECT id,status,amount_cents AS amountCents,paid_before_cents AS paidBeforeCents,auto_pay AS autoPay FROM family_payment_plans WHERE allocation_id=? AND status IN ('proposed','active') ORDER BY id DESC LIMIT 1",[row.allocationId]);
     if(plans.length){value.plan=plans[0];const [installments]=await pool.execute('SELECT id,sequence_number AS sequenceNumber,amount_cents AS amountCents,due_date AS dueDate FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[value.plan.id]);let paid=Math.max(0,Number(row.paidCents)-Number(value.plan.paidBeforeCents));value.plan.installments=installments.map(i=>{const applied=Math.min(Number(i.amountCents),paid);paid-=applied;return {...i,paidCents:applied,balanceCents:Number(i.amountCents)-applied};});}
-    if(!staff && value.billingState==='review')delete value.plan;
+    // The owning payer must still be able to revoke an active plan on a held
+    // balance. Accepting or paying remains separately disabled during review.
+    if(!staff && value.billingState==='review' && !value.isOwnShare)delete value.plan;
     const [attempts]=await pool.execute("SELECT id,status FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown') ORDER BY id DESC LIMIT 1",[row.allocationId]);
     if(attempts.length){value.canPay=false;value.paymentStatus=attempts[0].status;if(staff)value.pendingPaymentId=attempts[0].id;value.explanation='Payment confirmation is pending. Do not make a second payment; refresh or contact billing.';}
     result.push(value);

@@ -27,6 +27,8 @@ export function presentBalance(row, { collectible, own, staff = false, responsib
     ...(!staff && !collectible && !settled ? {amountCents:null,totalCents:null} : {}),
     isOwnShare: !!own,
     canPay: !staff && own && due > 0,
+    canArrangePayments: !staff && !!own && (due > 0 || (synthetic && net > 0 && row.status === 'review' && row.holdReason === 'synthetic_demo' && !row.disputedAt)),
+    autoPayAvailable: !synthetic,
     billingState: noResponsibility ? 'closed' : settled ? 'paid' : row.status === 'void' ? 'void' : due > 0 ? 'due' : 'review',
     ...(responsibility.serviceTerm ? {serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis} : {}),
     description: synthetic ? (responsibility.outcome === 'no_show' ? 'Missed appointment' : responsibility.outcome === 'completed' ? 'Counseling session' : 'Late cancellation') : label === 'Services' ? 'Services' : `Visit · ${label}`,

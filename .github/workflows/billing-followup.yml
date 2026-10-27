@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/__tests__/familyPayerArrangements.mysql.test.js'
+      - 'backend/src/services/__tests__/familyLedger.planEligibility.test.js'
       - 'backend/src/services/familyBillingPolicy.service.js'
       - 'backend/src/services/familyCostEstimates.service.js'
       - 'backend/src/services/costEstimatePolicy.js'
@@ -94,6 +96,8 @@ on:
   pull_request:
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/__tests__/familyPayerArrangements.mysql.test.js'
+      - 'backend/src/services/__tests__/familyLedger.planEligibility.test.js'
       - 'backend/src/services/familyBillingPolicy.service.js'
       - 'backend/src/services/familyCostEstimates.service.js'
       - 'backend/src/services/costEstimatePolicy.js'
@@ -225,7 +229,7 @@ jobs:
       - name: Standard family emails and appointment responses
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
       - name: Native SQL workflow and policy checks
-        run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js
+        run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js backend/src/services/__tests__/familyLedger.planEligibility.test.js
       - name: Attendance copay authorization and timing
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.attendance-copays.config.js
       - name: Attendance copay SQL concurrency and final payer reconciliation
@@ -250,3 +254,8 @@ jobs:
         run: npm --prefix frontend test -- --config vitest.note-workspace.config.js
       - name: Guardian and billing workspace screens
         run: npm --prefix frontend test -- src/components/billing/__tests__/FamilyLedgerPanel.test.js src/components/billing/__tests__/InsuranceCardTasks.test.js src/components/billing/__tests__/BillingFollowupTasks.test.js src/components/billing/__tests__/ClientDocumentationReadiness.test.js src/components/billing/__tests__/EligibilityAutomationPanel.test.js src/components/billing/__tests__/ClientInsuranceEditor.test.js src/views/admin/__tests__/BillingWorkspaceView.test.js src/views/__tests__/FundThredCollections.test.js src/components/fundthred/__tests__/FundThred.test.js src/router/__tests__/fundthredRoutes.test.js src/utils/__tests__/fundthred.test.js
+      # Resets only the disposable database, after all earlier fixture consumers.
+      - name: Two-guardian splits, alternating responsibility, and payment plans
+        env:
+          PAYER_ARRANGEMENTS_MYSQL_TEST: '1'
+        run: node --test backend/src/services/__tests__/familyPayerArrangements.mysql.test.js
