@@ -1,3 +1,4 @@
+import { isRequiredProviderWorkEmail } from '../requiredProviderWorkEmail.service.js';
 import { withSsoSenderCopy } from '../ssoEmailCopy.service.js';
 import { assertFreshCardEmail } from '../insuranceCards/scope.js';
 import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
@@ -345,6 +346,7 @@ export async function finalizeOutboundContent({
     userId,
     misdirectedReportUrl,
     skipOptOutLink: isCredentialSecurityNotice(identity, templateType) || templateType==='school_session_notice'
+      || await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:aid})
   });
 }
 
@@ -729,7 +731,8 @@ export async function sendNotificationEmail({
     };
   }
 
-  const optGate = await assertRecipientAllowsEmail({ to, agencyId });
+  const requiredWorkNotice = await isRequiredProviderWorkEmail({templateType:templateType || triggerKey,to,userId,agencyId});
+  const optGate = requiredWorkNotice ? {allowed:true} : await assertRecipientAllowsEmail({ to, agencyId });
   if (!optGate.allowed) {
     await logSkippedOrFailedEmail({
       to,

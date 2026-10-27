@@ -1,0 +1,6 @@
+import{it,expect,vi}from'vitest';import{isRequiredProviderWorkEmail as required}from'../requiredProviderWorkEmail.service.js';
+const args={templateType:'client_appointment_reply',to:'provider@example.com',userId:1433,agencyId:450};const user={id:1433,role:'provider',work_email:'provider@example.com',email:'login@example.com',personal_email:'personal@example.com',is_active:1};
+it('recognizes only the active provider work recipient',async()=>{expect(await required(args,async()=>({user,member:true}))).toBe(true)});
+it.each([{to:'personal@example.com'},{to:'other@example.com'},{to:['provider@example.com']},{templateType:'marketing'},{agencyId:null}])('keeps ordinary or personal email preferences intact %j',async change=>{expect(await required({...args,...change},async()=>({user,member:true}))).toBe(false)});
+it.each([{user,member:false},{user:{...user,is_active:0},member:true},{user:{...user,role:'guardian'},member:true}])('rejects an inactive or unrelated identity',async loaded=>{expect(await required(args,async()=>loaded)).toBe(false)});
+it('supports a work login email when a separate work address is absent',async()=>{expect(await required({...args,to:'login@example.com'},async()=>({user:{...user,work_email:null},member:true}))).toBe(true)});
