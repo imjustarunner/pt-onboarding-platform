@@ -2,7 +2,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import pool from '../../config/database.js';
 import { billingError, requireStatementAccess, requireBillingLink, auditBilling } from '../familyBillingPolicy.service.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
-import { parseJson, today, assertCollectible } from './policy.js';
+import { parseJson, today, dateOnly, assertCollectible } from './policy.js';
 import { findReceivable, sourcePayload } from './receivables.js';
 import { presentBalance } from './presentation.js';
 
@@ -27,13 +27,13 @@ export async function listBalances({agencyId,userId,clientId=null,staff=false,ov
       if(source.status==='open')try{await assertCollectible(source);collectible=true;}catch(e){if(e.status!==409)throw e;collectionIssue=e.message;}
       receivables.set(row.receivableId,{collectible,collectionIssue,responsibility:sourcePayload(source)});
     }
-    const value=presentBalance({...row,payerName:[row.payerFirst,row.payerLast].filter(Boolean).join(' ')},{...receivables.get(row.receivableId),own:Number(row.payerUserId)===Number(userId),staff});
+    const value=presentBalance({...row,dueDate:row.dueDate?dateOnly(row.dueDate):null,serviceDate:row.serviceDate?dateOnly(row.serviceDate):null,payerName:[row.payerFirst,row.payerLast].filter(Boolean).join(' ')},{...receivables.get(row.receivableId),own:Number(row.payerUserId)===Number(userId),staff});
     if(staff){const {externallyManaged}=await import('./collectionHandoff.js');value.externallyManaged=await externallyManaged(row.allocationId);}
     if(staff&&receivables.get(row.receivableId).collectionIssue)value.explanation=receivables.get(row.receivableId).collectionIssue;
     delete value.payerFirst;delete value.payerLast;
     if(!staff){if(value.fulfillmentError)value.fulfillmentError='Your payment is recorded. The office is reviewing service activation.';delete value.sourceKey;delete value.sourceType;value.serviceDomain=['clinical','mental_health','unknown'].includes(value.serviceDomain)?'Services':value.serviceDomain;}
     const [plans]=await pool.execute("SELECT id,status,amount_cents AS amountCents,paid_before_cents AS paidBeforeCents,auto_pay AS autoPay FROM family_payment_plans WHERE allocation_id=? AND status IN ('proposed','active') ORDER BY id DESC LIMIT 1",[row.allocationId]);
-    if(plans.length){value.plan=plans[0];const [installments]=await pool.execute('SELECT id,sequence_number AS sequenceNumber,amount_cents AS amountCents,due_date AS dueDate FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[value.plan.id]);let paid=Math.max(0,Number(row.paidCents)-Number(value.plan.paidBeforeCents));value.plan.installments=installments.map(i=>{const applied=Math.min(Number(i.amountCents),paid);paid-=applied;return {...i,paidCents:applied,balanceCents:Number(i.amountCents)-applied};});}
+    if(plans.length){value.plan=plans[0];const [installments]=await pool.execute('SELECT id,sequence_number AS sequenceNumber,amount_cents AS amountCents,due_date AS dueDate FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[value.plan.id]);let paid=Math.max(0,Number(row.paidCents)-Number(value.plan.paidBeforeCents));value.plan.installments=installments.map(i=>{const applied=Math.min(Number(i.amountCents),paid);paid-=applied;return {...i,dueDate:dateOnly(i.dueDate),paidCents:applied,balanceCents:Number(i.amountCents)-applied};});}
     // The owning payer must still be able to revoke an active plan on a held
     // balance. Accepting or paying remains separately disabled during review.
     if(!staff && value.billingState==='review' && !value.isOwnShare)delete value.plan;

@@ -89,6 +89,7 @@ test('two-guardian splits, rotation, and installment plans use the same scoped l
    const card=await Cards.create({guardianUserId:10,agencyId:1,stripeCustomerId:'cus_arrangements10',stripePaymentMethodId:'pm_arrangements10',connectedAccountId:'acct_fixture',setupIntentId:'seti_arrangements10',cardBrand:'visa',cardLast4:'1010',cardExpYear:2099,cardExpMonth:12});
    await assignCard({agencyId:1,clientId:101,userId:10,cardId:card,recurring:false});
    await acceptPlan({agencyId:1,planId:plan.planId,userId:10,autoPay:true,consent:planConsent});assert.equal(processorCalls,0);
+   const ownView=(await listBalances({agencyId:1,userId:10,clientId:101})).find(r=>r.allocationId===allocation.id);assert.equal(ownView.dueDate,date(0));assert.deepEqual(ownView.plan.installments.map(i=>i.dueDate),installments.map(i=>i.dueDate));
    const due=await runDuePlans({agencyId:1});assert.equal(due[0].paid,true,JSON.stringify(due));assert.equal(processorCalls,1);assert.equal(calls[0].customerId,'cus_arrangements10');assert.equal(calls[0].amountCents,2000);
    await runDuePlans({agencyId:1});assert.equal(processorCalls,1);
    await assert.rejects(cancelPlan({agencyId:1,planId:plan.planId,userId:20}),e=>e.status===403);
