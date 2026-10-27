@@ -1,4 +1,5 @@
 import { applyEventTimeHandbookAmendment, applyEventTimeReviewAmendment } from '../content/eventTimeHandbookAmendment.js';
+import { applyEventTravelHandbookAmendment } from '../content/eventTravelHandbookAmendment.js';
 import { applySchoolSupportHandbookAmendment } from '../content/schoolSupportHandbookAmendment.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -29,6 +30,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   const tenant = handbookTenant(agency);
   if (!tenant) return null;
   const source = applyEventTimeHandbookAmendment(structuredClone({ itsco, nlu, isi }[tenant]), tenant);
+  applyEventTravelHandbookAmendment(source, tenant);
   applySchoolSupportHandbookAmendment(source, tenant);
   const facilitatorUpdate = applyFacilitatorHandbookScope(source, tenant);
   const updateDrafts = { itsco: itscoUpdateDrafts, nlu: nluUpdateDrafts, isi: isiUpdateDrafts }[tenant];

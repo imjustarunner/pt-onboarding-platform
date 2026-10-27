@@ -18,7 +18,7 @@ export function applyEventTimeHandbookAmendment(source, tenant) {
     const body = refreshTravelInstructions(section.bodyHtml || '');
     section.bodyHtml = body;
     if (section.slug === 'compensation-support-activity') {
-      if (body.includes(travelInstructions)) continue;
+      if (body.includes(travelInstructions) || body.includes('#handbook-event-travel-reimbursement')) continue;
       section.bodyHtml = body.replace('<li>compensable travel to outreach activities;</li>', '<li>travel to and from approved events, including assigned school and outreach events;</li>')
         .replace('<p>Compensable travel associated with that outreach assignment is generally classified as Support Activity.</p>', '') + '\n' + APPROVED_EVENT_TRAVEL_HTML;
     } else if (!body.includes('<h4>Approved event time</h4>')) {

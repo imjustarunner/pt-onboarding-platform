@@ -2,12 +2,19 @@ import { readFileSync } from 'node:fs';
 import sanitizeHtml from 'sanitize-html';
 import { handbookTenant } from './handbookTenant.js';
 import { applySchoolSupportHandbookAmendment } from '../content/schoolSupportHandbookAmendment.js';
+import { applyEventTimeHandbookAmendment } from '../content/eventTimeHandbookAmendment.js';
+import { applyEventTravelHandbookAmendment } from '../content/eventTravelHandbookAmendment.js';
 
 // Use the same supplied handbook and stable section keys as the full handbook reader.
-const sources = Object.fromEntries(['itsco', 'nlu', 'isi'].map(key => [key, {
-  book: applySchoolSupportHandbookAmendment(JSON.parse(readFileSync(new URL(`../content/handbooks/${key}.json`, import.meta.url), 'utf8')), key),
-  updates: JSON.parse(readFileSync(new URL(`../content/handbooks/${key}-draft-updates.json`, import.meta.url), 'utf8')).updates
-}]));
+const sources = Object.fromEntries(['itsco', 'nlu', 'isi'].map(key => {
+  const book = JSON.parse(readFileSync(new URL(`../content/handbooks/${key}.json`, import.meta.url), 'utf8'));
+  applyEventTimeHandbookAmendment(book, key);
+  applyEventTravelHandbookAmendment(book, key);
+  applySchoolSupportHandbookAmendment(book, key);
+  return [key, { book,
+    updates: JSON.parse(readFileSync(new URL(`../content/handbooks/${key}-draft-updates.json`, import.meta.url), 'utf8')).updates
+  }];
+}));
 
 export function handbookUpdateLocations(agency, entries, published = null) {
   const source = sources[handbookTenant(agency)];
