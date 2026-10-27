@@ -6926,7 +6926,16 @@ export const getPublicIntakeProgress = async (req, res, next) => {
     if (loaded.error) {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
-    const { submission } = loaded;
+    const { submission, link } = loaded;
+    let coGuardianInvite = null;
+    if (submission.co_guardian_invite_id || req.query?.coGuardianToken) {
+      const scope = { agencyId: await resolveAgencyIdForLink(link), publicKey };
+      const binding = req.query?.coGuardianToken
+        ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.query.coGuardianToken, scope)
+        : await CoGuardianInvite.resolveCoGuardianResumeBinding(submission, sessionToken, scope);
+      CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, binding);
+      coGuardianInvite = binding ? await CoGuardianInvite.presentCoGuardianInvite(binding.invite) : null;
+    }
     if (String(submission.status || '').toLowerCase() === 'submitted') {
       return res.json({
         alreadyCompleted: true,
@@ -6948,6 +6957,7 @@ export const getPublicIntakeProgress = async (req, res, next) => {
       submissionId: submission.id,
       status: submission.status,
       intakeData,
+      coGuardianInvite,
       reminderConsentStatus: submission.reminder_consent_status || null,
       draftExpiresAt: submission.draft_expires_at
         ? new Date(submission.draft_expires_at).toISOString()
@@ -6974,7 +6984,7 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
-    const coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
+    let coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
     }) : null;
 
@@ -7005,6 +7015,11 @@ export const createPublicConsent = async (req, res, next) => {
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
       if (Number(submission.intake_link_id) !== Number(link.id)) return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
+      if (!req.body?.coGuardianToken && submission.co_guardian_invite_id) {
+        coGuardianBinding = await CoGuardianInvite.resolveCoGuardianResumeBinding(submission, sessionToken, {
+          agencyId: await resolveAgencyIdForLink(link), publicKey
+        });
+      }
       CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, coGuardianBinding);
       if (coGuardianBinding) submission = await IntakeSubmission.bindCoGuardianInvite(submission.id, coGuardianBinding.invite.id);
       if (String(submission.status || '').toLowerCase() === 'submitted') {
@@ -7789,9 +7804,11 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
-    const coGuardianBinding = coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(coGuardianToken, {
-      agencyId: await resolveAgencyIdForLink(link), publicKey
-    }) : null;
+    const coGuardianScope = { agencyId: (coGuardianToken || submission.co_guardian_invite_id) ? await resolveAgencyIdForLink(link) : null, publicKey };
+    const resumeSessionToken = String(req.body?.sessionToken || req.headers['x-intake-session'] || '').trim();
+    const coGuardianBinding = coGuardianToken
+      ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(coGuardianToken, coGuardianScope)
+      : submission.co_guardian_invite_id ? await CoGuardianInvite.resolveCoGuardianResumeBinding(submission, resumeSessionToken, coGuardianScope) : null;
     CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, coGuardianBinding);
     if (coGuardianBinding) {
       if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) {
@@ -8913,6 +8930,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     let coGuardianInviteResult = null;
     if (coGuardianBinding) {
       const accepted = await CoGuardianInvite.acceptCoGuardianInvite({ token: coGuardianToken,
+        ...(coGuardianToken ? {} : { resume: { ...coGuardianScope, submissionId, sessionToken: resumeSessionToken } }),
         contact: req.body?.guardian || {}, createPortal: !!link.create_guardian, enrollmentCompleted: true });
       createdClients = coGuardianBinding.clients;
       const guardian = accepted.portalAccess ? await User.findByEmail(accepted.portalAccess.email) : null;

@@ -6919,6 +6919,9 @@ const registeredEventSummary = computed(() => {
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
 provide('intakeSessionToken', sessionToken);
+// Initial rendering must not autosave empty defaults over a returning parent's draft.
+const loadingSavedProgress = ref(Boolean(sessionToken.value));
+const savedProgressLoadFailed = ref(false);
 const submissionStorageKey = computed(() =>
   sessionToken.value
     ? `public_intake_submission_${publicKey}_${sessionToken.value}`
@@ -7227,7 +7230,8 @@ async function uploadOtherGuardianCourtFiles() {
     /* optional — packet can continue */
   }
 }
-const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
+const resumedCoGuardianInvite = ref(false);
+const isCoGuardianInvitee = computed(() => resumedCoGuardianInvite.value || Boolean(String(route.query.coGuardian || '').trim()));
 const coGuardianInviteError = ref('');
 const coGuardianDependents = ref([]);
 const coGuardianPaymentCollectionAvailable = ref(true);
@@ -8050,6 +8054,7 @@ const buildServerProgressIntakeData = () => ({
 });
 
 const saveServerProgress = async () => {
+  if (loadingSavedProgress.value || savedProgressLoadFailed.value) return;
   const token = String(sessionToken.value || '').trim();
   if (!token) return;
   try {
@@ -8317,15 +8322,19 @@ const restoreDraftSnapshot = () => {
 };
 
 const restoreServerProgress = async () => {
-  if (String(route.query.coGuardian || '').trim()) return false;
   const token = String(sessionToken.value || '').trim();
   if (!token) return false;
   try {
     const { data } = await api.get(`/public-intake/${publicKey}/progress`, {
-      params: { sessionToken: token },
+      params: { sessionToken: token, coGuardianToken: String(route.query.coGuardian || '').trim() || undefined },
       skipGlobalLoading: true
     });
     if (data?.alreadyCompleted) return false;
+    if (data?.coGuardianInvite) {
+      resumedCoGuardianInvite.value = true;
+      coGuardianDependents.value = data.coGuardianInvite.dependents || [];
+      coGuardianPaymentCollectionAvailable.value = data.coGuardianInvite.paymentCollectionAvailable !== false;
+    }
     if (data?.submissionId) submissionId.value = data.submissionId;
     if (data?.reminderConsentStatus) {
       reminderConsentStatus.value = String(data.reminderConsentStatus);
@@ -8357,8 +8366,13 @@ const restoreServerProgress = async () => {
     if (snapTok && snapTok !== token) return false;
     if (!hasMeaningfulDraftSnapshot(snapshot)) return false;
     return applyDraftSnapshot(snapshot);
-  } catch {
+  } catch (error) {
+    savedProgressLoadFailed.value = true;
+    beginError.value = error?.response?.data?.error?.message || 'Your saved enrollment could not be loaded. Please reopen your return link to try again.';
+    stepError.value = beginError.value;
     return false;
+  } finally {
+    loadingSavedProgress.value = false;
   }
 };
 

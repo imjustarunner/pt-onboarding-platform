@@ -7,7 +7,7 @@ import {assertActiveCoGuardianInvite,assertCoGuardianSubmissionBinding} from '..
 // Run the actual finalize handler against synthetic persistence boundaries.
 // Stop at account acceptance so tests cannot generate documents or send mail.
 const source=fs.readFileSync(new URL('../publicIntake.controller.js',import.meta.url),'utf8');
-function setup({bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[]}={}) {
+function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[]}={}) {
  const intakeData={clients:[{fullName:'Child Example',dateOfBirth:'2015-01-01'}],responses:{submission:{}}};
  const submission={id:18,intake_link_id:8,status:'submitted',guardian_user_id:9,co_guardian_invite_id:3,session_token:'session',
   intake_data:JSON.stringify({...intakeData,...(failed?{packetGeneration:{status:'needs_review'}}:{})})};
@@ -20,7 +20,7 @@ function setup({bundles=[],failed=false,templates=[],signedDocs=[],bindingClient
   validationResult:()=>({isEmpty:()=>true}),
   resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps}}),
   applyChannelMasterReadOnly:async link=>link,applySmartRoiPayloadFallback:()=>{},resolveAgencyIdForLink:async()=>2,
-  CoGuardianInvite:{assertCoGuardianSubmissionBinding,resolveCoGuardianIntakeBinding:async()=>({invite:assertActiveCoGuardianInvite(invite,{agencyId:2,publicKey:'packet'}),clients:bindingClients,acceptedUserId:9}),acceptCoGuardianInvite:accept},
+  CoGuardianInvite:{assertCoGuardianSubmissionBinding,resolveCoGuardianResumeBinding:async(_row,token)=>allowResume&&token===submission.session_token?{invite,clients:bindingClients,acceptedUserId:9}:null,resolveCoGuardianIntakeBinding:async()=>({invite:assertActiveCoGuardianInvite(invite,{agencyId:2,publicKey:'packet'}),clients:bindingClients,acceptedUserId:9}),acceptCoGuardianInvite:accept},
   matchesIntakeSession:(a,b)=>a===b,IntakeSubmission:{findById:async()=>submission,updateById:update,bindCoGuardianInvite:async()=>submission},
   loadAllowedTemplates:async()=>templates,hasProgrammedSchoolRoiStep:()=>false,isSmartDisclosureForm:()=>false,isSmartSchoolRoiForm:()=>false,isSubmissionExpired:()=>false,
   IntakeSubmissionClient:{listBySubmissionId:async()=>bundles},IntakeSubmissionDocument:{listBySubmissionId:async()=>signedDocs},
@@ -142,4 +142,15 @@ it('clears an old recovery flag only after every invited child has a completed b
  await clear(18,[5,6]);expect(update).not.toHaveBeenCalled();
  rows.push({client_id:6,bundle_pdf_path:'six.pdf'});await clear(18,[5,6]);
  expect(JSON.parse(update.mock.calls[0][1].intake_data).packetGeneration).toEqual({status:'complete',failedClientIds:[]});
+});
+
+it('finalizes a verified bound resume session without requiring the invitation query parameter again',async()=>{
+ const state=setup({allowResume:true});delete state.req.body.coGuardianToken;
+ expect((await state.run()).error).toBe(state.reachedAcceptance);
+ expect(state.accept).toHaveBeenCalledWith(expect.objectContaining({resume:{agencyId:2,publicKey:'packet',submissionId:18,sessionToken:'session'},enrollmentCompleted:true}));
+});
+it('does not fall back to the saved session when an explicit different invitation was supplied',async()=>{
+ const state=setup({allowResume:true});state.submission.co_guardian_invite_id=4;
+ expect((await state.run()).error).toHaveProperty('status',403);
+ expect(state.accept).not.toHaveBeenCalled();
 });

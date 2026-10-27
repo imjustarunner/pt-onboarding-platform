@@ -78,3 +78,31 @@ describe('public intake progress session isolation', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ alreadyCompleted: true }));
   });
 });
+
+vi.mock('../../services/coGuardianInvite.service.js', async importOriginal => ({
+ ...(await importOriginal()), presentCoGuardianInvite: vi.fn(async row => ({ status: row.status, dependents: [{ id: 201 }] }))
+}));
+import pool from '../../config/database.js';
+it('returns the second guardian context with the original saved agreements on a session-only return link', async () => {
+ const token = 'second-parent-resume-session-123456789';
+ submission.session_token = token; submission.co_guardian_invite_id = 18;
+ req.query.sessionToken = token;
+ IntakeLink.findByPublicKey.mockResolvedValue({ id: 20, agency_id: 2 });
+ const snapshot = { sessionToken: token, embeddedSmartDisclosure: { signatureData: 'saved-signature' } };
+ submission.intake_data = { progressSnapshot: snapshot };
+ const invite = { id: 18, agency_id: 2, public_key: 'synthetic-link', status: 'pending', expires_at: new Date(Date.now()+86400000) };
+ pool.execute.mockImplementation(async sql => [sql.includes('WHERE id = ?') ? [invite] : [{ id: 201 }]]);
+ await getPublicIntakeProgress(req, res, next);
+ expect(next).not.toHaveBeenCalled();
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ submissionId: 10, intakeData: { progressSnapshot: snapshot }, coGuardianInvite: { status: 'pending', dependents: [{ id: 201 }] } }));
+ expect(IntakeSubmission.updateById).not.toHaveBeenCalled();
+});
+it('does not return a saved snapshot when the URL pairs it with another guardian invitation', async () => {
+ submission.session_token = 'second-parent-resume-session-123456789'; submission.co_guardian_invite_id = 18;
+ req.query.sessionToken = submission.session_token; req.query.coGuardianToken = 'different-invitation';
+ IntakeLink.findByPublicKey.mockResolvedValue({ id: 20, agency_id: 2 });
+ pool.execute.mockImplementation(async sql => [sql.includes('token_hash') ? [{ id: 19, agency_id: 2, public_key: 'synthetic-link', status: 'pending', expires_at: new Date(Date.now()+86400000) }] : []]);
+ await getPublicIntakeProgress(req, res, next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+ expect(res.json).not.toHaveBeenCalled();
+});

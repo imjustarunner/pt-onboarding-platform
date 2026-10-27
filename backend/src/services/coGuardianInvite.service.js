@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
+import IntakeSubmission from '../models/IntakeSubmission.model.js';
+import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { deliverCoGuardianInvite } from './coGuardianDelivery.service.js';
@@ -470,6 +472,24 @@ export async function resolveCoGuardianIntakeBinding(token, scope = {}) {
   };
 }
 
+// A return-link session already authorizes this exact saved enrollment. Recover
+// only its server-bound invitation; never trust an invite ID from a request or
+// editable intake answers. This also supports return emails without coGuardian.
+export async function resolveCoGuardianResumeBinding(submission, sessionToken, scope = {}) {
+  if (!submission?.co_guardian_invite_id) return null;
+  if (!matchesIntakeSession(sessionToken, submission.session_token)) {
+    throw Object.assign(new Error('A valid intake session is required'), { status: 403, statusCode: 403 });
+  }
+  const expired = [submission.draft_expires_at, submission.retention_expires_at]
+    .some(value => value && new Date(value).getTime() <= Date.now());
+  if (expired) throw Object.assign(new Error('This enrollment return link has expired.'), { status: 410, statusCode: 410 });
+  const [rows] = await pool.execute('SELECT * FROM co_guardian_invites WHERE id = ? LIMIT 1', [Number(submission.co_guardian_invite_id)]);
+  const invite = assertActiveCoGuardianInvite(rows?.[0], scope);
+  const binding = { invite, clients: await loadInviteClients(invite.id), acceptedUserId: invite.accepted_user_id ? Number(invite.accepted_user_id) : null };
+  assertCoGuardianSubmissionBinding(submission, binding);
+  return binding;
+}
+
 export function assertCoGuardianSubmissionBinding(submission, binding) {
   let data = submission?.intake_data || {};
   if (typeof data === 'string') { try { data = JSON.parse(data); } catch { data = {}; } }
@@ -554,6 +574,10 @@ function firstNameOnly(fullName) {
 export async function getPublicCoGuardianInvite(token) {
   const row = await loadInviteByToken(token);
   assertActiveCoGuardianInvite(row);
+  return presentCoGuardianInvite(row);
+}
+
+export async function presentCoGuardianInvite(row) {
   const agency = await Agency.findById(row.agency_id);
   const clients = await loadInviteClients(row.id);
   const { readClientInsurance } = await import('./clientInsurance.service.js');
@@ -589,8 +613,20 @@ export async function getPublicCoGuardianInvite(token) {
   };
 }
 
-export async function acceptCoGuardianInvite({ token, contact = {}, answers = null, createPortal = null, enrollmentCompleted = false }) {
-  const row = await loadInviteByToken(token);
+export async function acceptCoGuardianInvite({ token, resume = null, contact = {}, answers = null, createPortal = null, enrollmentCompleted = false }) {
+  let row;
+  if (token) {
+    row = await loadInviteByToken(token);
+  } else if (resume?.sessionToken && resume?.submissionId) {
+    // Recheck the capability and durable association at activation, rather than
+    // accepting a caller-supplied invitation or trusting an earlier lookup.
+    const submission = await IntakeSubmission.findBySessionToken(resume.sessionToken);
+    if (Number(submission?.id) !== Number(resume.submissionId)) {
+      throw Object.assign(new Error('A valid intake session is required'), { status: 403, statusCode: 403 });
+    }
+    row = (await resolveCoGuardianResumeBinding(submission, resume.sessionToken, resume))?.invite;
+  }
+
   assertActiveCoGuardianInvite(row);
   if (row.public_key && !enrollmentCompleted) {
     throw Object.assign(new Error('Complete and sign your enrollment packet before activating guardian access.'), {status:409,statusCode:409});

@@ -1,0 +1,45 @@
+SECOND-GUARDIAN SAVED ENROLLMENT — ADDENDUM, OCTOBER 27, 2026
+
+This supplements the existing runbooks. Use synthetic families only.
+
+Fixed behavior
+A second guardian can resume their existing enrollment from its personal return
+link, including reminder links containing a session token without the original
+coGuardian parameter. The server recovers only the invitation already bound to
+that saved submission. The invitation must still be active and belong to the
+same agency/form; the saved session and accepted guardian identity must match.
+The original invitation URL plus the same session also restores saved progress.
+No new enrollment, replacement signature, account activation, email, or final
+submission occurs merely by reopening the return link.
+
+Reopening restores the guardian's own answers, completed agreements, disclosure
+signature, and saved position. Initial page loading and failed restoration must
+not autosave empty fields over existing progress.
+
+Required bot checks (both school and office; English and Spanish)
+1. Invite a second guardian and complete their own answers and required signed
+   agreements. Stop at the final disclosure without submitting.
+2. Save the return link; record its submission ID privately. Reload in a fresh
+   browser using only the personal session return link. Verify the same answers,
+   signed agreements, disclosure, and saved position, then finish enrollment.
+3. Repeat with both invitation and session parameters on the URL. Do not accept
+   being returned to a blank form as a pass.
+4. Simulate a failed or slow progress request. Confirm the app does not save an
+   empty replacement draft while restoring or after the request fails.
+5. Negative checks: wrong session, another guardian's invitation, different
+   agency/form, revoked/expired invitation, and an ID without a session. They
+   must not load the other parent's answers or activate an account.
+6. Confirm one dependent association remains, each parent retains their separate
+   signed documents/answers, and retrying does not create duplicate dependents.
+
+Evidence
+Record build ID, submission/invitation IDs, page/step, result, and redacted
+screenshots. Do not include private return-link tokens or signature images in
+shared reports. Do not submit or sign a real person's enrollment.
+
+Validation for this change
+Focused backend recovery, isolation, retry, and progress checks: 46 passed.
+Mounted frontend resume and progress-preservation checks: 5 passed.
+A broader enrollment suite also exposed four existing own-document test-fixture
+failures (missing req.query); the same four failures were reproduced on unchanged
+main. They are separate from this return-link correction.
