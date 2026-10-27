@@ -57,6 +57,19 @@ describe('Vonage transport', () => {
 });
 
 describe('Vonage number provisioning',()=>{
+ it('reads the exact requested number even when the carrier returns other owned numbers',async()=>{
+  const getOwnedNumbers=vi.fn().mockResolvedValue({numbers:[
+   {msisdn:'17197163884',moHttpUrl:'https://example.test/other'},
+   {msisdn:'17197163661',moHttpUrl:'https://example.test/inbound'}
+  ]});
+  vi.spyOn(VonageService,'getClient').mockReturnValue({numbers:{getOwnedNumbers}});
+  expect(await VonageService.getIncomingNumber({incomingPhoneNumberSid:'+17197163661'})).toMatchObject({msisdn:'17197163661',smsUrl:'https://example.test/inbound'});
+  expect(getOwnedNumbers).toHaveBeenCalledWith({pattern:'17197163661',searchPattern:1});
+ });
+ it('does not substitute another owned number if the requested one is absent',async()=>{
+  vi.spyOn(VonageService,'getClient').mockReturnValue({numbers:{getOwnedNumbers:vi.fn().mockResolvedValue({numbers:[{msisdn:'17197163884'}]})}});
+  await expect(VonageService.getIncomingNumber({incomingPhoneNumberSid:'+17197163661'})).rejects.toThrow('number not found');
+ });
  it('searches with the installed SDK filter signature and the exact country/area prefix',async()=>{
   const getAvailableNumbers=vi.fn().mockResolvedValue({numbers:[
    {msisdn:'17197163661',cost:'0.93',initialPrice:'0.93',features:['SMS','MMS','VOICE']},

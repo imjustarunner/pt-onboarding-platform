@@ -16,6 +16,21 @@ beforeEach(() => {
   isSmsSuppressed.mockResolvedValue(false);
 });
 describe('signed enrollment', () => {
+  it('accepts separately reviewed staff consent when account preferences have never been saved', async () => {
+    getSmsSender.mockResolvedValue({ agency_id: 450, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
+    pool.execute.mockResolvedValue([[{ staff_choices: null }, { staff_choices: 'null' }]]);
+    const sendConfirmation = vi.fn();
+    await enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation });
+    expect(sendConfirmation).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 450, staffNotificationKind: 'notifications' }));
+  });
+  it('preserves explicit staff opt-outs even when another shared-phone account has no preferences', async () => {
+    getSmsSender.mockResolvedValue({ agency_id: 450, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
+    pool.execute.mockResolvedValue([[{ staff_choices: null }, { staff_choices: { notifications: false, messageAlerts: false } }]]);
+    const sendConfirmation = vi.fn();
+    await expect(enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation })).rejects.toMatchObject({ code: 'sms_staff_choice_off' });
+    expect(recordSmsPermission).not.toHaveBeenCalled();
+    expect(sendConfirmation).not.toHaveBeenCalled();
+  });
   it('confirms administrator-reviewed message alerts without enabling general notifications', async () => {
     getSmsSender.mockResolvedValue({ agency_id: 2, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
     pool.execute.mockResolvedValue([[{ staff_choices: {notifications:false,messageAlerts:true} }]]);

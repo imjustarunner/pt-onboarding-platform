@@ -27,8 +27,11 @@ async function prepareEnrollment({ from, phone, purpose, status, evidence, actor
       [`$.${staffCommunicationKey(sender.agency_id)}.choices`, sender.agency_id, digits, local, digits, local, digits, local]);
     // A staff member may choose message alerts without general notifications.
     // The delivery gate still checks the selected category and phone fingerprint.
-    if (staff.length) {
-      const states=staff.map(row=>typeof row.staff_choices==='string'?JSON.parse(row.staff_choices):row.staff_choices);
+    // No saved preference is different from an explicit opt-out. A separately
+    // reviewed signed consent may activate staff without account preferences.
+    const states=staff.map(row=>typeof row.staff_choices==='string'?JSON.parse(row.staff_choices):row.staff_choices)
+      .filter(state=>state!=null);
+    if (states.length) {
       const kind=staffDeliveryKinds(states[0]||{}).find(key=>states.every(choices=>choices?.[key]===true));
       if (!kind) throw smsPolicyError('sms_staff_choice_off','No enabled staff text category matches this phone');
       staffNotificationKind=kind;
