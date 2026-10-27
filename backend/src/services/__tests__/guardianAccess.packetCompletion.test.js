@@ -8,7 +8,7 @@ import Agency from '../../models/Agency.model.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import { inferAgencyMailDomain } from '../tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
-import { sendPacketCompletionNotification } from '../packetCompletionNotification.service.js';
+import { sendPacketCompletionNotification, readPacketCompletionDelivery } from '../packetCompletionNotification.service.js';
 beforeEach(() => {
   vi.clearAllMocks();
   Agency.findById.mockResolvedValue({id:2,name:'Test Agency',feature_flags:{medicalBillingEnabled:true}});
@@ -17,6 +17,15 @@ beforeEach(() => {
   sendEmailFromIdentity.mockResolvedValue({id:'accepted',communicationId:44});
 });
 describe('packet receipt delivery', () => {
+  it('reports pending, failed and accepted transport receipts without inventing delivery', async()=>{
+    const db={execute:vi.fn(async()=>[[]])};
+    expect(await readPacketCompletionDelivery(1271,450,db)).toBeNull();
+    for(const status of ['pending','failed','skipped','sent','delivered']) {
+      db.execute.mockResolvedValueOnce([[{delivery_status:status}]]);
+      expect(await readPacketCompletionDelivery(1271,450,db)).toMatchObject({attempted:true,sent:['sent','delivered'].includes(status)});
+    }
+    expect(db.execute.mock.calls.every(([,args])=>JSON.stringify(args)===JSON.stringify([450,'1271']))).toBe(true);
+  });
   it('uses the agency and AuricWell portal sender and agency support replies, never the school personal identity', async () => {
     const attachment={filename:'packet.pdf',contentBase64:'synthetic'};
     const result=await sendPacketCompletionNotification({agencyId:2,organizationId:280,scopeType:'school',to:'parent@example.test',text:'We received your packet',attachments:[attachment],intakeSubmissionId:1105,intakeLinkId:64,senderIdentityId:264,replyToOverride:'school@example.test'});

@@ -19,6 +19,18 @@ beforeEach(()=>{
  });
 });
 describe('professional staff directory',()=>{
+ it('keeps demo accounts out of ordinary organization directories',async()=>{
+  await getStaffDirectory(req,res,next);
+  expect(m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'))[1].slice(0,2)).toEqual([2,0]);
+ });
+ it('includes demo staff only within the verified synthetic agency membership',async()=>{
+  req.query.agencyId=450;m.agencies.mockResolvedValue([{id:450}]);
+  const previous=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,params)=>sql.startsWith('SELECT id,slug')?[[{id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}}]]:previous(sql,params));
+  await getStaffDirectory(req,res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'))[1].slice(0,2)).toEqual([450,1]);
+ });
  it('returns only professional contacts, assigned offices and published profiles',async()=>{
   await getStaffDirectory(req,res,next);expect(next).not.toHaveBeenCalled();
   const {staff}=res.json.mock.calls[0][0];

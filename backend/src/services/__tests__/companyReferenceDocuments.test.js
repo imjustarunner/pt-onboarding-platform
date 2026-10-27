@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
-vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
+vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn(), findById: vi.fn() } }));
 vi.mock('../workplaceHandbookAssistant.service.js', () => ({ answerFromHandbook: vi.fn(), validateHandbookQuestion: vi.fn(input => ({ question: input.question, history: [] })) }));
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
@@ -84,6 +84,14 @@ describe('provider guide sources', () => {
   });
 });
 describe('company isolation and permissions', () => {
+  it('resolves employment status for normal authentication tokens without granting edit access', async () => {
+    User.findById.mockResolvedValue({ role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 1, is_archived: 0 });
+    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 12)).resolves.toBeUndefined();
+    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 12, { manage: true })).rejects.toMatchObject({ status: 403 });
+    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 33)).rejects.toMatchObject({ status: 403 });
+    User.findById.mockResolvedValue({ role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 0 });
+    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 12)).rejects.toMatchObject({ status: 403 });
+  });
   it('allows member reads but refuses other companies, staff edits and forged company ids', async () => {
     await expect(assertReferenceAccess({ id: 7, role: 'provider', status: 'ACTIVE_EMPLOYEE' }, 12)).resolves.toBeUndefined();
     await expect(assertReferenceAccess(user, 33)).rejects.toMatchObject({ status: 403 });

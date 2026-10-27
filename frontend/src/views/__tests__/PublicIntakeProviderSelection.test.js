@@ -13,6 +13,14 @@ beforeEach(()=>{route.query={};sessionStorage.clear();localStorage.clear();windo
 afterEach(()=>wrapper?.unmount());
 async function render(){wrapper=mount(PublicIntakeSigningView,{global:{plugins:[createPinia()],stubs:{DigitalFormShell:{template:'<main><slot/></main>'},SignaturePad:true,PublicProviderSlotPicker:true}}});await flushPromises();}
 async function showProviderStep(){wrapper.vm.intakeForSelf=true;wrapper.vm.serviceSubject='self';wrapper.vm.step=2;wrapper.vm.currentFlowIndex=wrapper.vm.flowSteps.findIndex(s=>s.type==='provider_match');await flushPromises();}
+it('claims email delivery only after a transport receipt and exposes a packet reference', async()=>{
+ await render();wrapper.vm.step=3;wrapper.vm.submissionId=1271;wrapper.vm.guardianEmail='qa.family@example.com';await flushPromises();
+ expect(wrapper.vm.intakeSuccessEmailMessage).toContain('has not been confirmed');
+ expect(wrapper.text()).toContain('Reference number: 1271');
+ wrapper.vm.packetNeedsReview=true;await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('needs review');
+ wrapper.vm.emailDeliveryStatus={attempted:true,sent:true};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('emailed to qa.family@example.com');
+ wrapper.vm.emailDeliveryStatus={attempted:true,sent:false};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('failed to send');
+});
 it('records the requested provider and modality before full consent and preserves them on old draft restore',async()=>{
  route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};await render();
  expect(wrapper.vm.intakeResponses.submission).toMatchObject({enrollment_source:'provider',requested_profile_provider_id:9,preferred_office_provider_ids:['9'],preferred_service_format:'VIRTUAL'});

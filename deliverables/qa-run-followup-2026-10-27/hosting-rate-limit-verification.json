@@ -1,0 +1,88 @@
+{
+  "api": {
+    "rules": [
+      {
+        "action": "throttle",
+        "description": "Default rate limiting rule",
+        "kind": "compute#securityPolicyRule",
+        "match": {
+          "config": {
+            "srcIpRanges": [
+              "*"
+            ]
+          },
+          "versionedExpr": "SRC_IPS_V1"
+        },
+        "preview": false,
+        "priority": 2147483646,
+        "rateLimitOptions": {
+          "conformAction": "allow",
+          "enforceOnKey": "IP",
+          "exceedAction": "deny(429)",
+          "rateLimitThreshold": {
+            "count": 500,
+            "intervalSec": 60
+          }
+        }
+      },
+      {
+        "action": "allow",
+        "description": "",
+        "kind": "compute#securityPolicyRule",
+        "match": {
+          "config": {
+            "srcIpRanges": [
+              "*"
+            ]
+          },
+          "versionedExpr": "SRC_IPS_V1"
+        },
+        "preview": false,
+        "priority": 2147483647
+      }
+    ]
+  },
+  "frontend": {
+    "rules": [
+      {
+        "action": "throttle",
+        "description": "Default rate limiting rule",
+        "kind": "compute#securityPolicyRule",
+        "match": {
+          "config": {
+            "srcIpRanges": [
+              "*"
+            ]
+          },
+          "versionedExpr": "SRC_IPS_V1"
+        },
+        "preview": false,
+        "priority": 2147483646,
+        "rateLimitOptions": {
+          "conformAction": "allow",
+          "enforceOnKey": "IP",
+          "exceedAction": "deny(429)",
+          "rateLimitThreshold": {
+            "count": 500,
+            "intervalSec": 60
+          }
+        }
+      },
+      {
+        "action": "allow",
+        "description": "",
+        "kind": "compute#securityPolicyRule",
+        "match": {
+          "config": {
+            "srcIpRanges": [
+              "*"
+            ]
+          },
+          "versionedExpr": "SRC_IPS_V1"
+        },
+        "preview": false,
+        "priority": 2147483647
+      }
+    ]
+  }
+}

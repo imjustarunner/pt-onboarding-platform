@@ -1,0 +1,36 @@
+AuricWell QA follow-up — October 27, 2026
+This is a new addendum. Keep the earlier instructions and failure evidence.
+
+Scope and accounts
+Use only agency 450 (auricwell-qa-demo), school 451, and clinic 452. No administrator or superadministrator credentials for testers. Support is user 1434; provider 1433; supervisor 1438; supervisee 1439. Keep all account passwords in the private vault. Do not share a browser context between roles: signing in as another user replaces that context's session.
+
+Important confirmed causes
+1. Both hosting policies returned HTML 403 when an IP exceeded 500 requests/minute. That response has been changed to HTTP 429, retaining the same IP limit. Slow or stagger browser launches, reuse SPA navigation, and respect cooldowns. Do not rotate IPs or disable protections. Load-balancer logging was disabled, so individual historical 403s cannot all be attributed to this policy. Distinguish HTML hosting errors from JSON permission errors.
+2. Online booking was disabled, no services were enabled, and school capacity was zero in the demo. Counseling and public booking are now enabled. Provider 1433 enabled Counseling and Online scheduling using their own account. The previously unconfigured school weekday rows now have four places, 9 a.m.–1 p.m. Existing provider availability choices are preserved.
+3. Staff-directory filtering hid synthetic coworkers. The source fix includes demo staff only inside the verified QA agency, retaining agency membership and professional-contact restrictions.
+4. The provider disclosure filtered out all demo providers, causing “Incomplete disclosure” for packets 1268–1271. The source fix permits only the approved QA provider roster in this agency. It keeps demo identities excluded from real agencies. An empty disclosure now blocks continuation with an explanation.
+5. Company guide access evaluated employment status missing from ordinary login tokens. The source fix loads current status before applying existing Library and agency permissions; it does not grant management access.
+6. The support availability page contained a disabled placeholder Book button. It now opens the provider's existing scheduling tools.
+7. Intake completion previously claimed an email had been sent without a send receipt. It now shows pending/review/failed states truthfully, displays the packet reference, and reads recorded email delivery status while polling.
+8. An email-inbox loading error now identifies the account and remains expanded; it no longer also claims the inbox is empty.
+
+Retained packets and signatures
+Packets 1268 (Reese), 1269 (Emery), 1270 (Parker), and 1271 (Quinn) have saved clients but failed document completion. Do not mark them cleared or fabricate completed signatures. Their old disclosure had no provider roster. Review and sign the corrected disclosure through the normal enrollment flow before declaring those packets complete. Keep these records as failure evidence if recovery is not available; a new complete enrollment is also needed to prove the corrected flow. Client/provider caps remain 30/10.
+
+Supervision
+The saved owner credential for user 1439 successfully signs in normally. A blank vault fill is a tester-side vault problem; refill it from the existing private supervisee credential, without rotating the password. Agreement 413 is visible at:
+https://app.itsco.health/auricwell-qa-demo/supervision/agreements
+Use separate browser contexts for 1438 and 1439. The supervisor's own Log supervision form asks for that supervisor's supervisor; it is not proof that assignment 123 (1438 supervising 1439) is missing. Log the supervisee's session from 1439 and review it from 1438. The note/cosign workflow still requires an actual synthetic note and must not be passed based on the assignment alone.
+
+Retest order
+- One provider context: Availability → Counseling enabled → publish future openings with a stated timezone. Refresh stale date ranges; the existing virtual blocks currently end November 1.
+- One support context: Staff schedules → select provider → schedule tools. Verify actual client booking, reschedule, same-day cancellation and both email receipts; merely opening a calendar does not pass.
+- School EN/ES and office EN/ES: verify the disclosure contains the approved QA roster before signing. Capture the packet reference and document status. Confirm sent emails independently in testing@itsco.health and the recipient's own Messages “Email for …” section.
+- Exchange: use the tenant-scoped /client-exchange URL or Quick Nav → Client Exchange. Use a transfer/initial placement for an unassigned client. “Add services — keep current therapist assigned” requires an existing therapist by design. Open a listing to inspect its support-only Matching and delivery audit. Record matched/not-matched reasons and notification receipts, then request it as the matched provider.
+- Sessions: the server enforces inactivity separately from JWT lifetime. Sign in again when expired; do not request elevated credentials. Signing in another role in the same context is not an independent session test.
+
+Verification status at source-change preparation
+54 targeted backend tests and 27 frontend tests passed; frontend production build passed with increased Node heap. Live provider availability and Messages loaded, and provider service enablement returned 200. Hosting policy changes were read back and verified. Application changes require the ensuing main-branch deployments and post-deployment checks. This addendum is not an overall QA PASS.
+
+Still require explicit evidence
+Completed new packet and external confirmation arrival; support booking/reschedule/cancellation; reminder delivery; provider Exchange claim and assignment; support clinical-note denial; supervisee note and cosign; Spanish portal and residual localization; correct timezone labels; training quiz assignment; inactive/expired-account fixtures. Previously reported failures remain open until these flows are exercised.

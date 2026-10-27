@@ -164,11 +164,11 @@
             </div>
           </div>
 
-          <button class="book-rail" type="button" disabled title="Booking CTA will be wired next">
-            Book
+          <button class="book-rail" type="button" @click="openBooking(card)">
+            Open schedule
           </button>
         </div>
-        <div class="card-foot">Click book to see the exact date</div>
+        <div class="card-foot">Open the provider’s schedule to choose a client and book an appointment.</div>
       </article>
     </section>
 
@@ -229,10 +229,17 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+const router = useRouter();
+const route = useRoute();
+function openBooking(card) {
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  router.push({ path: `${slug ? '/' + slug : ''}/dashboard`, query: { tab: 'my_schedule', scheduleViewAs: String(card.providerId) } });
+}
 
 const CARD_SLOT_PREVIEW_LIMIT_PER_DAY = 6;
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];

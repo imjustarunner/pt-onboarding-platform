@@ -1,10 +1,10 @@
 <template>
-  <details v-if="available" class="qa-email-inbox">
+  <details v-if="available" class="qa-email-inbox" :open="!!error">
     <summary>Email for {{ address }}</summary>
     <p>These are your email copies. Delivery to testing@itsco.health is checked separately.</p>
     <button type="button" :disabled="loading" @click="load()">Refresh emails</button>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="!loading && !items.length">No emails recorded for this account yet.</p>
+    <p v-if="!loading && !error && !items.length">No emails recorded for this account yet.</p>
     <ul>
       <li v-for="item in items" :key="item.id">
         <button type="button" @click="open(item.id)">{{ item.subject || '(No subject)' }}</button>
@@ -52,6 +52,7 @@ async function open(id) {
 }
 watch([() => auth.user?.id, () => auth.user?.email], () => {
   generation++; available.value=false; items.value=[]; selected.value=null;
+  address.value=auth.user?.email || ''; nextCursor.value=null; error.value='';
   if(/@example\.com$/i.test(auth.user?.email || ''))load();
 },{immediate:true});
 </script>

@@ -1,3 +1,5 @@
+import Agency from '../models/Agency.model.js';
+import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
 import {slotAllowsCare} from '../utils/availabilityCareTypes.js';
 import { readPublicWeekAvailability } from '../services/publicAvailabilitySnapshot.service.js';
@@ -484,29 +486,32 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
 }
 
 export async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
+  const qaAgency = Number(agencyId) === 450 ? await Agency.findById(agencyId) : null;
+  const includeDemo = isAuricwellQaAgency(qaAgency);
+  const visible = row => includeDemo ? allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) !== 1;
   const serviceEnabled=(await getAgencyServiceTypes(agencyId)).some(s=>s.service_type===serviceType);
   // A clinical directory and school schedule remain public when online booking is not configured.
   if(!serviceEnabled && !(includeDirectory && serviceType==='counseling')) return [];
   const [rows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
+    `SELECT u.id, u.is_demo, u.email, u.first_name, u.last_name, u.role, u.profile_photo_path,
             u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, p.public_details_json AS service_details, 1 AS online_enrolled
      FROM users u
      LEFT JOIN provider_public_profiles p ON p.user_id=u.id
      JOIN provider_public_service_enrollments e
        ON e.user_id = u.id AND e.agency_id = ? AND e.service_type = ? AND e.is_active = 1
      JOIN user_agencies membership ON membership.user_id = u.id AND membership.agency_id = e.agency_id
-     WHERE COALESCE(membership.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
+     WHERE COALESCE(membership.is_active,1)=1 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
        AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
        AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
      ORDER BY u.last_name ASC, u.first_name ASC`,
-    [Number(agencyId), String(serviceType)]
+    [Number(agencyId), String(serviceType), includeDemo ? 1 : 0]
   );
-  const enrolled = rows.map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true})).map(row=>({...row,online_enrolled:serviceEnabled?1:0}));
+  const enrolled = rows.filter(visible).map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true})).map(row=>({...row,online_enrolled:serviceEnabled?1:0}));
   let listed = [];
   if (includeDirectory) {
-    const [directory] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.profile_photo_path,
+    const [directory] = await pool.execute(`SELECT u.id,u.is_demo,u.email,u.first_name,u.last_name,u.role,u.profile_photo_path,
       u.service_focus,u.provider_accepting_new_clients,u.in_office_available,u.title,u.sees_clients,u.has_provider_access,ua.agency_role,0 AS online_enrolled,
       p.public_details_json AS service_details,
       ${publicSchoolAssignmentSql('ua.agency_id')} AS has_school_assignment,
@@ -514,11 +519,11 @@ export async function listEnrolledProviders(agencyId, serviceType, {includeDirec
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id
       LEFT JOIN provider_public_profiles p ON p.user_id=u.id
       WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1
-      AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+      AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')
       AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
-      ORDER BY u.last_name,u.first_name`,[String(serviceType),Number(agencyId)]);
-    listed = directory.map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => !rows.some(e => Number(e.id)===Number(row.id)) && offersProviderService(row.service_details,agencyId,serviceType,{hasEnrollment:Boolean(row.has_enrollment),counselingEligible:['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(row.agency_role||row.role)||Boolean(row.has_provider_access)||Boolean(row.has_school_assignment)}));
+      ORDER BY u.last_name,u.first_name`,[String(serviceType),Number(agencyId),includeDemo ? 1 : 0]);
+    listed = directory.filter(visible).map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => !rows.some(e => Number(e.id)===Number(row.id)) && offersProviderService(row.service_details,agencyId,serviceType,{hasEnrollment:Boolean(row.has_enrollment),counselingEligible:['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(row.agency_role||row.role)||Boolean(row.has_provider_access)||Boolean(row.has_school_assignment)}));
   }
   const combined = extra => [...new Map([...listed,...extra,...enrolled].map(row => [Number(row.id),row])).values()]
     .sort((a,b)=>`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
@@ -526,13 +531,13 @@ export async function listEnrolledProviders(agencyId, serviceType, {includeDirec
   if (rows.length || !['coaching','consulting'].includes(st)) return combined([]);
 
   const [fallback] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
+    `SELECT u.id, u.is_demo, u.email, u.first_name, u.last_name, u.role, u.profile_photo_path,
             u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, p.public_details_json AS service_details, 1 AS online_enrolled
      FROM users u
      LEFT JOIN provider_public_profiles p ON p.user_id=u.id
      JOIN user_agencies ua ON ua.user_id = u.id
      JOIN agencies a ON a.id = ua.agency_id
-     WHERE ua.agency_id = ? AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
+     WHERE ua.agency_id = ? AND COALESCE(ua.is_active,1)=1 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
        AND NOT EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=? AND e.is_active=0)
        AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
        AND (u.is_active IS NULL OR u.is_active = TRUE)
@@ -540,9 +545,9 @@ export async function listEnrolledProviders(agencyId, serviceType, {includeDirec
        AND UPPER(COALESCE(u.status, '')) = 'ACTIVE_EMPLOYEE'
        AND LOWER(COALESCE(u.role, '')) IN ('admin', 'provider', 'provider_plus', 'super_admin', 'staff')
      ORDER BY u.last_name ASC, u.first_name ASC`,
-    [Number(agencyId),String(serviceType)]
+    [Number(agencyId),includeDemo ? 1 : 0,String(serviceType)]
   );
-  return combined((fallback || []).map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true})));
+  return combined((fallback || []).filter(visible).map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true})));
 }
 
 async function getTutoringProfile(userId, agencyId) {

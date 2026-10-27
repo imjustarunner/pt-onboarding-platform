@@ -3,6 +3,7 @@
  * Hogwarts-gated until rollout.
  */
 import crypto from 'crypto';
+import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import pool from '../config/database.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import {
@@ -22,6 +23,7 @@ import {
 } from '../utils/disclosureBusinessEntity.js';
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
 import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
+import Agency from '../models/Agency.model.js';
 
 const DEMO_SCHOOL_SLUGS = new Set(['hogwarts']);
 
@@ -483,6 +485,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
   const schoolId = Number(schoolOrganizationId || 0);
   const aid = Number(agencyId || 0);
   if (!aid) return [];
+  const qaAgency = aid === 450 ? await Agency.findById(aid) : null;
 
   const activeUserClause = `
     AND COALESCE(u.is_active, 1) = 1
@@ -571,7 +574,8 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
     const id = Number(row.id);
     if (!id || seen.has(id)) continue;
     if (!isDisclosureEligibleUserStatus(row.status)) continue;
-    if (isHogwartsDemoIdentity(row) || Number(row.is_demo) === 1) continue;
+    if (isHogwartsDemoIdentity(row)) continue;
+    if (isAuricwellQaAgency(qaAgency) ? !allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) === 1) continue;
     const membership = membershipByUserId.get(id) || row;
     const fromSchool = schoolProviders.some((s) => Number(s.id) === id);
     const effectiveRole = String(membership.agency_role || row.role || '').trim() || row.role;

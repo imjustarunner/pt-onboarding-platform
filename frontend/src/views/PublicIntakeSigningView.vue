@@ -2506,6 +2506,7 @@
       </div>
 
       <div v-else-if="step === 3 && isOfficeInDepthIntake" class="step office-complete">
+        <p v-if="submissionId" class="intake-thankyou-reference">{{ intakeLocale === 'es' ? 'Número de referencia' : 'Reference number' }}: {{ submissionId }}</p>
         <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :optional="guardianPortalInvitationDeferred" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="intakeLocale" />
         <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
           ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
@@ -2525,7 +2526,7 @@
                 <p>{{ t('officeCompleteFollowup') }}</p>
               </div>
               <div class="office-complete-grid">
-                <div><span aria-hidden="true">✉️</span><strong>{{ locale === 'es' ? 'Confirmación por correo' : 'Email confirmation' }}</strong><p>{{ intakeSuccessEmailMessage }}</p></div>
+                <div><span aria-hidden="true">✉️</span><strong>{{ intakeLocale === 'es' ? 'Confirmación por correo' : 'Email confirmation' }}</strong><p>{{ intakeSuccessEmailMessage }}</p></div>
                 <div><span aria-hidden="true">👥</span><strong>{{ t('personalizedMatch') }}</strong><p>{{ t('personalizedMatchBody') }}</p></div>
                 <div><span aria-hidden="true">📅</span><strong>{{ t('wellReachOut') }}</strong><p>{{ t('wellReachOutBody') }}</p></div>
                 <div><span aria-hidden="true">♡</span><strong>{{ t('wereHereToHelp') }}</strong><p>{{ t('wereHereToHelpBody') }}</p></div>
@@ -2781,6 +2782,9 @@
             </div>
             <p class="intake-thankyou-email">
               {{ intakeSuccessEmailMessage }}
+            </p>
+            <p v-if="submissionId" class="intake-thankyou-reference">
+              {{ intakeLocale === 'es' ? 'Número de referencia' : 'Reference number' }}: {{ submissionId }}
             </p>
           </div>
         </template>
@@ -4707,6 +4711,7 @@ const completionEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     return t('completionEmailFailed');
   }
+  if (emailDeliveryStatus.value?.sent !== true) return pendingConfirmationMessage.value;
   if (formTypeKey.value === 'job_application') return t('completionEmailApplicant');
   if (formTypeKey.value === 'medical_records_request') return t('completionEmailRequester');
   if (formTypeKey.value === 'smart_registration') return t('completionEmailRegistrant');
@@ -6778,6 +6783,7 @@ const registrationEmailMessageForBanner = computed(() => {
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     return "We couldn't deliver the confirmation email right now — please use the download buttons below to grab your packet.";
   }
+  if (emailDeliveryStatus.value?.sent !== true) return pendingConfirmationMessage.value;
   const email = String(
     registrationCompletion.value?.loginEmail || guardianEmail.value || ''
   ).trim();
@@ -6824,6 +6830,13 @@ const intakeRegisteredNames = computed(() => {
   }
   return out;
 });
+const pendingConfirmationMessage = computed(() => packetNeedsReview.value
+  ? (intakeLocale.value === 'es'
+    ? 'Recibimos su información, pero su paquete necesita revisión. El correo de confirmación aún no se ha enviado. Comuníquese con su equipo e indique el número de referencia.'
+    : 'We received your information, but your packet needs review. The confirmation email has not been sent yet. Contact your team with the reference number.')
+  : (intakeLocale.value === 'es'
+    ? 'Recibimos su información. Aún no se ha confirmado el envío del correo.'
+    : 'We received your information. Email delivery has not been confirmed yet.'));
 const intakeSuccessEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     const to = String(emailDeliveryStatus.value?.to || guardianEmail.value || '').trim();
@@ -6831,6 +6844,7 @@ const intakeSuccessEmailMessage = computed(() => {
       ? t('intakeEmailFailedTo').replace('{email}', to)
       : t('intakeEmailFailed');
   }
+  if (emailDeliveryStatus.value?.sent !== true) return pendingConfirmationMessage.value;
   const email = String(guardianEmail.value || '').trim();
   if (email) return t('intakeConfirmationEmailedTo').replace('{email}', email);
   return t('intakeConfirmationEmailed');
@@ -11914,7 +11928,7 @@ const finalizePacket = async () => {
 };
 
 const pollForDownloadUrl = async (attemptLimit) => {
-  if (downloadUrl.value || jobApplicationSubmitted.value) return;
+  if (jobApplicationSubmitted.value || (downloadUrl.value && emailDeliveryStatus.value?.attempted)) return;
   pollingForDownload.value = false;
   const delays = [1000, 2000, 3000, 4000, 5000];
   const maxAttempts = Number.isFinite(Number(attemptLimit))
@@ -11924,7 +11938,7 @@ const pollForDownloadUrl = async (attemptLimit) => {
     const wait = delays[Math.min(i, delays.length - 1)];
     await new Promise((r) => setTimeout(r, wait));
     if (i >= 6) pdfWaitTimedOut.value = true;
-    if (downloadUrl.value || step.value !== 3) break;
+    if (step.value !== 3) break;
     try {
       const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`, {
         // Suppress the global "Loading…" overlay during packet polling —
@@ -11969,7 +11983,7 @@ const pollForDownloadUrl = async (attemptLimit) => {
         const _expectedKids = (intakeResponses?.clients || []).length || 1;
         const haveAllExpected = Array.isArray(clientBundleLinks.value)
           && clientBundleLinks.value.length >= _expectedKids;
-        if (resp.data?.packetReady === true || resp.data?.downloadUrl || haveAllExpected) {
+        if ((resp.data?.packetReady === true || resp.data?.downloadUrl || haveAllExpected) && emailDeliveryStatus.value?.attempted) {
           break;
         }
       }

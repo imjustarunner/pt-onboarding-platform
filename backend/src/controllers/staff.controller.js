@@ -3,6 +3,7 @@ import { providerProfileUrl } from '../../../frontend/src/navigation/providerPro
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 
 async function assertAgencyAccess(reqUser, agencyId) {
   if (reqUser.role === 'super_admin') return true;
@@ -126,14 +127,14 @@ export const getStaffDirectory = async (req, res, next) => {
     const agencyId = Number(req.query.agencyId);
     if (!Number.isInteger(agencyId) || agencyId <= 0) return res.status(400).json({error:{message:'Choose an organization.'}});
     await assertAgencyAccess(req.user, agencyId);
-    const [[agency]] = await pool.execute('SELECT id,slug,organization_type FROM agencies WHERE id=? AND is_active=1', [agencyId]);
+    const [[agency]] = await pool.execute('SELECT id,slug,organization_type,feature_flags FROM agencies WHERE id=? AND is_active=1', [agencyId]);
     if (!agency) return res.status(404).json({error:{message:'Organization not found.'}});
     const [rows] = await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.preferred_name,u.title,u.role,u.department,
       u.work_email,u.work_phone,u.work_phone_extension,u.work_location,u.profile_photo_path
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
-      WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+      WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')
-      AND u.role IN (${roles.map(() => '?').join(',')}) ORDER BY u.last_name,u.first_name`, [agencyId,...roles]);
+      AND u.role IN (${roles.map(() => '?').join(',')}) ORDER BY u.last_name,u.first_name`, [agencyId,isAuricwellQaAgency(agency) ? 1 : 0,...roles]);
     const [locations] = await pool.execute(`SELECT ul.user_id,l.name,ul.is_primary FROM user_office_locations ul
       JOIN office_locations l ON l.id=ul.office_location_id AND l.is_active=1
       JOIN user_agencies ua ON ua.user_id=ul.user_id AND ua.agency_id=? AND ua.is_active=1

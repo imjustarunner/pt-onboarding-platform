@@ -19,5 +19,5 @@ it('does not render an inbox for a rejected identity',async()=>{
   api.get.mockRejectedValueOnce({response:{status:404}});const wrapper=mount(Inbox);await flushPromises();expect(wrapper.find('details').exists()).toBe(false);wrapper.unmount();
 });
 it('makes a failed read visible instead of presenting an empty successful inbox',async()=>{
-  api.get.mockRejectedValueOnce({response:{status:500}});const wrapper=mount(Inbox);await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load');wrapper.unmount();
+  api.get.mockRejectedValueOnce({response:{status:500}});const wrapper=mount(Inbox);await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load');expect(wrapper.get('summary').text()).toContain('qa.support.auricwell@example.com');expect(wrapper.get('details').attributes('open')).toBeDefined();expect(wrapper.text()).not.toContain('No emails recorded');wrapper.unmount();
 });

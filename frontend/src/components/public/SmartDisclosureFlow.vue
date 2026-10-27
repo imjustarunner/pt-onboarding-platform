@@ -550,6 +550,10 @@ const supervisorLines = (provider) => {
 
 const goNext = () => {
   error.value = '';
+  if (!providers.value.length) {
+    error.value = tr('The provider disclosure is not ready. Please contact your care team before continuing.', 'La declaración del proveedor aún no está lista. Comuníquese con su equipo de atención antes de continuar.');
+    return;
+  }
   if (stage.value === 'complete') {
     emit('captured', { smartDisclosure: buildDisclosurePayload() });
     return;
@@ -629,6 +633,10 @@ const withRequestTimeout = (promise, ms = 30000) =>
   ]);
 
 const submitDisclosure = async () => {
+  if (!providers.value.length) {
+    error.value = tr('The provider disclosure is not ready. Please contact your care team before continuing.', 'La declaración del proveedor aún no está lista. Comuníquese con su equipo de atención antes de continuar.');
+    return;
+  }
   if (!acknowledged.value) {
     error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgacion para continuar.');
     return;

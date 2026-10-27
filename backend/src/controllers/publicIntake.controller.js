@@ -13,7 +13,7 @@ import { intakeCommunicationDisclosure, ensureEnrollmentCommunicationStep, valid
 import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentValues, validateMultiChildSigning, validateSharedSigningCaptures, sameSigningChildren, areAllIntakePacketsReady, intakeChildRoster } from '../utils/multiChildIntake.js';
 import { buildSharedIntakeDocuments } from '../services/sharedIntakeDocuments.service.js';
-import { sendPacketCompletionNotification } from '../services/packetCompletionNotification.service.js';
+import { sendPacketCompletionNotification, readPacketCompletionDelivery } from '../services/packetCompletionNotification.service.js';
 import {allowsProviderPreference,stripIneligibleProviderPreference} from '../utils/intakeProviderPreference.js';
 import { validateEnrollmentProviderSelection, recordEnrollmentProviderSelection } from '../services/enrollmentProviderSelection.service.js';
 import { hiringCommunicationContext, validateHiringChoice, saveHiringChoice } from '../services/hiringCommunication.service.js';
@@ -7287,11 +7287,13 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     const packetReady = areAllIntakePacketsReady({
       status: submission.status, intakeData, downloadUrl, clientBundles
     });
+    const emailDelivery = await readPacketCompletionDelivery(submissionId, await resolveAgencyIdForLink(link));
 
     res.json({
       submissionId,
       status: submission.status,
       packetReady,
+      emailDelivery,
       packetNeedsReview: intakeData?.packetGeneration?.status === 'needs_review',
       totalDocuments: templates.length,
       signedTemplateIds: Array.from(signedTemplateIds),

@@ -22,6 +22,13 @@ async function assertReferenceScope(agencyId, key) {
 }
 export async function assertReferenceAccess(user, agencyId, { manage = false } = {}) {
   if (!Number.isSafeInteger(Number(agencyId)) || Number(agencyId) <= 0) fail('Select a company.');
+  // Authentication tokens do not carry employment status. Resolve it before
+  // checking Library capabilities, without granting any additional role.
+  if (user?.id && !user.status) {
+    const current = await User.findById(user.id);
+    if (!current || !Number(current.is_active) || current.is_archived) fail('Library access denied.', 403);
+    user = { ...user, role: current.role, status: current.status, effectiveRole: current.role };
+  }
   if (!getUserCapabilities(user, { effectiveRole: user?.effectiveRole }).canViewLibrary) fail('Library access denied.', 403);
   if (manage) return assertDocumentLibraryAccess(user, agencyId);
   if (['super_admin', 'superadmin'].includes(user?.role)) return;
