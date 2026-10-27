@@ -1132,7 +1132,8 @@ export async function sendEmailFromIdentity({
 
   // Required credential alerts are independent of communication subscriptions.
   const securityNotice = isCredentialSecurityNotice(identity, templateType);
-  const optGate = securityNotice ? { allowed: true } : await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
+  const requiredWorkNotice = await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:identity?.agency_id});
+  const optGate = securityNotice || requiredWorkNotice ? { allowed: true } : await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
   if (!optGate.allowed) {
     await logSkippedOrFailedEmail({
       to,

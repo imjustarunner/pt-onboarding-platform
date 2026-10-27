@@ -34,11 +34,17 @@ export function createAppointmentReplyEmailService(deps) {
 export async function sendAppointmentReplyEmail(notification, context) {
   if (notification?.type !== 'client_appointment_reply' || context?.appointmentReply?.intent !== 'cancel' || context?.appointmentReply?.applied !== true) return {skipped:true,reason:'not_applied_cancellation'};
   const [{default:Appointment},{default:User},{default:Agency},{default:pool},
-    {sendScheduleNotificationEmail},{buildPublicAppUrl}] = await Promise.all([
+    {sendEmailFromIdentity},{resolveSenderIdentityForSend},{isAuricwellQaAgency},{buildPublicAppUrl}] = await Promise.all([
     import('../models/Appointment.model.js'),import('../models/User.model.js'),import('../models/Agency.model.js'),
-    import('../config/database.js'),import('./scheduleNotificationEmail.service.js'),import('../utils/publicPortalUrl.js')]);
+    import('../config/database.js'),import('./unifiedEmail/unifiedEmailSender.service.js'),import('./emailSenderIdentityResolver.service.js'),import('../utils/auricwellQaPolicy.js'),import('../utils/publicPortalUrl.js')]);
   return createAppointmentReplyEmailService({appointment:id=>Appointment.findById(id),user:id=>User.findById(id),
     activeMember:async(userId,agencyId)=>(await pool.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1 LIMIT 1',[userId,agencyId]))[0].length===1,
-    send:sendScheduleNotificationEmail,
+    send:async message=>{
+      const {identity}=await resolveSenderIdentityForSend({agencyId:message.agencyId,templateType:message.templateType,preferredKeys:['notifications','app'],includePlatformDefaults:false});
+      if(!identity || Number(identity.agency_id)!==Number(message.agencyId))throw new Error('Configure the agency notifications sender before sending provider cancellation notices.');
+      const agency=await Agency.findById(message.agencyId);
+      return sendEmailFromIdentity({...message,senderIdentityId:identity.id,
+        replyToOverride:isAuricwellQaAgency(agency)?'testing@itsco.health':identity.reply_to || identity.from_email});
+    },
     scheduleUrl:async id=>buildPublicAppUrl(await Agency.findById(id),'dashboard?tab=my_schedule')})(notification,context);
 }
