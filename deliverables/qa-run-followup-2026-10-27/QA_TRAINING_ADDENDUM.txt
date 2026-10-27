@@ -1,0 +1,16 @@
+AuricWell QA training addendum — October 27, 2026
+This supplements the two earlier October 27 addenda. Do not replace them.
+
+A private demo lesson and three-question quiz have now been provisioned:
+https://app.itsco.health/auricwell-qa-demo/module/32
+Title: QA orientation — scheduling and support
+Agency: 450 only. It is not a public or platform-shared module.
+Assigned users: provider 1433, support 1434, supervisor 1438, supervisee 1439.
+Training task IDs: 2119, 2120, 2121, 2122 respectively.
+The owner account performed setup. Its credentials must not be distributed to the bots.
+
+Test the lesson in each role's own browser context. Submit one deliberately incorrect attempt as a designated provider, capture the feedback, then retry correctly. Verify score, pass/fail, attempt history, task completion and persistence after a fresh login. Do not clear attempts or reset passwords to force a PASS. The lesson permits up to 10 attempts and requires 100% to pass. This synthetic workflow course does not certify professional training or reproduce ITSCO's private policy curriculum.
+
+An additional application access fix scopes module details, lesson content and quiz attempts to the user's organization or explicitly shared/published courses. The general provider module catalog previously did not restrict the query to the provider's agencies. Content edits also verify the owning agency and that the content ID belongs to the URL's module. No bot role was promoted. Nine targeted tests passed, including tenant denial, preserved shared-course access, content-ID substitution and database failure behavior.
+
+This source change needs its main-branch backend deployment before the training boundary retest can pass. Verify a guessed private module ID from another agency returns 403 for both provider and support; verify module 32 and its quiz are accessible. Preserve the existing denied access to clinical notes and agency configuration. Final deployment and live verification results will be appended below.

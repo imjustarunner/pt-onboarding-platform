@@ -1,4 +1,5 @@
 import express from 'express';
+import { requireTrainingModuleAccess } from '../middleware/trainingModuleAccess.middleware.js';
 import { body } from 'express-validator';
 import { getAllModules, getModuleById, createModule, updateModule, archiveModule, restoreModule, deleteModule, getArchivedModules, createSharedModule, getSharedModules, copyModule, getCopyPreview, assignModuleToUsers } from '../controllers/module.controller.js';
 import { getModuleFormDefinition, submitModuleForm, uploadModuleFormFile } from '../controllers/moduleForm.controller.js';
@@ -11,6 +12,8 @@ const router = express.Router();
 
 // All module routes require authentication + training capability
 router.use(authenticate, requireCapability('canViewTraining'));
+router.param('id', requireTrainingModuleAccess);
+router.param('moduleId', requireTrainingModuleAccess);
 
 const validateModuleCreate = [
   body('title').trim().notEmpty().withMessage('Title is required'),

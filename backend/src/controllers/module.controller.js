@@ -1,4 +1,5 @@
 import Module from '../models/Module.model.js';
+import { canReadTrainingModule } from '../middleware/trainingModuleAccess.middleware.js';
 import ModuleCopyService from '../services/moduleCopy.service.js';
 import User from '../models/User.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
@@ -52,9 +53,12 @@ export const getAllModules = async (req, res, next) => {
       return res.json(uniqueModules);
     }
     
-    // Regular users see only assigned modules (handled by module assignments)
-    const modules = await Module.findAll(includeInactive, filters);
-    res.json(modules);
+    // Limit the learner catalog to their agencies and published shared resources.
+    const agencies = await User.getAgencies(req.user.id);
+    const lists = await Promise.all([Module.findShared(), ...agencies.map(agency => Module.findByAgency(agency.id, false))]);
+    const modules = [...new Map(lists.flat().map(module => [module.id, module])).values()];
+    const readable = await Promise.all(modules.map(module => canReadTrainingModule(req.user, module, agencies)));
+    res.json(modules.filter((_module, index) => readable[index]));
   } catch (error) {
     next(error);
   }

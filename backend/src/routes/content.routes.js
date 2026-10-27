@@ -1,4 +1,5 @@
 import express from 'express';
+import { requireTrainingModuleAccess } from '../middleware/trainingModuleAccess.middleware.js';
 import { body } from 'express-validator';
 import { getModuleContent, addModuleContent, updateModuleContent, deleteModuleContent } from '../controllers/content.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -22,10 +23,10 @@ const validateContent = [
   body('settings').optional({ nullable: true }).isObject()
 ];
 
-router.get('/:id/content', authenticate, getModuleContent);
-router.post('/:id/content', authenticate, requireBackofficeAdmin, validateContent, addModuleContent);
-router.put('/:id/content/:contentId', authenticate, requireBackofficeAdmin, validateContent, updateModuleContent);
-router.delete('/:id/content/:contentId', authenticate, requireBackofficeAdmin, deleteModuleContent);
+router.get('/:id/content', authenticate, requireTrainingModuleAccess, getModuleContent);
+router.post('/:id/content', authenticate, requireBackofficeAdmin, requireTrainingModuleAccess, validateContent, addModuleContent);
+router.put('/:id/content/:contentId', authenticate, requireBackofficeAdmin, requireTrainingModuleAccess, validateContent, updateModuleContent);
+router.delete('/:id/content/:contentId', authenticate, requireBackofficeAdmin, requireTrainingModuleAccess, deleteModuleContent);
 
 export default router;
 
