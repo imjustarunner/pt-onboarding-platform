@@ -45,7 +45,6 @@
               <div class="card-meta">{{ formatRange(companyEventDisplayWindow(event).startsAt, companyEventDisplayWindow(event).endsAt) }}</div>
               <div v-if="event.description" class="card-desc">{{ event.description }}</div>
               <div class="card-actions">
-                <button type="button" class="btn btn-secondary btn-sm" @click="travelEventId = travelEventId === event.id ? null : event.id">Log travel time</button>
                 <a
                   v-if="flierHref(event)"
                   :href="flierHref(event)"
@@ -56,7 +55,6 @@
                   View flier
                 </a>
               </div>
-              <EventTravelPanel v-if="travelEventId === event.id" :event-id="event.id" />
               <div v-for="session in visibleSessions(event)" :key="session.sessionDateId" class="session-row">
                 <div class="card-meta">{{ formatRange(session.startsAt, session.endsAt) }}</div>
                 <button
@@ -81,7 +79,6 @@
 </template>
 
 <script setup>
-import EventTravelPanel from '../events/EventTravelPanel.vue';
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -104,7 +101,6 @@ const events = ref([]);
 const requestingKey = ref('');
 const viewFilter = ref('relevant');
 const selectedMonth = ref('');
-const travelEventId = ref(null);
 
 const matchesMonth = (start, end) => {
   if (!selectedMonth.value) return true;

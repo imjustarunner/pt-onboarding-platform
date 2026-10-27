@@ -11,6 +11,7 @@ import {
   normalizePtoRequests,
   normalizeReimbursementClaims,
   normalizeTimeClaims,
+  normalizeEventTravelClaims,
 } from '../utils/submitSubmissionHistory';
 
 /**
@@ -36,10 +37,12 @@ export function useSubmitSubmissionHistory({ agencyId, userId, flags, enabled })
     error.value = '';
     const params = { agencyId: aid, skipGlobalLoading: true };
     const collected = [];
+    let timeRows = [], mileageRows = [];
 
     try {
       const tasks = [
         api.get('/payroll/me/mileage-claims', { params }).then((r) => {
+          mileageRows = r.data || [];
           collected.push(...normalizeMileageClaims(r.data, { schoolOnly: false }));
           collected.push(...normalizeMileageClaims(r.data, { schoolOnly: true }));
         }),
@@ -50,6 +53,7 @@ export function useSubmitSubmissionHistory({ agencyId, userId, flags, enabled })
           collected.push(...normalizePtoRequests(r.data));
         }),
         api.get('/payroll/me/time-claims', { params }).then((r) => {
+          timeRows = r.data || [];
           collected.push(...normalizeTimeClaims(r.data));
         }),
         api.get('/payroll/me/medcancel-claims', { params }).then((r) => {
@@ -85,6 +89,7 @@ export function useSubmitSubmissionHistory({ agencyId, userId, flags, enabled })
       }
 
       await Promise.allSettled(tasks);
+      collected.push(...normalizeEventTravelClaims(timeRows, mileageRows));
       items.value = collected;
     } catch (e) {
       error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load submission history';

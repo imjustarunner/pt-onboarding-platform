@@ -19,7 +19,7 @@ export const SUBMIT_ROOT_GROUPS = [
       tagMutedColor: '#0369a1',
     },
     actions: [
-      { id: 'mileage', title: 'Mileage', description: 'Submit other mileage for reimbursement.', event: 'mileage', icon: 'car' },
+      { id: 'event_travel', title: 'Event travel reimbursement', description: 'Report travel and materials trips for an assigned event.', event: 'event-travel', icon: 'car' },
       { id: 'reimbursement', title: 'Reimbursement', description: 'Upload a receipt and submit for approval.', event: 'reimbursement', icon: 'receipt' },
       { id: 'pto', title: 'PTO', description: 'Request Sick Leave or Training PTO.', event: 'pto', icon: 'calendar' },
       { id: 'company_card', title: 'Company card expense', description: 'Submit company card purchases for review.', event: 'company-card', icon: 'card', visibleKey: 'companyCardEnabled' },

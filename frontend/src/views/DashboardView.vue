@@ -1154,6 +1154,10 @@
       @created="() => { showAddSeasonModal = false; loadMyChallenges(); }"
     />
 
+    <EventTravelReportModal v-if="showEventTravelReport && currentAgencyId && !previewMode"
+      :agency-id="Number(currentAgencyId)" @close="showEventTravelReport = false"
+      @submitted="onEventTravelSubmitted" />
+
     <!-- Hidden MyPayrollTab used to open mileage/reimbursement/medcancel/PTO modals from Submit panel (no navigation). -->
     <BudgetSubmitExpensesModal
       v-if="showBudgetSubmitExpensesModal && currentAgencyId && !previewMode"
@@ -1348,6 +1352,7 @@
 </template>
 
 <script setup>
+import EventTravelReportModal from '../components/events/EventTravelReportModal.vue';
 import ProviderUpdateAssignedBanner from '../components/provider/ProviderUpdateAssignedBanner.vue';
 import StaffDirectory from '../components/dashboard/StaffDirectory.vue';
 import DashboardLearningTips from '../components/dashboard/DashboardLearningTips.vue';
@@ -5096,8 +5101,9 @@ const onSubmitPanelAction = (event, payload) => {
       logTimeCategoryLabel.value = null;
       openLogTimeTab();
       break;
+    case 'event-travel':
     case 'mileage':
-      openRegularMileageModal();
+      showEventTravelReport.value = true;
       break;
     case 'reimbursement':
       openReimbursementModal();
@@ -5209,6 +5215,8 @@ const openInSchoolClaims = () => {
   submitPanelView.value = 'in_school';
 };
 
+const showEventTravelReport = ref(false);
+const onEventTravelSubmitted = () => { submitPanelRef.value?.refreshHistory?.(); };
 const pendingMileageModalOpen = ref(null);
 const pendingReimbursementModalOpen = ref(false);
 const pendingMedcancelModalOpen = ref(false);

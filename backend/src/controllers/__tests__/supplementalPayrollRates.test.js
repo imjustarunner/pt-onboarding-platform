@@ -26,3 +26,18 @@ it('applies the meeting-specific hourly rate in the actual payroll amount calcul
 it('uses the assigned indirect rate for verified clinical FFS excess time',async()=>{const c=claim('indirect_service');c.payload.ffsExcess={allowanceNeedsReview:false};expect(await computeDefaultAppliedAmountForTimeClaim({claim:c})).toBe(7.33);});
 it('requires payroll to verify an unconfigured clinical allowance before proposing payment',async()=>{const c=claim('indirect_service');c.payload.ffsExcess={allowanceNeedsReview:true};expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,rateCard:{indirect_rate:22}})).toBeNull();});
 it('does not substitute a legacy rate for clinical excess without an active pay profile',async()=>{loadUserPaySystemContext.mockResolvedValue({enabled:false});const c=claim('indirect_service');c.payload.ffsExcess={allowanceNeedsReview:false};expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,rateCard:{indirect_rate:22}})).toBeNull();});
+
+it('pays event travel at the Support Activity rate using exact minutes despite rounded display hours', async () => {
+  const c = claim('support_activity', 'MEETING'); c.payload.source = 'event_travel_report'; c.credits_hours = 0.33;
+  expect(await computeDefaultAppliedAmountForTimeClaim({ claim: c, approveCreditsHours: 0.33, rateCard: { indirect_rate: 99 } })).toBe(6);
+});
+it('does not substitute indirect pay when the event travel support rate is missing', async () => {
+  loadUserPaySystemContext.mockResolvedValue({ enabled: false }); PayrollRate.findBestRate.mockResolvedValue(null);
+  const c = claim('support_activity', 'MEETING'); c.payload.source = 'event_travel_report';
+  expect(await computeDefaultAppliedAmountForTimeClaim({ claim: c, rateCard: { indirect_rate: 99 } })).toBeNull();
+});
+it('uses the applicable reduced Support Activity rate for event travel', async () => {
+  loadUserPaySystemContext.mockResolvedValue({ enabled: true, status: { useReducedRates: true }, rateProfile: { supportActivityRate: 18, supportActivityRateProbation: 15 } });
+  const c = claim('support_activity', 'MEETING'); c.payload.source = 'event_travel_report';
+  expect(await computeDefaultAppliedAmountForTimeClaim({ claim: c })).toBe(5);
+});

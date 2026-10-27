@@ -64,8 +64,21 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
     travelClaimDefaults: { categoryGroup: 'support_activity', serviceTypeKey: 'approved_travel', companyEventId: Number(event.id), eventWorkType: 'travel' } };
 }
 
-export async function recordEmployeeEventParticipation({ eventId, userId, action, ip = null, now = new Date(), source = 'employee_event_link', idempotencyKey = null }) {
+export function eventCheckoutInstant(checkoutAt, now = new Date()) {
+  if (checkoutAt == null) return now;
+  if (typeof checkoutAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(checkoutAt)) {
+    fail(400, 'Checkout time must include a date and timezone');
+  }
+  const chosen = new Date(checkoutAt);
+  if (!Number.isFinite(chosen.getTime())) fail(400, 'Enter a valid checkout time');
+  if (chosen > now) fail(400, 'Checkout time cannot be in the future');
+  return chosen;
+}
+
+export async function recordEmployeeEventParticipation({ eventId, userId, action, checkoutAt = null, ip = null, now = new Date(), source = 'employee_event_link', idempotencyKey = null }) {
   if (!['check-in', 'check-out'].includes(action)) fail(400, 'Invalid attendance action');
+  if (action !== 'check-out' && checkoutAt != null) fail(400, 'A checkout time can only be supplied when checking out');
+  const clockOutAt = action === 'check-out' ? eventCheckoutInstant(checkoutAt, now) : null;
   const db = await pool.getConnection();
   let result;
   try {
@@ -83,10 +96,17 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
       if (Number(event.is_active) !== 1 || event.school_event_status === 'canceled') fail(409, 'This event is inactive or canceled');
       if (!(await isEmployeeEventDay({ event, date, db }))) fail(409, 'Check-in is available on the event date');
       if (!(await employeeAssignedToEvent({ event, userId, date, db }))) fail(403, 'A coordinator must assign you before you can check in');
+    } else {
+      const [punches] = await db.execute(`SELECT id, punch_type, punched_at FROM skill_builders_event_kiosk_punches
+        WHERE company_event_id = ? AND user_id = ? ORDER BY punched_at DESC, id DESC LIMIT 1`, [event.id, userId]);
+      const last = punches[0];
+      if (!last || last.punch_type !== 'clock_in') fail(409, 'You are not currently clocked in to this event');
+      if (clockOutAt <= new Date(toUtcIso(last.punched_at))) fail(400, 'Checkout time must be after your clock-in time');
     }
     result = action === 'check-in'
       ? await recordEventEmployeeClockIn(db, { eventId: event.id, agencyId: event.agency_id, userId, kioskDateYmd: date, punchedAt: now, source })
-      : await recordEventEmployeeClockOut(db, { eventId: event.id, agencyId: event.agency_id, userId, clockOutAt: now, source });
+      : await recordEventEmployeeClockOut(db, { eventId: event.id, agencyId: event.agency_id, userId, clockOutAt,
+        source: checkoutAt != null ? `${source}_manual_time` : source });
     if (idempotencyKey && action === 'check-in' && result.error?.status === 409 && result.error.message.startsWith('Already clocked in')) {
       await db.commit(); return { ok: true, alreadyProcessed: true };
     }
@@ -97,9 +117,9 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
         VALUES (?, ?, ?, 'employee', 'check_in', ?, ?, ?)`, [event.id, event.agency_id, userId, now, date, ip]);
     } else {
       await db.execute(`UPDATE event_day_kiosk_checkins SET action = 'check_out', checked_out_at = ?, updated_at = NOW()
-        WHERE company_event_id = ? AND agency_id = ? AND user_id = ? AND person_type = 'employee' AND action = 'check_in'
+        WHERE company_event_id = ? AND agency_id = ? AND user_id = ? AND person_type = 'employee' AND action = 'check_in' AND voided_at IS NULL
         ORDER BY checked_in_at DESC, id DESC LIMIT 1`,
-      [now, event.id, event.agency_id, userId]);
+      [clockOutAt, event.id, event.agency_id, userId]);
     }
     await db.commit();
   } catch (err) { await db.rollback(); throw err; } finally { db.release(); }
@@ -139,12 +159,14 @@ export async function validateEventTravelPayload({ agencyId, userId, claimDate, 
                      WHERE o.company_event_id = p.company_event_id AND o.user_id = p.user_id AND o.punch_type = 'clock_out' AND o.punched_at >= p.punched_at), ?) > ? LIMIT 1`,
     [userId, agencyId, end, now, start]);
   if (overlap.length) fail(409, 'Travel overlaps time already recorded at an event');
-  const [claims] = await db.execute(`SELECT id, payload_json FROM payroll_time_claims WHERE agency_id = ? AND user_id = ? AND status IN ('submitted', 'approved', 'deferred') AND claim_type = 'indirect_time' AND id != ?`, [agencyId, userId, excludeClaimId || 0]);
+  const [claims] = await db.execute(`SELECT id, payload_json FROM payroll_time_claims WHERE agency_id = ? AND user_id = ? AND status IN ('submitted', 'approved', 'paid', 'deferred') AND claim_type = 'indirect_time' AND id != ?`, [agencyId, userId, excludeClaimId || 0]);
   for (const claim of claims) {
     const other = json(claim.payload_json);
-    const otherStart = new Date(other.travelStartedAt || other.clockInAt || other.startedAt);
-    const otherEnd = new Date(other.travelEndedAt || other.clockOutAt || other.endedAt);
-    if (Number.isFinite(otherStart.getTime()) && Number.isFinite(otherEnd.getTime()) && start < otherEnd && end > otherStart) fail(409, 'Travel overlaps a pending or approved time claim');
+    const intervals = other.eventTravelReport?.segments || [{ startedAt: other.travelStartedAt || other.clockInAt || other.startedAt, endedAt: other.travelEndedAt || other.clockOutAt || other.endedAt }];
+    for (const interval of intervals) {
+      const otherStart = new Date(interval.startedAt), otherEnd = new Date(interval.endedAt);
+      if (Number.isFinite(otherStart.getTime()) && Number.isFinite(otherEnd.getTime()) && start < otherEnd && end > otherStart) fail(409, 'Travel overlaps a pending or approved time claim');
+    }
   }
   return { ...payload, companyEventId: Number(event.id), eventTitle: event.title, eventTimezone: event.timezone || 'America/Denver', source: 'company_event_travel',
     eventWorkType: 'travel', travelStartedAt: start.toISOString(), travelEndedAt: end.toISOString(), totalMinutes: minutes,

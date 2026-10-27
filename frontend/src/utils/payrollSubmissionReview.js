@@ -5,7 +5,7 @@ export function supervisionActivityLabel(claim) {
 }
 
 export function mileageUsesTier(claim, settings = {}) {
-  return claim?.claim_type === 'school_travel' || settings.standardMileageUsesTierRates === true;
+  return !claim?.event_travel_report_id && (claim?.claim_type === 'school_travel' || settings.standardMileageUsesTierRates === true);
 }
 
 export function mileageBillableMiles(claim) {

@@ -116,6 +116,18 @@
         <input v-model="draft.recurrence.untilDate" class="input" type="date" />
       </div>
 
+      <div class="grid">
+        <div class="form-group">
+          <label class="lbl" for="company-event-venue">Venue</label>
+          <input id="company-event-venue" v-model.trim="draft.eventLocationName" class="input" placeholder="Venue name" />
+        </div>
+        <div class="form-group">
+          <label class="lbl" for="company-event-address">Venue address</label>
+          <input id="company-event-address" v-model.trim="draft.eventLocationAddress" class="input" :required="!!draft.eventLocationName || draft.inPersonPublic" placeholder="Full street address, city, state, ZIP" />
+          <small class="hint">Required for a venue. Used for directions and event travel distances.</small>
+        </div>
+      </div>
+
       <div class="form-group">
         <label class="lbl">Description</label>
         <textarea v-model.trim="draft.description" class="input" rows="2" placeholder="Event details shown in calendar invite." />
@@ -204,10 +216,7 @@
             </select>
           </div>
         </div>
-        <div v-if="draft.inPersonPublic" class="form-group">
-          <label class="lbl">Venue address</label>
-          <textarea v-model.trim="draft.publicLocationAddress" class="input" rows="2" placeholder="Full address" />
-        </div>
+
       </div>
 
       <div v-if="!isServiceProgramEventType" class="voting-block">
@@ -596,7 +605,9 @@ const emptyDraft = () => ({
   publicHeroImageUrl: '',
   publicListingDetails: '',
   inPersonPublic: false,
-  publicLocationAddress: ''
+  publicLocationAddress: '',
+  eventLocationName: '',
+  eventLocationAddress: ''
 });
 
 const draft = ref(emptyDraft());
@@ -817,7 +828,9 @@ const editEvent = (event) => {
     publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
     publicListingDetails: String(event.publicListingDetails || '').trim(),
     inPersonPublic: !!event.inPersonPublic,
-    publicLocationAddress: String(event.publicLocationAddress || '').trim()
+    publicLocationAddress: String(event.publicLocationAddress || '').trim(),
+    eventLocationName: String(event.eventLocationName || '').trim(),
+    eventLocationAddress: String(event.eventLocationAddress || event.publicLocationAddress || '').trim()
   };
 };
 
@@ -857,6 +870,7 @@ const saveEvent = async () => {
     error.value = 'End time must be after start time.';
     return;
   }
+  if ((draft.value.eventLocationName || draft.value.inPersonPublic) && !draft.value.eventLocationAddress) { error.value = 'Add the venue’s full street address, city, state, and ZIP.'; return; }
   if (eventPaymentError(draft.value)) { error.value = eventPaymentError(draft.value); return; }
   saving.value = true;
   error.value = '';
@@ -919,8 +933,10 @@ const saveEvent = async () => {
       publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
       publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
       inPersonPublic: !!draft.value.inPersonPublic,
+      eventLocationName: draft.value.eventLocationName || null,
+      eventLocationAddress: draft.value.eventLocationAddress || null,
       publicLocationAddress: draft.value.inPersonPublic
-        ? String(draft.value.publicLocationAddress || '').trim() || null
+        ? String(draft.value.eventLocationAddress || '').trim() || null
         : null
     };
     if (draft.value.id) {

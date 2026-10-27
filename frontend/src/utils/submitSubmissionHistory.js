@@ -39,6 +39,7 @@ function normalizeRow({ id, groupId, type, typeLabel, title, dateRaw, status, so
 export function normalizeMileageClaims(rows = [], { schoolOnly = false } = {}) {
   return (rows || [])
     .filter((r) => {
+      if (r.event_travel_report_id) return false;
       const isSchool = String(r.claim_type || '').toLowerCase() === 'school_travel';
       return schoolOnly ? isSchool : !isSchool;
     })
@@ -145,7 +146,7 @@ function timeClaimDisplayTitle(r) {
 }
 
 export function normalizeTimeClaims(rows = []) {
-  return (rows || []).map((r) =>
+  return (rows || []).filter(r => !r.event_travel_report_id).map((r) =>
     normalizeRow({
       id: `time:${r.id}`,
       groupId: 'time',
@@ -157,6 +158,25 @@ export function normalizeTimeClaims(rows = []) {
       sortMs: parseMs(r.created_at || r.claim_date),
     })
   );
+}
+
+export function normalizeEventTravelClaims(timeRows = [], mileageRows = []) {
+  const grouped = new Map();
+  for (const row of [...timeRows, ...mileageRows]) {
+    if (!row.event_travel_report_id || row.status === 'withdrawn' || ['Trip removed in updated report', 'Updated report: no personal vehicle expense'].includes(row.rejection_reason)) continue;
+    const id = Number(row.event_travel_report_id);
+    if (!grouped.has(id)) grouped.set(id, []);
+    grouped.get(id).push(row);
+  }
+  return [...grouped].map(([id, rows]) => {
+    const time = rows.find(r => r.payload?.eventTravelReport), report = time?.payload?.eventTravelReport;
+    const statuses = rows.map(r => r.status);
+    const status = statuses.includes('deferred') ? 'deferred' : statuses.includes('submitted') ? 'submitted'
+      : statuses.every(s => ['approved', 'paid'].includes(s)) ? 'approved' : 'rejected';
+    return normalizeRow({ id: `event_travel:${id}`, groupId: 'payroll', type: 'event_travel', typeLabel: 'Event travel reimbursement',
+      title: report?.eventTitle || `Event travel report #${id}`, dateRaw: report?.eventDate || rows[0].created_at,
+      status, sortMs: Math.max(...rows.map(r => parseMs(r.created_at))) });
+  });
 }
 
 export function normalizeEventTimeSessions(sessions = []) {

@@ -86,7 +86,7 @@ describe('check-in reminder scheduling and pay defaults', () => {
     for (const section of source.sections) {
       expect(section.bodyHtml).toContain('<p>Existing policy.</p>');
       expect(section.bodyHtml).toContain("employee's indirect rate");
-      expect(section.bodyHtml).toContain('Support Activity → Approved Travel');
+      expect(section.bodyHtml).toContain('Submit → Event travel reimbursement');
       expect(section.bodyHtml).toContain('to and from');
     }
     const updates = [{ id: 4, status: 'draft', changed_content: '<p>Prior update.</p>' }];
@@ -107,7 +107,7 @@ describe('check-in reminder scheduling and pay defaults', () => {
   it('escapes event titles and links in email', () => {
     const message = eventCheckinMessage({ ...event, title: '<script>bad</script>' }, 'https://example.test/event?x="');
     expect(message.html).not.toContain('<script>'); expect(message.html).toContain('&lt;script&gt;');
-    expect(message.html).toContain('>Check in</a>'); expect(message.text).toContain('Support Activity');
+    expect(message.html).toContain('>Clock in</a>'); expect(message.html).toContain('>Clock out</a>'); expect(message.text).not.toContain('Support Activity');
   });
   it('defaults approved school and company event work to indirect and keeps clinical event treatment', () => {
     for (const type of ['school_open_house', 'school_outreach', 'school_future_event', 'company_event']) expect(defaultTreatmentForEventType(type)).toEqual({ eventType: type, rateSlot: 'indirect', useDirectIndirectSplit: false });
@@ -119,6 +119,7 @@ describe('check-in reminder scheduling and pay defaults', () => {
     const db = { execute: vi.fn(async (sql, args) => {
       if (sql.includes('FROM company_events e')) return [[event]];
       if (sql.includes('SELECT DISTINCT u.id')) return [[{ id: 7, work_email: 'staff@example.test', phone_number: incoming.from }]];
+      if (sql.includes('FROM skill_builders_event_kiosk_punches')) return [[]];
       if (sql.includes('INSERT IGNORE')) {
         const key = args.join(':'); const exists = claimed.has(key); claimed.add(key);
         return [{ affectedRows: exists ? 0 : 1, insertId: claimed.size }];
@@ -146,9 +147,9 @@ describe('check-in reminder scheduling and pay defaults', () => {
 it('refreshes existing travel directions without adding a second policy section or publishing an update', () => {
   const source = { sections: [{ slug: 'indirect-services', status: 'ready', bodyHtml: '<h4>Approved event time</h4><p>Use the event page to enter actual travel start and end times for each direction.</p>' }] };
   applyEventTimeHandbookAmendment(source, 'itsco');
-  expect(source.sections[0].bodyHtml).toContain('Log travel time');
+  expect(source.sections[0].bodyHtml).toContain('Submit → Event travel reimbursement');
   expect(source.sections[0].bodyHtml.match(/<h4>/g)).toHaveLength(1);
   const update = [{ id: 4, status: 'draft', changed_content: "<h4>Approved events and travel</h4><p>Enter each direction's actual start and end times on the event page without duplicating event attendance time.</p>" }];
   applyEventTimeReviewAmendment(update, 'itsco'); expect(update[0].status).toBe('draft');
-  expect(update[0].changed_content).toContain('staff event check-in page');
+  expect(update[0].changed_content).toContain('Submit → Event travel reimbursement');
 });

@@ -29,7 +29,7 @@ export async function handleCompanyEventCheckinInbound({ from, to, body, message
   const [deliveries] = await db.execute(`SELECT d.*, t.code FROM company_event_sms_deliveries d
     JOIN company_event_sms_topics t ON t.company_event_id = d.company_event_id AND t.agency_id = d.agency_id
     WHERE d.agency_id = ? AND d.user_id = ? AND d.phone = ? AND d.from_number = ? AND d.campaign_id = ?
-      AND d.dispatch_type = 'checkin_reminder' AND d.status IN ('sent', 'delivered')
+      AND d.dispatch_type IN ('checkin_reminder', 'missing_checkin_reminder', 'missing_checkout_reminder') AND d.status IN ('sent', 'delivered')
       AND d.created_at >= DATE_SUB(?, INTERVAL 2 DAY) ORDER BY d.created_at DESC, d.id DESC`,
   [sender.agency_id, members[0].id, phone, sender.phone_number, sender.campaign_id, now]);
   const candidates = [], seen = new Set();
@@ -51,8 +51,8 @@ export async function handleCompanyEventCheckinInbound({ from, to, body, message
       source: 'employee_event_sms', idempotencyKey: messageId || null });
     if (saved.alreadyProcessed) return { ...result, responseMessage: 'This check-in request was already recorded. Use your email event link to review your current time.' };
     return { ...result, responseMessage: command.action === 'check-in'
-      ? 'Checked in. Reply CHECKOUT when your event work ends. Use your email event link to enter travel to and from at the Support Activity rate.'
-      : 'Checked out. Your event time was saved. Use your email event link to enter return travel at the Support Activity rate.' };
+      ? 'Checked in. Reply CHECKOUT when your event work ends.'
+      : 'Checked out. Your event time was saved.' };
   } catch (error) {
     if ([400, 403, 404, 409].includes(error.status)) return { ...result, responseMessage: `${error.message}. Use your email event link to review your time.` };
     throw error;

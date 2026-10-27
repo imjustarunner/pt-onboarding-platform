@@ -229,7 +229,7 @@
                     style="width: 88px; text-align: right;"
                     :value="timeHoursOverrideById[c.id] ?? claimHoursValue(c) ?? ''"
                     placeholder="hrs"
-                    :disabled="busyId === `time-${c.id}`"
+                    :disabled="!!c.event_travel_report_id || busyId === `time-${c.id}`"
                     @input="timeHoursOverrideById[c.id] = $event.target.value"
                   />
                 </td>
@@ -616,6 +616,7 @@
             </template>
 
             <IndirectTimeClaimDetailFields
+              :can-review-event-travel="true" @event-travel-reviewed="reloadAll"
               v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'"
               :payload="reviewedTimeClaim.payload"
               :bucket="reviewedTimeClaim.payload?.bucket || reviewedTimeClaim.bucket"
@@ -666,6 +667,7 @@
               <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedMileageClaim) }}</div></div>
             </div>
 
+            <EventTravelPayrollReview v-if="reviewedMileageClaim.event_travel_report_id" :report-id="reviewedMileageClaim.event_travel_report_id" @reviewed="reloadAll" />
             <template v-if="String(reviewedMileageClaim.claim_type || '').toLowerCase() === 'school_travel'">
               <div class="pps-detail-grid">
                 <div class="field"><label>Eligible miles</label><div>{{ fmtNum(Number(reviewedMileageClaim.eligible_miles ?? reviewedMileageClaim.miles ?? 0)) }}</div></div>
@@ -859,6 +861,7 @@
 </template>
 
 <script setup>
+import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrollReview.vue';
 import { supervisionActivityLabel, mileageUsesTier, mileageBillableMiles, mileageEstimate, approvedTimeDraft } from '../../utils/payrollSubmissionReview';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
@@ -1281,6 +1284,7 @@ const fmtHours = (c) => {
 };
 
 const timeTypeLabel = (c) => {
+  if (c?.event_travel_report_id) return 'Event travel reimbursement';
   if (supervisionActivityLabel(c)) return supervisionActivityLabel(c);
   const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
@@ -1599,7 +1603,7 @@ const loadClaims = async () => {
   }
   for (const c of timeClaims.value) {
     timeBucketById[c.id] ??= timeClaimApproveBucket(c);
-    if (timeHoursOverrideById[c.id] == null || timeHoursOverrideById[c.id] === '') {
+    if (c.event_travel_report_id || timeHoursOverrideById[c.id] == null || timeHoursOverrideById[c.id] === '') {
       timeHoursOverrideById[c.id] = String(claimHoursValue(c));
     }
   }
@@ -1883,6 +1887,7 @@ const closeReimbClaimView = () => {
 };
 
 const mileageTypeLabel = (c) => {
+  if (c?.event_travel_report_id) return 'Event travel mileage';
   const t = String(c?.claim_type || '').toLowerCase();
   return t === 'school_travel' ? 'School Mileage' : 'Other Mileage';
 };

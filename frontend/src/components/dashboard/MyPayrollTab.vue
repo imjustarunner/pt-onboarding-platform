@@ -530,7 +530,7 @@
               <td>{{ fmtShortDate(c.created_at) }}</td>
               <td>{{ submitterLabel(c) }}</td>
               <td>{{ fmtShortDate(c.drive_date) }}</td>
-                <td>{{ String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'School' : 'Other' }}</td>
+                <td>{{ String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'School' : c.event_travel_report_id ? 'Event travel' : 'Other' }}</td>
                 <td
                   class="right"
                   :title="
@@ -595,8 +595,9 @@
                   }}
                 </td>
                 <td class="right">
+                  <span v-if="c.event_travel_report_id" class="muted">Manage in Submit → Event travel reimbursement</span>
                   <button
-                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    v-if="!c.event_travel_report_id && ['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-secondary btn-sm"
                     type="button"
                     @click="openEditMileageClaim(c)"
@@ -605,7 +606,7 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    v-if="!c.event_travel_report_id && ['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
                     @click="withdrawMileageClaim(c)"
@@ -910,7 +911,7 @@
                     Edit &amp; resubmit
                   </button>
                   <button
-                    v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    v-if="!c.event_travel_report_id && ['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-secondary btn-sm"
                     type="button"
                     @click="withdrawTimeClaim(c)"
@@ -4511,11 +4512,13 @@ const showIndirectTimeEditModal = ref(false);
 const editingIndirectTimeClaim = ref(null);
 
 const canEditTimeClaim = (c) => {
+  if (c?.event_travel_report_id) return false;
   const s = String(c?.status || '').toLowerCase();
   return ['submitted', 'deferred', 'rejected', 'withdrawn'].includes(s);
 };
 
 const canHardDeleteTimeClaim = (c) => {
+  if (c?.event_travel_report_id) return false;
   const s = String(c?.status || '').toLowerCase();
   return ['withdrawn', 'deferred', 'rejected'].includes(s);
 };

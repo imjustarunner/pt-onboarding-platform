@@ -1,5 +1,7 @@
 <template>
   <div class="itcdf">
+    <EventTravelPayrollReview v-if="payload?.eventTravelReportId && canReviewEventTravel" :report-id="payload.eventTravelReportId" @reviewed="$emit('event-travel-reviewed')" />
+    <EventTravelReportSummary v-else-if="payload?.eventTravelReport" :report="payload.eventTravelReport" />
     <section v-if="payload?.ffsExcess" class="itcdf-activities card">
       <h4>Clinical FFS excess-time review</h4>
       <p>Period: {{ payload.ffsExcess.periodStart }} – {{ payload.ffsExcess.periodEnd }}</p>
@@ -48,12 +50,16 @@
 <script setup>
 import { formatClaimTime } from '../../utils/payrollClaimDisplay';
 import { computed } from 'vue';
+import EventTravelPayrollReview from './EventTravelPayrollReview.vue';
+import EventTravelReportSummary from '../events/EventTravelReportSummary.vue';
 import { logTimeAllocationRows, logTimeBucketLabel } from '../../utils/logTimeClaimDetails';
 
 const props = defineProps({
   payload: { type: Object, default: null },
-  bucket: { type: String, default: '' }
+  bucket: { type: String, default: '' },
+  canReviewEventTravel: { type: Boolean, default: false }
 });
+defineEmits(['event-travel-reviewed']);
 
 const bucketLabel = computed(() => logTimeBucketLabel(props.bucket || props.payload?.bucket));
 const allocationRows = computed(() => logTimeAllocationRows(props.payload));

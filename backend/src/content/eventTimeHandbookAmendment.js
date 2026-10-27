@@ -1,12 +1,14 @@
-// Owner-requested October 17, 2026 amendment. Full handbook sources remain in private storage.
-export const APPROVED_EVENT_TIME_HTML = "<h4>Approved event time</h4><p>Approved events, including assigned school events, will be compensated at the employee's indirect rate. Record actual time working at the event as Indirect Service. Assigned providers receive an email check-in link and, when opted in, a text reminder. Reply CHECKIN to check in when event work begins, or open the email link and select Check in. Check out when event work ends using the event page or by replying CHECKOUT. If more than one event is available, include the event code requested in the text reply.</p><p>Travel to and from approved events is recorded separately under Support Activity → Approved Travel and compensated at the employee's Support Activity rate. Open the staff check-in link from your event email and use Travel time, or select Log travel time in the event workspace or Events &amp; outreach calendar. Enter actual travel start and end times for each direction. Do not include travel in event attendance time or submit the same time twice.</p>";
-export const APPROVED_EVENT_TRAVEL_HTML = "<p>Travel to and from approved events is compensated at the employee's Support Activity rate. Record each direction separately as Support Activity → Approved Travel using actual travel start and end times in Travel time on the staff event check-in page (available from your event email), or select Log travel time in the event workspace. Time working at the approved event is compensated at the employee's indirect rate and must not include travel time.</p>";
-export const APPROVED_EVENT_REVIEW_HTML = "<h4>Approved events and travel</h4><p>Approved events, including assigned school events, will be compensated at the employee's indirect rate. Assigned providers can use their email event link or reply CHECKIN to an opted-in reminder text. Check out when event work ends. Travel to and from is recorded separately as Support Activity → Approved Travel at the employee's Support Activity rate. Use Travel time on the staff event check-in page or Log travel time in the event workspace to enter each direction's actual start and end times without duplicating event attendance time.</p>";
+// Event attendance stays separate; the Submit form records the full travel report.
+const travelInstructions = "<p>Use Submit → Event travel reimbursement to report actual trips to and from an assigned event, including materials pickup and return trips on other dates. Describe where you traveled and whether materials trips were required or made at your convenience. Payroll reviews the report and pays eligible travel and materials-handling time at the employee's Support Activity rate, with eligible personal-vehicle expenses recorded separately. Ordinary commuting is reviewed separately from travel between work locations. Earlier trips retain the compensation policy or agreement that applied when the travel occurred. Do not include event attendance or duplicate time or expenses already submitted.</p>";
+export const APPROVED_EVENT_TIME_HTML = "<h4>Approved event time</h4><p>Approved events, including assigned school events, will be compensated at the employee's indirect rate. Use the event email or opted-in text reminder to clock in when event work begins and clock out when it ends. Event attendance does not include travel time.</p>" + travelInstructions;
+export const APPROVED_EVENT_TRAVEL_HTML = travelInstructions + "<p>Time working at the approved event is compensated at the employee's indirect rate and recorded through event clock-in and clock-out.</p>";
+export const APPROVED_EVENT_REVIEW_HTML = "<h4>Approved events and travel</h4>" + APPROVED_EVENT_TRAVEL_HTML;
 
 const refreshTravelInstructions = (body = '') => body
-  .replace('Use the event page to enter actual travel start and end times for each direction.', 'Open the staff check-in link from your event email and use Travel time, or select Log travel time in the event workspace or Events &amp; outreach calendar. Enter actual travel start and end times for each direction.')
-  .replace('on the event check-in page.', 'in Travel time on the staff event check-in page (available from your event email), or select Log travel time in the event workspace.')
-  .replace("Enter each direction's actual start and end times on the event page", "Use Travel time on the staff event check-in page or Log travel time in the event workspace to enter each direction's actual start and end times");
+  .replace(/<p>Use the event page to enter actual travel start and end times for each direction\.<\/p>/g, travelInstructions)
+  .replace(/<p>Enter each direction's actual start and end times on the event page[^<]*<\/p>/g, travelInstructions)
+  .replace(/<p>Travel to and from approved events[\s\S]*?<\/p>/g, travelInstructions)
+  .replace(/<p>Approved events, including assigned school events,[\s\S]*?Support Activity → Approved Travel[\s\S]*?<\/p>/g, APPROVED_EVENT_TRAVEL_HTML);
 
 const sectionSlugs = ['indirect-services', 'compensation-separately-compensated-indirect-service', 'compensation-support-activity'];
 export function applyEventTimeHandbookAmendment(source, tenant) {
@@ -16,7 +18,7 @@ export function applyEventTimeHandbookAmendment(source, tenant) {
     const body = refreshTravelInstructions(section.bodyHtml || '');
     section.bodyHtml = body;
     if (section.slug === 'compensation-support-activity') {
-      if (body.includes(APPROVED_EVENT_TRAVEL_HTML)) continue;
+      if (body.includes(travelInstructions)) continue;
       section.bodyHtml = body.replace('<li>compensable travel to outreach activities;</li>', '<li>travel to and from approved events, including assigned school and outreach events;</li>')
         .replace('<p>Compensable travel associated with that outreach assignment is generally classified as Support Activity.</p>', '') + '\n' + APPROVED_EVENT_TRAVEL_HTML;
     } else if (!body.includes('<h4>Approved event time</h4>')) {

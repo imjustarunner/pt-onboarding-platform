@@ -3974,6 +3974,7 @@
                 </div>
 
                 <div v-if="selectedMileageClaim" style="margin-top: 10px;">
+                  <EventTravelPayrollReview v-if="selectedMileageClaim.event_travel_report_id" :report-id="selectedMileageClaim.event_travel_report_id" @reviewed="refreshEventTravelClaims" />
                   <div class="row"><strong>Provider:</strong> {{ nameForUserId(selectedMileageClaim.user_id) }}</div>
                   <div class="row"><strong>Submitted:</strong> {{ submittedAtYmd(selectedMileageClaim) }}</div>
                   <div class="row"><strong>Submitted by:</strong> {{ submitterLabel(selectedMileageClaim) }}</div>
@@ -6389,6 +6390,7 @@
 
             <!-- indirect_time (hourly log) -->
             <IndirectTimeClaimDetailFields
+              :can-review-event-travel="true" @event-travel-reviewed="refreshEventTravelClaims"
               v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'"
               :payload="reviewedTimeClaim.payload"
               :bucket="reviewedTimeClaim.payload?.bucket || reviewedTimeClaim.bucket"
@@ -6543,6 +6545,7 @@
 </template>
 
 <script setup>
+import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrollReview.vue';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import PayrollTodoNotes from '../../components/payroll/PayrollTodoNotes.vue';
 import { workingPeriods, claimInWorkingPeriods } from '../../utils/payrollWorkingPeriods';
@@ -8404,6 +8407,7 @@ const splitSummary = (c) => {
 };
 
 const timeTypeLabel = (c) => {
+  if (c?.event_travel_report_id) return 'Event travel reimbursement';
   if (supervisionActivityLabel(c)) return supervisionActivityLabel(c);
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training/Outreach';
@@ -9144,6 +9148,9 @@ const reloadPendingReimbursementClaims = async () => {
   return await loadPendingReimbursementClaims();
 };
 
+const refreshEventTravelClaims = async () => {
+  await Promise.all([pendingTimeMode.value === 'period' ? loadPendingTimeClaims() : loadAllPendingTimeClaims(pendingTimeMode.value === 'all'), pendingMileageMode.value === 'period' ? loadPendingMileageClaims() : loadAllPendingMileageClaims()]);
+};
 const loadPendingTimeClaims = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
   pendingTimeMode.value = 'period';
@@ -9170,8 +9177,8 @@ const loadPendingTimeClaims = async () => {
       if (!c?.id) continue;
       next[c.id] = next[c.id] || selectedPeriodId.value;
       bNext[c.id] = bNext[c.id] || defaultBucketForTimeClaim(c);
-      if (hNext[c.id] === undefined) hNext[c.id] = timeClaimHours(c) > 0 ? String(timeClaimHours(c)) : '';
-      if (aNext[c.id] === undefined) aNext[c.id] = '';
+      if (c.event_travel_report_id || hNext[c.id] === undefined) hNext[c.id] = timeClaimHours(c) > 0 ? String(timeClaimHours(c)) : '';
+      if (c.event_travel_report_id || aNext[c.id] === undefined) aNext[c.id] = '';
     }
     timeTargetPeriodByClaimId.value = next;
     timeBucketByClaimId.value = bNext;
@@ -9203,8 +9210,8 @@ const loadAllPendingTimeClaims = async (includeHistory = false) => {
       if (!c?.id) continue;
       next[c.id] = next[c.id] || c.suggested_payroll_period_id || selectedPeriodId.value;
       bNext[c.id] = bNext[c.id] || defaultBucketForTimeClaim(c);
-      if (hNext[c.id] === undefined) hNext[c.id] = timeClaimHours(c) > 0 ? String(timeClaimHours(c)) : '';
-      if (aNext[c.id] === undefined) aNext[c.id] = '';
+      if (c.event_travel_report_id || hNext[c.id] === undefined) hNext[c.id] = timeClaimHours(c) > 0 ? String(timeClaimHours(c)) : '';
+      if (c.event_travel_report_id || aNext[c.id] === undefined) aNext[c.id] = '';
     }
     timeTargetPeriodByClaimId.value = next;
     timeBucketByClaimId.value = bNext;
@@ -10687,6 +10694,7 @@ const mileageStandardRatePerMile = computed(() => {
 });
 
 const mileageClaimUsesTierRate = (c) => {
+  if (c?.event_travel_report_id) return false;
   return String(c?.claim_type || '').toLowerCase() === 'school_travel'
     || mileageRatesDraft.value?.standardUsesTierRates === true;
 };

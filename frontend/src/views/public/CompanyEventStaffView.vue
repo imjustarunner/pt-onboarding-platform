@@ -30,10 +30,21 @@
             <p v-if="participation.clockedIn">You are checked in. Check out when your event work ends.</p>
             <p v-else-if="participation.assigned">You are assigned to this event. {{ participation.isEventDay ? 'Check in when your event work begins.' : 'Check-in opens on the event day.' }}</p>
             <p v-else>The coordinator must assign you before you can check in or submit travel time.</p>
-            <button v-if="participation.clockedIn" type="button" class="btn btn-primary" :disabled="busy || !participation.canCheckOut" @click="punch('check-out')">Check out</button>
+            <template v-if="participation.clockedIn">
+              <p v-if="participation.lastPunch?.at">Clocked in: {{ formatDate(participation.lastPunch.at) }}</p>
+              <div class="actions">
+                <button type="button" class="btn btn-primary" :disabled="busy || !participation.canCheckOut" @click="punch('check-out')">Clock out now</button>
+                <button type="button" class="btn btn-secondary" :disabled="busy || !participation.canCheckOut" @click="showCheckoutTime = !showCheckoutTime">Choose checkout time</button>
+              </div>
+              <form v-if="showCheckoutTime" @submit.prevent="submitCheckoutTime">
+                <p>Already finished? Enter the actual time your event work ended, in your device timezone: {{ deviceTimezone }}.</p>
+                <label>Work ended<input v-model="checkoutTime" type="datetime-local" :min="checkoutMinimum" :max="localInputTime(new Date())" required /></label>
+                <label class="attestation"><input v-model="checkoutAttestation" type="checkbox" required /> This is the actual time I finished working at the event.</label>
+                <button type="submit" class="btn btn-primary" :disabled="busy || !participation.canCheckOut || !checkoutTime || !checkoutAttestation">Save checkout time</button>
+              </form>
+            </template>
             <button v-else-if="participation.assigned" type="button" class="btn btn-primary" :disabled="busy || !participation.canCheckIn" @click="punch('check-in')">Check in</button>
           </section>
-          <EventTravelPanel v-if="participation" :event-id="eventId" :participation="participation" />
         </template>
         <p v-if="notice" role="status" class="notice">{{ notice }}</p>
       </template>
@@ -43,7 +54,6 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue';
-import EventTravelPanel from '../../components/events/EventTravelPanel.vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -60,6 +70,16 @@ const loading = ref(true);
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
+const showCheckoutTime = ref(route.query?.attendance === 'checkout-time');
+const checkoutTime = ref('');
+const checkoutAttestation = ref(false);
+const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const localInputTime = (value) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+const checkoutMinimum = computed(() => participation.value?.lastPunch?.at ? localInputTime(participation.value.lastPunch.at) : '');
 const response = ref('');
 const responseLabel = computed(() => ({ yes: 'Interested', maybe: 'Maybe', no: 'Unavailable' })[response.value] || response.value);
 const formatDate = (value) => value ? new Date(value).toLocaleString() : '';
@@ -75,11 +95,19 @@ async function respond(value) {
   catch (e) { error.value = e?.response?.data?.error?.message || 'Could not save your response.'; }
   finally { busy.value = false; }
 }
-async function punch(action) {
+async function punch(action, payload = {}) {
+  if (busy.value) return;
   busy.value = true; error.value = ''; notice.value = '';
-  try { await api.post(`/me/company-events/${eventId.value}/${action}`, {}); await loadParticipation(); notice.value = action === 'check-in' ? 'Checked in. Your event time is being recorded.' : 'Checked out. Your event time was saved.'; }
+  try { await api.post(`/me/company-events/${eventId.value}/${action}`, payload); await loadParticipation(); notice.value = action === 'check-in' ? 'Checked in. Your event time is being recorded.' : 'Checked out. Your event time was saved.'; checkoutTime.value = ''; checkoutAttestation.value = false; showCheckoutTime.value = false; }
   catch (e) { error.value = e?.response?.data?.error?.message || 'Could not record your event time.'; }
   finally { busy.value = false; }
+}
+async function submitCheckoutTime() {
+  if (busy.value || !checkoutAttestation.value) return;
+  const chosen = new Date(checkoutTime.value);
+  if (!Number.isFinite(chosen.getTime()) || chosen > new Date()) { error.value = 'Choose the actual time you finished, no later than now.'; return; }
+  if (participation.value?.lastPunch?.at && chosen <= new Date(participation.value.lastPunch.at)) { error.value = 'Checkout time must be after your clock-in time.'; return; }
+  await punch('check-out', { checkoutAt: chosen.toISOString() });
 }
 onMounted(async () => {
   try {

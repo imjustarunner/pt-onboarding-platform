@@ -44,11 +44,9 @@
             >
               Edit event
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" @click="showTravel = !showTravel">Log travel time</button>
             <button type="button" class="btn btn-secondary btn-sm" @click="goBack">Back</button>
           </template>
 
-          <EventTravelPanel v-if="showTravel" :event-id="route.params.eventId" />
 
           <div v-show="dashHubMode && hubRailItems.length" class="sbep-hub">
             <section class="sbep-hub-hero" aria-labelledby="sbep-hub-hero-title">
@@ -2937,7 +2935,6 @@
 </template>
 
 <script setup>
-import EventTravelPanel from '../../components/events/EventTravelPanel.vue';
 import { ref, computed, watch, reactive, nextTick } from 'vue';
 import { useRoute, useRouter, isNavigationFailure } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
@@ -2958,7 +2955,6 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 
 const route = useRoute();
-const showTravel = ref(false);
 const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

@@ -1,3 +1,4 @@
+import { withReviewedEventTravelClaim } from '../utils/eventTravelApproval.js';
 import pool from '../config/database.js';
 
 class PayrollMileageClaim {
@@ -106,8 +107,8 @@ class PayrollMileageClaim {
     return id ? PayrollMileageClaim.findById(id) : null;
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(
       `SELECT c.*,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
@@ -212,25 +213,34 @@ class PayrollMileageClaim {
     targetPayrollPeriodId,
     tierLevel,
     ratePerMile,
-    appliedAmount
+    appliedAmount,
+    eventTravelReviewedAt = null
   }) {
-    await pool.execute(
-      `UPDATE payroll_mileage_claims
-       SET status = 'approved',
-           target_payroll_period_id = ?,
-           tier_level = ?,
-           rate_per_mile = ?,
-           applied_amount = ?,
-           approved_by_user_id = ?,
-           approved_at = NOW(),
-           rejection_reason = NULL,
-           rejected_by_user_id = NULL,
-           rejected_at = NULL
-       WHERE id = ?
-       LIMIT 1`,
-      [targetPayrollPeriodId, tierLevel, ratePerMile, appliedAmount, approverUserId, id]
-    );
-    return PayrollMileageClaim.findById(id);
+    const persist = async (db) => {
+      const [result] = await db.execute(
+        `UPDATE payroll_mileage_claims
+         SET status = 'approved',
+             target_payroll_period_id = ?,
+             tier_level = ?,
+             rate_per_mile = ?,
+             applied_amount = ?,
+             approved_by_user_id = ?,
+             approved_at = NOW(),
+             rejection_reason = NULL,
+             rejected_by_user_id = NULL,
+             rejected_at = NULL
+         WHERE id = ? ${eventTravelReviewedAt ? `AND EXISTS (
+           SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_mileage_claims.event_travel_report_id
+           AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
+         LIMIT 1`,
+        [targetPayrollPeriodId, tierLevel, ratePerMile, appliedAmount, approverUserId, id, ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
+      );
+      if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
+      return PayrollMileageClaim.findById(id, db);
+    };
+    return eventTravelReviewedAt
+      ? withReviewedEventTravelClaim({ table: 'payroll_mileage_claims', id, reviewedAt: eventTravelReviewedAt }, persist)
+      : persist(pool);
   }
 
   static async reject({ id, rejectorUserId, rejectionReason }) {
@@ -358,4 +368,3 @@ class PayrollMileageClaim {
 }
 
 export default PayrollMileageClaim;
-

@@ -635,7 +635,7 @@ const indirectSessionStore = useIndirectTimeSessionStore();
 const router = useRouter();
 const route = useRoute();
 
-const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction']);
+const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction', 'approved_travel']);
 
 /** Support activities hidden from supervisors (they use Supervisor's Meeting instead). */
 const SUPERVISOR_HIDDEN_SUPPORT_TYPE_KEYS = new Set(['clinical_supervision_sa']);
@@ -1804,19 +1804,19 @@ async function submitTime() {
 }
 
 function canEditSubmission(s) {
-  if (isAutoSubmittedClaim(s)) return false;
+  if (s?.event_travel_report_id || isAutoSubmittedClaim(s)) return false;
   const st = String(s?.status || '').toLowerCase();
   return ['submitted', 'deferred', 'rejected', 'withdrawn'].includes(st);
 }
 
 function canWithdrawSubmission(s) {
-  if (isAutoSubmittedClaim(s)) return false;
+  if (s?.event_travel_report_id || isAutoSubmittedClaim(s)) return false;
   const st = String(s?.status || '').toLowerCase();
   return ['submitted', 'deferred', 'rejected'].includes(st);
 }
 
 function canDeleteSubmission(s) {
-  if (isAutoSubmittedClaim(s)) return false;
+  if (s?.event_travel_report_id || isAutoSubmittedClaim(s)) return false;
   const st = String(s?.status || '').toLowerCase();
   return ['withdrawn', 'deferred', 'rejected'].includes(st);
 }

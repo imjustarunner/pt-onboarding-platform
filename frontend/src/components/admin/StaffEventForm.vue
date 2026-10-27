@@ -195,8 +195,9 @@
           <input v-model.trim="draft.eventLocationName" class="input" placeholder="RoadHouse Cinemas (Railyard Lounge)" />
         </div>
         <div>
-          <label class="lbl">Address</label>
-          <input v-model.trim="draft.eventLocationAddress" class="input" placeholder="3030 N Nevada Ave, Colorado Springs, CO" />
+          <label class="lbl" for="staff-event-venue-address">Venue address</label>
+          <input id="staff-event-venue-address" v-model.trim="draft.eventLocationAddress" :required="!!draft.eventLocationName" class="input" placeholder="Full street address, city, state, ZIP" />
+          <p class="hint">Required when a venue is selected. Used for event directions and travel distances.</p>
         </div>
       </div>
       <div class="grid two">
@@ -683,7 +684,7 @@ const populateFromEvent = (evt) => {
     endsAtLocal: toLocalInput(evt.endsAt),
     rsvpDeadlineLocal: toLocalInput(evt.rsvpDeadline),
     eventLocationName: evt.eventLocationName || '',
-    eventLocationAddress: evt.eventLocationAddress || '',
+    eventLocationAddress: evt.eventLocationAddress || evt.publicLocationAddress || '',
     eventLocationPhone: evt.eventLocationPhone || '',
     guestPolicy: evt.guestPolicy || 'staff_only',
     familyProvisionNote: evt.familyProvisionNote || '',
@@ -940,6 +941,7 @@ const detachSurveyFromSession = async (attachmentId) => {
 
 const saveEvent = async () => {
   if (!canSave.value) return;
+  if (draft.eventLocationName && !draft.eventLocationAddress) { error.value = 'Add the venue’s full street address, city, state, and ZIP.'; return; }
   if (eventPaymentError(draft)) { error.value = eventPaymentError(draft); return; }
   saving.value = true;
   error.value = '';

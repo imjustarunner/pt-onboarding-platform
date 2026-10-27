@@ -61,6 +61,7 @@ import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model
 import PayrollCompanyCardExpense from '../models/PayrollCompanyCardExpense.model.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { persistEventTravelClaim } from '../services/companyEventParticipation.service.js';
+import { getEventTravelReport, reviewEventTravelReport, assertEventTravelReviewed } from '../services/eventTravelReport.service.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import PayrollUserIndirectServiceAssignment from '../models/PayrollUserIndirectServiceAssignment.model.js';
 import PayrollHolidayBonusClaim from '../models/PayrollHolidayBonusClaim.model.js';
@@ -15236,6 +15237,7 @@ export const createMyMileageClaim = [
     }
 
     const claimType = String(body.claimType || 'school_travel').trim().toLowerCase();
+    if (claimType !== 'school_travel') return res.status(409).json({ error: { message: 'Use Submit → Event travel reimbursement for event trips. School mileage remains under In-school.' } });
     if (claimType === 'school_travel') {
       const inSchoolEnabled = await isAgencyFeatureEnabled(agencyId, 'inSchoolSubmissionsEnabled', true);
       if (!inSchoolEnabled) {
@@ -16325,6 +16327,7 @@ export const deleteMyMileageClaim = async (req, res, next) => {
     const claim = await PayrollMileageClaim.findById(id);
     if (!claim) return res.status(404).json({ error: { message: 'Mileage claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Edit the complete report in Submit → Event travel reimbursement so time and mileage stay together.' } });
 
     // Allow withdrawing submitted, deferred, or rejected claims (not approved/paid).
     const s = String(claim.status || '').toLowerCase();
@@ -18350,6 +18353,11 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
     if (typeof payload === 'string') {
       try { payload = JSON.parse(payload); } catch { payload = {}; }
     }
+    if (payload.eventTravelReportId || payload.eventTravelReport || payload.source === 'event_travel_report'
+      || payload.eventWorkType === 'travel' || payload.source === 'company_event_travel'
+      || (Array.isArray(payload.allocations) ? payload.allocations : []).some(a => (a.serviceTypeKey || a.typeKey) === 'approved_travel')) {
+      return res.status(409).json({ error: { message: 'Use Submit → Event travel reimbursement to submit travel time and mileage together.' } });
+    }
     if(payload.source==='supervision_payroll_correction')return res.status(400).json({error:{message:'Supervision corrections must originate from the verified supervision record.'}});
     if (payload.ffsExcess && (claimType !== 'indirect_time' || payload.eventWorkType || payload.source)) return res.status(400).json({error:{message:'Use a clinical FFS indirect-time request without an automated source.'}});
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
@@ -18561,6 +18569,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
             : 'indirect';
         for (const row of cleaned) {
           const t = row.serviceTypeId ? byId.get(Number(row.serviceTypeId)) : null;
+          if ((t?.typeKey || t?.type_key) === 'approved_travel') return res.status(409).json({ error: { message: 'Use Submit → Event travel reimbursement for travel.' } });
           const typeBucket = t ? normalizePayBucket(t.payBucket) : normalizePayBucket(row.payBucket);
           const ok = typeBucket === expectedBucket
             || (expectedBucket === 'support' && typeBucket === 'other_1');
@@ -18756,6 +18765,7 @@ export const deleteMyTimeClaim = async (req, res, next) => {
     const claim = await PayrollTimeClaim.findById(id);
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Edit the complete report in Submit → Event travel reimbursement so time and mileage stay together.' } });
 
     const s = String(claim.status || '').toLowerCase();
     const hard = String(req.query?.hard || req.body?.hard || '') === '1'
@@ -18806,6 +18816,7 @@ export const updateMyTimeClaim = async (req, res, next) => {
     const claim = await PayrollTimeClaim.findById(id);
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Edit the complete report in Submit → Event travel reimbursement so time and mileage stay together.' } });
 
     if (typeof req.body?.archived === 'boolean') {
       await pool.execute('UPDATE payroll_time_claims SET employee_archived_at=? WHERE id=? AND user_id=?',[req.body.archived?new Date():null,id,userId]);
@@ -18837,6 +18848,7 @@ export const updateMyTimeClaim = async (req, res, next) => {
       ? req.body.payload
       : {};
     if (claim.payload?.ffsExcess && (!payloadIn.ffsExcess || Number(payloadIn.ffsExcess.periodId)!==Number(claim.payload.ffsExcess.periodId))) return res.status(400).json({error:{message:'Keep this request in its original pay period and edit it using the clinical FFS calculator.'}});
+    if (payloadIn.eventTravelReportId || payloadIn.eventTravelReport || payloadIn.source === 'event_travel_report') return res.status(409).json({ error: { message: 'Use the Event travel reimbursement form.' } });
     const claimMinutes = (payloadIn.excessIndirect||claim.payload?.excessIndirect||payloadIn.ffsExcess||claim.payload?.ffsExcess) ? v=>{const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;} : toMinutes;
     const allocations = Array.isArray(payloadIn.allocations) ? payloadIn.allocations : [];
     const cleaned = [];
@@ -19375,6 +19387,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
   if (type === 'meeting_training' || type === 'mentor_cpa_meeting' || type === 'indirect_time') {
     // Prefer admin hour override on approve; fall back to payload minutes.
     let hrs = Number(approveCreditsHours);
+    if (payload.source === 'event_travel_report') hrs = Number(payload.totalMinutes || 0) / 60;
     if (!Number.isFinite(hrs) || hrs < 0) {
       const storedHrs = Number(claim?.credits_hours);
       if (Number.isFinite(storedHrs) && storedHrs >= 0) hrs = storedHrs;
@@ -19398,10 +19411,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
     const claimBucket = normalizeTimeClaimBucket(
       approveBucket || claim?.bucket || payload?.bucket || 'indirect'
     );
-    if (payload.source === 'provider_update' && payload.categoryGroup === 'support_activity') {
+    if (['provider_update', 'event_travel_report'].includes(payload.source) && payload.categoryGroup === 'support_activity') {
       const ctx = await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
       if (ctx?.enabled) {
-        const rate=Number(ctx.status?.inProbation ? (ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate) : ctx.rateProfile?.supportActivityRate);
+        const reduced = payload.source === 'event_travel_report' ? ctx.status?.useReducedRates : ctx.status?.inProbation;
+        const rate=Number(reduced ? (ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate) : ctx.rateProfile?.supportActivityRate);
         // A missing support rate must be resolved in payroll, never silently replaced by indirect pay.
         if (!Number.isFinite(rate) || rate <= 0) return null;
         return Math.round(hrs * rate * 100) / 100;
@@ -19560,6 +19574,9 @@ export const patchTimeClaim = async (req, res, next) => {
 
 
     if (action === 'approve') {
+      const eventTravelReviewedAt = await assertEventTravelReviewed(claim);
+      if (claim.event_travel_report_id && body.appliedAmount != null && body.appliedAmount !== '') return res.status(400).json({ error: { message: 'Event travel uses the assigned Support Activity rate. Update the compensation rate before approving if it is incorrect.' } });
+      if (eventTravelReviewedAt && claim.payload?.eventTravelReport?.reviewedAt !== eventTravelReviewedAt) return res.status(409).json({ error: { message: 'The travel report changed. Refresh before approving.' } });
       if (await isUnpaidInternActivity(claim)) return res.status(409).json({ error: { message: 'This is unpaid intern indirect time. Attendance stays in meeting history; reject or withdraw the payroll claim.' } });
       const correction=claim.payload?.source==='supervision_payroll_correction' && Number(claim.payload?.originalClaimId)>0;
       if(claim.payload?.rateReviewRequired && (body.appliedAmount==null || body.appliedAmount===''))return res.status(409).json({error:{message:'Confirm the correction amount after reviewing the changed supervision rate.'}});
@@ -19636,6 +19653,12 @@ export const patchTimeClaim = async (req, res, next) => {
         }
       }
 
+      if (claim.event_travel_report_id) {
+        const reviewedHours = Number(claim.payload?.totalMinutes || 0) / 60;
+        // Existing payroll inputs display hundredths of an hour; pay the exact reviewed minutes.
+        if (bucket !== 'indirect' || Math.abs(Number(creditsHoursRaw || 0) - reviewedHours) > 0.005001) return res.status(409).json({ error: { message: 'Change eligible time in the Event travel report review, then approve its Support Activity time.' } });
+        creditsHoursRaw = reviewedHours;
+      }
       // Applied amount is dollar-based.
       // Prefer explicit admin override, then payload amount (if provided), then best-effort
       // default based on submitted minutes/hours + user's rate card.
@@ -19668,6 +19691,7 @@ export const patchTimeClaim = async (req, res, next) => {
       }
 
       const updated = await PayrollTimeClaim.approve({
+        eventTravelReviewedAt,
         id,
         approverUserId: req.user.id,
         targetPayrollPeriodId,
@@ -19676,31 +19700,33 @@ export const patchTimeClaim = async (req, res, next) => {
         creditsHours: creditsHoursRaw
       });
 
-      // Keep payload in sync with admin hour/bucket overrides so recompute / display match pay.
-      try {
-        const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
-        const nextPayload = { ...prevPayload, bucket };
-        if (Number.isFinite(creditsHoursRaw) && (creditsHoursRaw >= 0 || correction)) {
-          nextPayload.totalMinutes = prevPayload.ffsExcess ? Math.round(creditsHoursRaw * 60 * 100) / 100 : Math.round(creditsHoursRaw * 60);
-          nextPayload.creditsHours = creditsHoursRaw;
-        }
-        if (Number.isFinite(override)) {
-          nextPayload.amountExplicit = true;
-          nextPayload.payRateAmountOverride = true;
-        }
-        // Infer/persist MEETING serviceCode for Town Hall / Admin Meeting when missing.
-        if (!String(nextPayload.serviceCode || '').trim()) {
-          const mt = String(nextPayload.meetingType || '').trim().toLowerCase();
-          if (mt === 'town hall' || mt === 'admin meeting' || mt === 'huddle' || mt.includes('town hall')) {
-            nextPayload.serviceCode = 'MEETING';
-            nextPayload.payRateSource = nextPayload.payRateSource || 'meeting';
+      if (!claim.event_travel_report_id) {
+        // Keep payload in sync with admin hour/bucket overrides so recompute / display match pay.
+        try {
+          const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
+          const nextPayload = { ...prevPayload, bucket };
+          if (Number.isFinite(creditsHoursRaw) && (creditsHoursRaw >= 0 || correction)) {
+            nextPayload.totalMinutes = prevPayload.ffsExcess ? Math.round(creditsHoursRaw * 60 * 100) / 100 : Math.round(creditsHoursRaw * 60);
+            nextPayload.creditsHours = creditsHoursRaw;
           }
-        }
-        await pool.execute(
-          `UPDATE payroll_time_claims SET payload_json = ? WHERE id = ? LIMIT 1`,
-          [JSON.stringify(nextPayload), id]
-        );
-      } catch { /* best-effort */ }
+          if (Number.isFinite(override)) {
+            nextPayload.amountExplicit = true;
+            nextPayload.payRateAmountOverride = true;
+          }
+          // Infer/persist MEETING serviceCode for Town Hall / Admin Meeting when missing.
+          if (!String(nextPayload.serviceCode || '').trim()) {
+            const mt = String(nextPayload.meetingType || '').trim().toLowerCase();
+            if (mt === 'town hall' || mt === 'admin meeting' || mt === 'huddle' || mt.includes('town hall')) {
+              nextPayload.serviceCode = 'MEETING';
+              nextPayload.payRateSource = nextPayload.payRateSource || 'meeting';
+            }
+          }
+          await pool.execute(
+            `UPDATE payroll_time_claims SET payload_json = ? WHERE id = ? LIMIT 1`,
+            [JSON.stringify(nextPayload), id]
+          );
+        } catch { /* best-effort */ }
+      }
 
       try {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);
@@ -19850,6 +19876,7 @@ export const patchTimeClaim = async (req, res, next) => {
     }
 
     if (action === 'update' || action === 'updateapproved') {
+      if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Unapprove this report’s payroll entries and update the Event travel report review first.' } });
       const st = String(claim.status || '').toLowerCase();
       if (st !== 'approved') {
         return res.status(409).json({ error: { message: 'Only approved claims can be updated in place. Unapprove first to send it back.' } });
@@ -21531,13 +21558,14 @@ export const patchMileageClaim = async (req, res, next) => {
     }
 
     if (action === 'approve') {
+      const eventTravelReviewedAt = await assertEventTravelReviewed(claim);
       const targetPayrollPeriodId = Number(body.targetPayrollPeriodId || 0);
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
       const claimType = String(claim.claim_type || '').toLowerCase();
       const mileageSettings = await getAgencyMileageSettingsPayload(claim.agency_id);
-      const usesTierRate = claimType === 'school_travel' || mileageSettings.standardMileageUsesTierRates;
+      const usesTierRate = !claim.event_travel_report_id && (claimType === 'school_travel' || mileageSettings.standardMileageUsesTierRates);
       const tierLevel = usesTierRate ? Number(body.tierLevel || claim.tier_level || 0) : null;
 
       const targetPeriod = await PayrollPeriod.findById(targetPayrollPeriodId);
@@ -21578,12 +21606,12 @@ export const patchMileageClaim = async (req, res, next) => {
       } else {
         ratePerMile = Number(mileageSettings.standardMileageRatePerMile || 0);
       }
-      if (!Number.isFinite(ratePerMile) || ratePerMile <= 0) {
+      if ((!Number.isFinite(ratePerMile) || ratePerMile <= 0) && !(claim.event_travel_report_id && Number(claim.miles) === 0)) {
         return res.status(409).json({
           error: {
             message: usesTierRate
               ? `Mileage rate not configured for Tier ${tierLevel}`
-              : 'Other Mileage rate is not configured for this agency'
+              : claim.event_travel_report_id ? 'Configure the flat Event / Other Mileage rate before approving this reimbursement' : 'Other Mileage rate is not configured for this agency'
           }
         });
       }
@@ -21600,6 +21628,7 @@ export const patchMileageClaim = async (req, res, next) => {
       const appliedAmount = Math.round((billableMiles * ratePerMile) * 100) / 100;
 
       const updated = await PayrollMileageClaim.approve({
+        eventTravelReviewedAt,
         id,
         approverUserId: req.user.id,
         targetPayrollPeriodId,
@@ -23138,4 +23167,20 @@ export const stopRecurringPayment = async (req,res,next) => {
   if(!endsOn || (last?.latest && endsOn<recurringDay(last.latest))){await db.rollback();return res.status(409).json({error:{message:'End date must include payments already added to payroll.'}});}
   await db.execute('UPDATE payroll_recurring_payments SET ends_on=? WHERE id=?',[endsOn,row.id]);await db.commit();res.json({ok:true});
  }catch(e){if(db)await db.rollback();next(e);}finally{db?.release();}
+};
+
+// These routes share the existing payroll authorization boundary.
+export const getPayrollEventTravelReport = async (req, res, next) => {
+  try {
+    const row = await getEventTravelReport(Number(req.params.id));
+    if (!(await requirePayrollAccess(req, res, row.agency_id))) return;
+    res.json({ id: row.id, revision: row.revision, report: row.report });
+  } catch (e) { next(e); }
+};
+export const reviewPayrollEventTravelReport = async (req, res, next) => {
+  try {
+    const row = await getEventTravelReport(Number(req.params.id));
+    if (!(await requirePayrollAccess(req, res, row.agency_id))) return;
+    res.json(await reviewEventTravelReport({ id: row.id, reviewerId: req.user.id, input: req.body || {} }));
+  } catch (e) { next(e); }
 };

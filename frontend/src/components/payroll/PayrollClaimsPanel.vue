@@ -80,7 +80,7 @@
             <tbody>
               <tr v-for="c in mileageClaims" :key="c.id">
                 <td>{{ providerName(c) }}</td>
-                <td>{{ fmtDate(c.claim_date || c.trip_date) }}</td>
+                <td>{{ fmtDate(c.drive_date || c.claim_date || c.trip_date) }}<details v-if="c.event_travel_report_id"><summary>Review event travel</summary><EventTravelPayrollReview :report-id="c.event_travel_report_id" @reviewed="reload" /></details></td>
                 <td class="right">{{ Number(c.miles || c.total_miles || 0).toFixed(1) }}</td>
                 <td class="right">
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveMileage(c)">
@@ -166,6 +166,7 @@
           </template>
           <template v-else-if="reviewedTimeClaim.claim_type === 'indirect_time'">
             <IndirectTimeClaimDetailFields
+              :can-review-event-travel="true" @event-travel-reviewed="reload"
               :payload="reviewedTimeClaim.payload"
               :bucket="reviewedTimeClaim.payload?.bucket || reviewedTimeClaim.bucket"
             />
@@ -180,6 +181,7 @@
 </template>
 
 <script setup>
+import EventTravelPayrollReview from './EventTravelPayrollReview.vue';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import MeetingClaimDetails from './MeetingClaimDetails.vue';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -260,6 +262,7 @@ const fmtHours = (c) => {
 };
 
 const timeTypeLabel = (c) => {
+  if (c?.event_travel_report_id) return 'Event travel reimbursement';
   if (supervisionActivityLabel(c)) return supervisionActivityLabel(c);
   const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';

@@ -3,7 +3,7 @@
  *
  * Skill Builders keeps its existing direct-cap / leftover-indirect split.
  * Approved school / outreach events default to the employee indirect rate.
- * Travel is recorded separately as Support Activity → Approved Travel.
+ * Travel is recorded separately through Submit → Event travel reimbursement at the Support Activity rate.
  */
 
 import pool from '../config/database.js';

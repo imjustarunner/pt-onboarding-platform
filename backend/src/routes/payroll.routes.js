@@ -1,3 +1,4 @@
+import { getPayrollEventTravelReport, reviewPayrollEventTravelReport } from '../controllers/payroll.controller.js';
 import { getMyFfsExcessOptions } from '../controllers/ffsExcessTime.controller.js';
 import { getTimeClaimMeetingAttendance } from '../controllers/payroll.controller.js';
 import { listRecurringPayments, saveRecurringPayment, stopRecurringPayment } from '../controllers/payroll.controller.js';
@@ -256,6 +257,8 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
+router.get('/event-travel-reports/:id', getPayrollEventTravelReport);
+router.put('/event-travel-reports/:id/review', reviewPayrollEventTravelReport);
 
 // Pay periods
 router.post('/periods', createPayrollPeriod);

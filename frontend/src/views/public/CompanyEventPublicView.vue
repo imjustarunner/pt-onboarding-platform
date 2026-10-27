@@ -49,7 +49,6 @@
           </a>
         </div>
 
-        <EventTravelPanel v-if="isEmployee" :event-id="eventId" />
 
         <!-- Photo strip (horizontal scroll, all images) -->
         <div v-if="allImages.length > 0" class="event-photo-strip">
@@ -362,7 +361,6 @@
 </template>
 
 <script setup>
-import EventTravelPanel from '../../components/events/EventTravelPanel.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

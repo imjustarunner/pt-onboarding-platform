@@ -101,11 +101,11 @@ describe('public attendee registration', () => {
   });
 });
 
-it('shows the travel form on the event detail page for assigned employees', async () => {
+it('keeps travel submissions off the event detail page even for assigned employees', async () => {
   auth.isAuthenticated = true; auth.user = { id: 7, role: 'provider' };
   api.get.mockImplementation(url => Promise.resolve({ data: url.includes('/participation') ? { canSubmitTravel: true } : data }));
   const wrapper = await render();
-  expect(wrapper.get('.event-travel-panel').findAll('input[type="datetime-local"]')).toHaveLength(2);
+  expect(wrapper.find('.event-travel-panel').exists()).toBe(false);
 });
 it('keeps employee payroll controls off the public guest page', async () => {
   const wrapper = await render(); expect(wrapper.find('.event-travel-panel').exists()).toBe(false);

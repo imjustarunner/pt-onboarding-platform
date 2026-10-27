@@ -1,3 +1,4 @@
+import { resolveEventVenueAddress } from '../services/companyEventVenue.service.js';
 import Notification from '../models/Notification.model.js';
 import { listActiveTeamMembers, teamMemberPhone, teamSmsEligibility } from '../services/conversaTeamRecipients.service.js';
 import { pollDeliveryMode, pollUsesInternal, pollUsesSms } from '../utils/teamPollDelivery.js';
@@ -1940,6 +1941,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
     organizationIdForRow = v.organizationId;
   }
 
+  parsed.eventLocationAddress = await resolveEventVenueAddress({ ...parsed, organizationId: organizationIdForRow });
+
   let createKioskPinHash = null;
   if (parsed.kioskPinOutcome?.mode === 'set') {
     const uq = await assertKioskEventPinUnique(pool, {
@@ -2171,7 +2174,12 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   if (existingVote.deliveryMode && incomingVote && incomingVote.deliveryMode === undefined && !!incomingVote.viaSms === pollUsesSms(existingVote)) {
     body = { ...body, votingConfig: { ...incomingVote, deliveryMode: existingVote.deliveryMode } };
   }
-  const parsed = parseEventPayload(body || {});
+  // Older editors omit venue fields; retain the saved venue when those fields are absent.
+  const venueBody = { ...body };
+  for (const [camel, snake] of [['eventLocationName', 'event_location_name'], ['eventLocationAddress', 'event_location_address']]) {
+    if (venueBody[camel] === undefined && venueBody[snake] === undefined) venueBody[camel] = existing[snake] || (camel === 'eventLocationAddress' ? existing.public_location_address : null);
+  }
+  const parsed = parseEventPayload(venueBody);
   if (parsed.error) return { error: { status: 400, message: parsed.error } };
   await validateTeamAudience(agencyId, parsed);
   const operations = await validateEventOperations({ body: body || {}, existing, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
@@ -2195,6 +2203,8 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
     if (v.error) return { error: { status: 400, message: v.error } };
     organizationIdForRow = v.organizationId;
   }
+
+  parsed.eventLocationAddress = await resolveEventVenueAddress({ ...parsed, organizationId: organizationIdForRow });
 
   let nextKioskPinHash = existing.kiosk_event_pin_hash != null ? String(existing.kiosk_event_pin_hash) : null;
   if (parsed.kioskPinOutcome?.mode === 'clear') {

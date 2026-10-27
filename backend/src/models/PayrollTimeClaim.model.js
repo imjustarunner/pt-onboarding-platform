@@ -1,3 +1,4 @@
+import { withReviewedEventTravelClaim } from '../utils/eventTravelApproval.js';
 import pool from '../config/database.js';
 
 class PayrollTimeClaim {
@@ -145,30 +146,38 @@ class PayrollTimeClaim {
     return (rows || []).map((r) => this._normalize(r));
   }
 
-  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null }) {
+  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null, eventTravelReviewedAt = null }) {
     const raw = String(bucket || 'indirect').trim().toLowerCase();
     const b = raw === 'direct'
       ? 'direct'
       : (raw === 'other_1' || raw === 'other_2' || raw === 'other_3' ? raw : 'indirect');
     const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
     const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
-    await pool.execute(
-      `UPDATE payroll_time_claims
-       SET status = 'approved',
-           target_payroll_period_id = ?,
-           bucket = ?,
-           credits_hours = ?,
-           applied_amount = ?,
-           approved_by_user_id = ?,
-           approved_at = NOW(),
-           rejection_reason = NULL,
-           rejected_by_user_id = NULL,
-           rejected_at = NULL
-       WHERE id = ?
-       LIMIT 1`,
-      [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id]
-    );
-    return PayrollTimeClaim.findById(id);
+    const persist = async (db) => {
+      const [result] = await db.execute(
+        `UPDATE payroll_time_claims
+         SET status = 'approved',
+             target_payroll_period_id = ?,
+             bucket = ?,
+             credits_hours = ?,
+             applied_amount = ?,
+             approved_by_user_id = ?,
+             approved_at = NOW(),
+             rejection_reason = NULL,
+             rejected_by_user_id = NULL,
+             rejected_at = NULL
+         WHERE id = ? ${eventTravelReviewedAt ? `AND EXISTS (
+           SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_time_claims.event_travel_report_id
+           AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
+         LIMIT 1`,
+        [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id, ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
+      );
+      if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
+      return PayrollTimeClaim.findById(id, db);
+    };
+    return eventTravelReviewedAt
+      ? withReviewedEventTravelClaim({ table: 'payroll_time_claims', id, reviewedAt: eventTravelReviewedAt }, persist)
+      : persist(pool);
   }
 
   static async updateApproved({ id, bucket, creditsHours, appliedAmount, payload = null }) {
