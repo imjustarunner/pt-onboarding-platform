@@ -107,6 +107,10 @@ class NotificationDispatcherService {
     const created = await Notification.create(notificationData);
     await this.dispatchForNotification(created, { context }).catch(() => {});
     await this.dispatchPushForNotification(created).catch(() => {});
+    if (created.type === 'client_appointment_reply') {
+      const { sendAppointmentReplyEmail } = await import('./appointmentReplyEmail.service.js');
+      await sendAppointmentReplyEmail(created, context).catch(error => console.warn('[appointment reply email] Delivery failed', created.id, error.code || 'send_failed'));
+    }
     return created;
   }
 
