@@ -27,7 +27,7 @@
       <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
-      <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" />
+      <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" :language="familyLocale" />
       <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="allFamilyProfiles" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance'].includes(activePanel)" class="empty-state">
@@ -437,7 +437,12 @@
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 
-            <template v-else-if="activePanel === 'notification_history'"><ClientNotificationHistory v-if="!isSuperadminPreview && selectedChildId" :client-id="selectedChildId" guardian /></template>
+            <template v-else-if="activePanel === 'notification_history'">
+              <template v-if="!isSuperadminPreview && selectedChildId">
+                <GuardianInvitations :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" :language="familyLocale" />
+                <ClientNotificationHistory :client-id="selectedChildId" :language="familyLocale" guardian />
+              </template>
+            </template>
             <template v-else-if="activePanel === 'account'">
               <FamilyAccountSettings :agency-id="selectedChildAgencyId" @notifications="navigatePortal('notifications')" />
             </template>
@@ -955,7 +960,8 @@ const dashboardTabs = computed(() => {
     { key: 'overview', label: 'Dashboard', meta: pm('Home base', 'Preview shell') },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
     { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') },
-    { key: 'appointments', label: 'Appointments', meta: pm('Schedule and change requests', 'Appointments') }
+    { key: 'appointments', label: 'Appointments', meta: pm('Schedule and change requests', 'Appointments') },
+    { key:'notification_history',label:'Communication history',meta:'Emails, texts, invitations and reminders' }
   );
   if (hasSchoolAffiliations.value) tabs.push({ key:'schoolcarebridge', label:schoolWorkspaceLabel.value || 'School', meta:schoolWorkspaceLabel.value });
   if (selectedChild.value) {
@@ -992,7 +998,7 @@ const portalGrants = ref([]);
 let portalGrantRequest = 0;
 const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
-  const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks'};
+  const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};
   const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
@@ -1002,7 +1008,7 @@ const portalNavigation = computed(() => {
   items.unshift({key:'family',label:familyHomeLabel.value,icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
   items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
   items.push( {key:'records',label:'Request my records',icon:'documents'}, {key:'help',label:'Portal help & feedback',icon:'support'});
-  items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'notification_history',label:'Notification history',icon:'tasks'},{key:'signout',label:'Sign out',icon:'account'});
+  items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
   return ordered.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));

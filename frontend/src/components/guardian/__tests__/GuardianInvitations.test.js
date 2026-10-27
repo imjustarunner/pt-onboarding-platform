@@ -9,6 +9,12 @@ it('shows delivery failure and lets the parent correct the stored invitation',as
  await w.get('input').setValue('correct@example.test');api.post.mockResolvedValue({data:{deliveryStatus:'sent'}});await w.get('form').trigger('submit');await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/guardian-portal/invitations/3/resend',{agencyId:4,email:'correct@example.test'});expect(w.text()).toContain('previous link no longer works');w.unmount();
 });
+it('shows each invitation and reminder attempt and filters by dependent',async()=>{
+ api.get.mockResolvedValue({data:{invitations:[{id:3,email:'other@example.test',status:'pending',deliveryStatus:'sent',nextReminderAt:'2026-11-03T18:00:00Z',history:[{id:1,kind:'invitation',status:'sent',occurredAt:'2026-10-27T18:00:00Z'},{id:2,kind:'reminder',status:'sent',occurredAt:'2026-10-29T18:00:00Z'}]}]}});
+ const w=mount(Invitations,{props:{agencyId:4,clientId:5}});await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/guardian-portal/invitations',{params:{agencyId:4,clientId:5},skipGlobalLoading:true});
+ expect(w.findAll('.invite-history li')).toHaveLength(2);expect(w.text()).toContain('Next reminder if enrollment is still incomplete');w.unmount();
+});
 it('keeps a failed resend visible and does not claim success',async()=>{
  const w=mount(Invitations,{props:{agencyId:4}});await flushPromises();api.post.mockResolvedValue({data:{deliveryStatus:'failed'}});await w.get('form').trigger('submit');await flushPromises();expect(w.text()).not.toContain('new invitation was sent');expect(w.text()).toContain('Invitation not delivered');w.unmount();
 });

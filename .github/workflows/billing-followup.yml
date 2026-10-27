@@ -4,6 +4,13 @@ on:
     branches: [main]
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/coGuardian*.js'
+      - 'backend/src/services/__tests__/coGuardian*.test.js'
+      - 'backend/src/controllers/clientNotificationHistory.controller.js'
+      - 'frontend/src/components/guardian/GuardianInvitations.vue'
+      - 'frontend/src/components/conversa/ClientNotificationHistory.vue'
+      - 'frontend/vitest.guardian-communications.config.js'
+      - 'database/migrations/1701_guardian_invitation_reminders.sql'
       - 'backend/src/services/__tests__/familyPayerArrangements.mysql.test.js'
       - 'backend/src/services/__tests__/familyLedger.planEligibility.test.js'
       - 'backend/src/services/familyBillingPolicy.service.js'
@@ -103,6 +110,13 @@ on:
   pull_request:
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/coGuardian*.js'
+      - 'backend/src/services/__tests__/coGuardian*.test.js'
+      - 'backend/src/controllers/clientNotificationHistory.controller.js'
+      - 'frontend/src/components/guardian/GuardianInvitations.vue'
+      - 'frontend/src/components/conversa/ClientNotificationHistory.vue'
+      - 'frontend/vitest.guardian-communications.config.js'
+      - 'database/migrations/1701_guardian_invitation_reminders.sql'
       - 'backend/src/services/__tests__/familyPayerArrangements.mysql.test.js'
       - 'backend/src/services/__tests__/familyLedger.planEligibility.test.js'
       - 'backend/src/services/familyBillingPolicy.service.js'
@@ -240,6 +254,11 @@ jobs:
       - run: npm ci --prefix frontend --ignore-scripts
       - name: Reminder delivery and notification ownership
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-followup.config.js
+      - name: Guardian invitation reminders and shared history
+        run: node frontend/node_modules/vitest/vitest.mjs run backend/src/services/__tests__/coGuardianReminderPolicy.test.js backend/src/services/__tests__/enrollmentCompletion.guardianInvites.test.js backend/src/controllers/__tests__/guardianAccess.notificationHistory.test.js backend/src/services/__tests__/messaging.sharedNotifications.test.js
+      - name: Guardian communication history interface
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.guardian-communications.config.js
       - name: Standard family emails and appointment responses
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
       - name: Guardian scheduling, signed copies, and password recovery regressions

@@ -1,0 +1,56 @@
+ITSCOLLC QA — INVITATION REMINDERS AND COMMUNICATION HISTORY
+October 27, 2026. Additional instructions; keep all prior runbooks.
+
+Casey's first actual email was sent as communication 4211 to testing@itsco.health.
+It incorrectly used "reminder" in the subject. That sent email cannot be changed.
+Its enrollment link remains usable until used, expired, or explicitly replaced.
+Do not request another email solely to correct its historical subject.
+
+NEW BEHAVIOR
+1. A recipient's first successfully sent guardian enrollment invitation uses
+   "complete your guardian enrollment". A subsequent send is a reminder only
+   when a previous invitation was successfully sent to the same address.
+   A failed or suppressed attempt does not make the next email a reminder.
+2. New explicit sends enroll in a limited follow-up schedule: after 2 days,
+   then after 7 days from the initial send, at most two automatic reminders.
+   There must be at least 2 days between sends. A later manual resend may
+   therefore delay a scheduled reminder. Historical unsent invites are not
+   automatically enrolled. Casey's explicitly requested invitation is included.
+3. Reminders stop for accepted/completed, revoked or expired invitations.
+   Failed/uncertain delivery is held for review, not repeatedly retried.
+   First-guardian access and agency membership are checked again before sending.
+   Queued approval mail starts its reminder clock only after transmission.
+4. Each dependent's portal navigation includes Communication history, near
+   Appointments. It lists recorded emails, texts, invitations, reminders and
+   in-app notifications with recipient, channel, time and delivery status.
+   Invitation history also shows individual attempts and the next reminder.
+5. Both authorized guardians can see shared delivery progress. They cannot
+   use this history to open the other's private message body, enrollment
+   answers, signed private documents, account setup links or access tokens.
+   "Sent" does not mean the recipient read the message.
+
+TESTS TO ADD — OFFICE AND SCHOOL, ENGLISH AND SPANISH
+- Submit a new two-guardian enrollment; verify the first email does not say
+  "reminder" and appears once in the shared dependent communication history.
+- Sign in as the first parent; verify invitation status and timestamps.
+- Open the second parent's actual email and complete their enrollment.
+  Confirm status changes to accepted and no future reminder is listed.
+- For a separate retained pending invitation, confirm follow-ups at day 2 and
+  day 7, then no further automatic reminders. Do not move production clocks.
+  Use isolated automated fixtures to test timing/concurrency immediately.
+- Retry a failed initial send; verify it is still labeled an invitation.
+- Check school resending under the same owner/agency permissions as office.
+- Confirm a corrected recipient receives an initial invitation, and the old
+  restricted invite link no longer works. Do not change real addresses.
+- Confirm an appointment text and email, cancellation acknowledgment and
+  other logged notifications appear for the correct dependent.
+- Switch dependents while history loads: the prior child's rows must disappear
+  and an older response must not replace the new child's history.
+- Try an unrelated child ID: expect server denial, not an empty-looking UI.
+- Check both guardian accounts: shared status visible; private bodies,
+  documents and personal enrollment links absent from shared history.
+- Check mobile/desktop readability and Spanish labels. Capture evidence.
+
+Keep synthetic data in agency 450; preserve the existing SMS number assignments,
+population limits, self-pay rules, and prohibition on real insurance submissions.
+Record actual inbox receipt separately from the app's sent status.

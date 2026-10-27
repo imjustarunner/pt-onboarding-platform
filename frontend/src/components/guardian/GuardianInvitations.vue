@@ -10,6 +10,14 @@
         <span v-if="invite.lastSentAt"> · {{ es ? 'Último intento' : 'Last delivery attempt' }}: {{ dateText(invite.lastSentAt) }}</span>
         <span v-if="invite.completedAt"> · {{ es ? 'Aceptada' : 'Accepted' }}: {{ dateText(invite.completedAt) }}</span>
       </p>
+      <details v-if="invite.history?.length" class="invite-history" open>
+        <summary>{{ es ? 'Invitaciones y recordatorios enviados' : 'Invitation and reminder history' }}</summary>
+        <ol><li v-for="attempt in invite.history" :key="attempt.id">
+          {{ attempt.kind === 'reminder' ? (es ? 'Recordatorio' : 'Reminder') : (es ? 'Invitación' : 'Invitation') }}
+          · {{ deliveryLabel(attempt.status) }} · {{ dateText(attempt.occurredAt) }}
+        </li></ol>
+      </details>
+      <p v-if="invite.nextReminderAt && invite.status === 'pending'">{{ es ? 'Próximo recordatorio si aún no termina' : 'Next reminder if enrollment is still incomplete' }}: {{ dateText(invite.nextReminderAt) }}</p>
       <div v-if="invite.canManage" class="invite-actions">
         <label :for="`guardian-email-${invite.id}`">{{ es ? 'Correo del otro tutor' : 'Other guardian’s email' }}
           <input :id="`guardian-email-${invite.id}`" v-model="invite.email" type="email" required maxlength="254" autocomplete="off" :disabled="busy === invite.id || invite.status === 'accepted'" />
@@ -24,10 +32,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencyId: [Number, String], language: { type: String, default: 'en' } });
+const props = defineProps({ agencyId: [Number, String], clientId: [Number,String], language: { type: String, default: 'en' } });
 const es = computed(() => props.language === 'es');
 const invitations = ref([]), error = ref(''), busy = ref(null);
 const isFailed = invite => ['failed','bounced','undelivered','not_sent'].includes(invite.deliveryStatus);
+function deliveryLabel(status) { return ({sent:es.value?'Enviada':'Sent',delivered:es.value?'Entregada':'Delivered',failed:es.value?'No enviada':'Failed',bounced:es.value?'Rechazada':'Bounced',pending:es.value?'Pendiente':'Pending',sending:es.value?'Enviando':'Sending'})[status] || status; }
 function dateText(value) {
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(es.value ? 'es-US' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date) : '';
@@ -45,10 +54,10 @@ function statusText(invite) {
   if (invite.deliveryStatus === 'sent' || invite.deliveryStatus === 'delivered') return es.value ? 'Invitación enviada; inscripción pendiente.' : 'Invitation sent; enrollment still pending.';
   return es.value ? 'Invitación pendiente. El equipo de apoyo puede ayudarle.' : 'Invitation pending. Your support team can help.';
 }
-watch(() => props.agencyId, async agencyId => {
+watch([() => props.agencyId,()=>props.clientId], async ([agencyId,clientId]) => {
   invitations.value = []; error.value = '';
   if (!agencyId) return;
-  try { const { data } = await api.get('/guardian-portal/invitations', { params: { agencyId }, skipGlobalLoading: true }); if (props.agencyId === agencyId) invitations.value = data.invitations || []; }
+  try { const { data } = await api.get('/guardian-portal/invitations', { params: { agencyId,...(clientId?{clientId}:{}) }, skipGlobalLoading: true }); if (props.agencyId === agencyId && props.clientId===clientId) invitations.value = data.invitations || []; }
   catch { error.value = es.value ? 'No pudimos cargar las invitaciones. Actualice la página o contacte al equipo de apoyo.' : 'We could not load your invitations. Refresh or contact your support team.'; }
 }, { immediate: true });
 async function resend(invite) {
@@ -59,6 +68,8 @@ async function resend(invite) {
     invite.deliveryStatus = data.deliveryStatus;
     invite.status = 'pending'; invite.lastSentAt = new Date().toISOString(); invite.expiresAt = new Date(Date.now() + 21 * 86400000).toISOString();
     invite.notice = data.deliveryStatus === 'sent' ? (es.value ? 'Se envió una nueva invitación. El enlace anterior ya no funciona.' : 'A new invitation was sent. The previous link no longer works.') : statusText(invite);
+    const refreshed=await api.get('/guardian-portal/invitations',{params:{agencyId:props.agencyId,...(props.clientId?{clientId:props.clientId}:{})},skipGlobalLoading:true});
+    const updated=refreshed.data.invitations?.find(i=>i.id===invite.id);if(updated)Object.assign(invite,updated);
   } catch (e) { invite.notice = e.response?.data?.error?.message || (es.value ? 'No se pudo reenviar. Contacte al equipo de apoyo.' : 'Unable to resend. Please contact your support team.'); }
   finally { busy.value = null; }
 }

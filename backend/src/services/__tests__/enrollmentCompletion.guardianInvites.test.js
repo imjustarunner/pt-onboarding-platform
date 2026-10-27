@@ -83,9 +83,24 @@ it('staff reminder preserves the confirmed recipient and original inviter while 
       ? [[{id:20,is_active:1,create_guardian:1,master_channel:'counseling'}]] : original(sql));
   const result = await sendStaffGuardianInvitationReminder({actorUserId:501,agencyId:4,inviteId:3});
   expect(result).toMatchObject({deliveryStatus:'sent',email:'typo@example.test',communicationId:7});
-  expect(m.email).toHaveBeenCalledWith(expect.objectContaining({to:'typo@example.test',reminder:true}));
+  expect(m.email).toHaveBeenCalledWith(expect.objectContaining({to:'typo@example.test',reminder:false}));
   expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET invited_by_user_id'))).toBe(false);
   expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET cg.access_enabled'))).toBe(false);
+});
+it.each(['office','school'])('labels a %s follow-up as a reminder only after a prior successful send to that recipient',async source=>{
+ const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT * FROM co_guardian_invites')?[[{...invite,source}]]:
+   sql.includes('LOWER(recipient_email)=')?[[{n:1}]]:original(sql,args));
+ await resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:invite.invited_email});
+ expect(m.email).toHaveBeenCalledWith(expect.objectContaining({reminder:true,school:source==='school'}));
+});
+it('exposes delivery history and next reminder only for the authorized dependent, without message contents',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT i.id')?[[{...statusRow,clientId:5,invitedByUserId:8,nextReminderAt:'2026-10-29'}]]:
+   [[{inviteId:18,id:33,kind:'invitation',status:'sent',occurredAt:'2026-10-27',body:'private',token:'secret'}]]);
+ const [result]=await listGuardianInvitations({userId:8,agencyId:4,clientId:5});
+ expect(result.history).toEqual([{id:33,kind:'invitation',status:'sent',occurredAt:'2026-10-27'}]);
+ expect(result.nextReminderAt).toBe('2026-10-29');
+ expect(await listGuardianInvitations({userId:8,agencyId:4,clientId:99})).toEqual([]);
 });
 it('staff reminder does not send without agency access or a published guardian packet', async () => {
   const { sendStaffGuardianInvitationReminder } = await import('../coGuardianDelivery.service.js');

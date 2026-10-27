@@ -18,14 +18,15 @@ describe.skipIf(!socket)('isolated guardian invitation status SQL',()=>{
    CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,access_enabled TINYINT,permissions_json TEXT);
    CREATE TABLE co_guardian_invites(id INT PRIMARY KEY,agency_id INT,invited_by_user_id INT,invited_email VARCHAR(255),status VARCHAR(32),source VARCHAR(32),created_at DATETIME,expires_at DATETIME,accepted_at DATETIME,accepted_user_id INT);
    CREATE TABLE co_guardian_invite_clients(invite_id INT,client_id INT);
-   CREATE TABLE co_guardian_invite_deliveries(id INT PRIMARY KEY,invite_id INT,created_at DATETIME,delivery_status VARCHAR(32),failure_kind VARCHAR(32));`);
+   CREATE TABLE co_guardian_invite_deliveries(id INT PRIMARY KEY,invite_id INT,created_at DATETIME,delivery_status VARCHAR(32),failure_kind VARCHAR(32),delivery_kind VARCHAR(24) DEFAULT 'invitation');
+   CREATE TABLE co_guardian_invite_reminders(invite_id INT PRIMARY KEY,state VARCHAR(24),next_due_at DATETIME);`);
  });
  beforeEach(async()=>{
   await m.pool.query(`DELETE FROM co_guardian_invite_deliveries;DELETE FROM co_guardian_invite_clients;DELETE FROM co_guardian_invites;DELETE FROM client_guardians;DELETE FROM clients;
    INSERT INTO clients VALUES(5,2,1,'2015-01-01');INSERT INTO client_guardians VALUES(5,9,1,'{}');
    INSERT INTO co_guardian_invites VALUES(18,2,501,'other@example.test','pending','office','2026-10-01','2026-11-01',NULL,NULL);
    INSERT INTO co_guardian_invite_clients VALUES(18,5);
-   INSERT INTO co_guardian_invite_deliveries VALUES(21,18,'2026-10-01','failed','send_failed'),(22,18,'2026-10-02','sent',NULL);`);
+   INSERT INTO co_guardian_invite_deliveries(id,invite_id,created_at,delivery_status,failure_kind) VALUES(21,18,'2026-10-01','failed','send_failed'),(22,18,'2026-10-02','sent',NULL);`);
  });
  afterAll(async()=>{if(m.pool)await m.pool.end();if(admin){await admin.query(`DROP DATABASE IF EXISTS ${database}`);await admin.end();}});
  it('shows a staff-created invitation’s latest progress to the linked guardian with a masked email',async()=>{

@@ -19,7 +19,7 @@ it('returns identical shared history for both guardians without bodies or recipi
   expect(next).not.toHaveBeenCalled(); expect(first.json.mock.calls).toEqual(second.json.mock.calls);
   expect(JSON.stringify(first.json.mock.calls)).not.toContain('secret token'); expect(JSON.stringify(first.json.mock.calls)).not.toContain('clinical info');
   const calls = pool.execute.mock.calls.filter(([sql]) => sql.includes('UNION ALL'));
-  expect(calls[0][1]).toEqual([4, 4, 4, 4, 4, 4]); expect(calls[0][0]).not.toContain('guardian_user_id =');
+  expect(calls[0][1]).toEqual([4, 4, 4, 4, 4, 4, 4]); expect(calls[0][0]).not.toContain('guardian_user_id =');
   expect(first.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
   expect(pool.execute.mock.calls.some(([sql]) => /FROM clients WHERE id = \? AND user_id/.test(sql))).toBe(false);
 });

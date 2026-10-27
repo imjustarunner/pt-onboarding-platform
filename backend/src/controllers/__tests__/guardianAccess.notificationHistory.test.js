@@ -24,11 +24,14 @@ it('uses one explicit collation across email, SMS, JSON, and in-app history proj
   await listClientNotificationHistory(request(), res, next);
   expect(next).not.toHaveBeenCalled();
   const [sql, values] = mocks.execute.mock.calls[0];
-  expect(sql.match(/COLLATE utf8mb4_unicode_ci/g)).toHaveLength(24);
+  expect(sql.match(/COLLATE utf8mb4_unicode_ci/g)).toHaveLength(30);
   expect(sql).toContain('CONVERT(n.type USING utf8mb4) COLLATE utf8mb4_unicode_ci');
   expect(sql).toContain("CONVERT(CONCAT_WS(' ', u.first_name, u.last_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci");
   expect(sql).toContain("CONVERT(JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.recipient')) USING utf8mb4) COLLATE utf8mb4_unicode_ci");
-  expect(values).toEqual([24, 24, 24, 24, 24, 24]);
+  expect(values).toEqual([24, 24, 24, 24, 24, 24, 24]);
+  expect(sql).toContain('guardian_enrollment_reminder');
+  expect(sql).toContain('c.agency_id=i.agency_id');
+  expect(sql).toContain('d.communication_id=uc.id');
   expect(res.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
   expect(res.json).toHaveBeenCalledWith({
     notifications: [{ id: 'email-2', channel: 'email', type: 'session_reminder', recipient: 'demo@example.com',

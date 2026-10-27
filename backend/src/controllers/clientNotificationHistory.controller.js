@@ -29,6 +29,14 @@ export async function listClientNotificationHistory(req, res, next) {
         ${historyText('uc.delivery_status')} AS delivery_status,
         COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, ${historyText('a.name')} AS organization_name
        FROM user_communications uc LEFT JOIN agencies a ON a.id = uc.agency_id WHERE uc.client_id = ?
+         AND NOT EXISTS (SELECT 1 FROM co_guardian_invite_deliveries d WHERE d.communication_id=uc.id)
+       UNION ALL
+       SELECT ${historyText("CONCAT('guardian-invite-', d.id)")}, ${historyText("'email'")},
+        ${historyText("CASE WHEN d.delivery_kind='reminder' THEN 'guardian_enrollment_reminder' ELSE 'guardian_enrollment_invitation' END")},
+        ${historyText('d.recipient_email')},${historyText('d.delivery_status')},d.created_at,${historyText('a.name')}
+       FROM co_guardian_invite_deliveries d JOIN co_guardian_invites i ON i.id=d.invite_id
+       JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id JOIN clients c ON c.id=ic.client_id AND c.agency_id=i.agency_id
+       LEFT JOIN agencies a ON a.id=i.agency_id WHERE ic.client_id=?
        UNION ALL
        SELECT ${historyText("CONCAT('sms-', ml.id)")}, ${historyText("'sms'")},
         ${historyText("'session_or_service_notification'")}, ${historyText('ml.to_number')},
@@ -50,7 +58,7 @@ export async function listClientNotificationHistory(req, res, next) {
        WHERE (n.related_entity_type = 'client' AND n.related_entity_id = ?)
          OR (n.related_entity_type = 'chat_thread' AND EXISTS (SELECT 1 FROM chat_threads t WHERE t.id = n.related_entity_id AND t.client_id = ?))
          OR (n.related_entity_type = 'support_ticket' AND EXISTS (SELECT 1 FROM support_tickets st WHERE st.id = n.related_entity_id AND st.client_id = ?))
-       ORDER BY occurred_at DESC, id DESC LIMIT 50 OFFSET ${offset}`, [clientId, clientId, clientId, clientId, clientId, clientId]);
+       ORDER BY occurred_at DESC, id DESC LIMIT 50 OFFSET ${offset}`, [clientId, clientId, clientId, clientId, clientId, clientId, clientId]);
     // Shared delivery history never discloses another recipient's login/setup links or tokens.
     const notifications = rows.map((r) => ({ id: r.id, channel: r.channel, type: r.notification_type,
       recipient: r.recipient_address, status: r.delivery_status, occurredAt: r.occurred_at, organization: r.organization_name }));

@@ -423,5 +423,6 @@
   "Choose an end date on or after the start date.": "Elija una fecha final igual o posterior a la fecha inicial.",
   "Your request could not be sent.": "No se pudo enviar su solicitud.",
   "Your request was sent to billing{ticket}. Your team will confirm what is available.": "Su solicitud se envió a facturación{ticket}. Su equipo confirmará qué registros están disponibles.",
-  " (ticket {id})": " (solicitud {id})"
+  " (ticket {id})": " (solicitud {id})",
+  "Communication history": "Historial de comunicaciones"
 }
