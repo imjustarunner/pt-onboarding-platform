@@ -222,7 +222,6 @@ jobs:
           GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION_LIMIT: ${{ secrets.DB_CONNECTION_LIMIT }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           JWT_EXPIRES_IN: ${{ secrets.JWT_EXPIRES_IN }}
           GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}
@@ -298,7 +297,6 @@ jobs:
           CLINICAL_DB_USER: ${{ secrets.CLINICAL_DB_USER }}
           CLINICAL_DB_PASSWORD: ${{ secrets.CLINICAL_DB_PASSWORD }}
           CLINICAL_AUDIO_BUCKET: ${{ secrets.CLINICAL_AUDIO_BUCKET }}
-          CLINICAL_DB_CONNECTION_LIMIT: ${{ secrets.CLINICAL_DB_CONNECTION_LIMIT }}
           DEMO_MODE_ENABLED: ${{ secrets.DEMO_MODE_ENABLED }}
           DEMO_MODE_USER_ALLOWLIST: ${{ secrets.DEMO_MODE_USER_ALLOWLIST }}
           DEMO_MODE_FAKE_AGENCY_IDS: ${{ secrets.DEMO_MODE_FAKE_AGENCY_IDS }}
@@ -362,7 +360,9 @@ jobs:
           ENV_VARS="${ENV_VARS}|DB_NAME=onboarding_stage"
           if [ -n "${DB_USER}" ]; then ENV_VARS="${ENV_VARS}|DB_USER=${DB_USER}"; fi
           if [ -n "${DB_PASSWORD}" ]; then ENV_VARS="${ENV_VARS}|DB_PASSWORD=${DB_PASSWORD}"; fi
-          if [ -n "${DB_CONNECTION_LIMIT}" ]; then ENV_VARS="${ENV_VARS}|DB_CONNECTION_LIMIT=${DB_CONNECTION_LIMIT}"; fi
+          # Keep both pools below the Cloud Run per-instance connection ceiling.
+          ENV_VARS="${ENV_VARS}|DB_CONNECTION_LIMIT=20|DB_MAX_PREPARED_STATEMENTS=8"
+          ENV_VARS="${ENV_VARS}|CLINICAL_DB_CONNECTION_LIMIT=10|CLINICAL_DB_MAX_PREPARED_STATEMENTS=8"
 
           # Dedicated family billing key. Missing GitHub values preserve existing Cloud Run
           # configuration (including manually configured Secret Manager references).
@@ -489,7 +489,6 @@ jobs:
           if [ -n "${CLINICAL_DB_USER}" ]; then ENV_VARS="${ENV_VARS}|CLINICAL_DB_USER=${CLINICAL_DB_USER}"; fi
           if [ -n "${CLINICAL_DB_PASSWORD}" ]; then ENV_VARS="${ENV_VARS}|CLINICAL_DB_PASSWORD=${CLINICAL_DB_PASSWORD}"; fi
           if [ -n "${CLINICAL_AUDIO_BUCKET}" ]; then ENV_VARS="${ENV_VARS}|CLINICAL_AUDIO_BUCKET=${CLINICAL_AUDIO_BUCKET}"; fi
-          if [ -n "${CLINICAL_DB_CONNECTION_LIMIT}" ]; then ENV_VARS="${ENV_VARS}|CLINICAL_DB_CONNECTION_LIMIT=${CLINICAL_DB_CONNECTION_LIMIT}"; fi
           if [ -n "${DEMO_MODE_ENABLED}" ]; then ENV_VARS="${ENV_VARS}|DEMO_MODE_ENABLED=${DEMO_MODE_ENABLED}"; fi
           if [ -n "${DEMO_MODE_USER_ALLOWLIST}" ]; then ENV_VARS="${ENV_VARS}|DEMO_MODE_USER_ALLOWLIST=${DEMO_MODE_USER_ALLOWLIST}"; fi
           if [ -n "${DEMO_MODE_FAKE_AGENCY_IDS}" ]; then ENV_VARS="${ENV_VARS}|DEMO_MODE_FAKE_AGENCY_IDS=${DEMO_MODE_FAKE_AGENCY_IDS}"; fi
