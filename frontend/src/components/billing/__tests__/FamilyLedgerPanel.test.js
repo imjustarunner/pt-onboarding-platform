@@ -4,6 +4,8 @@ import FamilyLedgerPanel from '../FamilyLedgerPanel.vue';
 import ClientBillingReadiness from '../ClientBillingReadiness.vue';
 import api from '../../../services/api';
 import {loadStripe} from '@stripe/stripe-js';
+import { ref } from 'vue';
+import { familyLocaleKey, familyTranslator } from '../../../composables/useFamilyLocale';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 vi.mock('@stripe/stripe-js',()=>({loadStripe:vi.fn()}));
 const button=(w,text)=>w.findAll('button').find(b=>b.text().includes(text));
@@ -81,4 +83,15 @@ it('allows the demo payer to arrange a split and accept a manual plan while paym
 it('lets the owning payer cancel an automatic plan even when its balance is held',async()=>{
  balances=[{receivableId:13,allocationId:13,isOwnShare:true,billingState:'review',canPay:false,canArrangePayments:false,dueCents:0,plan:{id:4,status:'active',autoPay:true,installments:[]}}];api.post.mockResolvedValue({data:{success:true}});
  const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();await button(w,'Cancel plan').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/family-billing/plans/4/cancel',{agencyId:1});w.unmount();
+});
+
+it('renders Spanish billing and plan acceptance without changing financial amounts or consent fields',async()=>{
+ const locale=ref('es');
+ balances=[{receivableId:17,allocationId:21,clientId:2271,isOwnShare:true,billingState:'review',status:'review',demoAmountCents:6000,dueCents:0,balanceCents:0,canPay:false,canArrangePayments:true,autoPayAvailable:false,plan:{id:2,status:'proposed',autoPay:false,installments:[{id:1,dueDate:'2026-11-02',balanceCents:2000}]}}];
+ api.post.mockResolvedValue({data:{success:true}});
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:450,clientId:2271},global:{provide:{[familyLocaleKey]:{locale,ft:familyTranslator(locale)}},stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.text()).toContain('Facturas y recibos');expect(w.text()).toContain('¿Cómo le gustaría compartir los pagos?');expect(w.text()).toContain('Plan de pago · propuesto');expect(w.text()).toContain('$60.00 · Saldo de prueba');expect(w.find('.ledger-summary').text()).toContain('$0.00');
+ expect(button(w,'Realizar un pago')).toBeUndefined();
+ await w.find('details input').setValue('Tutor de prueba');await button(w,'Aceptar el plan de pago').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/family-billing/plans/2/accept',expect.objectContaining({agencyId:450,autoPay:false,consent:{accepted:true,version:'v1',signatureName:'Tutor de prueba'}}));w.unmount();
 });

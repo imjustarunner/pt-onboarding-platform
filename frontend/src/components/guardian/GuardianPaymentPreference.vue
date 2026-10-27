@@ -1,10 +1,12 @@
-<template><section class="payment-preference"><h3>How would you like to share payments?</h3>
-<p>Propose an arrangement for copays or other verified patient responsibility. The office and affected payers must agree before billing shares change. This does not authorize a charge.</p>
-<p v-if="error" role="alert">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
-<form @submit.prevent="save"><label>My proposed arrangement<select v-model="preference.arrangement"><option value="discuss">Discuss with the office</option><option value="all">I am willing to pay all</option><option value="part">I am willing to pay a share</option><option value="alternate">Alternate sessions with another payer</option></select></label>
-<label v-if="preference.arrangement==='part'">My share (%)<input v-model.number="preference.percent" type="number" min="0.01" max="99.99" step="0.01" required /></label>
-<label>Agreement details or questions<textarea v-model="preference.notes" maxlength="2000" rows="2" /></label><button :disabled="busy">{{ busy?'Saving…':'Save proposal' }}</button></form></section></template>
+<template><section class="payment-preference"><h3>{{ ft("How would you like to share payments?") }}</h3>
+<p>{{ ft("Propose an arrangement for copays or other verified patient responsibility. The office and affected payers must agree before billing shares change. This does not authorize a charge.") }}</p>
+<p v-if="error" role="alert">{{ ft(error) }}</p><p v-if="message" role="status">{{ ft(message) }}</p>
+<form @submit.prevent="save"><label>{{ ft("My proposed arrangement") }}<select v-model="preference.arrangement"><option value="discuss">{{ ft("Discuss with the office") }}</option><option value="all">{{ ft("I am willing to pay all") }}</option><option value="part">{{ ft("I am willing to pay a share") }}</option><option value="alternate">{{ ft("Alternate sessions with another payer") }}</option></select></label>
+<label v-if="preference.arrangement==='part'">{{ ft("My share (%)") }}<input v-model.number="preference.percent" type="number" min="0.01" max="99.99" step="0.01" required /></label>
+<label>{{ ft("Agreement details or questions") }}<textarea v-model="preference.notes" maxlength="2000" rows="2" /></label><button :disabled="busy">{{ ft(busy?'Saving…':'Save proposal') }}</button></form></section></template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import {reactive,ref,watch} from 'vue';import api from '../../services/api.js';
 const props=defineProps({agencyId:[String,Number],clientId:[String,Number]});const preference=reactive({arrangement:'discuss',percent:50,notes:''}),error=ref(''),message=ref(''),busy=ref(false);let sequence=0;
 async function load(){const own=++sequence;error.value='';message.value='';Object.assign(preference,{arrangement:'discuss',percent:50,notes:''});if(!props.clientId)return;try{const {data}=await api.get('/family-billing/payment-preference',{params:{agencyId:props.agencyId,clientId:props.clientId}});if(own===sequence&&data.preference)Object.assign(preference,data.preference);}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Please accept payment responsibility in Payment methods before proposing an arrangement.';}}
