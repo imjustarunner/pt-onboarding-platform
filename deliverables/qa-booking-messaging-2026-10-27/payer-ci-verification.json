@@ -1,0 +1,129 @@
+{
+  "runId": 40541308368,
+  "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40541308368",
+  "commit": "dc4cb0fa257bc306bc2754d97441083ad3ead8c7",
+  "jobs": [
+    {
+      "name": "billing",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci --prefix backend",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci --prefix frontend --ignore-scripts",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Reminder delivery and notification ownership",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Standard family emails and appointment responses",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Native SQL workflow and policy checks",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Attendance copay authorization and timing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Attendance copay SQL concurrency and final payer reconciliation",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Cost estimate policy and document access",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Migration deduplication and encrypted cost estimate SQL",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Claim and documentation verification",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Portal welcome and private issue reports",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Family portal navigation, onboarding, and secure messages",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Note Workspace session draft and work queue navigation",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Guardian and billing workspace screens",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Two-guardian splits, alternating responsibility, and payment plans",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "agencyId": 450,
+  "clientId": 2271,
+  "receivableId": 15,
+  "payers": [
+    1440,
+    1456
+  ],
+  "realCollectionAttempted": false,
+  "before": {
+    "first": [
+      {
+        "allocationId": 19,
+        "payerUserId": 1440,
+        "clientId": 2271,
+        "demoAmountCents": 12000,
+        "dueCents": 0,
+        "canPay": false,
+        "shareBasisPoints": 10000
+      }
+    ],
+    "second": []
+  },
+  "request": {
+    "requestId": 1
+  },
+  "pending": {
+    "first": [
+      {
+        "allocationId": 19,
+        "payerUserId": 1440,
+        "clientId": 2271,
+        "demoAmountCents": 12000,
+        "dueCents": 0,
+        "canPay": false,
+        "shareBasisPoints": 10000
+      }
+    ],
+    "second": [],
+    "requests": [
+      {
+        "id": 1,
+        "receivableId": 15,
+        "clientId": 2271,
+        "shares": [
+          {
+            "basisPoints": 5000,
+            "payerUserId": 1440
+          },
+          {
+            "basisPoints": 5000,
+            "payerUserId": 1456
+          }
+        ],
+        "payerNames": {
+          "1440": "Recovery parent QA",
+          "1456": "Second Parent QA"
+        },
+        "acceptedUserIds": [
+          1440
+        ],
+        "needsMyAcceptance": true,
+        "requestedByUserId": 1440
+      }
+    ]
+  },
+  "acceptance": {
+    "status": "accepted"
+  },
+  "after": {
+    "first": [
+      {
+        "allocationId": 19,
+        "payerUserId": 1440,
+        "clientId": 2271,
+        "demoAmountCents": 6000,
+        "dueCents": 0,
+        "canPay": false,
+        "shareBasisPoints": 5000
+      }
+    ],
+    "second": [
+      {
+        "allocationId": 20,
+        "payerUserId": 1456,
+        "clientId": 2271,
+        "demoAmountCents": 6000,
+        "dueCents": 0,
+        "canPay": false,
+        "shareBasisPoints": 5000
+      }
+    ]
+  },
+  "futureRule": {
+    "success": true
+  },
+  "passed": true
+}

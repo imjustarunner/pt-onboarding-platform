@@ -1,0 +1,46 @@
+ITSCOLLC QA — TWO GUARDIANS, SPLITS, ROTATION, AND PAYMENT PLANS
+New addendum, October 27, 2026. Keep the previously distributed runbooks.
+
+SCOPE AND ACCOUNTS
+Use only isolated agency 450 (ITSCOLLC / auricwell-qa-demo). The retained fictional child Rowan is client 2271. First payer: Recovery parent QA, user 1440. Second payer: Second Parent QA, user 1456. Restricted billing staff: Jamie Chen QA Billing, user 1453. These are not administrator or superadministrator accounts.
+Second-parent username: qa.family.second.auricwell@example.com.
+Login: https://app.itsco.health/auricwell-qa-demo/login
+Private credentials are in the owner's existing secrets/auricwell-qa folder: recovery-parent.json, second-parent.json, and biller.json. Send credentials through the established private vault, not in a public report. Never send setup.json to the bots.
+Both fictional payers have accepted their own synthetic responsibility terms for Rowan. This creates no authority over another family's balances or clinical documentation.
+
+LIVE 50/50 VERIFICATION
+Normal guardian/API sessions submitted and accepted split request 1 for Rowan's $120 session balance 15. Before the second signature, the first payer's share stayed $120 and the second payer had no assigned balance. After acceptance, allocation 19 belongs to user 1440 for $60 and allocation 20 belongs to user 1456 for $60. Each account sees only its own assigned share. Both remain visible test balances, with $0 actually due and no payment action.
+The restricted biller saved a standing 50/50 rule for future Rowan charges. Saving a future rule does not rewrite existing balances. The existing $80 late-cancellation and $100 no-show examples remain assigned to the first payer.
+
+DAILY BOT COVERAGE
+1. Open each guardian in a separate browser context; never reuse family cookies. Verify each sees Rowan and its own billing share, not other demo families or the other payer's private card/payment details.
+2. In the biller's balance management, use Assign / split the remaining balance. Select equal shares and Save future billing rule. Create a new synthetic completed session or policy fee through the normal scheduling workflow. Confirm the new charge splits once, totals exactly its original amount, and survives reload. A repeated source event must not create a second charge.
+3. Test Future charges > Alternate the selected payers. Verify successive new charges assign 100% to A, B, A, B. This rotates by new charge, not by calendar week or by payment attempt; a retry of the same charge must not advance the rotation. Capture the ordering and source IDs. Restore the standing 50/50 rule afterward unless the owner requests otherwise. Existing balances must stay unchanged.
+4. Have one guardian request a change to an existing unpaid balance. Capture the other guardian's pending request. Shares must not change until every affected payer accepts. Also test decline, missing signature, expired/revoked access, and a balance changed while a request was pending. Do not change a real family's relationship or consent.
+5. The biller proposes a plan on one payer's allocation, not on the full family amount. Installments must sum exactly to that share and have increasing dates. The owner signs the plan. The other guardian cannot accept, cancel, or pay this plan. Test cancellation/revocation and reload; unpaid responsibility does not disappear when a plan is cancelled.
+6. For normal non-demo balances, automatic installments require that payer's current card and explicit plan consent. Test automatic execution, retries, changed cards, cancellation, and no early installment using the isolated SQL suite with a mocked processor. Do not add real cards or enable collection in this demo.
+
+INSURANCE AND SELF-PAY
+For a coverage review, show the full recorded service price as reference, Pending for the family's share, and $0 due. An existing copay under review must not be mislabeled as the full service price. Explicitly agreed self-pay becomes due through the normal billable service/fee path without waiting for insurance verification. Demo balances remain synthetic even though their fictional clients are self-pay.
+
+EVIDENCE STANDARD
+Record account role, agency, client/balance/allocation/plan IDs, expected versus actual amounts, consent state, time zone, and screenshots before/after/reload. Distinguish live API or browser evidence from mocked processor results. No insurance transmission or real collection is authorized by this addendum.
+
+DEPLOYMENT AND REMAINING VERIFICATION
+Source release 304497d83930e430326c06b9bbf149fd931e0d85 adds manual synthetic plan support and a dedicated isolated SQL regression for two-guardian rules. Local checks: 26 backend policy/presentation tests, 12 guardian component tests, production build passed. Completed SQL and live manual-plan evidence is recorded below. Final deployment status is recorded in payer-deployment-verification.json.
+
+APPENDED — LIVE PLAN AND DATE REGRESSION
+Plan 1 is retained on allocation 19 (guardian 1440): three $20 test installments, November 1, December 1, 2026, and January 1, 2027. The restricted biller proposed it, the wrong guardian was rejected with 403, and the owning guardian accepted with automatic payment disabled. The second guardian keeps its separate $60 share without this plan. No charge was attempted.
+The browser test found that UTC serialization displayed each installment one day early in Denver; the service date also shifted. Release eff1a59337287ca4c4e6ff154e8d0ce7d34fa79c returns date-only billing fields. Release dc4cb0fa257bc306bc2754d97441083ad3ead8c7 also checks the practice's local date when selecting and authorizing automatic installments. Tests cover midnight UTC before Denver's due date and both sides of the November daylight-saving transition. The final deployed browser pass below closes this display issue.
+The first isolated SQL run passed: https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40539199984. It exercised actual SQL row locks, source idempotency, encrypted consent, share accounting, and a simulated payment processor. Neither Docker nor a local database is needed on the owner's Mac to run this GitHub suite.
+The existing backend automation checks enabled agencies every 15 minutes; automatic plan execution additionally requires an active signed plan and the payer's authorized card. This work did not enable automatic collection for the demo or change another agency's automation settings. Demo plans deliberately remain manual and noncollectible.
+
+
+FINAL BROWSER AND SQL RESULTS
+Both normal browser logins passed in separate sessions, using America/Denver. Each account sees only its $60 allocation for balance 15, reload preserves it, and neither offers Make a payment. Guardian 1440 sees plan 1 on November 1, December 1, and January 1; guardian 1456 does not see that private plan. Both show the correct October 26 service date. See payer-1440-split-plan.png, payer-1456-split-plan.png, and payer-browser-verification.json. The earlier date failure is retained as payer-date-before-fix.png for comparison.
+The final SQL suite passed all 8 reported tests (7 scenarios plus the parent suite), 0 failures, 0 skipped, including normal self-pay collectibility without insurance, allocation concurrency, alternating-payer retries, signature/ownership checks, simulated automatic installment execution, cancellation, date-only API fields, and blocking payment before the practice's local due date. Final run: https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40541308368
+Automatic-payment evidence uses a simulated processor. The live demo has no payment or collection attempt. The browser/API pass does not certify the unrelated open QA items in VERIFICATION_REPORT.txt.
+
+
+DEPLOYMENT COMPLETE
+Frontend release 304497d83930e430326c06b9bbf149fd931e0d85 and final backend release dc4cb0fa257bc306bc2754d97441083ad3ead8c7 deployed successfully. The final guardian billing and scheduling regression runs both passed. See payer-deployment-verification.json for direct GitHub run links. These billing checks are complete; the overall app QA open items remain in VERIFICATION_REPORT.txt.

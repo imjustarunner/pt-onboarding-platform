@@ -1,0 +1,27 @@
+{
+  "agencyId": 450,
+  "clientId": 2271,
+  "realCollectionAttempted": false,
+  "actors": [
+    {
+      "userId": 1440,
+      "passed": true,
+      "shareCents": 6000,
+      "sharePercent": 50,
+      "hasOwnPlan": true,
+      "reloadPassed": true,
+      "visibleText": "$60.00 · Test balance\n\nRowan QA-OfficeEN-1027\n\nCounseling session · Service date 10/26/2026\n\nTest balance only. Nothing is due and payments are disabled.\n\nYour share: 50% of this charge\n\nRecovery parent QA · Services\n\nBalance 15 · review · Office review required\nDownload this service statement\nPayment plan · active\n11/1/2026 — $20.00 remaining\n12/1/2026 — $20.00 remaining\n1/1/2027 — $20.00 remaining\nCancel plan / revoke automatic payments"
+    },
+    {
+      "userId": 1456,
+      "passed": true,
+      "shareCents": 6000,
+      "sharePercent": 50,
+      "hasOwnPlan": false,
+      "reloadPassed": true,
+      "visibleText": "$60.00 · Test balance\n\nRowan QA-OfficeEN-1027\n\nCounseling session · Service date 10/26/2026\n\nTest balance only. Nothing is due and payments are disabled.\n\nYour share: 50% of this charge\n\nSecond Parent QA · Services\n\nBalance 15 · review · Office review required\nDownload this service statement\nRequest to share this balance"
+    }
+  ],
+  "planText": "$60.00 · Test balance\n\nRowan QA-OfficeEN-1027\n\nCounseling session · Service date 10/26/2026\n\nTest balance only. Nothing is due and payments are disabled.\n\nYour share: 50% of this charge\n\nRecovery parent QA · Services\n\nBalance 15 · review · Office review required\nDownload this service statement\nPayment plan · active\n11/1/2026 — $20.00 remaining\n12/1/2026 — $20.00 remaining\n1/1/2027 — $20.00 remaining\nCancel plan / revoke automatic payments",
+  "passed": true
+}

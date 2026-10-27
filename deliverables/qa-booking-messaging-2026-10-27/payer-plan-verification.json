@@ -1,0 +1,78 @@
+{
+  "agencyId": 450,
+  "clientId": 2271,
+  "receivableId": 15,
+  "allocationId": 19,
+  "payerUserId": 1440,
+  "realCollectionAttempted": false,
+  "proposal": {
+    "status": 200,
+    "data": {
+      "planId": 1
+    }
+  },
+  "planId": 1,
+  "wrongPayer": {
+    "status": 403,
+    "data": {
+      "error": {
+        "message": "Payment plan belongs to another payer"
+      }
+    }
+  },
+  "acceptance": {
+    "status": 200,
+    "data": {
+      "success": true
+    }
+  },
+  "recovery-parent": {
+    "payerUserId": 1440,
+    "allocationId": 19,
+    "demoAmountCents": 6000,
+    "dueCents": 0,
+    "canPay": false,
+    "plan": {
+      "id": 1,
+      "status": "active",
+      "amountCents": 6000,
+      "paidBeforeCents": 0,
+      "autoPay": 0,
+      "installments": [
+        {
+          "id": 1,
+          "sequenceNumber": 1,
+          "amountCents": 2000,
+          "dueDate": "2026-11-01T00:00:00.000Z",
+          "paidCents": 0,
+          "balanceCents": 2000
+        },
+        {
+          "id": 2,
+          "sequenceNumber": 2,
+          "amountCents": 2000,
+          "dueDate": "2026-12-01T00:00:00.000Z",
+          "paidCents": 0,
+          "balanceCents": 2000
+        },
+        {
+          "id": 3,
+          "sequenceNumber": 3,
+          "amountCents": 2000,
+          "dueDate": "2027-01-01T00:00:00.000Z",
+          "paidCents": 0,
+          "balanceCents": 2000
+        }
+      ]
+    }
+  },
+  "second-parent": {
+    "payerUserId": 1456,
+    "allocationId": 20,
+    "demoAmountCents": 6000,
+    "dueCents": 0,
+    "canPay": false,
+    "plan": null
+  },
+  "passed": true
+}

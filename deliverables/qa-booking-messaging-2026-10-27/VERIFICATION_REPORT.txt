@@ -61,3 +61,14 @@ GitHub guardian billing and scheduling regression workflows both passed for this
 LIVE BILLING DISPLAY VERIFIED
 The deployed fictional-parent page now shows the $80 late-cancellation, $100 no-show, and $120 session examples. The same authenticated API returned all three with dueCents=0 and canPay=false; the rendered page has no Make a payment button. See family-demo-balances-live.png and family-balance-verification.json. No real money was collected.
 The owner additionally requested verification of recurring 50/50 splits, alternating payers, and payment plans. A new payer-arrangements addendum will record that work; it is not covered by the earlier booking pass.
+
+TWO-GUARDIAN VERIFICATION
+See PAYER_ARRANGEMENTS_ADDENDUM.txt. Added only fictional guardian 1456 for Rowan 2271. Live split request 1 held the original assignment pending the second signature, then divided balance 15 into private $60 allocations 19 and 20. Future Rowan charges have a standing 50/50 rule. Plan 1 was accepted only by allocation 19's owner; the other guardian was rejected. Three manual $20 installments are retained; no automatic collection was enabled. The SQL regression verified alternating payers, concurrent/repeated sources, consent, payer isolation, plan execution with a mocked processor, and cancellation. Live browser verification found a billing date shift, which is being closed with date-only responses and practice-time-zone collection checks. Final evidence follows below.
+
+
+FINAL PAYER BROWSER RESULTS
+The date shift is fixed in the deployed page. Guardian 1440 sees $60 and its active three-part $20 manual plan on 11/1/2026, 12/1/2026, and 1/1/2027. Guardian 1456 sees only its own $60 share and no private plan belonging to 1440. Both normal logins and page reloads passed; no payment actions were available. Service date is correctly October 26. Final SQL run 40541308368 passed all eight reported tests without skips, including the additional protection against early collection at UTC midnight. PAYER_ARRANGEMENTS_ADDENDUM.txt is the new forwardable handoff; the earlier full-application QA open list still applies.
+
+
+DEPLOYMENT COMPLETE
+Frontend release 304497d83930e430326c06b9bbf149fd931e0d85 and final backend release dc4cb0fa257bc306bc2754d97441083ad3ead8c7 deployed successfully. The final guardian billing and scheduling regression runs both passed. See payer-deployment-verification.json for direct GitHub run links. These billing checks are complete; the overall app QA open items remain in VERIFICATION_REPORT.txt.

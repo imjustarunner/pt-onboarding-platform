@@ -1,0 +1,20 @@
+# Subtest: two-guardian splits, rotation, and installment plans use the same scoped ledger
+2026-10-27T16:32:31.9729840Z     # Subtest: a standing 50/50 rule allocates every cent once and each payer sees only their share
+2026-10-27T16:32:31.9734637Z     ok 1 - a standing 50/50 rule allocates every cent once and each payer sees only their share
+2026-10-27T16:32:32.1069159Z     # Subtest: alternation advances only for a new charge, including concurrent requests
+2026-10-27T16:32:32.1070841Z     ok 2 - alternation advances only for a new charge, including concurrent requests
+2026-10-27T16:32:32.1568580Z     # Subtest: an existing balance changes to 50/50 only after the other payer accepts
+2026-10-27T16:32:32.1569748Z     ok 3 - an existing balance changes to 50/50 only after the other payer accepts
+2026-10-27T16:32:32.1811591Z     # Subtest: declining a split preserves the existing assignment
+2026-10-27T16:32:32.1812664Z     ok 4 - declining a split preserves the existing assignment
+2026-10-27T16:32:32.3542820Z     # Subtest: installments require owner consent, sum to that share, charge only its card once, and can be revoked
+2026-10-27T16:32:32.3543864Z     ok 5 - installments require owner consent, sum to that share, charge only its card once, and can be revoked
+2026-10-27T16:32:32.3985894Z     # Subtest: live-demo manual plans work without enabling collection or changing real insurance holds
+2026-10-27T16:32:32.3987458Z     ok 6 - live-demo manual plans work without enabling collection or changing real insurance holds
+2026-10-27T16:32:32.4043135Z     # Subtest: revoked guardian access cannot authorize a future payer rule
+2026-10-27T16:32:32.4044225Z     ok 7 - revoked guardian access cannot authorize a future payer rule
+2026-10-27T16:32:32.4053351Z ok 1 - two-guardian splits, rotation, and installment plans use the same scoped ledger
+2026-10-27T16:32:32.4421188Z # tests 8
+2026-10-27T16:32:32.4430366Z # pass 8
+2026-10-27T16:32:32.4430584Z # fail 0
+2026-10-27T16:32:32.4431038Z # skipped 0
