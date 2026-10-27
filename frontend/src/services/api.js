@@ -6,6 +6,7 @@ import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolC
 import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';
 import axios from 'axios';
+import { rateLimitRetryAt } from '../utils/rateLimitRetry';
 import { getApiBaseUrl } from '../utils/apiBaseUrl';
 import { isOfficePath, officeSiteForHost } from '../utils/officeSite';
 import { applicantInterviewMode } from '../utils/applicantInterviewMode';
@@ -65,16 +66,17 @@ const _stormError = (scope) => {
 // 429s, pause ALL outbound API calls for a short cooldown so capacity can
 // come back online.
 const RATE_LIMIT_COOLDOWN_MS = 20000;
-const RATE_LIMIT_TRIP_THRESHOLD = 3; // 429s within the window before global pause
+const RATE_LIMIT_TRIP_THRESHOLD = 3;
 const RATE_LIMIT_WINDOW_MS = 10000;
 let _rateLimitHits = [];
 let _rateLimitedUntil = 0;
 let _rateLimitLastLogAt = 0;
 
 const _rateLimitError = () => {
-  const err = new Error('API rate-limited (Cloud Run 429); cooling down');
+  const err = new Error('API temporarily rate-limited; cooling down');
   err.code = 'ERR_RATE_LIMITED';
   err.__rateLimited = true;
+  err.retryAt = _rateLimitedUntil;
   err.response = { status: 429, data: { error: { message: 'Too many requests — cooling down' } } };
   return err;
 };
@@ -84,22 +86,20 @@ export function isApiRateLimited() {
   return Date.now() < _rateLimitedUntil;
 }
 
-function noteRateLimitResponse() {
+export function apiRateLimitRetryAt() {
+  return _rateLimitedUntil;
+}
+
+function noteRateLimitResponse(error) {
   const now = Date.now();
-  _rateLimitHits = _rateLimitHits.filter((t) => now - t <= RATE_LIMIT_WINDOW_MS);
+  _rateLimitHits = _rateLimitHits.filter(t => now - t <= RATE_LIMIT_WINDOW_MS);
   _rateLimitHits.push(now);
-  if (_rateLimitHits.length < RATE_LIMIT_TRIP_THRESHOLD && now >= _rateLimitedUntil) {
-    // Single 429: still apply a short pause so we don't immediately re-flood.
-    _rateLimitedUntil = Math.max(_rateLimitedUntil, now + Math.min(5000, RATE_LIMIT_COOLDOWN_MS));
-  }
-  if (_rateLimitHits.length >= RATE_LIMIT_TRIP_THRESHOLD) {
-    _rateLimitedUntil = now + RATE_LIMIT_COOLDOWN_MS;
-    if (now - _rateLimitLastLogAt > 5000) {
-      _rateLimitLastLogAt = now;
-      console.warn(
-        `[api] Cloud Run 429 Rate exceeded — pausing requests for ${RATE_LIMIT_COOLDOWN_MS / 1000}s so the service can recover.`
-      );
-    }
+  const fallbackMs = _rateLimitHits.length >= RATE_LIMIT_TRIP_THRESHOLD ? RATE_LIMIT_COOLDOWN_MS : 5000;
+  _rateLimitedUntil = Math.max(_rateLimitedUntil, rateLimitRetryAt(error, now, fallbackMs));
+  error.retryAt = _rateLimitedUntil;
+  if (now - _rateLimitLastLogAt > 5000) {
+    _rateLimitLastLogAt = now;
+    console.warn(`[api] HTTP 429 — pausing requests for ${Math.ceil((_rateLimitedUntil - now) / 1000)}s.`);
   }
 }
 
@@ -314,7 +314,7 @@ api.interceptors.response.use(
     if (error.response?.data?.error?.code === 'MFA_REQUIRED') return Promise.reject(error);
     // Cloud Run / edge 429 — trip global cooldown so tabs stop the death spiral.
     if (error?.response?.status === 429 && !error?.__rateLimited) {
-      noteRateLimitResponse();
+      noteRateLimitResponse(error);
     }
 
     // Don't redirect on 401 if we're already on the login page or setup pages

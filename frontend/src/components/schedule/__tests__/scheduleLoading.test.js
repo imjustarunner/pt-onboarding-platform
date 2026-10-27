@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
 const m = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
-vi.mock('../../../services/api', () => ({ default: { get: m.get, put: m.put, post: m.post }, isApiRateLimited: () => false }));
+vi.mock('../../../services/api', () => ({ default: { get: m.get, put: m.put, post: m.post }, isApiRateLimited: () => false, apiRateLimitRetryAt: () => 0 }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
@@ -80,6 +80,57 @@ it('keeps a cached calendar visible after a transient refresh failure', async ()
   await flushPromises();
   expect(state.summary).toMatchObject(summary);
   expect(state.error).toContain('previously loaded schedule');
+});
+
+it('keeps the loaded calendar visible when a forced background refresh fails', async () => {
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  m.failSchedule = true;
+  await state.load({ forceRefresh: true });
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toContain('previously loaded schedule');
+});
+
+it('waits for Retry-After and recovers an initially throttled calendar automatically', async () => {
+  const get = m.get.getMockImplementation();
+  let reads = 0;
+  m.get.mockImplementation(async (url, options) => {
+    if (url.includes('/schedule-summary') && ++reads === 1) {
+      throw { response: { status: 429, headers: { 'retry-after': '60' } } };
+    }
+    return get(url, options);
+  });
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(state.summary).toBeNull();
+  expect(wrapper.find('[data-testid="schedule-retry"]').element.disabled).toBe(true);
+  expect(state.error).toContain('retry automatically');
+  await vi.advanceTimersByTimeAsync(30000);
+  await state.load({ forceRefresh: true });
+  expect(reads).toBe(1);
+  await vi.advanceTimersByTimeAsync(31000);
+  await flushPromises();
+  expect(reads).toBe(2);
+  expect(state.summary).toMatchObject(summary);
+  expect(state.error).toBe('');
+});
+
+it('cancels a pending cooldown retry when the calendar closes', async () => {
+  const get = m.get.getMockImplementation();
+  let reads = 0;
+  m.get.mockImplementation(async (url, options) => {
+    if (url.includes('/schedule-summary')) {
+      reads++;
+      throw { response: { status: 429, headers: { 'retry-after': '60' } } };
+    }
+    return get(url, options);
+  });
+  await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(reads).toBe(1);
+  wrapper.unmount(); wrapper = null;
+  await vi.advanceTimersByTimeAsync(61000);
+  expect(reads).toBe(1);
 });
 
 it('keeps the calendar mounted with inline progress while a refresh is pending', async () => {

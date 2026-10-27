@@ -3,7 +3,7 @@
  * Room shells (individual vs group) own their own layout and UX.
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import api from '../services/api';
+import api, { isApiRateLimited } from '../services/api';
 import { supervisionAccessFor } from '../utils/supervisionInvitationAccess';
 import { useAuthStore } from '../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../utils/activityTracker';
@@ -29,6 +29,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const canHandoffPresentation = computed(() => !viewAsAttendee.value && (props.isSupervisor || props.isPresenter || isMyDeckActive.value));
   const activity = ref([]);
   const pollTimer = ref(null);
+  let pollInFlight = false;
+  let heartbeatInFlight = false;
+  let disposed = false;
   const lifecyclePosted = ref(false);
   const liveTranscriptChunks = ref([]);
   const sessionTranscriptText = ref('');
@@ -166,15 +169,19 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   async function postLifecycle(eventType) {
     const sid = numericSessionId.value;
     if (!sid || !hasSessionAccess()) return;
+    const leaving = ['left', 'closed'].includes(eventType);
+    if (!leaving && heartbeatInFlight) return;
+    if (!leaving) heartbeatInFlight = true;
     try {
       // The server derives identity and starts time only after admission. Do not
       // also write the old browser lifecycle ledger (it double-counted joins).
       await api.post(`/supervision/sessions/${sid}/join-presence`, {
-        action: ['left', 'closed'].includes(eventType) ? 'leave' : 'heartbeat',
+        action: leaving ? 'leave' : 'heartbeat',
         inMainRoom: !props.isInLobby && lifecyclePosted.value,
         displayName: props.localDisplayName || undefined
       }, { skipGlobalLoading: true, skipAuthRedirect: true });
     } catch { /* best-effort; the next heartbeat retries */ }
+    finally { if (!leaving) heartbeatInFlight = false; }
   }
 
   function speakerLabelForTranscript() {
@@ -588,15 +595,27 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     await refreshMyPresentation();
     if (enableActivityFeed) await refreshActivity();
     await loadSessionTranscript();
-    pollTimer.value = setInterval(() => {
+    if (disposed) return;
+    pollTimer.value = setInterval(async () => {
+      if (isApiRateLimited()) return;
+      // A slow transcript/presentation read must not stall attendance heartbeats.
       if (lifecyclePosted.value) void postLifecycle('joined');
-      refreshPresentation();
-      if (enableActivityFeed) refreshActivity();
-      loadSessionTranscript();
+      if (pollInFlight) return;
+      pollInFlight = true;
+      try {
+        await Promise.allSettled([
+          refreshPresentation(),
+          enableActivityFeed ? refreshActivity() : Promise.resolve(),
+          loadSessionTranscript()
+        ]);
+      } finally {
+        pollInFlight = false;
+      }
     }, 5000);
   });
 
   onUnmounted(() => {
+    disposed = true;
     resumeInactivityTimeout();
     if (pollTimer.value) clearInterval(pollTimer.value);
     void speechCapture?.flush();

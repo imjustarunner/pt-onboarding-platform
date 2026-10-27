@@ -954,10 +954,10 @@
           type="button"
           class="btn btn-secondary btn-sm"
           style="margin-left: 8px;"
-          :disabled="loading"
+          :disabled="loading || scheduleRetryPending"
           data-testid="schedule-retry"
           @click="load({ forceRefresh: true })"
-        >Retry</button>
+        >{{ scheduleRetryPending ? 'Waiting to retry…' : 'Retry' }}</button>
       </div>
       <div v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
         {{ googleBusyDisabledHint }}
@@ -5799,7 +5799,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
-import api from '../../services/api';
+import api, { apiRateLimitRetryAt } from '../../services/api';
+import { rateLimitRetryAt } from '../../utils/rateLimitRetry';
 import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import SupervisionScheduleHistory from './SupervisionScheduleHistory.vue';
 import SupervisionScheduleActionDialog from './SupervisionScheduleActionDialog.vue';
@@ -9583,8 +9584,37 @@ const filterSummaryByActiveAgencies = (data) => {
 
 let loadInFlight = null;
 let loadInFlightKey = '';
+const scheduleRetryPending = ref(false);
+let scheduleRetryTimer = null;
+let scheduleRetryDeadline = 0;
+let scheduleRetryAttempts = 0;
+let scheduleDisposed = false;
+function waitForScheduleRetry(deadline) {
+  clearTimeout(scheduleRetryTimer);
+  scheduleRetryDeadline = deadline;
+  scheduleRetryPending.value = true;
+  // Clamp long waits so a large Retry-After cannot overflow setTimeout.
+  scheduleRetryTimer = setTimeout(() => {
+    if (scheduleDisposed) return;
+    const remainingUntil = Math.max(scheduleRetryDeadline, apiRateLimitRetryAt());
+    if (Date.now() < remainingUntil) {
+      waitForScheduleRetry(remainingUntil);
+      return;
+    }
+    scheduleRetryTimer = null;
+    scheduleRetryPending.value = false;
+    if (scheduleRetryAttempts < 3) {
+      scheduleRetryAttempts += 1;
+      void load({ forceRefresh: true });
+    }
+  }, Math.min(2147483647, Math.max(1000, deadline - Date.now() + 250)));
+}
+onUnmounted(() => {
+  scheduleDisposed = true;
+  clearTimeout(scheduleRetryTimer);
+});
 const load = async ({ forceRefresh = false } = {}) => {
-  if (!props.userId) return;
+  if (!props.userId || scheduleDisposed || (scheduleRetryPending.value && Date.now() < scheduleRetryDeadline)) return;
   if (!effectiveAgencyIds.value.length) {
     // Self / My Schedule uses includeAllAgencies — do not wait on org chips or the grid stays blank.
     if (props.mode !== 'self') {
@@ -9597,14 +9627,16 @@ const load = async ({ forceRefresh = false } = {}) => {
   const ids = effectiveAgencyIds.value;
   const useAllAgencies = props.mode === 'self';
   const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
-  const stalePack = forceRefresh ? null : getScheduleSummaryStale(cacheKey);
+  // A forced read bypasses cache freshness, but retains this exact calendar as
+  // a fallback if a background refresh is throttled or temporarily unavailable.
+  const stalePack = getScheduleSummaryStale(cacheKey);
   if (stalePack?.data) {
     mergeDiscoveredScheduleAgencies(stalePack.data.scheduleAgencyIds || []);
     summary.value = filterSummaryByActiveAgencies(stalePack.data);
     error.value = '';
     loading.value = false;
     tryOpenFocusScheduleEvent();
-    if (stalePack.fresh) return;
+    if (stalePack.fresh && !forceRefresh) return;
   }
 
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
@@ -9615,7 +9647,7 @@ const load = async ({ forceRefresh = false } = {}) => {
 
   const run = (async () => {
   try {
-    if (!stalePack?.data) loading.value = true;
+    if (forceRefresh || !stalePack?.data) loading.value = true;
     error.value = '';
 
     // Self / My Schedule: one cross-tenant request so every booking shows (and load stays fast).
@@ -9837,6 +9869,10 @@ const load = async ({ forceRefresh = false } = {}) => {
       setScheduleSummary(cacheKey, summary.value);
     }
 
+    scheduleRetryAttempts = 0;
+    clearTimeout(scheduleRetryTimer);
+    scheduleRetryPending.value = false;
+
     // Fail-soft Google busy: if the user’s email cannot be impersonated / authorized
     // (invalid_grant, unauthorized_client — e.g. app account without Google SSO),
     // turn off Google busy so no error banner appears.
@@ -9881,7 +9917,13 @@ const load = async ({ forceRefresh = false } = {}) => {
     if (!keepCachedSchedule) {
       summary.value = null;
     }
-    const message = e?.response?.data?.error?.message
+    const throttled = status === 429;
+    if (throttled && !scheduleDisposed) waitForScheduleRetry(rateLimitRetryAt(e));
+    const message = throttled
+      ? (scheduleRetryAttempts < 3
+        ? 'Your schedule is temporarily paused while the service catches up. It will retry automatically.'
+        : 'Your schedule is still temporarily unavailable. Please retry after the pause ends.')
+      : e?.response?.data?.error?.message
       || (status === 403 ? 'The schedule request was denied. Please retry.' : 'Could not load your schedule. Please retry.');
     error.value = keepCachedSchedule
       ? `${message} Showing the previously loaded schedule.`

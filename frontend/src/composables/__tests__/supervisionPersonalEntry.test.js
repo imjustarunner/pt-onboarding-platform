@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, reactive } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
 const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), capture: null, start: vi.fn(), stop: vi.fn(), flush: vi.fn(), control: vi.fn(), auth: { isAuthenticated: false, user: null } }));
-vi.mock('../../services/api', () => ({ default: { get: m.get, post: m.post } }));
+vi.mock('../../services/api', () => ({ default: { get: m.get, post: m.post }, isApiRateLimited: () => m.rateLimited }));
 vi.mock('../../store/auth', () => ({ useAuthStore: () => m.auth }));
 vi.mock('../../utils/activityTracker', () => ({ suspendInactivityTimeout: vi.fn(), resumeInactivityTimeout: vi.fn() }));
 vi.mock('../consentedAudioCapture.js', () => ({ createConsentedAudioCapture: options => { m.capture = options; return { start: m.start, stop: m.stop, flush:m.flush, control:m.control }; } }));
@@ -11,6 +11,7 @@ import { saveSupervisionAccess } from '../../utils/supervisionInvitationAccess';
 let wrapper, live, props;
 beforeEach(() => {
   vi.clearAllMocks(); vi.useFakeTimers(); m.capture = null;
+  m.rateLimited = false;
   m.start.mockReturnValue(true); m.get.mockResolvedValue({ data: { artifact: null, activity: [] } }); m.post.mockResolvedValue({ data: { ok: true } });
   saveSupervisionAccess({ sessionId: 9, token: 'scoped', expiresAt: Date.now() + 60000 });
   props = reactive({ supervisionSessionId: 9, isSupervisor: false, isInLobby: false, localDisplayName: 'Rachel Example', joinIdentity: 'user-8' });
@@ -43,5 +44,39 @@ describe('supervision session without app authentication', () => {
     await render();live.onVideoConnected();await vi.advanceTimersByTimeAsync(3000);
     await live.pauseLiveTranscript();expect(m.control).toHaveBeenCalledWith('pause');
     await live.resumeLiveTranscript();expect(m.control).toHaveBeenCalledWith('resume');
+  });
+  it('pauses background polling during an API cooldown and resumes afterward', async () => {
+    await render();
+    const reads = m.get.mock.calls.length;
+    m.rateLimited = true;
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(m.get).toHaveBeenCalledTimes(reads);
+    m.rateLimited = false;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(m.get.mock.calls.length).toBeGreaterThan(reads);
+  });
+  it('does not stack poll requests while the previous response is pending', async () => {
+    await render();
+    live.onVideoConnected();
+    await flushPromises();
+    let resolve;
+    m.get.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+    const reads = m.get.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(m.get).toHaveBeenCalledTimes(reads + 1);
+    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/join-presence'))).toHaveLength(5);
+    resolve({ data: {} }); await flushPromises();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(m.get).toHaveBeenCalledTimes(reads + 2);
+  });
+  it('does not start a poll timer after unmounting during initial loading', async () => {
+    let resolve;
+    m.get.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+    await render();
+    wrapper.unmount(); wrapper = null;
+    resolve({ data: {} }); await flushPromises();
+    const reads = m.get.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(m.get).toHaveBeenCalledTimes(reads);
   });
 });
