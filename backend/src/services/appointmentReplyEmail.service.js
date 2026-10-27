@@ -23,8 +23,10 @@ export function createAppointmentReplyEmailService(deps) {
     if (!workEmail || !await deps.activeMember(user.id,appointment.agencyId)) return {skipped:true,reason:'inactive_recipient'};
     // Required operational notice to the work account. Optional personal-email
     // preferences do not suppress it, and personal_email is never a fallback.
+    // No optional notification trigger: the shared sender still enforces the
+    // organization/platform transport gates and records the delivery receipt.
     const url = await deps.scheduleUrl(appointment.agencyId);
-    return deps.send({agencyId:appointment.agencyId,userId:user.id,to:workEmail,triggerKey:'client_appointment_reply',
+    return deps.send({agencyId:appointment.agencyId,userId:user.id,to:workEmail,triggerKey:null,
       templateType:'client_appointment_reply',source:'auto',...cancellationProviderEmail(appointment,url)});
   };
 }
