@@ -69,7 +69,7 @@ it('queues a guardian’s changes before making that child’s completed bundle 
  const start=source.indexOf('const clientPayload = rawClients[i];',loop),end=source.indexOf('const clientPaths = [];',start);
  const published=vi.fn(),persist=vi.fn(async()=>{throw new Error('Review queue unavailable');});
  const deps={rawClients:[{id:5,fullName:'Child Example'}],i:0,submissionId:18,intakeClientRows:[],
-  IntakeSubmissionClient:{create:async()=>({id:21,client_id:5})},coGuardianBinding:{clients:[{id:5}]},
+  IntakeSubmissionClient:{listBySubmissionId:async()=>[],create:async()=>({id:21,client_id:5})},coGuardianBinding:{clients:[{id:5}]},
   intakeData:{},now:new Date(),sharedDocuments:{failures:new Map()},persistChildIntakeData:persist,
   console:{info:()=>{}},publishBundle:published};
  const run=new Function(...Object.keys(deps),`return (async()=>{${source.slice(start,end)} await publishBundle();})();`);
@@ -123,4 +123,14 @@ it('blocks the legacy submit endpoint for a durable guardian session even when i
  const next=vi.fn(),res={json:vi.fn(),status(){return this;}};
  await handler({params:{publicKey:'packet'},body:{submissionId:18}},res,next);
  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(res.json).not.toHaveBeenCalled();
+});
+it('reuses the existing child association when a failed guardian enrollment is retried',async()=>{
+ const start=source.indexOf('const clientPayload = rawClients[i];',source.indexOf("console.info('[publicIntake] intake/school finalize per-client loop starting'"));
+ const end=source.indexOf('const clientPaths = [];',start);
+ const existing={id:21,client_id:5,bundle_pdf_path:null};const create=vi.fn(),rows=[];
+ const deps={rawClients:[{id:5,fullName:'Child Example'}],i:0,submissionId:18,intakeClientRows:rows,
+  IntakeSubmissionClient:{listBySubmissionId:async()=>[existing],create},coGuardianBinding:{clients:[{id:5}]},
+  intakeData:{},now:new Date(),sharedDocuments:{failures:new Map()},persistChildIntakeData:async()=>{},console:{info:()=>{}}};
+ await new Function(...Object.keys(deps),`return (async()=>{${source.slice(start,end)}})();`)(...Object.values(deps));
+ expect(rows).toEqual([existing]);expect(create).not.toHaveBeenCalled();
 });

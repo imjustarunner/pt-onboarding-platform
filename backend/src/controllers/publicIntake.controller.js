@@ -9500,8 +9500,13 @@ export const finalizePublicIntake = async (req, res, next) => {
         willCreatePhiDocs: Boolean(clientId)
       });
 
+      // A failed additional-guardian finalize may already have a child row.
+      // Reuse that association so retrying cannot turn one child into siblings.
+      const priorGuardianChild = coGuardianBinding && clientId
+        ? (await IntakeSubmissionClient.listBySubmissionId(submissionId))
+          .find(row => Number(row.client_id) === Number(clientId)) : null;
       intakeClientRows.push(
-        await IntakeSubmissionClient.create({
+        priorGuardianChild || await IntakeSubmissionClient.create({
           intakeSubmissionId: submissionId,
           clientId,
           fullName: clientName,

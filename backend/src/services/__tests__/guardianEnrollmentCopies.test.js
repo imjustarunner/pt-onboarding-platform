@@ -19,3 +19,8 @@ it('never substitutes the combined sibling bundle or a different submission',asy
 });
 it.each([{access_enabled:0},{access_enabled:1,permissions_json:{canViewDocs:false}},{access_enabled:1,permissions_json:{noView:true}}])('checks document relationship permission before looking up copies',async link=>{ClientGuardian.getLink.mockResolvedValue(link);await expect(listEnrollmentCopies(input)).rejects.toMatchObject({status:403});expect(pool.execute).not.toHaveBeenCalled();});
 it('does not disclose an adult child’s old enrollment to a guardian',async()=>{pool.execute.mockResolvedValueOnce([[{date_of_birth:'1990-01-01'}]]);await expect(listEnrollmentCopies(input)).rejects.toMatchObject({status:403});expect(StorageService.readObject).not.toHaveBeenCalled();});
+it('counts distinct dependents rather than retry rows and retains unknown-child isolation',async()=>{
+ pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT date')?[[{date_of_birth:'2020-01-01'}]]:[[{id:30,bundle_pdf_path:'single.pdf',combined_pdf_path:'single.pdf',child_count:1}]]);
+ expect(await listEnrollmentCopies(input)).toHaveLength(1);
+ expect(pool.execute.mock.calls[1][0]).toContain('COUNT(DISTINCT COALESCE(other.client_id,-other.id))');
+});
