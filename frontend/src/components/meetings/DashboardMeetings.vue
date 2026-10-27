@@ -9,7 +9,7 @@
     <details ref="meetingsDetails" class="dashboard-shortcut" :class="{ 'meetings-today': todayMeetings.length > 0 }" @toggle="onMeetingsToggle">
       <summary>My Meetings <span class="shortcut-hint">{{ meetings.length ? `${meetings.length} upcoming` : 'Meetings and notes' }}</span></summary>
       <div class="shortcut-content">
-    <RouterLink :to="{ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`, query: {} }" @click="notifyNavigation">My meetings · attended meetings and notes</RouterLink>
+    <RouterLink class="meetings-workspace-link" :to="{ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`, query: {} }" @click="notifyNavigation">My meetings · attended meetings and notes</RouterLink>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
       <div><strong>{{ meeting.title }}</strong><p>{{ formatTime(meeting.start) }} · {{ meeting.end <= now ? 'Ended' : meeting.start <= now ? 'In progress' : 'Upcoming' }}</p></div>
       <button v-if="inspectInPlace" type="button" class="meeting-details" @click="emit('inspect', { ...meeting, to: scheduleLink(meeting) })">
@@ -19,7 +19,7 @@
       <RouterLink v-else :to="scheduleLink(meeting)" class="meeting-details" @click="notifyNavigation"><CalendarDays :size="16" aria-hidden="true" /> Details <ChevronRight :size="16" aria-hidden="true" /></RouterLink>
     </article>
     <p v-if="!meetings.length">No upcoming meetings this week.</p>
-    <RouterLink :to="{path:`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`,query:{category:'training'}}" @click="notifyNavigation">Training · upcoming dates and attendance log</RouterLink>
+    <RouterLink class="meetings-workspace-link" :to="{path:`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`,query:{category:'training'}}" @click="notifyNavigation">Training · upcoming dates and attendance log</RouterLink>
       </div>
     </details>
   </section>
@@ -79,10 +79,6 @@ onMounted(()=>{if (!props.lazy) void load();timer=setInterval(()=>{now.value=Dat
 </script>
 <style scoped>
 .office-logo { width: 24px; height: 24px; object-fit: contain; vertical-align: middle; margin-right: 7px; }
-.dashboard-meetings--compact { margin: 0; gap: 8px; flex: 1 1 auto; justify-content: flex-end; }
-.dashboard-meetings--compact .dashboard-shortcut { position: relative; flex: 0 1 auto; }
-.dashboard-meetings--compact .dashboard-shortcut summary { padding: 8px 10px; font-size: 13px; }
-.dashboard-meetings--compact .shortcut-content { position: absolute; right: 0; top: calc(100% + 5px); z-index: 50; width: min(390px, calc(100vw - 48px)); box-sizing: border-box; max-height: 55vh; overflow-y: auto; padding: 14px; background: var(--bg-card, #fff); border: 1px solid var(--border, #b4d5cb); border-radius: 10px; box-shadow: 0 8px 28px #0002; }
 .meetings-today > summary { animation: meetings-attention 2s ease-in-out 4; }
 @keyframes meetings-attention { 50% { box-shadow: 0 0 0 3px #7c3aed55; } }
 @media(prefers-reduced-motion: reduce) { .meetings-today > summary { animation: none; border: 2px solid #7c3aed; } }
@@ -102,4 +98,25 @@ onMounted(()=>{if (!props.lazy) void load();timer=setInterval(()=>{now.value=Dat
 .dashboard-shortcut summary:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:10px}
 @media(min-width:1200px){.dashboard-meetings{margin-inline:24px}}
 @media(max-width:600px){.dashboard-shortcut{flex-basis:100%}.dashboard-meetings{margin:8px 16px}.shortcut-hint{display:block;margin-left:16px}}.dashboard-meetings h2{font-size:1.1rem;margin:0 0 10px;color:inherit}.dashboard-meetings article{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border-radius:9px}.dashboard-meetings article.ready{background:#d9f5e7;border:2px solid #2d6a50}.dashboard-meetings p{margin:5px 0;font-size:.85rem}.meeting-join{display:inline-flex;padding:14px 24px;border-radius:8px;background:#245b44;color:white;font-size:1.05rem;font-weight:800;white-space:nowrap}@media(max-width:600px){.dashboard-meetings article{flex-wrap:wrap}.meeting-join{width:100%;justify-content:center}}
+
+/* Keep open header shortcuts compact; the expanded cards above are for briefings. */
+.dashboard-meetings--compact { margin: 0; gap: 8px; flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+.dashboard-meetings--compact .dashboard-shortcut,
+.dashboard-meetings--compact .dashboard-shortcut[open] { position: relative; flex: 0 1 auto; }
+.dashboard-meetings--compact .dashboard-shortcut summary { padding: 8px 10px; font-size: 13px; }
+.dashboard-meetings--compact .shortcut-content { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(420px, calc(100vw - 48px)); box-sizing: border-box; max-height: 55vh; overflow-y: auto; padding: 12px; background: var(--bg-card, #fff); border: 1px solid var(--border, #b4d5cb); border-radius: 10px; box-shadow: 0 8px 28px #0002; font-size: 14px; line-height: 1.5; }
+.dashboard-meetings--compact article { gap: 12px; padding: 12px 8px; }
+.dashboard-meetings--compact article > div { min-width: 0; }
+.dashboard-meetings--compact article + article { border-top: 1px solid var(--border, #b4d5cb); }
+.dashboard-meetings--compact article p { color: var(--text-secondary, #526b65); font-size: 12px; }
+.dashboard-meetings--compact .meeting-details { gap: 6px; padding: 6px 10px; font-size: 13px; }
+.dashboard-meetings--compact .meetings-workspace-link { display: block; padding: 8px; color: inherit; font-size: 13px; font-weight: 600; text-decoration: none; }
+.dashboard-meetings--compact .meetings-workspace-link:hover { text-decoration: underline; }
+.dashboard-meetings--compact .meetings-workspace-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px; }
+@media (max-width: 600px) {
+  .dashboard-meetings--compact { flex-basis: 100%; }
+  .dashboard-meetings--compact .dashboard-shortcut,
+  .dashboard-meetings--compact .dashboard-shortcut[open] { flex-basis: 100%; }
+  .dashboard-meetings--compact .shortcut-content { position: static; width: 100%; border: 0; border-top: 1px solid var(--border, #b4d5cb); border-radius: 0 0 10px 10px; box-shadow: none; }
+}
 </style>
