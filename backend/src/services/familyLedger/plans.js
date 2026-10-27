@@ -1,7 +1,7 @@
 import pool from '../../config/database.js';
 import { billingError, auditBilling, requireResponsiblePayer } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling } from '../familyBillingEncryption.service.js';
-import { cents, dateOnly, today, transaction, allocationDue, assertCollectible } from './policy.js';
+import { cents, dateOnly, agencyBillingDate, transaction, allocationDue, assertCollectible } from './policy.js';
 import { lockAllocation, payAllocation, activeCard } from './payments.js';
 import { isGuardianTestAccountId } from '../guardianTestAccess.service.js';
 import { isAuricwellQaAgency } from '../../utils/auricwellQaPolicy.js';
@@ -36,7 +36,7 @@ export async function proposePlan({agencyId,allocationId,installments,actorUserI
     const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);await assertPlanable(receivable,db);
     if(!allocation.payer_user_id)throw billingError(409,'Assign a responsible payer first');
     const rows=validateInstallments(installments,allocationDue(allocation));
-    if(rows[0].dueDate<today())throw billingError(400,'The first installment cannot be in the past');
+    if(rows[0].dueDate<await agencyBillingDate(agencyId,db))throw billingError(400,'The first installment cannot be in the past');
     const [active]=await db.execute("SELECT id FROM family_payment_plans WHERE allocation_id=? AND status IN ('proposed','active')",[allocationId]);
     const [pending]=await db.execute("SELECT id FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown')",[allocationId]);
     if(active.length||pending.length)throw billingError(409,'Resolve existing plans or pending payments first');
@@ -74,13 +74,13 @@ export async function cancelPlan({agencyId,planId,userId,staff=false}) {
 }
 export async function runDuePlans({agencyId,limit=50}) {
   const [plans]=await pool.query("SELECT p.*,a.paid_cents FROM family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE p.agency_id=? AND p.status='active' AND p.auto_pay=1 ORDER BY p.id LIMIT ?",[agencyId,Math.min(100,Number(limit)||50)]);
-  const results=[];
+  const results=[],billingDate=await agencyBillingDate(agencyId);
   for(const plan of plans){
     if(await isGuardianTestAccountId(plan.payer_user_id))continue;
     const [installments]=await pool.execute('SELECT * FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[plan.id]);
     const balances=installmentBalances(installments,Number(plan.paid_cents)-Number(plan.paid_before_cents));
     if(balances.every(i=>i.balance_cents===0)){await pool.execute("UPDATE family_payment_plans SET status='completed',auto_pay=0 WHERE id=?",[plan.id]);continue;}
-    const due=balances.find(i=>i.balance_cents>0&&dateOnly(i.due_date)<=today());if(!due)continue;
+    const due=balances.find(i=>i.balance_cents>0&&dateOnly(i.due_date)<=billingDate);if(!due)continue;
     try{const result=await payAllocation({agencyId,userId:plan.payer_user_id,allocationId:plan.allocation_id,amountCents:due.balance_cents,idempotencyKey:`installment:${due.id}:paid:${plan.paid_cents}`,automatic:true,planId:plan.id});results.push({planId:plan.id,...result});}
     catch(e){results.push({planId:plan.id,paid:false,message:e.status?e.message:'Payment needs review'});}
   }

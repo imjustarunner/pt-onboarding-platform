@@ -78,7 +78,7 @@ test('two-guardian splits, rotation, and installment plans use the same scoped l
   });
   await t.test('installments require owner consent, sum to that share, charge only its card once, and can be revoked',async()=>{
    const [allocation]=await allocationsFor(planSource.id);
-   const date=offset=>new Date(Date.now()+offset*86400000).toISOString().slice(0,10),installments=[{amountCents:2000,dueDate:date(0)},{amountCents:2000,dueDate:date(31)},{amountCents:2000,dueDate:date(62)}];
+   const date=offset=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()+offset*86400000)),installments=[{amountCents:2000,dueDate:date(0)},{amountCents:2000,dueDate:date(31)},{amountCents:2000,dueDate:date(62)}];
    await assert.rejects(proposePlan({agencyId:1,allocationId:allocation.id,installments:[{amountCents:2000,dueDate:date(0)},{amountCents:2000,dueDate:date(31)}],actorUserId:99}),e=>e.status===400);
    const plan=await proposePlan({agencyId:1,allocationId:allocation.id,installments,actorUserId:99});
    await assert.rejects(proposePlan({agencyId:1,allocationId:allocation.id,installments,actorUserId:99}),e=>e.status===409);
@@ -89,7 +89,14 @@ test('two-guardian splits, rotation, and installment plans use the same scoped l
    const card=await Cards.create({guardianUserId:10,agencyId:1,stripeCustomerId:'cus_arrangements10',stripePaymentMethodId:'pm_arrangements10',connectedAccountId:'acct_fixture',setupIntentId:'seti_arrangements10',cardBrand:'visa',cardLast4:'1010',cardExpYear:2099,cardExpMonth:12});
    await assignCard({agencyId:1,clientId:101,userId:10,cardId:card,recurring:false});
    await acceptPlan({agencyId:1,planId:plan.planId,userId:10,autoPay:true,consent:planConsent});assert.equal(processorCalls,0);
-   const ownView=(await listBalances({agencyId:1,userId:10,clientId:101})).find(r=>r.allocationId===allocation.id);assert.equal(ownView.dueDate,date(0));assert.deepEqual(ownView.plan.installments.map(i=>i.dueDate),installments.map(i=>i.dueDate));
+   t.mock.timers.enable({apis:['Date'],now:new Date(installments[0].dueDate+'T00:30:00Z')});
+   try {
+    assert.deepEqual(await runDuePlans({agencyId:1}),[]);
+    await assert.rejects(payAllocation({agencyId:1,userId:10,allocationId:allocation.id,amountCents:2000,idempotencyKey:'early-denver-installment',automatic:true,planId:plan.planId}),e=>e.status===409);
+    assert.equal(processorCalls,0);
+   } finally { t.mock.timers.reset(); }
+
+   const ownView=(await listBalances({agencyId:1,userId:10,clientId:101})).find(r=>r.allocationId===allocation.id);assert.match(ownView.dueDate,/^\d{4}-\d{2}-\d{2}$/);assert.deepEqual(ownView.plan.installments.map(i=>i.dueDate),installments.map(i=>i.dueDate));
    const due=await runDuePlans({agencyId:1});assert.equal(due[0].paid,true,JSON.stringify(due));assert.equal(processorCalls,1);assert.equal(calls[0].customerId,'cus_arrangements10');assert.equal(calls[0].amountCents,2000);
    await runDuePlans({agencyId:1});assert.equal(processorCalls,1);
    await assert.rejects(cancelPlan({agencyId:1,planId:plan.planId,userId:20}),e=>e.status===403);

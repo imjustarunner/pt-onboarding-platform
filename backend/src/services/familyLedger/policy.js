@@ -19,6 +19,18 @@ export function dateOnly(value) {
   return s;
 }
 export const today = () => new Date().toISOString().slice(0, 10);
+// Installment dates are calendar dates in the practice's time zone. UTC midnight
+// can still be the preceding evening for the family.
+export function billingCalendarDate(timezone = 'America/Denver', now = new Date()) {
+  try { return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now); }
+  catch { throw billingError(409, 'Review the practice time zone before scheduling payments'); }
+}
+export async function agencyBillingDate(agencyId, db = pool) {
+  const [[agency]] = await db.execute('SELECT timezone FROM agencies WHERE id=?', [agencyId]);
+  if (!agency) throw billingError(404, 'Billing organization not found');
+  return billingCalendarDate(agency.timezone || 'America/Denver');
+}
+
 export function key(value) {
   const s = String(value || '');
   if (!/^[a-zA-Z0-9:_-]{8,150}$/.test(s)) throw billingError(400, 'A valid request key is required');

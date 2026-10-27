@@ -1,7 +1,7 @@
 import test, {after} from 'node:test';import assert from 'node:assert/strict';
 import pool from '../../config/database.js';import clinicalPool from '../../config/clinicalDatabase.js';
 after(async()=>{await pool.end();await clinicalPool.end();});
-import {allocateCents,dateOnly,cents,normalizeShares,assertCollectible} from '../familyLedger/policy.js';
+import {allocateCents,dateOnly,cents,normalizeShares,assertCollectible,billingCalendarDate} from '../familyLedger/policy.js';
 import {effectiveClinicalAccess} from '../guardianClinicalAccess.service.js';
 import {agingFor} from '../familyLedger/collections.js';
 const shares=[{payerUserId:10,basisPoints:5000},{payerUserId:20,basisPoints:5000}];
@@ -16,3 +16,9 @@ test('review dates, no-view links and adult consent close disclosure access',()=
 test('limited access excludes goals and frequency even if stored scopes include them',()=>{const access=effectiveClinicalAccess({link,dob:'2012-01-01',grant:{...grant,access_level:'limited'},asOf:'2026-09-11'});assert.deepEqual(access.scopes,['safety_plan']);});
 
 test('synthetic appointment balances cannot be released for collection',async()=>{let accessed=false;await assert.rejects(assertCollectible({source_type:'qa_appointment',status:'open',agency_id:450},{execute:async()=>{accessed=true;throw new Error('unexpected database access');}}),e=>e.status===409&&e.message.includes('cannot be collected'));assert.equal(accessed,false);});
+
+test('installments do not become due at UTC midnight before the Denver calendar date',()=>{
+ for(const [instant,expected] of [['2026-11-01T00:01:00Z','2026-10-31'],['2026-11-01T05:59:59Z','2026-10-31'],['2026-11-01T06:00:00Z','2026-11-01'],['2026-11-02T06:59:59Z','2026-11-01'],['2026-11-02T07:00:00Z','2026-11-02']])assert.equal(billingCalendarDate('America/Denver',new Date(instant)),expected);
+ assert.equal(billingCalendarDate('Asia/Tokyo',new Date('2026-11-01T15:00:00Z')),'2026-11-02');
+ assert.throws(()=>billingCalendarDate('Invalid/Timezone'),e=>e.status===409);
+});

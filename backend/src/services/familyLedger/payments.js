@@ -5,7 +5,7 @@ import Stripe, { getStripePublishableKey } from '../stripePayments.service.js';
 import { billingError, requireResponsiblePayer, auditBilling } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { verifyPaymentResult } from '../familyBillingPayment.service.js';
-import { cents, key, transaction, assertCollectible, allocationDue, dateOnly, today } from './policy.js';
+import { cents, key, transaction, assertCollectible, allocationDue, dateOnly, agencyBillingDate } from './policy.js';
 import { findReceivable, allocationsFor, sourcePayload } from './receivables.js';
 import { responsibilityLabels } from './presentation.js';
 import { requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
@@ -53,8 +53,9 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
       const plan=plans[0], evidence=decryptFamilyBilling(plan.consent_encrypted,`payment-plan:${agencyId}:${userId}`);
       if(!evidence.autoPay||Number(evidence.paymentCardId)!==Number(card.id))throw billingError(409,'The payment plan needs authorization for this card');
       const [installments]=await db.execute('SELECT * FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[planId]);
+      const billingDate=await agencyBillingDate(agencyId,db);
       let paid=Math.max(0,Number(allocation.paid_cents)-Number(plan.paid_before_cents)),due=0;
-      for(const installment of installments){const applied=Math.min(paid,Number(installment.amount_cents));paid-=applied;if(!due&&dateOnly(installment.due_date)<=today())due=Number(installment.amount_cents)-applied;}
+      for(const installment of installments){const applied=Math.min(paid,Number(installment.amount_cents));paid-=applied;if(!due&&dateOnly(installment.due_date)<=billingDate)due=Number(installment.amount_cents)-applied;}
       if(!due||amount!==due)throw billingError(409,'The installment balance changed; refresh the schedule');
     } else if(automatic){
       const {assertAutomaticCopay}=await import('./copays.js');
