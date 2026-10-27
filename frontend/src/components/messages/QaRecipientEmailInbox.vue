@@ -48,8 +48,13 @@ const safeDocument=computed(() => {
   for(const img of document.querySelectorAll('img')) {
     if (!String(img.getAttribute('src') || '').startsWith('data:')) img.remove();
   }
+  // Branded signatures reserve columns for remote logos/icons. With those
+  // images blocked, empty columns must not squeeze contact text on a phone.
+  for(const cell of document.querySelectorAll('[data-pt-staff-signature] td')) {
+    if(!cell.textContent.trim()&&!cell.querySelector('img'))cell.style.display='none';
+  }
   const body=document.body.innerHTML;
-  return '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>body{font:16px/1.5 system-ui;margin:0;padding:12px;overflow-wrap:anywhere}table{max-width:100%!important}img{max-width:100%;height:auto}a{color:#1659a4}</style>'+body;
+  return '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>body{font:16px/1.5 system-ui;margin:0;padding:12px;overflow-wrap:anywhere}table{max-width:100%!important}img{max-width:100%;height:auto}a{color:#1659a4}@media(max-width:600px){[data-pt-staff-signature]>table:first-child>tbody>tr>td:not([style*="display: none"]){display:block;width:auto!important;border-left:0!important;padding:4px 0!important;text-align:left!important}}</style>'+body;
 });
 async function load(beforeId=null) {
   const version=++generation; loading.value=true; error.value=''; selected.value=null;
