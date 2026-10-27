@@ -27,3 +27,9 @@ For separated guardians, explicitly show that messages posted in this shared con
 
 Validation
 The family-email regression suite passes: 28 files, 289 tests. Added checks cover A-to-B and B-to-A notifications, provider-to-both, sender exclusion, revoked access, independent delivery failures, shared email addresses, and guardian/self-account wording. Live delivery for a specific real family is not certified by these tests. This change does not send a message on that family's behalf.
+
+LIVE FIXTURE READINESS CHECK
+Jules (2277) in agency 450 has two active guardian accounts (1459 and 1460) and the guardian portal enabled, but no provider assignment, no existing shared secure thread and an empty currently authorized clinical-message audience. Appointment access alone does not confer clinical-message access. Before the live bot test, complete the synthetic provider assignment and the normal authorized clinical-messaging access setup; do not bypass that access check or grant broader document access merely to make the email test pass. This check made no access changes and sent no emails.
+
+RELEASE VERIFICATION
+Code commit a7bf6a6aa09fe0135b6a2a0427bd3497b1dba870 is on main. Deployment 40598253086 succeeded; onboarding-backend-g40598253086a1 is ready and serving 100% of backend traffic. GitHub scheduling and guardian billing checks both passed. No real-family message was sent during this release verification.
