@@ -1,3 +1,4 @@
+import { assertExchangeRequestEligible } from './clientExchangeEligibility.service.js';
 import pool from '../config/database.js';
 import { afterLegacyProviderFieldsChanged, ensureClientProviderAssignmentRow } from './clientProviderAssignmentSync.service.js';
 import { recordProviderAssignmentChange } from './officeClientAcceptance.service.js';
@@ -24,8 +25,8 @@ async function withListing(listingId, action) {
 
 async function eligibleProvider(connection, userId, agencyId) {
   const [rows] = await connection.execute(`SELECT u.id FROM users u JOIN user_agencies ua ON ua.user_id = u.id
-    WHERE u.id = ? AND ua.agency_id = ? AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
-      AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
+    WHERE u.id = ? AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1 AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
+      AND UPPER(COALESCE(u.status, '')) NOT IN ('INACTIVE','ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING','TERMINATED','DELETED')
       AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access = 1)
     LIMIT 1`, [userId, agencyId]);
   if (!rows.length) throw fail('An active provider in this agency is required to request or receive the client', 403);
@@ -35,6 +36,7 @@ export async function createExchangeClaim({ listingId, requestingProviderUserId,
   return withListing(listingId, async (connection, listing) => {
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(requestingProviderUserId)) throw fail('This referral is addressed to a different provider', 403);
     await eligibleProvider(connection, requestingProviderUserId, listing.agency_id);
+    await assertExchangeRequestEligible({ listing, userId: requestingProviderUserId, database: connection });
     if (Number(requestingProviderUserId) === Number(listing.current_provider_user_id)) throw fail('You are already the current provider for this client');
     const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
       WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending'`, [listingId, requestingProviderUserId]);
@@ -76,6 +78,7 @@ export async function resolveExchangeClaim({ requestId, action, actingUserId, ac
       return { listing, request };
     }
     await eligibleProvider(connection, request.requesting_provider_user_id, listing.agency_id);
+    await assertExchangeRequestEligible({ listing, userId: request.requesting_provider_user_id, database: connection, client });
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(request.requesting_provider_user_id)) throw fail('Request does not match the referral recipient', 403);
     const providerId = request.requesting_provider_user_id;
     const additional = listing.referral_kind === 'additional_service';

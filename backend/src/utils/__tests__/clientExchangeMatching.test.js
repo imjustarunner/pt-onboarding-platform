@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesExchangeListing, ageRange, clientAge } from '../clientExchangeMatching.js';
+import { evaluateExchangeListing, exchangeSlotMatches, matchesExchangeListing, ageRange, clientAge } from '../clientExchangeMatching.js';
 const base = {
   user: { sees_clients: 1, provider_accepting_new_clients: 1, in_office_available: 1 },
   profile: { details: {}, insurances: ['Aetna'] },
@@ -47,8 +47,8 @@ test('honors an explicitly requested provider gender', () => {
   assert.equal(matchesExchangeListing({ ...base, listing }), true);
 });
 
-test('unknown age, coverage and gender remain possible matches', () => {
-  assert.equal(matchesExchangeListing({...base, facets:{}, profile:{details:{}}, listing:{preferences:{insurance:'Aetna',providerGender:'female'}, demographics:{ageBand:'9'}}}),true);
+test('unknown age and gender allow review, but specified coverage must be verified', () => {
+  assert.equal(matchesExchangeListing({...base, facets:{}, profile:{details:{}}, listing:{preferences:{insurance:'Aetna',providerGender:'female'}, demographics:{ageBand:'9'}}}),false);
   assert.equal(matchesExchangeListing({...base, listing:{preferences:{},presentingProblems:['An unclassified narrative']}}),true);
 });
 test('per-format waitlist and closed never get alerts; an explicit open format does', () => {
@@ -105,4 +105,46 @@ test('audits expose multiple reasons and do not treat unknown fields as verified
   assert.equal(result.matched,false);
   for(const field of ['accepting','format','age','provider_gender'])assert.equal(result.checks.find(c=>c.field===field).status,'fail');
   assert.equal(result.checks.find(c=>c.field==='schedule').status,'unknown');
+});
+
+test('closed and waitlisted providers see fit and can request if insurance is accepted', () => {
+ for (const status of ['unavailable', 'waitlist']) {
+  const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, agencyAvailability: { seesClients: true, acceptingNewClients: false, inPerson: true, intakeStatusByFormat: { IN_PERSON: status } } }, listing: { ...base.listing, preferences: { modality: 'in_person', insurance: 'Aetna' } } });
+  assert.equal(fit.canRequest, true); assert.equal(fit.canNotify, false);
+  assert.equal(fit.status, 'not_match'); assert.ok(fit.adjustments.length);
+ }
+});
+test('inactive and demo accounts cannot request even with matching coverage', () => {
+ for (const change of [{ is_active: 0 }, { is_archived: 1 }, { membership_active: 0 }, { status: 'TERMINATED' }, { status: 'INACTIVE_EMPLOYEE' }, { is_demo: 1 }]) {
+  const fit = evaluateExchangeListing({ ...base, user: { ...base.user, ...change } });
+  assert.equal(fit.canRequest, false); assert.equal(fit.canNotify, false);
+ }
+});
+test('day/time differences are requestable and a single opening must satisfy all constraints', () => {
+ const now = new Date('2026-10-26T00:00:00Z');
+ const preferences = { modality: 'in_person', insurance: 'Aetna', serviceLocation: 'Denver', schedule: { days: ['Tuesday'], periods: ['evening'], timezone: 'America/Denver' } };
+ const slots = [{ startAt: '2026-10-27T16:00:00Z', endAt: '2026-10-27T17:00:00Z', format: 'IN_PERSON', city: 'Denver' }, { startAt: '2026-10-29T00:00:00Z', endAt: '2026-10-29T01:00:00Z', format: 'IN_PERSON', city: 'Denver' }];
+ const args = { ...base, listing: { ...base.listing, preferences }, slots, now };
+ const mismatch = evaluateExchangeListing(args);
+ assert.equal(mismatch.canRequest, true); assert.equal(mismatch.status, 'not_match');
+ assert.equal(mismatch.adjustments[0].code, 'schedule');
+ slots.push({ startAt: '2026-10-28T00:00:00Z', endAt: '2026-10-28T01:00:00Z', format: 'IN_PERSON', city: 'Denver' });
+ assert.equal(evaluateExchangeListing(args).status, 'match');
+ assert.equal(exchangeSlotMatches({ ...slots[2], city: 'Colorado Springs' }, preferences, now), false);
+ assert.equal(exchangeSlotMatches({ ...slots[2], format: 'VIRTUAL' }, preferences, now), false);
+});
+test('clinical exclusions and insurance remain firm blocks alongside schedule differences', () => {
+ const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: { clinicalFocus: { reviewed: true, excluded: { specialties: ['Anxiety'] } } } }, listing: { ...base.listing, preferences: { insurance: 'Tricare', schedule: { days: ['Tuesday'] } } }, slots: [] });
+ assert.equal(fit.canRequest, false);
+ assert.ok(fit.blockers.some(r => r.code === 'insurance'));
+ assert.ok(fit.blockers.some(r => r.code === 'excluded_specialty'));
+ assert.ok(fit.adjustments.some(r => r.code === 'schedule'));
+});
+
+test('a location-only referral is not a match for openings in the other city', () => {
+ const args = { ...base, now: new Date('2026-10-26'), listing: { ...base.listing, preferences: { modality: 'in_person', serviceLocation: 'Colorado Springs', insurance: 'Aetna' } },
+  slots: [{ startAt: '2026-10-28T00:00:00Z', endAt: '2026-10-28T01:00:00Z', format: 'IN_PERSON', city: 'Denver' }] };
+ const fit = evaluateExchangeListing(args);
+ assert.equal(fit.status, 'not_match'); assert.equal(fit.canRequest, true); assert.equal(fit.adjustments[0].code, 'location_availability');
+ args.slots[0].city = 'Colorado Springs'; assert.equal(evaluateExchangeListing(args).status, 'match');
 });

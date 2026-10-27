@@ -1,4 +1,5 @@
 import { exchangeSafeText } from './clientExchangePrivacy.js';
+import { exchangeInsuranceLabel } from './clientExchangeMatching.js';
 export function summaryItems(value) {
   if (value == null || value === '') return [];
   if (typeof value === 'number') return Number.isFinite(value) ? [String(value)] : [];
@@ -19,7 +20,8 @@ export function mergeExchangeSummary(saved, additional = {}) {
   return {
     ...saved,
     demographics: { ...additional.demographics, ...saved.demographics },
-    preferences: { ...saved.preferences, ...additional.preferences },
+    preferences: { ...saved.preferences, ...additional.preferences,
+      insurance: exchangeInsuranceLabel(saved.preferences?.insurance, additional.preferences?.insurance) },
     diagnoses: [...new Set([...summaryItems(saved.diagnoses), ...summaryItems(additional.diagnoses)])],
     presentingProblems: [...new Set([...summaryItems(saved.presentingProblems), ...summaryItems(additional.presentingProblems)])]
   };

@@ -1,3 +1,4 @@
+import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { allowsProviderPreference } from '../utils/intakeProviderPreference.js';
 import { listOfficeIntakeProviders } from './officeIntakeProviders.service.js';
 
@@ -10,8 +11,12 @@ export function enrollmentSchedulingPreferences(bag = {}) {
   const choices = (value, allowed) => [...new Set((Array.isArray(value) ? value : []).filter(item => allowed.includes(item)))];
   let timeZone = String(bag.preferred_time_zone || '').slice(0, 100) || 'America/Denver';
   try { new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date()); } catch { timeZone = 'America/Denver'; }
-  const result = { preferredDays: choices(bag.preferred_days, allowedDays), preferredTimes: choices(bag.preferred_times, allowedTimes),
+  const result = { ...(Object.hasOwn(bag, 'preferred_service_location') ? { serviceLocation: normalizeExchangeLocation(bag.preferred_service_location) } : {}), preferredDays: choices(bag.preferred_days, allowedDays), preferredTimes: choices(bag.preferred_times, allowedTimes),
     preferredSchedulingNotes: String(bag.preferred_scheduling_notes || '').trim().slice(0, 1000), preferredTimeZone: timeZone };
+  if (['preferred_days', 'preferred_times', 'preferred_scheduling_notes'].some(key => Object.hasOwn(bag, key))) {
+    result.exchangeSchedule = { days: result.preferredDays, periods: result.preferredTimes.map(time => time.toLowerCase()),
+      windows: [], timezone: timeZone, notes: result.preferredSchedulingNotes };
+  }
   const opening = bag.requested_opening_preference;
   if (opening) {
     const start = new Date(opening.startAt), end = new Date(opening.endAt);
@@ -97,6 +102,13 @@ export async function recordEnrollmentProviderSelection(database, { agencyId, cl
       const previous = parse(row.intake_preferences_json);
       const previousSelection = previous.providerSelection;
       const sameSubmission = Number(previousSelection?.submissionId) === Number(submissionId);
+      if (!selection && bag && Object.keys(bag).some(key => ['preferred_service_location', 'preferred_service_format', 'preferred_days', 'preferred_times', 'preferred_scheduling_notes'].includes(key))) {
+        const format = bag.preferred_service_format || bag.preferred_modality || bag.preferredModality;
+        const preferences = { ...enrollmentSchedulingPreferences(bag),
+          ...(format ? { preferredModality: enrollmentModality(format).toLowerCase() } : {}) };
+        await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_MERGE_PATCH(COALESCE(intake_preferences_json, JSON_OBJECT()), CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`,
+          [JSON.stringify(preferences), clientId, agencyId]);
+      }
       if (!selection) {
         if (sameSubmission) {
           const cleared = { providerSelection: null, providerSelections: null, preferredProviderUserId: null,

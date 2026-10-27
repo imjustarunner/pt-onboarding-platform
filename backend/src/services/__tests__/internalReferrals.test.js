@@ -8,13 +8,18 @@ vi.mock('../officeClientAcceptance.service.js',()=>({recordExchangePosted:mocks.
 vi.mock('../smartChatGroups.service.js',()=>({announceClientExchangeListing:mocks.announce}));
 vi.mock('../clientExchangeSummary.service.js',()=>({loadClientExchangeSummary:vi.fn(async()=>({demographics:{},preferences:{},presentingProblems:[],diagnoses:[]}))}));
 vi.mock('../clientExchangeNotifications.service.js',()=>({notifyExchangeMatches:vi.fn(async()=>({sent:1})),notifyExchangeClaim:vi.fn(async()=>{}),notifyExchangeAssignment:vi.fn(async()=>{})}));
+vi.mock('../clientExchangeEligibility.service.js', () => ({
+ loadExchangeProvider: async () => ({ user: { id: 12 }, profile: {}, facets: {} }),
+ loadExchangeOpenings: async () => [], assertExchangeRequestEligible: async () => ({ canRequest: true })
+}));
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 2 }) } }));
 import {createListing,createRequest,getListingById,listListings,resolveRequest} from '../clientExchange.service.js';
 const listing={id:7,agency_id:2,client_id:3,posted_by_user_id:10,current_provider_user_id:10,status:'open',referral_kind:'additional_service',service_type:'family',target_provider_user_id:12};
 beforeEach(()=>{
  vi.clearAllMocks();mocks.client.mockResolvedValue({id:3,agency_id:2,organization_id:2,provider_id:10});
  mocks.execute.mockImplementation(async(sql)=>{
   if(sql.includes('SELECT listing_id'))return [[{listing_id:7}]];
-  if(sql.includes('SELECT DISTINCT u.id'))return [[{id:12,first_name:'Sam'}]];
+  if(sql.includes('SELECT DISTINCT u.*'))return [[{id:12,first_name:'Sam'}]];
   if(sql.includes('INSERT INTO client_exchange_listings'))return [{insertId:7}];
   if(sql.includes('SELECT id FROM client_exchange_listings'))return [[]];
   if(sql.includes('SELECT l.*'))return [[listing]];

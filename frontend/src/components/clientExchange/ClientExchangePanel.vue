@@ -20,8 +20,9 @@
     </div>
 
     <div class="cep-banner cep-banner--info">
-      Providers accepting new clients in person or virtually receive matches based on their saved availability and client preferences.
-      Update your availability and clinical profile to keep your matches current.
+      All authorized agency providers can browse general exchange listings and see their own match status, including when closed or waitlisted.
+      Direct referrals are limited to their recipient and referring team. Notifications go to matching providers who are open for new clients.
+      Clinical means therapy; Learning means tutoring or learning services; Coaching / Consulting is nonclinical.
     </div>
 
     <label v-if="agencies.length > 1 || !agencyId">
@@ -205,8 +206,10 @@
         </div>
 
         <section class="cep-detail-section">
+          <ExchangeMatchStatus :fit="selectedListing.viewerFit" />
           <ClientExchangeSummary :listing="selectedListing" />
           <ClientExchangeAuditPanel v-if="isBackoffice" :listing-id="selectedListing.id" />
+          <ExchangeMatchingAudit v-if="!isBackoffice && selectedListing.canManageClaims" :listing-id="selectedListing.id" />
           <router-link v-if="selectedListing.clientId && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-btn cep-btn--ghost cep-btn--sm" :to="clientRecordPath(selectedListing)">Open client record</router-link>
         </section>
 
@@ -239,8 +242,9 @@
                 <span class="cep-status-badge" :class="`cep-status-${r.status}`">{{ r.status }}</span>
               </div>
               <p v-if="r.message" class="cep-request-item-msg">{{ r.message }}</p>
+              <ExchangeMatchStatus :fit="r.fit" />
               <div v-if="r.status === 'pending' && selectedListing.canManageClaims" class="cep-request-item-actions">
-                <button type="button" class="cep-btn cep-btn--primary cep-btn--sm" :disabled="actionPending" @click="onApprove({ requestId: r.id, listingId: selectedListing.id })">
+                <button type="button" class="cep-btn cep-btn--primary cep-btn--sm" :disabled="actionPending || r.fit?.canRequest === false" @click="onApprove({ requestId: r.id, listingId: selectedListing.id })">
                   {{ selectedListing.currentProviderUserId ? 'Transfer to provider' : 'Assign to provider' }}
                 </button>
                 <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" :disabled="actionPending" @click="onDeny({ requestId: r.id, listingId: selectedListing.id })">
@@ -310,6 +314,8 @@ import {
   matchesQueueSearch
 } from '../../utils/clientQueueSearch.js';
 import api from '../../services/api';
+import ExchangeMatchStatus from './ExchangeMatchStatus.vue';
+import ExchangeMatchingAudit from './ExchangeMatchingAudit.vue';
 import ListingCard from './ListingCard.vue';
 import PostListingModal from './PostListingModal.vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
@@ -390,8 +396,8 @@ function formatDate(v) {
 }
 
 function formatClientType(t) {
-  if (t === 'clinical') return 'Office / Clinical';
-  if (t === 'learning') return 'Learning';
+  if (t === 'clinical') return 'Clinical / Therapy';
+  if (t === 'learning') return 'Learning / Tutoring';
   if (t === 'basic_nonclinical') return 'Coaching / Consulting';
   return t || '—';
 }
@@ -405,7 +411,7 @@ function hasPendingClaim(listing) {
 }
 function canRequest(listing) {
   const providerRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(authStore.user?.role) || authStore.user?.has_provider_access;
-  if (!providerRole || !['open', 'requested'].includes(listing.status)) return false;
+  if (!providerRole || !['open', 'requested'].includes(listing.status) || listing.viewerFit?.canRequest !== true) return false;
   return !isCurrentProviderFor(listing) && !hasPendingClaim(listing) && (!listing.targetProviderUserId || Number(listing.targetProviderUserId) === Number(currentUserId.value));
 }
 function clientRecordPath(listing) {

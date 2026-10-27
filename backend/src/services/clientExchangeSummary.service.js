@@ -7,7 +7,7 @@ import { listBillingDiagnosesForClient } from './billingReportIngest.service.js'
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { screeningPresentingProblem } from './h0002ReviewDetails.js';
-import { clientAge } from '../utils/clientExchangeMatching.js';
+import { clientAge, exchangeInsuranceLabel } from '../utils/clientExchangeMatching.js';
 
 async function optionalClinicalQuery(sql, params) {
   try { const [rows] = await clinicalPool.execute(sql, params); return rows; }
@@ -77,6 +77,6 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
-    preferences: { insurance: client.insurance_type_label || intake.insurance || null, matchingPreferences: intake.matchingPreferences || null, modality: intake.preferredModality || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null }
+    preferences: { insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance), matchingPreferences: intake.matchingPreferences || null, modality: intake.preferredModality ? String(intake.preferredModality).toLowerCase() : null, serviceLocation: intake.serviceLocation || intake.preferred_service_location || referral.serviceLocation || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null }
   };
 }

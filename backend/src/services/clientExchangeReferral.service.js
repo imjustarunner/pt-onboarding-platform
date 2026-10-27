@@ -1,3 +1,4 @@
+import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
@@ -16,7 +17,7 @@ export function validateExchangeReferral(input) {
   if (!['', 'female', 'male', 'nonbinary'].includes(providerGender)) throw invalid('Select a valid provider gender preference');
   const modality = text('modality', 20);
   if (!['', 'in_person', 'virtual', 'either'].includes(modality)) throw invalid('Select a valid modality');
-  return { matchingPreferences: validateMatchingPreferences(input.matchingPreferences,{maxSelections:0}), initials, age, fullName: text('fullName', 200), gender: text('gender', 64), diagnoses: text('diagnoses', 2000), presentingProblem: text('presentingProblem', 4000), providerGender, modality, ehrReference: text('ehrReference', 200), schedule: normalizeExchangeSchedule(input.schedule || {}), requestId: input.requestId };
+  return { serviceLocation: normalizeExchangeLocation(input.serviceLocation, { required: ['in_person', 'either'].includes(modality) }), insurance: text('insurance', 200), matchingPreferences: validateMatchingPreferences(input.matchingPreferences,{maxSelections:0}), initials, age, fullName: text('fullName', 200), gender: text('gender', 64), diagnoses: text('diagnoses', 2000), presentingProblem: text('presentingProblem', 4000), providerGender, modality, ehrReference: text('ehrReference', 200), schedule: normalizeExchangeSchedule(input.schedule || {}), requestId: input.requestId };
 }
 /** Create the minimum chart and a shared support follow-up together. Retried requests reuse both. */
 export async function createExchangeReferral({ agencyId, actor, input }) {
@@ -49,7 +50,7 @@ export async function createExchangeReferral({ agencyId, actor, input }) {
       gender: data.gender || null, identifier_code: await generateUniqueSixDigitClientCode({ agencyId }),
       client_type: 'clinical', source: 'ADMIN_CREATED', status: 'PENDING_REVIEW',
       submission_date: new Date().toISOString().slice(0, 10), created_by_user_id: actor.id }, { executor: connection, hydrate: false });
-    const preferences = { matchingPreferences: data.matchingPreferences, exchangeReferral: data, exchangeSchedule: data.schedule, preferredModality: data.modality || null, preferredProviderGender: data.providerGender || null };
+    const preferences = { serviceLocation: data.serviceLocation, insurance: data.insurance || null, matchingPreferences: data.matchingPreferences, exchangeReferral: data, exchangeSchedule: data.schedule, preferredModality: data.modality || null, preferredProviderGender: data.providerGender || null };
     await connection.execute('UPDATE clients SET intake_preferences_json = ? WHERE id = ?', [JSON.stringify(preferences), client.id]);
     await connection.execute('INSERT INTO client_agency_assignments (client_id, agency_id, is_primary, is_active) VALUES (?, ?, TRUE, TRUE)', [client.id, agencyId]);
     const metadata = { source: 'client_exchange_setup', clientId: client.id, agencyId, subtasks: [

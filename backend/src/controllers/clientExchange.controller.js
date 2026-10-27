@@ -84,6 +84,19 @@ export async function getListing(req, res, next) {
   }
 }
 
+export async function getMatchingAudit(req, res, next) {
+  try {
+    const id = safeInt(req.params.id);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid listing id' } });
+    const viewer = { viewerUserId: req.user.id, viewerRole: req.user.role };
+    const listing = await ClientExchange.getListingById(id, viewer);
+    if (!listing || !(await assertAgencyAccess(req, listing.agencyId))) return res.status(403).json({ error: { message: 'Forbidden' } });
+    const audit = await ClientExchange.getMatchingAudit(id, viewer);
+    if (!audit) return res.status(403).json({ error: { message: 'Only the referring team can view provider matching details' } });
+    res.json({ audit });
+  } catch (error) { next(error); }
+}
+
 /** Read-only chart summary; publishing continues to require posting authorization. */
 export async function previewClientSummary(req, res, next) {
   try {

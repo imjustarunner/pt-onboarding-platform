@@ -1,3 +1,4 @@
+import { eligibleExchangeProvider } from './clientExchangeProvider.js';
 import { canonicalAge, normalizeClinicalFacets } from './providerFacetNormalization.js';
 import { providerAvailabilityPreferences } from './providerAvailabilityReminders.js';
 import { agencyFormatAllowed } from './providerAgencyAvailability.js';
@@ -32,19 +33,34 @@ export function normalizedProviderGender(value) {
   return gender;
 }
 
+export function exchangeInsuranceLabel(...values) {
+  return values.find(value => !['','unknown','notprovided','notspecified','other','unlisted','tbd'].includes(
+    String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+  )) || null;
+}
+
+export function exchangeNeedsOpenings(listing) {
+  const preferences = listing.preferences || {}, schedule = preferences.schedule || {};
+  return Boolean(schedule.days?.length || schedule.periods?.length || schedule.windows?.length
+    || (String(preferences.modality || '').toLowerCase() !== 'virtual' && ['Denver', 'Colorado Springs'].includes(preferences.serviceLocation)));
+}
+
 /** The decision and its explanation share one implementation, so audits cannot drift. */
-export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now }) {
+export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots }) {
   const checks = [];
   const check = (field, ok, pass, fail, known = true) => checks.push({ field, status: !known ? 'unknown' : ok ? 'pass' : 'fail', reason: !known ? pass : ok ? pass : fail });
+  check('account', eligibleExchangeProvider(user, agency), 'Provider account is active.', 'An active provider account in this agency is required; inactive and demo accounts cannot request.');
+  if (listing.currentProviderUserId) check('assigned', Number(user?.id) !== Number(listing.currentProviderUserId), 'Provider is not already assigned.', 'This provider is already assigned to the client.');
+  if (listing.targetProviderUserId) check('direct_referral', Number(user?.id) === Number(listing.targetProviderUserId), 'Direct referral recipient matches.', 'Referral is addressed to a different provider.');
   const availability = providerAvailabilityPreferences(user, profile);
   check('accepting', availability.seesClients && (availability.intakeStatusByFormat || availability.acceptingNewClients),
-    'Provider sees clients and has intake availability.', 'Provider is not seeing or accepting new clients.');
+    'Provider sees clients and has intake availability.', 'Provider is closed or waitlisted. A request is allowed, but intake availability must be opened before care begins.');
   const modality = String(listing.preferences?.modality || listing.preferences?.preferredModality || '').toLowerCase();
   const formatOpen = (format, enabled) => enabled && (availability.intakeStatusByFormat
     ? agencyFormatAllowed(availability, format) : !['waitlist','unavailable','closed'].includes(profile?.details?.[format==='IN_PERSON'?'officeAvailability':'virtualAvailability']));
   const inPerson = formatOpen('IN_PERSON', availability.inPerson), virtual = formatOpen('VIRTUAL', availability.virtual);
   check('format', modality === 'in_person' ? inPerson : modality === 'virtual' ? virtual : inPerson || virtual,
-    'A compatible visit format is open for new clients.', 'No compatible visit format is open for new clients.');
+    'A compatible visit format is open for new clients.', 'No compatible visit format is open for new clients. A request is allowed if suitable availability will be opened before care begins.');
   const preferredGender = normalizedProviderGender(listing.preferences?.providerGender);
   const providerGender = normalizedProviderGender(profile?.details?.gender);
   const genderKnown = ['male','female','nonbinary'].includes(preferredGender) && ['male','female','nonbinary'].includes(providerGender);
@@ -93,20 +109,66 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   check('service', populations.includes(population), population && (populations.length || focus?.reviewed) ? 'Provider supports the requested service type.' : 'Service type coverage is not verified.',
     'Provider does not support the requested service type.', !!population && !!(populations.length || focus?.reviewed));
   const norm = v => String(v||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
-  const insurance = norm(listing.preferences?.insurance || client?.insurance_type_label);
+  const insuranceLabel = exchangeInsuranceLabel(client?.insurance_type_label, listing.preferences?.insurance);
+  const insurance = norm(insuranceLabel);
   const categoryOnly = ['commercial','commercialother','commercialinsurance','privateinsurance'].includes(insurance);
   const insuranceKnown = !['','unknown','notprovided','notspecified','other','unlisted','tbd'].includes(insurance);
-  if (insuranceKnown) {
-    check('insurance_exclusions', !(profile?.excludedInsurances||[]).some(v=>norm(v)===insurance), 'Insurance is not explicitly excluded.', 'Provider excludes the client insurance.');
+  if (['selfpay','privatepay','none','uninsured'].includes(insurance)) check('insurance', true, 'Client has selected self-pay or no insurance; confirm payment arrangements.', '');
+  else if (insuranceKnown) {
+    check('insurance_exclusions', !(profile?.excludedInsurances||[]).some(v=>norm(v)===insurance), 'Insurance is not explicitly excluded.', `Provider excludes ${insuranceLabel}; requests and assignment are blocked.`);
     check('insurance_credential', restrictPublicInsurances([insurance], profile?.insuranceCredential || {}).length > 0, 'Insurance credential rules allow this referral.', 'Provider credentials do not allow this insurance.');
     const insurances = profile?.insurances || [];
-    const coverageKnown = !categoryOnly && !!(insurances.length || profile?.insuranceEligibilityKnown);
-    check('insurance', insurances.some(v=>norm(v)===insurance), coverageKnown ? 'Provider accepts the client insurance.' : categoryOnly ? 'Only a commercial insurance category was supplied; the specific plan must be confirmed.' : 'Provider insurance acceptance is unknown.', 'Provider does not accept the client insurance.', coverageKnown);
+    const coverageKnown = !categoryOnly;
+    check('insurance', insurances.some(v=>norm(v)===insurance), coverageKnown ? 'Provider accepts the client insurance.' : categoryOnly ? 'Only a commercial insurance category was supplied; the specific plan must be confirmed.' : 'Provider insurance acceptance is unknown.', `Provider is not verified to accept ${insuranceLabel}. Insurance eligibility must be confirmed before requesting or assigning this client.`, coverageKnown);
   } else check('insurance', true, 'Client insurance is unspecified.', '', false);
-  checks.push({field:'schedule',status:'unknown',reason:'Requested days, times, and exact office location require manual review; calendar overlap is not checked.'});
-  return { matched: !checks.some(c=>c.status==='fail'), checks };
+  const schedule = listing.preferences?.schedule || {};
+  const hasSchedule = schedule.days?.length || schedule.periods?.length || schedule.windows?.length;
+  if (exchangeNeedsOpenings(listing) && slots != null) {
+    const field = hasSchedule ? 'schedule' : 'location_availability';
+    check(field, slots.some(slot => exchangeSlotMatches(slot, listing.preferences, now)), 'A published opening matches the requested location, days, times and format.',
+      'No published opening matches the requested location, days, times and format in the next four weeks. A request is allowed, but a suitable opening must be arranged before care begins.');
+  } else checks.push({field:'schedule',status:'unknown',reason:'Availability for the requested location, days and times requires confirmation before care begins.'});
+  if (modality !== 'virtual' && (!listing.preferences?.serviceLocation || ['Other location','Not yet decided'].includes(listing.preferences.serviceLocation))) {
+    checks.push({field:'location',status:'unknown',reason:'Confirm the in-person service location with the referring team.'});
+  }
+  const hardFields = new Set(['account','assigned','direct_referral','age','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions']);
+  const code = field => ({account:'provider_account',assigned:'current_provider',accepting:'intake_closed',format:'format_availability',clinical_exclusions:'excluded_specialty',diagnoses:'diagnosis',concerns:'specialty'}[field] || field);
+  const reason = check => ({ code: code(check.field), message: check.reason });
+  const hard = check => hardFields.has(check.field) || check.field.endsWith('_exclusions');
+  const blockers = checks.filter(c => c.status === 'fail' && hard(c)).map(reason);
+  const adjustments = checks.filter(c => c.status === 'fail' && !hard(c)).map(reason);
+  const review = checks.filter(c => c.status === 'unknown').map(reason);
+  const canRequest = blockers.length === 0, canNotify = canRequest && adjustments.length === 0;
+  return { matched: canNotify, checks, status: canNotify ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
 }
+
+export function evaluateExchangeListing(input) { return evaluateExchangeMatch(input); }
 
 export function matchesExchangeListing(input) {
   return evaluateExchangeMatch(input).matched;
+}
+
+/** Compare every constraint against the same opening, in the client's time zone. */
+export function exchangeSlotMatches(slot, preferences = {}, now = new Date()) {
+  if (!(Date.parse(slot.startAt) > +now) || !(Date.parse(slot.endAt) > Date.parse(slot.startAt))) return false;
+  const modality = String(preferences.modality || '').toLowerCase();
+  if (modality === 'in_person' && slot.format !== 'IN_PERSON' || modality === 'virtual' && slot.format !== 'VIRTUAL') return false;
+  if (slot.format === 'IN_PERSON' && ['Denver','Colorado Springs'].includes(preferences.serviceLocation)
+    && String(slot.city || '').toLowerCase() !== preferences.serviceLocation.toLowerCase()) return false;
+  const schedule = preferences.schedule || {};
+  const timeZone = schedule.timezone || slot.timeZone || 'America/Denver';
+  let parts, endParts;
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    parts = Object.fromEntries(fmt.formatToParts(new Date(slot.startAt)).map(p => [p.type, p.value]));
+    endParts = Object.fromEntries(fmt.formatToParts(new Date(slot.endAt)).map(p => [p.type, p.value]));
+  } catch { return false; }
+  const start = `${parts.hour}:${parts.minute}`, end = `${endParts.hour}:${endParts.minute}`;
+  if (parts.weekday !== endParts.weekday || end <= start) return false;
+  if (schedule.days?.length && !schedule.days.includes(parts.weekday)) return false;
+  const periods = { morning: ['00:00','12:00'], afternoon: ['12:00','17:00'], after_school: ['15:00','19:00'], evening: ['17:00','24:00'], pm: ['12:00','24:00'] };
+  if (schedule.periods?.length && !schedule.periods.some(p => periods[p] && start >= periods[p][0] && end <= periods[p][1])) return false;
+  if (schedule.windows?.length && !schedule.windows.some(w => (!w.day || w.day === parts.weekday) &&
+    (w.end ? start >= w.start && end <= w.end : start === w.start))) return false;
+  return true;
 }

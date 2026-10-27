@@ -46,3 +46,9 @@ it('validates and stores all client fit selections on the created chart',async()
  expect(JSON.parse(update[1][0]).matchingPreferences).toMatchObject(matchingPreferences);
  expect(()=>validateExchangeReferral({...args.input,matchingPreferences:{specialties:['invalid']}})).toThrow('Select valid');
 });
+it('requires a location choice for in-person referrals and persists it with insurance', async () => {
+  expect(() => validateExchangeReferral({ ...args.input, modality: 'in_person' })).toThrow('service location');
+  await createExchangeReferral({ ...args, input: { ...args.input, modality: 'in_person', serviceLocation: 'Denver', insurance: 'Tricare' } });
+  const update = mocks.execute.mock.calls.find(([sql]) => sql.startsWith('UPDATE clients SET intake_preferences_json'));
+  expect(JSON.parse(update[1][0])).toMatchObject({ serviceLocation: 'Denver', insurance: 'Tricare', preferredModality: 'in_person' });
+});

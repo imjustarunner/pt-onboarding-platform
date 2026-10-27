@@ -7,7 +7,7 @@ export function supportExchangeSummary(summary = {}) {
     demographics: summary.demographics || {}, diagnoses: [], presentingProblems: [],
     presentingProblemSource: null, presentingProblemUpdatedAt: null,
     preferences: {
-      insurance: preferences.insurance || null, modality: preferences.modality || null,
+      serviceLocation: preferences.serviceLocation || null, insurance: preferences.insurance || null, modality: preferences.modality || null,
       providerGender: preferences.providerGender || null,
       matchingPreferences: preferences.matchingPreferences || null,
       schedule: schedule ? { days: schedule.days, periods: schedule.periods, windows: schedule.windows, timezone: schedule.timezone } : null

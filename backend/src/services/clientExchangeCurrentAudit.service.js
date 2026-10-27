@@ -2,7 +2,7 @@ import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import { getListingForMatching } from './clientExchange.service.js';
 import { loadExchangeCandidates, evaluateExchangeCandidate } from './clientExchangeCandidates.service.js';
-import { allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
+import { eligibleExchangeProvider } from '../utils/clientExchangeProvider.js';
 
 /** Read-only evaluation for an already tenant-authorized support request. Sends no notifications. */
 export async function currentExchangeAudit(audit, agencyId) {
@@ -14,9 +14,9 @@ export async function currentExchangeAudit(audit, agencyId) {
   const { users, facets } = await loadExchangeCandidates(agencyId);
   const providers = [];
   for (const user of users) {
-    if (!allowQaExchangeRecipient(agency, user)) continue;
+    if (!eligibleExchangeProvider(user, agency)) continue;
     const previous = audit.providers.find(row => Number(row.userId) === Number(user.id));
-    const decision = await evaluateExchangeCandidate({ user, listing, client, facets: facets.get(Number(user.id)) });
+    const decision = await evaluateExchangeCandidate({ user, agency, listing, client, facets: facets.get(Number(user.id)) });
     providers.push({ ...previous, userId: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' '),
       email: user.work_email || user.email, ...decision, views: previous?.views || 0 });
   }

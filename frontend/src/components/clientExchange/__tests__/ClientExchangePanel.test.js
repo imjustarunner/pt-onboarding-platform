@@ -37,7 +37,7 @@ describe('exchange agency loading', () => {
 });
 
 it('shows the shared client details before allowing a request and prevents duplicate requests', async () => {
-  const listing = { id: 4, agencyId: 2, status: 'requested', currentProviderUserId: 99, presentingProblems: ['Current treatment concern'], diagnoses: ['F41.1 — Anxiety'], pendingRequestCount: 1 };
+  const listing = { viewerFit: { status: 'match', canRequest: true }, id: 4, agencyId: 2, status: 'requested', currentProviderUserId: 99, presentingProblems: ['Current treatment concern'], diagnoses: ['F41.1 — Anxiety'], pendingRequestCount: 1 };
   mocks.user = { id: 7, role: 'provider' };
   mocks.store = reactive({ currentAgency: { id: 2 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
   mocks.route.query = { listingId: '4' };
@@ -74,5 +74,24 @@ it('shows the saved referral reference and opens its details after posting', asy
   expect(wrapper.find('[role="status"]').text()).toContain('Referral #12 posted');
   expect(wrapper.text()).toContain('Synthetic referral notes');
   expect(wrapper.find('.cep-detail-posted').text()).toContain('Referral #12');
+});
+
+
+it.each([
+  { status: 'not_match', canRequest: false, blockers: [{ code: 'insurance', message: 'You are not verified to accept Tricare.' }], adjustments: [], label: 'Request blocked' },
+  { status: 'not_match', canRequest: true, blockers: [], adjustments: [{ code: 'schedule', message: 'Open availability before care begins.' }], label: 'Can request' }
+])('explains fit and enforces the request state ($label)', async fit => {
+  const listing = { id: 4, agencyId: 2, status: 'open', clientType: 'clinical', currentProviderUserId: 99,
+    viewerFit: fit, preferences: { modality: 'in_person', serviceLocation: 'Denver', insurance: 'Tricare' } };
+  mocks.user = { id: 7, role: 'provider' };
+  mocks.store = reactive({ currentAgency: { id: 2 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
+  mocks.route.query = { listingId: '4' };
+  mocks.get.mockImplementation(async url => ({ data: url.endsWith('/4') ? { listing, requests: [] } : { listings: [listing], requests: [] } }));
+  const wrapper = makeWrapper(); await flushPromises();
+  expect(wrapper.text()).toContain(fit.label);
+  expect(wrapper.text()).toContain('In-person location: Denver');
+  expect(wrapper.text()).toContain('Clinical / Therapy');
+  expect(wrapper.text()).toContain([...fit.blockers, ...fit.adjustments][0].message);
+  expect(wrapper.findAll('button').some(button => button.text() === 'Request this client')).toBe(fit.canRequest);
   wrapper.unmount();
 });

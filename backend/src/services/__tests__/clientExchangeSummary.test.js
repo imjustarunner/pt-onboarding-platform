@@ -50,3 +50,9 @@ it('uses a minimal provider referral until newer clinical records are available'
   const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, gender: 'female', intake_preferences_json: { exchangeReferral: { age: 9, diagnoses: 'F41.1', presentingProblem: 'Worry' }, preferredProviderGender: 'female' } } });
   expect(summary).toMatchObject({ demographics: { ageBand: '9', gender: 'female' }, diagnoses: ['F41.1'], presentingProblems: ['Worry'], presentingProblemSource: 'Referral', preferences: { providerGender: 'female' } });
 });
+it('carries enrollment location and scheduling answers into an exchange listing', async () => {
+  const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, intake_preferences_json: {
+    serviceLocation: 'Denver', preferredModality: 'IN_PERSON', preferredDays: ['Tuesday'], preferredTimes: ['Evening'], preferredTimeZone: 'America/Denver', preferredSchedulingNotes: 'After work'
+  } } });
+  expect(summary.preferences).toMatchObject({ serviceLocation: 'Denver', modality: 'in_person', schedule: { days: ['Tuesday'], periods: ['evening'], timezone: 'America/Denver', notes: 'After work' } });
+});

@@ -7,6 +7,8 @@
     }"
     @click="$emit('select', listing)"
   >
+    <ExchangeMatchStatus :fit="listing.viewerFit" :compact="compact" />
+    <p v-if="compact" class="muted">{{ exchangeLocationLabel(listing.preferences) }}</p>
     <template v-if="compact">
       <div class="lc-compact-row">
         <strong class="lc-client-label">{{ clientLabel || 'Client' }} · #{{ listing.id }}</strong>
@@ -67,12 +69,12 @@
           </thead>
           <tbody>
             <tr v-for="r in requests" :key="r.id">
-              <td>{{ r.requestingProviderName || `Provider #${r.requestingProviderUserId}` }}</td>
+              <td>{{ r.requestingProviderName || `Provider #${r.requestingProviderUserId}` }}<ExchangeMatchStatus :fit="r.fit" /></td>
               <td>{{ r.message || '—' }}</td>
               <td><span class="status-badge" :class="`status-${r.status}`">{{ r.status }}</span></td>
               <td v-if="listing.canManageClaims">
                 <div v-if="r.status === 'pending'" class="lc-request-resolve">
-                  <button type="button" class="btn btn-primary btn-sm" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="r.fit?.canRequest === false" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
                     {{ listing.currentProviderUserId ? 'Transfer to provider' : 'Assign to provider' }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" @click="$emit('deny', { requestId: r.id, listingId: listing.id })">
@@ -89,6 +91,8 @@
 </template>
 
 <script setup>
+import { exchangeLocationLabel } from '../../navigation/clientExchangeLocation.js';
+import ExchangeMatchStatus from './ExchangeMatchStatus.vue';
 import { computed, ref } from 'vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
 
@@ -115,8 +119,9 @@ const canWithdraw = computed(() => {
 });
 
 function formatClientType(t) {
-  if (t === 'clinical') return 'Office / Clinical client';
-  if (t === 'learning') return 'Learning client';
+  if (t === 'clinical') return 'Clinical / Therapy';
+  if (t === 'learning') return 'Learning / Tutoring';
+  if (t === 'basic_nonclinical') return 'Coaching / Consulting';
   if (t === 'school') return 'School client';
   return t;
 }

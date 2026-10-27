@@ -35,3 +35,13 @@ it('rejects a client whose agency no longer matches the listing',async()=>{
  await expect(currentExchangeAudit(original,450)).rejects.toMatchObject({status:403});
  expect(m.candidates).not.toHaveBeenCalled();
 });
+
+it('omits inactive and demo providers from current results without deleting historical receipts', async () => {
+ m.agency.mockResolvedValue({ id: 450, slug: 'live-agency' });
+ const active = { id: 10, role: 'provider', first_name: 'Active' };
+ m.candidates.mockResolvedValue({ users: [active, { id: 11, is_active: 0 }, { id: 12, status: 'TERMINATED' }, { id: 13, is_demo: 1 }], facets: new Map() });
+ const result = await currentExchangeAudit(original, 450);
+ expect(result.providers.map(p => p.userId)).toEqual([10]);
+ expect(original.providers[0].emailDelivery).toEqual({ status: 'not_sent' });
+ expect(m.evaluate).toHaveBeenCalledTimes(1);
+});

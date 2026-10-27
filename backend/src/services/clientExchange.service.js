@@ -1,3 +1,8 @@
+import Agency from '../models/Agency.model.js';
+import { eligibleExchangeProvider, exchangeProviderSql } from '../utils/clientExchangeProvider.js';
+import { loadExchangeProvider, loadExchangeOpenings, exchangeProviderAudit, exchangeListingForEvaluation } from './clientExchangeEligibility.service.js';
+import { evaluateExchangeListing, exchangeNeedsOpenings } from '../utils/clientExchangeMatching.js';
+import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { providerHasAssignedClientAccess } from './clientRecordAccess.service.js';
 import { exchangeSafeValue, exchangeSafeText } from '../utils/clientExchangePrivacy.js';
@@ -169,7 +174,9 @@ export async function listListings({ agencyId, status, viewerUserId, viewerRole 
   for (let i = 0; i < (rows || []).length; i += 5) {
     await Promise.all(rows.slice(i, i + 5).map(hydrateListingSummary));
   }
-  return (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole })).filter(Boolean);
+  const listings = (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole })).filter(Boolean);
+  await attachViewerFit(listings, { viewerUserId, viewerRole, agencyId: aid, sourceRows: rows });
+  return listings;
 }
 
 async function hydrateListingSummary(row) {
@@ -233,7 +240,32 @@ export async function getListingById(listingId, { viewerUserId, viewerRole } = {
   const row = await getRawListingById(listingId);
   if (!row) return null;
   await hydrateListingSummary(row);
-  return redactListing(row, { viewerUserId, viewerRole });
+  const listing = redactListing(row, { viewerUserId, viewerRole });
+  if (listing) await attachViewerFit([listing], { viewerUserId, viewerRole, agencyId: listing.agencyId, sourceRows: [row] });
+  return listing;
+}
+
+async function attachViewerFit(listings, { viewerUserId, viewerRole, agencyId, sourceRows = [] }) {
+  if (!viewerUserId || !listings.length) return;
+  const context = await loadExchangeProvider({ userId: viewerUserId, agencyId });
+  if (!context.user && ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())) return;
+  const needsSchedule = listings.some(exchangeNeedsOpenings);
+  let slots;
+  if (context.user && needsSchedule) {
+    try { slots = await loadExchangeOpenings({ userId: viewerUserId, agencyId }); }
+    catch { /* Fit stays explicitly unverified when the scheduling service is unavailable. */ }
+  }
+  for (const listing of listings) {
+    const source = sourceRows.find(row => Number(row.id) === listing.id);
+    listing.viewerFit = evaluateExchangeListing({ ...context, listing: source ? mapListingRow(source) : listing, slots });
+  }
+}
+
+export async function getMatchingAudit(listingId, { viewerUserId, viewerRole }) {
+  const row = await getRawListingById(listingId);
+  if (!row || !isPrivilegedViewer({ viewerUserId, viewerRole, listing: row })) return null;
+  await hydrateListingSummary(row);
+  return exchangeProviderAudit({ listing: mapListingRow(row), agencyId: Number(row.agency_id) });
 }
 
 export async function createListing({
@@ -281,6 +313,9 @@ export async function createListing({
   const sharedSummary = mergeExchangeSummary(savedSummary, {
     demographics: safeJson(demographics), preferences: safeJson(preferences),
     presentingProblems: safeJson(presentingProblems), diagnoses: safeJson(diagnoses)
+  });
+  sharedSummary.preferences.serviceLocation = normalizeExchangeLocation(sharedSummary.preferences.serviceLocation, {
+    required: !onlyUnassigned && ['in_person', 'either'].includes(String(safeJson(preferences)?.modality || '').toLowerCase())
   });
   sharedSummary.preferences.additionalPresentingProblems = summaryItems(presentingProblems);
   sharedSummary.preferences.presentingProblemSource = savedSummary.presentingProblemSource;
@@ -352,7 +387,12 @@ export async function listRequestsForListing(listingId, { viewerUserId, viewerRo
      ORDER BY FIELD(r.status, 'pending', 'approved', 'denied', 'withdrawn'), r.created_at ASC`,
     [Number(listingId)]
   );
-  const mapped = (rows || []).map(mapRequestRow);
+  const visibleRows = privileged ? rows : rows.filter(row => Number(row.requesting_provider_user_id) === Number(viewerUserId));
+  await hydrateListingSummary(listing);
+  const mapped = await Promise.all((visibleRows || []).map(async row => {
+    const context = await loadExchangeProvider({ userId: row.requesting_provider_user_id, agencyId: listing.agency_id });
+    return { ...mapRequestRow(row), fit: evaluateExchangeListing({ ...context, listing: exchangeListingForEvaluation(mapListingRow(listing)) }) };
+  }));
   if (privileged) return mapped;
   // Non-privileged viewers only ever see their own request rows.
   return mapped.filter((r) => Number(r.requestingProviderUserId) === Number(viewerUserId || 0));
@@ -381,13 +421,10 @@ export async function listMyRequests({ agencyId, requestingProviderUserId }) {
  * listing, and auto-denies any other pending requests for the same listing.
  */
 export async function listReferralProviders(agencyId) {
-  const [rows] = await pool.execute(`SELECT DISTINCT u.id, u.first_name, u.last_name
-    FROM users u JOIN user_agencies ua ON ua.user_id=u.id
-    WHERE ua.agency_id=? AND ua.is_active=1 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
-    AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED','PROSPECTIVE','TERMINATED_PENDING')
-    AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access=1)
-    ORDER BY u.first_name,u.last_name`, [Number(agencyId)]);
-  return rows;
+  const agency = await Agency.findById(agencyId);
+  const [rows] = await pool.execute(`SELECT DISTINCT u.* FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+    WHERE ua.agency_id = ? AND ${exchangeProviderSql} ORDER BY u.first_name, u.last_name`, [Number(agencyId)]);
+  return rows.filter(user => eligibleExchangeProvider(user, agency)).map(({ id, first_name, last_name }) => ({ id, first_name, last_name }));
 }
 async function assertReferralProvider(agencyId, userId) {
   const providers = await listReferralProviders(agencyId);

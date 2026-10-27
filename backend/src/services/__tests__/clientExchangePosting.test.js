@@ -55,3 +55,8 @@ it('queues notifications atomically so posting does not wait for a provider-by-p
   const normal=mocks.execute.getMockImplementation();mocks.commit.mockClear();mocks.execute.mockImplementation(async(sql,params)=>{if(sql.includes('INSERT INTO client_exchange_delivery_runs'))throw Error('queue unavailable');return normal(sql,params);});
   await expect(insertExchangeListing(args)).rejects.toThrow('queue unavailable');expect(mocks.commit).not.toHaveBeenCalled();expect(mocks.rollback).toHaveBeenCalled();
 });
+
+it('saves the requested service location for later referrals', async () => {
+  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { serviceLocation: 'Colorado Springs' } } });
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.serviceLocation'"), ['Colorado Springs', 12, 2]);
+});

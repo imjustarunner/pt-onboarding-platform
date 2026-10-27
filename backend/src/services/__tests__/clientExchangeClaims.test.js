@@ -1,8 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ poolExecute: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), sync: vi.fn(), ensure: vi.fn(), track: vi.fn() }));
+const mocks = vi.hoisted(() => ({ poolExecute: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), sync: vi.fn(), ensure: vi.fn(), track: vi.fn(), accepted: vi.fn(), profile: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.poolExecute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../clientProviderAssignmentSync.service.js', () => ({ afterLegacyProviderFieldsChanged: mocks.sync, ensureClientProviderAssignmentRow: mocks.ensure }));
 vi.mock('../officeClientAcceptance.service.js', () => ({ recordProviderAssignmentChange: mocks.track }));
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 2, slug: 'itsco' }) } }));
+vi.mock('../../models/ProviderPublicProfile.model.js', () => ({ default: { getForProvider: mocks.profile } }));
+vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: async () => new Map() }));
+vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAcceptedInsurancesForDisplay: mocks.accepted }));
+vi.mock('../clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: async () => ({ demographics: {}, preferences: {}, diagnoses: [], presentingProblems: [] }) }));
 import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from '../clientExchangeClaims.service.js';
 let listing, client, claims, eligible;
 beforeEach(() => {
@@ -10,9 +15,13 @@ beforeEach(() => {
   listing = { id: 1, agency_id: 2, client_id: 3, posted_by_user_id: 8, current_provider_user_id: 7, status: 'open' };
   client = { id: 3, agency_id: 2, organization_id: 2, provider_id: 7, client_type: 'clinical', status: 'CURRENT' };
   claims = []; eligible = true;
+  mocks.profile.mockResolvedValue({ agencyAvailability: { seesClients: true, acceptingNewClients: true, inPerson: true } });
+  mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Tricare' }], excluded: [] });
   mocks.poolExecute.mockImplementation(async () => [[{ listing_id: 1 }]]);
   mocks.execute.mockImplementation(async (sql, args) => {
     if (sql.startsWith('SELECT * FROM client_exchange_listings')) return [[{ ...listing }]];
+    if (sql.startsWith('SELECT c.*')) return [[{ ...client }]];
+    if (sql.startsWith('SELECT u.*')) return [eligible ? [{ id: args[0], role: 'provider' }] : []];
     if (sql.startsWith('SELECT u.id')) return [eligible ? [{ id: args[0] }] : []];
     if (sql.startsWith('SELECT * FROM clients')) return [[{ ...client }]];
     if (sql.startsWith('SELECT * FROM client_exchange_requests')) return [[claims.find(c => c.id === args[0])].filter(Boolean)];
@@ -69,4 +78,35 @@ it('rolls back the assignment when a downstream write fails', async () => {
 it('withdraws under the same lock and prevents subsequent claims', async () => {
   await withdrawExchangeListing({ listingId: 1, actingUserId: 7 });
   await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).rejects.toMatchObject({ status: 409 });
+});
+
+it('blocks an insurance mismatch before inserting a request, including while closed', async () => {
+  client.insurance_type_label = 'Tricare';
+  mocks.profile.mockResolvedValue({ agencyAvailability: { seesClients: true, acceptingNewClients: false, inPerson: true } });
+  mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Aetna' }], excluded: [] });
+  await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).rejects.toThrow('Tricare');
+  expect(claims).toHaveLength(0);
+  expect(mocks.commit).not.toHaveBeenCalled();
+  expect(mocks.rollback).toHaveBeenCalledOnce();
+});
+it('allows a closed provider with accepted insurance to request', async () => {
+  client.insurance_type_label = 'Tricare';
+  mocks.profile.mockResolvedValue({ agencyAvailability: { seesClients: true, acceptingNewClients: false, inPerson: true } });
+  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
+  expect(claims).toHaveLength(1);
+});
+it('rechecks insurance at approval and leaves a previously allowed request unassigned', async () => {
+  client.insurance_type_label = 'Tricare';
+  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
+  mocks.accepted.mockResolvedValue({ accepted: [], excluded: ['Tricare'] });
+  vi.clearAllMocks();
+  await expect(resolveExchangeClaim({ requestId: 1, action: 'approve', actingUserId: 8, actingRole: 'support' })).rejects.toThrow('Tricare');
+  expect(mocks.ensure).not.toHaveBeenCalled(); expect(mocks.sync).not.toHaveBeenCalled();
+  expect(mocks.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE clients'))).toBe(false);
+  expect(mocks.commit).not.toHaveBeenCalled();
+});
+it('still allows the team to deny a now-ineligible request', async () => {
+  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
+  mocks.accepted.mockRejectedValue(new Error('Should not check coverage for denial'));
+  await expect(resolveExchangeClaim({ requestId: 1, action: 'deny', actingUserId: 8, actingRole: 'support' })).resolves.toBeDefined();
 });

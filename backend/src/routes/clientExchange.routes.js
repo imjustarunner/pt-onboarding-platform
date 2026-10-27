@@ -17,6 +17,7 @@ router.get('/listings', authenticate, ctrl.listListings);
 router.post('/listings', authenticate, ctrl.createListing);
 router.get('/listings/:id/audit', ctrl.getListingAudit);
 router.get('/listings/:id', authenticate, ctrl.getListing);
+router.get('/listings/:id/matching-audit', ctrl.getMatchingAudit);
 router.post('/listings/:id/withdraw', authenticate, ctrl.withdrawListing);
 router.post('/listings/:id/requests', authenticate, ctrl.createRequest);
 

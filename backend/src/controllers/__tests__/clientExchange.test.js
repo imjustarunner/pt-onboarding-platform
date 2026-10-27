@@ -5,10 +5,11 @@ vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssignedClientAccess: mocks.access, resolveClientRecordAccess: mocks.recordAccess }));
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
-vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mocks.create, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
+vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
 vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
+vi.mock('../../services/clientExchangeCurrentAudit.service.js', () => ({ currentExchangeAudit: async audit => audit }));
 vi.mock('../../services/clientExchangeAudit.service.js',()=>({getExchangeAudit:mocks.audit,recordExchangeView:mocks.view}));
-import { getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
+import { getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.execute.mockResolvedValue([[{authorized:1}]]); mocks.view.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -102,4 +103,14 @@ it('records detail views only after listing visibility and agency access are ver
  const req=request();req.params={id:9};mocks.listing.mockResolvedValue(null);await getListing(req,response(),vi.fn());expect(mocks.view).not.toHaveBeenCalled();
  mocks.listing.mockResolvedValue({id:9,agencyId:3});mocks.execute.mockResolvedValue([[]]);await getListing(req,response(),vi.fn());expect(mocks.view).not.toHaveBeenCalled();
  mocks.listing.mockResolvedValue({id:9,agencyId:2});mocks.execute.mockResolvedValue([[{authorized:1}]]);mocks.requests.mockResolvedValue([]);await getListing(req,response(),vi.fn());expect(mocks.view).toHaveBeenCalledWith({listingId:9,userId:7});
+});
+
+it('limits the matching audit to the referring team within the listing agency', async () => {
+  const req = request(); req.params = { id: 11 };
+  mocks.listing.mockResolvedValue({ id: 11, agencyId: 2 }); mocks.audit.mockResolvedValue(null);
+  const denied = response(); await getMatchingAudit(req, denied, vi.fn()); expect(denied.status).toHaveBeenCalledWith(403);
+  mocks.audit.mockResolvedValue({ providers: [] }); req.user.role = 'support';
+  const allowed = response(); await getMatchingAudit(req, allowed, vi.fn()); expect(allowed.json).toHaveBeenCalledWith({ audit: { providers: [] } });
+  mocks.audit.mockClear(); mocks.listing.mockResolvedValue({ id: 11, agencyId: 99 }); mocks.execute.mockResolvedValue([[]]);
+  const crossAgency = response(); await getMatchingAudit(req, crossAgency, vi.fn()); expect(crossAgency.status).toHaveBeenCalledWith(403); expect(mocks.audit).not.toHaveBeenCalled();
 });

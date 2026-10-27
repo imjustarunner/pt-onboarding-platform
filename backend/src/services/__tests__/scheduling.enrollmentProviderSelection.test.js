@@ -68,6 +68,12 @@ describe('staff-visible pending provider placement', () => {
   let intakeData;
   beforeEach(async () => { intakeData = data({ preferred_office_provider_ids: ['8'] }); await validate(intakeData); });
   const record = (db, intakeData) => recordEnrollmentProviderSelection(db, { agencyId: 2, clientIds: [30, 30], submissionId: 70, intakeData });
+  it('saves service location and schedule even when enrollment skips choosing a provider', async () => {
+    const db = database();
+    await record(db, { responses: { submission: { preferred_service_location: 'Colorado Springs', preferred_service_format: 'IN_PERSON', preferred_days: ['Monday'], preferred_times: ['Morning'] } } });
+    expect(db.preferences()).toMatchObject({ serviceLocation: 'Colorado Springs', preferredModality: 'in_person', preferredDays: ['Monday'], preferredTimes: ['Morning'] });
+    expect(db.notifications).toHaveLength(0);
+  });
   it('saves provider-specific waitlist metadata and a single staff alert without assigning a clinician', async () => {
     const db = database();
     await record(db, intakeData);

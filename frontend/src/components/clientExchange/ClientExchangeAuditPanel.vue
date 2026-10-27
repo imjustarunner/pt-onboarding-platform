@@ -10,11 +10,12 @@
       <p v-if="!audit.run">No delivery evaluation has been recorded yet.</p>
       <p v-else-if="!audit.run.evaluated_at">Matching notifications are queued.</p>
       <p v-else>Notification evaluation {{ new Date(audit.run.evaluated_at).toLocaleString() }}<span v-if="audit.run.error_code"> · Some results need review.</span></p>
-      <p>Sent means accepted by the sending service, not proof of reading. Delivery receipts describe the original notification attempts; current matches can differ. Days and times need manual review.</p>
+      <p>Sent means accepted by the sending service, not proof of reading. Delivery receipts describe the original notification attempts; current matches can differ. Unverified availability needs confirmation before care begins.</p>
       <details v-for="group in [{title:'Matched providers',rows:matched},{title:'Providers not matched / needing review',rows:unmatched}]" :key="group.title">
         <summary>{{ group.title }} ({{ group.rows.length }})</summary>
         <article v-for="provider in group.rows" :key="provider.userId">
           <strong>{{ provider.name }}</strong>
+          <ExchangeMatchStatus v-if="provider.canRequest !== undefined" :fit="provider" />
           <p v-for="check in provider.checks" :key="check.field">{{ check.status }}: {{ check.reason }}</p>
           <p>Email: {{ delivery(provider.emailDelivery) }}</p>
           <p>Text: {{ delivery(provider.smsDelivery) }}</p>
@@ -26,6 +27,7 @@
   </section>
 </template>
 <script setup>
+import ExchangeMatchStatus from './ExchangeMatchStatus.vue';
 import {ref,computed,watch} from 'vue';
 import api from '../../services/api';
 const props=defineProps({listingId:{type:Number,required:true}});

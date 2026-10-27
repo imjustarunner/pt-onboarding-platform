@@ -1943,6 +1943,11 @@
                 <option value="ALL">Either virtual or in person</option>
                 <option v-for="format in enrollmentModalityOptions" :key="format" :value="format">{{format==='VIRTUAL'?'Virtual':'In person'}}</option>
               </select>
+              <label v-if="enrollmentModality !== 'VIRTUAL'" for="enrollment-service-location">Where would you like in-person services?</label>
+              <select v-if="enrollmentModality !== 'VIRTUAL'" id="enrollment-service-location" v-model="intakeResponses.submission.preferred_service_location">
+                <option value="">Select a location…</option>
+                <option>Colorado Springs</option><option>Denver</option><option>Either location</option><option>Other location</option><option>Not yet decided</option>
+              </select>
               <p v-if="officeProvidersLoading" role="status">Checking Open and Waitlist providers…</p>
               <p v-if="officeProvidersError" role="alert">{{officeProvidersError}} <button type="button" @click="loadOfficeIntakeProviders">Try again</button></p>
               <fieldset class="enrollment-scheduling-preferences">

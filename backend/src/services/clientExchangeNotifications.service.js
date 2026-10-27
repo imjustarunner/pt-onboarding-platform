@@ -1,3 +1,4 @@
+import { eligibleExchangeProvider } from '../utils/clientExchangeProvider.js';
 import pool from '../config/database.js';
 import { allowQaExchangeRecipient, AURICWELL_QA_SLUG } from '../utils/auricwellQaPolicy.js';
 import { buildExchangeEmail, exchangeNotificationSummary } from '../utils/clientExchangeSummary.js';
@@ -28,10 +29,10 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
       const {users,facets}=await loadExchangeCandidates(agencyId);
       const history=await exchangeDeliveryHistory(listing);
       for(const user of users) {
-        if(!allowQaExchangeRecipient(agency,user)){summary.skipped++;continue;}
+        if(!eligibleExchangeProvider(user,agency)){summary.skipped++;continue;}
         const previous=history.get(Number(user.id))||{};
         let decision;
-        try { decision=await evaluateExchangeCandidate({user,listing,client,facets:facets.get(Number(user.id))}); }
+        try { decision=await evaluateExchangeCandidate({user,agency,listing,client,facets:facets.get(Number(user.id))}); }
         catch(error) { decision={matched:false,checks:[{field:'evaluation',status:'error',reason:'Provider data could not be evaluated; retry required.'}]};summary.failed++; }
         await saveExchangeDecision(listing.id,user.id,decision);
         await saveExchangeDelivery(listing.id,user.id,previous);

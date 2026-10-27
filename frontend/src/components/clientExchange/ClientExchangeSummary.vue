@@ -4,6 +4,7 @@
       <span v-if="listing.demographics?.ageBand">Age: {{ listing.demographics.ageBand }}</span>
       <span v-if="listing.demographics?.gender">{{ listing.demographics.gender }}</span>
     </p>
+    <p class="summary-location">{{ exchangeLocationLabel(listing.preferences) }}</p>
     <section>
       <strong>Presenting problems</strong>
       <p v-if="listing.presentingProblemSource" class="muted">{{ listing.presentingProblemSource }}<span v-if="listing.presentingProblemUpdatedAt"> · {{ new Date(listing.presentingProblemUpdatedAt).toLocaleDateString() }}</span></p>
@@ -29,6 +30,7 @@
   </div>
 </template>
 <script setup>
+import { exchangeLocationLabel } from '../../navigation/clientExchangeLocation.js';
 import { FOCUS_GROUPS } from '../../navigation/providerFocus.js';
 import { clinicalMatchingSpecialties } from '../../navigation/clientMatching.js';
 import { computed } from 'vue';
@@ -51,7 +53,7 @@ const suggestedSpecialties=computed(()=>clinicalMatchingSpecialties(props.listin
 const scheduleLines = computed(() => exchangeScheduleLines(props.listing.preferences?.schedule));
 const problems = computed(() => items(props.listing.presentingProblems));
 const diagnoses = computed(() => items(props.listing.diagnoses));
-const modalityLabel = computed(() => ({ in_person: 'In person', virtual: 'Virtual', either: 'In person or virtual' }[props.listing.preferences?.modality] || props.listing.preferences?.modality));
+const modalityLabel = computed(() => ({ in_person: 'In person', virtual: 'Virtual', either: 'In person or virtual', all: 'In person or virtual' }[String(props.listing.preferences?.modality || '').toLowerCase()] || props.listing.preferences?.modality));
 </script>
 <style scoped>
 .exchange-summary { display: grid; gap: 12px; overflow-wrap: anywhere; }

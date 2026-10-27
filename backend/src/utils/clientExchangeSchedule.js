@@ -41,7 +41,8 @@ export function scheduleFromIntake(preferences = {}, timezone = '') {
   if (preferences.exchangeSchedule) return preferences.exchangeSchedule;
   const rawDays = Array.isArray(preferences.preferredDays) ? preferences.preferredDays : [];
   const days = rawDays.map(day => scheduleDays.find(valid => valid.toLowerCase() === String(day).toLowerCase())).filter(Boolean);
-  const rawPeriods = Array.isArray(preferences.preferredTimeOfDay) ? preferences.preferredTimeOfDay : [preferences.preferredTimeOfDay];
+  const timePreferences = preferences.preferredTimes || preferences.preferredTimeOfDay;
+  const rawPeriods = Array.isArray(timePreferences) ? timePreferences : [timePreferences];
   const periods = Object.keys(schedulePeriods).filter(key => rawPeriods.some(raw => String(raw || '').toLowerCase().replace(/ /g, '_').includes(key)));
-  return { days, periods, windows: [], timezone: preferences.timezone || timezone || '', notes: '' };
+  return { days, periods, windows: [], timezone: preferences.preferredTimeZone || preferences.timezone || timezone || '', notes: preferences.preferredSchedulingNotes || '' };
 }

@@ -101,6 +101,9 @@
         <label class="field"><span class="label">Preferred provider gender</span>
           <select v-model="providerGender" class="select"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select>
         </label>
+        <label v-if="modality !== 'virtual'" class="field"><span class="label">Requested in-person service location</span>
+          <select v-model="serviceLocation" class="select"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
+        </label>
         <ClientMatchingPreferences v-model="matchingPreferences" :max-selections="0" expanded />
         <ClientSchedulePreferences v-model="schedule" />
 
@@ -123,6 +126,7 @@
 </template>
 
 <script setup>
+import { exchangeLocations, normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
@@ -155,6 +159,7 @@ const ageBand = ref('');
 const gender = ref('');
 const presentingProblemsRaw = ref('');
 const modality = ref('');
+const serviceLocation = ref('');
 const providerGender = ref('');
 const insurance = ref('');
 const schedule = ref({});
@@ -172,7 +177,7 @@ watch(selectedClientId, async clientId => {
   const version = ++summaryVersion;
   sharedSummary.value = {};
   matchingPreferences.value = {};
-  schedule.value = {}; providerGender.value = '';
+  schedule.value = {}; providerGender.value = ''; serviceLocation.value = '';
   ageBand.value = ''; gender.value = ''; presentingProblemsRaw.value = ''; modality.value = ''; insurance.value = ''; notes.value = '';
   summaryError.value = '';
   summaryLoading.value = false;
@@ -185,6 +190,8 @@ watch(selectedClientId, async clientId => {
       schedule.value = sharedSummary.value.preferences?.schedule || {};
       matchingPreferences.value = sharedSummary.value.preferences?.matchingPreferences || {};
       providerGender.value = sharedSummary.value.preferences?.providerGender || '';
+      modality.value = sharedSummary.value.preferences?.modality || '';
+      serviceLocation.value = sharedSummary.value.preferences?.serviceLocation || '';
     }
   } catch (error) {
     if (version === summaryVersion) summaryError.value = error?.response?.data?.error?.message || 'Unable to load the client summary. Please try again.';
@@ -244,6 +251,7 @@ async function submit() {
         .map((s) => s.trim())
         .filter(Boolean),
       preferences: {
+        serviceLocation: normalizeExchangeLocation(serviceLocation.value, { required: ['in_person', 'either'].includes(modality.value) }),
         matchingPreferences: matchingPreferences.value,
         modality: modality.value || undefined,
         insurance: insurance.value || undefined,

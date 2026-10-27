@@ -35,6 +35,10 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
     }
     // Persist the alert job in the posting transaction, so a request timeout cannot lose it.
     await connection.execute('INSERT INTO client_exchange_delivery_runs (listing_id,agency_id) VALUES (?,?)',[result.insertId,agencyId]);
+
+    if (summary.preferences?.serviceLocation) {
+      await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.serviceLocation', ?) WHERE id = ? AND agency_id = ?`, [summary.preferences.serviceLocation, clientId, agencyId]);
+    }
     await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
       VALUES (?, ?, 'client_exchange_listing', NULL, 'open', ?)`, [clientId, postedByUserId, referralKind === 'additional_service' ? `Additional ${serviceType} services requested; primary provider retained` : 'Posted to Client Exchange for reassignment']);
     await connection.commit();

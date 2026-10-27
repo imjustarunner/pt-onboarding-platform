@@ -125,7 +125,7 @@ export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyI
   const [people] = await pool.execute('SELECT credential, title FROM users WHERE id = ? LIMIT 1', [Number(userId)]);
   const accepted = restrictPublicInsurances(merged, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
   if (forMatching) return {
-    accepted,
+    accepted: accepted.map(row => ({ ...row, aliases: merged.find(source => source.name === row.name)?.aliases || [] })),
     known: allRows.length > 0 || overrides.length > 0,
     excluded: [...excluded.flatMap(row=>[row.name,...(row.aliases||[])]), ...overrides.filter(row=>!Number(row.is_allowed)).map(row=>row.label)],
     credential: people[0] || {}

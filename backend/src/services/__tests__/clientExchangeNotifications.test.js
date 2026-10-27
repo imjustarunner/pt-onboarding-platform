@@ -166,3 +166,15 @@ it('uses the configured Exchange group and its actual reply mailbox',async()=>{
 it('does not send when the client is assigned or the listing closes during evaluation',async()=>{
   isExchangeListingOpen.mockResolvedValue(false);await notifyExchangeMatches({listing});expect(mocks.send).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
 });
+
+it('does not notify demo, archived, inactive or departing providers in a live agency', async () => {
+  mocks.execute.mockResolvedValue([[{ id: 10, role: 'provider', is_demo: 1 }, { id: 11, role: 'provider', is_active: 0 }, { id: 12, role: 'provider', is_archived: 1 }, { id: 13, role: 'provider', status: 'TERMINATED_PENDING' }]]);
+  await notifyExchangeMatches({ listing });
+  expect(mocks.notify).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
+  expect(mocks.dispatch).not.toHaveBeenCalled();
+});
+it('cannot send a matching notification when the provider does not accept the client insurance', async () => {
+  mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Aetna' }], known: true, excluded: [] });
+  await notifyExchangeMatches({ listing: { ...listing, preferences: { modality: 'virtual', insurance: 'Tricare' } } });
+  expect(mocks.notify).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
+});

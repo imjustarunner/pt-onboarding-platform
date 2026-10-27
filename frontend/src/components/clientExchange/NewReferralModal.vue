@@ -17,6 +17,10 @@
             <label>Preferred provider gender<select v-model="form.providerGender"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select></label>
             <label>Modality<select v-model="form.modality"><option value="">No preference</option><option value="in_person">In person</option><option value="virtual">Virtual</option><option value="either">Either</option></select></label>
           </div>
+          <label v-if="form.modality !== 'virtual'">Requested in-person service location
+            <select v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
+          </label>
+          <label>Insurance (if known)<input v-model="form.insurance" maxlength="200" placeholder="e.g. Tricare" /></label>
           <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
           <ClientSchedulePreferences v-model="form.schedule" />
           <details>
@@ -40,6 +44,7 @@
   </div>
 </template>
 <script setup>
+import { exchangeLocations, normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
 import { reactive, ref } from 'vue';
 import api from '../../services/api';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
@@ -48,7 +53,7 @@ import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpTo
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ agencyId: { type: Number, required: true } });
 const emit = defineEmits(['close', 'posted']);
-const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', modality: '', matchingPreferences: {}, schedule: {} });
+const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', modality: '', serviceLocation: '', insurance: '', matchingPreferences: {}, schedule: {} });
 const records = reactive({ demographics: '', intake: '', plan: '' });
 const requestId = crypto.randomUUID();
 const clientId = ref(null);
@@ -76,6 +81,7 @@ async function submit() {
   busy.value = true; error.value = '';
   try {
     const schedule = normalizeExchangeSchedule(form.schedule);
+    normalizeExchangeLocation(form.serviceLocation, { required: ['in_person', 'either'].includes(form.modality) });
     if (!clientId.value) {
       const { data } = await api.post('/client-exchange/referrals', { ...form, schedule, agencyId: props.agencyId, requestId });
       clientId.value = data.clientId;
