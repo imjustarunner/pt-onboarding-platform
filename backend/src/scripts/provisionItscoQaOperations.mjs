@@ -21,8 +21,9 @@ else {
   for(const d of definitions){
    const username=`qa.${d.key}.auricwell@example.com`;const [[existing]]=await db.execute('SELECT id FROM users WHERE email=?',[username]);if(existing)throw Error(`Fixture ${d.key} already exists; use its receipt`);
    const password=crypto.randomBytes(24).toString('base64url');
-   const [result]=await db.execute(`INSERT INTO users(email,personal_email,username,first_name,last_name,role,status,is_active,is_demo,created_via_dev_fill,password_hash,password_changed_at,identity_product,timezone,sees_clients)
-    VALUES(?,?,?,?,?,'support','ACTIVE_EMPLOYEE',?,1,1,?,?,'full_suite','America/Denver',0)`,[username,username,username,d.first,d.last,d.active,await bcrypt.hash(password,12),d.expired?'2026-05-01 00:00:00':new Date()]);
+   const passwordHash=await bcrypt.hash(password,12);
+   const [result]=await db.execute(`INSERT INTO users(email,personal_email,username,first_name,last_name,role,status,is_active,is_demo,created_via_dev_fill,password_hash,password_changed_at,temporary_password_hash,temporary_password_expires_at,identity_product,timezone,sees_clients)
+    VALUES(?,?,?,?,?,'support',?,?,1,1,?,?,?,?,'full_suite','America/Denver',0)`,[username,username,username,d.first,d.last,d.active?'ACTIVE_EMPLOYEE':'INACTIVE_EMPLOYEE',d.active,d.expired?null:passwordHash,d.expired?null:new Date(),d.expired?passwordHash:null,d.expired?'2026-05-01 00:00:00':null]);
    await db.execute("INSERT INTO user_agencies(user_id,agency_id,is_active,is_default,agency_role,has_billing_access,include_on_disclosure) VALUES(?,450,1,1,'support',?,0)",[result.insertId,d.billing]);
    await db.execute("INSERT INTO user_preferences(user_id,timezone,sms_enabled,sms_forwarding_enabled,sms_support_mirror_enabled) VALUES(?,'America/Denver',0,0,0)",[result.insertId]);
    accounts.push({key:d.key,userId:result.insertId,username,password,role:'support',billingAccess:!!d.billing,active:!!d.active,expiredPassword:!!d.expired,agencyId:450,login:'https://app.itsco.health/auricwell-qa-demo/login'});
