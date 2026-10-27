@@ -71,7 +71,8 @@ it('sends one combined account confirmation for multiple selected purposes with 
   expect(message.confirmationPurposes).toEqual(purposes);
   expect(message.body).toContain('ITSCO:');
   for(const keyword of ['STOP','HELP','START'])expect(message.body).toContain(keyword);
-  expect(message.body.length).toBeLessThanOrEqual(160);
+  expect(message.body).toContain("You'll receive appointment reminders, messages from your care team and billing updates.");
+  expect(message.body.length).toBeLessThanOrEqual(306);
   expect(result.every(entry=>entry.confirmationMessageId==='one-confirmation')).toBe(true);
 });
 it('does not promise START when the registered program does not support restarting',async()=>{

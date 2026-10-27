@@ -5,6 +5,18 @@ import { staffCommunicationKey, staffDeliveryKinds } from '../utils/staffCommuni
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
+function enrollmentMessageTypes(entries) {
+  const labels = {
+    reminders: 'appointment reminders', care: 'messages from your care team',
+    billing: 'billing updates', workforce: 'staff updates',
+    account_security: 'account security messages', polling: 'surveys', marketing: 'practice announcements'
+  };
+  const enabled = new Map(entries.map(entry => [entry.purpose, entry]));
+  const names = Object.entries(labels).filter(([purpose]) => enabled.has(purpose)).map(([purpose, label]) =>
+    purpose === 'workforce' && enabled.get(purpose).staffNotificationKind === 'messageAlerts' ? 'staff message alerts' : label);
+  return names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
 async function prepareEnrollment({ from, phone, purpose, status, evidence, actorUserId }) {
   const errors = validateSmsConsentEvidence({ purpose, status, evidence });
   if (errors.length) throw smsPolicyError('sms_consent_evidence_required', errors.join('; '));
@@ -64,7 +76,7 @@ export async function enrollSmsRecipientBatch({ from, phone, enrollments, actorU
       const sent = await sendConfirmation({ to: phone, from: first.sender.phone_number, purpose: first.purpose,
         agencyId: first.sender.agency_id, staffNotificationKind: first.staffNotificationKind,
         confirmationPurposes: accepted.map(e => e.purpose),
-        body: `${brand}: Selected texts are on. Frequency varies. Message and data rates may apply. STOP to stop, HELP for help.${restart}` });
+        body: `${brand}: You'll receive ${enrollmentMessageTypes(accepted)}. Frequency varies. Message and data rates may apply. STOP to stop, HELP for help.${restart}` });
       confirmationMessageId = sent?.sid || null;
     }
   } catch (error) {

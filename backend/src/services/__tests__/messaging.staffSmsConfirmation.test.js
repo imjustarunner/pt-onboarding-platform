@@ -17,7 +17,7 @@ let signed, activation, send, connection;
 const review = () => reviewSmsConsentRequest({agencyId:2,requestId:4,actorUserId:501,signerVerified:true,sendConfirmation:send});
 beforeEach(() => {
   vi.resetAllMocks(); activation = {};
-  signed = {choices:{workforce:'yes',polling:'yes'},disclosure:{text:'Signed staff choices',enrollmentCategory:'staff_communications'},signedAt:'2026-01-01T00:00:00Z',staffCommunicationReference:'staff_communications:7:1'};
+  signed = {choices:{workforce:'yes',polling:'yes'},disclosure:{text:'Signed staff choices',enrollmentCategory:'staff_communications',purposes:[{purpose:'workforce'},{purpose:'polling'}]},signedAt:'2026-01-01T00:00:00Z',staffCommunicationReference:'staff_communications:7:1'};
   currentStaffEnrollmentEvidence.mockImplementation(async () => signed);
   getSmsSender.mockResolvedValue({registration,agency_id:2,scope:'campaign:C2',phone_number:'+13035550100'});
   isSmsSuppressed.mockResolvedValue(false);
@@ -38,7 +38,7 @@ it('confirms both selected types once and does not resend on a repeated review',
   const result = await review();
   expect(send).toHaveBeenCalledTimes(1);
   expect(send.mock.calls[0][0]).toMatchObject({purpose:'workforce',confirmationPurposes:['workforce','polling']});
-  expect(send.mock.calls[0][0].body).toContain('Selected texts are on');
+  expect(send.mock.calls[0][0].body).toContain("You'll receive staff updates and surveys.");
   expect(send.mock.calls[0][0].body).toContain('STOP to stop, HELP for help');
   expect(send.mock.calls[0][0].body.length).toBeLessThanOrEqual(160);
   expect(result.results.workforce.confirmationMessageId).toBe('one-confirmation');

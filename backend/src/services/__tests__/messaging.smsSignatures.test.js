@@ -7,11 +7,11 @@ vi.mock('../chatEncryption.service.js', () => ({
   decryptChatText: vi.fn((value) => value.ciphertextB64.replace('encrypted:', ''))
 }));
 vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn() }));
-vi.mock('../smsEnrollment.service.js', () => ({ enrollSmsRecipient: vi.fn(), enrollSmsRecipientBatch: vi.fn() }));
+vi.mock('../smsEnrollment.service.js', () => ({ enrollSmsRecipientBatch: vi.fn() }));
 import pool from '../../config/database.js';
 import { isChatEncryptionConfigured, encryptChatText } from '../chatEncryption.service.js';
 import { getSmsSender } from '../smsCompliance.service.js';
-import { enrollSmsRecipient } from '../smsEnrollment.service.js';
+import { enrollSmsRecipientBatch } from '../smsEnrollment.service.js';
 import { validateSmsSignature, signSmsConsentRequest, viewSmsConsentRequest, reviewSmsConsentRequest } from '../smsConsentRequest.service.js';
 import { buildSmsConsentDisclosure } from '../../utils/smsConsentDisclosure.js';
 
@@ -28,6 +28,7 @@ const valid = { ...signature, disclosure, expectedHash: disclosureHash, expected
 beforeEach(() => {
   vi.clearAllMocks(); isChatEncryptionConfigured.mockReturnValue(true);
   pool.execute.mockResolvedValue([[row]]);
+  enrollSmsRecipientBatch.mockImplementation(async ({enrollments}) => enrollments.map(e => ({purpose:e.purpose,status:e.status,confirmationMessageId:e.status==='opted_in'?'one-confirmation':null})));
 });
 
 describe('recipient/guardian signatures', () => {
@@ -52,7 +53,7 @@ describe('recipient/guardian signatures', () => {
     pool.execute.mockResolvedValueOnce([[row]]).mockResolvedValueOnce([{ affectedRows: 1 }]);
     expect(await signSmsConsentRequest({ token, input: signature, ip: '127.0.0.1', userAgent: 'test' })).toMatchObject({ signed: true, awaitingReview: true });
     expect(JSON.parse(encryptChatText.mock.calls[0][0])).toMatchObject({ signerName: 'Sample Guardian', signerRole: 'guardian', choices: signature.choices, disclosure, disclosureHash });
-    expect(enrollSmsRecipient).not.toHaveBeenCalled();
+    expect(enrollSmsRecipientBatch).not.toHaveBeenCalled();
   });
   it('does not save unsigned or stale requests', async () => {
     await expect(signSmsConsentRequest({ token, input: { ...signature, electronicSignatureAccepted: false } })).rejects.toMatchObject({ status: 400 });
@@ -66,11 +67,11 @@ describe('recipient/guardian signatures', () => {
   });
   it('requires an explicit signer review attestation', async () => {
     await expect(reviewSmsConsentRequest({ agencyId: 2, requestId: 4, actorUserId: 7 })).rejects.toMatchObject({ code: 'sms_review_required' });
-    expect(enrollSmsRecipient).not.toHaveBeenCalled();
+    expect(enrollSmsRecipientBatch).not.toHaveBeenCalled();
   });
   it('cannot activate a request without a stored signature', async () => {
     await expect(reviewSmsConsentRequest({ agencyId: 2, requestId: 4, actorUserId: 7, signerVerified: true })).rejects.toMatchObject({ code: 'sms_signature_missing' });
-    expect(enrollSmsRecipient).not.toHaveBeenCalled();
+    expect(enrollSmsRecipientBatch).not.toHaveBeenCalled();
   });
   it('checks the agency and current disclosure before activation', async () => {
     const signed = { ...signature, disclosure, signedAt: '2026-01-01T00:00:00Z' };
@@ -79,7 +80,7 @@ describe('recipient/guardian signatures', () => {
     getSmsSender.mockResolvedValue({ registration: { ...registration, supportContact: 'changed@example.org' } });
     await expect(reviewSmsConsentRequest({ agencyId: 2, requestId: 4, actorUserId: 7, signerVerified: true })).rejects.toMatchObject({ code: 'sms_disclosure_changed' });
     expect(pool.execute.mock.calls[0][1]).toEqual([4, 2]);
-    expect(enrollSmsRecipient).not.toHaveBeenCalled();
+    expect(enrollSmsRecipientBatch).not.toHaveBeenCalled();
   });
   it('keeps client and staff subscription choices separate', () => {
     const program = { ...registration, purposes: ['care', 'reminders', 'workforce'] };
@@ -95,7 +96,8 @@ describe('recipient/guardian signatures', () => {
       .mockResolvedValueOnce([[{ activation_json: null }]]);
     getSmsSender.mockResolvedValue({ registration, phone_number: '+13035550100' });
     await expect(reviewSmsConsentRequest({ agencyId: 2, requestId: 4, actorUserId: 7, signerVerified: true })).resolves.toMatchObject({ reviewed: true });
-    expect(enrollSmsRecipient.mock.calls.map(([call]) => [call.purpose, call.status])).toEqual([['care', 'opted_in'], ['reminders', 'opted_out']]);
+    expect(enrollSmsRecipientBatch).toHaveBeenCalledOnce();
+    expect(enrollSmsRecipientBatch.mock.calls[0][0].enrollments.map(e => [e.purpose,e.status])).toEqual([['care', 'opted_in'], ['reminders', 'opted_out']]);
     // A later workforce-only signature cannot supersede this family's care consent.
     const newerQuery = pool.execute.mock.calls.find(([sql]) => sql.includes('signed_at > ?'));
     expect(newerQuery[0]).toContain("JSON_OVERLAPS(JSON_EXTRACT(disclosure_json, '$.purposes[*].purpose')");
@@ -111,7 +113,7 @@ describe('recipient/guardian signatures', () => {
       .mockResolvedValueOnce([{ affectedRows: 0 }]);
     getSmsSender.mockResolvedValue({ registration });
     await expect(reviewSmsConsentRequest({ agencyId: 2, requestId: 4, actorUserId: 7, signerVerified: true })).rejects.toMatchObject({ code: reason === 'newer' ? 'sms_consent_superseded' : 'sms_review_in_progress' });
-    expect(enrollSmsRecipient).not.toHaveBeenCalled();
+    expect(enrollSmsRecipientBatch).not.toHaveBeenCalled();
   });
 
 });
