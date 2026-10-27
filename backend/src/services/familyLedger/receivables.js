@@ -52,6 +52,7 @@ export async function createReceivable(input, connection = null) {
   let hold = input.reviewRequired ? 'staff_review' : !shares ? 'payer_assignment' : null;
   if (confirmedZero) { status = 'paid'; hold = null; }
   else try { await assertCollectible(proposed, db); } catch (e) { if (e.status !== 409) throw e; status = 'review'; hold = 'insurance_review'; }
+  if (source === 'qa_appointment') { status = 'review'; hold = 'synthetic_demo'; }
   const [result] = await db.execute(`INSERT INTO family_receivables (agency_id,client_id,source_type,source_key,service_domain,service_label,service_date,amount_cents,currency,due_date,status,insurance_reviewed,hold_reason,source_payload,created_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [agencyId, clientId, source, sourceKey, domain, String(input.serviceLabel || 'Services').slice(0,120), input.serviceDate ? dateOnly(input.serviceDate) : null, amount, 'USD', dateOnly(input.dueDate || today()), status, input.insuranceReviewed === true ? 1 : 0, hold, input.payload ? encryptFamilyBilling(input.payload, `receivable:${agencyId}:${clientId}`) : null, input.actorUserId || null]);
   const id = result.insertId;

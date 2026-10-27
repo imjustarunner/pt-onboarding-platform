@@ -61,6 +61,7 @@ export async function assertSharesAuthorized(agencyId, clientId, shares, db = po
   for (const s of normalizeShares(shares)) await requireResponsiblePayer(s.payerUserId, clientId, agencyId, db);
 }
 export async function assertCollectible(receivable, db = pool) {
+  if (receivable.source_type === 'qa_appointment') throw billingError(409, 'Synthetic appointment balances are for testing and cannot be collected.');
   if (receivable.status !== 'open' || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is settled or on hold and cannot be collected');
   await assertLedgerIntegrity(receivable,db);
   if(receivable.source_type==='clinical_self_pay'){const {assertSelfPayVisit}=await import('./serviceCharges.js');await assertSelfPayVisit(receivable);}

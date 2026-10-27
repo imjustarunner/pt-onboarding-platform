@@ -1,7 +1,7 @@
 import test, {after} from 'node:test';import assert from 'node:assert/strict';
 import pool from '../../config/database.js';import clinicalPool from '../../config/clinicalDatabase.js';
 after(async()=>{await pool.end();await clinicalPool.end();});
-import {allocateCents,dateOnly,cents,normalizeShares} from '../familyLedger/policy.js';
+import {allocateCents,dateOnly,cents,normalizeShares,assertCollectible} from '../familyLedger/policy.js';
 import {effectiveClinicalAccess} from '../guardianClinicalAccess.service.js';
 import {agingFor} from '../familyLedger/collections.js';
 const shares=[{payerUserId:10,basisPoints:5000},{payerUserId:20,basisPoints:5000}];
@@ -14,3 +14,5 @@ const grant={access_level:'full',medical_rights_verified:1,consent_basis:'legal_
 test('clinical disclosures require verified rights independently of financial responsibility',()=>{assert.deepEqual(effectiveClinicalAccess({link,dob:'2017-01-01'}).scopes,[]);assert.deepEqual(effectiveClinicalAccess({link,dob:'2017-01-01',grant:{...grant,medical_rights_verified:0}}).scopes,[]);assert.ok(effectiveClinicalAccess({link,dob:'2017-01-01',grant,asOf:'2026-09-11'}).scopes.includes('approve_goals'));});
 test('review dates, no-view links and adult consent close disclosure access',()=>{for(const value of [{grant:{...grant,revoked_at:new Date()}},{grant:{...grant,review_due_date:'2026-09-11'}},{link:{...link,permissions_json:{noView:true}}},{dob:'2000-01-01'}])assert.deepEqual(effectiveClinicalAccess({link,dob:'2017-01-01',grant,asOf:'2026-09-11',...value}).scopes,[]);});
 test('limited access excludes goals and frequency even if stored scopes include them',()=>{const access=effectiveClinicalAccess({link,dob:'2012-01-01',grant:{...grant,access_level:'limited'},asOf:'2026-09-11'});assert.deepEqual(access.scopes,['safety_plan']);});
+
+test('synthetic appointment balances cannot be released for collection',async()=>{let accessed=false;await assert.rejects(assertCollectible({source_type:'qa_appointment',status:'open',agency_id:450},{execute:async()=>{accessed=true;throw new Error('unexpected database access');}}),e=>e.status===409&&e.message.includes('cannot be collected'));assert.equal(accessed,false);});

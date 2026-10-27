@@ -37,6 +37,8 @@ else {
    await db.execute(`UPDATE provider_public_profiles SET public_details_json=JSON_SET(COALESCE(public_details_json,JSON_OBJECT()),'$.availabilityByAgency."450"',CAST(? AS JSON),'$.serviceOfferingsByAgency."450"',JSON_ARRAY('counseling'),'$.languages',JSON_ARRAY('English','Spanish'),'$.sessionFormats',JSON_ARRAY('Individual','Family')) WHERE user_id=?`,[JSON.stringify(policy),p.id]);
   }
   let flags=typeof agency.feature_flags==='string'?JSON.parse(agency.feature_flags):agency.feature_flags;
+  // Required by chart/signing routes. The synthetic clearinghouse guard still denies every transmission.
+  flags.medicalBillingEnabled=true;
   const current=flags.clientSessionBookingRollout||{revision:0,entries:[],history:[]};
   const now=new Date().toISOString(),note='Owner authorized isolated self-pay demo scheduling; no external claims or card collection.';
   flags.clientSessionBookingRollout={revision:current.revision+1,entries:[...(current.entries||[]).filter(e=>!plan.providers.includes(Number(e.providerUserId))),...plan.providers.map(providerUserId=>({providerUserId,enabled:true,note,updatedByUserId:1435,updatedAt:now}))],history:[...(current.history||[]),{providerUserIds:plan.providers,enabled:true,note,updatedByUserId:1435,updatedAt:now}]};
