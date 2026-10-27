@@ -96,6 +96,14 @@ export function sessionReminderTime(appointment) {
   catch { return new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'America/Denver' }).format(start); }
 }
 
+export function formatQueuedSessionMessage(appointment, body) {
+  if (typeof body !== 'string') return body;
+  // Older generated defaults cached Date.toString(). Correct those at delivery,
+  // including queues enabled later, without rewriting tenant-authored templates.
+  const legacy = body.match(/^(?:Reminder: .+ on |Please confirm your appointment ".+" on )((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4} \([^)]+\))\.(?: Reply Y to confirm, N to cancel, R to request a reschedule\.)?$/);
+  return legacy ? body.replace(legacy[1], sessionReminderTime(appointment)) : body;
+}
+
 export function offsetToMinutes(value, unit) {
   const v = Math.max(0, Number(value) || 0);
   const u = String(unit || 'hours').toLowerCase();
@@ -982,7 +990,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       continue;
     }
     const body = serviceSetting.isSchool ? buildSchoolReminder(appt)
-      : row.message_body || defaultMessage(appt, kind.replace(':in_app', ''), !!row.requires_confirmation);
+      : formatQueuedSessionMessage(appt, row.message_body) || defaultMessage(appt, kind.replace(':in_app', ''), !!row.requires_confirmation);
     const contactBody = minimalContactSessionReminder(appt);
     const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
     const participant = participants.find((p) => p.clientId === clientId);

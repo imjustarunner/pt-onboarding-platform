@@ -5,7 +5,7 @@ vi.mock('../appointmentServiceSetting.service.js', () => ({ resolveAppointmentSe
 import pool from '../../config/database.js';
 import Appointment from '../../models/Appointment.model.js';
 import { resolveAppointmentServiceSetting } from '../appointmentServiceSetting.service.js';
-import { scheduleDefaultCadenceReminders, sessionReminderTime } from '../sessionNotification.service.js';
+import { scheduleDefaultCadenceReminders, sessionReminderTime, formatQueuedSessionMessage } from '../sessionNotification.service.js';
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
   pool.execute.mockImplementation(async sql => sql.includes('SELECT') ? [[]] : [{ insertId: 1 }]);
@@ -25,4 +25,20 @@ it.each([
  [new Date('2026-10-28T19:50:00Z'),'America/Chicago','2:50 PM CDT']
 ])('renders the actual appointment zone, independently of the server zone', (startAt,sourceTimezone,expected)=>{
  expect(sessionReminderTime({startAt,sourceTimezone})).toContain(expected);
+});
+it.each([
+ 'Reminder: Session on Wed Oct 28 2026 19:50:00 GMT+0000 (Coordinated Universal Time). Reply Y to confirm, N to cancel, R to request a reschedule.',
+ 'Please confirm your appointment "Session" on Wed Oct 28 2026 19:50:00 GMT+0000 (Coordinated Universal Time). Reply Y to confirm, N to cancel, R to request a reschedule.'
+])('corrects old queued defaults for any agency when delivered', body=>{
+ const result=formatQueuedSessionMessage({agencyId:99,startAt:'2026-10-28 19:50:00',sourceTimezone:'America/Chicago'},body);
+ expect(result).toContain('2:50 PM CDT');
+ expect(result).not.toContain('GMT+0000');
+ expect(result).toContain('Reply Y to confirm, N to cancel, R to request a reschedule.');
+});
+it.each([
+ 'Please arrive 15 minutes early. Call our team if you need assistance.',
+ 'Reminder: Session on Wed, Oct 28, 2026, 1:50 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.',
+ 'Custom reminder: Wed Oct 28 2026 19:50:00 GMT+0000 (Coordinated Universal Time). Please call us.'
+])('preserves custom templates and already formatted messages', body=>{
+ expect(formatQueuedSessionMessage({startAt:'2026-10-28 19:50:00',sourceTimezone:'America/Denver'},body)).toBe(body);
 });
