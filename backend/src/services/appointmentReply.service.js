@@ -336,7 +336,7 @@ export async function escalateUnknownAppointmentReply({
     ]
   );
   const reviewId = Number(ins.insertId);
-  appt.staffReplyIntent=intent;
+  appt.staffReplyIntent='unknown';
 
   await logCommunication({
     appointmentId: appt.id,

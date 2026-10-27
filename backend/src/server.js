@@ -2669,6 +2669,19 @@ if (!isBootstrap) {
   setInterval(providerOffboardingTick, 60 * 1000).unref();
 
 
+  // Cloud Run has always-allocated CPU and minimum instances. Row locks protect
+  // this bounded demo worker across replicas; it never drains another tenant.
+  let qaSessionNotificationsRunning = false;
+  const qaSessionNotificationTick = async () => {
+    if (qaSessionNotificationsRunning) return;
+    qaSessionNotificationsRunning = true;
+    try { await (await import('./services/qaSessionNotificationWorker.service.js')).runQaSessionNotificationTick(); }
+    catch (error) { console.warn('[qa-session-notifications] Delivery needs review:', error.code || error.message); }
+    finally { qaSessionNotificationsRunning = false; }
+  };
+  setTimeout(qaSessionNotificationTick, 60000).unref();
+  setInterval(qaSessionNotificationTick, 60000).unref();
+
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
   const scheduleSessionDocTasks = async () => {
     try {

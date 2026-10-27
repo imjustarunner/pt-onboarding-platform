@@ -260,8 +260,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     }
     return {canceled:cancel};
   }
-  async function processDue({limit=20}={}) {
-    const [rows] = await db.execute(`SELECT id FROM appointment_schedule_notices WHERE status='pending' AND fire_at<=UTC_TIMESTAMP() ORDER BY fire_at,id LIMIT ${Math.min(100,Math.max(1,Number(limit)||20))}`);
+  async function processDue({limit=20, agencyId=null}={}) {
+    const [rows] = await db.execute(`SELECT id FROM appointment_schedule_notices WHERE status='pending' AND fire_at<=UTC_TIMESTAMP() AND (? IS NULL OR agency_id=?) ORDER BY fire_at,id LIMIT ${Math.min(100,Math.max(1,Number(limit)||20))}`, [agencyId,agencyId]);
     let failed=0;
     for (const row of rows) { try { await process(row.id); } catch (e) { failed++; console.warn('[schedule-notice] delivery requires review',row.id,e.message); } }
     return {processed:rows.length,failed};

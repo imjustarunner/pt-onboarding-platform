@@ -9,12 +9,12 @@ export function isAuricwellQaAgency(agency) {
     && flags?.qaSandbox?.syntheticOnly === true;
 }
 
-// The owner explicitly authorized staff, care and appointment tests to this phone.
+// The owner explicitly authorized these two phones for staff/care/appointment tests.
 // Registration, purpose consent, preferences and STOP are still enforced by the sender.
 export function allowQaSmsDelivery(agency, {to,purpose,clientId}={}) {
   if (![450,451,452].includes(Number(agency?.id)) && !String(agency?.slug||'').startsWith(AURICWELL_QA_SLUG)) return true;
   return isAuricwellQaAgency(agency) && ['workforce','care','reminders'].includes(purpose)
-    && String(to||'').replace(/\D/g,'')==='16189107000';
+    && ['16189107000','18152122875'].includes(String(to||'').replace(/\D/g,''));
 }
 
 // The dedicated QA tenant fails closed until its explicit provider roster is set.

@@ -186,8 +186,8 @@ export function createCancellationNotificationService({ database = pool, appoint
     for (const row of pending) await process(row.id);
     return summary(appointmentId);
   }
-  async function processDue({ limit = 20 } = {}) {
-    const [rows] = await database.execute(`SELECT id FROM appointment_cancellation_deliveries WHERE delivery_status='pending' ORDER BY id LIMIT ${Math.max(1, Math.min(100, Number(limit) || 20))}`);
+  async function processDue({ limit = 20, agencyId = null } = {}) {
+    const [rows] = await database.execute(`SELECT id FROM appointment_cancellation_deliveries WHERE delivery_status='pending' AND (? IS NULL OR agency_id=?) ORDER BY id LIMIT ${Math.max(1, Math.min(100, Number(limit) || 20))}`, [agencyId,agencyId]);
     for (const row of rows) await process(row.id);
     return { processed: rows.length };
   }

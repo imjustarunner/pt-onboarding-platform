@@ -60,15 +60,17 @@ export function createReplacementOfferEventService(overrides = {}) {
     await connection.execute(`INSERT IGNORE INTO appointment_replacement_events (offer_id,event_type,outcome_text,email_status)
       VALUES (?,?,?,?)`, [offer.id, status, replacementOutcome(status, next, offer.linked_appointment_id), status === 'confirmed' ? 'pending' : 'suppressed']);
   }
-  async function processDue({ limit = 20 } = {}) {
+  async function processDue({ limit = 20, agencyId = null } = {}) {
     const size = Math.max(1, Math.min(100, Number(limit) || 20));
     const [offers] = await d.database.execute(`SELECT o.* FROM appointment_replacement_offers o
       WHERE (o.status IN ('requested','confirmed','declined','declined_by_team') OR (o.status='open' AND o.expires_at<=UTC_TIMESTAMP()))
+      AND (? IS NULL OR o.agency_id=?)
       AND NOT EXISTS (SELECT 1 FROM appointment_replacement_events e WHERE e.offer_id=o.id
-        AND e.event_type=IF(o.status='open','expired',o.status)) ORDER BY o.id LIMIT ${size}`);
+        AND e.event_type=IF(o.status='open','expired',o.status)) ORDER BY o.id LIMIT ${size}`, [agencyId,agencyId]);
     for (const offer of offers) await record(offer, offer.status === 'open' ? 'expired' : offer.status);
     const [events] = await d.database.execute(`SELECT * FROM appointment_replacement_events
-      WHERE note_recorded_at IS NULL OR email_status='pending' ORDER BY id LIMIT ${size}`);
+      WHERE (note_recorded_at IS NULL OR email_status='pending')
+        AND (? IS NULL OR offer_id IN (SELECT id FROM appointment_replacement_offers WHERE agency_id=?)) ORDER BY id LIMIT ${size}`, [agencyId,agencyId]);
     let failed = 0;
     for (const event of events) {
       const [[offer]] = await d.database.execute('SELECT * FROM appointment_replacement_offers WHERE id=?', [event.offer_id]);

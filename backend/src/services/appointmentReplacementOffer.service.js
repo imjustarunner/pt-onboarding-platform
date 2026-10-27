@@ -267,14 +267,15 @@ export function createReplacementOfferService(overrides = {}) {
     try { await deps.finalizeBooking(offer,appointmentId,actorUserId); }
     catch (e) { console.warn('[replacement-offers] Booking saved; notification setup will retry:', appointmentId, e.message); }
   }
-  async function processBookings({limit=20}={}) {
+  async function processBookings({limit=20,agencyId=null}={}) {
     const size=Math.max(1,Math.min(100,Number(limit)||20));
     const [rows]=await db.execute(`SELECT o.* FROM appointment_replacement_offers o
       JOIN public_appointment_requests r ON r.id=o.request_id
-      WHERE (o.status='requested' AND r.status='PENDING')
+      WHERE ((o.status='requested' AND r.status='PENDING')
         OR (o.status='confirmed' AND o.linked_appointment_id IS NOT NULL AND NOT EXISTS (
-          SELECT 1 FROM appointment_schedule_notices n WHERE n.appointment_id=o.linked_appointment_id AND n.client_id=o.client_id AND n.event_type='created'))
-      ORDER BY r.updated_at,o.id LIMIT ${size}`);
+          SELECT 1 FROM appointment_schedule_notices n WHERE n.appointment_id=o.linked_appointment_id AND n.client_id=o.client_id AND n.event_type='created')))
+      AND (? IS NULL OR o.agency_id=?)
+      ORDER BY r.updated_at,o.id LIMIT ${size}`, [agencyId,agencyId]);
     let failed=0;
     for(const offer of rows) {
       await db.execute('UPDATE public_appointment_requests SET updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',[offer.request_id,offer.agency_id]);

@@ -911,7 +911,8 @@ async function sendInAppIfPossible(appt, body) {
 }
 
 /** Drain due appointment_reminders using session notification send rules. */
-export async function processDueSessionNotifications({ limit = 50 } = {}) {
+export async function processDueSessionNotifications({ limit = 50, agencyId = null } = {}) {
+  if (agencyId !== null && (!Number.isSafeInteger(agencyId) || agencyId < 1)) throw new Error('A valid notification agency is required');
   // Prefer new columns; fall back to Phase 4 processor shape
   let rows;
   try {
@@ -919,9 +920,10 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       `SELECT r.* FROM appointment_reminders r
        JOIN agencies a ON a.id = r.agency_id AND a.is_active = 1 AND COALESCE(a.is_archived, 0) = 0
        WHERE r.status = 'pending' AND r.scheduled_for <= NOW()
+         AND (? IS NULL OR r.agency_id = ?)
        ORDER BY r.scheduled_for ASC
        LIMIT ?`,
-      [Math.max(1, Math.min(200, Number(limit) || 50))]
+      [agencyId, agencyId, Math.max(1, Math.min(200, Number(limit) || 50))]
     );
   } catch (e) {
     return { processed: 0, error: e.message };
@@ -1182,15 +1184,15 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
   }
 
   // Also drain change buffer
-  const bufferResult = await processDueChangeNotifications({ limit: 20 });
+  const bufferResult = await processDueChangeNotifications({ limit: 20, agencyId });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');
-  const cancellations = await processDueCancellationNotifications({ limit: 20 });
+  const cancellations = await processDueCancellationNotifications({ limit: 20, agencyId });
   let replacementBookings;
-  try { replacementBookings = await (await import('./appointmentReplacementOffer.service.js')).replacementOffers.processBookings({limit:20}); }
+  try { replacementBookings = await (await import('./appointmentReplacementOffer.service.js')).replacementOffers.processBookings({limit:20, agencyId}); }
   catch (e) { replacementBookings = {failed:1}; console.warn('[replacement-offers] Automatic booking retry needs attention:',e.message); }
-  const scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20 });
+  const scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20, agencyId });
   let replacementOutcomes;
-  try { replacementOutcomes = await (await import('./replacementOfferEvents.service.js')).replacementOfferEvents.processDue({ limit: 20 }); }
+  try { replacementOutcomes = await (await import('./replacementOfferEvents.service.js')).replacementOfferEvents.processDue({ limit: 20, agencyId }); }
   catch (e) { replacementOutcomes = { failed: 1 }; console.warn('[replacement-offers] Outcome processing needs attention:', e.message); }
   return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates, replacementBookings, replacementOutcomes };
 }
@@ -1325,15 +1327,16 @@ async function processChangeNotificationRow(queueId) {
   await queuePushUpdate(appt.id, { changes: changes.length ? changes : [{ field: 'schedule' }], actorUserId: row.created_by_user_id });
 }
 
-export async function processDueChangeNotifications({ limit = 20 } = {}) {
+export async function processDueChangeNotifications({ limit = 20, agencyId = null } = {}) {
   let rows;
   try {
     [rows] = await pool.execute(
       `SELECT id FROM appointment_change_notification_queue
        WHERE status = 'pending' AND fire_at <= NOW()
+         AND (? IS NULL OR agency_id = ?)
        ORDER BY fire_at ASC
        LIMIT ?`,
-      [Math.max(1, Math.min(50, Number(limit) || 20))]
+      [agencyId, agencyId, Math.max(1, Math.min(50, Number(limit) || 20))]
     );
   } catch {
     return { processed: 0 };

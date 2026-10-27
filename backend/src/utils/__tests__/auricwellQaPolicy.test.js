@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { allowQaExchangeRecipient, allowQaSmsDelivery } from '../auricwellQaPolicy.js';
 const agency = {slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:1433}}};
 const provider = {id:1433,is_demo:1,email:'qa.provider.auricwell@example.com'};
-test('QA SMS admits approved purposes only to the owner’s test phone',()=>{
+test('QA SMS admits approved purposes only to the owner’s two test phones',()=>{
  const qa={...agency,id:450};const options={to:'+16189107000',purpose:'workforce'};
  assert.equal(allowQaSmsDelivery(qa,options),true);
+ for(const purpose of ['care','reminders','workforce']) assert.equal(allowQaSmsDelivery(qa,{to:'+18152122875',purpose}),true);
+ assert.equal(allowQaSmsDelivery(qa,{to:'+18152122875',purpose:'marketing'}),false);
+ assert.equal(allowQaSmsDelivery({...qa,feature_flags:null},{to:'+18152122875',purpose:'care'}),false);
  for(const purpose of ['care','reminders']) assert.equal(allowQaSmsDelivery(qa,{...options,purpose,clientId:2259}),true);
  for(const patch of [{purpose:'marketing'},{purpose:'billing'},{purpose:'account_security'},{to:'+15555550100'}])assert.equal(allowQaSmsDelivery(qa,{...options,...patch}),false);
  assert.equal(allowQaSmsDelivery({...qa,feature_flags:null},options),false);

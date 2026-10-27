@@ -8,7 +8,7 @@ vi.mock('../appointmentServiceSetting.service.js',()=>({resolveAppointmentServic
 vi.mock('../bookingCancellationPolicy.service.js',()=>({evaluateCancel:m.evaluate}));
 vi.mock('../appointment.service.js',()=>({cancelAppointment:m.cancel}));
 vi.mock('../notificationDispatcher.service.js',()=>({default:{createNotificationAndDispatch:m.notify}}));
-import {applyAppointmentReply} from '../appointmentReply.service.js';
+import {applyAppointmentReply,escalateUnknownAppointmentReply} from '../appointmentReply.service.js';
 beforeEach(()=>{vi.resetAllMocks();m.execute.mockResolvedValue([{insertId:91}]);m.find.mockResolvedValue({id:68,agencyId:450,providerUserId:1433,startAt:'2099-11-02 17:00:00'});m.evaluate.mockResolvedValue({allowed:true,recommendedFeeCents:8000});});
 it('keeps a late cancellation scheduled until the family acknowledges the exact fee',async()=>{
  const result=await applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,rawBody:'N'});
@@ -18,4 +18,9 @@ it('cancels a fee-free reply with a zero-fee race guard',async()=>{
  m.evaluate.mockResolvedValue({allowed:true,recommendedFeeCents:0});
  const result=await applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,rawBody:'N'});
  expect(result.status).toBe('applied');expect(m.cancel).toHaveBeenCalledWith(68,expect.objectContaining({expectedFeeCents:0,actorRole:'client'}));
+});
+it('routes a request for another session to staff without changing the appointment',async()=>{
+ const result=await escalateUnknownAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,rawBody:'Can I request an additional session?'});
+ expect(result).toMatchObject({needsSupport:true,status:'pending_review',fallThroughToInbox:true});
+ expect(m.notify).toHaveBeenCalledOnce();expect(m.cancel).not.toHaveBeenCalled();expect(m.update).not.toHaveBeenCalled();
 });
