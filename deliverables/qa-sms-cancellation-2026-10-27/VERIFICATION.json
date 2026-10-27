@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-27T21:11:52.096Z",
+  "agencyId": 450,
+  "appointments": [
+    {
+      "id": 69,
+      "status": "client_confirmed",
+      "startAt": "2026-10-29T19:00:00.000Z",
+      "providerId": 1433
+    },
+    {
+      "id": 82,
+      "status": "canceled_by_client",
+      "startAt": "2026-10-29T21:00:00.000Z",
+      "providerId": 1433
+    }
+  ],
+  "phoneRouting": {
+    "phone": "618-910-7000",
+    "clientIds": [
+      2271
+    ],
+    "restored": true
+  },
+  "inAppEmailVisible": true,
+  "communicationId": 4206,
+  "externalInboxReceipt": "confirmed by owner",
+  "release": "ac830e82ca141037f9054d1688851b6aa0f578de"
+}

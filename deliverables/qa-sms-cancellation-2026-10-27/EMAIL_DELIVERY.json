@@ -1,0 +1,27 @@
+{
+  "communicationId": 4206,
+  "subject": "[Demo test \u2192 qa.provider.auricwell@example.com] ITSCO: Client canceled an appointment",
+  "deliveryStatus": "sent",
+  "originalRecipient": "qa.provider.auricwell@example.com",
+  "transportVerified": true,
+  "testingInboxReceived": true,
+  "headers": [
+    {
+      "name": "To",
+      "value": "testing@itsco.health"
+    },
+    {
+      "name": "Subject",
+      "value": "[Demo test \u2192 qa.provider.auricwell@example.com] ITSCO: Client canceled an appointment"
+    },
+    {
+      "name": "From",
+      "value": "Notifications <notifications@itsco.health>"
+    },
+    {
+      "name": "Date",
+      "value": "Tue, 27 Oct 2026 16:09:00 -0500"
+    }
+  ],
+  "receiptVerification": "Owner confirmed actual receipt in testing@itsco.health"
+}

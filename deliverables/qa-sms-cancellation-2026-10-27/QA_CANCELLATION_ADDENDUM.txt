@@ -1,0 +1,54 @@
+ITSCO demo — provider confirmation/cancellation follow-up, October 27, 2026
+
+Scope: ITSCOLLC, demo agency 450, auricwell-qa-demo. These are synthetic records only.
+
+Confirmed example:
+- Avery Morgan QA, provider 1433.
+- Rowan QA-OfficeEN-1027, client 2271, appointment 69.
+- Thursday, October 29, 2026, 1:00–2:00 PM MDT.
+- Real incoming Y reply was applied. Database status: client_confirmed.
+- Logged-in provider calendar displays a green Confirmed badge.
+
+Cancellation test completed:
+- Same provider, Avery Morgan QA.
+- Reese QA-OfficeEN-1026, client 2264, appointment 82.
+- Thursday, October 29, 2026, 3:00–4:00 PM MDT.
+- Preflight cancellation policy returned no fee because the session was more than 24 hours away. This does not verify the separate late-fee acknowledgment flow.
+- The user replied N from Google Voice, originating from 618-910-7000, and confirmed receiving the cancellation acknowledgment. Reply applied at 3:08:59 PM MDT. Appointment 82 is canceled_by_client; appointment 69 remains client_confirmed.
+- Another synthetic client, Jules QA-CoParent-1027 (2277), had been created with the same phone. Jules and the linked guardian are now email-only for this test to avoid ambiguous replies.
+- After the test, restored 618-910-7000 exclusively to Rowan and restored Rowan's previous session preferences. Reese is email-only again. Verified unique inbound routing to client 2271 at 3:11:52 PM MDT. DO NOT reuse this phone for new demo families. Harper's 815-212-2875 remains receipt-only for this Google Voice setup.
+
+Provider email behavior:
+- Discovered missing provider email in the incoming cancellation-reply path; existing code created in-app/SMS/push alerts.
+- Added a required operational cancellation email to the assigned provider's work address (work_email, otherwise login email). Never fall back to personal_email.
+- Personal email preferences do not suppress this work notice. Platform/organization transport controls remain intact; no other agency's sending configuration is enabled by this change.
+- Pending fee acknowledgment is not a completed cancellation and does not send an email claiming the session was canceled.
+- Email contains the local date/time, cancellation outcome, and a link to the provider schedule. It excludes client names, clinical details, and free-text cancellation reasons.
+- Demo email routing remains testing@itsco.health; the provider's own QA email receipt must also be visible in Messages.
+
+Release verified:
+- Code ac830e82ca141037f9054d1688851b6aa0f578de is on main.
+- Cloud Run revision onboarding-backend-g40582486762a1 serves 100% of traffic.
+- 45 focused checks passed. The configured notifications@itsco.health sender is verified.
+- Required work notices omit the personal-email unsubscribe link. Demo replies to these notices go to testing@itsco.health.
+- Calendar and real-template preview screenshots are saved in this folder; the email preview is NOT a sent cancellation.
+
+Live verification:
+- Reminder 101 was sent October 27 at 3:05:13 PM MDT. It contained the local date/time and Y/N/R instructions. The earlier generic schedule-update notice is a different message.
+- User replied N and received the acknowledgment. Provider notification 64629 was created automatically.
+- Provider work email 4206 was sent automatically from notifications@itsco.health to testing@itsco.health at 3:09 PM MDT, despite the provider's optional email preference being off. Gmail sent-message envelope verified. No personal email was used.
+- Avery's own Messages shows the actual cancellation email with date/time and a link to the provider schedule; screenshot saved.
+- Avery's October 29 calendar displays Rowan 1 PM with a green Confirmed badge and Reese 3 PM grayed/struck through with Cancelled; screenshot saved.
+- The owner separately confirmed receipt in testing@itsco.health. External inbox arrival is user-verified; sending and the in-app copy were independently verified by the agent.
+
+Evidence:
+- avery-confirmed-and-canceled.png: actual logged-in provider calendar.
+- provider-cancellation-in-app-email.png: actual provider email copy.
+- VERIFICATION.json: final appointment states and phone routing.
+- EMAIL_DELIVERY.json: actual Gmail sent-message envelope; inbox receipt separately tracked.
+- CANCELLATION_PREFLIGHT.json: no-fee policy result before N.
+
+Remaining observations for QA:
+- The QA email-copy viewer shows raw UTC timestamps in its receipt list and blocked image placeholders. The appointment time inside the actual email is correctly formatted as 3:00 PM MDT.
+- Rowan's older calendar event still has the legacy synthetic-session title. Reese's new event is titled ITSCO session.
+- Late cancellation fees, no-shows, and another agency's enabled sending remain separate tests. This run does not mark those passed.
