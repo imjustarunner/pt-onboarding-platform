@@ -1,0 +1,37 @@
+APPOINTMENT AND SIGN-UP MESSAGE WORDING — NEW ADDENDUM
+October 27, 2026
+
+These are shared application defaults. Agencies will use them when messaging is enabled; this work does not turn on automatic sending for additional agencies. The reminder worker remains restricted to demo agency 450.
+
+1. Use local appointment times
+Standard appointment messages show the appointment's local date, time and zone, for example Thursday, October 29 at 1:00 PM MDT. They must not display raw Date.toString() output such as 19:50:00 GMT+0000 (Coordinated Universal Time).
+The shared send path also recognizes old queued standard messages and formats their dates at delivery. This avoids requiring a separate queue cleanup when another agency is enabled. Agency-authored custom messages retain their wording.
+
+2. Confirmation after a Y reply
+Thanks! Your appointment is confirmed. If you need to make any changes, please send us a message. A team member will get back to you during our regular business hours.
+Use plain punctuation so the previous em dash does not appear as a question mark on the phone.
+
+3. One sign-up confirmation naming the enabled message types
+A family selecting care messages and reminders receives:
+ITSCO: You'll receive appointment reminders and messages from your care team. Frequency varies. Message and data rates may apply. STOP to stop, HELP for help.
+
+Include START to restart only when the registered program supports it.
+Use the registered agency brand rather than hardcoding ITSCO for other agencies.
+If billing is selected, include billing updates. Staff choices identify staff updates or staff message alerts and surveys as applicable. Practice announcements and account security messages are named only if selected.
+
+Family sign-up previously confirmed each purpose separately. It now shares the existing batch enrollment behavior: one confirmation per completed signed request, while each Yes/No choice remains recorded separately. Reviewing the same activated request again sends no new confirmation. All-No sends no acceptance text. Separate sign-ups or recipient phones remain separate enrollments; this does not merge identities or signed consent records.
+No new sign-up texts were sent merely to demonstrate this wording to the owner, and no existing signed consents were changed.
+
+Required bot checks on the next fresh enrollment
+- Choose two or three message types; verify one combined confirmation naming exactly those types.
+- Decline a type and verify it is absent from the confirmation and remains disabled.
+- Review the same completed request again; verify no duplicate text.
+- Choose No for all types; verify no acceptance message.
+- Verify STOP still prevents sending; the new batch must never clear a prior STOP.
+- Verify a failed confirmation leaves the newly accepted types inactive and records the failure for review.
+- Capture the actual phone message when possible. Automated tests verify the logic; they do not establish carrier or handset delivery for this new wording.
+
+Validation
+The combined enrollment, signature, staff, transport, public-consent and automation checks passed: 94 tests across eight files.
+Queued reminder formatting and related reply/school/queue checks passed: 40 tests across four files.
+See RELEASE_VERIFICATION.txt for commits and deployment results.

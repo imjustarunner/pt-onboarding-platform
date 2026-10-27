@@ -1,0 +1,52 @@
+ITSCOLLC QA — SESSION TEXTING ADDENDUM
+October 27, 2026 — distribute alongside the prior runbooks
+
+Confirmed live result
+The owner received a real reminder, replied Y from 618-910-7000, and received the confirmation acknowledgment. Appointment 69 for Rowan is client_confirmed. Harper appointment 81 remains scheduled. This verifies the actual phone-to-app confirmation flow, not a simulated reply.
+
+Keep these phone fixtures
+- 618-910-7000: Rowan QA-OfficeEN-1027, client 2271, guardian 1449. Avery's provider notification phone remains unchanged. Direct client-reply routing resolves to Rowan only.
+- 815-212-2875: Harper QA-OfficeES-1027, client 2272, guardian Kendall 1450. The owner signed consent request 51 for care and reminders.
+- The other 11 synthetic clients have session SMS and voice disabled, with email and in-app notifications enabled. Their active client/guardian contact phone fields were cleared. Historical signed enrollment answers remain unchanged.
+- Do not put either number onto new families. New generated families should use email/in-app notifications and choose No for SMS. Preserve the signed consents and the owner's existing test credentials.
+- Both recipient numbers appear in the owner's Google Voice inbox. Replies from that inbox currently originate from 618, including replies to texts received at 815. Treat 815 as receipt-only until the owner demonstrates a reply originating from 815. Do not use that inbox to claim a Harper Y/N/R test passed.
+
+Scope of application changes
+The shared appointment reminder time formatter and the Y-confirmation acknowledgment apply across the platform wherever those shared paths are used. Appointment times use the appointment's time zone, including the Denver daylight-saving change. Previously queued standard messages with the old raw UTC format are also corrected when delivered. Tenant-authored templates retain their existing wording.
+The automatic once-per-minute reminder worker and fixture/configuration changes are restricted to demo agency 450, slug auricwell-qa-demo. The worker validates the synthetic tenant, excludes other agencies' queues, and uses a database lock across replicas. This does not enable automatic sending for every agency.
+The free-text reply escalation error was fixed so an additional-session request can reach staff for review. It does not book another session automatically.
+
+Message wording
+For the new one-confirmation SMS sign-up behavior, see MESSAGE_WORDING_ADDENDUM.txt.
+Use the appointment title ITSCO session for new demo bookings. Future queued texts for the prepared appointments now use that title; already-sent messages remain as historical evidence.
+Example: Reminder: ITSCO session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.
+The requested confirmation acknowledgment is: Thanks! Your appointment is confirmed. If you need to make any changes, please send us a message. A team member will get back to you during our regular business hours.
+See RELEASE_VERIFICATION.txt for the deployment status of that final wording. The old acknowledgment was verified on the handset; the new wording needs a subsequent handset check.
+
+Prepared appointments and remaining tests
+1. Rowan/Avery appointment 69: October 29, 1–2 p.m. Mountain, already client_confirmed. Its ordinary 24-hour reminder is due October 28 at 1 p.m. Mountain. One extra owner-requested confirmation test was queued and actually sent October 27 at 2:01:08 p.m. Mountain.
+2. Harper/Alex appointment 81: October 28, 1:50–2:50 p.m. Mountain. Its 24-hour email and SMS were sent October 27; the owner confirmed receiving the SMS. The remaining 4-hour SMS is due October 28 at 9:50 a.m. Mountain, subject to consent, preferences, and appointment eligibility.
+3. Rowan also has appointments 70 (October 30, 1 p.m.), 68 (November 3, 1 p.m.), and 71 (November 5, 1 p.m.). October uses MDT; November 3 and 5 use MST. Verify the local appointment time remains 1 p.m. across that change.
+4. Before any one-letter reply test, confirm the app resolves the phone to one client and one actionable appointment. Multiple upcoming appointments with recent reminders can still be ambiguous. In that case use the exact appointment in the authenticated family portal; do not guess which visit a reply concerns.
+5. Ask the owner to send an additional-session request from 618. Verify the staff review task and the message in communications. Staff must use the ordinary booking workflow for any added appointment. Capture the actual acknowledgment and staff result.
+6. Test R on one identified Rowan appointment. Verify a reschedule request is recorded and the existing appointment is not silently moved.
+7. Test N more than 24 hours ahead on a dedicated appointment. Verify fee-free cancellation, the client/provider notifications, and cancellation of future reminders.
+8. Test N within 24 hours on a separate appointment. The appointment must remain scheduled until the exact $80 fee is acknowledged through the secure portal. Capture the fee disclosure and the final synthetic balance. Never charge a real card or submit an insurance claim. Test the signed-policy $100 no-show case separately.
+9. Verify email copies reach testing@itsco.health and are visible in the intended account's in-app email history. Record the original recipient and tenant isolation. A transport identifier alone is not proof of inbox delivery.
+10. Record screenshots, sender/recipient, displayed time, appointment ID, response, and final appointment/balance state. Keep handset evidence distinct from API or database checks. Update the daily brief without marking unexecuted R/N/additional-session cases as passed.
+
+Historical ambiguity evidence
+Before cleanup, 618 matched 12 demo clients. The two earlier replies were held for ambiguous_identity (review items 1 and 2), and Harper's appointment was not changed. Those held replies were not replayed against Rowan after cleanup. Retain this evidence; do not reintroduce the shared number across families just to repeat it.
+The owner explicitly confirmed the five October 25 legacy clients are synthetic (2259–2263) before their phone cleanup; their is_demo flags were false. The phone change does not establish those flags as repaired.
+
+Boundaries and known limits
+Use only agency 450 and its demo organizations. Keep the existing 5 a.m. America/Denver run, maximum 30 clients/10 providers, support/biller permission limits, and owner-only setup account. Do not create a second schedule or give bots admin access. No real insurance submission or payment.
+The Harper booking-email delivery record is held even though its transport returned an identifier. Inspect the testing inbox and in-app email receipt before retrying; do not report it as confirmed delivery. The later timed reminder email is recorded sent.
+Cancellation, rescheduling, additional-session requests, and the new acknowledgment copy still need handset coverage. The successful Y test does not prove those separate flows.
+
+Evidence files
+VERIFICATION.json: final phone routing, preferences, consent, appointment/reply state, queued-text validation, and the owner's observed results.
+SHARED_PHONE_BEFORE.json: pre-cleanup phone ambiguity evidence.
+PENDING_REMINDERS_REFRESHED.json: refreshed pending reminders with readable local times and ITSCO session titles.
+ROWAN_CONFIRMATION_TEST.json: the one-time test reminder as queued; VERIFICATION.json records its actual send and applied reply.
+RELEASE_VERIFICATION.txt: commits, deployment status, and test results. No credentials or consent tokens are included.

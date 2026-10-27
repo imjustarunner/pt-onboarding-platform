@@ -1,0 +1,64 @@
+ITSCOLLC DEMO SMS — RELEASE VERIFICATION
+October 27, 2026
+
+Reminder worker and second test phone
+Commit 25979c7692c1a523c3429d3f2083006271fce9dc, pushed to main.
+Backend deployment SUCCESS:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40571049814
+Ready revision: onboarding-backend-g40571049814a1.
+Scheduling regressions SUCCESS:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40571049908
+Local checks: 848 passed, 74 skipped; five recipient-policy tests passed.
+The worker is restricted to agency 450. No local Docker was used.
+
+Readable appointment times
+Commit 0004c2f740503e931c36ea2a8767ca4a6a6f2bd0, pushed to main.
+Backend deployment SUCCESS:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40573084395
+Scheduling regressions SUCCESS:
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40573084372
+Focused timezone and school notification checks: 26 passed.
+Live notification-plan responses verified MDT/MST formatting. Pending reminders for demo appointments 68, 69, 70, 71, and 81 were regenerated through the deployed API. Nine pending SMS reminders contain neither raw UTC text nor the synthetic session label. Previously sent messages were retained.
+
+Revised confirmation acknowledgment
+Commit 2c478af15a186d35618db55c857858d26a6d6a4a, pushed to main.
+Wording uses Thanks! and explains that a team member will respond during regular business hours.
+Focused reply, timezone, and school checks: 29 passed.
+Backend deployment: SUCCESS.
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40574685294
+Scheduling regressions: SUCCESS.
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40574685527
+
+Live phone evidence
+- Consent request 51 was signed and activated for 815-212-2875; existing 618 consents remain active.
+- 618 now identifies only Rowan 2271 as a client; 815 identifies only Harper 2272. The other 11 clients have SMS/voice disabled and email/in-app enabled at client and guardian preference levels.
+- Harper appointment 81 SMS reminder sent at 19:50:15 UTC (1:50:15 p.m. MDT); owner reported receipt. Its old raw UTC text prompted the formatter fix.
+- The initial replies from Google Voice originated at 618 and were held as ambiguous_identity before cleanup. They were not replayed.
+- Rowan appointment 69's additional test reminder (row 71) sent at 20:01:08 UTC (2:01:08 p.m. MDT).
+- Owner replied Y and reported receiving the acknowledgment. Appointment 69 is client_confirmed; its reply review is applied. Harper 81 remains scheduled.
+- The new business-hours acknowledgment copy has not yet been observed on the handset. Future R/N and additional-session tests remain open.
+- No overdue demo schedule notices remained at the final evidence check. The Harper booking email is still recorded held; do not equate its transport identifier with inbox delivery.
+
+Shared time formatting and acknowledgment wording apply to their common platform messaging paths. Worker activation, test phones, preferences, and queued-message refresh are demo-only.
+
+Previously queued standard reminders
+Commit 09df818f1f8626a2051e59801303d3afe7fd2481, pushed to main.
+The shared sender corrects cached standard Date.toString() messages when delivering them, including other agencies enabled in the future. Custom templates are preserved. No additional agency worker was activated.
+Focused reply, timezone, school and queue checks: 40 passed.
+Backend deployment: SUCCESS.
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40575344027
+Scheduling regressions: SUCCESS.
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40575343972
+
+One sign-up confirmation naming the enabled types
+Commit cab06feb526b51aaf948a0b3444e17efad3f2c3e, pushed to main.
+Families now use the batch enrollment flow already used by staff. One signed request yields one acceptance for its selected types; repeat review yields none. Declined choices, STOP, campaign validation and failed-confirmation rollback remain enforced. The confirmation names appointment reminders, care-team messages and other enabled categories explicitly.
+Focused enrollment/signature/transport/staff/public-consent/automation checks: 94 passed across eight files.
+Backend deployment: SUCCESS.
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40576132524
+Scheduling regressions: SUCCESS.
+https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40576132585
+No additional confirmation was sent to the owner just to verify this release.
+
+All application releases listed above and their scheduling regression workflows completed successfully. New sign-up wording and the revised business-hours acknowledgment still await a subsequent handset observation; no extra message was sent just for that check.
+Final live traffic verification: onboarding-backend-g40576132524a1 serves 100% of traffic.

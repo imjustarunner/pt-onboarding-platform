@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-27T20:00:48.265Z",
+  "agencyId": 450,
+  "clientId": 2271,
+  "appointmentId": 69,
+  "reminderId": 71,
+  "phone": "+16189107000",
+  "body": "Reminder: ITSCO synthetic session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+  "status": "pending"
+}

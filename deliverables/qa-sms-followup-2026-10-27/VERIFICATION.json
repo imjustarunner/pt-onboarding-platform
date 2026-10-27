@@ -1,0 +1,656 @@
+{
+  "at": "2026-10-27T20:04:31.565Z",
+  "agencyId": 450,
+  "sender": "+17197163661",
+  "routing": [
+    {
+      "phone": "+16189107000",
+      "reason": null,
+      "clients": [
+        2271
+      ]
+    },
+    {
+      "phone": "+18152122875",
+      "reason": null,
+      "clients": [
+        2272
+      ]
+    }
+  ],
+  "harper": {
+    "clientId": 2272,
+    "guardianUserId": 1450,
+    "phone": "+18152122875",
+    "smsEnabled": true,
+    "replyAppointment": 81
+  },
+  "rowan": {
+    "clientId": 2271,
+    "guardianUserId": 1449,
+    "phone": "+16189107000",
+    "smsEnabled": true,
+    "replyAppointment": 69
+  },
+  "consents": [
+    {
+      "id": 49,
+      "phone": "+16189107000",
+      "signer_role": "guardian",
+      "signed_at": "2026-10-27T14:35:13.000Z",
+      "activation_json": {
+        "care": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T14:42:34.366Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "beabccfc-2d52-4112-a512-fce333f889f6"
+        },
+        "reminders": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T14:42:35.303Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "8a190a39-c2fc-4088-84d2-a9ff4e3bfe6c"
+        }
+      }
+    },
+    {
+      "id": 50,
+      "phone": "+16189107000",
+      "signer_role": "staff",
+      "signed_at": "2026-10-27T14:35:30.000Z",
+      "activation_json": {
+        "workforce": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T14:42:36.749Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "b7985cb7-3844-4365-8bac-446739c5207b"
+        }
+      }
+    },
+    {
+      "id": 51,
+      "phone": "+18152122875",
+      "signer_role": "guardian",
+      "signed_at": "2026-10-27T19:33:18.000Z",
+      "activation_json": {
+        "care": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T19:37:15.540Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "3d3a2ef2-29f9-4fe0-9bf0-b5447f9034ef"
+        },
+        "reminders": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T19:37:16.609Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "8f947bc1-42e7-49a3-98cf-6d4a6695c30b"
+        }
+      }
+    }
+  ],
+  "appointment": [
+    {
+      "id": 69,
+      "agency_id": 450,
+      "provider_user_id": 1433,
+      "start_at": "2026-10-29T19:00:00.000Z",
+      "end_at": "2026-10-29T20:00:00.000Z",
+      "status": "client_confirmed",
+      "source_timezone": "America/Denver"
+    },
+    {
+      "id": 81,
+      "agency_id": 450,
+      "provider_user_id": 1439,
+      "start_at": "2026-10-28T19:50:00.000Z",
+      "end_at": "2026-10-28T20:50:00.000Z",
+      "status": "scheduled",
+      "source_timezone": "America/Denver"
+    }
+  ],
+  "reminders": [
+    {
+      "id": 50,
+      "appointment_id": 69,
+      "channel": "email",
+      "kind": "standard_reminder",
+      "rule_key": "platform:Platform minimum 24h email",
+      "message_body": null,
+      "scheduled_for": "2026-10-28T19:00:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 51,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "standard_reminder",
+      "rule_key": "tenant_standard",
+      "message_body": "Reminder: ITSCO synthetic session on Thu Oct 29 2026 19:00:00 GMT+0000 (Coordinated Universal Time). Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-28T19:00:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 52,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa4h",
+      "message_body": "Reminder: ITSCO synthetic session on Thu Oct 29 2026 19:00:00 GMT+0000 (Coordinated Universal Time). Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-29T15:00:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 68,
+      "appointment_id": 81,
+      "channel": "email",
+      "kind": "standard_reminder",
+      "rule_key": "platform:Platform minimum 24h email",
+      "message_body": null,
+      "scheduled_for": "2026-10-27T19:50:00.000Z",
+      "status": "sent",
+      "sent_at": "2026-10-27T19:50:13.000Z",
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 69,
+      "appointment_id": 81,
+      "channel": "sms",
+      "kind": "standard_reminder",
+      "rule_key": "tenant_standard",
+      "message_body": "Reminder: ITSCO session on Wed Oct 28 2026 19:50:00 GMT+0000 (Coordinated Universal Time). Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-27T19:50:00.000Z",
+      "status": "sent",
+      "sent_at": "2026-10-27T19:50:15.000Z",
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 70,
+      "appointment_id": 81,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa4h",
+      "message_body": "Reminder: ITSCO session on Wed Oct 28 2026 19:50:00 GMT+0000 (Coordinated Universal Time). Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-28T15:50:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 71,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa_owner_confirmation_20261027",
+      "message_body": "Reminder: ITSCO synthetic session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-27T20:00:47.000Z",
+      "status": "sent",
+      "sent_at": "2026-10-27T20:01:08.000Z",
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 75,
+      "appointment_id": 69,
+      "channel": "email",
+      "kind": "standard_reminder",
+      "rule_key": "platform:Platform minimum 24h email",
+      "message_body": null,
+      "scheduled_for": "2026-10-28T19:00:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 76,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "standard_reminder",
+      "rule_key": "tenant_standard",
+      "message_body": "Reminder: ITSCO synthetic session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-28T19:00:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 77,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa4h",
+      "message_body": "Reminder: ITSCO synthetic session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-29T15:00:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 84,
+      "appointment_id": 81,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa4h",
+      "message_body": "Reminder: ITSCO session on Wed, Oct 28, 2026, 1:50 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-28T15:50:00.000Z",
+      "status": "canceled",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 88,
+      "appointment_id": 69,
+      "channel": "email",
+      "kind": "standard_reminder",
+      "rule_key": "platform:Platform minimum 24h email",
+      "message_body": null,
+      "scheduled_for": "2026-10-28T19:00:00.000Z",
+      "status": "pending",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 89,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "standard_reminder",
+      "rule_key": "tenant_standard",
+      "message_body": "Reminder: ITSCO session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-28T19:00:00.000Z",
+      "status": "pending",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 90,
+      "appointment_id": 69,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa4h",
+      "message_body": "Reminder: ITSCO session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-29T15:00:00.000Z",
+      "status": "pending",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 97,
+      "appointment_id": 81,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "rule_key": "qa4h",
+      "message_body": "Reminder: ITSCO session on Wed, Oct 28, 2026, 1:50 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule.",
+      "scheduled_for": "2026-10-28T15:50:00.000Z",
+      "status": "pending",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    }
+  ],
+  "deliveries": [
+    {
+      "id": 1,
+      "channel": "email",
+      "status": "held",
+      "recipient_address": "qa.family.officees.20261027@example.com",
+      "external_message_id": "1a17ee12cf857d08",
+      "sent_at": null,
+      "error_message": "Transport held the message. Review before resending."
+    },
+    {
+      "id": 2,
+      "channel": "sms",
+      "status": "sent",
+      "recipient_address": "+18152122875",
+      "external_message_id": "5f29b220-c430-4ad0-b8e6-c9555146e67c",
+      "sent_at": "2026-10-27T19:40:53.000Z",
+      "error_message": null
+    }
+  ],
+  "pending": [
+    {
+      "count": 0,
+      "oldest": null
+    }
+  ],
+  "replies": [
+    {
+      "appointment_id": 69,
+      "channel": "sms",
+      "interpreted_intent": "confirm",
+      "status": "applied"
+    }
+  ],
+  "heldReplies": [
+    {
+      "id": 2,
+      "reason": "ambiguous_identity",
+      "status": "review",
+      "from_number": "+16189107000",
+      "to_number": "+17197163661",
+      "created_at": "2026-10-27T19:50:37.000Z"
+    },
+    {
+      "id": 1,
+      "reason": "ambiguous_identity",
+      "status": "review",
+      "from_number": "+16189107000",
+      "to_number": "+17197163661",
+      "created_at": "2026-10-27T19:48:58.000Z"
+    }
+  ],
+  "clientPhones": [
+    {
+      "id": 2259,
+      "contact_phone": null
+    },
+    {
+      "id": 2260,
+      "contact_phone": null
+    },
+    {
+      "id": 2261,
+      "contact_phone": null
+    },
+    {
+      "id": 2262,
+      "contact_phone": null
+    },
+    {
+      "id": 2263,
+      "contact_phone": null
+    },
+    {
+      "id": 2264,
+      "contact_phone": null
+    },
+    {
+      "id": 2265,
+      "contact_phone": null
+    },
+    {
+      "id": 2266,
+      "contact_phone": null
+    },
+    {
+      "id": 2267,
+      "contact_phone": null
+    },
+    {
+      "id": 2271,
+      "contact_phone": "+16189107000"
+    },
+    {
+      "id": 2272,
+      "contact_phone": "+18152122875"
+    },
+    {
+      "id": 2273,
+      "contact_phone": null
+    },
+    {
+      "id": 2274,
+      "contact_phone": null
+    }
+  ],
+  "preferences": [
+    {
+      "client_id": 2259,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2259,
+      "guardian_user_id": 1437,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2260,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2260,
+      "guardian_user_id": 1437,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2261,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2261,
+      "guardian_user_id": 1437,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2262,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2262,
+      "guardian_user_id": 1437,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2263,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2263,
+      "guardian_user_id": 1437,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2264,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2264,
+      "guardian_user_id": 1442,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2265,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2265,
+      "guardian_user_id": 1443,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2266,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2266,
+      "guardian_user_id": 1444,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2267,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2267,
+      "guardian_user_id": 1445,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2273,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2273,
+      "guardian_user_id": 1451,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2274,
+      "guardian_user_id": 0,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    },
+    {
+      "client_id": 2274,
+      "guardian_user_id": 1452,
+      "channels_json": {
+        "sms": false,
+        "email": true,
+        "phone": false,
+        "in_app": true
+      }
+    }
+  ],
+  "pendingTextValidation": [
+    {
+      "pendingSms": 9,
+      "invalidWording": "0"
+    }
+  ],
+  "sms": [],
+  "ownerObserved": {
+    "harperReminderReceived": true,
+    "rowanReminderReceived": true,
+    "rowanRepliedY": true,
+    "rowanAcknowledgmentReceived": true,
+    "observedAt": "2026-10-27",
+    "newBusinessHoursCopyHandsetVerified": false
+  }
+}

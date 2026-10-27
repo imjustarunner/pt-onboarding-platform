@@ -1,0 +1,109 @@
+{
+  "at": "2026-10-27T20:03:22.183Z",
+  "agencyId": 450,
+  "results": [
+    {
+      "appointmentId": 68,
+      "scheduled": [
+        {
+          "id": 85,
+          "channel": "email",
+          "scheduledFor": "2026-11-02 20:00:00",
+          "messageBody": null
+        },
+        {
+          "id": 86,
+          "channel": "sms",
+          "scheduledFor": "2026-11-02 20:00:00",
+          "messageBody": "Reminder: ITSCO session on Tue, Nov 3, 2026, 1:00 PM MST. Reply Y to confirm, N to cancel, R to request a reschedule."
+        },
+        {
+          "id": 87,
+          "channel": "sms",
+          "scheduledFor": "2026-11-03 16:00:00",
+          "messageBody": "Reminder: ITSCO session on Tue, Nov 3, 2026, 1:00 PM MST. Reply Y to confirm, N to cancel, R to request a reschedule."
+        }
+      ]
+    },
+    {
+      "appointmentId": 69,
+      "scheduled": [
+        {
+          "id": 88,
+          "channel": "email",
+          "scheduledFor": "2026-10-28 19:00:00",
+          "messageBody": null
+        },
+        {
+          "id": 89,
+          "channel": "sms",
+          "scheduledFor": "2026-10-28 19:00:00",
+          "messageBody": "Reminder: ITSCO session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule."
+        },
+        {
+          "id": 90,
+          "channel": "sms",
+          "scheduledFor": "2026-10-29 15:00:00",
+          "messageBody": "Reminder: ITSCO session on Thu, Oct 29, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule."
+        }
+      ]
+    },
+    {
+      "appointmentId": 70,
+      "scheduled": [
+        {
+          "id": 91,
+          "channel": "email",
+          "scheduledFor": "2026-10-29 19:00:00",
+          "messageBody": null
+        },
+        {
+          "id": 92,
+          "channel": "sms",
+          "scheduledFor": "2026-10-29 19:00:00",
+          "messageBody": "Reminder: ITSCO session on Fri, Oct 30, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule."
+        },
+        {
+          "id": 93,
+          "channel": "sms",
+          "scheduledFor": "2026-10-30 15:00:00",
+          "messageBody": "Reminder: ITSCO session on Fri, Oct 30, 2026, 1:00 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule."
+        }
+      ]
+    },
+    {
+      "appointmentId": 71,
+      "scheduled": [
+        {
+          "id": 94,
+          "channel": "email",
+          "scheduledFor": "2026-11-04 20:00:00",
+          "messageBody": null
+        },
+        {
+          "id": 95,
+          "channel": "sms",
+          "scheduledFor": "2026-11-04 20:00:00",
+          "messageBody": "Reminder: ITSCO session on Thu, Nov 5, 2026, 1:00 PM MST. Reply Y to confirm, N to cancel, R to request a reschedule."
+        },
+        {
+          "id": 96,
+          "channel": "sms",
+          "scheduledFor": "2026-11-05 16:00:00",
+          "messageBody": "Reminder: ITSCO session on Thu, Nov 5, 2026, 1:00 PM MST. Reply Y to confirm, N to cancel, R to request a reschedule."
+        }
+      ]
+    },
+    {
+      "appointmentId": 81,
+      "scheduled": [
+        {
+          "id": 97,
+          "channel": "sms",
+          "scheduledFor": "2026-10-28 15:50:00",
+          "messageBody": "Reminder: ITSCO session on Wed, Oct 28, 2026, 1:50 PM MDT. Reply Y to confirm, N to cancel, R to request a reschedule."
+        }
+      ]
+    }
+  ]
+}

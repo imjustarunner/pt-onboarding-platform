@@ -1,0 +1,174 @@
+{
+  "at": "2026-10-27T19:50:57.969Z",
+  "agencyId": 450,
+  "sender": "+17197163661",
+  "routing": [
+    {
+      "phone": "+16189107000",
+      "reason": "ambiguous_identity",
+      "clients": [
+        2259,
+        2260,
+        2261,
+        2262,
+        2263,
+        2264,
+        2265,
+        2266,
+        2267,
+        2271,
+        2273,
+        2274
+      ]
+    },
+    {
+      "phone": "+18152122875",
+      "reason": null,
+      "clients": [
+        2272
+      ]
+    }
+  ],
+  "harper": {
+    "clientId": 2272,
+    "guardianUserId": 1450,
+    "phone": "+18152122875",
+    "smsEnabled": true,
+    "replyAppointment": 81
+  },
+  "consents": [
+    {
+      "id": 49,
+      "phone": "+16189107000",
+      "signer_role": "guardian",
+      "signed_at": "2026-10-27T14:35:13.000Z",
+      "activation_json": {
+        "care": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T14:42:34.366Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "beabccfc-2d52-4112-a512-fce333f889f6"
+        },
+        "reminders": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T14:42:35.303Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "8a190a39-c2fc-4088-84d2-a9ff4e3bfe6c"
+        }
+      }
+    },
+    {
+      "id": 50,
+      "phone": "+16189107000",
+      "signer_role": "staff",
+      "signed_at": "2026-10-27T14:35:30.000Z",
+      "activation_json": {
+        "workforce": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T14:42:36.749Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "b7985cb7-3844-4365-8bac-446739c5207b"
+        }
+      }
+    },
+    {
+      "id": 51,
+      "phone": "+18152122875",
+      "signer_role": "guardian",
+      "signed_at": "2026-10-27T19:33:18.000Z",
+      "activation_json": {
+        "care": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T19:37:15.540Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "3d3a2ef2-29f9-4fe0-9bf0-b5447f9034ef"
+        },
+        "reminders": {
+          "choice": "yes",
+          "activated": true,
+          "reviewedAt": "2026-10-27T19:37:16.609Z",
+          "reviewedBy": 1435,
+          "confirmationMessageId": "8f947bc1-42e7-49a3-98cf-6d4a6695c30b"
+        }
+      }
+    }
+  ],
+  "appointment": [
+    {
+      "id": 81,
+      "agency_id": 450,
+      "provider_user_id": 1439,
+      "start_at": "2026-10-28T19:50:00.000Z",
+      "end_at": "2026-10-28T20:50:00.000Z",
+      "status": "scheduled",
+      "source_timezone": "America/Denver"
+    }
+  ],
+  "reminders": [
+    {
+      "id": 68,
+      "appointment_id": 81,
+      "channel": "email",
+      "kind": "standard_reminder",
+      "scheduled_for": "2026-10-27T19:50:00.000Z",
+      "status": "sent",
+      "sent_at": "2026-10-27T19:50:13.000Z",
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 69,
+      "appointment_id": 81,
+      "channel": "sms",
+      "kind": "standard_reminder",
+      "scheduled_for": "2026-10-27T19:50:00.000Z",
+      "status": "sent",
+      "sent_at": "2026-10-27T19:50:15.000Z",
+      "skip_reason": null,
+      "error_message": null
+    },
+    {
+      "id": 70,
+      "appointment_id": 81,
+      "channel": "sms",
+      "kind": "additional_reminder",
+      "scheduled_for": "2026-10-28T15:50:00.000Z",
+      "status": "pending",
+      "sent_at": null,
+      "skip_reason": null,
+      "error_message": null
+    }
+  ],
+  "deliveries": [
+    {
+      "id": 1,
+      "channel": "email",
+      "status": "held",
+      "recipient_address": "qa.family.officees.20261027@example.com",
+      "external_message_id": "1a17ee12cf857d08",
+      "sent_at": null,
+      "error_message": "Transport held the message. Review before resending."
+    },
+    {
+      "id": 2,
+      "channel": "sms",
+      "status": "sent",
+      "recipient_address": "+18152122875",
+      "external_message_id": "5f29b220-c430-4ad0-b8e6-c9555146e67c",
+      "sent_at": "2026-10-27T19:40:53.000Z",
+      "error_message": null
+    }
+  ],
+  "pending": [
+    {
+      "count": 0,
+      "oldest": null
+    }
+  ],
+  "replies": [],
+  "sms": []
+}
