@@ -41,3 +41,19 @@ it('resolves a message recipient through active guardian/self links without a no
  const [sql,values]=m.execute.mock.calls[0];expect(sql).toContain('cg.access_enabled = 1');expect(sql).not.toContain('c.user_id');expect(values).toEqual([1411,2]);
  m.execute.mockResolvedValue([[]]);expect(await resolveClientContextForMessageNotify({agencyId:2,recipientUserId:1411})).toEqual({clientId:null,clientType:null});
 });
+
+it('tells a guardian a message was posted to their dependent account without attributing it to the provider',async()=>{
+ const execute=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,...params)=>sql.includes('SELECT relationship_type')?[[{relationship_type:'guardian'}]]:execute(sql,...params));
+ await sendSecureMessageNotification({...input,senderUserId:1412});
+ const sent=m.send.mock.calls[0][0];expect(sent.text).toContain("A new message has been posted to your dependent's account.");
+ expect(sent.text).toContain('Please sign in to AuricWell to read this message and reply.');
+ expect(sent.text).not.toContain('ITSCO sent you');expect(sent.text).not.toContain('1412');
+});
+it('does not call an adult self account a dependent',async()=>{
+ const execute=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,...params)=>sql.includes('SELECT relationship_type')?[[{relationship_type:'self'}]]:execute(sql,...params));
+ await sendSecureMessageNotification(input);
+ expect(m.send.mock.calls[0][0].text).toContain('your secure conversation');
+ expect(m.send.mock.calls[0][0].text).not.toContain("your dependent's account");
+});

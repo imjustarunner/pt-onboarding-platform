@@ -231,6 +231,12 @@ export async function sendSecureMessageNotification({
   const email = String(recipientEmail || '').trim().toLowerCase();
   if (!email) return { sent: false, reason: 'no_email' };
 
+  const [relationships] = resolvedClientId && recipientUserId ? await pool.execute(
+    'SELECT relationship_type FROM client_guardians WHERE client_id = ? AND guardian_user_id = ? AND access_enabled = 1 LIMIT 1',
+    [resolvedClientId, recipientUserId]
+  ) : [[]];
+  const forDependent = !!relationships[0] && relationships[0].relationship_type !== 'self';
+
   const portalContext = resolvedClientId ? await clientEmailContext({agencyId,clientId:resolvedClientId}) : null;
   const mailboxes = portalContext ? null : await ensureSecureMessageMailboxes(agencyId);
   if (!portalContext && !mailboxes?.fromIdentity?.id) {
@@ -298,7 +304,7 @@ export async function sendSecureMessageNotification({
   };
   const sendResult = portalContext ? await sendClientPortalEmail({
     ...delivery,agencyId,context:portalContext,
-    ...buildSecureMessageEmail({agencyName:tenant,clinical:portalContext.clinical,url:claimUrl})
+    ...buildSecureMessageEmail({agencyName:tenant,clinical:portalContext.clinical,url:claimUrl,forDependent})
   }) : await sendEmailFromIdentity({
     senderIdentityId: mailboxes.fromIdentity.id,
     to: email,

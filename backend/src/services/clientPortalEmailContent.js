@@ -47,10 +47,12 @@ export function buildTreatmentPlanEmail({ client, recipientName, url, expires = 
   return { subject:'Please review and sign the treatment plan', text,
     html:`<p>Hi ${e(recipientName || 'there')},</p><p>Please review and sign the treatment plan for <strong>${e(label)}</strong>.</p>${portalActionHtml('Review treatment plan',url)}${expires ? '<p>This link expires in 14 days.</p>' : ''}`,linkUrl:url };
 }
-export function buildSecureMessageEmail({agencyName,clinical=true,url}) {
+export function buildSecureMessageEmail({agencyName,clinical=true,url,forDependent=false}) {
   const portal=clinical?'AuricWell':`${agencyName} portal`;
-  const subject=`You have a secure message in ${portal}`;
-  const intro=`${agencyName} sent you a secure message. Sign in to ${portal} to read and reply.`;
+  const subject=forDependent ? `New message on your dependent's account in ${portal}` : `You have a secure message in ${portal}`;
+  const intro=forDependent
+    ? `A new message has been posted to your dependent's account. Please sign in to ${portal} to read this message and reply.`
+    : `A new message has been posted in your secure conversation. Please sign in to ${portal} to read this message and reply.`;
   const note='Your message stays inside your secure portal. This email does not include its contents. Please reply in the portal.';
   return {subject,text:`${intro}\n\nRead secure message:\n${url}\n\n${note}\n\n${conversaEmailNote}`,
     html:`<h2>You have a secure message</h2><p>${e(intro)}</p>${portalActionHtml('Read secure message',url)}<p>${e(note)}</p>${conversaEmailBlock()}`};

@@ -1,0 +1,29 @@
+QA ADDENDUM — ALERT THE OTHER PARENT WHEN A SHARED MESSAGE IS POSTED
+October 27, 2026. Retain earlier instructions and evidence.
+
+Expected behavior
+- A message posted by Parent A in the dependent's shared secure conversation alerts Parent B and the other authorized participants. A message from Parent B alerts Parent A. A provider message alerts both authorized parents.
+- Do not send the posting parent a new-message email about their own post.
+- Guardian email wording: "A new message has been posted to your dependent's account. Please sign in to AuricWell to read this message and reply."
+- The email contains a recipient-specific secure link. It contains no message body, attachment contents, child name or private explanation. Sign-in and current conversation access remain required.
+- The text no longer says the agency sent the message when another parent posted it.
+- Adult self accounts and staff receive neutral secure-conversation wording rather than being called a dependent's guardian.
+- Refresh authorized membership before notifying. Revoked or inactive participants must not receive the notification.
+- If one recipient's delivery fails, continue attempting the remaining recipients and record the failure for review. Do not blindly resend a message whose delivery result is uncertain.
+- Preserve individual notifications and access links for different accounts even if they share an email address.
+- Existing notification settings and email delivery controls remain in force. A queued/held notification is not proof of delivery.
+
+Bot checks — office and school shared conversations
+1. Sign in separately as both authorized guardians for one synthetic dependent. Record the displayed shared-thread participants.
+2. Parent A posts a synthetic message. Verify B's notification subject, wording, recipient and secure link; A should not receive a self-notification.
+3. Open B's link. Verify the correct login is required and the intended conversation opens after sign-in. Check that an unrelated account cannot read the thread.
+4. Repeat with Parent B posting, then with the provider posting. Confirm the other parent, or both parents for the provider post, receive notifications.
+5. Verify the body and any attachment appear only inside the authorized secure conversation. Inspect email source as well as the rendered email for accidental preview disclosure.
+6. Verify each notification's recorded sent/held/failed status and actual inbox receipt separately. On test delivery failure for one recipient, verify the other still receives their notification.
+7. Revoke a controlled fixture's messaging access and verify no later email is sent to that account. Restore only the fixture's original access afterward.
+8. Check ordinary private documents and payer-specific details remain separate from the shared conversation.
+
+For separated guardians, explicitly show that messages posted in this shared conversation are visible to both authorized parents and the care team. Do not represent it as a replacement for TalkingParents or assume permission from appointment access alone.
+
+Validation
+The family-email regression suite passes: 28 files, 289 tests. Added checks cover A-to-B and B-to-A notifications, provider-to-both, sender exclusion, revoked access, independent delivery failures, shared email addresses, and guardian/self-account wording. Live delivery for a specific real family is not certified by these tests. This change does not send a message on that family's behalf.

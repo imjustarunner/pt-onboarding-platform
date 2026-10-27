@@ -1588,15 +1588,9 @@ export const sendMessage = async (req, res, next) => {
     // Secure notifications contain only a sign-in link, for every client type.
     try {
       if (isSecureMessage) {
-        const [participants] = await pool.execute(
-          `SELECT u.id, u.email, u.personal_email FROM chat_thread_participants p JOIN users u ON u.id = p.user_id
-           WHERE p.thread_id = ? AND p.user_id <> ?`, [threadId, req.user.id]);
-        const { sendSecureMessageNotification } = await import('../services/secureMessageNotify.service.js');
-        for (const recipient of participants) {
-          const recipientEmail = recipient.email || recipient.personal_email;
-          if (recipientEmail) await sendSecureMessageNotification({ agencyId, senderUserId: req.user.id,
-            recipientUserId: recipient.id, recipientEmail, clientId: recordClientId, chatThreadId: threadId, messageId: insertedMessageId });
-        }
+        const { notifySecureThreadParticipants } = await import('../services/secureThreadNotifications.service.js');
+        await notifySecureThreadParticipants({ agencyId, threadId, senderUserId: req.user.id,
+          clientId: recordClientId, messageId: insertedMessageId });
       }
     } catch (e) {
       console.warn('[chat] client message notify wiring failed:', e?.message || e);
