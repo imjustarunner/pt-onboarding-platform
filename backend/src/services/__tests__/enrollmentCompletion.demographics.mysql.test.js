@@ -11,12 +11,12 @@ describe.skipIf(!socket)('isolated demographic review SQL',()=>{
   admin=await mysql.createConnection({socketPath:socket,user:'root',multipleStatements:true});await admin.query(`CREATE DATABASE ${database}`);
   pool=mysql.createPool({socketPath:socket,user:'root',database,multipleStatements:true});
   await pool.query(`CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(50),last_name VARCHAR(50));INSERT INTO users VALUES(9,'Parent','One'),(10,'Parent','Two');
-   CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,full_name VARCHAR(255),date_of_birth DATE,preferred_language VARCHAR(255),updated_by_user_id INT,last_activity_at DATETIME);
+   CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,full_name VARCHAR(255),date_of_birth DATE,preferred_language VARCHAR(255),gender VARCHAR(64),grade VARCHAR(32),contact_phone VARCHAR(20),email VARCHAR(255),address_street VARCHAR(255),address_apt VARCHAR(64),address_city VARCHAR(100),address_state VARCHAR(50),address_zip VARCHAR(20),ethnicity VARCHAR(100),updated_by_user_id INT,last_activity_at DATETIME);
    CREATE TABLE support_tickets(id INT AUTO_INCREMENT PRIMARY KEY,school_organization_id INT,client_id INT,created_by_user_id INT,agency_id INT,subject TEXT,question TEXT,status VARCHAR(32));
-   CREATE TABLE intake_links(id INT PRIMARY KEY,public_key VARCHAR(255));
+   CREATE TABLE intake_links(id INT PRIMARY KEY,public_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
    CREATE TABLE intake_submissions(id INT PRIMARY KEY,guardian_user_id INT,client_id INT,intake_link_id INT,status VARCHAR(32));
    CREATE TABLE intake_submission_clients(intake_submission_id INT,client_id INT);
-   CREATE TABLE co_guardian_invites(id INT PRIMARY KEY,accepted_user_id INT,status VARCHAR(32),agency_id INT,public_key VARCHAR(255));
+   CREATE TABLE co_guardian_invites(id INT PRIMARY KEY,accepted_user_id INT,status VARCHAR(32),agency_id INT,public_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci);
    CREATE TABLE co_guardian_invite_clients(invite_id INT,client_id INT);`);
   await pool.query(await fs.readFile(new URL('../../../../database/migrations/1652_guardian_demographic_review.sql',import.meta.url),'utf8'));
   process.env.FAMILY_BILLING_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,8).toString('base64');

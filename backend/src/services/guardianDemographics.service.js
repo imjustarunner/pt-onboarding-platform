@@ -110,7 +110,7 @@ export function createGuardianDemographicsService(overrides = {}) {
         AND (s.client_id=c.id OR EXISTS (SELECT 1 FROM intake_submission_clients sc WHERE sc.intake_submission_id=s.id AND sc.client_id=c.id))
         AND EXISTS (SELECT 1 FROM co_guardian_invites i JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id
           WHERE i.accepted_user_id=s.guardian_user_id AND i.status='accepted' AND i.agency_id=c.agency_id
-          AND i.public_key=il.public_key AND ic.client_id=c.id)`,[clientId,submissionId,guardianUserId]);
+          AND i.public_key COLLATE utf8mb4_unicode_ci=il.public_key COLLATE utf8mb4_unicode_ci AND ic.client_id=c.id)`,[clientId,submissionId,guardianUserId]);
       if(!binding) fail(403,'The completed guardian enrollment is not linked to this dependent.');
       const [[current]]=await db.execute(`SELECT ${keys.join(',')} FROM clients WHERE id=? AND agency_id=? FOR UPDATE`,[clientId,binding.agency_id]);
       if(!current)fail(404,'Client not found.');
