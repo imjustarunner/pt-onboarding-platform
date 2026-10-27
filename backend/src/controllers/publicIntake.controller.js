@@ -6928,6 +6928,11 @@ export const getPublicIntakeProgress = async (req, res, next) => {
     }
     const { submission, link } = loaded;
     let coGuardianInvite = null;
+    // Do not restore an ordinary/first-parent draft into a second-parent URL,
+    // even if a shared browser accidentally combines two otherwise valid links.
+    if (req.query?.coGuardianToken && !submission.co_guardian_invite_id) {
+      return res.status(403).json({ error: { message: 'This saved enrollment does not belong to this guardian invitation.' } });
+    }
     if (submission.co_guardian_invite_id || req.query?.coGuardianToken) {
       const scope = { agencyId: await resolveAgencyIdForLink(link), publicKey };
       const binding = req.query?.coGuardianToken

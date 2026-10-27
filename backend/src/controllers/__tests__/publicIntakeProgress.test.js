@@ -106,3 +106,12 @@ it('does not return a saved snapshot when the URL pairs it with another guardian
  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
  expect(res.json).not.toHaveBeenCalled();
 });
+
+it('never restores a first-parent draft into a second-parent invitation URL', async () => {
+ req.query.coGuardianToken = 'second-parent-invitation';
+ await getPublicIntakeProgress(req, res, next);
+ expect(res.status).toHaveBeenCalledWith(403);
+ expect(res.json).toHaveBeenCalledWith({error:{message:'This saved enrollment does not belong to this guardian invitation.'}});
+ expect(pool.execute).not.toHaveBeenCalled();
+ expect(IntakeSubmission.updateById).not.toHaveBeenCalled();
+});

@@ -8,6 +8,8 @@ link, including reminder links containing a session token without the original
 coGuardian parameter. The server recovers only the invitation already bound to
 that saved submission. The invitation must still be active and belong to the
 same agency/form; the saved session and accepted guardian identity must match.
+An ordinary first-parent draft cannot be restored into a second-parent invitation
+URL, even if both links were accidentally combined in a shared browser.
 The original invitation URL plus the same session also restores saved progress.
 No new enrollment, replacement signature, account activation, email, or final
 submission occurs merely by reopening the return link.
@@ -38,7 +40,7 @@ screenshots. Do not include private return-link tokens or signature images in
 shared reports. Do not submit or sign a real person's enrollment.
 
 Validation for this change
-Focused backend recovery, isolation, retry, and progress checks: 46 passed.
+Focused backend recovery, isolation, retry, and progress checks: 47 passed.
 Mounted frontend resume and progress-preservation checks: 5 passed.
 A broader enrollment suite also exposed four existing own-document test-fixture
 failures (missing req.query); the same four failures were reproduced on unchanged
