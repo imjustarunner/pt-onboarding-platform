@@ -214,7 +214,7 @@ export async function applyAppointmentReply({
       [reviewId]
     );
     clientReply = 'confirm';
-    ackMessage = 'Thanks — your appointment is confirmed. See you then!';
+    ackMessage = 'Thanks! Your appointment is confirmed. If you need to make any changes, please send us a message. A team member will get back to you during our regular business hours.';
     await notifyProviderInApp(
       appt,
       'Client confirmed appointment',
