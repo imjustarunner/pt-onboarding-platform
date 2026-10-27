@@ -36,6 +36,7 @@
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
         </button>
+        <DashboardCardEditor :layout="cardLayout" :card-keys="availableCardKeys" :labels="cardLabels" :hidden="hiddenCards" @toggle="toggleCard" @reset="resetCards" />
       </div>
     </header>
 
@@ -86,7 +87,6 @@
 
     <div v-if="error" class="ov-error">{{ error }}</div>
 
-    <DashboardCardEditor :layout="cardLayout" :card-keys="availableCardKeys" :labels="cardLabels" :hidden="hiddenCards" @toggle="toggleCard" @reset="resetCards" />
     <div class="ov-mid">
       <DashboardOverviewSection v-if="availableCardKeys.includes('work') && !hiddenCards.includes('work')" v-show="!collapsedCards.includes('work')"
         :style="cardLayout.orderStyle('work')" :label="cardLabels.work" :section-id="'work'" @collapse="setCollapsed('work', true)">
@@ -640,6 +640,10 @@ const onQuickAction = (action) => {
 }
 .ov-header-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+  margin-left: auto;
   align-items: center;
   gap: 8px;
 }

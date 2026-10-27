@@ -3,6 +3,7 @@ import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
 import pool, { onTableWrite } from '../config/database.js';
 import crypto from 'crypto';
+import { normalizePhoneExtension } from '../utils/staffWorkContact.js';
 import { directBillingAgencyIds, managedBillingAgencies } from '../services/managedBillingAccess.service.js';
 import bcrypt from 'bcrypt';
 
@@ -1278,7 +1279,7 @@ class User {
         );
         if (columns.length > 0) {
           updates.push('work_phone_extension = ?');
-          values.push(workPhoneExtension);
+          values.push(normalizePhoneExtension(workPhoneExtension));
         }
       } catch (err) {
         // Column doesn't exist yet, skip it

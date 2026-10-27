@@ -109,7 +109,7 @@ describe('outbound email author signature', () => {
     expect(result.html).not.toContain('Ext.');
     expect(result.text).not.toContain('Ext.');
   });
-  it.each(['701', 'Ext. 701', 'x701'])('normalizes extension %s in HTML and plain text', extension => {
+  it.each(['701', 'Ext. 701', 'x701', 'Ext. Ext. 701', 'Extension: 701'])('normalizes extension %s in HTML and plain text', extension => {
     const ctx = { displayName: 'Staff', email: 'staff@example.org', extension, phone: { display: '719-657-7444', tel: '+17196577444' } };
     for (const render of [buildStaffSignatureHtml, buildStaffSignatureText]) {
       expect(render(ctx)).toContain('Ext. 701');

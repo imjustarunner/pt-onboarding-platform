@@ -2,6 +2,7 @@ import { listEnrolledProviders } from './publicAgencyServices.controller.js';
 import { providerProfileUrl } from '../../../frontend/src/navigation/providerProfileLinks.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { normalizePhoneExtension, staffWorkPhone } from '../utils/staffWorkContact.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 
@@ -127,7 +128,7 @@ export const getStaffDirectory = async (req, res, next) => {
     const agencyId = Number(req.query.agencyId);
     if (!Number.isInteger(agencyId) || agencyId <= 0) return res.status(400).json({error:{message:'Choose an organization.'}});
     await assertAgencyAccess(req.user, agencyId);
-    const [[agency]] = await pool.execute('SELECT id,slug,organization_type,feature_flags FROM agencies WHERE id=? AND is_active=1', [agencyId]);
+    const [[agency]] = await pool.execute('SELECT id,slug,organization_type,feature_flags,phone_number FROM agencies WHERE id=? AND is_active=1', [agencyId]);
     if (!agency) return res.status(404).json({error:{message:'Organization not found.'}});
     const [rows] = await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.preferred_name,u.title,u.role,u.department,
       u.work_email,u.work_phone,u.work_phone_extension,u.work_location,u.profile_photo_path
@@ -140,11 +141,6 @@ export const getStaffDirectory = async (req, res, next) => {
       JOIN user_agencies ua ON ua.user_id=ul.user_id AND ua.agency_id=? AND ua.is_active=1
       WHERE ul.is_active=1 AND (l.agency_id=? OR EXISTS(SELECT 1 FROM office_location_agencies la WHERE la.office_location_id=l.id AND la.agency_id=?))
       ORDER BY ul.is_primary DESC,l.name`, [agencyId,agencyId,agencyId]);
-    const [offices] = await pool.execute(`SELECT DISTINCT a.provider_id user_id,l.name location,r.name room
-      FROM office_standing_assignments a JOIN office_rooms r ON r.id=a.room_id AND r.is_active=1
-      JOIN office_locations l ON l.id=a.office_location_id AND l.is_active=1
-      JOIN user_agencies ua ON ua.user_id=a.provider_id AND ua.agency_id=? AND ua.is_active=1
-      WHERE a.is_active=1 AND (a.availability_mode<>'TEMPORARY' OR a.temporary_until_date IS NULL OR a.temporary_until_date>=CURDATE()) AND (l.agency_id=? OR EXISTS(SELECT 1 FROM office_location_agencies la WHERE la.office_location_id=l.id AND la.agency_id=?))`, [agencyId,agencyId,agencyId]);
     const publicProfiles = new Map();
     for (const service of ['counseling','tutoring','coaching','consulting']) {
       for (const person of await listEnrolledProviders(agencyId, service, {includeDirectory:true})) {
@@ -155,9 +151,8 @@ export const getStaffDirectory = async (req, res, next) => {
       const service = publicProfiles.get(Number(row.id));
       const name = displayName(row);
       return { id: row.id, displayName: name, title: row.title || row.role, department: row.department || '',
-        workEmail: row.work_email || null, workPhone: row.work_phone || null, extension: row.work_phone_extension || null,
+        workEmail: row.work_email || null, workPhone: staffWorkPhone(agency, row.work_phone), extension: normalizePhoneExtension(row.work_phone_extension),
         primaryLocation: locations.find(l => Number(l.user_id)===Number(row.id) && Number(l.is_primary) === 1)?.name || row.work_location || null,
-        assignedOffices: offices.filter(o => Number(o.user_id)===Number(row.id)).map(o => `${o.location} · ${o.room}`),
         profilePhotoUrl: publicUploadsUrlFromStoredPath(row.profile_photo_path),
         profileUrl: !service ? null : agency.slug==='itsco' ? providerProfileUrl({...row,displayName:name}) : `/${encodeURIComponent(agency.slug)}/provider/${row.id}?serviceType=${service}`
       };

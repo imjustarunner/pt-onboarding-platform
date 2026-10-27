@@ -3,6 +3,7 @@
  * Temp passwords are portal/Lifecycle only (never PDF / shared docs).
  */
 import pool from '../config/database.js';
+import { normalizePhoneExtension } from '../utils/staffWorkContact.js';
 import { syncLifecycleItems } from './lifecycleSync.service.js';
 
 export const CREDENTIAL_FIELD_KEYS = [
@@ -130,9 +131,9 @@ export async function getLifecycleCredentials(userId) {
     personalEmail: user.personal_email || null,
     personalPhone: user.personal_phone || null,
     workPhone: user.work_phone || null,
-    workPhoneExtension: user.work_phone_extension || null,
+    workPhoneExtension: normalizePhoneExtension(user.work_phone_extension),
     grasshopperLogin: info.grasshopper_login || null,
-    grasshopperExtension: info.grasshopper_extension || user.work_phone_extension || null,
+    grasshopperExtension: normalizePhoneExtension(info.grasshopper_extension || user.work_phone_extension),
     grasshopperPin: info.grasshopper_pin || null,
     therapynotesLogin: info.therapynotes_login || null,
     therapynotesTempPassword: info.therapynotes_temp_password || null,
@@ -161,6 +162,10 @@ export async function saveLifecycleCredentials(userId, payload = {}) {
     lifecycle_npi_number: payload.npiNumber ?? payload.lifecycle_npi_number ?? payload.npi_number
   };
 
+  if (mapping.grasshopper_extension !== undefined) {
+    mapping.grasshopper_extension = normalizePhoneExtension(mapping.grasshopper_extension);
+  }
+
   for (const [key, raw] of Object.entries(mapping)) {
     if (raw === undefined) continue;
     if (!STAFF_WRITABLE.has(key)) continue;
@@ -170,9 +175,7 @@ export async function saveLifecycleCredentials(userId, payload = {}) {
 
   // Keep Grasshopper extension mirrored on users.work_phone_extension when provided
   if (mapping.grasshopper_extension !== undefined) {
-    const ext = mapping.grasshopper_extension == null || String(mapping.grasshopper_extension).trim() === ''
-      ? null
-      : String(mapping.grasshopper_extension).trim();
+    const ext = mapping.grasshopper_extension;
     try {
       await pool.execute(
         `UPDATE users SET work_phone_extension = ? WHERE id = ? LIMIT 1`,
@@ -247,7 +250,7 @@ export async function getCredentialPacketForPortal(userId, { employeeAccount = f
               key: 'grasshopper',
               label: 'Grasshopper',
               username: info.grasshopper_login || null,
-              extension: info.grasshopper_extension || null,
+              extension: normalizePhoneExtension(info.grasshopper_extension),
               pinAvailable: !!info.grasshopper_pin,
               pin: info.grasshopper_pin || null,
               hasTempPassword: false,

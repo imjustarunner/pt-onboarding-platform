@@ -33,6 +33,7 @@ describe('dashboard work',()=>{
   let w=shallowMount(Home,{global:{stubs:{DashboardOverviewSection:false,DashboardCardEditor:false},renderStubDefaultSlot:true},props:{agencyId:2,showNotes:true,showSchedule:true,showPayroll:true}});await flushPromises();
   expect(w.find('overview-pay-period-card-stub').exists()).toBe(true);
   expect(w.find('overview-events-card-stub').exists()).toBe(true);
+  expect(w.find('.ov-header-actions .ov-customize').exists()).toBe(true);
   await w.get('.ov-customize').trigger('click');
   const editor=w.get('.ov-card-editor');
   await editor.findAll('label').find(l=>l.text().includes('Events for you')).get('input').setValue(false);
@@ -48,4 +49,15 @@ it.each(['provider','admin','super_admin'])('shows the testing Add work option o
  const panel=w.findComponent({name:'NoteAidWorkQueuePanel'});expect(panel.props('allowAdd')).toBe(role==='super_admin');
  panel.vm.$emit('open-work');await flushPromises();expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({launchIntent:'work_queue'})}));
  w.unmount();mocks.user.role='provider';
+});
+
+it('closes dashboard customization with Escape or an outside click',async()=>{
+ const w=shallowMount(Home,{attachTo:document.body,global:{stubs:{DashboardCardEditor:false}},props:{agencyId:2}});await flushPromises();
+ const trigger=w.get('.ov-customize');
+ await trigger.trigger('click');expect(w.find('.ov-card-editor').exists()).toBe(true);
+ await w.get('.ov-card-editor').trigger('keydown',{key:'Escape'});
+ expect(w.find('.ov-card-editor').exists()).toBe(false);expect(document.activeElement).toBe(trigger.element);
+ await trigger.trigger('click');
+ document.body.dispatchEvent(new Event('pointerdown',{bubbles:true}));await flushPromises();
+ expect(trigger.attributes('aria-expanded')).toBe('false');expect(w.find('.ov-card-editor').exists()).toBe(false);w.unmount();
 });

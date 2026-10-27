@@ -12,9 +12,8 @@ beforeEach(()=>{
  m.agencies.mockResolvedValue([{id:2}]);m.profiles.mockImplementation(async(_id,service)=>service==='counseling'?[{id:7}]:[]);
  m.execute.mockImplementation(async(sql)=>{
   if(sql.startsWith('SELECT id,slug'))return [[{id:2,slug:'itsco'}]];
-  if(sql.includes('SELECT DISTINCT u.id'))return [[{id:7,first_name:'Example',last_name:'Staff',work_phone:'303-555-0100',work_phone_extension:'204',email:'private@example.test',personal_phone:'303-555-9999'}, {id:8,first_name:'Second',last_name:'Staff',email:'personal@example.test',personal_phone:'303-555-9998'}]];
+  if(sql.includes('SELECT DISTINCT u.id'))return [[{id:7,first_name:'Example',last_name:'Staff',work_phone:'303-555-0100',work_phone_extension:'Ext. Ext. 204',email:'private@example.test',personal_phone:'303-555-9999'}, {id:8,first_name:'Second',last_name:'Staff',email:'personal@example.test',personal_phone:'303-555-9998'}]];
   if(sql.includes('FROM user_office_locations'))return [[{user_id:7,is_primary:'0',name:'Secondary location'},{user_id:7,is_primary:1,name:'Denver'}]];
-  if(sql.includes('FROM office_standing_assignments'))return [[{user_id:7,location:'Denver',room:'Office 2'}]];
   throw new Error('Unexpected query');
  });
 });
@@ -31,11 +30,13 @@ describe('professional staff directory',()=>{
   expect(next).not.toHaveBeenCalled();
   expect(m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'))[1].slice(0,2)).toEqual([450,1]);
  });
- it('returns only professional contacts, assigned offices and published profiles',async()=>{
+ it('returns only professional contacts, primary locations and published profiles',async()=>{
   await getStaffDirectory(req,res,next);expect(next).not.toHaveBeenCalled();
   const {staff}=res.json.mock.calls[0][0];
-  expect(staff[0]).toMatchObject({workPhone:'303-555-0100',extension:'204',workEmail:null,primaryLocation:'Denver',assignedOffices:['Denver · Office 2'],profileUrl:'https://www.itsco.health/providers/example-staff-7'});
-  expect(staff[1]).toMatchObject({workPhone:null,workEmail:null,profileUrl:null});
+  expect(staff[0]).toMatchObject({workPhone:'719-657-7444',extension:'204',workEmail:null,primaryLocation:'Denver',profileUrl:'https://www.itsco.health/providers/example-staff-7'});
+  expect(staff[1]).toMatchObject({workPhone:'719-657-7444',workEmail:null,profileUrl:null});
+  expect(staff[0]).not.toHaveProperty('assignedOffices');
+  expect(m.execute.mock.calls.some(([sql])=>sql.includes('office_standing_assignments'))).toBe(false);
   expect(JSON.stringify(staff)).not.toMatch(/private@|personal@|555-999|personal_phone/);
  });
  it.each(['client_guardian','school_staff','kiosk'])('denies %s accounts before querying directory data',async role=>{
@@ -44,4 +45,17 @@ describe('professional staff directory',()=>{
  it('denies a different organization even when the user is staff',async()=>{
   req.query.agencyId=99;await getStaffDirectory(req,res,next);expect(next.mock.calls[0][0]).toMatchObject({status:403});expect(m.execute).not.toHaveBeenCalled();
  });
+});
+
+it('uses NLU’s main line for every employee in the selected organization',async()=>{
+ const previous=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,params)=>sql.startsWith('SELECT id,slug')?[[{id:2,slug:'nlu'}]]:previous(sql,params));
+ await getStaffDirectory(req,res,next);expect(next).not.toHaveBeenCalled();
+ expect(res.json.mock.calls[0][0].staff.map(person=>person.workPhone)).toEqual(['719-377-6577','719-377-6577']);
+});
+it('does not borrow a main line from ITSCO for another organization',async()=>{
+ const previous=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,params)=>sql.startsWith('SELECT id,slug')?[[{id:2,slug:'other'}]]:previous(sql,params));
+ await getStaffDirectory(req,res,next);expect(next).not.toHaveBeenCalled();
+ expect(res.json.mock.calls[0][0].staff.map(person=>person.workPhone)).toEqual(['303-555-0100',null]);
 });

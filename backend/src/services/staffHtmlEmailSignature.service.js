@@ -5,6 +5,7 @@ import {getProviderDisplayRole} from './providerDisplayRole.service.js';
  * Eligible: tenant staff roles. Title line uses profile title (never role).
  */
 import pool from '../config/database.js';
+import { normalizePhoneExtension } from '../utils/staffWorkContact.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { resolveOrgLogoUrl } from './publicFormBranding.service.js';
 import { publicAppBaseUrl } from './contactReminderToken.service.js';
@@ -806,7 +807,7 @@ ${confidentialHtml}`.trim();
 }
 
 function signaturePhoneExtension(ctx) {
-  const extension = String(ctx.extension || '').trim().replace(/^(ext\.?|x)\s*/i, '').trim();
+  const extension = normalizePhoneExtension(ctx.extension);
   const alreadyIncluded = /\bext\.?\s*\d|\bx\s*\d/i.test(String(ctx.phone?.display || ''));
   return extension && !alreadyIncluded ? ` Ext. ${extension}` : '';
 }

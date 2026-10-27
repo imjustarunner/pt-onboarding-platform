@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../lifecycleSync.service.js', () => ({ syncLifecycleItems: vi.fn() }));
-import { enabledCredentialSystems, getCredentialPacketForPortal, revealPortalTempPassword, acknowledgePortalAccounts } from '../onboardingCredentialPacket.service.js';
+import { saveLifecycleCredentials, enabledCredentialSystems, getCredentialPacketForPortal, revealPortalTempPassword, acknowledgePortalAccounts } from '../onboardingCredentialPacket.service.js';
 let info, status;
 beforeEach(() => {
   info = {}; status = 'ONBOARDING'; vi.clearAllMocks();
@@ -65,4 +65,12 @@ it('returns the current saved password and stops showing it if staff removes it'
   await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ password: 'updated-example' });
   delete info.therapynotes_temp_password;
   await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ revealed: false, reason: 'not_set', password: null });
+});
+
+it('saves one canonical extension in both lifecycle credentials and the user profile',async()=>{
+ await saveLifecycleCredentials(1,{grasshopperExtension:'Ext. Ext. 007'});
+ expect(info.grasshopper_extension).toBe('007');
+ expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE users SET work_phone_extension'),['007',1]);
+ const packet=await getCredentialPacketForPortal(1);
+ expect(packet.systems.find(s=>s.key==='grasshopper').extension).toBe('007');
 });
