@@ -70,6 +70,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { useAuthStore } from '../../store/auth.js';
+import { extractSections } from '../../utils/noteAidUiHelpers.js';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -126,10 +127,10 @@ async function generate() {
     if (props.agencyId) fd.append('agencyId', String(props.agencyId));
     if (draftInitials.value) fd.append('initials', String(draftInitials.value).trim());
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
-    const panels = Array.isArray(res?.data?.panels) ? res.data.panels : [];
-    const blob = panels.length
-      ? panels.map((p) => `${p.title || p.name || 'Section'}:\n${p.content || p.text || ''}`).join('\n\n')
-      : String(res?.data?.text || res?.data?.note || res?.data?.output || '').trim();
+    const blob = Object.entries(extractSections(res?.data?.outputJson))
+      .filter(([, content]) => typeof content === 'string' && content.trim())
+      .map(([title, content]) => `${title}:\n${content.trim()}`)
+      .join('\n\n');
     if (!blob) throw new Error('No diagnosis draft returned.');
     const footer = clinicianAttribution.value
       ? `\n\n— Draft for review by ${clinicianAttribution.value}. Not chart-ready until clinician attestation.`

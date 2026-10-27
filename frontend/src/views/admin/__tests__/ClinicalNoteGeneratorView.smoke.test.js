@@ -6,6 +6,8 @@ import api from '../../../services/api';
 import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { clinicalWorkspaceActive } from '../../../composables/useClinicalWorkspace.js';
+import { INTAKE_SECTION_TITLES } from '../../../../../backend/src/config/clinicalNotePlanOutput.js';
+import { parseNoteSections } from '../../../../../backend/src/services/clinicalNoteSections.service.js';
 
 vi.mock('../../../services/api', () => ({
   default: {
@@ -245,6 +247,58 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(request[1].get('inputText')).toContain('emotional regulation');
     expect(state.outputObj.sections.Subjective).toBe('Synthetic note.');
     wrapper.unmount();
+  });
+
+  it('generates a full unlinked 90791 intake and plan with editable, individually copyable sections', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    try {
+      state.initials = 'TEST';
+      state.dateOfService = '2026-10-27';
+      state.inputText = 'Synthetic intake history and clinician findings.';
+      await nextTick();
+      expect(state.effectiveClientId).toBeNull();
+      expect(state.planOnFile).toBe(false);
+      expect(state.canContinueToWriteStep).toBe(true);
+      expect(state.generateDisabled).toBe(false);
+      const text = INTAKE_SECTION_TITLES.map((title) => `${title}: Recorded ${title}.`).join('\n')
+        + '\nGoal 1: Improve daily functioning.\nObjective 1.1: Practice coping skills.\nInterventions 1.1: Active Listening\nProjected Time 1: 3 months\nDischarge Plan: Sustained independent coping.';
+      const sections = parseNoteSections(text, { intake: true });
+      vi.mocked(api.post).mockImplementation(async (url) => ({ data: url === '/clinical-notes/generate'
+        ? { draftId: 42, outputJson: { sections, meta: { toolId: 'clinical_90791_intake_plan' } } } : {} }));
+
+      await state.generateNote();
+      await nextTick();
+      expect(state.generateError).toBe('');
+      const request = vi.mocked(api.post).mock.calls.find(([url]) => url === '/clinical-notes/generate');
+      expect(request[1].get('clientId')).toBeNull();
+      expect(request[1].get('toolId')).toBe('clinical_90791_intake_plan');
+      expect(request[1].get('serviceCode')).toBe('90791');
+      expect(state.canApproveToClinicalRecord).toBeFalsy();
+      for (const title of Object.keys(sections)) {
+        expect(state.displayPanels.some((panel) => panel.id === title), title).toBe(true);
+      }
+
+      const cards = wrapper.findAll('.na-soap-card');
+      expect(cards).toHaveLength(Object.keys(sections).length);
+      for (const card of cards) {
+        const body = card.find('pre').text();
+        await card.findAll('button').find((button) => button.text() === 'Copy').trigger('click');
+        await flushPromises();
+        expect(writeText).toHaveBeenLastCalledWith(body);
+      }
+      const diagnosisCard = cards.find((card) => card.find('.na-soap-title').text() === 'Diagnosis');
+      await diagnosisCard.findAll('button').find((button) => button.text() === 'Edit').trigger('click');
+      await diagnosisCard.find('textarea').setValue('Clinician-reviewed diagnosis.');
+      await diagnosisCard.findAll('button').find((button) => button.text() === 'Copy').trigger('click');
+      await flushPromises();
+      expect(writeText).toHaveBeenLastCalledWith('Clinician-reviewed diagnosis.');
+      expect(vi.mocked(api.post).mock.calls.some(([url]) => url.startsWith('/medical-billing/'))).toBe(false);
+    } finally {
+      wrapper.unmount();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('still blocks linked progress notes with a missing or expired treatment plan', async () => {
