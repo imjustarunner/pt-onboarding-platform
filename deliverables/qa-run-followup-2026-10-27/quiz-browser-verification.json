@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-27T11:00:33.966Z",
+  "userId": 1433,
+  "moduleId": 32,
+  "events": [
+    {
+      "kind": "incorrectAttempt",
+      "status": 200,
+      "score": 0,
+      "passed": false,
+      "attemptCount": 2
+    },
+    {
+      "kind": "correctRetry",
+      "status": 200,
+      "score": 100,
+      "passed": true,
+      "attemptCount": 3
+    },
+    {
+      "kind": "completeLesson",
+      "status": 200
+    }
+  ],
+  "completedBanner": true
+}

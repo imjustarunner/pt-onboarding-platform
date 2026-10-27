@@ -184,6 +184,7 @@
 
             <div v-if="!content.length" class="empty">This lesson has no content yet.</div>
 
+            <p v-if="!isPrehireMode && !isCompleted && !quizCompletionSatisfied" role="status">Pass the quiz before marking this lesson complete.</p>
             <div class="lesson-nav">
               <button
                 type="button"
@@ -438,8 +439,11 @@ const requiredKcIds = computed(() =>
     .map((b) => b.id)
 );
 
+const quizCompletionSatisfied = computed(() => !content.value.some(block => block.content_type === 'quiz') || quizResults.value?.passed === true);
+
 const canComplete = computed(() => {
   if (isCompleted.value || readOnly.value) return false;
+  if (!isPrehireMode.value && !quizCompletionSatisfied.value) return false;
   if (needsAck.value && !acknowledgmentSaved.value) return false;
   for (const id of requiredKcIds.value) {
     if (!kcPassed.value[id]) return false;
@@ -577,6 +581,7 @@ async function onFormFileSelected(field, event) {
 async function load() {
   loading.value = true;
   error.value = '';
+  quizResults.value = null;
   try {
     const id = route.params.id;
     if (props.onDemand) {
@@ -612,6 +617,15 @@ async function load() {
           hasStarted.value = progress.value?.status === 'in_progress' || progress.value?.status === 'completed';
         } catch {
           progress.value = null;
+        }
+        const quiz = content.value.find(block => block.content_type === 'quiz');
+        if (quiz) {
+          const { data: attempts } = await api.get(`/quizzes/${id}/attempts`);
+          const scores = (attempts || []).filter(attempt => attempt.score != null).map(attempt => Number(attempt.score)).filter(Number.isFinite);
+          if (scores.length) {
+            const score = Math.max(...scores);
+            quizResults.value = { score, passed: score >= Number(quiz.content_data.minimumScore ?? 0) };
+          }
         }
         try {
           const ack = await api.get(`/acknowledgments/${id}`);
@@ -781,7 +795,7 @@ async function saveFormValues(validate) {
 }
 
 function handleQuizCompleted(data) {
-  if (data) quizResults.value = data;
+  if (data && (!quizResults.value?.passed || data.passed)) quizResults.value = data;
 }
 
 async function onKnowledgeCheck({ blockId, correct, selected }) {

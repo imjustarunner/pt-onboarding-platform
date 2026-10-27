@@ -1,0 +1,110 @@
+{
+  "at": "2026-10-27T10:57:45.131Z",
+  "checks": [
+    {
+      "key": "provider",
+      "path": "/modules/32",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "key": "provider",
+      "path": "/modules/32/content",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "key": "provider",
+      "path": "/quizzes/32/attempts",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "key": "provider",
+      "path": "/modules/other-tenant-private-module",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "provider",
+      "path": "/modules/other-tenant-private-module/content",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "provider",
+      "path": "/quizzes/other-tenant-private-module/attempts",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/modules/32",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/modules/32/content",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/quizzes/32/attempts",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/modules/other-tenant-private-module",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/modules/other-tenant-private-module/content",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/quizzes/other-tenant-private-module/attempts",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/clinical-notes/context?agencyId=450",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/agencies/450/settings-people-snapshot",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    },
+    {
+      "key": "support",
+      "path": "/client-exchange/listings?agencyId=2",
+      "status": 403,
+      "expected": 403,
+      "passed": true
+    }
+  ]
+}

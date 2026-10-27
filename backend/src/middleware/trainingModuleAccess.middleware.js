@@ -21,7 +21,7 @@ export async function canReadTrainingModule(user, module, agencies = null) {
 /** Apply the same tenant boundary to the module, its content and quiz attempts. */
 export async function requireTrainingModuleAccess(req, res, next) {
   try {
-    const id = Number(req.params.moduleId || req.params.id);
+    const id = Number(req.params.moduleId || req.params.id || req.body?.moduleId);
     if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: { message: 'Invalid module ID' } });
     const module = await Module.findById(id);
     if (!module) return res.status(404).json({ error: { message: 'Module not found' } });
