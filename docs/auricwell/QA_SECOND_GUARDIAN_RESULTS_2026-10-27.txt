@@ -1,0 +1,64 @@
+ITSCOLLC QA — SECOND-GUARDIAN RESULTS AND RETEST ADDENDUM
+October 27, 2026. New handoff; keep previous instructions.
+
+RETAINED TEST FAMILY — AGENCY 450 ONLY
+Dependent: Jules QA-CoParent-1027, client 2277.
+First guardian: Morgan, user 1459, enrollment 1285.
+Second guardian: Casey, user 1460, invitation 24, enrollment 1289.
+Use the existing private credential vault. No passwords or enrollment tokens
+are included in this document.
+
+VERIFIED
+- Casey's requested initial invitation was sent, communication 4211, with the
+  actual transport recipient testing@itsco.health. It referenced Morgan's name
+  and email and the child's initials. Its old subject incorrectly said reminder.
+- Future first actual sends use invitation wording. Failed attempts do not
+  turn the first successful send into a reminder.
+- Pending invitations receive at most two automatic reminders, after two and
+  seven days; accepted/revoked/expired invitations stop. No historical bulk send.
+- Casey completed enrollment. No reminder remains scheduled for invitation 24.
+- Casey's signed copy initially failed on a database collation mismatch. The
+  repaired flow used the retained signed answers. It also now reuses child
+  associations on retries and handles historical duplicate associations.
+- Both parents download exactly one PDF for their own enrollment. Morgan's
+  request for Casey's copy and Casey's request for Morgan's copy return 404.
+- Completion email 4229 is recorded sent to Casey's test address through the
+  test-inbox routing. Actual external inbox receipt is a separate bot check.
+- Shared dependent history includes invitation delivery and the completion
+  email, with channel, recipient, time and status. It excludes private bodies,
+  signatures, personal reset links and invitation tokens.
+- Provider email display was checked on desktop and mobile; mobile signature
+  columns remain readable with remote images blocked.
+
+RETEST IN THE LIVE PORTALS AFTER DEPLOYMENT
+1. Morgan: dependent Communication history shows invitation sent, accepted,
+   and no next reminder. Confirm completion email status is visible.
+2. Casey: the same dependent appears, with Casey's own signed enrollment copy.
+   Both parents must remain unable to access the other's private answers/docs.
+3. Repeat with a NEW office and a NEW school enrollment in EN and ES. Capture
+   actual incoming mail, initial invitation wording, enrollment completion,
+   private copies, and the first parent's delivery history.
+4. Keep a separate pending fixture for the two capped reminders. Verify accepted
+   invitations receive none. Isolated automated tests cover timing immediately;
+   do not change the production clock.
+5. Check dependent email/SMS/reminder history, switch dependents during loading,
+   and confirm unrelated-dependent requests are denied.
+
+LIMITS AND EVIDENCE
+The retained live family above is an office case. A fresh school browser journey
+has not been claimed as passed; school logic has automated coverage and remains
+in the next bot run. Historical failed packet-status events remain in the audit
+history rather than being erased. A repeated attachment attempt reported an
+already-existing storage path; both final private copies were downloaded and
+verified as PDFs.
+
+Evidence directory: deliverables/qa-coguardian-2026-10-27/
+- guardian-copy-isolation.json
+- avery-email-desktop.png
+- avery-email-mobile.png
+
+Core invitation/history changes: f7f12220b87d71907cd8309070e2e30464ca0e09.
+Email display: 14b1c928d474ff1528855787d7d1d4c5b3619e5e.
+Recovery fixes: 57c187e9e, ee98383fc, 189e6d04a and this handoff's commit.
+Core invitation/history and email-display deployments succeeded. Recovery fixes
+were pushed to main; verify the latest backend deployment before browser retests.

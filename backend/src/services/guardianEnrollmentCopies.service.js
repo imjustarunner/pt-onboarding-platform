@@ -12,7 +12,7 @@ export async function guardianEnrollmentCopies({userId,clientId,agencyId},db=poo
   if(!client||(link.relationship_type!=='self'&&ageOn(client.date_of_birth)>=18))throw fail(403,'These enrollment records require a care-team access review.');
   // A signer sees only a linked child's bundle. Never expose an entire sibling
   // submission as the fallback for a missing child-specific export.
-  const [rows]=await db.execute(`SELECT s.id,isc.client_id,il.language_code,il.title,s.submitted_at,
+  const [rows]=await db.execute(`SELECT DISTINCT s.id,isc.client_id,il.language_code,il.title,s.submitted_at,
     isc.bundle_pdf_path,s.combined_pdf_path,
     (SELECT COUNT(DISTINCT COALESCE(other.client_id,-other.id)) FROM intake_submission_clients other WHERE other.intake_submission_id=s.id) AS child_count
     FROM intake_submissions s JOIN intake_submission_clients isc ON isc.intake_submission_id=s.id

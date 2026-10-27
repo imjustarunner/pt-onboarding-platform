@@ -54,3 +54,11 @@ TESTS TO ADD — OFFICE AND SCHOOL, ENGLISH AND SPANISH
 Keep synthetic data in agency 450; preserve the existing SMS number assignments,
 population limits, self-pay rules, and prohibition on real insurance submissions.
 Record actual inbox receipt separately from the app's sent status.
+
+UPDATE — CASEY COMPLETED ENROLLMENT
+Casey accepted invitation 24 and completed enrollment 1289 on October 27.
+No automatic reminder is scheduled for Casey. This supersedes the earlier
+statement that Casey would be included in the reminder schedule. The signed
+copy was repaired using Casey's saved answers and signatures; completion email
+4229 is recorded sent. Both parents' own PDF downloads pass; cross-parent
+requests return 404. See QA_SECOND_GUARDIAN_RESULTS_2026-10-27.txt.
