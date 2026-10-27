@@ -55,7 +55,7 @@ export function createCancellationRecipientService(overrides = {}) {
     // Recheck access and opt-outs after review, immediately before transport.
     const current = await contacts(clientId, agencyId);
     if (!current.contacts.some(c => c.key === recipient.key && Number(c.userId) === Number(recipient.userId))) return false;
-    const consent = await d.consent(clientId, agencyId);
+    const consent = await d.consent(clientId, agencyId, recipient.userId || null);
     if (!Object.hasOwn(consent, 'emailAddress') && !Object.hasOwn(consent, 'phoneNumber')) return false;
     const prefs = await d.preferences(agencyId, clientId, recipient.userId);
     if (prefs.schedulingChangesEnabled === false || prefs.providerPushedUpdatesEnabled === false || (!prefs.isDefault && prefs.channels?.[channel] === false)) return false;

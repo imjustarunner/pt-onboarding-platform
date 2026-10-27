@@ -68,16 +68,17 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
   cp.providerTextingActivationStatus = cp.providerTextingOptIn === 'yes' ? 'awaiting_recipient_and_campaign_review' : 'declined';
 }
 
-export async function latestIntakeCommunicationChoices(clientId, agencyId) {
+export async function latestIntakeCommunicationChoices(clientId, agencyId, guardianUserId = null) {
   const [rows] = await pool.execute(
     `SELECT DISTINCT s.id FROM intake_submissions s
      LEFT JOIN intake_submission_clients ic ON ic.intake_submission_id = s.id
      JOIN intake_links l ON l.id = s.intake_link_id
      WHERE (ic.client_id = ? OR s.client_id = ?) AND s.status = 'submitted'
+       AND (? IS NULL OR s.guardian_user_id = ?)
        AND ((l.scope_type = 'agency' AND l.organization_id = ?)
          OR EXISTS (SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id = l.organization_id AND oa.agency_id = ? AND oa.is_active = TRUE)
          OR EXISTS (SELECT 1 FROM agency_schools sc WHERE sc.school_organization_id = l.organization_id AND sc.agency_id = ? AND sc.is_active = TRUE))
-     ORDER BY s.id DESC LIMIT 20`, [clientId, clientId, agencyId, agencyId, agencyId]);
+     ORDER BY s.id DESC LIMIT 20`, [clientId, clientId, guardianUserId, guardianUserId, agencyId, agencyId, agencyId]);
   for (const row of rows) {
     const submission = await IntakeSubmission.findById(row.id);
     const cp = getIntakeCommunicationChoices(submission?.intake_data);

@@ -78,7 +78,7 @@ export async function submitAppointmentEmailAction(token,action) {
         return message;
       }
       const rawBody=action==='absence'?'My child will miss school for this scheduled session.':{confirm:'Y',cancel:'N',reschedule:'R'}[action];
-      const response=await applyAppointmentReply({appointmentId:appt.id,agencyId:row.agency_id,clientId:row.client_id,channel:'email',rawBody,autoApply:action!=='absence'});
+      const response=await applyAppointmentReply({appointmentId:appt.id,agencyId:row.agency_id,clientId:row.client_id,guardianUserId:row.guardian_user_id,channel:'email',rawBody,autoApply:action!=='absence'});
       const message=action==='absence'?'Your care team has been notified that your child will miss school. Please also report the absence to the school as usual. This notice does not assess a cancellation fee.':response.ackMessage;
       await db.execute("UPDATE appointment_email_actions SET status='completed',result_message=?,completed_at=UTC_TIMESTAMP() WHERE id=?",[String(message).slice(0,1000),row.id]);
       return message;

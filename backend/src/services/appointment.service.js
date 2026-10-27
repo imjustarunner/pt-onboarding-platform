@@ -586,12 +586,12 @@ export async function cancelAppointment(appointmentId, {
   }
   if (!String(reason || notes || '').trim()) throw Object.assign(new Error('Cancellation reason is required'), { status: 400 });
   const { cancellationClientDetails, notifyAppointmentCancellation, isCanceledAppointmentStatus } = await import('./appointmentCancellationNotification.service.js');
-  const notificationFacts = { eventType: 'canceled', clientFacingReason: clientFacingReason || reason || notes,
+  const notificationFacts = { eventType: 'canceled', cancellationActorRole: actorRole, cancellationActorUserId: actorUserId, clientFacingReason: clientFacingReason || reason || notes,
     followUpAction, followUpMessage };
   cancellationClientDetails(notificationFacts);
   if (isCanceledAppointmentStatus(existing.status)) await syncQaAppointmentBalance(existing, actorUserId);
   if (isCanceledAppointmentStatus(existing.status)) return { ...(await getAppointmentBundle(appointmentId)), alreadyCanceled: true,
-    notificationDelivery: await notifyAppointmentCancellation(appointmentId, { ...notificationFacts, clientFacingReason: existing.cancellationReason || notificationFacts.clientFacingReason }, actorUserId) };
+    notificationDelivery: null };
   if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
     throw Object.assign(new Error('Invalid cancellation status'), { status: 400 });
   }

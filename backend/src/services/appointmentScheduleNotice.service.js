@@ -13,6 +13,7 @@ const defaults = {
   participants: async id => (await import('../models/Appointment.model.js')).default.listParticipants(id),
   tenant: async id => (await import('./sessionNotification.service.js')).getTenantSettings(id),
   reviewedRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(...args),
+  familyRecipients: async (...args) => (await import('./appointmentFamilyRecipients.service.js')).appointmentFamilyRecipients(...args),
   consent: async (...args) => (await import('./sessionNotification.service.js')).loadClientConsent(...args),
   preferences: async (...args) => (await import('./sessionNotification.service.js')).getClientPreferences(...args),
   log: async args => (await import('./appointmentReminder.service.js')).logCommunication(args),
@@ -117,7 +118,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           await audit(row, 'superseded', 'A later schedule edit replaced this queued notification.');
         }
         const firstQueuedAt = previous.length ? parseUtcDate(previous[0].created_at) : d.now();
-        let due = sendImmediately ? d.now() : scheduleNoticeDeadline({ now: d.now(), firstQueuedAt,
+        const familyCancellation = eventType === 'canceled' && ['guardian','client_guardian','client'].includes(facts.cancellationActorRole);
+        let due = (sendImmediately || familyCancellation) ? d.now() : scheduleNoticeDeadline({ now: d.now(), firstQueuedAt,
           startAt: before?.startAt || a.startAt, bufferMinutes: tenant?.changeNotify?.bufferMinutes });
         // An imminent cancellation already queued for this client must not be delayed by a later booking.
         for (const row of previous) {
@@ -192,34 +194,41 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         await audit(e.row,'sending','Final schedule update prepared for delivery. Verify delivery status before resending.');
       }
       const selectedContacts = entries[0].payload.facts?.notificationRecipients?.find(c => Number(c.clientId) === Number(seed.client_id));
-      const targets = selectedContacts ? selectedContacts.recipients : [null];
+      const family = await d.familyRecipients(seed.client_id,seed.agency_id);
+      const targets = selectedContacts ? selectedContacts.recipients : family.hasRelationships ? family.recipients : [null];
       const sentTargets = new Set();
       for (const target of targets) for (const channel of channels.length ? channels : ['in_app']) {
-        const targetKey = target ? `${channel}:${channel === 'sms' ? target.phone : target.email}`.toLowerCase() : channel;
-        if (sentTargets.has(targetKey)) continue;
-        sentTargets.add(targetKey);
         let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null;
-        const body = channel === 'sms' ? message.sms : message.text;
-        const [delivery] = await db.execute(`INSERT INTO appointment_schedule_notice_deliveries (batch_id,channel,message_json,recipient_key) VALUES (?,?,?,?)`, [batchId,channel,d.encrypt(JSON.stringify(message)),target?.key || 'default']);
+        const recipientMessage = buildScheduleNoticeMessage(entries,portalUrl,{recipientUserId:target?.userId || null});
+        const body = channel === 'sms' ? recipientMessage.sms : recipientMessage.text;
+        const [delivery] = await db.execute(`INSERT INTO appointment_schedule_notice_deliveries (batch_id,channel,message_json,recipient_key) VALUES (?,?,?,?)`, [batchId,channel,d.encrypt(JSON.stringify(recipientMessage)),target?.key || 'default']);
         try {
-          const consent = target ? { guardianUserId: target.userId, emailAddress: target.email, phoneNumber: target.phone, email: true, sms: true } : await d.consent(seed.client_id,seed.agency_id);
+          const consent = await d.consent(seed.client_id,seed.agency_id,target?.userId || null);
+          if (target && selectedContacts) { consent.emailAddress=target.email;consent.phoneNumber=target.phone; }
           const prefs = await d.preferences(seed.agency_id,seed.client_id,consent.guardianUserId);
           const tenant = await d.tenant(seed.agency_id);
           recipient = channel === 'sms' ? await d.normalizePhone(consent.phoneNumber) : consent.emailAddress;
+          const targetKey = `${channel}:${recipient || target?.key || 'default'}`.toLowerCase();
+          if (sentTargets.has(targetKey)) {
+            await db.execute("UPDATE appointment_schedule_notice_deliveries SET status='skipped',error_message='Shared destination already processed' WHERE id=?",[delivery.insertId]);
+            continue;
+          }
           communication = await d.communication({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,
-            templateType:'session_change',channel,subject:message.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,
+            templateType:'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,
             metadata:{appointmentIds:entries.map(e=>e.appointment.id),scheduleNoticeBatchId:batchId},deliveryStatus:'pending'});
-          const permitted = (!target || await d.reviewedRecipientAllowed(seed.client_id,seed.agency_id,target,channel)) && channel !== 'in_app' && recipient && consent[channel] && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
+          const guardianAuthorized = !target?.userId || !family.hasRelationships || family.recipients.some(r => r.userId === Number(target.userId));
+          const permitted = guardianAuthorized && (!target || !selectedContacts || await d.reviewedRecipientAllowed(seed.client_id,seed.agency_id,target,channel)) && channel !== 'in_app' && recipient && consent[channel] && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
             && (prefs.isDefault || prefs.channels?.[channel] !== false)
             && (channel !== 'sms' || (tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms')));
           if (!permitted) { status='skipped'; reason='No permitted contact channel. Review and follow up with the client through an approved channel.'; }
           else {
+            sentTargets.add(targetKey);
             let result;
             if (channel === 'email') {
               attempted = true;
               result = await d.sendEmail({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,to:recipient,
                 entries,
-                subject:message.subject,text:message.text,html:message.html,triggerKey:'session_change',templateType:'session_change',
+                subject:recipientMessage.subject,text:recipientMessage.text,html:recipientMessage.html,triggerKey:'session_change',templateType:'session_change',
                 generatedByUserId:seed.created_by_user_id,source:'auto',existingCommunicationId:communication.id});
             } else {
               const from = await d.smsSender({agencyId:seed.agency_id,purpose:'reminders'});
@@ -238,7 +247,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         await db.execute('UPDATE appointment_schedule_notice_deliveries SET status=?,recipient_address=?,communication_id=?,external_message_id=?,error_message=?,sent_at=? WHERE id=?',
           [status,recipient,communication?.id || null,externalId,reason,sentAt,delivery.insertId]);
         if (communication?.id) await d.updateCommunication(communication.id,['review','held'].includes(status)?'failed':status,externalId,null,reason);
-        for (const e of entries) await audit(e.row,status,body,{channel,subject:message.subject,recipient,reason,sentAt,
+        for (const e of entries) await audit(e.row,status,body,{channel,subject:recipientMessage.subject,recipient,reason,sentAt,
           scheduleNoticeDeliveryId:delivery.insertId,communicationId:communication?.id || null,externalMessageId:externalId});
       }
       for (const e of entries) await db.execute("UPDATE appointment_schedule_notices SET status='processed' WHERE id=?",[e.row.id]);

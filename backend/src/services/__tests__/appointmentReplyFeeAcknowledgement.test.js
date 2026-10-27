@@ -1,5 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),find:vi.fn(),update:vi.fn(),evaluate:vi.fn(),cancel:vi.fn(),notify:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),find:vi.fn(),update:vi.fn(),evaluate:vi.fn(),cancel:vi.fn(),notify:vi.fn(),authorize:vi.fn()}));
+vi.mock('../guardianAppointments.service.js',()=>({requireGuardianCancellation:m.authorize}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:m.find,update:m.update}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}})}}));
@@ -9,7 +10,7 @@ vi.mock('../bookingCancellationPolicy.service.js',()=>({evaluateCancel:m.evaluat
 vi.mock('../appointment.service.js',()=>({cancelAppointment:m.cancel}));
 vi.mock('../notificationDispatcher.service.js',()=>({default:{createNotificationAndDispatch:m.notify}}));
 import {applyAppointmentReply,escalateUnknownAppointmentReply} from '../appointmentReply.service.js';
-beforeEach(()=>{vi.resetAllMocks();m.execute.mockResolvedValue([{insertId:91}]);m.find.mockResolvedValue({id:68,agencyId:450,providerUserId:1433,startAt:'2099-11-02 17:00:00'});m.evaluate.mockResolvedValue({allowed:true,recommendedFeeCents:8000});});
+beforeEach(()=>{vi.resetAllMocks();m.execute.mockResolvedValue([{insertId:91}]);m.find.mockResolvedValue({id:68,status:'scheduled',agencyId:450,providerUserId:1433,startAt:'2099-11-02 17:00:00'});m.evaluate.mockResolvedValue({allowed:true,recommendedFeeCents:8000});});
 it('keeps a late cancellation scheduled until the family acknowledges the exact fee',async()=>{
  const result=await applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,rawBody:'N'});
  expect(result.status).toBe('pending_review');expect(result.ackMessage).toContain('$80.00');expect(result.ackMessage).toContain('https://app.itsco.health/auricwell-qa-demo/guardian?panel=appointments&clientId=2271&appointmentId=68');expect(m.cancel).not.toHaveBeenCalled();expect(m.update).not.toHaveBeenCalled();
@@ -23,4 +24,27 @@ it('routes a request for another session to staff without changing the appointme
  const result=await escalateUnknownAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,rawBody:'Can I request an additional session?'});
  expect(result).toMatchObject({needsSupport:true,status:'pending_review',fallThroughToInbox:true});
  expect(m.notify).toHaveBeenCalledOnce();expect(m.cancel).not.toHaveBeenCalled();expect(m.update).not.toHaveBeenCalled();
+});
+
+it('records which guardian canceled and acknowledges with the AuricWell login link',async()=>{
+ m.evaluate.mockResolvedValue({allowed:true,recommendedFeeCents:0});
+ const result=await applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,guardianUserId:92,rawBody:'N'});
+ expect(m.authorize).toHaveBeenCalledWith(expect.objectContaining({userId:92,clientId:2271}));
+ expect(m.cancel).toHaveBeenCalledWith(68,expect.objectContaining({actorRole:'guardian',actorUserId:92,status:'canceled_by_guardian'}));
+ expect(result.ackMessage).toContain('https://auricwell.com');
+});
+it.each(['Y','R'])('does not reopen a canceled appointment for a late %s reply',async rawBody=>{
+ m.find.mockResolvedValue({id:68,status:'canceled_by_guardian',agencyId:450});
+ const result=await applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,guardianUserId:92,rawBody});
+ expect(result.status).toBe('already_resolved');expect(m.execute).not.toHaveBeenCalled();expect(m.cancel).not.toHaveBeenCalled();
+});
+it('does not confirm if cancellation wins the concurrent status update',async()=>{
+ m.execute.mockResolvedValue([{insertId:91,affectedRows:0}]);
+ const result=await applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,guardianUserId:92,rawBody:'Y'});
+ expect(result.status).toBe('already_resolved');expect(m.notify).not.toHaveBeenCalled();
+});
+it('denies a guardian who lost appointment access',async()=>{
+ m.authorize.mockRejectedValue(Object.assign(Error('Access revoked'),{status:403}));
+ await expect(applyAppointmentReply({appointmentId:68,agencyId:450,clientId:2271,guardianUserId:92,rawBody:'N'})).rejects.toThrow('Access revoked');
+ expect(m.execute).not.toHaveBeenCalled();expect(m.cancel).not.toHaveBeenCalled();
 });

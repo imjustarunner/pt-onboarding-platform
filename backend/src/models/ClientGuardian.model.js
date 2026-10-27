@@ -41,6 +41,7 @@ class ClientGuardian {
          COALESCE(u.phone_number, u.personal_phone, u.work_phone) AS phone,
          u.profile_photo_path,
          u.status,
+         u.is_active,
          u.role
        FROM client_guardians cg
        JOIN users u ON u.id = cg.guardian_user_id

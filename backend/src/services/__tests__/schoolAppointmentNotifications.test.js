@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:vi.fn(async()=>({agency_id:2})),requireGuardianCancellation:vi.fn(async()=>({agency_id:2}))}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), query:vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn(), listParticipants: vi.fn(), update: vi.fn(), mapRow: r => r } }));
 vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn() } }));
@@ -129,4 +130,50 @@ it.each([{status:'ARCHIVED'},{client_status_key:'terminated'},{client_status_lab
 it('does not mistake a historic termination timestamp for current termination',async()=>{
   Object.assign(client,{status:'ACTIVE',client_status_key:'current',terminated_at:'2020-01-01'});
   expect(await loadClientConsent(4,2)).toMatchObject({email:true,sms:true});
+});
+
+function twoGuardians() {
+ Guardians.listForClient.mockResolvedValue([{guardian_user_id:91,access_enabled:1,email:'one@example.test',phone:'+17195550101'},{guardian_user_id:92,access_enabled:1,email:'two@example.test',phone:'+17195550102'}]);
+ latestIntakeCommunicationChoices.mockImplementation(async(c,a,id)=>({version:'v2',signatureAccepted:true,signedAt:'2026-01-01T00:00:00Z',guardianUserId:id,
+  emailPreference:'all',smsPreference:'scheduling_only',recipientEmail:id===91?'one@example.test':'two@example.test',recipientPhone:id===91?'+17195550101':'+17195550102'}));
+ recordedReminderConsent.mockResolvedValue({collectedAt:'2026-01-02T00:00:00Z'});
+}
+it('creates independent reminders for both authorized guardians with their own consent choices',async()=>{
+ twoGuardians();resolveAppointmentServiceSetting.mockResolvedValue({isSchool:false});
+ const plan=await buildDeliveryPlan(12);
+ expect(new Set(plan.deliveries.filter(d=>d.channel==='sms').map(d=>d.recipientGuardianUserId))).toEqual(new Set([91,92]));
+ expect(plan.deliveries.every(d=>d.recipientClientId===4)).toBe(true);
+ expect(latestIntakeCommunicationChoices).toHaveBeenCalledWith(4,2,91);expect(latestIntakeCommunicationChoices).toHaveBeenCalledWith(4,2,92);
+});
+it('delivers each guardian reminder to that guardian rather than the latest enrolling parent',async()=>{
+ twoGuardians();resolveAppointmentServiceSetting.mockResolvedValue({isSchool:false});
+ due=[91,92].map((id,index)=>({id:index+1,appointment_id:12,agency_id:2,channel:'sms',kind:'standard_reminder',requires_confirmation:1,is_required:1,recipient_guardian_user_id:id,recipient_client_id:4}));
+ await processDueSessionNotifications();
+ expect(Vonage.sendSms.mock.calls.map(([input])=>input.to)).toEqual(['+17195550101','+17195550102']);
+ expect(Vonage.sendSms.mock.calls.every(([input])=>input.body.includes('Y to confirm')&&input.body.includes('N to cancel'))).toBe(true);
+});
+it('does not let a newly enrolling guardian decline the other parent’s reminder choices',async()=>{
+ twoGuardians();const choices=latestIntakeCommunicationChoices.getMockImplementation();
+ latestIntakeCommunicationChoices.mockImplementation(async(c,a,id)=>({...await choices(c,a,id),...(id===92?{smsPreference:'no',emailPreference:'no',signedAt:'2026-02-01T00:00:00Z'}:{})}));
+ const plan=await buildDeliveryPlan(12);expect(plan.deliveries.length).toBeGreaterThan(0);expect(plan.deliveries.every(d=>d.recipientGuardianUserId===91)).toBe(true);
+});
+it('expands old pending family reminders into durable per-guardian rows before sending',async()=>{
+ twoGuardians();due=[{id:55,appointment_id:12,agency_id:2,channel:'sms',kind:'standard_reminder',requires_confirmation:1,is_required:1,scheduled_for:'2026-10-27 12:00:00'}];
+ await processDueSessionNotifications();
+ const inserts=pool.execute.mock.calls.filter(([sql])=>sql.includes('INSERT IGNORE INTO appointment_reminders'));
+ expect(inserts).toHaveLength(2);expect(inserts.map(([,args])=>args.slice(-3))).toEqual([[91,4,55],[92,4,55]]);expect(Vonage.sendSms).not.toHaveBeenCalled();
+});
+it('does not send a queued guardian reminder after that guardian loses access',async()=>{
+ twoGuardians();Guardians.listForClient.mockResolvedValue([{guardian_user_id:91,access_enabled:1,email:'one@example.test',phone:'+17195550101'},{guardian_user_id:92,access_enabled:0,email:'two@example.test',phone:'+17195550102'}]);
+ due=[{id:55,appointment_id:12,agency_id:2,channel:'sms',kind:'standard_reminder',recipient_guardian_user_id:92,recipient_client_id:4}];
+ await processDueSessionNotifications();expect(Vonage.sendSms).not.toHaveBeenCalled();expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('guardian_access_removed'),[55]);
+});
+
+it('sends a single reminder when two guardians share the same destination',async()=>{
+ twoGuardians();const choices=latestIntakeCommunicationChoices.getMockImplementation();
+ latestIntakeCommunicationChoices.mockImplementation(async(c,a,id)=>({...await choices(c,a,id),recipientPhone:'+15555550101',recipientEmail:'shared@example.test'}));
+ const plan=await buildDeliveryPlan(9);
+ const sms=plan.deliveries.filter(d=>d.channel==='sms');
+ expect(sms.length).toBeGreaterThan(0);
+ expect(new Set(sms.map(d=>d.recipientGuardianUserId)).size).toBe(1);
 });

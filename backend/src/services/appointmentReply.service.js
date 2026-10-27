@@ -1,3 +1,6 @@
+import { FAMILY_APPOINTMENT_LOGIN } from './appointmentCancellationCopy.js';
+import { appointmentFamilyRecipients } from './appointmentFamilyRecipients.service.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 /**
  * Interactive appointment reminder replies: Y confirm / N cancel / R reschedule.
@@ -126,6 +129,7 @@ export async function applyAppointmentReply({
   channel = 'sms',
   rawBody,
   clientId = null,
+  guardianUserId = null,
   autoApply = true
 } = {}) {
   const intent = interpretAppointmentReply(rawBody);
@@ -136,6 +140,11 @@ export async function applyAppointmentReply({
   if (appt.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Manage this appointment in the secure AuricWell practice workspace.'), { status: 409 });
   const aid = Number(agencyId || appt.agencyId);
   if (aid !== Number(appt.agencyId)) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  if (guardianUserId) await (await import('./guardianAppointments.service.js')).requireGuardianCancellation({userId:guardianUserId,clientId,appointment:appt});
+  if (!['scheduled','confirmed','client_confirmed','reschedule_requested'].includes(appt.status)) {
+    return { appointmentId:appt.id,intent,status:'already_resolved',clientReply:null,
+      ackMessage:`This appointment is no longer scheduled. ${FAMILY_APPOINTMENT_LOGIN}` };
+  }
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
 
   const [ins] = await pool.execute(
@@ -161,7 +170,7 @@ export async function applyAppointmentReply({
     channel,
     kind: intent === 'cancel' ? 'cancel_reply' : (intent === 'confirm' ? 'confirm_reply' : (intent === 'reschedule' ? 'other' : 'other')),
     bodyPreview: String(rawBody || '').slice(0, 500),
-    metadata: { intent, reviewId, shortcut: 'Y/N/R' }
+    metadata: { intent, reviewId, guardianUserId, shortcut: 'Y/N/R' }
   });
 
   if (serviceSetting.isSchool) {
@@ -187,17 +196,13 @@ export async function applyAppointmentReply({
   let ackMessage = '';
 
   if (intent === 'confirm') {
-    await Appointment.update(appt.id, {
-      status: 'client_confirmed',
-      notes: appt.notes,
-      updatedByUserId: null
-    });
+    const [confirmed] = await pool.execute("UPDATE appointments SET status='client_confirmed',updated_by_user_id=? WHERE id=? AND status IN ('scheduled','confirmed','client_confirmed','reschedule_requested')",[guardianUserId,appt.id]);
+    if (!confirmed.affectedRows) return {appointmentId:appt.id,intent,status:'already_resolved',ackMessage:`This appointment is no longer scheduled. ${FAMILY_APPOINTMENT_LOGIN}`};
     // Store confirmation stamp on recommendation-style JSON if columns exist
     try {
       await pool.execute(
         `UPDATE appointments
-         SET status = 'client_confirmed',
-             cancellation_recommendation_json = JSON_SET(
+         SET cancellation_recommendation_json = JSON_SET(
                COALESCE(cancellation_recommendation_json, JSON_OBJECT()),
                '$.clientReply', 'confirm',
                '$.clientRepliedAt', DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H:%i:%sZ'),
@@ -238,10 +243,10 @@ export async function applyAppointmentReply({
       }
       const { cancelAppointment } = await import('./appointment.service.js');
       await cancelAppointment(appt.id, {
-        status: 'canceled_by_client',
+        status: guardianUserId ? 'canceled_by_guardian' : 'canceled_by_client',
         expectedFeeCents: 0,
-        actorRole: 'client',
-        actorUserId: null,
+        actorRole: guardianUserId ? 'guardian' : 'client',
+        actorUserId: guardianUserId,
         clientId: clientId || null,
         reason: `Client replied ${String(rawBody || '').trim().slice(0, 40)} via ${channel}`,
         notes: `Canceled via appointment reminder reply (${channel})`
@@ -251,7 +256,7 @@ export async function applyAppointmentReply({
         [reviewId]
       );
       clientReply = 'cancel';
-      ackMessage = 'Your appointment has been canceled. Contact us if you need to rebook.';
+      ackMessage = `Your appointment has been canceled. ${FAMILY_APPOINTMENT_LOGIN}`;
       await notifyProviderInApp(
         appt,
         'Client canceled appointment',
@@ -269,15 +274,12 @@ export async function applyAppointmentReply({
         : 'We could not cancel automatically. Staff will follow up.';
     }
   } else if (intent === 'reschedule') {
-    await Appointment.update(appt.id, {
-      status: 'reschedule_requested',
-      updatedByUserId: null
-    });
+    const [changed] = await pool.execute("UPDATE appointments SET status='reschedule_requested',updated_by_user_id=? WHERE id=? AND status IN ('scheduled','confirmed','client_confirmed','reschedule_requested')",[guardianUserId,appt.id]);
+    if (!changed.affectedRows) return {appointmentId:appt.id,intent,status:'already_resolved',ackMessage:`This appointment is no longer scheduled. ${FAMILY_APPOINTMENT_LOGIN}`};
     try {
       await pool.execute(
         `UPDATE appointments
-         SET status = 'reschedule_requested',
-             cancellation_recommendation_json = JSON_SET(
+         SET cancellation_recommendation_json = JSON_SET(
                COALESCE(cancellation_recommendation_json, JSON_OBJECT()),
                '$.clientReply', 'reschedule',
                '$.clientRepliedAt', DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H:%i:%sZ'),
@@ -400,11 +402,33 @@ export async function handleInboundSmsAppointmentReply({
   agencyId,
   clientId,
   rawBody,
+  fromNumber = null,
   channel = 'sms'
 } = {}) {
   const intent = interpretAppointmentReply(rawBody);
+  const {resolveProfilePhoneMatch} = await import('./smsProfileAudit.service.js');
+  const profile = await resolveProfilePhoneMatch(fromNumber,{agencyId});
+  if (profile.ambiguous || profile.clients?.length > 1) return {status:'pending_review',needsSupport:true,fallThroughToInbox:true,
+    ackMessage:`This phone is linked to more than one account. Please sign in to choose the appointment. ${FAMILY_APPOINTMENT_LOGIN}`};
   const appt = await resolveAppointmentForClientReply({ agencyId, clientId });
   if (!appt) return null;
+  const family = await appointmentFamilyRecipients(clientId, agencyId);
+  const {loadClientConsent} = await import('./sessionNotification.service.js');
+  const from = PhoneNumber.normalizePhone(fromNumber);
+  const matches = [];
+  for (const recipient of family.recipients) {
+    const contact = await loadClientConsent(clientId,agencyId,recipient.userId);
+    if (from && from === PhoneNumber.normalizePhone(contact.phoneNumber)) matches.push(recipient);
+  }
+  let guardianUserId = null;
+  if (family.hasRelationships) {
+    if (matches.length !== 1) return {appointmentId:appt.id,status:'pending_review',needsSupport:true,fallThroughToInbox:true,
+      ackMessage:`Please sign in to respond to this appointment so we can identify the correct account. ${FAMILY_APPOINTMENT_LOGIN}`};
+    guardianUserId = matches[0].userId;
+  } else {
+    const contact = await loadClientConsent(clientId,agencyId);
+    if (!from || from !== PhoneNumber.normalizePhone(contact.phoneNumber)) return null;
+  }
 
   if (intent === 'unknown') {
     const escalated = await escalateUnknownAppointmentReply({
@@ -426,6 +450,7 @@ export async function handleInboundSmsAppointmentReply({
     channel,
     rawBody,
     clientId,
+    guardianUserId,
     autoApply: true
   });
 

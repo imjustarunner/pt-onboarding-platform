@@ -33,7 +33,7 @@ function harness() {
     if (sql.startsWith('UPDATE appointment_reminders') || sql.startsWith('UPDATE appointment_change_notification_queue')) return [{}];
     throw new Error(`Unimplemented test SQL: ${sql}`);
   }) };
-  const deps={database,now:()=>clock,lock:async(k,fn)=>fn(),
+  const deps={database,now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
     encrypt:s=>JSON.stringify({encrypted:Buffer.from(s).toString('base64')}),decrypt:s=>Buffer.from(JSON.parse(s).encrypted,'base64').toString(),
     appointment:vi.fn(async id=>appointments.get(Number(id))),participants:vi.fn(async()=>[{clientId:8}]),
     tenant:vi.fn(async()=>({channelsEnabled:{sms:true},changeNotify:{channels:['email','sms'],bufferMinutes:15}})),
@@ -160,4 +160,36 @@ it('does not fall back to an unreviewed recipient when an appointment gains anot
  const h=harness();h.deps.participants.mockResolvedValue([{clientId:8},{clientId:99}]);
  await expect(h.service.queue(1,{eventType:'canceled',facts:{reviewedCancellation:true,notificationRecipients:[{clientId:8,mode:'guardian',channels:['email'],recipients:[]}]}})).rejects.toMatchObject({status:409});
  expect(h.notices.some(n=>n.client_id===99)).toBe(false);expect(h.deps.sendEmail).not.toHaveBeenCalled();
+});
+
+it('notifies both guardians and identifies the other parent without sharing their private cancellation reason',async()=>{
+ const h=harness();const recipients=[{key:'guardian:9',userId:9,email:'one@example.test',phone:'+15555550101'},{key:'guardian:10',userId:10,email:'two@example.test',phone:'+15555550102'}];
+ h.deps.familyRecipients.mockResolvedValue({hasRelationships:true,recipients});
+ h.deps.consent.mockImplementation(async(c,a,id)=>({guardianUserId:id,email:true,sms:true,emailAddress:recipients.find(r=>r.userId===id).email,phoneNumber:recipients.find(r=>r.userId===id).phone}));
+ h.appointments.get(1).status='canceled_by_guardian';
+ await h.service.queue(1,{eventType:'canceled',facts:{cancellationActorRole:'guardian',cancellationActorUserId:9,clientFacingReason:'Private family explanation'},actorUserId:9});h.advance(15);await h.service.process(1);await h.service.process(1);
+ expect(h.deps.sendSms).toHaveBeenCalledTimes(2);expect(h.deps.sendEmail).toHaveBeenCalledTimes(2);
+ expect(h.deps.sendSms.mock.calls[0][0]).toMatchObject({to:'+15555550101',body:expect.stringContaining('canceled by you')});
+ expect(h.deps.sendSms.mock.calls[1][0]).toMatchObject({to:'+15555550102',body:expect.stringContaining('another parent or guardian')});
+ for(const [message] of h.deps.sendSms.mock.calls){expect(message.body).toContain('https://auricwell.com');expect(message.body).not.toContain('Private family explanation');}
+ for(const [message] of h.deps.sendEmail.mock.calls)expect(message.text).not.toContain('Private family explanation');
+ expect(h.deliveries).toHaveLength(4);expect(h.deliveries.every(row=>row.status==='sent')).toBe(true);
+});
+it('keeps the other guardian eligible when one guardian has declined texts',async()=>{
+ const h=harness();h.deps.familyRecipients.mockResolvedValue({hasRelationships:true,recipients:[{key:'guardian:9',userId:9,phone:'+15555550101',email:'one@example.test'},{key:'guardian:10',userId:10,phone:'+15555550102',email:'two@example.test'}]});
+ h.deps.consent.mockImplementation(async(c,a,id)=>({guardianUserId:id,email:false,sms:id===10,phoneNumber:id===10?'+15555550102':'+15555550101'}));
+ await h.service.queue(1,{eventType:'canceled',facts:{clientFacingReason:'Provider unavailable'}});h.advance(15);await h.service.process(1);
+ expect(h.deps.sendSms).toHaveBeenCalledTimes(1);expect(h.deps.sendSms.mock.calls[0][0].body).toContain('canceled by your provider');expect(h.deps.sendSms.mock.calls[0][0].body).toContain('https://auricwell.com');
+});
+
+it('queues a guardian cancellation immediately so the other guardian is informed promptly',async()=>{
+ const h=harness();h.appointments.get(1).status='canceled_by_guardian';
+ await h.service.queue(1,{eventType:'canceled',facts:{cancellationActorRole:'guardian',cancellationActorUserId:9}});
+ await h.service.process(1);expect(h.deps.sendSms).toHaveBeenCalledOnce();
+ expect(h.deps.sendSms.mock.calls[0][0].body).toContain('https://auricwell.com');
+});
+it('preserves a linked replacement notice rather than describing it as an ordinary cancellation',()=>{
+ const text='Your appointment has moved to the replacement time.';
+ const result=buildScheduleNoticeMessage([{appointment:{id:1,status:'canceled_by_provider'},payload:{facts:{}},cancellation:{replacementAppointmentId:2,text,html:'<p>'+text+'</p>',subject:'Your appointment has moved'}}],'https://portal.example.test');
+ expect(result.text).toContain(text);expect(result.text).not.toContain('canceled by');
 });

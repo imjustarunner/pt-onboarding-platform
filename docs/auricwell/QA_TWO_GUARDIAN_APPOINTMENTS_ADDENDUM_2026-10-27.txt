@@ -1,0 +1,36 @@
+QA ADDENDUM — TWO GUARDIANS / ONE DEPENDENT / APPOINTMENT MESSAGING
+October 27, 2026
+
+This is a new addendum. Retain the previous instructions and evidence.
+Scope: the integrated ITSCO/AuricWell family portal and shared appointment service used by ITSCOLLC (agency 450). This does not certify the separate native EHR appointment engine.
+
+Expected behavior
+- Each guardian with current appointment access receives reminders using their own contact details and notification choices. For office/virtual sessions, both can respond Y/N/R or use their own email/portal response.
+- A guardian cancellation changes the single shared appointment for everyone. The canceling guardian receives acknowledgment. The other guardian receives a cancellation notice attributed to another parent or guardian on the account. Provider cancellations identify the provider instead.
+- Both cancellation texts include: For future sessions and information, please log in at https://auricwell.com.
+- Dates/times use the appointment timezone. The other guardian's private explanation, enrollment answers, documents and access links are not copied into the notice.
+- A parent's cancellation notice is eligible for the next worker run. It does not wait for the normal provider-edit quiet window. Sending still requires an enabled worker, current access and an authorized channel.
+- Y or R after cancellation must not reopen the appointment. Repeated delivery processing must not resend a completed cancellation notice.
+- A late cancellation with a fee remains scheduled until the applicable fee is reviewed and acknowledged. Do not claim that replying N alone charged or canceled a fee-bearing appointment.
+- School reminders retain notice/absence reporting behavior; do not send Y/N/R cancellation prompts or apply an automatic cancellation fee to a school absence.
+- Shared destinations are deduplicated. If the sending phone cannot identify a single guardian/dependent/appointment, the response directs the sender to sign in instead of guessing.
+
+Required bot scenarios
+1. Use two separately authorized guardian accounts for the SAME synthetic dependent, with independent consented phone destinations and emails. Verify both portals show the same appointment, and each sees only their permitted private documents.
+2. Book an office or virtual appointment beyond the fee window. Record appointment ID, guardian IDs, timezone and expected reminder times. Verify each guardian receives their own reminder and email response link.
+3. Guardian A replies Y. Verify confirmed status in both portals and the provider schedule. Guardian B can subsequently cancel the same appointment with N. Verify cancellation in all three views, the provider notification, B's acknowledgment and A's correctly attributed cancellation notice with the AuricWell link.
+4. Repeat on another appointment with A canceling and B receiving the attributed notice. Try a stale Y/R afterward: the canceled appointment must remain canceled.
+5. Cancel a separate appointment as the provider. Both enabled guardian destinations should receive provider-attributed cancellation text with the same login link. A linked replacement/reschedule must still be described as a move, not an ordinary cancellation.
+6. Test a late cancellation: N must direct the guardian to review/acknowledge the fee. Only after acknowledgment should the cancellation and other-guardian notice occur. Confirm the agreed fee in the balance and audit trail.
+7. Verify per-recipient email/SMS delivery status in the communication history. Distinguish accepted by transport, delivered if a carrier receipt exists, skipped, held and failed. A queue entry alone is not proof of delivery.
+8. Disable texts for one guardian, revoke appointment access, and exercise shared-number ambiguity using controlled fixtures. Check that the remaining authorized recipient is unaffected, revoked access prevents later queued messages, duplicate sends do not occur, and ambiguous replies never change another dependent's appointment.
+9. Include school enrollments in the existing second-parent invitation tests. For school appointments verify notices and absence escalation to staff, not Y/N/R auto-cancellation.
+
+Fixture caution
+618-910-7000 is reserved for Rowan's family. 815-212-2875 currently belongs to Harper's test family. These are different dependents and are not already a two-guardian fixture. Do not silently reassign either number or clone phone consent. Coordinate any controlled fixture change and restore the recorded assignments afterward. Google Voice may send replies from 618 regardless of which number received a text; record the actual originating number.
+
+Capture
+Screenshots of both guardian appointment views, provider schedule, individual reminder and cancellation messages, portal communication history, fee acknowledgment/balance when applicable, appointment IDs and transport IDs/statuses. Preserve existing synthetic records and remain within agency 450. No insurance submissions or live client records.
+
+Implementation verification
+Focused tests cover both guardian SMS identities, wrong/shared sender handling, individual preferences and revoked access, independent delivery records, cancellation attribution/privacy, late-reply races, fee acknowledgment, existing queued-reminder expansion, and linked replacement wording. Existing scheduling, family-email and guardian portal regression suites were also run. A new live two-phone same-dependent exchange is not yet certified by these automated tests.

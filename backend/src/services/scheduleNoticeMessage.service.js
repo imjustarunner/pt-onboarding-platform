@@ -1,3 +1,4 @@
+import { FAMILY_APPOINTMENT_LOGIN, familyCancellationAttribution } from './appointmentCancellationCopy.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { appointmentTimeLabel } from './cancellationFollowUp.service.js';
 
@@ -11,10 +12,19 @@ export function scheduleNoticeDeadline({ now, startAt, firstQueuedAt = now, buff
     +firstQueuedAt + 30 * 60000, start - 60 * 60000)));
 }
 
-export function buildScheduleNoticeMessage(entries, portalUrl) {
+export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId = null } = {}) {
   const linkedReplacements = new Set(entries.map(e => Number(e.cancellation?.replacementAppointmentId)).filter(Boolean));
   const sections = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id))).map(({ appointment: a, payload, cancellation }) => {
-    if (cancellation) return cancellation;
+    if (cancellation?.replacementAppointmentId) return cancellation;
+    if (cancellation) {
+      const attribution = familyCancellationAttribution(a,payload.facts,recipientUserId);
+      // The other parent's private explanation is not copied into shared texts/email.
+      const text = attribution.familyInitiated
+        ? `${attribution.text} ${cancellation.followUpText || ''} ${FAMILY_APPOINTMENT_LOGIN}`
+        : `${attribution.text}\n\n${cancellation.text}\n\n${FAMILY_APPOINTMENT_LOGIN}`;
+      return { ...cancellation, text, html: `<p>${escapeNoticeHtml(text).replaceAll('\n','<br>')}</p>`,
+        sms: `${attribution.text} ${FAMILY_APPOINTMENT_LOGIN}` };
+    }
     const zone = a.sourceTimezone || 'America/Denver';
     const when = `${appointmentTimeLabel(a.startAt, zone)} (${zone})`;
     const moved = payload.eventType === 'moved' && !payload.initialBooking;
@@ -37,6 +47,6 @@ export function buildScheduleNoticeMessage(entries, portalUrl) {
     subject: sections.length === 1 ? sections[0].subject : 'Your appointment schedule has been updated',
     text: `${sections.map(s => s.text).join('\n\n')}\n\nReview your current schedule: ${portalUrl}\n\n${footer}`,
     html: `${sections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalUrl)}">Review my appointments</a></p><p>${footer}</p>`,
-    sms: `Your appointment schedule has been updated. Please review the latest details in your secure portal: ${portalUrl}`
+    sms: sections.every(section => section.sms) ? sections.map(section => section.sms).join('\n') : `Your appointment schedule has been updated. Please review the latest details in your secure portal: ${portalUrl}`
   };
 }

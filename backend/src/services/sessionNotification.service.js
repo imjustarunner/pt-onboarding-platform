@@ -1,3 +1,4 @@
+import { appointmentFamilyRecipients } from './appointmentFamilyRecipients.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import {hasTerminalClientStatus} from './clientTerminationRoster.service.js';
 import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from './intakeCommunicationChoices.service.js';
@@ -371,7 +372,7 @@ export async function putClientPreferences(agencyId, clientId, body = {}, guardi
   return getClientPreferences(agencyId, clientId, guardianUserId);
 }
 
-export async function loadClientConsent(clientId, agencyId) {
+export async function loadClientConsent(clientId, agencyId, recipientGuardianUserId = null) {
   if (!clientId) return { email: true, sms: false, phone: false };
   try {
     const [rows] = await pool.execute(
@@ -383,23 +384,25 @@ export async function loadClientConsent(clientId, agencyId) {
     );
     const c = rows?.[0];
     if (!c || c.status==='ARCHIVED' || hasTerminalClientStatus(c)) return { email: false, sms: false, phone: false, emailAddress: null, phoneNumber: null };
-    const cp = await latestIntakeCommunicationChoices(clientId, agencyId);
+    const guardians = await ClientGuardian.listForClient(clientId);
+    const recipientGuardian = recipientGuardianUserId ? guardians.find(g => Number(g.guardian_user_id) === Number(recipientGuardianUserId) && Number(g.access_enabled) === 1) : null;
+    if (recipientGuardianUserId && !recipientGuardian) return { email:false, sms:false, phone:false };
+    const cp = await latestIntakeCommunicationChoices(clientId, agencyId, recipientGuardianUserId);
     const signed = cp?.version === INTAKE_COMMUNICATION_VERSION && cp?.signatureAccepted && cp?.signedAt;
-    const phoneNumber = (signed ? cp.recipientPhone : null) || c.phone || c.guardian_phone || null;
+    const phoneNumber = (signed ? cp.recipientPhone : null) || (recipientGuardianUserId ? recipientGuardian.phone : c.phone || c.guardian_phone) || null;
     const recorded = await recordedReminderConsent(agencyId, phoneNumber);
     const declinedAt = cp?.signedAt || cp?.submittedAt;
     const laterSignedConsent = recorded && declinedAt && Date.parse(recorded.collectedAt) > new Date(declinedAt).getTime();
-    const guardians = await ClientGuardian.listForClient(clientId);
     const matchingGuardians = guardians.filter(g => Number(g.access_enabled) === 1 && PhoneNumber.normalizePhone(g.phone)
       && PhoneNumber.normalizePhone(g.phone) === PhoneNumber.normalizePhone(phoneNumber));
-    const emailAddress = signed && cp.recipientEmail ? cp.recipientEmail : c.email || c.guardian_email || null;
+    const emailAddress = signed && cp.recipientEmail ? cp.recipientEmail : recipientGuardianUserId ? recipientGuardian.email : c.email || c.guardian_email || null;
     const {latestFamilyEmailSchedulingChoice}=await import('./familyNotificationChoices.service.js');
     const emailChoice=await latestFamilyEmailSchedulingChoice({agencyId,clientId,to:emailAddress,after:cp?.signedAt||cp?.submittedAt});
-    const guardianUserId = emailChoice?.guardianUserId || (signed ? cp.guardianUserId : null) || (matchingGuardians.length === 1 ? matchingGuardians[0].guardian_user_id : null);
+    const guardianUserId = recipientGuardianUserId || emailChoice?.guardianUserId || (signed ? cp.guardianUserId : null) || (matchingGuardians.length === 1 ? matchingGuardians[0].guardian_user_id : null);
     return {
       guardianUserId,
       intakeChoice: cp?.smsPreference || null,
-      email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
+      email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : recipientGuardianUserId && cp?.emailPreference ? true : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
       sms: cp?.smsPreference === 'no' ? !!laterSignedConsent : !!recorded || (signed ? cp.smsPreference === 'scheduling_only' : Number(c.session_sms_opt_in) === 1),
       phone: Number(c.session_phone_opt_in) === 1,
       emailAddress,
@@ -428,6 +431,30 @@ async function affiliatedRecipientAllowsChannel(appt, clientId, contact, channel
  * Build the effective delivery plan for an appointment (confirmation + reminders).
  */
 export async function buildDeliveryPlan(appointmentId) {
+  const appointment = await Appointment.findById(appointmentId);
+  if (!appointment || appointment.productOrigin === 'auricwell_ehr') return { appointment, deliveries: [] };
+  const participants = await Appointment.listParticipants(appointmentId);
+  const clientId = participants.find(p => p.clientId)?.clientId;
+  if (!clientId) return buildRecipientDeliveryPlan(appointmentId);
+  const family = await appointmentFamilyRecipients(clientId, appointment.agencyId);
+  if (!family.hasRelationships) return buildRecipientDeliveryPlan(appointmentId);
+  let plan = { appointment, deliveries: [] };
+  const seen = new Set();
+  for (const recipient of family.recipients) {
+    const own = await buildRecipientDeliveryPlan(appointmentId, recipient.userId, clientId);
+    plan = { ...own, deliveries: [...plan.deliveries, ...own.deliveries.filter(delivery => {
+      const address = delivery.channel === 'sms' ? PhoneNumber.normalizePhone(own.consent.phoneNumber)
+        : delivery.channel === 'email' ? String(own.consent.emailAddress || '').toLowerCase() : 'provider';
+      const key = JSON.stringify([delivery.kind, delivery.channel, address, delivery.offsetMinutes, delivery.ruleKey, delivery.sendImmediately]);
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    }).map(delivery => ({ ...delivery,
+      recipientGuardianUserId: recipient.userId, recipientClientId: clientId }))] };
+  }
+  return plan;
+}
+
+async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId = null, recipientClientId = null) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) return { appointment: null, deliveries: [] };
   if (appt.productOrigin === 'auricwell_ehr') return { appointment: appt, deliveries: [] };
@@ -435,8 +462,8 @@ export async function buildDeliveryPlan(appointmentId) {
   const platform = tenant.platform || (await getPlatformSettings());
   const effectiveChannels = resolveEffectiveChannels(platform, tenant.channelsEnabled);
   const participants = await Appointment.listParticipants(appt.id);
-  const clientId = participants.find((p) => p.clientId)?.clientId || null;
-  const consent = await loadClientConsent(clientId, appt.agencyId);
+  const clientId = recipientClientId || participants.find((p) => p.clientId)?.clientId || null;
+  const consent = await loadClientConsent(clientId, appt.agencyId, recipientGuardianUserId);
   const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
   const start = parseStartAt(appt.startAt);
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
@@ -601,8 +628,8 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
         `INSERT INTO appointment_reminders
           (appointment_id, agency_id, channel, kind, rule_key, recipient_role,
            requires_confirmation, template_key, is_required, message_body,
-           offset_minutes, scheduled_for, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+           offset_minutes, scheduled_for, recipient_guardian_user_id, recipient_client_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [
           plan.appointment.id,
           plan.appointment.agencyId,
@@ -615,7 +642,9 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
           d.isRequired ? 1 : 0,
           d.messageBody || null,
           d.offsetMinutes || 0,
-          scheduledFor
+          scheduledFor,
+          d.recipientGuardianUserId || null,
+          d.recipientClientId || null
         ]
       );
       // Store in_app as channel via kind prefix when needed
@@ -628,7 +657,7 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
       created.push({ id: Number(result.insertId), ...d, scheduledFor });
     } catch (e) {
       // Fallback without new columns if migration not applied yet
-      if (String(e?.message || '').includes('Unknown column')) {
+      if (!d.recipientGuardianUserId && String(e?.message || '').includes('Unknown column')) {
         const [result] = await pool.execute(
           `INSERT INTO appointment_reminders
             (appointment_id, agency_id, channel, offset_minutes, scheduled_for, status)
@@ -974,8 +1003,31 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       results.skipped++; continue;
     }
     const participants = await Appointment.listParticipants(appt.id);
-    const clientId = participants.find((p) => p.clientId)?.clientId || null;
-    const consent = await loadClientConsent(clientId, appt.agencyId);
+    const clientId = row.recipient_client_id || participants.find(p => p.clientId)?.clientId || null;
+    if (row.recipient_client_id && !participants.some(p => Number(p.clientId) === Number(clientId))) {
+      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='recipient_unlinked' WHERE id=?",[row.id]);results.skipped++;continue;
+    }
+    const family = clientId ? await appointmentFamilyRecipients(clientId, appt.agencyId) : {hasRelationships:false,recipients:[]};
+    if (!row.recipient_guardian_user_id && family.hasRelationships && ['sms','email'].includes(row.channel) && !String(row.kind).includes('in_app')) {
+      const destinations = new Set();
+      for (const recipient of family.recipients) {
+        const contact = await loadClientConsent(clientId,appt.agencyId,recipient.userId);
+        const destination = row.channel === 'sms' ? PhoneNumber.normalizePhone(contact.phoneNumber) : String(contact.emailAddress || '').toLowerCase();
+        if (contact[row.channel] && destination && destinations.has(destination)) continue;
+        if (contact[row.channel] && destination) destinations.add(destination);
+        await pool.execute(`INSERT IGNORE INTO appointment_reminders
+        (appointment_id,agency_id,channel,kind,rule_key,recipient_role,requires_confirmation,template_key,is_required,message_body,
+         offset_minutes,scheduled_for,status,recipient_guardian_user_id,recipient_client_id,parent_reminder_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)`,
+        [appt.id,appt.agencyId,row.channel,row.kind||'reminder',row.rule_key||null,'guardian',row.requires_confirmation||0,
+          row.template_key||null,row.is_required||0,row.message_body||null,row.offset_minutes||0,row.scheduled_for,recipient.userId,clientId,row.id]);
+      }
+      await pool.execute("UPDATE appointment_reminders SET status='canceled',skip_reason='expanded_guardian_recipients' WHERE id=?",[row.id]);continue;
+    }
+    if (row.recipient_guardian_user_id && !family.recipients.some(r => r.userId === Number(row.recipient_guardian_user_id))) {
+      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='guardian_access_removed' WHERE id=?",[row.id]);results.skipped++;continue;
+    }
+    const consent = await loadClientConsent(clientId, appt.agencyId, row.recipient_guardian_user_id || null);
     const kind = String(row.kind || 'reminder');
     const isInApp = kind.includes(':in_app') || kind.endsWith('in_app');
     let channel = String(row.channel || 'email');
@@ -1016,7 +1068,8 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         channel: 'phone',
         kind: 'reminder',
         bodyPreview: 'Automated phone call skipped — voice dialer not configured',
-        reminderId: row.id
+        reminderId: row.id,
+          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
       });
       results.voiceScaffold += 1;
       results.skipped += 1;
@@ -1035,7 +1088,8 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         channel: 'in_app',
         kind: kind.startsWith('confirmation') ? 'reminder' : 'reminder',
         bodyPreview: body.slice(0, 500),
-        reminderId: row.id
+        reminderId: row.id,
+          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
       });
       results.sent += 1;
       continue;
@@ -1061,7 +1115,8 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           results.skipped += 1;
           continue;
         }
-        await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toPhoneNorm, from, body: body.slice(0, 480) });
+        const sent = await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toPhoneNorm, from, body: body.slice(0, 480) });
+        if (!(sent?.id || sent?.sid || sent?.messageId || sent?.messageUuid || sent?.messageUUID) || sent?.skipped || sent?.blocked || sent?.queued || sent?.pendingApproval) throw new Error(sent?.reason || 'Text delivery was not accepted; review before resending.');
         await pool.execute(
           `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
           [row.id]
@@ -1072,18 +1127,19 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           channel: 'sms',
           kind: 'reminder',
           bodyPreview: body.slice(0, 500),
-          reminderId: row.id
+          reminderId: row.id,
+          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
         });
         try {
           const ClientContactAffiliation = (await import('../models/ClientContactAffiliation.model.js')).default;
-          const contacts = clientId
+          const contacts = clientId && (!row.recipient_guardian_user_id || family.recipients[0]?.userId === Number(row.recipient_guardian_user_id))
             ? await ClientContactAffiliation.listReminderRecipientsForClient(clientId)
             : [];
           for (const c of contacts || []) {
             if (!(await affiliatedRecipientAllowsChannel(appt, clientId, c, 'sms'))) continue;
             if (!c.sms_reminders_enabled || !c.sms_opt_in || !c.contact_phone) continue;
             const toC = PhoneNumber.normalizePhone(c.contact_phone);
-            if (!toC || !from || toC === toPhoneNorm) continue;
+            if (!toC || !from || toC === toPhoneNorm || family.recipients.some(r => r.phone === toC)) continue;
             await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toC, from, body: contactBody });
             await logCommunication({
               appointmentId: appt.id,
@@ -1140,17 +1196,19 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         channel: 'email',
         kind: 'reminder',
         bodyPreview: body.slice(0, 500),
-        reminderId: row.id
+        reminderId: row.id,
+          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
       });
       }
       try {
         const ClientContactAffiliation = (await import('../models/ClientContactAffiliation.model.js')).default;
-        const contacts = clientId
+        const contacts = clientId && (!row.recipient_guardian_user_id || family.recipients[0]?.userId === Number(row.recipient_guardian_user_id))
           ? await ClientContactAffiliation.listReminderRecipientsForClient(clientId)
           : [];
         for (const c of contacts || []) {
           if (!(await affiliatedRecipientAllowsChannel(appt, clientId, c, 'email'))) continue;
-          if (!c.email_reminders_enabled || !c.contact_email || String(c.contact_email).toLowerCase() === String(consent.emailAddress).toLowerCase()) continue;
+          if (!c.email_reminders_enabled || !c.contact_email || String(c.contact_email).toLowerCase() === String(consent.emailAddress).toLowerCase()
+            || family.recipients.some(r => String(r.email).toLowerCase() === String(c.contact_email).toLowerCase())) continue;
           const delivery=await sendSessionEmail({
             to: c.contact_email,
             appointment: appt,

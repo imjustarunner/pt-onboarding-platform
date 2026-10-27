@@ -227,6 +227,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
           const apptReply = await handleInboundSmsAppointmentReply({
             agencyId: agencyIdSkip,
             clientId: clientIdSkip,
+            fromNumber: fromNorm,
             rawBody: body,
             channel: 'sms'
           });
@@ -289,6 +290,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
         const apptReply = await handleInboundSmsAppointmentReply({
           agencyId,
           clientId,
+          fromNumber: fromNorm,
           rawBody: body,
           channel: 'sms'
         });
