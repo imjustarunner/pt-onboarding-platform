@@ -5,6 +5,9 @@ vi.mock('../practitionerPackage.service.js', () => ({ debitSessionOnComplete: vi
 import Appointment from '../../models/Appointment.model.js';
 import BookingPackage from '../../models/BookingPackage.model.js';
 import { debitSessionOnComplete, applyMissedSessionPolicy } from '../practitionerPackage.service.js';
+vi.mock('../qaAppointmentBilling.service.js', () => ({ qaAttendancePolicy: vi.fn() }));
+vi.mock('../bookingCancellationPolicy.service.js', () => ({ resolvePolicyForAppointmentContext: vi.fn() }));
+import { qaAttendancePolicy } from '../qaAppointmentBilling.service.js';
 import { settleAppointmentOutcome } from '../appointmentSettlement.service.js';
 describe('session settlement', () => {
   beforeEach(() => {
@@ -40,4 +43,20 @@ describe('session settlement', () => {
     expect(await settleAppointmentOutcome(1, { outcome: 'completed' })).toMatchObject({ reason: 'CLINICAL_BILLING' });
     expect(debitSessionOnComplete).not.toHaveBeenCalled();
   });
+});
+
+it('uses the booked $100 demo no-show fee instead of the $120 session price', async () => {
+  Appointment.findById.mockResolvedValue({id:72,agencyId:450,clinicalSessionId:120});
+  Appointment.getBilling.mockResolvedValue({paymentStatus:'none',settlementMode:'self_pay_only',amountCents:12000});
+  Appointment.listParticipants.mockResolvedValue([{clientId:2271}]);
+  qaAttendancePolicy.mockResolvedValue({noShowFeeCents:10000});
+  expect(await settleAppointmentOutcome(72,{outcome:'no_show'})).toMatchObject({feeCents:10000,paymentStatus:'fee_pending'});
+  expect(Appointment.upsertBilling).toHaveBeenLastCalledWith(72,expect.objectContaining({amountCents:10000}));
+});
+it('keeps a zero-fee demo policy free instead of restoring the session price', async () => {
+  Appointment.findById.mockResolvedValue({id:72,agencyId:450,clinicalSessionId:120});
+  Appointment.getBilling.mockResolvedValue({paymentStatus:'none',settlementMode:'self_pay_only',amountCents:12000});
+  qaAttendancePolicy.mockResolvedValue({noShowFeeCents:0});
+  expect(await settleAppointmentOutcome(72,{outcome:'no_show'})).toMatchObject({feeCents:0,paymentStatus:'waived'});
+  expect(Appointment.upsertBilling).toHaveBeenLastCalledWith(72,expect.objectContaining({amountCents:0}));
 });

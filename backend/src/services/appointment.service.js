@@ -1,3 +1,4 @@
+import { recordQaAttendanceTerms, syncQaAppointmentBalance, requireQaOutcomeElapsed } from './qaAppointmentBilling.service.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
@@ -288,6 +289,7 @@ async function createLockedAppointment({
   }
 
   let cancellationPolicyId = service?.cancellationPolicyId || null;
+  let bookedAttendancePolicy = null;
   let cancelDeadlineAt = null;
   try {
     const resolved = await resolvePolicyForAppointmentContext({
@@ -298,6 +300,7 @@ async function createLockedAppointment({
       packageEntitlementId,
       cancellationPolicyId
     });
+    bookedAttendancePolicy = resolved.policy;
     if (resolved.policy?.id) cancellationPolicyId = resolved.policy.id;
     const noticeHours = Number(resolved.policy?.noticeHours ?? 24);
     const startDate = new Date(String(start).includes('T') ? start : String(start).replace(' ', 'T'));
@@ -390,6 +393,8 @@ async function createLockedAppointment({
     }
   }
 
+  await recordQaAttendanceTerms(appt, bookedAttendancePolicy, createdByUserId);
+
   // Replacement approval links its calendar occurrence before finalizing any
   // outbound messages or reminders. An interrupted approval must stay quiet.
   if (!deferScheduleNotice) {
@@ -436,6 +441,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       throw Object.assign(new Error('Service location does not belong to this agency'), { status: 403 });
     }
   }
+  await requireQaOutcomeElapsed({ ...existing, endAt: patch.endAt || existing.endAt }, patch.status);
   let moved = false;
 
   if (patch.packageEntitlementId !== undefined && Number(patch.packageEntitlementId || 0) !== Number(existing.packageEntitlementId || 0)) {
@@ -539,6 +545,8 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       });
   }
 
+  await syncQaAppointmentBalance(await Appointment.findById(appointmentId), actorUserId);
+
   if (moved) {
     const { refreshAppointmentCalendar } = await import('./appointmentCalendarMaintenance.service.js');
     await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId);
@@ -581,6 +589,7 @@ export async function cancelAppointment(appointmentId, {
   const notificationFacts = { eventType: 'canceled', clientFacingReason: clientFacingReason || reason || notes,
     followUpAction, followUpMessage };
   cancellationClientDetails(notificationFacts);
+  if (isCanceledAppointmentStatus(existing.status)) await syncQaAppointmentBalance(existing, actorUserId);
   if (isCanceledAppointmentStatus(existing.status)) return { ...(await getAppointmentBundle(appointmentId)), alreadyCanceled: true,
     notificationDelivery: await notifyAppointmentCancellation(appointmentId, { ...notificationFacts, clientFacingReason: existing.cancellationReason || notificationFacts.clientFacingReason }, actorUserId) };
   if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
@@ -807,6 +816,7 @@ export async function settleAppointment(appointmentId, {
   if (!existing) return null;
   if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR billing workflow for this appointment.'), { status: 409 });
   const status = String(outcome || existing.status || '').toLowerCase();
+  await requireQaOutcomeElapsed(existing, status);
   if (status === 'completed' || status === 'no_show') {
     if (String(existing.status || '').toLowerCase() !== status) {
       await Appointment.update(appointmentId, {
@@ -820,6 +830,7 @@ export async function settleAppointment(appointmentId, {
     actorUserId,
     force
   });
+  await syncQaAppointmentBalance(await Appointment.findById(appointmentId), actorUserId);
   const bundle = await getAppointmentBundle(appointmentId);
   return { ...bundle, settlement };
 }

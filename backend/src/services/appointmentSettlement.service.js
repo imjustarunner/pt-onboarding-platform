@@ -1,3 +1,5 @@
+import { qaAttendancePolicy } from './qaAppointmentBilling.service.js';
+import { resolvePolicyForAppointmentContext } from './bookingCancellationPolicy.service.js';
 /**
  * Phase 5 settlement: package autodeduct / no-show forfeit / invoice-pending fee.
  * Separate from clinical Documentation Hub / medical claims — reuses booking + practitioner package ledgers.
@@ -163,10 +165,19 @@ export async function settleAppointmentOutcome(appointmentId, {
     }
 
     if (!packageEntitlementId && !results.practitionerPackage?.applied) {
-      const amountCents = billing?.amountCents != null ? Number(billing.amountCents) : null;
+      let amountCents = billing?.amountCents != null ? Number(billing.amountCents) : null;
+      // The isolated self-pay pilot uses its disclosed no-show policy, not the session price.
+      if (Number(appointment.agencyId) === 450 && billing?.settlementMode === 'self_pay_only') {
+        const policy = await qaAttendancePolicy(appointment)
+          || (await resolvePolicyForAppointmentContext(appointment)).policy;
+        amountCents = Number(policy?.noShowFeeCents || 0);
+      }
       if (amountCents > 0) {
         results.paymentStatus = 'fee_pending';
         results.feeCents = amountCents;
+      } else if (Number(appointment.agencyId) === 450 && billing?.settlementMode === 'self_pay_only') {
+        results.paymentStatus = 'waived';
+        results.feeCents = 0;
       }
     }
   }
@@ -178,7 +189,7 @@ export async function settleAppointmentOutcome(appointmentId, {
         : (billing?.settlementMode || 'self_pay'),
       responsiblePartyType: billing?.responsiblePartyType || 'client',
       responsibleClientId: clientId || billing?.responsibleClientId || null,
-      amountCents: results.feeCents > 0
+      amountCents: (status === 'no_show' && Number(appointment.agencyId) === 450 && billing?.settlementMode === 'self_pay_only') || results.feeCents > 0
         ? results.feeCents
         : (billing?.amountCents ?? null),
       packageEntitlementId: packageEntitlementId || billing?.packageEntitlementId || null,

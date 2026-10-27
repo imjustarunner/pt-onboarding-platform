@@ -1,3 +1,4 @@
+import { qaAttendancePolicy } from './qaAppointmentBilling.service.js';
 /**
  * Resolve and evaluate cancellation policies.
  * Hierarchy (most specific wins):
@@ -157,7 +158,7 @@ export async function evaluateCancel({
     cancellationPolicyId: appt.cancellationPolicyId
   });
 
-  const effective = policy || {
+  const effective = await qaAttendancePolicy(appt) || policy || {
     id: null,
     name: 'Default (no policy configured)',
     noticeHours: 24,
