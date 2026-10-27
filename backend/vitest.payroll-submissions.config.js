@@ -5,6 +5,7 @@ export default {
     environment: 'node',
     execArgv: ['--experimental-sqlite'],
     include: [
+      'src/services/__tests__/payrollTutoringClassification.test.js',
       'src/controllers/__tests__/payrollSubmissions.test.js',
       'src/controllers/__tests__/payrollApprovedVisibility.test.js',
       'src/services/__tests__/supervisionUnpaidHours.test.js',

@@ -16,7 +16,7 @@ it('shows the configured test reminder and requires a reason before mandatory tr
  const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
  expect(w.text()).toContain('Special schedule: 1 hour before.');expect(w.text()).not.toContain('24-hour reminder');
  await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');const confirm=w.findAll('button').find(b=>b.text()==='Confirm decline');expect(confirm.element.disabled).toBe(true);
- await w.get('textarea').setValue('attended in the spring');await confirm.trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/rsvp',{response:'declined',reason:'attended in the spring'});w.unmount();
+ await w.get('textarea').setValue('attended in the spring');await w.get('form').trigger('submit');await flushPromises();expect(m.post).toHaveBeenCalledWith('/team-meetings/7/training/rsvp',{response:'declined',reason:'attended in the spring'});w.unmount();
 });
 it('lets optional staff register from agency-visible training and dismiss without a reason',async()=>{
  const value={...data(false),invited:false,canRegister:true,viewerInvitation:{id:4,is_required:0,rsvp:'pending'}};m.get.mockResolvedValue({data:value});m.post.mockResolvedValue({data:{ok:true}});
@@ -27,11 +27,34 @@ it('lets optional staff register from agency-visible training and dismiss withou
 it('shows confirmed attendees to everyone and uses separate own response after a decline',async()=>{
  const value={...data(false),invited:true,viewerInvitation:{id:4,is_required:0,rsvp:'declined'},participants:[{id:1,name:'Trainer',isHost:true,rsvp:'pending'},{id:9,name:'Confirmed person',rsvp:'accepted'},{id:10,name:'Pending person',rsvp:'pending'}]};m.get.mockResolvedValue({data:value});
  const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
- expect(w.text()).toContain('RSVP: declined');await w.findAll('button').find(b=>b.text()==='RSVP').trigger('click');expect(w.text()).toContain('Confirmed person');expect(w.text()).not.toContain('Pending person');w.unmount();
+ expect(w.text()).toContain('Your response: Not attending');await w.findAll('button').find(b=>b.text()==='RSVP').trigger('click');expect(w.text()).toContain('Confirmed person');expect(w.text()).not.toContain('Pending person');w.unmount();
 });
 
 it('shows colored RSVP totals and authorized decline reasons in the event record',async()=>{
  const value={...data(true),invited:true,canSeeDeclined:true,participants:[{id:1,name:'Trainer',isHost:true,rsvp:'accepted'},{id:4,name:'Student',rsvp:'declined',rsvp_decline_reason:'Attended in spring'},{id:5,name:'Pending',rsvp:'pending'}]};m.get.mockResolvedValue({data:value});
  const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true,MeetingAttendancePanel:true,MeetingNotesPanel:true}}});await flushPromises();
  expect(w.get('.rsvp-status--declined').text()).toContain('1');await w.findAll('button').find(b=>b.text()==='RSVP').trigger('click');expect(w.text()).toContain('Attended in spring');expect(w.find('.rsvp-status--pending').exists()).toBe(true);w.unmount();
+});
+
+it('keeps the decline form and reason on a failed save, then displays the saved decline',async()=>{
+ const value={...data(false),invited:true,viewerInvitation:{id:4,is_required:1,rsvp:'accepted'}};
+ m.get.mockResolvedValue({data:value});m.post.mockRejectedValueOnce({response:{data:{error:{message:'Please try again'}}}});
+ const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');
+ await w.get('textarea').setValue('  Already attended  ');await w.get('form').trigger('submit');await flushPromises();
+ expect(w.get('textarea').element.value).toBe('  Already attended  ');expect(w.get('[role=alert]').text()).toBe('Please try again');expect(w.text()).toContain('Your response: Attending');
+ m.post.mockResolvedValueOnce({data:{ok:true,response:'declined'}});
+ m.get.mockResolvedValueOnce({data:{...value,viewerInvitation:{...value.viewerInvitation,rsvp:'declined',rsvp_decline_reason:'Already attended'}}});
+ await w.get('form').trigger('submit');await flushPromises();
+ expect(m.post).toHaveBeenLastCalledWith('/team-meetings/7/training/rsvp',{response:'declined',reason:'Already attended'});
+ expect(w.find('form').exists()).toBe(false);expect(w.text()).toContain('Your response: Not attending');expect(w.text()).toContain('Reason: Already attended');
+ await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');expect(w.get('textarea').element.value).toBe('Already attended');
+ await w.findAll('button').find(b=>b.text()==='Cancel').trigger('click');expect(w.text()).toContain('Your response: Not attending');w.unmount();
+});
+it('prevents a second RSVP while saving a decline',async()=>{
+ const value={...data(false),invited:true};m.get.mockResolvedValue({data:value});let finish;m.post.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}));
+ const w=mount(Panel,{props:{eventId:7},global:{stubs:{MeetingAgendaPanel:true,MeetingGoalsActionsPanel:true}}});await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Decline').trigger('click');await w.get('textarea').setValue('Unavailable');
+ await w.get('form').trigger('submit');await w.get('form').trigger('submit');expect(m.post).toHaveBeenCalledTimes(1);expect(w.get('textarea').element.disabled).toBe(true);expect(w.text()).not.toContain('I’m attending');
+ finish({data:{ok:true}});await flushPromises();w.unmount();
 });

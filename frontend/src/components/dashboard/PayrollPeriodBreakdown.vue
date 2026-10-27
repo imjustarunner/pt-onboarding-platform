@@ -345,7 +345,7 @@ const splitBreakdownForDisplay = (b) => {
     const safeDiv = Number.isFinite(payDivisor) && payDivisor > 0 ? payDivisor : 1;
     const creditValue = Number(v.creditValue || 0);
     const safeCv = Number.isFinite(creditValue) ? creditValue : 0;
-    const bucket = payBucketForCategory(v.category);
+    const bucket = v.bucket ? String(v.bucket).trim().toLowerCase() : payBucketForCategory(v.category);
     const rateUnit = String(v.rateUnit || '');
 
     const oldNoteUnits = Number(v.oldNoteUnits ?? v.oldDoneNotesUnits ?? 0);

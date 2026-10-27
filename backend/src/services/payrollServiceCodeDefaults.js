@@ -81,3 +81,19 @@ export function payrollDefaultsForCode(code) {
   return PAYROLL_SERVICE_CODE_DEFAULTS.get(key) || null;
 }
 
+
+// Reporting classification is independent of the legacy rate lookup. In particular,
+// changing tutoring hours to Direct must not replace a saved indirect/Other rate.
+export function payrollReportingBucketForCode(code, category, otherSlot = 1, rateCard = null) {
+  const key = String(code || '').trim().toUpperCase();
+  const cat = String(category || '').trim().toLowerCase();
+  if (cat === 'tutoring' || ['TUTORING', 'TUTORING 15 MIN', 'TUTORING VIRTUAL', 'TUTORING IN PERSON'].includes(key)) return 'direct';
+  if (['indirect', 'admin', 'meeting'].includes(cat)) return 'indirect';
+  if (cat === 'other') {
+    const slot = [2, 3].includes(Number(otherSlot)) ? Number(otherSlot) : 1;
+    const mapped = String(rateCard?.[`other_rate_${slot}_bucket`] || '').trim().toLowerCase();
+    return ['direct', 'indirect'].includes(mapped) ? mapped : 'other';
+  }
+  if (['mileage', 'bonus', 'reimbursement', 'other_pay'].includes(cat)) return 'flat';
+  return 'direct';
+}

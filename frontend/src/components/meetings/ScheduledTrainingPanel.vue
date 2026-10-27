@@ -8,7 +8,25 @@
    <h3>{{state.event.title}}</h3><p v-if="state.event.startAt">{{trainingTime}}</p><p>Trainers: {{proctors.map(p=>p.name).join(', ')}}</p><p>{{state.event.topic}}</p>
    <p v-if="state.registrationClosesAt">RSVP closes {{ formatDeadline(state.registrationClosesAt) }}</p>
    <p v-if="state.invited">{{myInvitation?.is_required ? 'Mandatory attendance' : 'Optional attendance'}} · Training in the app</p>
-   <div v-if="!live && (state.invited || state.canRegister)"><p>RSVP: {{myInvitation?.rsvp || 'pending'}}. This applies to all remaining dates of this training.</p><p v-if="myInvitation?.rsvp_decline_reason">Reason: {{myInvitation.rsvp_decline_reason}}</p><button type="button" :disabled="state.registrationClosesAt && Date.parse(state.registrationClosesAt) <= Date.now()" @click="rsvp('accepted')">I’m attending</button><button type="button" @click="Number(myInvitation?.is_required) ? declining=true : rsvp('declined')">{{Number(myInvitation?.is_required) ? 'Decline' : 'Decline and stop reminders'}}</button><div v-if="declining"><label>Reason for not attending{{Number(myInvitation?.is_required) ? ' (required)' : ' (optional)'}}<textarea v-model="declineReason" maxlength="2000" rows="3" /></label><button type="button" :disabled="Number(myInvitation?.is_required)===1 && !declineReason.trim()" @click="rsvp('declined')">Confirm decline</button></div><p>{{state.reminderDescription || 'Accepting stops registration reminders. Confirmed attendees receive one 24-hour reminder and the join link 5 minutes before each date.'}}</p></div>
+   <div v-if="!live && (state.invited || state.canRegister)" class="training-rsvp">
+    <p class="my-rsvp" role="status">Your response: <strong :class="`rsvp-status--${myInvitation?.rsvp || 'pending'}`">{{myResponseLabel}}</strong></p>
+    <p>This applies to all remaining dates of this training.</p>
+    <p v-if="myInvitation?.rsvp_decline_reason" class="saved-reason">Reason: {{myInvitation.rsvp_decline_reason}}</p>
+    <div v-if="!declining" class="rsvp-actions">
+     <button type="button" :disabled="rsvpSaving || (state.registrationClosesAt && Date.parse(state.registrationClosesAt) <= Date.now())" @click="rsvp('accepted')">I’m attending</button>
+     <button type="button" :disabled="rsvpSaving" @click="startDecline">{{Number(myInvitation?.is_required) ? 'Decline' : 'Decline and stop reminders'}}</button>
+    </div>
+    <form v-else class="training-decline-form" @submit.prevent="rsvp('declined')">
+     <label :for="`training-decline-${eventId}`">Reason for not attending{{Number(myInvitation?.is_required) ? ' (required)' : ' (optional)'}}</label>
+     <textarea :id="`training-decline-${eventId}`" ref="reasonInput" v-model="declineReason" :disabled="rsvpSaving" :required="!!Number(myInvitation?.is_required)" :aria-describedby="`training-decline-help-${eventId}`" maxlength="2000" rows="4" placeholder="Briefly explain why you cannot attend." />
+     <p :id="`training-decline-help-${eventId}`" class="decline-help">Your response will be saved as Not attending.</p>
+     <div class="rsvp-actions">
+      <button type="submit" :disabled="rsvpSaving || (!!Number(myInvitation?.is_required) && !declineReason.trim())">{{rsvpSaving ? 'Saving…' : 'Confirm decline'}}</button>
+      <button type="button" :disabled="rsvpSaving" @click="declining=false">Cancel</button>
+     </div>
+    </form>
+    <p>{{state.reminderDescription || 'Accepting stops registration reminders. Confirmed attendees receive one 24-hour reminder and the join link 5 minutes before each date.'}}</p>
+   </div>
    </div>
    <div v-if="!live && activeTab==='RSVP'"><h4>{{ state.canSeeDeclined ? 'RSVP responses' : 'Attending' }}</h4><p v-if="!visibleResponses.length">No confirmed attendees yet.</p><ul><li v-for="person in visibleResponses" :key="person.id"><strong>{{person.name}}</strong> <span class="rsvp-status" :class="`rsvp-status--${person.rsvp || 'pending'}`">{{person.rsvp==='declined'?'Not attending':person.rsvp==='accepted'?'Attending':'Pending'}}</span><span v-if="person.rsvp_decline_reason"> · Reason: {{person.rsvp_decline_reason}}</span></li></ul></div>
    <p v-if="state.proctor && (live || activeTab==='Overview')">You are a proctor / trainer.</p>
@@ -36,7 +54,7 @@
  </section>
 </template>
 <script setup>
-import {ref,computed,watch,onUnmounted} from 'vue';
+import {ref,computed,watch,onUnmounted,nextTick} from 'vue';
 import api from '../../services/api';
 import {useAuthStore} from '../../store/auth';
 import MeetingAgendaPanel from './MeetingAgendaPanel.vue';
@@ -51,8 +69,10 @@ const formatDeadline=value=>new Intl.DateTimeFormat('en-US',{dateStyle:'medium',
 const responseStatuses=computed(()=>state.value?.canSeeDeclined?['accepted','pending','declined']:['accepted']);
 const tabs=['Overview','RSVP','Agenda','Attendance','Notes','Documents'];
 const attendees=computed(()=>state.value?.participants.filter(p=>!p.isHost && !Number(p.is_cohost)) || []);
-const declining=ref(false),declineReason=ref('');
+const declining=ref(false),declineReason=ref(''),rsvpSaving=ref(false),reasonInput=ref(null);
 const myInvitation=computed(()=>state.value?.viewerInvitation || state.value?.participants.find(p=>Number(p.id)===Number(state.value?.viewerUserId || auth.user?.id)));
+const myResponseLabel=computed(()=>({accepted:'Attending',declined:'Not attending',pending:'Pending'})[myInvitation.value?.rsvp] || 'Pending');
+async function startDecline(){if(!Number(myInvitation.value?.is_required))return rsvp('declined');declineReason.value=myInvitation.value?.rsvp_decline_reason || '';declining.value=true;await nextTick();reasonInput.value?.focus();}
 const visibleResponses=computed(()=>state.value?.participants.filter(p=>state.value?.canSeeDeclined || p.rsvp==='accepted') || []);
 const myHand=computed(()=>state.value?.hands.find(p=>Number(p.user_id)===Number(state.value?.viewerUserId || auth.user?.id)));
 const raisedHands=computed(()=>state.value?.hands.filter(p=>p.status==='raised') || []);
@@ -61,7 +81,17 @@ const trainingTime=computed(()=>{const format=new Intl.DateTimeFormat('en-US',{d
 const base=computed(()=>`/team-meetings/${props.eventId}/training`);
 async function load(){try{const {data}=await api.get(base.value,{skipGlobalLoading:true});if(!state.value){topic.value=data.event.topic || ''; if(data.registrationClosesAt){const d=new Date(data.registrationClosesAt);registrationDeadline.value=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}}state.value=data;error.value='';emit('state',data);}catch(e){error.value=e.response?.data?.error?.message || 'Could not load training.';}}
 watch(()=>[props.eventId,props.live],()=>{state.value=null;clearInterval(timer);void load();if(props.live)timer=setInterval(load,2500);},{immediate:true});onUnmounted(()=>clearInterval(timer));
-async function rsvp(response){try{await api.post(`${base.value}/rsvp`,{response,reason:response==='declined'?declineReason.value:''});declining.value=false;declineReason.value='';await load();emit('rsvp-saved');window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));}catch(e){error.value=e.response?.data?.error?.message || 'Could not save RSVP.';}}
+async function rsvp(response){
+ if(rsvpSaving.value || (response==='declined' && Number(myInvitation.value?.is_required) && !declineReason.value.trim()))return;
+ rsvpSaving.value=true;error.value='';
+ try{
+  const reason=response==='declined'?declineReason.value.trim():'';
+  await api.post(`${base.value}/rsvp`,{response,reason});
+  state.value.viewerInvitation={...myInvitation.value,rsvp:response,rsvp_decline_reason:reason};
+  declining.value=false;declineReason.value='';await load();emit('rsvp-saved');window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));
+ }catch(e){error.value=e.response?.data?.error?.message || 'Could not save RSVP.';}
+ finally{rsvpSaving.value=false;}
+}
 async function change(body){try{await api.patch(base.value,body);await load();}catch(e){error.value=e.response?.data?.error?.message || 'Could not update training.';}}
 async function hand(action,userId){try{await api.post(`${base.value}/hand`,{action,userId});await load();return true;}catch(e){error.value=e.response?.data?.error?.message || 'Could not update hand.';return false;}}
 async function deny(id){if(await hand('deny',id))emit('private-chat',id);}
@@ -71,6 +101,18 @@ async function remove(asset){try{await api.delete(`${base.value}/assets/${asset.
 defineExpose({hand,load});
 </script>
 <style scoped>
+.training-rsvp { margin:16px 0; }
+.my-rsvp strong { display:inline-block; padding:3px 9px; border-radius:6px; }
+.saved-reason { white-space:pre-wrap; overflow-wrap:anywhere; }
+.training-decline-form { display:grid; gap:10px; margin:12px 0; padding:16px; border:1px solid var(--border,#cbd5e1); border-radius:10px; background:var(--bg-card,#f8fafc); }
+.training-decline-form label { font-weight:600; }
+.training-decline-form textarea { display:block; box-sizing:border-box; width:100%; min-width:0; min-height:112px; resize:vertical; padding:12px; font:inherit; font-size:1rem; line-height:1.5; border:1px solid #849ab0; border-radius:7px; color:inherit; background:var(--bg,#fff); }
+.training-decline-form textarea:focus-visible, .training-rsvp button:focus-visible { outline:3px solid #5b7fc5; outline-offset:2px; }
+.training-decline-form .decline-help { margin:0; font-size:.9rem; }
+.rsvp-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.training-rsvp .rsvp-actions button { margin:0; min-height:40px; font:inherit; }
+.training-rsvp button:disabled { opacity:.6; cursor:default; }
+
 .training-tabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid #cbd5e1; margin-bottom:12px; }
 .training-tabs button[aria-pressed=true] { background:#e8f3ee; border-color:#17634b; font-weight:700; }
 .rsvp-status { display:inline-block; padding:3px 9px; border-radius:12px; margin:4px; font-weight:700; }

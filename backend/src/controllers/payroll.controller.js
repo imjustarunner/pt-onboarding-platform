@@ -114,7 +114,7 @@ import {
   findAgencyHolidayById as findAgencyHolidayByIdSvc,
   deleteAgencyHolidayById as deleteAgencyHolidayByIdSvc
 } from '../services/agencyHolidays.service.js';
-import { payrollDefaultsForCode } from '../services/payrollServiceCodeDefaults.js';
+import { payrollDefaultsForCode, payrollReportingBucketForCode } from '../services/payrollServiceCodeDefaults.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { getDrivingDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
 import NotificationService from '../services/notification.service.js';
@@ -795,7 +795,7 @@ async function computeRawAuditReductionDetails({
       : (category === 'other' || category === 'tutoring') ? 'other'
         : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
           : 'direct';
-  const lineCategory = baseBucket === 'indirect' ? 'indirect' : 'direct';
+  const lineCategory = payrollReportingBucketForCode(codeKey, category, otherSlot, rateCard) === 'indirect' ? 'indirect' : 'direct';
 
   let rateAmount = 0;
   const rulePayUnitRaw = String(rule?.pay_rate_unit || '').trim().toLowerCase();
@@ -6263,17 +6263,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
             : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
               : 'direct';
 
-      // Allow per-user mapping of "other slot" hours into Direct/Indirect totals.
-      // This is driven by payroll_rate_cards.other_rate_*_bucket and only applies to "other" category codes.
-      let bucket = baseBucket;
-      if (baseBucket === 'other' && rateCard) {
-        const raw =
-          (otherSlot === 2) ? rateCard.other_rate_2_bucket
-            : (otherSlot === 3) ? rateCard.other_rate_3_bucket
-              : rateCard.other_rate_1_bucket;
-        const mapped = String(raw || 'other').trim().toLowerCase();
-        if (mapped === 'direct' || mapped === 'indirect') bucket = mapped;
-      }
+      // Tutoring counts as Direct while baseBucket retains its assigned rate source.
+      const bucket = payrollReportingBucketForCode(codeKey, category, otherSlot, rateCard);
 
       if (bucket === 'indirect') indirectHours += ptoCreditsHours;
       else if (bucket === 'other') otherHours += ptoCreditsHours;
@@ -9412,11 +9403,8 @@ export const getPayrollStaging = async (req, res, next) => {
         const rule = ruleByCode.get(codeKey) || null;
         const defaults = payrollDefaultsForCode(codeKey);
         const category = String(rule?.category ?? defaults?.category ?? 'direct').trim().toLowerCase();
-        const bucket =
-          (category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
-            : (category === 'other' || category === 'tutoring') ? 'other'
-              : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
-                : 'direct';
+        const bucket = payrollReportingBucketForCode(codeKey, category,
+          rule?.other_slot ?? defaults?.otherSlot ?? 1, rateCardByUserId.get(Number(uid)));
         if (bucket !== 'direct') continue;
         const baseFinalizedUnits = Number(r?.override?.finalizedUnits ?? r?.raw?.finalizedUnits ?? 0);
         const creditValue = Number(
