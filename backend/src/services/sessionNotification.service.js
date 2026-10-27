@@ -7,6 +7,7 @@ import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '
  */
 
 import pool from '../config/database.js';
+import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import Appointment from '../models/Appointment.model.js';
 import VonageService from './vonage.service.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
@@ -76,15 +77,13 @@ function parseJson(raw, fallback = null) {
 
 function toMysqlDateTime(d) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return dateToMysqlUtcDateTime(d);
 }
 
 function parseStartAt(startAt) {
   if (!startAt) return null;
   if (startAt instanceof Date) return startAt;
-  const s = String(startAt).trim();
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  const d = new Date(utcMysqlToIso(startAt) || NaN);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 

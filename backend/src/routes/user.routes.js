@@ -94,10 +94,11 @@ router.get('/', authenticate, (req, res, next) => {
   // Assignment options have their own tenant + hiring/staff authorization and
   // return a limited employee projection instead of the full admin directory.
   if (req.query.staffOnly === 'true' || req.query.supervisorsOnly === 'true') return next();
+  if (req.user.role === 'support') return excludeSupportSettings(req, res, next);
   return requireAdmin(req, res, next);
 }, getAllUsers);
-router.get('/grid/fields', authenticate, requireBackofficeAdmin, getUserGridFields);
-router.get('/grid', authenticate, requireBackofficeAdmin, getUserGrid);
+router.get('/grid/fields', authenticate, requireAccountAdministrator, requireBackofficeAdmin, getUserGridFields);
+router.get('/grid', authenticate, requireAccountAdministrator, requireBackofficeAdmin, getUserGrid);
 router.put('/grid/cells', authenticate, requireAccountAdministrator, requireBackofficeAdmin, putUserGridCells);
 router.put('/grid/bulk', authenticate, requireAccountAdministrator, requireBackofficeAdmin, putUserGridBulk);
 router.post('/grid/bulk-archive', authenticate, requireAccountAdministrator, requireBackofficeAdmin, postUserGridBulkArchive);
@@ -113,7 +114,7 @@ router.post('/merge/preview', authenticate, requireBackofficeAdmin, previewPeopl
 router.post('/merge', authenticate, excludeSupportSettings, requireBackofficeAdmin, applyPeopleMerge);
 router.post('/demo/bulk', authenticate, excludeSupportSettings, requireBackofficeAdmin, bulkPatchDemo);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedUsers); // Must come before /:id
-router.get('/:id/agencies', authenticate, getUserAgencies);
+router.get('/:id/agencies', authenticate, supportOwnAccountOnly, getUserAgencies);
 router.get('/:id/login-email-aliases', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, getUserLoginEmailAliases);
 router.post('/:id/login-email-alias', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, addUserLoginEmailAlias);
 router.delete('/:id/login-email-alias', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, removeUserLoginEmailAlias);
@@ -152,7 +153,7 @@ router.patch('/:id/external-calendars/:calendarId/feeds/:feedId', authenticate, 
 router.get('/:id/guardian-clients', authenticate, requireBackofficeAdmin, getGuardianLinkedClients);
 router.get('/:id/guardian-events', authenticate, requireBackofficeAdmin, getGuardianEvents);
 router.get('/:id/strava-connection', authenticate, getUserStravaConnection);
-router.get('/:id', authenticate, getUserById);
+router.get('/:id', authenticate, supportOwnAccountOnly, getUserById);
 router.patch('/:id/demo', authenticate, excludeSupportSettings, requireBackofficeAdmin, patchUserDemo);
 router.put('/:id', authenticate, supportProfileUpdateOnly, updateUser);
 router.put('/:id/status', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateUserStatus);
