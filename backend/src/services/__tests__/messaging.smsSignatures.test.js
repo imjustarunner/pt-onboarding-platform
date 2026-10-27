@@ -96,6 +96,10 @@ describe('recipient/guardian signatures', () => {
     getSmsSender.mockResolvedValue({ registration, phone_number: '+13035550100' });
     await expect(reviewSmsConsentRequest({ agencyId: 2, requestId: 4, actorUserId: 7, signerVerified: true })).resolves.toMatchObject({ reviewed: true });
     expect(enrollSmsRecipient.mock.calls.map(([call]) => [call.purpose, call.status])).toEqual([['care', 'opted_in'], ['reminders', 'opted_out']]);
+    // A later workforce-only signature cannot supersede this family's care consent.
+    const newerQuery = pool.execute.mock.calls.find(([sql]) => sql.includes('signed_at > ?'));
+    expect(newerQuery[0]).toContain("JSON_OVERLAPS(JSON_EXTRACT(disclosure_json, '$.purposes[*].purpose')");
+    expect(JSON.parse(newerQuery[1][4])).toEqual(['care', 'reminders']);
     expect(pool.execute.mock.calls.at(-1)[0]).toContain('review_token = NULL');
   });
   it.each(['newer', 'claimed'])('blocks activation when %s', async (reason) => {

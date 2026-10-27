@@ -98,8 +98,10 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   const [newer] = await pool.execute(
     `SELECT id FROM sms_consent_requests WHERE agency_id = ? AND number_id = ? AND phone = ?
      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(disclosure_json,'$.enrollmentCategory')),'staff') = ?
+     AND JSON_OVERLAPS(JSON_EXTRACT(disclosure_json, '$.purposes[*].purpose'), CAST(? AS JSON))
      AND signed_at IS NOT NULL AND (signed_at > ? OR (signed_at = ? AND id > ?)) LIMIT 1`,
-    [agencyId, row.number_id, row.phone, signed.disclosure.enrollmentCategory || 'staff', row.signed_at, row.signed_at, row.id]
+    [agencyId, row.number_id, row.phone, signed.disclosure.enrollmentCategory || 'staff',
+      JSON.stringify(signed.disclosure.purposes.map(entry => entry.purpose)), row.signed_at, row.signed_at, row.id]
   );
   if (newer.length) throw smsPolicyError('sms_consent_superseded', 'Review the recipient’s newer signed choices instead');
   const reviewToken = randomBytes(32).toString('hex');
