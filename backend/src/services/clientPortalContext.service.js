@@ -5,6 +5,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { preferredIdentityKeysForTemplateType } from '../constants/automatedEmailCatalog.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 
 const typeOf = org => String(org?.organization_type || '').toLowerCase();
 const slugOf = org => String(org?.portal_url || org?.slug || '').trim();
@@ -36,13 +37,16 @@ export async function resolveClientPortalContext(client) {
 }
 
 export function clientPortalAppUrl(portal, path = 'guardian') {
+  // The ITSCO test agency exercises the full platform on its existing tenant
+  // path. Clinical email branding must not move its families to another app.
+  const usesClinicalHost = portal?.clinical_portal && !isAuricwellQaAgency(portal);
   if (String(path).replace(/^\//, '').startsWith('billing/complete/')) {
-    const origin = portal?.clinical_portal ? 'https://auricwell.com' : new URL(buildPublicAppUrl(portal)).origin;
+    const origin = usesClinicalHost ? 'https://auricwell.com' : new URL(buildPublicAppUrl(portal)).origin;
     const url = new URL(`/${String(path).replace(/^\//, '')}`, origin);
     url.searchParams.set('portal',slugOf(portal));
     return url.toString();
   }
-  if (portal?.clinical_portal) return `https://auricwell.com/${encodeURIComponent(slugOf(portal))}/${String(path).replace(/^\//, '')}`;
+  if (usesClinicalHost) return `https://auricwell.com/${encodeURIComponent(slugOf(portal))}/${String(path).replace(/^\//, '')}`;
   return buildPublicAppUrl(portal, path);
 }
 

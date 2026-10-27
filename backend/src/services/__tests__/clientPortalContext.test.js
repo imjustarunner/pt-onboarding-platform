@@ -7,7 +7,7 @@ vi.mock('../contactReminderToken.service.js', () => ({ publicAppBaseUrl: () => '
 import Agency from '../../models/Agency.model.js';
 import Affiliation from '../../models/OrganizationAffiliation.model.js';
 import { resolvePreferredSenderIdentityForAgency } from '../emailSenderIdentityResolver.service.js';
-import { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl, intakeClientPortal } from '../clientPortalContext.service.js';
+import { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl, intakeClientPortal, clientPortalAppUrl } from '../clientPortalContext.service.js';
 const tenant = { id: 1, name: 'ITSCO', slug: 'itsco', organization_type: 'agency' };
 const school = { id: 2, name: 'School', slug: 'school', organization_type: 'school' };
 const learning = { id: 3, name: 'Tutoring', slug: 'tutoring', organization_type: 'learning' };
@@ -59,4 +59,11 @@ it('uses the counseling or tutoring enrollment context before a session exists',
  expect(intakeClientPortal(mixed,{channel:'tutoring'}).clinical_portal).toBe(false);
  expect(intakeClientPortal(mixed,{channel:'tutoring',clients:[{client_type:'clinical'}]}).clinical_portal).toBe(true);
  expect(intakeClientPortal(mixed,{channel:'office',clients:[{client_type:'learning'}]}).clinical_portal).toBe(false);
+});
+
+it('keeps the ITSCO QA clinical family on the same full-platform tenant host',()=>{
+ const portal={id:450,slug:'auricwell-qa-demo',clinical_portal:true,feature_flags:{qaSandbox:{syntheticOnly:true}}};
+ expect(clientPortalAppUrl(portal,'reset-password/opaque')).toBe('https://app.itsco.health/auricwell-qa-demo/reset-password/opaque');
+ expect(clientPortalInviteUrl({portal,existingAccount:true})).toContain('https://app.itsco.health/auricwell-qa-demo/login?');
+ expect(clientPortalAppUrl(portal,'billing/complete/opaque')).toBe('https://app.itsco.health/billing/complete/opaque?portal=auricwell-qa-demo');
 });

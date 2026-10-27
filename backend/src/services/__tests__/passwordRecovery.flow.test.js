@@ -167,3 +167,10 @@ it('uses an AuricWell password link for clinical enrollment and the tenant link 
  await requestPasswordRecoveryEmail({targetUser:user,enrollment:{agencyId:9,channel:'tutoring'}});
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({enrollmentChannel:'tutoring',html:expect.stringContaining('https://tenant.example/reset-password/reset-token')}));
 });
+
+it('keeps clinical enrollment recovery for the ITSCO QA family on app.itsco.health',async()=>{
+ user.role='client_guardian';
+ m.agencies.mockResolvedValue([{id:450,slug:'auricwell-qa-demo',organization_type:'agency',feature_flags:{qaSandbox:{syntheticOnly:true}}}]);
+ await requestPasswordRecoveryEmail({targetUser:user,enrollment:{agencyId:450,channel:'counseling'}});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({html:expect.stringContaining('https://app.itsco.health/auricwell-qa-demo/reset-password/reset-token')}));
+});
