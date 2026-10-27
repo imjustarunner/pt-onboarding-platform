@@ -183,6 +183,11 @@ jobs:
                 // Importing the assistant catalog proves the full backend->frontend
                 // shared import chain resolves as ESM inside the image.
                 await import('./src/services/agents/assistantCapabilityCatalog.service.js');
+                const supportReview = await import('./src/services/supportReplyReview.service.js');
+                if (typeof supportReview.runSupportReplyReviewDigestTick !== 'function') {
+                  throw new Error('Support email review scheduler is missing from the release image');
+                }
+                await import('./src/routes/supportEmailReview.routes.js');
                 console.log('✅ SMOKE_OK: shared navigation + assistant catalog load as ES modules');
                 process.exit(0);
               } catch (e) {

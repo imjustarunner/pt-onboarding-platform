@@ -293,7 +293,7 @@ describe('immutable support reply review', () => {
 
   it('never calls an unreadable linked draft an edited response', async () => {
     const db = memoryDb();
-    const service = createSupportReplyReviewService({ db });
+    const service = createSupportReplyReviewService({ db, now: () => new Date('2026-10-26T17:00:00Z') });
     const draft = await service.recordDraftSnapshot({ ...input, body: 'Generated draft' });
     await service.captureSentReview({ ...input, draftSnapshotId: draft.id, ticketMessageId: 12, composedBody: 'Actual reply', body: 'Actual signed reply', deliveryStatus: 'sent', transportMessageId: 'gmail-confirmed' });
     db.state.snapshots.find((s) => s.id === draft.id).payload_encrypted = 'unreadable encrypted evidence';
@@ -333,6 +333,23 @@ describe('immutable support reply review', () => {
     const service = createSupportReplyReviewService({ db, now: () => new Date('2026-10-27T00:01:00Z'), sendNotice: async () => { sends += 1; throw new Error('timeout after submission'); } });
     await service.runDigestTick(); await service.runDigestTick();
     assert.equal(sends, 1); assert.equal(db.state.digests[0].status, 'unknown');
+  });
+
+  it('catches up yesterday exactly once after the scheduler was absent at the cutoff', async () => {
+    const db = memoryDb(); let sends = 0;
+    const service = createSupportReplyReviewService({ db, now: () => new Date('2026-10-27T14:00:00Z'),
+      sendNotice: async ({ reviewer, notice }) => {
+        sends += 1;
+        assert.equal(reviewer.email, 'reviewer@example.test');
+        assert.match(notice.text, /date=2026-10-26&agencyId=2/);
+        return { id: 'gmail-catch-up' };
+      } });
+    await service.runDigestTick();
+    await service.runDigestTick();
+    assert.equal(sends, 1);
+    assert.equal(db.state.digests.length, 1);
+    assert.equal(db.state.digests[0].local_date, '2026-10-26');
+    assert.equal(db.state.digests[0].status, 'sent');
   });
 
   it('does not call queued or redirected delivery a notice sent to Rachel', async () => {
