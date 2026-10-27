@@ -42,6 +42,7 @@
 
     <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
     <div v-if="success" class="ssp-alert ssp-alert-success">{{ success }}</div>
+    <p class="ssp-role-help">For sign-in trouble, use Send recovery email. An administrator can restore access to an inactive account. Remove staff when they no longer work with this school.</p>
 
     <SchoolAdminAccessRequests
       v-if="['school_staff', 'admin', 'super_admin', 'support'].includes(roleNorm)"
@@ -162,6 +163,7 @@
             </button>
             <div v-if="openMenuId === u.id" class="ssp-menu">
               <button v-if="canActivate(u)" type="button" @click="menuAction(() => openActivate(u))">Activate account</button>
+              <button v-if="canRestoreAccess(u)" type="button" :disabled="restoringAccessId === u.id" @click="menuAction(() => restoreAccess(u))">Restore account access</button>
               <button v-if="canEdit" type="button" @click="menuAction(() => openEdit(u))">Edit</button>
               <button v-if="canToggleSchoolRoles(u)" type="button" @click="menuAction(() => openPermissions(u))">Permissions</button>
               <button v-if="u.id !== currentUserId" type="button" @click="menuAction(() => openMessage(u))">Message</button>
@@ -173,6 +175,11 @@
 
         <div class="ssp-card-meta">
           <div>{{ u.email }}</div>
+          <div v-if="staffPhone(u)">
+            Phone: <a :href="`tel:${staffPhone(u)}`">{{ staffPhone(u) }}</a>
+            <span class="ssp-meta-sub">{{ u.phone_number ? '(Staff override)' : '(School main number)' }}</span>
+          </div>
+          <div v-else class="ssp-meta-sub">School main number has not been saved.</div>
           <div>Last login: {{ u.last_login ? formatDate(u.last_login) : 'Never' }}</div>
           <div v-if="u.password_reset_expires_at" class="ssp-meta-sub">
             Reset link expires: {{ formatDate(u.password_reset_expires_at) }}
@@ -198,6 +205,9 @@
         </div>
 
         <div class="ssp-quick-actions">
+          <button v-if="canRestoreAccess(u)" type="button" class="ssp-quick-btn ssp-quick-activate" :disabled="restoringAccessId === u.id" @click="restoreAccess(u)">
+            {{ restoringAccessId === u.id ? 'Restoring…' : 'Restore account access' }}
+          </button>
           <button
             v-if="canActivate(u)"
             type="button"
@@ -662,6 +672,9 @@ const canSendReset = (u) =>
 const canActivate = (u) =>
   !!u?.needs_activation &&
   (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value));
+const canRestoreAccess = (u) => u?.is_active === false && !u.needs_activation
+  && Number(u.id) !== Number(currentUserId.value)
+  && (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value));
 const canAdd = computed(
   () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)
 );
@@ -685,6 +698,9 @@ const ticketsPath = computed(() => {
 const staff = ref([]);
 const schoolGroupEmail = ref('');
 const schoolPhoneNumber = ref('');
+const staffPhone = (u) => String(u?.phone_number || '').trim()
+  || String(u?.effective_phone_number || '').trim()
+  || String(u?.school_phone_number || schoolPhoneNumber.value || '').trim();
 const phoneDefaultHelp = computed(() => schoolPhoneNumber.value
   ? `Leave blank to use the school main number: ${schoolPhoneNumber.value}.`
   : 'Leave blank to use the school main number once it is saved in school settings.');
@@ -692,6 +708,7 @@ const currentUserStaff = computed(() => staff.value.find((s) => Number(s.id) ===
 const loading = ref(false);
 const error = ref('');
 const removingId = ref(null);
+const restoringAccessId = ref(null);
 const issuingResetLink = ref('');
 const resetLinkEmailed = ref(false);
 
@@ -1234,10 +1251,28 @@ const forfeitSchoolAdmin = async () => {
   }
 };
 
+const restoreAccess = async (u) => {
+  if (!canRestoreAccess(u) || restoringAccessId.value) return;
+  if (!confirm(`Restore account access for ${displayName(u)} at ${props.schoolName || 'this school'}? Their password and school permissions will stay the same.`)) return;
+  restoringAccessId.value = u.id;
+  error.value = '';
+  success.value = '';
+  try {
+    const { data } = await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/restore-access`);
+    if (!data?.ok) throw new Error('Account access could not be restored.');
+    await load();
+    success.value = data.message || 'Account access restored. They can sign in with their existing credentials.';
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to restore account access';
+  } finally {
+    restoringAccessId.value = null;
+  }
+};
+
 const removeUser = async (u) => {
   const id = Number(u?.id);
   if (!id) return;
-  if (!confirm(`Remove ${u.email || 'this user'} from ${props.schoolName || 'this school'}? This will revoke their access and remove them from the school contact list.`)) return;
+  if (!confirm(`Remove ${u.email || 'this user'} from ${props.schoolName || 'this school'}? This revokes school access and removes them from the contact list. For sign-in trouble, cancel and use Send recovery email or Restore account access instead.`)) return;
   try {
     removingId.value = id;
     error.value = '';

@@ -3,6 +3,7 @@ import { visibleSchoolRosterClients } from '../services/clientTerminationRoster.
 import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
 import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 import { createSchoolStaffRecoveryHandler } from './schoolStaffRecovery.controller.js';
+import { createSchoolStaffReactivationHandler } from './schoolStaffReactivation.controller.js';
 import { parseSchoolStaffPhone, schoolStaffPhone } from '../utils/schoolStaffPhone.js';
 /**
  * School Portal Controller
@@ -3797,6 +3798,7 @@ export const listSchoolStaff = async (req, res, next) => {
          u.profile_photo_path,
          u.phone_number,
          u.is_active,
+         u.is_archived,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
          u.passwordless_token_expires_at,
@@ -3872,7 +3874,7 @@ export const listSchoolStaff = async (req, res, next) => {
         phone_number: String(r.phone_number || '').trim() || null,
         school_phone_number: String(organization.phone_number || '').trim() || null,
         effective_phone_number: schoolStaffPhone(r, organization),
-        is_active: r.is_active == null || Number(r.is_active) === 1,
+        is_active: (r.is_active == null || Number(r.is_active) === 1) && Number(r.is_archived || 0) !== 1,
         needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
       };
     });
@@ -4109,6 +4111,11 @@ export const sendSchoolStaffResetPassword = (req, res, next) => issueSchoolStaff
 
 /** Send recovery to the account holder; never expose their reset token to a coworker. */
 export const issueSchoolStaffResetLink = createSchoolStaffRecoveryHandler(userHasOrgOrAffiliatedAgencyAccess);
+
+export const restoreSchoolStaffAccountAccess = createSchoolStaffReactivationHandler({
+  hasSchoolAccess: userHasOrgOrAffiliatedAgencyAccess,
+  getSchoolRoleFlags: getActorSchoolRoleFlags
+});
 
 /**
  * Activate a PENDING_SETUP school staff member: set title/access flags + temp password → ACTIVE_EMPLOYEE.

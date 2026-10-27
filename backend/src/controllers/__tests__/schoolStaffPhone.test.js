@@ -123,3 +123,11 @@ it('reports the inactive account flag even when a staff account has active statu
   expect(next).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledWith([expect.objectContaining({ status: 'ACTIVE_EMPLOYEE', is_active: false })]);
 });
+
+
+it('shows a stale archive flag as inactive even when the active flag is still on', async () => {
+  user.is_active = 1; user.is_archived = 1;
+  pool.execute.mockImplementation(async sql => [sql.includes('JOIN users u') ? [user] : []]);
+  await listSchoolStaff(req, res, next);
+  expect(res.json).toHaveBeenCalledWith([expect.objectContaining({ is_active: false })]);
+});

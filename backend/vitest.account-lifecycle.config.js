@@ -7,7 +7,8 @@ export default {
       'src/services/__tests__/accountLifecycle.mysql.test.js',
       'src/services/__tests__/auditEvent.target.test.js',
       'src/services/__tests__/hire.groupActivation.test.js',
-      'src/controllers/__tests__/schoolStaffPhone.test.js'
+      'src/controllers/__tests__/schoolStaffPhone.test.js',
+      'src/controllers/__tests__/schoolStaffReactivation.test.js'
     ]
   }
 };

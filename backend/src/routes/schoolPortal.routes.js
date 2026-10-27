@@ -13,6 +13,7 @@ import {
   sendSchoolStaffResetPassword,
   issueSchoolStaffResetLink,
   activateSchoolStaff,
+  restoreSchoolStaffAccountAccess,
   addSchoolStaff,
   updateSchoolStaff,
   setPrimarySchoolStaff,
@@ -216,6 +217,7 @@ router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolSt
 router.post('/:organizationId/school-staff/:userId/send-reset-password', authenticate, sendSchoolStaffResetPassword);
 router.post('/:organizationId/school-staff/:userId/issue-reset-link', authenticate, issueSchoolStaffResetLink);
 router.post('/:organizationId/school-staff/:userId/activate', authenticate, activateSchoolStaff);
+router.post('/:organizationId/school-staff/:userId/restore-access', authenticate, restoreSchoolStaffAccountAccess);
 router.post('/:organizationId/school-staff/:userId/set-primary', authenticate, setPrimarySchoolStaff);
 router.patch('/:organizationId/school-staff/:userId/roles', authenticate, updateSchoolStaffRoleFlags);
 router.patch('/:organizationId/school-staff/:userId/group-subscription', authenticate, updateSchoolStaffGroupSubscription);

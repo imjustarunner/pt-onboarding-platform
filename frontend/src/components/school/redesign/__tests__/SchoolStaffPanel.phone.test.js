@@ -7,7 +7,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {} }), useR
 import SchoolStaffPanel from '../SchoolStaffPanel.vue';
 const staff = { id: 42, first_name: 'School', last_name: 'Contact', email: 'contact@school.example', status: 'ACTIVE_EMPLOYEE', is_school_admin: true, is_active: false, phone_number: '303-555-0123' };
 beforeEach(() => {
-  vi.clearAllMocks(); localStorage.clear();
+  vi.clearAllMocks(); localStorage.clear(); m.user.role = 'admin';
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   m.get.mockResolvedValue({ data: { staff: [staff], schoolPhoneNumber: '303-555-0100' } });
   m.post.mockResolvedValue({ data: {} }); m.put.mockResolvedValue({ data: {} });
@@ -48,4 +48,61 @@ describe('school staff phone defaults', () => {
     wrapper.unmount();
   });
 
+});
+
+describe('visible staff phone numbers', () => {
+  it('displays an explicit override on the staff card', async () => {
+    const wrapper = await open();
+    expect(wrapper.find('a[href="tel:303-555-0123"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('(Staff override)');
+    wrapper.unmount();
+  });
+  it('displays the inherited school number without creating an override', async () => {
+    m.get.mockResolvedValue({ data: { staff: [{ ...staff, phone_number: null, effective_phone_number: '303-555-0100' }], schoolPhoneNumber: '303-555-0100' } });
+    const wrapper = await open();
+    expect(wrapper.find('a[href="tel:303-555-0100"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('(School main number)');
+    await wrapper.find('button[title="Edit"]').trigger('click');
+    expect(wrapper.find('.ssp-modal input[type="tel"]').element.value).toBe('');
+    expect(m.put).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+});
+
+describe('restoring school staff access', () => {
+  it('restores after confirmation and refreshes the account state', async () => {
+    const wrapper = await open();
+    expect(m.post).not.toHaveBeenCalled();
+    m.post.mockResolvedValue({ data: { ok: true } });
+    m.get.mockResolvedValue({ data: { staff: [{ ...staff, is_active: true }] } });
+    await wrapper.findAll('button').find(b => b.text() === 'Restore account access').trigger('click');
+    await flushPromises();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('password and school permissions will stay the same'));
+    expect(m.post).toHaveBeenCalledExactlyOnceWith('/school-portal/20/school-staff/42/restore-access');
+    expect(wrapper.text()).toContain('Account access restored.');
+    expect(wrapper.findAll('button').some(b => b.text() === 'Restore account access')).toBe(false);
+    wrapper.unmount();
+  });
+  it('does nothing when the administrator cancels', async () => {
+    const wrapper = await open();
+    window.confirm.mockReturnValue(false);
+    await wrapper.findAll('button').find(b => b.text() === 'Restore account access').trigger('click');
+    expect(m.post).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it('shows a failed restoration without claiming success', async () => {
+    const wrapper = await open();
+    m.post.mockRejectedValue({ response: { data: { error: { message: 'School assignment no longer active.' } } } });
+    await wrapper.findAll('button').find(b => b.text() === 'Restore account access').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('School assignment no longer active.');
+    expect(wrapper.text()).not.toContain('Account access restored.');
+    wrapper.unmount();
+  });
+  it('does not offer restoration to standard school staff', async () => {
+    m.user.role = 'school_staff';
+    const wrapper = await open();
+    expect(wrapper.findAll('button').some(b => b.text() === 'Restore account access')).toBe(false);
+    wrapper.unmount();
+  });
 });

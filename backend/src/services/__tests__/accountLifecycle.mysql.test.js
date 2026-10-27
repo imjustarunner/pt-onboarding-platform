@@ -10,6 +10,7 @@ vi.mock('../hireGroupAccount.service.js', () => ({ removeHireGoogleGroupForUser:
 import User from '../../models/User.model.js';
 import ClientSchoolStaffRoiAccess from '../../models/ClientSchoolStaffRoiAccess.model.js';
 import { changeAccountLifecycle } from '../accountLifecycle.service.js';
+import { restoreSchoolStaffAccess } from '../schoolStaffReactivation.service.js';
 
 describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifecycle with the real archive guard', () => {
   let db;
@@ -90,6 +91,39 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
     expect((await current()).is_active).toBe(0);
     await User.updateStatus(42, 'ACTIVE_EMPLOYEE', 3);
     expect(await current()).toMatchObject({ is_archived: 0, is_active: 1, status: 'ACTIVE_EMPLOYEE' });
+  });
+
+  it('restores existing access without changing passwords or a scheduler-only role', async () => {
+    await db.execute("UPDATE users SET is_archived=1,temporary_password_hash='existing-hash' WHERE id=42");
+    await db.execute("INSERT INTO school_contacts (id,school_organization_id,email,full_name,is_scheduler) VALUES (1,20,'staff@example.invalid','School Contact',1)");
+    try {
+      await restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 });
+      expect(await current()).toMatchObject({ is_active: 1, is_archived: 0, temporary_password_hash: 'existing-hash' });
+      expect((await db.execute('SELECT is_scheduler FROM school_contacts WHERE id=1'))[0][0].is_scheduler).toBe(1);
+      expect(await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForOrganization({ schoolOrganizationId: 20 })).toEqual([]);
+      expect((await events())[0].metadata).toMatchObject({ source: 'school_portal_staff_access_restored', actor: { id: 3 } });
+    } finally { await db.execute('DELETE FROM school_contacts WHERE id=1'); }
+  });
+
+  it.each(['missing', 'inactive'])('rejects restoration after school membership is %s', async state => {
+    await db.execute('UPDATE users SET is_archived=1 WHERE id=42');
+    if (state === 'missing') await db.execute('DELETE FROM user_agencies WHERE user_id=42');
+    else await db.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=42');
+    await expect(restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 })).rejects.toMatchObject({ statusCode: 409 });
+    expect(await current()).toMatchObject({ is_active: 0, is_archived: 1 });
+    expect(await events()).toHaveLength(0);
+  });
+
+  it('rejects restoration of a non-school identity', async () => {
+    await db.execute("UPDATE users SET role='provider',is_archived=1 WHERE id=42");
+    await expect(restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 })).rejects.toMatchObject({ statusCode: 400 });
+    expect((await current()).is_archived).toBe(1);
+  });
+
+  it('keeps initial setup separate from restoring an existing account', async () => {
+    await db.execute("UPDATE users SET status='PENDING_SETUP' WHERE id=42");
+    await expect(restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 })).rejects.toMatchObject({ statusCode: 409 });
+    expect((await current()).status).toBe('PENDING_SETUP');
   });
 
   it('rolls back an archive if its audit record cannot be saved', async () => {
