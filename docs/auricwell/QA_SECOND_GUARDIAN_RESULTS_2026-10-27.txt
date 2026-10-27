@@ -62,3 +62,18 @@ Email display: 14b1c928d474ff1528855787d7d1d4c5b3619e5e.
 Recovery fixes: 57c187e9e, ee98383fc, 189e6d04a and this handoff's commit.
 Core invitation/history and email-display deployments succeeded. Recovery fixes
 were pushed to main; verify the latest backend deployment before browser retests.
+
+ADDITIONAL VERIFICATION
+- Completion email 4229's actual sending-system envelope was inspected: To is
+  testing@itsco.health. Do not equate this with a read receipt.
+- Its configured completion subject still uses "Intake packet completed";
+  flag that remaining terminology in the bot brief. The invitation/reminder
+  subject correction is separate and is implemented.
+- Final guardian/billing and scheduling CI suites both passed on 2ae655b075.
+- The reminder service has background CPU enabled and minimum instances; it
+  does not depend on a guardian keeping a browser open.
+
+DEPLOYMENT CONFIRMED
+Backend workflow 40593075178 completed successfully. Revision
+onboarding-backend-g40593075178a1 receives 100% of live traffic.
+The recovery fixes and duplicate-copy correction are ready for browser retests.
