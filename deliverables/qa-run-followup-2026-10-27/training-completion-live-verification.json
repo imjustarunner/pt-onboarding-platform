@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-27T11:12:57.156Z",
+  "userId": 1434,
+  "moduleId": 32,
+  "attemptCount": 0,
+  "completionStatus": 400,
+  "message": "Pass this lesson’s quiz before marking the lesson complete.",
+  "completed": false,
+  "passed": true
+}

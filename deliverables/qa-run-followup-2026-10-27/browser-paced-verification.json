@@ -1,0 +1,67 @@
+{
+  "at": "2026-10-27T10:40:06.176Z",
+  "accounts": [
+    {
+      "key": "provider",
+      "userId": 1433,
+      "loginStatus": 200,
+      "pages": [
+        {
+          "path": "dashboard?tab=my&my=payroll",
+          "failed": [
+            {
+              "path": "/api/learning-program-classes",
+              "status": 400,
+              "message": "organizationId is required"
+            },
+            {
+              "path": "/api/skill-builders/me/assigned-events",
+              "status": 403,
+              "message": "Skill Builders school program is not enabled for this agency"
+            },
+            {
+              "path": "/api/accountability/workspaces",
+              "status": 403,
+              "message": "This workspace is restricted to the three approved work accounts."
+            },
+            {
+              "path": "/api/evaluations/student-training",
+              "status": 404,
+              "message": "This evaluation form is not configured for this agency."
+            }
+          ],
+          "finalPath": "/auricwell-qa-demo/dashboard"
+        },
+        {
+          "path": "messages",
+          "failed": [
+            {
+              "path": "/api/skill-builders/me/assigned-events",
+              "status": 403,
+              "message": "Skill Builders school program is not enabled for this agency"
+            }
+          ],
+          "finalPath": "/auricwell-qa-demo/messages"
+        }
+      ]
+    },
+    {
+      "key": "support",
+      "userId": 1434,
+      "loginStatus": 200,
+      "pages": [
+        {
+          "path": "admin/find-providers",
+          "failed": [
+            {
+              "path": "/api/skill-builders/me/assigned-events",
+              "status": 403,
+              "message": "Skill Builders access required"
+            }
+          ],
+          "finalPath": "/auricwell-qa-demo/admin/find-providers"
+        }
+      ]
+    }
+  ]
+}

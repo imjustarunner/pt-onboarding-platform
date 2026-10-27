@@ -1,0 +1,75 @@
+{
+  "at": "2026-10-27T10:51:39.858Z",
+  "checks": [
+    {
+      "kind": "providerSavedOwnAvailability",
+      "userId": 1433,
+      "preferences": {
+        "school": true,
+        "scheduleAgencyId": 450,
+        "officeIds": null,
+        "virtual": true,
+        "inPerson": false,
+        "seesClients": true,
+        "waitlistEnabled": false,
+        "acceptingNewClients": true
+      }
+    },
+    {
+      "kind": "currentExchangeAudit",
+      "matchesEvaluatedAt": "2026-10-27T10:51:42.342Z",
+      "providers": [
+        {
+          "userId": 1433,
+          "matched": true,
+          "format": {
+            "field": "format",
+            "status": "pass",
+            "reason": "A compatible visit format is open for new clients."
+          },
+          "email": {
+            "reason": "Provider did not match this evaluation.",
+            "status": "not_sent"
+          }
+        },
+        {
+          "userId": 1438,
+          "matched": false,
+          "format": {
+            "field": "format",
+            "status": "fail",
+            "reason": "No compatible visit format is open for new clients."
+          }
+        },
+        {
+          "userId": 1439,
+          "matched": false,
+          "format": {
+            "field": "format",
+            "status": "fail",
+            "reason": "No compatible visit format is open for new clients."
+          }
+        }
+      ]
+    },
+    {
+      "kind": "recoveryEmail",
+      "recipient": "qa.recovery.parent.20261025@example.com",
+      "id": 4094,
+      "status": "sent",
+      "linkOrigins": [
+        "https://app.itsco.health"
+      ],
+      "reportFooterOnTenantHost": null,
+      "platformLinksRemaining": false,
+      "externalInbox": "testing@itsco.health",
+      "externalArrivalIndependentlyVerified": false,
+      "bodyLength": 940,
+      "linkCount": 2,
+      "linkKinds": [
+        "auricwell-qa-demo"
+      ],
+      "footerVerificationNote": "The pre-created recovery receipt preserves the original message body before the sending service appends its footer. Recorded reset/login links use app.itsco.health; the outbound footer host has code and unit-test coverage but still needs external-inbox verification."
+    }
+  ]
+}

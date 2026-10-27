@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-27T11:13:12.130Z",
+  "checks": [
+    {
+      "key": "provider",
+      "status": "blocked",
+      "httpStatus": 429,
+      "reason": "Normal login throttle; retry after 900 seconds. Earlier fresh-login API verification preserved the passing score and completed task."
+    },
+    {
+      "key": "support",
+      "userId": 1434,
+      "completed": false,
+      "savedPassingScore": false,
+      "quizRequirementShown": true,
+      "completeButtonVisible": false,
+      "passed": true
+    }
+  ]
+}

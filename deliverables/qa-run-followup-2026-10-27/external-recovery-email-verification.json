@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T11:06:21.168Z",
+  "inbox": "testing@itsco.health",
+  "syntheticRecipient": "qa.recovery.parent.20261025@example.com",
+  "independentlyVerified": false,
+  "errorCode": 401
+}

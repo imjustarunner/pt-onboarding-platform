@@ -51,3 +51,6 @@ Open checks — no overall PASS yet
 - Current recurring virtual openings end November 1. Provider bots need to publish future openings normally before later runs.
 
 Production build: PASS (55.56 seconds). The additional fixes above are awaiting the deployment triggered by this commit; post-deployment results will be appended below.
+
+Deployment update — October 27
+The second fixes are deployed: backend workflow 40490182372 and frontend workflow 40490182339 succeeded. The fresh audit now reports provider 1433 matched on listing 12 after their own availability Save; old notification receipts are unchanged. Paced Payroll, Messages and support Find a Provider navigation succeeded. Training module 32 is now assigned and provider 1433 has completed its quiz and task; see QA_TRAINING_ADDENDUM.txt and the new QA_DEPLOYMENT_VERIFICATION.txt for the current results and remaining journey checks.

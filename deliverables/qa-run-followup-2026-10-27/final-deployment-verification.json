@@ -1,0 +1,33 @@
+{
+  "at": "2026-10-27T11:14:00Z",
+  "sourceCommit": "0e1e9b275c6ed07169288e0e7bdce0d488e18694",
+  "workflows": [
+    {
+      "id": 40493394069,
+      "name": "Deploy Backend to Cloud Run",
+      "conclusion": "success"
+    },
+    {
+      "id": 40493393959,
+      "name": "Deploy Frontend to Cloud Run",
+      "conclusion": "success"
+    },
+    {
+      "id": 40493393980,
+      "name": "Scheduling regressions",
+      "conclusion": "success"
+    }
+  ],
+  "traffic": [
+    {
+      "service": "onboarding-backend",
+      "revision": "onboarding-backend-g40493394069a1",
+      "percent": 100
+    },
+    {
+      "service": "onboarding-frontend",
+      "revision": "onboarding-frontend-03105-4d4",
+      "percent": 100
+    }
+  ]
+}

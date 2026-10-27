@@ -1,0 +1,68 @@
+AuricWell QA — deployment verification and next-run handoff
+October 27, 2026. New addendum; keep the earlier instructions and failure evidence.
+
+STATUS
+Several blockers are repaired and verified. This is not an overall PASS. Continue the next bot run against the retained demo agency and record the remaining end-to-end results below. Do not clear old evidence or interpret a confirmation screen as proof of delivery.
+
+ACCOUNTS AND SCOPE
+Agency 450: AuricWell QA Mental Health — DEMO, slug auricwell-qa-demo.
+Demo school 451; demo clinic 452. No real school or agency is a test target.
+Provider 1433: Avery Morgan QA.
+Support 1434: the coordination account. This is the support user ID.
+Supervisor 1438: Cameron Reed QA Supervisor.
+Supervisee 1439: Alex Rivera QA Supervisee.
+Use the existing credentials in the secure vault. No password was rotated in this repair. User 1439's saved credential works through normal login; fix the bot's blank vault fill locally. Never give the bots setup user 1435 or any administrator/superadministrator account.
+At the start of this investigation the retained population was nine clients and three providers; re-count before creating records if a new coordinator run has started. Keep the existing caps of 30 clients and 10 providers. The new lesson did not create clients or providers.
+
+VERIFIED APPLICATION REPAIRS
+1. The hosting policy was returning HTML 403 responses when an IP exceeded 500 requests/minute. It now returns 429. The threshold remains 500. Slower navigation loaded provider Payroll, Messages and support Find a Provider without throttling. Some unrelated background features still return expected disabled-feature/access responses; those do not grant a reason to broaden bot permissions.
+2. Demo staff discovery, disclosure and public provider discovery now admit the approved demo providers inside agency 450. Public counseling and provider 1433's online availability are enabled. Sixteen future virtual slots were returned in the week of October 26, and intake scheduling reports America/Denver. Published virtual hours are 09:00–17:00; current school capacity consumes mornings, leaving public slots from 13:00. Provider bots must publish future openings as the run advances; the current recurring period ends November 1.
+3. The provider's availability, staff calendar, Tasks, Note Workspace, Library and Client Exchange render. The Library access failure caused by missing status in a token is fixed. No real agency's private handbook was copied into the demo.
+4. Support can open the provider calendar and Find a Provider. The former unfinished Book button now opens the existing scheduling tools. Support remains denied clinical-note context, agency configuration and another agency's Exchange. These were checked with direct API requests returning 403; no role was promoted.
+5. Enrollment completion now shows a reference and actual pending/review/failed/sent email state. The school ROI radio controls stay visibly selected. An empty disclosure roster blocks signing with an explanation.
+6. Exchange cards/results show referral IDs. Duplicate posting says clearly that newly typed notes/preferences were not saved and preserves them in the dialog. Fresh audit now recalculates current matches while retaining the original notification receipts. It does not resend alerts.
+7. Provider 1433 saved their existing agency availability through their own account. Listing 12 now matches 1433 for the currently implemented rules. Providers 1438 and 1439 are correctly excluded because they have no open visit format configured. The old not-sent receipt remains historical. Unknown insurance, age, specialty, language, location, capacity or exact schedule coverage is not proof of a clinical match. Exact days/times/office overlap still require manual review; several structured criteria are not yet implemented.
+8. Recovery email 4094 is marked sent and is visible to its intended synthetic recipient through the recipient's own in-app email API. Its recorded reset/login links use app.itsco.health; its external destination is testing@itsco.health (transport routing; arrival is separate). Agency footer links now use the stored agency app host. The recovery receipt preserves the pre-footer body, so this record does not independently prove the outbound footer. The available external mailbox reader returned 401; the bot must verify arrival and all actionable links in the external inbox. No reset token is included in the evidence files.
+9. Supervisee 1439 signs in and sees agreement 413. Assignment 123 links supervisor 1438 to supervisee 1439. The supervisor may see a message about their own supervisor when trying to log supervision as a supervisee; that is not proof that their assigned supervisee is missing. Agreement signatures and note cosigning remain to be exercised.
+
+PRIVATE TRAINING QUIZ
+https://app.itsco.health/auricwell-qa-demo/module/32
+QA orientation — scheduling and support is assigned to all four staff users. Tasks are 2119, 2120, 2121 and 2122 respectively. This is a synthetic workflow course, not professional certification.
+Provider 1433 completed task 2119. Retained attempt 2 scored 0%, attempt 3 scored 100%, and lesson/task completion persisted after a fresh login. Attempt 1 also passed because the first test selected by display position; the renderer reorders choices. Select exact answer text for deliberate wrong-answer checks. Do not erase that earlier attempt. The other three staff assignments are available for bot testing.
+Private module content and quiz attempts are now tenant-scoped. Provider and support were both denied another agency's private module, content and quiz history. A final fix applies the same scope to start/time/completion writes and requires a saved passing score before completing a quiz lesson. The player restores the saved score on reopening. Local validation: 17 backend tests, three frontend tests, production build PASS in 55.54 seconds. Deployment results are appended below.
+
+CORRECT LINKS
+Sign in: https://app.itsco.health/auricwell-qa-demo/login
+Support scheduling: https://app.itsco.health/auricwell-qa-demo/admin/find-providers
+Provider calendar as support: https://app.itsco.health/auricwell-qa-demo/dashboard?tab=my_schedule&scheduleViewAs=1433
+Exchange audit: https://app.itsco.health/auricwell-qa-demo/client-exchange?listingId=12
+Supervision agreement: https://app.itsco.health/auricwell-qa-demo/supervision/agreements
+The shared /admin/find-providers URL does not make support an administrator. /supervisor-availability is not a registered page. Client Exchange is also in Quick Nav; verify the desired support menu entry separately.
+
+NEXT RUN: REQUIRED EVIDENCE
+- Keep one browser context per person, stagger cold launches and use application links. Start with at least 45 seconds between full reloads from the same IP. Pause at least 60 seconds on a 429 if no cooldown is supplied. Do not rotate IPs. Session inactivity and locking remain in force; a 24-hour token lifetime does not override them. Logging a second person into the same context replaces the first person's session. Production login limits also apply: reuse each person's session instead of repeatedly signing in, and obey the returned Retry-After on LOGIN_THROTTLED. The final provider-browser check hit a 900-second login cooldown; it was not bypassed.
+- Fresh school/office EN/ES packets must review and sign the corrected disclosure and produce actual completion/delivery receipts. Packets 1268–1271 remain needs_review because the old disclosure roster was empty. Never insert providers beneath an old signature, bypass consent or mark those packets cleared just to make the test pass.
+- For one fresh synthetic referral, have support post, inspect saved notes and match reasons, then have an eligible provider apply/claim. Verify assignment, provider notifications and both email destinations. Do not repost listing 12 expecting changed notes or another alert. An unassigned client needs initial placement/transfer; Additional services requires an existing therapist.
+- Complete support booking, reschedule and same-day cancellation through the actual calendar. Verify client/provider calendar changes, reminders, cancellation messages and the provider SMS destination 6189107000. Arrange at least two sessions per week for ongoing notification checks. These complete journeys have not yet passed in this repair.
+- Test Messages as a family who has linked clients, including their own email copies. The isolated recovery-parent fixture has no linked clients and does not prove that full portal path. Check recovery before an enrolled family has set its first password, plus used/expired links. Inactive-account and expired-temporary-password fixtures remain unprovisioned; report those cases blocked rather than passing them.
+- Complete the supervisee's note and supervisor cosign. Support should see operational status while remaining unable to read the note body, including through direct URLs/API requests. No real billing claim should be submitted for synthetic care.
+- Report residual Spanish portal strings, raw labels/placeholders, date-entry limitations, disclosure jurisdiction wording and e-sign timezone presentation. Spanish intake does not establish that the full guardian portal is translated. These remain open. Old Oct 25 office clients are still classified under the school; later office clients are under clinic 452. Preserve this distinction in the report.
+- Save page URL, role/user ID, packet/client/referral/appointment ID, expected versus actual result, screenshot and relevant HTTP status. Never include passwords, session tokens or complete recovery URLs in shareable evidence.
+The external Grok coordinator owns the 5 a.m. America/Denver schedule. This repair did not enable the application's separate dailyRunEnabled flag or start a second scheduler. Retain synthetic records under the caps rather than deleting daily.
+
+EVIDENCE AND RELEASES
+95d889c421dc51eecb6d4fb9699ee549c39bd9b8: provider discovery, public booking setup, packet receipts and coordination fixes. Backend 40487620568 and frontend 40487620567 succeeded.
+f4c0a24e1a0e90bb335e12eb84a16a749e675292: current Exchange audit, duplicate referral feedback, ROI controls and footer hosts. Backend 40490182372 and frontend 40490182339 succeeded.
+e6fb3d35dac5cae5c8fdc4a060a21e091ff0a37e: private training fixture and read boundaries. Backend 40491577544 succeeded and was verified live.
+0e1e9b275c6ed07169288e0e7bdce0d488e18694: tenant-scoped progress and required passing quiz. Final deployment verification follows below.
+Sanitized JSON and screenshots in this directory distinguish each check from the uncompleted journeys. Earlier first-deployment results are preserved, not overwritten.
+
+HOSTING LIMIT DECISION
+Automatic approval review rejected raising the shared limit from 500 to 2,000 requests/minute because that would weaken a shared security control beyond the demo scope. No increase was applied. Paced navigation worked with the unchanged threshold.
+
+FINAL DEPLOYMENT UPDATE
+The final backend workflow 40493394069 and frontend workflow 40493393959 both succeeded for 0e1e9b275c6ed07169288e0e7bdce0d488e18694. Scheduling regressions 40493393980 also passed.
+Backend: https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40493394069
+Frontend: https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40493393959
+Live completion check: support 1434 had zero quiz attempts. Posting module 32 completion with a fabricated score/pass flag returned HTTP 400, “Pass this lesson’s quiz before marking the lesson complete.” Progress remained incomplete. The final provider browser revisit hit the normal 900-second login cooldown; earlier fresh-login API verification had already confirmed scores and completed task 2119. This final browser revisit is BLOCKED, not PASS.
+The final support browser check passed: module 32 loads, the quiz requirement is visible and Mark Lesson Complete is unavailable before passing. Support's lesson is now in progress with no submitted attempts. Backend revision onboarding-backend-g40493394069a1 and frontend revision onboarding-frontend-03105-4d4 serve 100% of normal traffic.
