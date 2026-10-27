@@ -1,0 +1,97 @@
+ITSCOLLC / AURICWELL QA — SECOND-GUARDIAN ADDENDUM
+October 27, 2026. New instructions; retain the existing runbook.
+
+SCOPE
+Use only demo agency 450 (auricwell-qa-demo), its demo office and school,
+synthetic people, and unique @example.com email addresses. Emails redirect
+to testing@itsco.health while retaining the individual recipient identity
+in the app. Do not use admin/superadmin accounts or modify real families.
+Keep the existing 30-client / 10-provider population caps. Use no SMS for
+these new families; 618-910-7000 remains reserved for Rowan's family.
+
+WHAT CHANGED
+Requested second-guardian enrollment invitations now send for office AND
+school enrollments when another legal guardian and an email are provided.
+The shared invitation switch and the school "send later" default no longer
+suppress those requests. Explicit do-not-send selections and normal tenant
+email controls remain. This applies to future requests across organizations;
+there is no bulk resend of historical invitations.
+
+The invitation identifies the submitting guardian's name and email and the
+child's initials. It opens the published enrollment on app.itsco.health.
+The recipient completes their own agreements and answers before access is
+activated. School and office invitations both require that completed flow.
+Follow-up task staff must belong to the same agency.
+
+CASEY — ALREADY SENT; DO NOT REQUEST ANOTHER RESEND UNNECESSARILY
+Client: Jules QA-CoParent-1027, client 2277.
+First guardian: Morgan QA-CoParentA-1027, user 1459.
+Second guardian: Casey QA-CoParentB-1027,
+qa.family.coparentb.20261027@example.com.
+Original first-parent enrollment: 1285. Invitation: 24.
+Actual sent communication: 4211, October 27 at 3:38 PM Mountain.
+Subject: ITSCOLLC: reminder to complete your guardian enrollment
+(with the demo recipient prefix).
+Actual transport recipient verified: testing@itsco.health.
+Use the NEW email's link; the resend invalidated the previous token.
+The email references Morgan's name/email and initials JULQAC.
+The link and credentials are private; do not put them in screenshots/reports.
+
+REQUIRED TEST MATRIX
+Run Office EN, Office ES, School EN, and School ES. Reuse retained synthetic
+records where appropriate rather than exceeding the population cap.
+
+1. First guardian: enroll a minor; select another guardian with legal rights
+   and supply a unique second email. Indicate shared 50/50 custody. Finish
+   all required agreements and submit. Capture client, submission and invite
+   IDs. School must send promptly too, without staff manually releasing it.
+2. Verify actual external email AND the correct individual's in-app email
+   copy. Check inviter name/email, child initials, agency, language, link
+   domain, expiration wording, and absence of private answers/attachments.
+   "Sent" in the app alone is not proof that the external inbox received it.
+3. In a fresh browser context, open the second guardian's invitation. Confirm
+   it opens that guardian's own enrollment for the SAME child, not the first
+   guardian's completed form. Provide different synthetic address, answers,
+   observations and expectations; complete and sign their own agreements.
+4. Verify the second submission links to the existing client, does not create
+   a duplicate child, and does not overwrite the child's original identifying
+   information or the first guardian's submission.
+5. Establish or use separate portal logins. Confirm both see their shared
+   child after completion, with only the simple authorized reference to the
+   other guardian. Each sees their own signed enrollment copies/documents.
+6. Verify privacy in BOTH directions: answers, private uploaded documents,
+   signed enrollment copies, email copies and personal account details.
+   Try the other guardian's document/email URL while signed in as the first;
+   require server denial, not merely a hidden button. Repeat in reverse.
+   Shared appointments/messages or documents expressly shared by the agency
+   may remain visible according to their access settings.
+7. Verify no unrelated family or agency is visible. Before the second guardian
+   finishes enrollment, their restricted placeholder must not grant access.
+8. Check invitation status and safe retry behavior: successful transmission,
+   blocked/failed delivery, and a fresh link after an authorized resend.
+   Used/expired links must fail safely. Do not repeatedly resend to Casey.
+9. Check Avery's Messages at desktop and mobile widths. Open a real email and
+   capture the list and readable content. Desktop now uses a separate list
+   and reading pane; mobile stacks them. Remote tracking images stay blocked.
+
+Custody percentage is not proof of financial liability. Test 50/50 billing
+and alternating balances separately using the previously approved billing
+fixtures; do not infer or apply a payment split from this custody selection.
+
+EVIDENCE AND CURRENT VERIFICATION LIMITS
+Code: main commits 25f6d36c7 and 1c2b2a0b7.
+71 focused backend checks passed, including school/office invitation sending,
+explicit no-send choices, token/submission binding, restricted access,
+retry behavior, request-origin privacy, and follow-up agency scope.
+4 email viewer checks passed.
+Casey's actual transmitted email and testing@ recipient envelope verified.
+External inbox receipt and completion of Casey's enrollment still require
+the tester's confirmation. Do not report full two-parent privacy as passed
+until both completed accounts and direct-access negative checks are tested.
+A new separate browser enrollment attempt was blocked at reCAPTCHA; it was
+not submitted and is not evidence of an end-to-end pass.
+
+For each scenario report PASS / FAIL / BLOCKED, exact role and URL path,
+client/submission/invitation IDs, expected versus observed behavior, and
+screenshots at the failure point. Redact authentication tokens and personal
+enrollment links. Preserve failures and retained synthetic records for review.
