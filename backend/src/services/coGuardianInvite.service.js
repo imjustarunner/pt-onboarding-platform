@@ -1,4 +1,5 @@
-import { requestingGuardianName } from './coGuardianRequestOrigin.service.js';
+import { requestingGuardianContext } from './coGuardianRequestOrigin.service.js';
+import { validateQaIntakeGuardian, markQaIntakeGuardian } from './qaIntakeIdentity.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -126,6 +127,7 @@ export async function createCoGuardianInvite({
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email)) {
     throw new Error('The other guardian needs an email address so we can send their link.');
   }
+  await validateQaIntakeGuardian({ agencyId, email: person.email });
   const ids = [...new Set((Array.isArray(clientIds) ? clientIds : []).map((id) => Number(id)).filter(Boolean))];
   if (!ids.length) throw new Error('At least one dependent is required.');
 
@@ -187,7 +189,9 @@ export async function createCoGuardianInvite({
 
   const inviteUrl = invitePublicUrl({ agency, token, publicKey, serviceType: enrollmentChannel || 'counseling' });
   let delivery = { sent: false, queued: false, deliveryStatus: 'not_requested' };
-  if (process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED === 'true' && sendEmail !== false && person.sendInvite !== false) {
+  // Requested enrollment invitations must not depend on the separate automatic
+  // portal/password provisioning flag. Tenant transport controls still apply.
+  if (sendEmail !== false && person.sendInvite !== false) {
     delivery = await deliverCoGuardianInvite({
       inviteId, agency, enrollmentChannel, school: source === 'school',
       to: person.email,
@@ -228,6 +232,7 @@ async function silentlyLinkMatchingGuardian({
     const role = String(user.role || '').toLowerCase();
     if (!['client_guardian','guardian','client'].includes(role)) return;
     await User.assignToAgency(user.id,Number(agencyId));
+    await markQaIntakeGuardian({ agencyId, userId: user.id, email });
     const title = String(relationshipTitle || 'Guardian').trim() || 'Guardian';
     for (const clientId of clientIds) {
       const existing = await ClientGuardian.getLink({ clientId, guardianUserId: user.id });
@@ -373,12 +378,10 @@ export async function maybeCreateFromIntakeGuardian({
   const email = String(guardian.other_guardian_email || '').trim().toLowerCase();
   const phone = String(guardian.other_guardian_phone || '').trim();
   const isSchool = String(source || '').toLowerCase() === 'school';
-  // School: never auto-email until Secondary Guardian email settings are intentionally enabled.
-  // Staff can still send later from the invite / follow-up task.
-  const sendInviteFlag = String(guardian.other_guardian_send_intake_link || (isSchool ? 'no' : 'yes'))
+  const sendInviteFlag = String(guardian.other_guardian_send_intake_link ?? 'yes')
     .trim()
-    .toLowerCase() !== 'no';
-  const sendEmail = !isSchool && sendInviteFlag;
+    .toLowerCase();
+  const sendEmail = !['no', 'false', '0'].includes(sendInviteFlag);
   let inviteResult = null;
   if (email.includes('@')) {
     const created = await createCoGuardianInvite({
@@ -400,7 +403,7 @@ export async function maybeCreateFromIntakeGuardian({
     });
     inviteResult = {
       ...toPublicInviteResult(created),
-      queued: isSchool || !sendEmail
+      queued: !!created.queued
     };
   } else if (String(phone).replace(/\D/g, '').length >= 7) {
     await insertGuardianAccessTicket({
@@ -486,10 +489,13 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
   const org = String(agency?.official_name || agency?.name || 'our care team').trim();
   const greeting = firstName ? `Hi ${firstName},` : 'Hello,';
   const subject = `${org}: ${reminder ? 'reminder to complete' : 'complete'} your guardian enrollment`;
-  const requester = await requestingGuardianName({ inviteId, agencyId: agency.id, clientId });
+  const requester = await requestingGuardianContext({ inviteId, agencyId: agency.id, clientId });
+  const requesterLabel = requester?.name
+    ? `${requester.name}${requester.email ? ` (${requester.email})` : ''}` : null;
+  const childReference = requester?.clientInitials ? ` for the child with initials ${requester.clientInitials}` : '';
   const text = [
     greeting,
-    requester ? `${requester} provided your information as another guardian for enrollment with ${org}.` : `${org} has invited you to complete your own guardian enrollment.`,
+    requesterLabel ? `${requesterLabel} provided your information as another guardian${childReference} for enrollment with ${org}.` : `${org} has invited you to complete your own guardian enrollment${childReference}.`,
     reminder ? `This is a reminder to complete your own guardian enrollment for ${org}.` : `You have been invited to complete your own guardian enrollment for ${org}.`,
     'Review and sign your own required agreements, and share your observations and expectations for your dependent. Your care team can review your submission separately; it will not replace your child’s identifying information.',
     'Use the email address that received this invitation for your own portal account. You will not see the other guardian’s private enrollment answers. Shared appointments, messages, plans, and billing information are available according to the access your agency authorizes.',

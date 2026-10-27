@@ -7177,10 +7177,9 @@ async function saveOfficePdfEmailTemplate() {
 function otherGuardianFieldBag() {
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   const needsOther = rights === 'yes' || rights === 'shared';
-  const school = isSchoolScopedIntake.value;
-  // School: queue for agency follow-up (do not auto-send / auto-portal).
-  // Office: send when rights are yes/shared.
-  const sendLink = needsOther && !school ? 'yes' : 'no';
+  // Both school and office guardians explicitly request the other parent's
+  // enrollment here. Portal activation remains a separate completed-enrollment step.
+  const sendLink = needsOther ? 'yes' : 'no';
   return {
     other_guardian_communication: needsOther ? 'yes' : 'no',
     other_guardian_has_legal_rights: otherGuardian.hasLegalRights,
@@ -7190,7 +7189,7 @@ function otherGuardianFieldBag() {
     other_guardian_phone: otherGuardian.phone,
     other_guardian_relationship: otherGuardian.relationship,
     other_guardian_send_intake_link: sendLink,
-    other_guardian_send_later: school && needsOther ? 'yes' : 'no',
+    other_guardian_send_later: 'no',
     other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no',
     legal_authority: needsOther ? 'shared' : 'yes'
   };

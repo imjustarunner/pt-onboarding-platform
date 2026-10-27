@@ -19,7 +19,14 @@ export async function deliverCoGuardianInvite({ inviteId, enrollmentChannel = nu
   const [insert] = await pool.execute(
     'INSERT INTO co_guardian_invite_deliveries (invite_id, recipient_email, enrollment_channel) VALUES (?, ?, ?)',
     [inviteId, message.to, enrollmentChannel]);
-  const delivery = await emailCoGuardianInvite({ ...message, inviteId, enrollmentChannel });
+  let delivery;
+  try {
+    delivery = await emailCoGuardianInvite({ ...message, inviteId, enrollmentChannel });
+  } catch (error) {
+    // Keep failures before transport (for example sender/context lookup) visible
+    // to the parent and follow-up worker instead of leaving "sending" forever.
+    delivery = { sent: false, queued: false, communicationId: error?.communicationId || null };
+  }
   const state = inviteDeliveryState(delivery);
   await pool.execute(`UPDATE co_guardian_invite_deliveries SET delivery_status=?, communication_id=?, internet_message_id=?, failure_kind=? WHERE id=?`,
     [state, delivery.communicationId || null, delivery.internetMessageId || null, state === 'failed' ? 'send_failed' : null, insert.insertId]);

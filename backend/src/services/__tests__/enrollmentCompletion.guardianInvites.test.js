@@ -10,6 +10,12 @@ import { parseGuardianDeliveryReport } from '../../utils/guardianDeliveryReport.
 const invite={id:3,agency_id:4,invited_by_user_id:8,status:'pending',source:'office',invited_email:'typo@example.test'};
 const clients=[{id:5,agency_id:4,access_enabled:1,permissions_json:{},date_of_birth:'2015-01-01'}];
 let db;
+it('persists an invitation failure when context or transport throws before returning a receipt', async()=>{
+ m.email.mockRejectedValueOnce(new Error('Sender lookup unavailable'));
+ const result=await deliverCoGuardianInvite({inviteId:3,agency:{id:4},to:'other@example.test'});
+ expect(result).toMatchObject({sent:false,deliveryStatus:'failed'});
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE co_guardian_invite_deliveries SET delivery_status'),expect.arrayContaining(['failed','send_failed']));
+});
 beforeEach(()=>{
  vi.clearAllMocks();
  db={execute:vi.fn(async sql=>{

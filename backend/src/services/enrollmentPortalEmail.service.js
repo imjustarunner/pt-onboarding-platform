@@ -31,6 +31,8 @@ export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId
     html: renderPortalEmail({ brand, ...message, locale })
   });
   const queued = !!(result?.queued || result?.pendingApproval);
-  const sent = !!result?.id && !queued && !result.skipped && !result.blocked && !result.redirected;
+  // A test-inbox redirect is still a real send when the transport returned an
+  // ID. This describes transmission, not arrival in the recipient's inbox.
+  const sent = !!result?.id && !queued && !result.skipped && !result.blocked;
   return { ...result, sent, queued, fromEmail: brand.fromEmail, replyTo: brand.replyTo, deliveryStatus: sent ? 'sent' : queued ? 'pending' : 'not_sent' };
 }

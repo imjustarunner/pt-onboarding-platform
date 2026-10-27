@@ -13,7 +13,13 @@ it('uses AuricWell with the agency reply-to and retains SchoolCareBridge role br
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,replyToOverride:'support@agency.test',text:expect.stringContaining('SchoolCareBridge'),html:expect.stringContaining('AuricWell')}));
 });
 it('uses NLU’s own sender for tutoring and does not imply clinical records',()=>{const brand=enrollmentMailBrand({agency:{name:'Next Level Up',feature_flags:{medicalBillingEnabled:true}},domain:'nextleveluplcc.com',channel:'tutoring'});expect(brand.fromEmail).toBe('portal@nextleveluplcc.com');expect(brand.products).toEqual([]);});
-it.each([{queued:true},{blocked:true},{skipped:true},{redirected:true}])('does not report successful delivery for %j',async flags=>{m.send.mockResolvedValue({id:'message',...flags});expect((await sendEnrollmentPortalEmail({agencyId:4,text:'Welcome'})).sent).toBe(false);});
+it.each([{queued:true},{blocked:true},{skipped:true}])('does not report successful delivery for %j',async flags=>{m.send.mockResolvedValue({id:'message',...flags});expect((await sendEnrollmentPortalEmail({agencyId:4,text:'Welcome'})).sent).toBe(false);});
+it('records a transmitted test-inbox redirect as sent, but requires a transport ID',async()=>{
+ m.send.mockResolvedValue({id:'message',redirected:true});
+ expect(await sendEnrollmentPortalEmail({agencyId:4,text:'Welcome'})).toMatchObject({sent:true,deliveryStatus:'sent',redirected:true});
+ m.send.mockResolvedValue({redirected:true});
+ expect((await sendEnrollmentPortalEmail({agencyId:4,text:'Welcome'})).sent).toBe(false);
+});
 it('keeps approval-held portal mail pending instead of reporting success or a delivery failure', async()=>{
  m.send.mockResolvedValue({id:'message',pendingApproval:true});
  expect(await sendEnrollmentPortalEmail({agencyId:4,text:'Welcome'})).toMatchObject({sent:false,queued:true,deliveryStatus:'pending'});

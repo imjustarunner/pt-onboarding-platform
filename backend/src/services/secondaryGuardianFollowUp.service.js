@@ -24,16 +24,22 @@ function parseMemberUserIds() {
   )];
 }
 
-function defaultAssigneeUserId() {
-  return parseMemberUserIds()[0] || 8;
+export async function scopedFollowUpMembers(agencyId, db = pool) {
+  const [rows] = await db.execute(`SELECT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+    WHERE ua.agency_id=? AND ua.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
+      AND u.role IN ('admin','agency_admin','support','staff','clinical_practice_assistant')
+    ORDER BY u.id`, [Number(agencyId)]);
+  const eligible = rows.map(row => Number(row.id));
+  const configured = parseMemberUserIds().filter(id => eligible.includes(id));
+  return configured.length ? configured : eligible;
 }
 
-async function ensureTaskList({ agencyId, actorUserId }) {
+async function ensureTaskList({ agencyId, actorUserId, memberIds }) {
   const aid = Number(agencyId || DEFAULT_AGENCY_ID);
   const envListId = Number(process.env.SECONDARY_GUARDIAN_FOLLOWUP_TASK_LIST_ID || 0);
   if (envListId > 0) {
     const existing = await TaskList.findById(envListId);
-    if (existing) return existing;
+    if (existing && Number(existing.agency_id) === aid) return existing;
   }
 
   const [rows] = await pool.execute(
@@ -45,11 +51,11 @@ async function ensureTaskList({ agencyId, actorUserId }) {
     list = await TaskList.create({
       agencyId: aid,
       name: TASK_LIST_NAME,
-      createdByUserId: actorUserId || defaultAssigneeUserId()
+      createdByUserId: actorUserId
     });
   }
 
-  for (const userId of parseMemberUserIds()) {
+  for (const userId of memberIds) {
     const role = Number(userId) === Number(actorUserId) ? 'admin' : 'editor';
     try {
       await TaskListMember.add(list.id, userId, role);
@@ -93,6 +99,10 @@ export async function maybeCreateSecondaryGuardianFollowUpTask({
   }
   const aid = Number(agencyId || DEFAULT_AGENCY_ID);
   if (!aid) return { created: false, taskId: null, reason: 'no_agency' };
+  const memberIds = await scopedFollowUpMembers(aid);
+  if (!memberIds.length) return { created: false, taskId: null, reason: 'no_authorized_agency_staff' };
+  const assigneeId = memberIds[0];
+  const scopedActorId = memberIds.includes(Number(actorUserId)) ? Number(actorUserId) : assigneeId;
 
   const ids = [...new Set((Array.isArray(clientIds) ? clientIds : []).map((n) => Number(n)).filter(Boolean))];
   const primaryClientId = ids[0] || 0;
@@ -111,11 +121,7 @@ export async function maybeCreateSecondaryGuardianFollowUpTask({
   const email = String(guardian.other_guardian_email || '').trim() || '(none)';
   const phone = String(guardian.other_guardian_phone || '').trim() || '(none)';
   const relationship = String(guardian.other_guardian_relationship || '').trim() || '(not given)';
-  const queued = String(guardian.other_guardian_send_intake_link || '').toLowerCase() === 'no'
-    || String(source || '').toLowerCase() === 'school';
-
-  const list = await ensureTaskList({ agencyId: aid, actorUserId: actorUserId || 501 });
-  const assigneeId = defaultAssigneeUserId();
+  const list = await ensureTaskList({ agencyId: aid, actorUserId: scopedActorId, memberIds });
   const title = `Secondary guardian intake needed: ${name}`;
   const description = [
     'A school intake listed another parent/guardian with medical decision-making rights.',
@@ -126,7 +132,7 @@ export async function maybeCreateSecondaryGuardianFollowUpTask({
     `Phone: ${phone}`,
     `Relationship: ${relationship}`,
     `Legal rights: ${rights}`,
-    `Email status: ${queued ? 'queued / not auto-sent (send when Secondary Guardian email settings are ready)' : 'invite email attempted'}`,
+    `Email status: ${invite?.deliveryStatus || (invite?.pendingContact ? 'contact details needed' : 'not requested')}`,
     invite?.inviteId ? `Invite ID: ${invite.inviteId}` : '',
     invite?.inviteUrl ? `Invite URL: ${invite.inviteUrl}` : '',
     publicKey ? `Intake public key: ${publicKey}` : '',
@@ -144,7 +150,7 @@ export async function maybeCreateSecondaryGuardianFollowUpTask({
     isPrivate: false,
     assignedToUserId: assigneeId,
     assignedToAgencyId: aid,
-    assignedByUserId: actorUserId || assigneeId,
+    assignedByUserId: scopedActorId,
     taskListId: list.id,
     urgency: 'high',
     categories: ['schools'],
@@ -167,11 +173,11 @@ export async function maybeCreateSecondaryGuardianFollowUpTask({
   });
 
   try {
-    await notifyTaskAddedToList({
-      taskId: task.id,
-      taskListId: list.id,
-      actorUserId: actorUserId || assigneeId
-    });
+    const members = await TaskListMember.listByTaskList(list.id);
+    if (members.every(member => memberIds.includes(Number(member.user_id)))) {
+      await notifyTaskAddedToList({ task, listId: list.id, listName: list.name,
+        agencyId: aid, actorUserId: scopedActorId });
+    }
   } catch {
     /* non-fatal */
   }

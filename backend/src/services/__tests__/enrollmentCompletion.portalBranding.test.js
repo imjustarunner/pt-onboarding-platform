@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ execute: vi.fn(), submission: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../../models/IntakeSubmission.model.js', () => ({ default: { findById: m.submission } }));
 import { enrollmentMailBrand, renderPortalEmail, portalSenderName } from '../portalEmailBranding.service.js';
-import { requestingGuardianName } from '../coGuardianRequestOrigin.service.js';
+import { requestingGuardianName, requestingGuardianContext } from '../coGuardianRequestOrigin.service.js';
 const agency = { name: 'ITSCO', slug: 'itsco', feature_flags: { medicalBillingEnabled: true } };
 it('leads with AuricWell and tags the agency with a real logo, paragraphs, and a button', () => {
  const brand = enrollmentMailBrand({ agency, domain: 'itsco.health' });
@@ -45,6 +45,14 @@ it('attributes an authenticated guardian only within the invite agency and depen
 it('never labels the staff member who resends an invitation as a guardian', async () => {
  m.execute.mockResolvedValue([[{ role: 'super_admin', first_name: 'Staff', last_name: 'Member' }]]);
  expect(await requestingGuardianName({ inviteId: 18, agencyId: 2, clientId: 20 })).toBeNull();
+});
+it('includes only the requesting guardian identity and child initials in invitation context', async () => {
+ m.execute.mockResolvedValue([[{ role: 'client_guardian', access_enabled: 1, first_name: 'Alex', last_name: 'Parent', email: 'alex@example.test', client_initials: 'SC', private_answer: 'must not leak' }]]);
+ expect(await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).toEqual({name:'Alex Parent',email:'alex@example.test',clientInitials:'SC'});
+});
+it('does not expose request context for an invite outside the tenant and dependent', async () => {
+ m.execute.mockResolvedValue([[]]);
+ expect(await requestingGuardianContext({inviteId:18,agencyId:99,clientId:20})).toBeNull();
 });
 it('retains the originating guardian from a completed enrollment when staff resend', async () => {
  m.execute.mockResolvedValue([[{ role: 'super_admin', requesting_submission_id: 80 }]]);
