@@ -165,6 +165,7 @@
             </td>
             <td class="ona-td" @click.stop>
               <div class="ona-row-actions">
+                <button class="ona-invite-btn" :disabled="portalOpening === e.id" @click="openPortal(e)">{{ portalOpening === e.id ? 'Opening…' : 'View onboarding portal ↗' }}</button>
                 <router-link :to="packagesRoute(e.id)" class="ona-invite-btn">Manage hire packages</router-link>
                 <button v-if="e.onboarding_completed_at" class="ona-invite-btn" @click.stop="activate(e)">Mark active</button>
                 <button class="ona-invite-btn" @click.stop="openInviteMenu(e.id)">Send Invite ▾</button>
@@ -262,6 +263,20 @@ const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/
 const goToProfile = (e) => router.push(userProfileRoute(e.id));
 
 // ── State ─────────────────────────────────────────────────────────────────────
+const portalOpening = ref(null);
+async function openPortal(employee) {
+  const tab = window.open('about:blank', '_blank');
+  if (tab) tab.opener = null;
+  portalOpening.value = employee.id;
+  error.value = '';
+  try {
+    const { data } = await api.get(`/hiring/candidates/${employee.id}/prehire-link`, { params: { agencyId: selectedAgencyId.value } });
+    if (!data.portalLink) throw new Error('This portal link has expired. Use Send Invite to renew it.');
+    if (tab) tab.location.replace(data.portalLink);
+    else window.location.assign(data.portalLink);
+  } catch (e) { tab?.close(); error.value = e.response?.data?.error?.message || e.message || 'Could not open the onboarding portal.'; }
+  finally { portalOpening.value = null; }
+}
 const employees = ref([]);
 const loading = ref(false);
 const error = ref('');

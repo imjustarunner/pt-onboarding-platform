@@ -6,7 +6,7 @@ const managers = new Set(['super_admin', 'superadmin', 'admin', 'agency_admin', 
 export async function authorizeDayCancellation(actor, providerId, agencyIds) {
   const role = String(actor?.role || '').toLowerCase();
   const deny = () => { throw Object.assign(new Error('Only the provider or authorized scheduling staff may cancel a day.'), { status: 403 }); };
-  if (!actor?.id || ['client', 'client_guardian', 'guardian', 'family_member'].includes(role) || (Number(actor.id) !== providerId && !managers.has(role))) deny();
+  if (!actor?.id || ['client', 'client_guardian', 'guardian', 'family_member'].includes(role)) deny();
   const [[target]] = await pool.execute('SELECT id FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0', [providerId]);
   if (!target) deny();
   for (const agencyId of agencyIds) {
@@ -14,6 +14,10 @@ export async function authorizeDayCancellation(actor, providerId, agencyIds) {
       WHERE ua.user_id=? AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
       AND LOWER(COALESCE(a.organization_type,'agency')) IN ('agency','clubwebapp','life_coach','consultant')`, [providerId, agencyId]);
     if (!membership) deny();
+    if (Number(actor.id) !== providerId && !managers.has(role)) {
+      const [[assignment]] = await pool.execute('SELECT id FROM supervisor_assignments WHERE supervisor_id=? AND supervisee_id=? AND agency_id=? LIMIT 1', [actor.id, providerId, agencyId]);
+      if (!assignment) deny();
+    }
     if (!['super_admin', 'superadmin'].includes(role)) {
       const [[own]] = await pool.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND COALESCE(is_active,1)=1', [actor.id, agencyId]);
       if (!own) deny();

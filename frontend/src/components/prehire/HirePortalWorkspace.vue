@@ -7,7 +7,7 @@
         <button v-if="onboarding" :class="{ selected: phase === 'pre_hire' && section === 'steps' }" @click="switchPhase('pre_hire')"><Icon />Pre-Hire <span class="nav-check">✓</span></button>
         <button :class="{ selected: section === 'steps' && phase === currentPhase }" @click="switchPhase(currentPhase)"><Icon :name="onboarding ? 'people' : 'document'" />{{ onboarding ? 'Onboarding' : 'Pre-Hire' }}</button>
         <button v-if="onboarding" :class="{ selected: section === 'access' }" @click="navigate('access')"><Icon name="lock" />Accounts &amp; Access</button>
-        <button v-if="referenceHandbook" :class="{ selected: section === 'handbook' }" @click="navigate('handbook')"><Icon name="book" /><span>Workplace handbook<small>Optional reference</small></span></button>
+        <button v-if="referenceHandbook && currentPhase === 'pre_hire'" :class="{ selected: section === 'handbook' }" @click="navigate('handbook')"><Icon name="book" /><span>Workplace handbook<small>Optional reference</small></span></button>
         <button :class="{ selected: section === 'documents' }" @click="navigate('documents')"><Icon />My Documents</button>
         <button :class="{ selected: section === 'messages' }" @click="navigate('messages')"><Icon name="message" />Messages</button>
         <button :class="{ selected: section === 'help' }" @click="navigate('help')"><Icon name="help" />Help</button>
@@ -161,14 +161,14 @@ watch(() => step.value?.kind, async kind => {
 const needsSignature = computed(() => step.value?.kind === 'acknowledgement' || (step.value?.kind === 'handbook' && phase.value === 'onboarding'));
 const handbookAvailable = ref(false);
 const handbookVersionId = ref(null);
-watch(currentPhase, (value) => { phase.value = value; selectedKey.value = ''; });
+watch(currentPhase, (value) => { phase.value = value; selectedKey.value = ''; if (value === 'onboarding' && section.value === 'handbook') section.value = 'steps'; });
 watch(() => workflow.value.profile, (value, previous) => { if (!busy.value && JSON.stringify(profile.value) === JSON.stringify(previous || {})) profile.value = { ...value }; });
 watch(() => step.value?.key, () => { emit('media', false); error.value = ''; savedMessage.value = ''; acknowledged.value = false; signature.value = ''; scheduledAt.value = ''; emit('section', section.value, step.value); });
 function focusCurrentContent() { nextTick(() => { const heading = section.value === 'handbook' ? referenceHeading.value : stepHeading.value; const target = (section.value === 'handbook' ? workspaceRoot.value?.querySelector('.handbook-reference') : heading) || workspaceRoot.value?.querySelector('.hire-hero'); target?.scrollIntoView?.({ block: 'start', behavior: 'instant' }); heading?.focus({preventScroll:true}); }); }
 function navigate(value) { emit('media', false); section.value = value; emit('section', value, step.value); focusCurrentContent(); }
 function select(item) { if (!item) return; selectedKey.value = item.key; focusCurrentContent(); }
 function switchPhase(value) { phase.value = value; selectedKey.value = steps.value.find(s => !s.complete)?.key || steps.value[0]?.key || ''; emit('phase', value); navigate('steps'); }
-function openGuideHandbook(hash) { if (hash) window.history.replaceState(window.history.state, '', '#' + hash); if (phase.value === 'pre_hire') navigate('handbook'); else select(steps.value.find(s => s.kind === 'handbook')); }
+function openGuideHandbook(hash) { if (hash) window.history.replaceState(window.history.state, '', '#' + hash); if (currentPhase.value === 'pre_hire') navigate('handbook'); else { if (phase.value !== 'onboarding') switchPhase('onboarding'); select(steps.value.find(s => s.kind === 'handbook')); } }
 function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', 'school-availability': 'calendar', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
 function fileUrl(p, key) { return `${props.http.defaults.baseURL}/prehire-portal/${encodeURIComponent(props.token)}/workflow/${p}/${encodeURIComponent(key)}/file${key === 'headshot' ? `?v=${encodeURIComponent(workflow.value.headshot?.version || '')}` : ''}`; }
 function intakeUrl(task) { const t = task.metadata?.intakeLinkPublicKey || task.metadata?.intakeToken || task.metadata?.intakeLinkToken; return t ? buildFormUrl(t, task.metadata?.formType || task.metadata?.form_type) : task.metadata?.formUrl || ''; }

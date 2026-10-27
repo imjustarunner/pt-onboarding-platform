@@ -84,6 +84,7 @@ import { getClientGuardianWaiverAudit } from '../controllers/guardianWaiver.cont
 import {
   listClientCommunications,
   getClientEmailConversation,
+  downloadClientConversationAttachment,
   exportClientCommunications,
   getClientCommunicationBody,
   listClientSmsAudit
@@ -237,6 +238,7 @@ router.get('/:id/access-log', getClientAccessLog);
 
 // Communications history (emails + SMS sent on behalf of / about this client,
 // including messages addressed to linked guardians).
+router.get('/:id/communications/conversations/:conversationId/attachments/:attachmentId', downloadClientConversationAttachment);
 router.get('/:id/communications', listClientCommunications);
 router.get('/:id/communications/export', exportClientCommunications);
 router.get('/:id/communications/conversations/:conversationId', getClientEmailConversation);

@@ -78,6 +78,7 @@ router.get('/feed', getCommunicationsFeed);
 router.get('/center-summary', getCommunicationsCenterSummary);
 
 // Unified Communications Inbox (Phase 1–4)
+router.get('/guardian-contacts/:guardianId/voicemails',async(req,res,next)=>{try{const {guardianVoicemailConversations}=await import('../services/guardianContactContext.service.js');res.set('Cache-Control','private, no-store');res.json(await guardianVoicemailConversations({user:req.user,guardianId:Number(req.params.guardianId)}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.get('/guardian-contacts/:guardianId',async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json(await guardianContactContext({userId:req.user.id,guardianId:req.params.guardianId}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.get('/client-filing-options',async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json(await emailFilingOptions({...req.query,userId:req.user.id}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.get('/inboxes', getUnifiedInboxes);

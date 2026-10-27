@@ -331,6 +331,7 @@ export async function assertAppointmentChangeAccess(req, appointment) {
   const role = String(req.user?.role || '').toLowerCase();
   if (!['admin', 'super_admin', 'superadmin', 'agency_admin', 'backoffice_admin', 'staff', 'support', 'scheduler', 'front_desk'].includes(role)
       && Number(appointment.providerUserId) !== Number(req.user?.id)
+      && !(await User.supervisorHasAccess(req.user.id, appointment.providerUserId, appointment.agencyId))
       && !(await hasSchedulingBillingAccess(req.user, appointment.agencyId))) {
     throw Object.assign(new Error('Only the assigned provider or scheduling staff may change this appointment'), { status: 403 });
   }

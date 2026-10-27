@@ -28,6 +28,7 @@
         <p v-if="emailDeliveryLabel(message)" role="status">{{ emailDeliveryLabel(message) }}</p>
         <button v-if="rendered[message.id]?.hasBlockedImages" type="button" class="load-images" @click="showImages[message.id]=true">Show external images</button>
         <div class="body" :class="{ 'plain-body': !message.body_html }" v-html="rendered[message.id]?.html || '(Empty message)'" />
+        <EmailAudioAttachment v-for="file in message.attachments || []" :key="`audio-${file.id}`" :file="file" :conversation-id="conversation?.id" />
         <div class="actions">
           <button v-for="file in message.attachments || []" :key="file.id" type="button" @click="$emit('attachment',file)"><ConversaIcon type="attachment" :size="14" /> {{ file.filename }}</button>
           <button v-if="!readOnly && !message.is_internal_note && (!message.send_status || message.send_status === 'sent')" type="button" :aria-pressed="!!message.reactions?.some(r => r.reactedByMe)" @click="$emit('like',message)">♥ Like {{ message.reactions?.find(r => r.emoji === '❤️')?.count || '' }}</button>
@@ -38,6 +39,7 @@
   </section>
 </template>
 <script setup>
+import EmailAudioAttachment from './EmailAudioAttachment.vue';
 import ConversaSender from '../../components/conversa/ConversaSender.vue';
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, ref, watch } from 'vue';

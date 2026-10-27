@@ -16,3 +16,8 @@ it('retains the required handbook step during onboarding',async()=>{
  const w=mount('ONBOARDING');w.vm.navigateToSteps();await flushPromises();
  expect(w.get('.steps').text()).toContain('Workplace handbook');expect(w.get('.current-heading').text()).toContain('Workplace handbook');
 });
+it('hides the optional sidebar reference once onboarding begins, including the archived pre-hire view',async()=>{
+ const w=mount('ONBOARDING'); expect(w.findAll('.hire-nav button').some(b=>b.text().includes('Workplace handbook'))).toBe(false);
+ await w.findAll('.hire-nav button').find(b=>b.text().includes('Pre-Hire')).trigger('click');
+ expect(w.findAll('.hire-nav button').some(b=>b.text().includes('Workplace handbook'))).toBe(false);w.unmount();
+});

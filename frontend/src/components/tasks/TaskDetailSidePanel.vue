@@ -256,6 +256,8 @@
         <section class="block">
           <header class="block__head">
             <strong>Links</strong>
+            <button v-if="item?.metadata?.kind === 'day_cancellation_notice'" type="button" class="btn btn-secondary btn-sm" @click="reviewingCancellationEmails = true">Review cancellation emails</button>
+            <DayCancellationDialog v-if="reviewingCancellationEmails && item?.metadata?.kind === 'day_cancellation_notice'" :provider-id="Number(item.metadata.providerId)" :agency-id="Number(item.metadata.agencyId)" :date="item.metadata.date" :deferred-token="item.metadata.cancellationToken" @close="reviewingCancellationEmails = false" />
             <router-link v-if="item?.metadata?.kind==='provider_availability' && Number(item.metadata.providerId)>0" :to="{path:`/admin/users/${Number(item.metadata.providerId)}`,query:{agencyId:Number(item.metadata.agencyId),section:'public-profile'}}">Review availability →</router-link>
           </header>
           <div class="link-add">
@@ -368,6 +370,8 @@
 </template>
 
 <script setup>
+import DayCancellationDialog from '../schedule/DayCancellationDialog.vue';
+const reviewingCancellationEmails = ref(false);
 import H0002ScreeningReview from '../clinical/H0002ScreeningReview.vue';
 
 import { computed, reactive, ref, watch } from 'vue';

@@ -15,6 +15,10 @@ import { cancellationRecipients, reviewedMessage } from './cancellationRecipient
 import { cancellationSchoolNotices } from './cancellationSchoolNotice.service.js';
 import { validateCancellationChoices } from './cancellationFollowUp.service.js';
 
+import { ensureDayCancellationTask, completeDayCancellationTask } from './dayCancellationFollowupTask.service.js';
+
+export const DAY_CANCELLATION_CATEGORIES = Object.freeze({ provider_unavailable: 'Provider availability', illness: 'Health-related absence', personal: 'Personal circumstances', weather: 'Weather conditions', emergency: 'Emergency', facility: 'Facility closure', scheduling: 'Scheduling change' });
+
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 const utc = value => value instanceof Date ? value : new Date(/[zZ]|[+-]\d\d:\d\d$/.test(String(value)) ? value : String(value).replace(' ', 'T') + 'Z');
@@ -33,13 +37,14 @@ export function dayBounds(date, timeZone) {
 }
 
 export function dayCancellationFacts(input = {}) {
-  const clientFacingReason = String(input.clientFacingReason || '').trim();
-  if (!clientFacingReason || clientFacingReason.length > 500) throw fail('Enter a client-facing reason of 1–500 characters.');
+  const reasonCategory = input.reasonCategory || 'provider_unavailable';
+  if (!Object.hasOwn(DAY_CANCELLATION_CATEGORIES, reasonCategory)) throw fail('Choose a cancellation category.');
+  const clientFacingReason = DAY_CANCELLATION_CATEGORIES[reasonCategory];
   const followUpAction = input.followUpAction || 'client_contact_support';
   if (!['client_contact_support', 'none', 'keep_next_or_support', 'private_slots'].includes(followUpAction)) throw fail('Choose a supported follow-up option.');
   const notification = validateCancellationChoices({ ...input, eventType: 'canceled' });
   return { eventType: 'canceled', initiator: 'provider', reasons: ['provider_unavailable'],
-    reasonOther: '', clientFacingReason, ...notification,
+    reasonOther: '', reasonCategory, clientFacingReason, ...notification,
     offerDays: input.offerDays || 2, offeredSlots: input.offeredSlots || [], followUpAction, followUpMessage: String(input.followUpMessage || '').trim().slice(0, 1000), signatureConfirmed: true };
 }
 
@@ -57,6 +62,8 @@ export function createDayCancellationService(overrides = {}) {
     schools: args => cancellationSchoolNotices.list(args), schoolReview: cancellationSchoolNotices.review, notifySchool: cancellationSchoolNotices.send,
     validateOffer: async (...args) => (await import('./cancellationFollowUp.service.js')).cancellationFollowUp.validateOffer(...args),
     cancellationMessage: async (...args) => (await import('./appointmentCancellationNotification.service.js')).buildCancellationNotification(...args),
+    ensureTask: ensureDayCancellationTask, completeTask: completeDayCancellationTask,
+    notifyAppointment: async (id, facts, actorUserId) => (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(id, { eventType: 'canceled', facts: { ...facts, reviewedDeferredCancellation: true }, actorUserId, sendImmediately: true }),
     notifyMeetings: sendMeetingScheduleChange, invalidate: invalidateAvailabilityReminders, ...overrides
   };
 
@@ -99,7 +106,7 @@ export function createDayCancellationService(overrides = {}) {
           for (const slot of plan.facts.offeredSlots) if (plan.scopeMode === 'days' && plan.scopes.some(s => utc(slot.startAt) < utc(s.end) && utc(slot.endAt) > utc(s.start))) throw fail('Replacement times must be outside the canceled days.');
         }
         const generated = await deps.cancellationMessage({ ...a, sourceTimezone: timeZone }, item.facts);
-        generated.text = `Your appointment scheduled for ${generated.when} (${timeZone}) has been canceled.\n\nReason: ${plan.facts.clientFacingReason}${plan.facts.followUpMessage ? `\n\n${plan.facts.followUpMessage}` : ''}`;
+        generated.text = `Your appointment scheduled for ${generated.when} (${timeZone}) has been canceled.\n\nCategory: ${plan.facts.clientFacingReason}${plan.facts.followUpMessage ? `\n\n${plan.facts.followUpMessage}` : ''}`;
         item.message = reviewedMessage(plan.messages?.[item.key], { subject: generated.subject, text: generated.text });
         item.facts.reviewedMessage = item.message;
         item.source.contacts = item.clients.map(c => c.contacts);
@@ -111,9 +118,9 @@ export function createDayCancellationService(overrides = {}) {
         item.followUpPreview = emailPreview.followUpText;
         items.push(item);
       }
-      if (plan.facts.notificationMode !== 'none' && (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId))) {
+      if (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId)) {
         for (const school of await deps.schools({ providerId: plan.providerId, agencyId, date, reason: plan.facts.clientFacingReason, wholeDay: plan.scopeMode === 'days' })) {
-          const reviewed = deps.schoolReview(school, plan.schoolChoices?.[school.key], plan.messagesReviewed);
+          const reviewed = deps.schoolReview(school, plan.schoolChoices?.[school.key], plan.messagesReviewed && plan.facts.notificationMode !== 'none');
           items.push({ ...reviewed, timeZone, source: { recipients: school.recipients }, startAt: stamp(start), endAt: stamp(end) });
         }
       }
@@ -159,11 +166,13 @@ export function createDayCancellationService(overrides = {}) {
     // Never expose internal notes, full meeting records, or signed financial facts in this review endpoint.
     const display = ({ id, key, kind, title, agencyId, timeZone, date, startAt, endAt, note, detail, recipients, clients, message, followUpPreview }) => ({ id, key, kind, title, agencyId, timeZone, date, startAt, endAt, note, detail, recipients, clients, message, followUpPreview });
     return { token: row.token, status: row.status, date: plan.date, providerId: plan.providerId,
+      notificationsOnly: !!plan.notificationsOnly, deferredToken: plan.deferredToken || null, notificationTaskId: results.notificationTaskId || null, reasonCategory: plan.facts.reasonCategory || 'provider_unavailable',
       dates: plan.dates || [plan.date], scopeMode: plan.scopeMode || 'days', messagesReviewed: plan.messagesReviewed, offeredSlots: plan.facts.offeredSlots, offerDays: plan.facts.offerDays, scopes: plan.scopes, notificationMode: plan.facts.notificationMode || 'send', clientFacingReason: plan.facts.clientFacingReason, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage, items: plan.items.map(display),
       unchanged: plan.unchanged.map(display), results, remaining: plan.items.filter(i => !results[i.key]).length };
   }
 
   async function preview(input, actor, authorize, authorizeAppointment) {
+    if (input.deferredToken) return previewDeferred(input, actor, authorize, authorizeAppointment);
     const providerId = Number(input.providerId), agencyIds = [...new Set((input.agencyIds || []).map(Number))].sort((a, b) => a - b);
     if (!Number.isSafeInteger(providerId) || providerId < 1 || !agencyIds.length || agencyIds.length > 30 || agencyIds.some(id => !Number.isSafeInteger(id) || id < 1)) throw fail('Choose a provider and at least one agency.');
     await authorize(actor, providerId, agencyIds);
@@ -174,7 +183,7 @@ export function createDayCancellationService(overrides = {}) {
     const appointmentIds = scopeMode === 'sessions' ? [...new Set((input.appointmentIds || []).map(Number))] : null;
     if (appointmentIds && (!appointmentIds.length || appointmentIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw fail('Select at least one session.');
     const plan = { providerId, date: input.date || dates[0], dates, scopeMode, appointmentIds,
-      messagesReviewed: input.messagesReviewed === true, contactChoices: input.contactChoices || {}, schoolChoices: input.schoolChoices || {}, messages: input.messages || {}, facts: dayCancellationFacts(input), internalReason: String(input.internalReason || '').trim().slice(0, 2000), scopes: [] };
+      followupOwner: input.followupOwner === 'support' ? 'support' : 'provider', messagesReviewed: input.messagesReviewed === true, contactChoices: input.contactChoices || {}, schoolChoices: input.schoolChoices || {}, messages: input.messages || {}, facts: dayCancellationFacts(input), internalReason: String(input.internalReason || '').trim().slice(0, 2000), scopes: [] };
     for (const agencyId of agencyIds) for (const date of dates) {
       const timeZone = await deps.timeZone(agencyId), bounds = dayBounds(date, timeZone);
       if (utc(bounds.end) <= deps.now()) throw fail('Choose today or a future day.');
@@ -211,11 +220,11 @@ export function createDayCancellationService(overrides = {}) {
         // The same provider lock is used by appointment booking. Install the day block before releasing it.
         await lock(`public-provider-selection:${plan.providerId}`);
         await lock(`supervision-time:${plan.providerId}`);
-        const current = await inventory(plan, actor, authorizeAppointment);
+        const current = plan.notificationsOnly ? await deferredInventory(plan, actor, authorizeAppointment) : await inventory(plan, actor, authorizeAppointment);
         if (current.fingerprint !== plan.fingerprint) throw fail('The schedule changed. Review the day again before canceling.', 409);
         await conn.beginTransaction();
         try {
-          for (const scope of plan.scopeMode === 'sessions' ? [] : plan.scopes) {
+          for (const scope of plan.notificationsOnly || plan.scopeMode === 'sessions' ? [] : plan.scopes) {
             await conn.execute(`INSERT INTO provider_schedule_events
               (agency_id,provider_id,kind,title,description,is_private,all_day,start_at,end_at,start_date,end_date,event_timezone,status,created_by_user_id,updated_by_user_id)
               VALUES (?,?,'SCHEDULE_HOLD','Unavailable',NULL,1,1,?,?,?,?,?,'ACTIVE',?,?)`,
@@ -229,6 +238,10 @@ export function createDayCancellationService(overrides = {}) {
         // Do not retain provider booking locks while the signed appointment flow takes its own locks.
         for (const key of locks.splice(1).reverse()) await conn.execute('SELECT RELEASE_LOCK(?)', [key]);
       }
+      if (plan.facts.notificationMode === 'none' && !results.notificationTaskId) {
+        results.notificationTaskId = await deps.ensureTask(token, plan, actor);
+        await conn.execute('UPDATE provider_day_cancellations SET results_json=?,status=? WHERE token=?', [JSON.stringify(results), row.status, token]);
+      }
       if (input.retryFailed === true) {
         for (const [key, result] of Object.entries(results)) if (result.status === 'failed') delete results[key];
       }
@@ -240,17 +253,18 @@ export function createDayCancellationService(overrides = {}) {
             const appointment = await deps.getAppointment(item.id);
             if (!appointment || appointment.agencyId !== item.agencyId || appointment.providerUserId !== plan.providerId || stamp(appointment.startAt) !== item.startAt || stamp(appointment.endAt) !== item.endAt) throw fail('This appointment changed. Review it individually.', 409);
             await authorizeAppointment(actor, appointment);
-            if (!isCanceled(appointment.status) && (stamp(appointment.updatedAt) !== item.source.updatedAt || JSON.stringify(await deps.participants(item.id)) !== JSON.stringify(item.source.participants))) throw fail('This appointment or its recipients changed. Review it individually.', 409);
+            if (plan.notificationsOnly && !isCanceled(appointment.status)) throw fail('This session is no longer canceled. Review it individually.', 409);
+            if ((plan.notificationsOnly || !isCanceled(appointment.status)) && (stamp(appointment.updatedAt) !== item.source.updatedAt || JSON.stringify(await deps.participants(item.id)) !== JSON.stringify(item.source.participants))) throw fail('This appointment or its recipients changed. Review it individually.', 409);
             if (utc(appointment.startAt) <= deps.now() && !isCanceled(appointment.status)) throw fail('This appointment has started. Review it individually.', 409);
             for (const c of item.clients || []) {
               const fresh = await deps.contacts(c.clientId, item.agencyId, plan.contactChoices?.[c.clientId], { required: plan.facts.notificationMode !== 'none' });
               if (JSON.stringify(fresh.contacts) !== JSON.stringify(c.contacts)) throw fail('This client’s contacts changed. Review the session individually.', 409);
             }
-            const completed = await deps.completeAppointment(item.id, item.facts || { ...plan.facts, followUpAfterAt: plan.scopes.find(s => s.agencyId === item.agencyId)?.end }, { actorUserId: actor.id, actorRole: actor.role });
-            delivery = completed.notificationDelivery || completed.result?.notificationDelivery;
+            const completed = await (plan.notificationsOnly ? deps.notifyAppointment : deps.completeAppointment)(item.id, item.facts || { ...plan.facts, followUpAfterAt: plan.scopes.find(s => s.agencyId === item.agencyId)?.end }, plan.notificationsOnly ? actor.id : { actorUserId: actor.id, actorRole: actor.role });
+            delivery = plan.notificationsOnly ? completed : completed.notificationDelivery || completed.result?.notificationDelivery;
           } else if (item.kind === 'school') {
             if (plan.scopeMode === 'sessions' && plan.items.some(i => i.kind === 'appointment' && i.agencyId === item.agencyId && i.date === item.date && results[i.key]?.status !== 'completed')) throw fail('Finish the selected session cancellations before sending this school notice.', 409);
-            delivery = await deps.notifySchool(token, item, actor.id);
+            delivery = plan.facts.notificationMode === 'none' ? { suppressed: 1, sent: 0 } : await deps.notifySchool(plan.deferredToken || token, item, actor.id);
           } else if (['meeting', 'supervision'].includes(item.kind)) {
             const table = item.kind === 'meeting' ? 'provider_schedule_events' : 'supervision_sessions';
             const [[current]] = await conn.execute(`SELECT * FROM ${table} WHERE id=?`, [item.id]);
@@ -285,11 +299,49 @@ export function createDayCancellationService(overrides = {}) {
       }
       row.status = plan.items.some(i => !results[i.key]) ? 'processing' : Object.values(results).some(r => r.status === 'failed') ? 'partial' : 'completed';
       await conn.execute('UPDATE provider_day_cancellations SET results_json=?,status=? WHERE token=?', [JSON.stringify(results), row.status, token]);
+      if (plan.notificationsOnly && row.status === 'completed' && !Object.values(results).some(r => r?.notificationDelivery && (r.notificationDelivery.held || r.notificationDelivery.failed || r.notificationDelivery.skipped))) await deps.completeTask(plan.deferredToken);
       return response(row, plan, results);
     } finally {
       for (const key of locks.reverse()) await conn.execute('SELECT RELEASE_LOCK(?)', [key]).catch(() => {});
       conn.release();
     }
+  }
+  async function deferredInventory(plan, actor, authorizeAppointment) {
+    const items = [];
+    for (const saved of plan.items.filter(i => i.kind === 'appointment')) {
+      const a = await deps.getAppointment(saved.id);
+      if (!a || !isCanceled(a.status) || Number(a.agencyId) !== Number(saved.agencyId) || Number(a.providerUserId) !== plan.providerId) throw fail('A canceled session changed. Review it individually.', 409);
+      await authorizeAppointment(actor, a);
+      const clients = [];
+      for (const p of await deps.participants(a.id)) if (p.clientId && !clients.some(c => c.clientId === p.clientId)) clients.push(await deps.contacts(p.clientId, a.agencyId, plan.contactChoices?.[p.clientId], { required: plan.messagesReviewed }));
+      const message = reviewedMessage(plan.messages?.[saved.key], saved.message);
+      items.push({ ...saved, clients, message, source: { ...saved.source, updatedAt: stamp(a.updatedAt), participants: await deps.participants(a.id), contacts: clients.map(c => c.contacts) },
+        facts: { ...saved.facts, ...plan.facts, notificationMode: 'send', reviewedCancellation: true, reviewedMessage: message,
+          notificationRecipients: clients.map(c => ({ clientId: c.clientId, mode: c.mode, channels: c.channels, recipients: c.recipients })) } });
+    }
+    for (const scope of plan.scopes) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, wholeDay: plan.scopeMode === 'days' })) {
+      if (plan.scopeMode === 'sessions' && !items.some(i => i.agencyId === scope.agencyId && i.date === (scope.date || plan.date))) continue;
+      items.push({ ...deps.schoolReview(school, plan.schoolChoices?.[school.key], plan.messagesReviewed), source: { recipients: school.recipients }, timeZone: scope.timeZone });
+    }
+    return { items, unchanged: [], fingerprint: fingerprint(items) };
+  }
+  async function previewDeferred(input, actor, authorize, authorizeAppointment) {
+    const [[source]] = await db.execute('SELECT * FROM provider_day_cancellations WHERE token=?', [input.deferredToken]);
+    if (!source) throw fail('Cancellation follow-up not found.', 404);
+    const original = JSON.parse(deps.decrypt(typeof source.plan_json === 'string' ? source.plan_json : JSON.stringify(source.plan_json)));
+    if (Number(input.providerId) !== original.providerId) throw fail('Cancellation follow-up not found.', 404);
+    await authorize(actor, original.providerId, original.scopes.map(s => s.agencyId));
+    if (original.facts.notificationMode !== 'none' || source.status !== 'completed') throw fail('Finish canceling these sessions before reviewing their emails.', 409);
+    const results = parse(source.results_json) || {};
+    const plan = { ...original, notificationsOnly: true, deferredToken: input.deferredToken,
+      items: original.items.filter(i => i.kind !== 'appointment' || results[i.key]?.status === 'completed'),
+      facts: { ...original.facts, notificationMode: 'send', suppressionReason: '' }, messagesReviewed: input.messagesReviewed === true,
+      contactChoices: input.contactChoices || {}, schoolChoices: input.schoolChoices || {}, messages: input.messages || {} };
+    Object.assign(plan, await deferredInventory(plan, actor, authorizeAppointment));
+    const row = { token: randomUUID(), status: 'preview' };
+    await db.execute(`INSERT INTO provider_day_cancellations (token,provider_id,actor_user_id,cancellation_date,plan_json,results_json,expires_at)
+      VALUES (?,?,?,?,?,'{}',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 30 MINUTE))`, [row.token, plan.providerId, actor.id, plan.date, deps.encrypt(JSON.stringify(plan))]);
+    return response(row, plan, {});
   }
   async function resume({ providerId, date }, actor, authorize) {
     dayBounds(date, 'UTC');

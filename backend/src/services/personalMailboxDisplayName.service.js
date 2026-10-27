@@ -11,7 +11,7 @@ export async function syncPersonalMailboxDisplayName(db, userId) {
       e.display_name=TRIM(CONCAT_WS(' ',u.first_name,u.last_name))
     WHERE i.owner_user_id=? AND i.kind='personal'
       AND TRIM(CONCAT_WS(' ',u.first_name,u.last_name))<>''
-      AND (i.display_name COLLATE utf8mb4_unicode_ci<>CONCAT(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),
-        IF(i.display_name LIKE '%(My Inbox)',' (My Inbox)',' (App inbox)')) COLLATE utf8mb4_unicode_ci
-        OR (e.id IS NOT NULL AND NOT (e.display_name COLLATE utf8mb4_unicode_ci <=> TRIM(CONCAT_WS(' ',u.first_name,u.last_name)) COLLATE utf8mb4_unicode_ci)))`, [id]);
+      AND (CONVERT(i.display_name USING utf8mb4) COLLATE utf8mb4_unicode_ci <> CONVERT(CONCAT(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),
+        IF(i.display_name LIKE '%(My Inbox)',' (My Inbox)',' (App inbox)')) USING utf8mb4) COLLATE utf8mb4_unicode_ci
+        OR (e.id IS NOT NULL AND NOT (CONVERT(e.display_name USING utf8mb4) COLLATE utf8mb4_unicode_ci <=> CONVERT(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)) USING utf8mb4) COLLATE utf8mb4_unicode_ci)))`, [id]);
 }

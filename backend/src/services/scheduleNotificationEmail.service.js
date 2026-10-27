@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { renderPortalEmail } from './portalEmailBranding.service.js';
 import { resolveWaitlistMailboxes } from './providerWaitlistEmail.service.js';
 import { sendNotificationEmail, sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.service.js';
@@ -27,6 +28,13 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
           if(message.existingCommunicationId) await pool.execute("UPDATE user_communications SET template_type=?,metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.schoolSessionScopeKey',?) WHERE id=?",[SCHOOL_EMAIL_TEMPLATE,link.scopeKey,message.existingCommunicationId]);
         }
       }
+    }
+    if (items.some(item => item.payload?.facts?.reasonCategory)) {
+      const mailboxes = await resolveWaitlistMailboxes(pool, agencyId);
+      const brand = { ...context.brand, replyTo: mailboxes.support, displayName: `${context.tenant.name} Notifications` };
+      return sendEmailFromIdentity({ ...message, agencyId, senderIdentityId: mailboxes.senderIdentityId,
+        replyToOverride: mailboxes.support, fromDisplayNameOverride: brand.displayName, portalEmailBrand: brand,
+        html: renderPortalEmail({ brand, ...message }) });
     }
     return sendClientPortalEmail({...message,agencyId,context});
   }

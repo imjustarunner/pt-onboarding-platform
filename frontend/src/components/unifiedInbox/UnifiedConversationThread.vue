@@ -1,4 +1,5 @@
 <script setup>
+import EmailAudioAttachment from '../messages/EmailAudioAttachment.vue';
 import EmailSendReceipt from '../messages/EmailSendReceipt.vue';
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
 const availabilityPrompt = ref(null);
@@ -524,6 +525,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           <p v-if="!msg.is_internal_note && msg.to?.length" class="uc-meta">To: {{ msg.to.map((a) => a.email || a).join(', ') }}<template v-if="msg.cc?.length"> · CC: {{ msg.cc.map((a) => a.email || a).join(', ') }}</template></p>
           <div v-if="msg.body_html" class="uc-msg-body" v-html="DOMPurify.sanitize(msg.body_html)" />
           <div v-else class="uc-msg-body pre">{{ msg.body_text }}</div>
+          <EmailAudioAttachment v-for="file in msg.attachments || []" :key="`audio-${file.id}`" :file="file" :conversation-id="conv?.id" />
           <ul v-if="msg.attachments?.length" class="uc-atts">
             <li v-for="a in msg.attachments" :key="a.id"><button class="btn btn-link" @click="downloadMessageAttachment(a)"><ConversaIcon type="attachment" :size="14" /> {{ a.filename }}</button></li>
           </ul>

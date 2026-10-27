@@ -400,7 +400,7 @@
             <div v-if="compAssignment" class="comp-badge-row">
               <span class="comp-badge-cat">{{ compCategoryLabel(compAssignment.category) }}</span>
               <span class="comp-badge-sep">/</span>
-              <span v-if="compAssignment.bypass" class="comp-badge-bypass">Bypass</span>
+              <span v-if="Number(compAssignment.bypass)" class="comp-badge-bypass">Bypass</span>
               <span v-else class="comp-badge-level">
                 Level {{ compAssignment.level }}
                 <em v-if="compAssignment.label" class="comp-badge-name">— {{ compAssignment.label }}</em>
@@ -1104,15 +1104,16 @@ const loadCompLevel = async () => {
     compAllLevels.value  = defsRes.data?.levels || [];
     // Build category label map
     const labels = {};
-    (defsRes.data?.categoryLabels || []).forEach((cl) => {
-      if (cl.label) labels[cl.category] = cl.label;
-    });
+    const categoryLabels = defsRes.data?.categoryLabels || {};
+    for (const [category, label] of Object.entries(categoryLabels)) {
+      if (label) labels[category] = label;
+    }
     compCatLabels.value = labels;
     // Seed draft from current assignment (or default to bypass)
     if (compAssignment.value) {
       compDraft.value = {
         category: compAssignment.value.category,
-        levelKey: compAssignment.value.bypass ? 'bypass' : String(compAssignment.value.level ?? 'bypass')
+        levelKey: Number(compAssignment.value.bypass) ? 'bypass' : String(compAssignment.value.level ?? 'bypass')
       };
     } else {
       compDraft.value = { category: null, levelKey: 'bypass' };

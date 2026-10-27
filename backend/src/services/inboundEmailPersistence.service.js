@@ -1,3 +1,4 @@
+import { isGrasshopperVoicemail } from './grasshopperVoicemail.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
@@ -36,20 +37,23 @@ export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conve
       await db.commit();
       return { ingested: true, duplicate: true, conversationId: legacy[0].conversation_id, messageId: legacy[0].id, agencyId, inboxId };
     }
-    let cid = conversationId;
+    // Automated voicemail notifications may share Gmail threads despite different callers.
+    // Keep each delivery separate so caller attribution never carries into another voicemail.
+    const standaloneVoicemail = isGrasshopperVoicemail({ from: fromEmail, subject, bodyText });
+    let cid = standaloneVoicemail ? null : conversationId;
     if (cid) {
       const [matched] = await db.execute('SELECT id FROM communication_conversations WHERE id = ? AND inbox_id = ? AND agency_id = ?', [cid, inboxId, agencyId]);
       if (!matched.length) throw new Error('Reply conversation does not belong to this inbox');
     }
     let ambiguousParent = false;
-    if (!cid) {
+    if (!cid && !standaloneVoicemail) {
       for (const ancestor of replyMessageIds(inReplyTo, referencesHeader)) {
         const [matched] = await db.execute(`SELECT DISTINCT c.id FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id WHERE c.inbox_id=? AND m.internet_message_id=? LIMIT 2`, [inboxId, ancestor]);
         if (matched.length > 1) { ambiguousParent = true; break; }
         if (matched.length === 1) { cid = matched[0].id; break; }
       }
     }
-    if (!cid && !ambiguousParent && threadId) {
+    if (!cid && !standaloneVoicemail && !ambiguousParent && threadId) {
       const [matched] = await db.execute('SELECT id FROM communication_conversations WHERE inbox_id = ? AND external_thread_id = ? ORDER BY id LIMIT 2', [inboxId, threadId]);
       if (matched.length === 1) cid = matched[0].id;
     }

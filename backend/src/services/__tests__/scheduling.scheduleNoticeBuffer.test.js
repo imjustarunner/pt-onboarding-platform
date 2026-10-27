@@ -23,6 +23,9 @@ function harness() {
     if (sql.startsWith('SELECT') && sql.includes('WHERE agency_id=')) return [notices.filter(n=>group(n,p))];
     if (sql.startsWith('SELECT') && sql.includes('WHERE appointment_id=')) return [notices.filter(n=>n.appointment_id===p[0] && (!sql.includes("status='pending'") || n.status==='pending'))];
     if (sql.startsWith('UPDATE appointment_schedule_notices SET fire_at=')) {notices.filter(n=>group(n,p.slice(1))).forEach(n=>n.fire_at=p[0]);return [{}];}
+    if (sql.startsWith("UPDATE appointment_schedule_notices SET status='pending',payload_json=")) {
+      const n=notices.find(n=>n.id===p[4]);if(n?.status==='suppressed')Object.assign(n,{status:'pending',payload_json:p[0],channels_json:p[1],fire_at:p[2],created_by_user_id:p[3]});return [{affectedRows:1}];
+    }
     if (sql.startsWith('UPDATE appointment_schedule_notices SET status=')) {
       const n=notices.find(n=>n.id===p.at(-1));if(n && (!sql.includes("AND status='pending'") || n.status==='pending')) {n.status=sql.match(/status='([^']+)'/)[1];if(sql.includes('batch_id=?'))n.batch_id=p[0];}return [{}];
     }
@@ -139,4 +142,22 @@ describe('reviewed cancellation delivery scope',()=>{
     const h=harness();await h.service.queue(1,{eventType:'canceled',facts:{...facts,notificationRecipients:[{clientId:8,mode:'none',channels:[],recipients:[]}]}});
     h.advance(15);await h.service.process(1);expect(h.deps.sendEmail).not.toHaveBeenCalled();expect(h.notices[0].status).toBe('suppressed');
   });
+});
+
+it('keeps deferred notices held through retries, then releases the reviewed email exactly once',async()=>{
+ const h=harness();
+ await h.service.queue(1,{eventType:'canceled',facts:{notificationMode:'none',suppressionReason:'Review later'}});
+ h.advance(3000);await h.service.process(1);expect(h.deps.sendEmail).not.toHaveBeenCalled();
+ await h.service.queue(1,{eventType:'canceled',facts:{notificationMode:'send'}});expect(h.notices[0].status).toBe('suppressed');
+ const facts={notificationMode:'send',reviewedCancellation:true,reviewedDeferredCancellation:true,reasonCategory:'weather',clientFacingReason:'Weather conditions',notificationRecipients:[{clientId:8,mode:'guardian',channels:['email'],recipients:[{key:'guardian:9',userId:9,email:'parent@example.test',phone:'',role:'guardian'}]}]};
+ await h.service.queue(1,{eventType:'canceled',facts,actorUserId:5,sendImmediately:true});
+ expect(h.notices).toHaveLength(1);expect(h.notices[0].status).toBe('pending');expect(h.deps.sendEmail).not.toHaveBeenCalled();
+ await h.service.process(1);await h.service.queue(1,{eventType:'canceled',facts,actorUserId:5});await h.service.process(1);
+ expect(h.deps.sendEmail).toHaveBeenCalledTimes(1);expect(h.deps.sendEmail.mock.calls[0][0].to).toBe('parent@example.test');
+ expect(h.deps.sendSms).not.toHaveBeenCalled();
+});
+it('does not fall back to an unreviewed recipient when an appointment gains another client',async()=>{
+ const h=harness();h.deps.participants.mockResolvedValue([{clientId:8},{clientId:99}]);
+ await expect(h.service.queue(1,{eventType:'canceled',facts:{reviewedCancellation:true,notificationRecipients:[{clientId:8,mode:'guardian',channels:['email'],recipients:[]}]}})).rejects.toMatchObject({status:409});
+ expect(h.notices.some(n=>n.client_id===99)).toBe(false);expect(h.deps.sendEmail).not.toHaveBeenCalled();
 });

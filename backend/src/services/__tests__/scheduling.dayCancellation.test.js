@@ -22,7 +22,7 @@ beforeEach(() => {
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
     if (sql.startsWith('INSERT INTO provider_day_cancellations')) { record = { token: args[0], provider_id: args[1], actor_user_id: args[2], cancellation_date: args[3], plan_json: args[4], results_json: '{}', status: 'preview', expires_at: '2026-11-01 01:00:00' }; return [{ affectedRows: 1 }]; }
     if (sql.startsWith('SELECT * FROM provider_day_cancellations WHERE provider_id')) return [[record].filter(r => r && r.provider_id === args[0] && r.actor_user_id === args[1] && r.cancellation_date === args[2] && ['processing', 'partial'].includes(r.status))];
-    if (sql.startsWith('SELECT * FROM provider_day_cancellations')) return [[record].filter(r => r && r.token === args[0] && r.actor_user_id === args[1])];
+    if (sql.startsWith('SELECT * FROM provider_day_cancellations')) return [[record].filter(r => r && r.token === args[0] && (args.length === 1 || r.actor_user_id === args[1]))];
     if (sql.includes("SET status='processing'")) { record.status = 'processing'; return [{}]; }
     if (sql.includes('SET results_json=')) { record.results_json = args[0]; record.status = args[1]; return [{}]; }
     if (sql.startsWith('INSERT INTO provider_schedule_events')) { blocks.push(args); return [{ insertId: 100 }]; }
@@ -41,7 +41,7 @@ beforeEach(() => {
     contacts: vi.fn(async id => ({ clientId: id, clientName: 'Client One', mode:'guardian', channels:['email'], contacts:[], recipients:[] })),
     schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
     cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
-    invalidate: vi.fn() };
+    ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
   service = createDayCancellationService(dependencies); authorize = vi.fn(); appointmentAccess = vi.fn();
 });
 const preview = () => service.preview(input, actor, authorize, appointmentAccess);
@@ -53,8 +53,8 @@ describe('reviewed provider-day cancellation', () => {
     expect(() => dayBounds('2026-02-30', 'America/Denver')).toThrow('valid date');
   });
   it('requires a reviewed public reason and keeps private details out of session facts', () => {
-    expect(() => dayCancellationFacts({})).toThrow('client-facing reason');
-    expect(dayCancellationFacts(input)).toMatchObject({ initiator: 'provider', reasonOther: '', clientFacingReason: input.clientFacingReason, followUpAction: 'client_contact_support' });
+    expect(() => dayCancellationFacts({ reasonCategory: 'detailed private reason' })).toThrow('category');
+    expect(dayCancellationFacts(input)).toMatchObject({ initiator: 'provider', reasonOther: '', clientFacingReason: 'Provider availability', followUpAction: 'client_contact_support' });
     expect(() => dayCancellationFacts({ ...input, followUpAction: 'support_will_contact' })).toThrow('supported follow-up');
   });
   it('previews without sending or canceling and encrypts internal audit details', async () => {
@@ -162,7 +162,7 @@ describe('selected sessions, dates and reviewed outreach', () => {
     const plan = await service.preview({ ...input, dates: ['2026-11-04','2026-11-05'] }, actor, authorize, appointmentAccess);
     await apply(plan); expect(blocks).toHaveLength(2);
     expect(blocks.map(b => b[4])).toEqual(['2026-11-04','2026-11-05']);
-    expect(dependencies.completeAppointment.mock.calls[0][1].clientFacingReason).toBe(input.clientFacingReason);
+    expect(dependencies.completeAppointment.mock.calls[0][1].clientFacingReason).toBe('Provider availability');
   });
   it('includes assigned-school messages even on a day with no client appointments, and sends only the reviewed edit', async () => {
     appointments = [];
@@ -189,4 +189,22 @@ describe('selected sessions, dates and reviewed outreach', () => {
     dependencies.contacts.mockResolvedValue({clientId:12,mode:'guardian',channels:['email'],contacts:[{email:'changed@example.test'}],recipients:[]});
     await expect(apply(plan)).rejects.toThrow('schedule changed'); expect(blocks).toHaveLength(0);
   });
+});
+
+it('shares only a category even when a detailed reason was supplied by an older client', () => {
+  const facts = dayCancellationFacts({ ...input, reasonCategory: 'weather', clientFacingReason: 'Private details', internalReason: 'Private details' });
+  expect(facts.clientFacingReason).toBe('Weather conditions'); expect(JSON.stringify(facts)).not.toContain('Private details');
+});
+it('defers family and school notifications and creates one durable follow-up task', async () => {
+  dependencies.schools.mockResolvedValue([{ key:'school:2:3:2026-11-04',kind:'school',agencyId:2,date:'2026-11-04',recipients:['school@example.test'],message:{subject:'Schedule',text:'Canceled'} }]);
+  const plan = await service.preview({ ...input, notificationMode:'none', suppressionReason:'Review later' }, actor, authorize, appointmentAccess);
+  let result = await apply(plan); while(result.status === 'processing') result = await apply(plan);
+  expect(result.notificationTaskId).toBe(72); expect(dependencies.ensureTask).toHaveBeenCalledTimes(1);
+  expect(dependencies.completeAppointment.mock.calls[0][1].notificationMode).toBe('none'); expect(dependencies.notifySchool).not.toHaveBeenCalled();
+  expect(dependencies.notifyAppointment).not.toHaveBeenCalled();
+  const followup = await service.preview({ providerId:9,deferredToken:plan.token,messagesReviewed:true },actor,authorize,appointmentAccess);
+  expect(followup.notificationsOnly).toBe(true); expect(dependencies.notifyAppointment).not.toHaveBeenCalled();
+  result=await apply(followup); while(result.status === 'processing') result=await apply(followup);
+  expect(dependencies.completeAppointment).toHaveBeenCalledTimes(1); expect(dependencies.notifyAppointment).toHaveBeenCalledTimes(1);
+  expect(dependencies.notifySchool).toHaveBeenCalledTimes(1); expect(blocks).toHaveLength(1); expect(dependencies.completeTask).toHaveBeenCalledWith(plan.token);
 });

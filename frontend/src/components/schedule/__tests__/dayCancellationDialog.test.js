@@ -34,7 +34,7 @@ function open() {
   return wrapper;
 }
 async function review(finalReview = true) {
-  await wrapper.findAll('textarea')[0].setValue(fixture().clientFacingReason);
+  await flushPromises();
   await button('Review day').trigger('click');
   await flushPromises();
   if (finalReview && button('Review final cancellation')) { await button('Review final cancellation').trigger('click'); await flushPromises(); }
@@ -79,12 +79,12 @@ describe('day cancellation review', () => {
   it('previews the chosen agencies and separate reasons before any apply request', async () => {
     open();
     await wrapper.findAll('fieldset input')[1].setValue(false);
-    await wrapper.findAll('textarea')[1].setValue('Private staffing note.');
-    await wrapper.findAll('textarea')[2].setValue('Please contact support for another time.');
+    await wrapper.findAll('textarea')[0].setValue('Private staffing note.');
+    await wrapper.findAll('textarea')[1].setValue('Please contact support for another time.');
     await review();
     expect(m.post).toHaveBeenCalledTimes(2);
     expect(m.post).toHaveBeenCalledWith(`${base}/preview`, expect.objectContaining({
-      agencyIds: [2], date: '2026-10-15', clientFacingReason: fixture().clientFacingReason,
+      agencyIds: [2], date: '2026-10-15', reasonCategory: 'provider_unavailable',
       internalReason: 'Private staffing note.', notificationMode: 'send', suppressionReason: '', followUpAction: 'client_contact_support', followUpMessage: 'Please contact support for another time.'
     }), { skipGlobalLoading: true });
     expect(wrapper.find('.day-review').text()).toContain(fixture().clientFacingReason);
@@ -273,4 +273,14 @@ it('explains that offering a time commits the provider before invitations are se
   expect(wrapper.text()).toContain('it becomes a scheduled appointment automatically');
   expect(wrapper.text()).toContain('change the booked appointment and notify the family through My Schedule');
   expect(m.post.mock.calls.every(([url])=>url.endsWith('/preview'))).toBe(true);
+});
+
+it('opens deferred messages without applying cancellation or sending, then requires approval', async () => {
+  wrapper = mount(Dialog, { props: { providerId:7,agencyId:2,date:'2026-10-15',deferredToken:'original-review' }, attachTo:document.body });
+  await flushPromises();
+  expect(m.post).toHaveBeenCalledTimes(1); expect(m.post.mock.calls[0][1]).toMatchObject({deferredToken:'original-review',messagesReviewed:false});
+  await button('Review final cancellation').trigger('click'); await flushPromises();
+  expect(button('Approve and send emails').element.disabled).toBe(true);
+  await wrapper.find('.day-signature input').setValue(true); await button('Approve and send emails').trigger('click'); await flushPromises();
+  expect(m.post.mock.calls.at(-1)[0]).toContain('/apply');
 });

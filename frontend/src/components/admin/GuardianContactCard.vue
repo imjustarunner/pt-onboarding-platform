@@ -10,11 +10,18 @@
         <label v-for="client in agency.clients" :key="client.id"><input v-model="selectedIds" type="checkbox" :value="client.id" /> {{ client.name }}</label>
         <button type="button" class="btn btn-primary" :disabled="!contact.guardian.email || !selectedFor(agency).length" @click="compose(agency)">Email guardian about {{ selectedFor(agency).length || 'selected' }} {{ selectedFor(agency).length === 1 ? 'client' : 'clients' }}</button>
       </fieldset>
+      <section v-if="voicemails.length || voicemailError" aria-label="Guardian voicemails">
+        <h4>Voicemail communications</h4>
+        <ul><li v-for="thread in voicemails" :key="thread.id"><button type="button" @click="openVoicemail(thread)">{{ thread.subject || 'Voicemail' }} · {{ new Date(thread.last_message_at).toLocaleDateString() }}</button></li></ul>
+        <EmailThreadReader v-if="voicemail" :conversation="voicemail.conversation" :messages="voicemail.messages" read-only />
+        <p v-if="voicemailError" role="alert">{{ voicemailError }}</p>
+      </section>
       <p class="contact-help">One email goes to this guardian. Sent messages record parent contact; a reply marks the contact successful.</p>
     </template>
   </section>
 </template>
 <script setup>
+import EmailThreadReader from '../messages/EmailThreadReader.vue';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -22,7 +29,13 @@ import { openEmailComposer } from '../../utils/emailComposerWindow';
 const props=defineProps({guardianId:{type:Number,required:true},clientId:Number,showAccountLink:Boolean});
 const route=useRoute(),router=useRouter();
 const contact=ref(null),loading=ref(false),error=ref(''),selectedIds=ref([]);
+const voicemails=ref([]),voicemail=ref(null),voicemailError=ref('');
 let generation=0;
+async function openVoicemail(thread) {
+  const current=generation;voicemailError.value='';
+  try { const {data}=await api.get(`/communications/conversations/${thread.id}`);if(current===generation)voicemail.value=data; }
+  catch { if(current===generation)voicemailError.value='Could not open this voicemail.'; }
+}
 const accountPath=computed(()=>`${route.params.organizationSlug ? `/${encodeURIComponent(route.params.organizationSlug)}` : ''}/guardian-contacts/${props.guardianId}`);
 const agencies=computed(()=>{
   const map=new Map();
@@ -32,8 +45,10 @@ const agencies=computed(()=>{
 const selectedFor=agency=>agency.clients.filter(c=>selectedIds.value.includes(c.id)).map(c=>c.id);
 function compose(agency){openEmailComposer(router,{mode:'new',agencyId:agency.id,to:contact.value.guardian.email,clientIds:selectedFor(agency).join(',')});}
 watch(()=>[props.guardianId,props.clientId],async()=>{
-  const current=++generation;loading.value=true;error.value='';contact.value=null;selectedIds.value=[];
-  try{const {data}=await api.get(`/communications/guardian-contacts/${props.guardianId}`);if(current!==generation)return;contact.value=data;selectedIds.value=data.clients.some(c=>c.id===props.clientId)?[props.clientId]:[];}
+  const current=++generation;loading.value=true;error.value='';contact.value=null;selectedIds.value=[];voicemails.value=[];voicemail.value=null;voicemailError.value='';
+  try{const {data}=await api.get(`/communications/guardian-contacts/${props.guardianId}`);if(current!==generation)return;contact.value=data;selectedIds.value=data.clients.some(c=>c.id===props.clientId)?[props.clientId]:[];
+    try { const recordings=await api.get(`/communications/guardian-contacts/${props.guardianId}/voicemails`);if(current===generation)voicemails.value=recordings.data?.conversations||[]; }
+    catch { if(current===generation)voicemailError.value='Could not load voicemail communications.'; }}
   catch(e){if(current===generation)error.value=e.response?.data?.error?.message||'Could not load guardian contact.';}
   finally{if(current===generation)loading.value=false;}
 },{immediate:true});

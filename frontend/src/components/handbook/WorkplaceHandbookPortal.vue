@@ -5,7 +5,8 @@
       <div class="loading-lines" aria-hidden="true"><span /><span /><span /></div>
     </div>
     <template v-else-if="handbook">
-      <p v-if="handbook.beta" class="reference-edition"><strong>Reference edition</strong> Available for optional reading while the published edition is being prepared.</p>
+      <p v-if="handbook.beta" class="reference-edition"><strong>Reference edition</strong> Available to read while the published edition is being prepared.</p>
+      <p v-if="handbook.beta && !referenceOnly" role="status" class="reference-edition">People Operations must publish this handbook before you can sign your onboarding acknowledgement. <button type="button" @click="emit('help')">Contact People Operations</button></p>
       <WorkplaceHandbookBook :handbook="handbook" neutral :analytics="analytics" :analytics-http="http" :updates="handbook.updates || []" :answer-question="handbook.version?.id ? answerQuestion : null" @reload="load" />
     </template>
     <div v-else class="handbook-status" :role="error ? 'alert' : 'status'">
@@ -36,12 +37,12 @@ async function load() {
   loading.value = true; error.value = false; handbook.value = null; analytics.value = null; emit('available', false); emit('version', null);
   try {
     const url = `/prehire-portal/${encodeURIComponent(props.token)}/resources/handbook`;
-    const { data } = await props.http.get(url + (props.referenceOnly ? '?reference=1' : ''));
+    const { data } = await props.http.get(url + '?reference=1');
     if (current !== request) return;
     const readable = data.available && data.handbook?.sections?.length;
     // Reference editions must never enable the onboarding signature controls.
     const published = readable && !data.handbook.beta && data.handbook.version?.id && data.acknowledgeable !== false;
-    handbook.value = readable && (props.referenceOnly || published) ? data.handbook : null;
+    handbook.value = readable ? data.handbook : null;
     analytics.value = published && data.analytics ? { ...data.analytics, apiBase: `/prehire-portal/${encodeURIComponent(props.token)}/document-analytics` } : null;
     emit('available', !!published && !props.referenceOnly);
     emit('version', published && !props.referenceOnly ? data.handbook.version.id : null);

@@ -27,3 +27,18 @@ export async function emailFilingOptions({userId,agencyId,to='',cc='',bcc=''}) {
   for(const c of candidates)if(await canAccessHubClient({userId,clientId:c.id,agencyId:Number(agencyId)}))clients.push({id:Number(c.id),name:c.full_name||c.initials});
   return {clients};
 }
+
+export async function guardianVoicemailConversations({ user, guardianId }) {
+  const context = await guardianContactContext({ userId: user.id, guardianId });
+  const agencyIds = [...new Set(context.clients.map(c => c.agencyId))];
+  const [threads] = await pool.execute(`SELECT c.id,c.subject,c.last_message_at FROM communication_conversations c
+    JOIN communication_links l ON l.conversation_id=c.id AND l.entity_type='guardian' AND l.entity_id=?
+    WHERE c.agency_id IN (${agencyIds.map(() => '?').join(',')}) ORDER BY c.last_message_at DESC LIMIT 100`, [guardianId,...agencyIds]);
+  const { requireConversationAccess } = await import('./communicationAccess.service.js');
+  const conversations = [];
+  for (const thread of threads) {
+    try { await requireConversationAccess(user,thread.id); conversations.push(thread); }
+    catch (e) { if (![403,404].includes(e.status)) throw e; }
+  }
+  return { conversations };
+}

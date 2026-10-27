@@ -66,13 +66,14 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     if (!a) return null;
     const providerId = Number(a.providerUserId) || 0;
     const retrospect = !futureAppointment(before || a, d.now());
-    const suppressed = retrospect || facts.notificationMode === 'none';
+    const suppressed = (retrospect && facts.reviewedDeferredCancellation !== true) || facts.notificationMode === 'none';
     const clientIds = [...new Set((await d.participants(a.id)).map(p => Number(p.clientId)).filter(Boolean))];
     const tenant = suppressed ? null : await d.tenant(a.agencyId);
     const allowedChannels = ['email', ...(tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms') ? ['sms'] : [])]
       .filter(ch => !channels || channels.includes(ch));
     for (const clientId of clientIds) {
       const selectedContacts = facts.notificationRecipients?.find(c => Number(c.clientId) === clientId);
+      if (facts.reviewedCancellation && !selectedContacts) throw Object.assign(new Error('Appointment recipients changed. Review the cancellation emails again.'), { status: 409 });
       const clientSuppressed = suppressed || selectedContacts?.mode === 'none';
       const group = { agency_id: a.agencyId, provider_id: providerId, client_id: clientId };
       await lock(key(group), async () => {
@@ -82,8 +83,20 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         }
         // Signed cancellation retries cannot create another invitation or notice.
         if (['canceled','rescheduled'].includes(eventType)) {
-          const [existing] = await db.execute("SELECT id FROM appointment_schedule_notices WHERE appointment_id=? AND client_id=? AND event_type IN ('canceled','rescheduled') LIMIT 1", [a.id, clientId]);
-          if (existing.length) return;
+          const [existing] = await db.execute("SELECT id,status,payload_json FROM appointment_schedule_notices WHERE appointment_id=? AND client_id=? AND event_type IN ('canceled','rescheduled') LIMIT 1", [a.id, clientId]);
+          if (existing.length) {
+            const row = existing[0];
+            // Only the signed deferred-email review can release an explicitly held notice.
+            if (facts.reviewedDeferredCancellation === true && facts.reviewedCancellation === true
+                && facts.notificationMode === 'send' && row.status === 'suppressed'
+                && decode(row.payload_json).facts?.notificationMode === 'none') {
+              const payload = { eventType, facts, originalStartAt: a.startAt, initialBooking: false };
+              await db.execute("UPDATE appointment_schedule_notices SET status='pending',payload_json=?,channels_json=?,fire_at=?,created_by_user_id=? WHERE id=? AND status='suppressed'",
+                [d.encrypt(JSON.stringify(payload)), JSON.stringify(allowedChannels.filter(ch => !selectedContacts || selectedContacts.channels.includes(ch))), sqlDate(d.now()), actorUserId, row.id]);
+              await audit({ ...group, id: row.id, appointment_id: a.id, created_by_user_id: actorUserId }, 'pending', 'Deferred cancellation email reviewed and approved for sending.');
+            }
+            return;
+          }
         }
         const [previous] = await db.execute("SELECT * FROM appointment_schedule_notices WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending' ORDER BY id", [a.agencyId, providerId, clientId]);
         const prior = previous.filter(r => Number(r.appointment_id) === Number(a.id)).at(-1);

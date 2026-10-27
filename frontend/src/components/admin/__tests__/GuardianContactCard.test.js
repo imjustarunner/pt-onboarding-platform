@@ -19,3 +19,9 @@ it('does not allow sending without a selected client from the guardian account',
  const w=mount(Card,{props:{guardianId:30},global:{stubs:{RouterLink:true}}});await flushPromises();
  expect(w.find('button').attributes('disabled')).toBeDefined();w.unmount();
 });
+it('opens a linked voicemail and shows its transcript without sending email',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/voicemails')?{conversations:[{id:12,subject:'Voicemail from parent',last_message_at:'2026-10-27'}]}:url.includes('/conversations/')?{conversation:{id:12,subject:'Voicemail from parent'},messages:[{id:1,from:{email:'help@grasshopper.com'},body_text:'Transcription: Please call me back.'}]}:{guardian:{id:30,name:'Parent',email:'parent@example.test'},clients:[{id:1,name:'Child',agencyId:2,agencyName:'ITSCO'}]}}));
+ const w=mount(Card,{props:{guardianId:30},global:{stubs:{RouterLink:true}}});await flushPromises();
+ await w.findAll('button').find(b=>b.text().includes('Voicemail from parent')).trigger('click');await flushPromises();
+ expect(w.text()).toContain('Transcription: Please call me back.');w.unmount();
+});

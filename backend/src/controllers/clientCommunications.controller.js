@@ -430,3 +430,15 @@ export const exportClientCommunications = async (req,res,next) => {
     res.send(communicationPrintDocument(`Communication record — ${access.client.full_name || access.client.initials || clientId}`,threads));
   }catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}
 };
+
+export const downloadClientConversationAttachment = async (req,res,next) => {
+  try {
+    const clientId = Number(req.params.id), conversationId = Number(req.params.conversationId);
+    const access = await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
+    if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
+    const thread = await clientEmailThread(clientId,conversationId,req.user.id);
+    if (!thread.messages.some(m => m.attachments?.some(a => Number(a.id) === Number(req.params.attachmentId)))) return res.status(404).json({error:{message:'Attachment not found'}});
+    const { downloadCommunicationAttachment } = await import('../services/communicationAttachments.service.js');
+    return downloadCommunicationAttachment({ params: { id: conversationId, attachmentId: req.params.attachmentId } },res,next);
+  } catch(e) { if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e); }
+};

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { voicemailClientCandidates } from './grasshopperVoicemail.service.js';
 import {canAccessHubClient} from './hubPeopleAccess.service.js';
 
 const parse = value => { if(typeof value !== 'string') return value; try{return JSON.parse(value);}catch{return null;} };
@@ -54,7 +55,9 @@ export async function autoFileEmailMessage(messageId) {
   const [linked]=await pool.execute("SELECT entity_type FROM communication_links WHERE conversation_id=? AND entity_type IN ('client','client_filing_review')",[m.conversation_id]);
   if(linked.length) return;
   const emails=m.direction==='inbound' ? addresses(parse(m.from_json)) : [...addresses(parse(m.to_json)),...addresses(parse(m.cc_json)),...addresses(parse(m.bcc_json))];
-  const clients=await emailClientCandidates(m.agency_id,emails);
+  const voicemail = m.direction === 'inbound' ? await voicemailClientCandidates(m.agency_id, { ...m, from: parse(m.from_json) }) : null;
+  const clients = voicemail?.phone ? voicemail.clients : await emailClientCandidates(m.agency_id,emails);
+  if (voicemail?.guardians.length === 1) await pool.execute("INSERT INTO communication_links (conversation_id,entity_type,entity_id,label) VALUES (?,'guardian',?,'Voicemail from guardian') ON DUPLICATE KEY UPDATE label=label", [m.conversation_id, voicemail.guardians[0].id]);
   if(clients.length===1) await linkConversationClients(m.conversation_id,[Number(clients[0].id)]);
   else if(clients.length>1) await linkConversationClients(m.conversation_id,[],{deferred:true});
 }
@@ -80,6 +83,8 @@ export async function clientEmailThread(clientId,conversationId,userId=null) {
     WHERE m.conversation_id=? AND COALESCE(m.is_internal_note,0)=0 AND COALESCE(m.send_status,'sent') NOT IN ('cancelled','preparing') ORDER BY m.id`,[conversationId]);
   const {contactPurposeHistory}=await import('./contactDocumentation.service.js');
   const documentation=await contactPurposeHistory('email',conversationId);
+  const [attachments] = await pool.execute('SELECT a.id,a.message_id,a.filename,a.content_type,a.size_bytes FROM communication_attachments a JOIN communication_messages m ON m.id=a.message_id WHERE m.conversation_id=?', [conversationId]);
+  for (const message of messages) message.attachments = attachments.filter(a => Number(a.message_id) === Number(message.id)).map(a => ({ ...a, downloadPath: `/clients/${clientId}/communications/conversations/${conversationId}/attachments/${a.id}` }));
   return {...linked,documentation,messages:messages.map(m=>({...m,from:parse(m.from_json),to:parse(m.to_json),cc:parse(m.cc_json),bcc:parse(m.bcc_json)}))};
 }
 
@@ -101,7 +106,9 @@ export async function conversationFilingChoices(conversationId,userId) {
   const [[conv]]=await pool.execute('SELECT agency_id FROM communication_conversations WHERE id=?',[conversationId]);
   if(!conv)throw Object.assign(new Error('Conversation not found'),{status:404});
   const [participants]=await pool.execute('SELECT email FROM communication_participants WHERE conversation_id=?',[conversationId]);
-  const candidates=await emailClientCandidates(conv.agency_id,participants);
+  const [[first]] = await pool.execute("SELECT from_json,subject,body_text FROM communication_messages WHERE conversation_id=? AND direction='inbound' AND COALESCE(is_internal_note,0)=0 ORDER BY id LIMIT 1", [conversationId]);
+  const voicemail = first ? await voicemailClientCandidates(conv.agency_id, { ...first, from: parse(first.from_json) }) : null;
+  const candidates = voicemail?.phone ? voicemail.clients : await emailClientCandidates(conv.agency_id,participants);
   const choices=[];
   for(const c of candidates)if(await canAccessHubClient({userId,clientId:c.id,agencyId:conv.agency_id}))choices.push({id:c.id,name:c.full_name || c.initials || `Client #${c.id}`});
   const [links]=await pool.execute("SELECT entity_type,entity_id FROM communication_links WHERE conversation_id=? AND entity_type IN ('client','client_filing_review')",[conversationId]);

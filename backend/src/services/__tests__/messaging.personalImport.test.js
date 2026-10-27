@@ -8,6 +8,7 @@ vi.mock('../inboundEventInvitation.service.js',()=>({forwardInboundEventInvitati
 vi.mock('../inboundCommunication.service.js',()=>({processInboundCommunicationEvent:vi.fn()}));
 import pool from '../../config/database.js';
 import {workspaceMailboxType} from '../workspaceMailboxType.service.js';
+import {prepareInboundAttachments} from '../communicationAttachments.service.js';
 import {persistInboundEmail} from '../inboundEmailPersistence.service.js';
 import {ingestPersonalMailboxInbound} from '../personalMailbox.service.js';
 const args={agencyId:2,identity:{id:1,agency_id:2,identity_key:'personal_5',from_email:'staff@itsco.health'},fromEmail:'sender@example.test',bodyText:'Hello',messageIdHeader:'<message@test>',gmailPayload:{mimeType:'text/html',body:{data:Buffer.from('<h1>Hello</h1>').toString('base64url')}}};
@@ -30,4 +31,10 @@ it('defers on directory failure rather than guessing or losing a Group delivery'
  workspaceMailboxType.mockRejectedValue(new Error('directory offline'));
  await expect(ingestPersonalMailboxInbound(args)).rejects.toThrow('directory offline');
  expect(persistInboundEmail).not.toHaveBeenCalled();
+});
+
+it('preserves Grasshopper recordings and transcription in a non-SSO Group inbox',async()=>{
+ prepareInboundAttachments.mockResolvedValue([{filename:'voicemail.mp3',contentType:'audio/mpeg',storageKey:'communication-attachments/recording'}]);
+ await ingestPersonalMailboxInbound({...args,identity:{...args.identity,from_email:'eden@itsco.health'},fromEmail:'help@grasshopper.com',subject:'New voicemail from 303-555-1234',bodyText:'Transcription: Please call me back.'});
+ expect(persistInboundEmail).toHaveBeenCalledWith(expect.objectContaining({fromEmail:'help@grasshopper.com',bodyText:'Transcription: Please call me back.',attachments:[expect.objectContaining({filename:'voicemail.mp3'})]}));
 });
