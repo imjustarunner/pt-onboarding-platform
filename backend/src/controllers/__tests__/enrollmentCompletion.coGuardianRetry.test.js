@@ -134,3 +134,12 @@ it('reuses the existing child association when a failed guardian enrollment is r
  await new Function(...Object.keys(deps),`return (async()=>{${source.slice(start,end)}})();`)(...Object.values(deps));
  expect(rows).toEqual([existing]);expect(create).not.toHaveBeenCalled();
 });
+it('clears an old recovery flag only after every invited child has a completed bundle',async()=>{
+ const start=source.indexOf('async function clearRecoveredPacketFailure('),end=source.indexOf('\nconst normalizeName',start);
+ const update=vi.fn();let rows=[{client_id:5,bundle_pdf_path:'five.pdf'}];
+ const deps={IntakeSubmission:{findById:async()=>({intake_data:JSON.stringify({packetGeneration:{status:'needs_review',failedClientIds:[6]}})}),updateById:update},parseSubmissionIntakeData:s=>JSON.parse(s.intake_data),IntakeSubmissionClient:{listBySubmissionId:async()=>rows},hashIntakeData:()=> 'hash'};
+ const clear=new Function(...Object.keys(deps),`${source.slice(start,end)} return clearRecoveredPacketFailure;`)(...Object.values(deps));
+ await clear(18,[5,6]);expect(update).not.toHaveBeenCalled();
+ rows.push({client_id:6,bundle_pdf_path:'six.pdf'});await clear(18,[5,6]);
+ expect(JSON.parse(update.mock.calls[0][1].intake_data).packetGeneration).toEqual({status:'complete',failedClientIds:[]});
+});

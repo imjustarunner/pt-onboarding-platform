@@ -709,6 +709,16 @@ async function recordSharedPacketFailure(submissionId, failures) {
   await IntakeSubmission.updateById(submissionId, { intake_data: JSON.stringify(next), intake_data_hash: hashIntakeData(next) });
 }
 
+async function clearRecoveredPacketFailure(submissionId, clientIds) {
+  const latest = await IntakeSubmission.findById(submissionId);
+  const data = parseSubmissionIntakeData(latest) || {};
+  if (data.packetGeneration?.status !== 'needs_review' || !clientIds.length) return;
+  const rows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+  if (!clientIds.every(id => rows.some(row => Number(row.client_id) === Number(id) && row.bundle_pdf_path))) return;
+  const next = { ...data, packetGeneration: { status: 'complete', failedClientIds: [] } };
+  await IntakeSubmission.updateById(submissionId, { intake_data: JSON.stringify(next), intake_data_hash: hashIntakeData(next) });
+}
+
 const normalizeName = (name) => String(name || '').trim();
 const normalizeDateOnly = (value) => {
   const raw = String(value || '').trim();
@@ -10447,6 +10457,10 @@ export const finalizePublicIntake = async (req, res, next) => {
         submissionId,
         message: waiverPersistErr?.message || waiverPersistErr
       });
+    }
+
+    if (coGuardianBinding && sharedDocuments.failures.size === 0) {
+      await clearRecoveredPacketFailure(submissionId, rawClients.map(client => Number(client.id)).filter(Boolean));
     }
 
     if (!link.create_client && signedDocsOrdered.length > 0) {
