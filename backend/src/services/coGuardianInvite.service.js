@@ -592,7 +592,7 @@ export async function getPublicCoGuardianInvite(token) {
 export async function acceptCoGuardianInvite({ token, contact = {}, answers = null, createPortal = null, enrollmentCompleted = false }) {
   const row = await loadInviteByToken(token);
   assertActiveCoGuardianInvite(row);
-  if (row.public_key && row.source === 'office' && !enrollmentCompleted) {
+  if (row.public_key && !enrollmentCompleted) {
     throw Object.assign(new Error('Complete and sign your enrollment packet before activating guardian access.'), {status:409,statusCode:409});
   }
   const firstName = String(contact.firstName || row.invited_first_name || '').trim() || 'Guardian';

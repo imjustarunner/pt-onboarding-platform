@@ -16,4 +16,4 @@ describe('co-parent invitation boundaries',()=>{
  it('does not release restrictions from a different invitation',()=>{expect(completedCoGuardianPermissions(1,{coGuardianInviteId:2,coGuardianInviteRestricted:true,noView:true})).toMatchObject({noView:true});});
 });
 
-it('cannot activate an office guardian by bypassing the enrollment packet',async()=>{pool.execute.mockResolvedValueOnce([[{...invite(),source:'office'}]]);await expect(acceptCoGuardianInvite({token:'synthetic'})).rejects.toMatchObject({status:409});});
+it.each(['office','school'])('cannot activate a %s guardian by bypassing the enrollment packet',async source=>{pool.execute.mockResolvedValueOnce([[{...invite(),source}]]);await expect(acceptCoGuardianInvite({token:'synthetic'})).rejects.toMatchObject({status:409});});
