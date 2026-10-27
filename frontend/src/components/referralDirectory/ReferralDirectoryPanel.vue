@@ -158,7 +158,7 @@ const pendingCount = ref(0);
 
 const ADMIN_ROLES = new Set(['super_admin', 'admin']);
 const isAdmin = computed(() => ADMIN_ROLES.has(String(authStore.user?.role || '').toLowerCase()));
-const canSendReferrals = computed(() => ['super_admin','admin','support'].includes(String(authStore.user?.role || '').toLowerCase()));
+const canSendReferrals = computed(() => ['super_admin','admin','support','staff','provider','provider_plus'].includes(String(authStore.user?.role || '').toLowerCase()));
 
 const resolvedAgencyId = computed(() => {
   const fromProp = Number(props.agencyId);

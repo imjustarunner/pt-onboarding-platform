@@ -1,5 +1,5 @@
 import { REFERRAL_SERVICES } from '../utils/referralMatching.js';
-import { authorizeReferralOutreach, findReferralOptions, prepareReferralEmail, sendReferralEmail } from '../services/referralOutreach.service.js';
+import { authorizeReferralOutreach, findReferralOptions, prepareReferralEmail, sendReferralEmail, referralOutreachOptions, searchReferralRecipients } from '../services/referralOutreach.service.js';
 const action = fn => async (req,res) => {
   res.set('Cache-Control','no-store');
   try { const agencyId=req.referralAgencyId,actorUserId=req.user.id;
@@ -9,5 +9,7 @@ const action = fn => async (req,res) => {
 };
 export const referralServices = (_req,res) => res.json({services:REFERRAL_SERVICES.map(({id,label})=>({id,label}))});
 export const matchReferralRequest = action((req,{agencyId}) => findReferralOptions(agencyId,req.body || {}));
+export const getReferralOutreachOptions = action((_req,scope) => referralOutreachOptions(scope));
+export const getReferralRecipients = action(async (req,scope) => ({ recipients: await searchReferralRecipients({...scope,query:req.query.q}) }));
 export const previewReferralRequest = action((req,scope) => prepareReferralEmail({...req.body,...scope}));
 export const sendReferralRequest = action((req,scope) => sendReferralEmail({...scope,draftId:req.params.id}));

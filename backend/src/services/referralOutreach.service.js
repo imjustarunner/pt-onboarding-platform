@@ -8,27 +8,66 @@ import { emailHash, classifySupportEmailResult } from './supportTicketEmailPolic
 import { matchReferrals, referralEmailContent } from '../utils/referralMatching.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+const directoryRoles = new Set(['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus']);
+export const canSendReferralAsSupport = actor => actor?.role === 'super_admin' || ['admin', 'support'].includes(actor?.agency_role || actor?.role);
 export async function authorizeReferralOutreach(agencyId, actorUserId, db = pool) {
   const [[actor]] = await db.execute(`SELECT u.id,u.role,ua.agency_role FROM users u
     LEFT JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
     WHERE u.id=? AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
     AND (u.role='super_admin' OR ua.user_id IS NOT NULL)`, [agencyId, actorUserId]);
-  if (!actor || (actor.role !== 'super_admin' && !['admin','support'].includes(actor.agency_role || actor.role))) {
-    throw fail('Referral emails are currently available to agency support and administrators.', 403);
+  if (!actor || !directoryRoles.has(actor.role)) {
+    throw fail('Active agency membership and referral directory access are required.', 403);
   }
   return actor;
+}
+export async function referralOutreachOptions({ agencyId, actorUserId }) {
+  const actor = await authorizeReferralOutreach(agencyId, actorUserId);
+  const canSupport = canSendReferralAsSupport(actor);
+  return { canSendAsSupport: canSupport, canEmailNewPerson: canSupport, defaultSenderMode: canSupport ? 'support' : 'personal' };
+}
+// Search and revalidation share Messages' current clinical/contact access scope.
+export async function searchReferralRecipients({ agencyId, actorUserId, query }) {
+  const q = String(query || '').trim();
+  if (q.length < 2) return [];
+  if (q.length > 254) throw fail('Use a shorter name or email to search.');
+  const { searchHubPeople } = await import('./messagesHub.service.js');
+  const people = await searchHubPeople({ agencyId, userId: actorUserId, q, limit: 50 });
+  return people.filter(p => Number(p.agencyId) === Number(agencyId) && /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(p.email || ''))
+    .map(p => ({ personKey: p.personKey, name: p.displayName, email: p.email.toLowerCase(), relationship: p.relationshipMeta || '' }));
+}
+async function recipientFor({ agencyId, actorUserId, actor, to, personKey, senderMode }) {
+  const recipient = String(to || '').trim().toLowerCase();
+  if (!/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(recipient) || recipient.length > 254) throw fail('Enter one valid recipient email.');
+  if (!personKey) {
+    if (!canSendReferralAsSupport(actor) || senderMode !== 'support') throw fail('Choose a person from the system. Support can email a new person using the support sender.', 403);
+    return recipient;
+  }
+  const people = await searchReferralRecipients({ agencyId, actorUserId, query: recipient });
+  if (!people.some(p => p.personKey === personKey && p.email === recipient)) throw fail('This recipient is no longer available in your directory. Choose them again.', 403);
+  return recipient;
 }
 export async function findReferralOptions(agencyId, criteria) {
   return matchReferrals(await Entry.listForAgency(agencyId, { limit: 1000 }), criteria);
 }
 async function senderFor(agencyId) {
   const identity = await Identity.findByAgencyAndIdentityKey(agencyId, 'support');
-  if (!identity || !/^support@/i.test(identity.from_email || '') || Number(identity.agency_id) !== Number(agencyId)) {
+  if (!identity || Number(identity.is_active) === 0 || !/^support@/i.test(identity.from_email || '') || Number(identity.agency_id) !== Number(agencyId)) {
     throw fail('Configure an active support sender for this agency first.', 409);
   }
   const [[route]] = await pool.execute('SELECT sender_identity_id FROM email_inbound_routes WHERE LOWER(email_address)=? AND is_active=1', [identity.from_email.toLowerCase()]);
   if (Number(route?.sender_identity_id) !== Number(identity.id)) throw fail('Configure inbound routing for this support address before sending.', 409);
   return identity;
+}
+async function outreachSender({ agencyId, actorUserId, actor, senderMode }) {
+  if (!['support', 'personal'].includes(senderMode)) throw fail('Choose a sender.');
+  if (senderMode === 'support') {
+    if (!canSendReferralAsSupport(actor)) throw fail('Support sender access is required.', 403);
+    const identity = await senderFor(agencyId);
+    return { identity, from: identity.from_email.toLowerCase(), replyTo: identity.from_email.toLowerCase(), inboxId: null };
+  }
+  const { resolveEmailSendMailbox } = await import('./emailSendMailbox.service.js');
+  const mailbox = await resolveEmailSendMailbox({ agencyId, userId: actorUserId });
+  return { identity: mailbox.identity, from: mailbox.fromEmail.toLowerCase(), replyTo: mailbox.replyTo.toLowerCase(), inboxId: mailbox.inbox.id };
 }
 async function selectedEntries(agencyId, ids) {
   if (!Array.isArray(ids) || !ids.length || ids.length > 6 || ids.some(id => !Number.isSafeInteger(Number(id)))) throw fail('Select one to six referral entries.');
@@ -38,36 +77,44 @@ async function selectedEntries(agencyId, ids) {
   }
   return entries;
 }
-export async function prepareReferralEmail({ agencyId, actorUserId, to, name = '', entryIds }) {
-  await authorizeReferralOutreach(agencyId, actorUserId);
-  const recipient = String(to || '').trim().toLowerCase();
-  if (!/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(recipient) || recipient.length > 254) throw fail('Enter one valid recipient email.');
+export async function prepareReferralEmail({ agencyId, actorUserId, to, name = '', entryIds, personKey = null, senderMode }) {
+  const actor = await authorizeReferralOutreach(agencyId, actorUserId);
+  senderMode ||= canSendReferralAsSupport(actor) ? 'support' : 'personal';
+  const recipient = await recipientFor({ agencyId, actorUserId, actor, to, personKey, senderMode });
   if (typeof name !== 'string' || name.length > 100 || /[\r\n]/.test(name)) throw fail('Enter a short recipient name.');
-  const identity = await senderFor(agencyId);
+  const sender = await outreachSender({ agencyId, actorUserId, actor, senderMode });
   const entries = await selectedEntries(agencyId, entryIds);
-  const content = referralEmailContent({ entries, name });
+  const content = referralEmailContent({ entries, name, support: senderMode === 'support' });
   const [[agency]] = await pool.execute('SELECT name FROM agencies WHERE id=?', [agencyId]);
   content.subject = `Your referral options | ${agency.name}`;
   const id = randomUUID();
-  const payload = { to: recipient, ...content, entryIds: entries.map(e => e.id), senderIdentityId: identity.id, from: identity.from_email.toLowerCase() };
+  const payload = { to: recipient, ...content, entryIds: entries.map(e => e.id), senderIdentityId: sender.identity.id,
+    from: sender.from, replyTo: sender.replyTo, inboxId: sender.inboxId, senderMode, personKey };
   const enc = encryptChatText(JSON.stringify(payload));
   await pool.execute(`INSERT INTO referral_outreach_drafts
     (id,agency_id,actor_user_id,payload_ciphertext,payload_iv,payload_auth_tag,encryption_key_id) VALUES (?,?,?,?,?,?,?)`,
   [id,agencyId,actorUserId,enc.ciphertextB64,enc.ivB64,enc.authTagB64,enc.keyId]);
-  return { id, ...payload, replyTo: payload.from };
+  return { id, ...payload };
 }
 
 /** Reserve the reviewed draft once before transport. Unknown outcomes never auto-retry. */
 export async function sendReferralEmail({ agencyId, actorUserId, draftId }, dependencies = {}) {
-  await authorizeReferralOutreach(agencyId, actorUserId);
+  const actor = await authorizeReferralOutreach(agencyId, actorUserId);
   const [[draft]] = await pool.execute('SELECT * FROM referral_outreach_drafts WHERE id=? AND agency_id=? AND actor_user_id=?', [draftId,agencyId,actorUserId]);
   if (!draft) throw fail('Referral draft not found.',404);
-  if (draft.status !== 'draft') return { status:draft.status, ticketId:draft.ticket_id, duplicate:true };
+  if (draft.status !== 'draft') {
+    const saved = draft.payload_ciphertext ? JSON.parse(decryptChatText({ ciphertextB64:draft.payload_ciphertext,ivB64:draft.payload_iv,authTagB64:draft.payload_auth_tag,keyId:draft.encryption_key_id })) : {};
+    return { ...saved.receipt, status:draft.status, ticketId:draft.ticket_id, duplicate:true };
+  }
   if (Date.now() - new Date(draft.created_at).getTime() > 24*60*60*1000) throw fail('This preview expired. Prepare a new email.',409);
   const payload = JSON.parse(decryptChatText({ ciphertextB64:draft.payload_ciphertext,ivB64:draft.payload_iv,authTagB64:draft.payload_auth_tag,keyId:draft.encryption_key_id }));
+  const senderMode = payload.senderMode || 'support';
+  await recipientFor({ agencyId, actorUserId, actor, to: payload.to, personKey: payload.personKey, senderMode });
   await selectedEntries(agencyId,payload.entryIds);
-  const identity = await senderFor(agencyId);
-  if (identity.id !== payload.senderIdentityId || identity.from_email.toLowerCase() !== payload.from) throw fail('Support sender changed. Prepare a new email.',409);
+  const sender = await outreachSender({ agencyId, actorUserId, actor, senderMode });
+  const identity = sender.identity;
+  if (identity.id !== payload.senderIdentityId || sender.from !== payload.from || sender.replyTo !== (payload.replyTo || payload.from) || (senderMode === 'personal' && sender.inboxId !== payload.inboxId)) throw fail('Your sender changed. Prepare a new email.',409);
+  if (senderMode === 'personal') return sendPersonalReferral({ agencyId, actorUserId, draft, payload }, dependencies);
   const enc = encryptSupportEmailText(payload.text);
   const internetId = `<${draft.id}@${payload.from.split('@')[1]}>`;
   const db = await pool.getConnection();
@@ -116,4 +163,23 @@ export async function sendReferralEmail({ agencyId, actorUserId, draftId }, depe
   const { notifyReferralSupport } = await import('./referralSupportNotifications.service.js');
   await notifyReferralSupport({agencyId,ticketId,actorUserId}).catch(error => console.warn('[referral support] notification pending',error.code));
   return { status,ticketId,messageId,transportMessageId:result?.id || null,reason:result?.reason || null };
+}
+
+async function sendPersonalReferral({ agencyId, actorUserId, draft, payload }, dependencies) {
+  const [reserved] = await pool.execute("UPDATE referral_outreach_drafts SET status='sending' WHERE id=? AND status='draft'", [draft.id]);
+  if (!reserved.affectedRows) return { status: 'sending', duplicate: true };
+  const compose = dependencies.compose || (await import('./unifiedInbox.service.js')).composeNewEmail;
+  try {
+    const result = await compose({ agencyId, userId: actorUserId, inboxId: payload.inboxId,
+      payload: { to: payload.to, subject: payload.subject, text: payload.text, html: payload.html,
+        templateType: 'hub_email', undoDelaySeconds: 0, deferClientFiling: true } });
+    const receipt = { status: result.sent ? 'sent' : 'queued', conversationId: result.id, messageId: result.messageId };
+    const enc = encryptChatText(JSON.stringify({ ...payload, receipt }));
+    await pool.execute(`UPDATE referral_outreach_drafts SET status=?,payload_ciphertext=?,payload_iv=?,payload_auth_tag=?,encryption_key_id=? WHERE id=?`,
+      [receipt.status, enc.ciphertextB64, enc.ivB64, enc.authTagB64, enc.keyId, draft.id]);
+    return receipt;
+  } catch (error) {
+    await pool.execute("UPDATE referral_outreach_drafts SET status='uncertain' WHERE id=?", [draft.id]);
+    throw fail('Delivery could not be confirmed. Check Messages before sending another email.', 503);
+  }
 }

@@ -1,10 +1,11 @@
 import pool from '../config/database.js';
-import { serviceTags } from '../utils/referralMatching.js';
+import { serviceTags, matchingDetails } from '../utils/referralMatching.js';
 
 // Catalog row of an external referral source/resource (e.g. "Dr. Smith,
 // pediatric psychiatry"). See migration 736 and referralDirectory.controller.js.
 
 const UPDATABLE_COLUMNS = [
+  'matching_details',
   'service_tags',
   'category_id',
   'name',
@@ -25,6 +26,7 @@ const UPDATABLE_COLUMNS = [
 // never trust agency_id / approval_status / approved_by / etc. from payload —
 // those are set by the controller based on the authenticated request.
 const PAYLOAD_ALLOWED_COLUMNS = [
+  'matching_details',
   'service_tags',
   'category_id',
   'name',
@@ -65,6 +67,10 @@ class ReferralDirectoryEntry {
       let v = payload[k];
       if (k === 'service_tags') {
         v = JSON.stringify(serviceTags(v));
+      } else if (k === 'matching_details') {
+        const details = matchingDetails(v);
+        if (details.ageMin !== null && details.ageMax !== null && details.ageMin > details.ageMax) throw new Error('Minimum age must not exceed maximum age.');
+        v = JSON.stringify(details);
       } else if (k === 'category_id') {
         v = v === null || v === '' ? null : Number(v);
         if (Number.isNaN(v)) v = null;

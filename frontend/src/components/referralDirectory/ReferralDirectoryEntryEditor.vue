@@ -80,6 +80,17 @@
           <textarea v-model="form.notes" rows="3" placeholder="Wait time ~2 weeks; prefers fax referrals."></textarea>
         </label>
 
+        <fieldset><legend>Confirmed matching details (optional)</legend>
+          <div class="rdm-row">
+            <label class="rdm-field">Minimum age<input v-model="form.ageMin" type="number" min="0" max="120" /></label>
+            <label class="rdm-field">Maximum age<input v-model="form.ageMax" type="number" min="0" max="120" /></label>
+          </div>
+          <label class="rdm-field">Languages<input v-model="form.languages" maxlength="1000" placeholder="English, Spanish" /></label>
+          <label><input v-model="form.appointmentFormats" type="checkbox" value="telehealth" /> Telehealth</label>
+          <label><input v-model="form.appointmentFormats" type="checkbox" value="in_person" /> In person</label>
+          <p>Leave unknown details blank. Confirmed details help match referral requests.</p>
+        </fieldset>
+
         <div v-if="error" class="rdm-error">{{ error }}</div>
 
         <footer class="rdm-modal-foot">
@@ -109,6 +120,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'saved', 'categoriesChanged']);
 
 const makeEmpty = () => ({
+  ageMin: '', ageMax: '', languages: '', appointmentFormats: [],
   service_tags: [],
   name: '',
   category_id: null,
@@ -142,7 +154,11 @@ watch(() => [props.open, props.entry, props.mode], () => {
   api.get('/referral-directory/services', { params: { agencyId: props.agencyId } }).then(r => { serviceOptions.value=r.data.services; }).catch(() => {});
   Object.assign(form, makeEmpty());
   if (props.entry && props.mode === 'edit') {
+    let details = props.entry.matching_details || {};
+    if (typeof details === 'string') { try { details = JSON.parse(details); } catch { details = {}; } }
+    details ||= {};
     Object.assign(form, {
+      ageMin: details.ageMin ?? '', ageMax: details.ageMax ?? '', languages: (details.languages || []).join(', '), appointmentFormats: [...(details.appointmentFormats || [])],
       service_tags: parseTags(props.entry.service_tags),
       name: props.entry.name || '',
       category_id: props.entry.category_id || null,
@@ -172,6 +188,7 @@ async function submit() {
   saving.value = true;
   try {
     const payload = {
+      matching_details: { ageMin: form.ageMin, ageMax: form.ageMax, languages: form.languages.split(',').map(v => v.trim()).filter(Boolean), appointmentFormats: form.appointmentFormats },
       service_tags: form.service_tags,
       name: form.name?.trim() || '',
       category_id: form.category_id || null,

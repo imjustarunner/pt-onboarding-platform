@@ -2,7 +2,7 @@ import { requireReferralAgency } from './faxIntake.routes.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import rateLimit from 'express-rate-limit';
-import { referralServices, matchReferralRequest, previewReferralRequest, sendReferralRequest } from '../controllers/referralOutreach.controller.js';
+import { referralServices, matchReferralRequest, previewReferralRequest, sendReferralRequest, getReferralOutreachOptions, getReferralRecipients } from '../controllers/referralOutreach.controller.js';
 import {
   listCategories,
   createCategory,
@@ -27,6 +27,8 @@ router.use(authenticate, (req, res, next) => {
 // Categories
 router.get('/services', referralServices);
 router.post('/match', matchReferralRequest);
+router.get('/outreach/options', getReferralOutreachOptions);
+router.get('/outreach/recipients', getReferralRecipients);
 router.post('/outreach/preview', previewReferralRequest);
 router.post('/outreach/:id/send', rateLimit({ windowMs: 60000, max: 10 }), sendReferralRequest);
 router.get('/categories', authenticate, listCategories);
