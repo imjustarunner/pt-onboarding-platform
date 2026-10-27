@@ -105,6 +105,19 @@ describe('school event fee tracking', () => {
 });
 
 describe('outreach venue address', () => {
+  it('keeps typed venue fields during hub polling and hydrates a different event', async () => {
+    const original = { id: 15, category: 'outreach', eventType: 'school_outreach', isGeneralOutreach: true,
+      title: 'Testing', startsAt: '2026-10-26T23:00:00Z', endsAt: '2026-10-27T01:00:00Z' };
+    const wrapper = render({ agencyId: 1, editEvent: original });
+    await flushPromises();
+    await wrapper.get('[aria-label="Venue name"]').setValue('Community center');
+    await wrapper.get('[aria-label="Venue address"]').setValue('123 Main St, Denver, CO 80202');
+    await wrapper.setProps({ editEvent: { ...original, providersAssigned: 2 } });
+    expect(wrapper.get('[aria-label="Venue address"]').element.value).toBe('123 Main St, Denver, CO 80202');
+    expect(wrapper.get('[aria-label="Venue name"]').element.value).toBe('Community center');
+    await wrapper.setProps({ editEvent: { ...original, id: 16, eventLocationAddress: '456 Oak St, Denver, CO 80202' } });
+    expect(wrapper.get('[aria-label="Venue address"]').element.value).toBe('456 Oak St, Denver, CO 80202');
+  });
   const event = { id: 15, category: 'outreach', eventType: 'school_outreach', isGeneralOutreach: true,
     title: 'Testing', startsAt: '2026-10-26T23:00:00.000Z', endsAt: '2026-10-27T01:00:00.000Z' };
   it('lets a coordinator repair a missing address and retains it when reopened', async () => {

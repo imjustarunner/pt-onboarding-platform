@@ -201,6 +201,7 @@ export const listHubEvents = async (req, res, next) => {
              ce.staffing_config_json, ce.school_event_status,
              ce.employee_report_time, ce.skill_builder_direct_hours,
              ce.district_broadcast_id, ce.flier_file_url, ce.event_image_url, ce.details_url,
+             ce.event_location_name, ce.event_location_address, ce.public_location_address,
              a.name AS school_name,
              COALESCE(NULLIF(TRIM(ce.district_name), ''), sp.district_name) AS district_name
       FROM company_events ce
@@ -265,6 +266,7 @@ export const listHubEvents = async (req, res, next) => {
       // Retry without school_profiles and/or school_event_status / ce.district_name for older schemas
       let fallbackSql = `
         SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
+               ce.event_location_name, ce.event_location_address, ce.public_location_address,
                ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
                ce.staffing_config_json, NULL AS school_event_status, a.name AS school_name, NULL AS district_name
         FROM company_events ce
@@ -384,6 +386,8 @@ export const listHubEvents = async (req, res, next) => {
         id: r.id,
         title: r.title,
         description: r.description,
+        eventLocationName: String(r.event_location_name || '').trim(),
+        eventLocationAddress: String(r.event_location_address || '').trim() || String(r.public_location_address || '').trim(),
         eventType: r.event_type,
         startsAt: r.starts_at,
         endsAt: r.ends_at,

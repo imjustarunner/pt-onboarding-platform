@@ -901,7 +901,9 @@ onMounted(() => {
 });
 
 watch(
-  () => props.editEvent,
+  // Hub polling replaces the event object every 30 seconds. Keep the open draft
+  // intact; hydrate again only when the user switches to a different event.
+  () => props.editEvent?.id,
   () => hydrateFromEdit()
 );
 
