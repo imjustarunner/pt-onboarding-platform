@@ -4802,6 +4802,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           signupClosesAt,
           signupCount,
           viewerSignedUp,
+          viewerRsvpStatus: Number(req.user?.id) === Number(providerId) ? viewerAttendeeStatus || null : null,
           cancelReason: String(r.cancel_reason || '').trim() || null,
           cancelAttribution: r.cancel_attribution || null,
           // Only the supervisor (host) reschedules; supervisees may view/join.

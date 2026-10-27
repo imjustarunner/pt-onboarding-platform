@@ -3,7 +3,7 @@ import { hasClinicalSupervisionHistory } from '../services/clinicalSupervisionHi
 import { makeSupervisionRecurring } from '../services/supervisionRecurrenceEdit.service.js';
 import { userBelongsToAgency } from '../services/supervisionSignup.service.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
-import { saveSupervisionRsvp } from '../services/supervisionRsvp.service.js';
+import { getSupervisionRsvp, saveSupervisionRsvp } from '../services/supervisionRsvp.service.js';
 import { normalizeSupervisionSpeakerLabels } from '../utils/supervisionSpeakerLabels.js';
 import { workplacePersonSql } from '../utils/workplacePeople.js';
 import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
@@ -4968,6 +4968,13 @@ export const withdrawFromSupervisionSession = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getMySupervisionRsvp = async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.json(await getSupervisionRsvp({ sessionId: Number(req.params.id), userId: Number(req.user.id) }));
+  } catch (error) { next(error); }
 };
 
 export const respondToSupervisionSession = async (req,res,next) => {

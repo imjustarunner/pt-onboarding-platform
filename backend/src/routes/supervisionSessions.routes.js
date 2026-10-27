@@ -45,6 +45,7 @@ import {
   getMyPresenterAssignments,
   getSessionAttendees,
   respondToSupervisionSession,
+  getMySupervisionRsvp,
   setSupervisionAttendeeRequired,
   getSessionPresenters,
   markSessionPresenterPresented,
@@ -128,6 +129,7 @@ router.get('/my-sessions', getMySupervisionSessions);
 router.get('/supervisee/:superviseeId/sessions', getSuperviseeSessions);
 router.get('/my-presenter-assignments', getMyPresenterAssignments);
 router.get('/sessions/:id/attendees', getSessionAttendees);
+router.get('/sessions/:id/rsvp', requireActiveStatus, getMySupervisionRsvp);
 router.post('/sessions/:id/rsvp', requireActiveStatus, respondToSupervisionSession);
 router.post('/sessions/:id/signup-dismiss', requireActiveStatus, async(req,res,next)=>{
   try { res.json(await dismissSupervisionSignup({sessionId:Number(req.params.id),userId:Number(req.user.id)})); } catch(error) { next(error); }

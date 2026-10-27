@@ -113,3 +113,24 @@ it('shows recurrence and outcome controls on Info, hides Join/status in Edit, an
  await s.confirmSupervisionAction({scope:'single',reason:'Scheduling conflict'});
  expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining({scope:'single',changeReason:'Scheduling conflict'}));
 });
+
+it('opens a group attendee’s RSVP first and lets them continue to details', async () => {
+ const clock=vi.spyOn(Date,'now').mockReturnValue(new Date('2026-10-04T00:00:00Z').getTime());
+ try {
+  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:9,sessionType:'group',status:'SCHEDULED',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+  const defaultGet=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
+  const s=wrapper.vm.$.setupState;
+  for(const patch of [{enrollmentMode:'invited'},{enrollmentMode:'signup_only',viewerSignedUp:true},{enrollmentMode:'signup_only',viewerSignedUp:false,viewerRsvpStatus:'DECLINED'}]) {
+   Object.assign(fixture.supervisionSessions[0],patch);s.summary={...fixture};s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
+   expect(wrapper.findComponent({name:'SupervisionRsvpDialog'}).exists()).toBe(true);expect(s.showRequestModal).toBe(false);
+  }
+  const dialog=wrapper.findComponent({name:'SupervisionRsvpDialog'});
+  expect(dialog.exists()).toBe(true);expect(dialog.props('session').id).toBe(10);expect(s.showRequestModal).toBe(false);
+  dialog.vm.$emit('details');await flushPromises();expect(s.personalSupervisionRsvp).toBeNull();expect(s.showRequestModal).toBe(true);
+  for(const patch of [{sessionType:'individual'},{sessionType:'group',supervisorUserId:7},{sessionType:'group',supervisorUserId:9,coFacilitatorUserId:7}]) {
+   Object.assign(fixture.supervisionSessions[0],patch);s.summary={...fixture};s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
+   expect(s.personalSupervisionRsvp).toBeNull();expect(s.showRequestModal).toBe(true);
+  }
+ } finally { clock.mockRestore(); }
+});

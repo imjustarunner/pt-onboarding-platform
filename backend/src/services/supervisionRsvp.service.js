@@ -3,14 +3,34 @@ import pool from '../config/database.js';
 import { withRecurringScheduleEdit } from './recurringScheduleCancellation.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { isSignupOpen } from './supervisionSignup.service.js';
+// Read only the authenticated attendee's response, including a previous decline.
+const personalRsvpQuery = `SELECT s.*,a.status attendee_status,a.is_required,a.decline_reason, EXISTS(SELECT 1 FROM supervision_session_presenters p WHERE p.session_id=s.id AND p.user_id=a.user_id) AS is_presenter FROM supervision_sessions s JOIN supervision_session_attendees a ON a.session_id=s.id AND a.user_id=?
+ WHERE s.id=? AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN') AND EXISTS(SELECT 1 FROM user_agencies ua JOIN users u ON u.id=ua.user_id WHERE ua.user_id=? AND (ua.agency_id=s.agency_id OR JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.audienceAgencyIds'),CAST(ua.agency_id AS JSON))) AND ua.is_active=1 AND u.is_active=1)`;
+export async function getSupervisionRsvp({ sessionId, userId, now = new Date() }) {
+ const db = await pool.getConnection();
+ try {
+  const [rows] = await db.execute(personalRsvpQuery, [userId, sessionId, userId]);
+  const session = rows[0];
+  if (!session) throw Object.assign(new Error('Your RSVP is not available for this supervision.'), { status: 404 });
+  const required = Number(session.is_required) === 1 || Number(session.is_presenter) === 1
+   || [session.supervisor_user_id, session.co_facilitator_user_id, session.session_type === 'individual' ? session.supervisee_user_id : null].some(id => Number(id) > 0 && Number(id) === Number(userId));
+  const canRespond = session.status === 'SCHEDULED' && parseUtcDate(session.start_at) > now;
+  return {
+   status: session.attendee_status,
+   reason: session.decline_reason || '',
+   required,
+   canRespond,
+   canAccept: canRespond && (session.enrollment_mode !== 'signup_only' || ['SIGNED_UP', 'JOINED'].includes(session.attendee_status) || isSignupOpen(session, now))
+  };
+ } finally { db.release(); }
+}
 export async function saveSupervisionRsvp({sessionId,userId,response,reason='',scope='occurrence',untilDate=null,now=new Date()}) {
  if(!['accepted','declined'].includes(response))throw Object.assign(new Error('Choose attending or not attending.'),{status:400});
  if(!['occurrence','until_date'].includes(scope))throw Object.assign(new Error('Choose this date or a specific end date; you cannot cancel the series forever.'),{status:400});
  if(scope==='until_date'&&response!=='declined')throw Object.assign(new Error('A date range is only available when you cannot attend.'),{status:400});
  const work=async db=>{
  try{await db.beginTransaction();
- const [rows]=await db.execute(`SELECT s.*,a.status attendee_status,a.is_required, EXISTS(SELECT 1 FROM supervision_session_presenters p WHERE p.session_id=s.id AND p.user_id=a.user_id) AS is_presenter FROM supervision_sessions s JOIN supervision_session_attendees a ON a.session_id=s.id AND a.user_id=?
- WHERE s.id=? AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN') AND EXISTS(SELECT 1 FROM user_agencies ua JOIN users u ON u.id=ua.user_id WHERE ua.user_id=? AND (ua.agency_id=s.agency_id OR JSON_CONTAINS(JSON_EXTRACT(s.meeting_settings_json,'$.audienceAgencyIds'),CAST(ua.agency_id AS JSON))) AND ua.is_active=1 AND u.is_active=1) FOR UPDATE`,[userId,sessionId,userId]);
+ const [rows]=await db.execute(`${personalRsvpQuery} FOR UPDATE`,[userId,sessionId,userId]);
  const session=rows[0];
  if(!session||session.status!=='SCHEDULED'||parseUtcDate(session.start_at)<=now)throw Object.assign(new Error('This supervision RSVP is no longer available.'),{status:410});
  if(response==='accepted'&&session.enrollment_mode==='signup_only'&&!['SIGNED_UP','JOINED'].includes(session.attendee_status)&&!isSignupOpen(session,now))throw Object.assign(new Error('Registration for this session has closed.'),{status:409});

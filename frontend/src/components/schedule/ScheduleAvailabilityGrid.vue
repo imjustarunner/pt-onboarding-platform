@@ -14,6 +14,9 @@
     data-tour="my-schedule-grid"
   >
     <button v-if="fullscreenActive" type="button" class="sched-fullscreen-exit" title="Exit full screen (Escape)" @click="toggleFullscreen">× Exit full screen</button>
+    <SupervisionRsvpDialog v-if="personalSupervisionRsvp" :key="personalSupervisionRsvp.session.id"
+      :session="personalSupervisionRsvp.session" @close="personalSupervisionRsvp = null"
+      @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" />
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
@@ -5861,6 +5864,7 @@ import SupervisionBody from './SupervisionBody.vue';
 import { confirmOneTimeRoom, ANY_ROOM_NOTE } from '../../utils/officeRequestConfirmation';
 import { isWorkplaceSchedulePerson } from '../../utils/workplacePeople';
 import SupervisionAttendeeMandatoryPanel from './SupervisionAttendeeMandatoryPanel.vue';
+import SupervisionRsvpDialog from './SupervisionRsvpDialog.vue';
 import SupervisionSignupCountdown from './SupervisionSignupCountdown.vue';
 import { supervisionSignupState, supervisionSignupLabel } from '../../utils/supervisionSignupState.js';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
@@ -25878,7 +25882,19 @@ const pickScheduleEventForEdit = async (item) => {
   requestType.value = 'edit_schedule_event';
 };
 
-const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
+const personalSupervisionRsvp = ref(null);
+const openPersonalSupervisionDetails = () => {
+  const context = personalSupervisionRsvp.value;
+  personalSupervisionRsvp.value = null;
+  if (context) openSupervisionEditInScheduleModal(context.dayName, context.hour, context.session.id, true);
+};
+const refreshPersonalSupervisionRsvp = async () => {
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  invalidateScheduleSummaryCacheForUser(authStore.user?.id);
+  window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));
+  await load({ forceRefresh: true });
+};
+const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0, skipRsvp = false) => {
   const hits = supervisionSessionsInCell(dayName, hour);
   if (!hits.length) return;
   showStackDetailsModal.value = false;
@@ -25889,6 +25905,16 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
   supvStartHour.value = Number(hour);
   supvEndHour.value = Number(hour) + 1;
   const first = hits.find(s=>Number(s.id)===Number(preferredId)) || hits[0];
+  const actorId = Number(authStore.user?.id || 0);
+  if (!skipRsvp && actorId === Number(props.userId)
+    && String(first.sessionType || '').toLowerCase() === 'group'
+    && ![Number(first.supervisorUserId), Number(first.coFacilitatorUserId)].includes(actorId)
+    && !isScheduleEventTerminal(first) && parseMaybeDate(first.startAt)?.getTime() > Date.now()
+    && (!isSignupSupervisionEvent(first) || first.viewerSignedUp || ['DECLINED', 'INVITED'].includes(first.viewerRsvpStatus))) {
+    showRequestModal.value = false;
+    personalSupervisionRsvp.value = { session: first, dayName, hour };
+    return;
+  }
   selectedSupvSessionId.value = Number(first.id || 0);
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
@@ -26731,7 +26757,8 @@ const openStackDetailsItem = (item) => {
     closeStackDetailsModal();
     openSupervisionEditInScheduleModal(
       String(item?.dayName || stackDetailsDayName.value || ''),
-      Number(item?.hour || stackDetailsHour.value || 0)
+      Number(item?.hour || stackDetailsHour.value || 0),
+      Number(item.sessionId)
     );
     return;
   }
