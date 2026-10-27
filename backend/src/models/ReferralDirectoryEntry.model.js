@@ -1,9 +1,11 @@
 import pool from '../config/database.js';
+import { serviceTags } from '../utils/referralMatching.js';
 
 // Catalog row of an external referral source/resource (e.g. "Dr. Smith,
 // pediatric psychiatry"). See migration 736 and referralDirectory.controller.js.
 
 const UPDATABLE_COLUMNS = [
+  'service_tags',
   'category_id',
   'name',
   'organization_name',
@@ -23,6 +25,7 @@ const UPDATABLE_COLUMNS = [
 // never trust agency_id / approval_status / approved_by / etc. from payload —
 // those are set by the controller based on the authenticated request.
 const PAYLOAD_ALLOWED_COLUMNS = [
+  'service_tags',
   'category_id',
   'name',
   'organization_name',
@@ -60,7 +63,9 @@ class ReferralDirectoryEntry {
     for (const k of keys) {
       if (payload[k] === undefined) continue;
       let v = payload[k];
-      if (k === 'category_id') {
+      if (k === 'service_tags') {
+        v = JSON.stringify(serviceTags(v));
+      } else if (k === 'category_id') {
         v = v === null || v === '' ? null : Number(v);
         if (Number.isNaN(v)) v = null;
       } else if (k === 'is_active') {

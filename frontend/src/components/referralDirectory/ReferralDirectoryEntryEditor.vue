@@ -61,6 +61,10 @@
           <input v-model="form.address" type="text" maxlength="400" placeholder="123 Main St, City, ST ZIP" />
         </label>
 
+        <fieldset class="rdm-field"><legend>Services offered</legend>
+          <label v-for="service in serviceOptions" :key="service.id"><input type="checkbox" v-model="form.service_tags" :value="service.id" /> {{ service.label }}</label>
+          <small>Select services confirmed by the practice. These tags power referral matching.</small>
+        </fieldset>
         <label class="rdm-field">
           <span class="rdm-label">Specialties</span>
           <textarea v-model="form.specialties" rows="2" placeholder="Pediatric psychiatry, ADHD, autism evaluation"></textarea>
@@ -105,6 +109,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'saved', 'categoriesChanged']);
 
 const makeEmpty = () => ({
+  service_tags: [],
   name: '',
   category_id: null,
   organization_name: '',
@@ -120,6 +125,8 @@ const makeEmpty = () => ({
 });
 
 const form = reactive(makeEmpty());
+const serviceOptions = ref([]);
+const parseTags = value => { if (Array.isArray(value)) return [...value]; try { const parsed=JSON.parse(value || '[]'); return Array.isArray(parsed)?parsed:[]; } catch { return []; } };
 const saving = ref(false);
 const error = ref('');
 const categoryAddBusy = ref(false);
@@ -132,9 +139,11 @@ const submitLabel = computed(() => {
 
 watch(() => [props.open, props.entry, props.mode], () => {
   if (!props.open) return;
+  api.get('/referral-directory/services', { params: { agencyId: props.agencyId } }).then(r => { serviceOptions.value=r.data.services; }).catch(() => {});
   Object.assign(form, makeEmpty());
   if (props.entry && props.mode === 'edit') {
     Object.assign(form, {
+      service_tags: parseTags(props.entry.service_tags),
       name: props.entry.name || '',
       category_id: props.entry.category_id || null,
       organization_name: props.entry.organization_name || '',
@@ -163,6 +172,7 @@ async function submit() {
   saving.value = true;
   try {
     const payload = {
+      service_tags: form.service_tags,
       name: form.name?.trim() || '',
       category_id: form.category_id || null,
       organization_name: form.organization_name?.trim() || null,

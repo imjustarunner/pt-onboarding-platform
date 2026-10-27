@@ -64,6 +64,22 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     return { text: '', status: 'suppressed', suppressed: true, suppressionReason: classification.reason, metadata: { ...baseMetadata, knowledgeSources: [] } };
   }
 
+  // Directory-grounded options for explicit external referral requests. Never
+  // manufacture providers, availability, credentials or insurance acceptance.
+  const requestText = `${context.original.subject || ''}\n${context.latestInbound.body || ''}`;
+  const { detectReferralServices, referralEmailContent } = await import('../utils/referralMatching.js');
+  const requestedServices = detectReferralServices(requestText);
+  if (requestedServices.length && /\b(?:referr\w*|recommend\w*|looking for|find|list of|options|send)\b/i.test(context.latestInbound.body || '')) {
+    const findOptions = dependencies.findReferralOptions || (await import('./referralOutreach.service.js')).findReferralOptions;
+    const options = await findOptions(context.agencyId,{services:requestedServices});
+    if (options.entries.length) {
+      const entries=options.entries.slice(0,4);
+      return { text:referralEmailContent({entries}).text,status:'needs_review',provider:'directory',modelName:'service-tags-v1',
+        metadata:{...baseMetadata,reviewWarnings:['Confirm the selected services and any age, location, language or insurance requirements before sending.'],
+          knowledgeSources:[],draftSources:[...baseMetadata.draftSources,...entries.map(e=>({type:'referral_directory',id:e.id,label:e.organization_name||e.name,detail:e.source_url||e.website||''}))]} };
+    }
+  }
+
   let knowledgeMatches = input.knowledgeMatches;
   let promptNotes = input.promptNotes;
   const reviewWarnings = [];

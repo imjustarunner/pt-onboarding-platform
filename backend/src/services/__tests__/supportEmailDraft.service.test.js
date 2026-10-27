@@ -15,6 +15,20 @@ const input = (more = {}) => ({ ticket, claimant, knowledgeMatches: [], promptNo
 const model = (reply, extra = {}) => async () => ({ text: JSON.stringify({ reply, ...extra }), modelName: 'test-model', provider: 'vertex' });
 
 describe('evidence-grounded support drafts', () => {
+  it('drafts referral options from the current agency directory without inventing providers', async () => {
+    const result=await generateSupportEmailDraft(input({ticket:{...ticket,agency_id:377,subject:'Referral options',question:'Can you recommend psychologists or psychiatrists?'}}),{
+      findReferralOptions:async(agencyId,criteria)=>{assert.equal(agencyId,377);assert.deepEqual(criteria.services,['psychology','psychiatry']);return {entries:[{id:12,name:'Example Practice',phone:'555-0100',website:'https://example.test',service_tags:['psychology'],notes:'PRIVATE'}]};},
+      generateText:()=>assert.fail('Directory options do not need model-generated provider details')
+    });
+    assert.equal(result.status,'needs_review');assert.equal(result.provider,'directory');assert.match(result.text,/Example Practice/);assert.doesNotMatch(result.text,/PRIVATE/);
+    assert.ok(result.metadata.draftSources.some(s=>s.type==='referral_directory'&&s.id===12));
+  });
+  it('does not repeat a referral list in response to a later thank-you', async () => {
+    const result=await generateSupportEmailDraft(input({ticket:{...ticket,subject:'Psychiatrist referrals'},messages:[{id:5,author_role:'school_staff',body:'Thank you for your help.'}]}),{
+      findReferralOptions:()=>assert.fail('The current email did not request more options'),generateText:model('You are welcome. Please let us know if you need anything else.')
+    });
+    assert.doesNotMatch(result.text,/referral options from our network/);
+  });
   it('uses the latest follow-up and carries forward earlier constraints, excluding internal/deleted notes', async () => {
     let captured;
     const result = await generateSupportEmailDraft(input({ messages: [

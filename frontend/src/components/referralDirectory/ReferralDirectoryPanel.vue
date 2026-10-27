@@ -23,6 +23,7 @@
       </div>
     </header>
 
+    <ReferralRequestComposer v-if="canSendReferrals && resolvedAgencyId" :agency-id="resolvedAgencyId" />
     <div class="rd-filters">
       <input
         v-model="search"
@@ -121,6 +122,7 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import ReferralDirectoryEntryEditor from './ReferralDirectoryEntryEditor.vue';
 import ReferralDirectoryAdminQueue from './ReferralDirectoryAdminQueue.vue';
+import ReferralRequestComposer from './ReferralRequestComposer.vue';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -156,6 +158,7 @@ const pendingCount = ref(0);
 
 const ADMIN_ROLES = new Set(['super_admin', 'admin']);
 const isAdmin = computed(() => ADMIN_ROLES.has(String(authStore.user?.role || '').toLowerCase()));
+const canSendReferrals = computed(() => ['super_admin','admin','support'].includes(String(authStore.user?.role || '').toLowerCase()));
 
 const resolvedAgencyId = computed(() => {
   const fromProp = Number(props.agencyId);

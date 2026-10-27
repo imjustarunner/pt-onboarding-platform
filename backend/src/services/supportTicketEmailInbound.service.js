@@ -208,6 +208,12 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
     await syncEmailTicketsToInbox({ agencyId, ticketId: ticket.id, limit: 1, forceRefresh: true });
   });
   await sync().catch((error) => console.warn('[support email] inbox mirror pending:', error?.code || 'sync_failed'));
+  if (!staffCopy && !duplicate && !appOriginReceipt && !preserveTicketState
+      && (input.recipients || []).some(address => /^support@/i.test(String(address || '')))) {
+    const notify = dependencies.notifySupport || (await import('./referralSupportNotifications.service.js')).notifyReferralSupport;
+    await notify({agencyId,ticketId:ticket.id,title:'Support email received'}).catch(error =>
+      console.warn('[support email] notification pending:',error?.code || 'notification_failed'));
+  }
   return { handled: true, ticketId: ticket.id, ticketMessageId, duplicate, staffCopy };
 }
 
