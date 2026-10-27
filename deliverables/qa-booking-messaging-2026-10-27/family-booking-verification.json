@@ -1,0 +1,14 @@
+{
+  "actorId": 1440,
+  "clientId": 2271,
+  "agencyId": 450,
+  "policy": "Session price: $120.00\n\nCancel at least 24 hours before your session: no cancellation fee. Cancel with less notice: $80.00. Missed appointment: $100.00.\n\nThis test workspace records self-pay balances. No card is charged.\n\nI acknowledge the session price and attendance policy.",
+  "bookingStatus": 200,
+  "booking": {
+    "appointmentId": 72,
+    "startAt": "2026-11-02T20:00:00.000Z",
+    "endAt": "2026-11-02T21:00:00.000Z",
+    "timeZone": "America/Denver"
+  },
+  "visibleAfterReload": true
+}

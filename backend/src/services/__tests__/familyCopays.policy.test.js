@@ -46,3 +46,11 @@ test('final zero displays a closed balance and preserves prior money for refund 
     assert.equal(value.totalCents,0);assert.equal(value.patientResponsibilityCents,0);assert.equal(value.paidCents,paid);assert.equal(value.refundReviewCents,paid);assert.equal(value.dueCents,0);assert.equal(value.billingState,'closed');assert.equal(value.canPay,false);
   }
 });
+
+test('confirmed self-pay readiness does not require an insurance policy or eligibility response',()=>{
+ const profile={setup_status:'ready',coverage_mode:'self_pay',collection_policy:'manual',insurance_fingerprint:insuranceFingerprint(null)};
+ assert.doesNotThrow(()=>assertReady(profile,null));
+ const value=presentBalance({...row,sourceType:'clinical_self_pay',amountCents:12000,totalCents:12000,status:'open',holdReason:null},{collectible:true,own:true,responsibility:{responsibilityType:'self_pay'}});
+ assert.equal(value.dueCents,12000);assert.equal(value.canPay,true);assert.equal(value.referencePrice,undefined);
+ assert.throws(()=>assertReady({...profile,coverage_mode:'unknown'},null),/incomplete/);
+});

@@ -1,0 +1,158 @@
+{
+  "agencyId": 450,
+  "databaseTimestampZone": "UTC",
+  "appointments": [
+    {
+      "id": 76,
+      "start_at": "2026-10-23 19:00:00",
+      "end_at": "2026-10-23 20:00:00",
+      "status": "no_show"
+    },
+    {
+      "id": 73,
+      "start_at": "2026-10-26 21:00:00",
+      "end_at": "2026-10-26 22:00:00",
+      "status": "completed"
+    },
+    {
+      "id": 74,
+      "start_at": "2026-10-26 21:00:00",
+      "end_at": "2026-10-26 22:00:00",
+      "status": "completed"
+    },
+    {
+      "id": 75,
+      "start_at": "2026-10-27 19:00:00",
+      "end_at": "2026-10-27 20:00:00",
+      "status": "late_canceled"
+    },
+    {
+      "id": 69,
+      "start_at": "2026-10-29 19:00:00",
+      "end_at": "2026-10-29 20:00:00",
+      "status": "scheduled"
+    },
+    {
+      "id": 70,
+      "start_at": "2026-10-30 19:00:00",
+      "end_at": "2026-10-30 20:00:00",
+      "status": "scheduled"
+    },
+    {
+      "id": 72,
+      "start_at": "2026-11-02 20:00:00",
+      "end_at": "2026-11-02 21:00:00",
+      "status": "canceled_by_client"
+    },
+    {
+      "id": 68,
+      "start_at": "2026-11-03 20:00:00",
+      "end_at": "2026-11-03 21:00:00",
+      "status": "scheduled"
+    },
+    {
+      "id": 71,
+      "start_at": "2026-11-05 20:00:00",
+      "end_at": "2026-11-05 21:00:00",
+      "status": "scheduled"
+    }
+  ],
+  "reminders": [
+    {
+      "id": 50,
+      "appointment_id": 69,
+      "channel": "email",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-10-28 19:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 51,
+      "appointment_id": 69,
+      "channel": "sms",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-10-28 19:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 52,
+      "appointment_id": 69,
+      "channel": "sms",
+      "offset_minutes": 240,
+      "scheduled_for": "2026-10-29 15:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 53,
+      "appointment_id": 70,
+      "channel": "email",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-10-29 19:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 54,
+      "appointment_id": 70,
+      "channel": "sms",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-10-29 19:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 55,
+      "appointment_id": 70,
+      "channel": "sms",
+      "offset_minutes": 240,
+      "scheduled_for": "2026-10-30 15:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 62,
+      "appointment_id": 68,
+      "channel": "email",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-11-02 20:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 63,
+      "appointment_id": 68,
+      "channel": "sms",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-11-02 20:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 64,
+      "appointment_id": 68,
+      "channel": "sms",
+      "offset_minutes": 240,
+      "scheduled_for": "2026-11-03 16:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 65,
+      "appointment_id": 71,
+      "channel": "email",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-11-04 20:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 66,
+      "appointment_id": 71,
+      "channel": "sms",
+      "offset_minutes": 1440,
+      "scheduled_for": "2026-11-04 20:00:00",
+      "status": "pending"
+    },
+    {
+      "id": 67,
+      "appointment_id": 71,
+      "channel": "sms",
+      "offset_minutes": 240,
+      "scheduled_for": "2026-11-05 16:00:00",
+      "status": "pending"
+    }
+  ]
+}

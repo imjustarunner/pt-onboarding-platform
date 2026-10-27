@@ -1,0 +1,35 @@
+[
+  {
+    "key": "supervisor",
+    "providerId": 1438,
+    "clientId": 2271,
+    "appointmentId": 73,
+    "clinicalSessionId": 122,
+    "draftId": 262,
+    "noteId": 73,
+    "signed": true,
+    "signResult": {
+      "signedAt": "2026-10-27T15:25:04.482Z"
+    }
+  },
+  {
+    "key": "supervisee",
+    "providerId": 1439,
+    "clientId": 2272,
+    "appointmentId": 74,
+    "clinicalSessionId": 123,
+    "draftId": 263,
+    "noteId": 74,
+    "signed": true,
+    "signResult": {
+      "signedAt": "2026-10-27T15:25:06.706Z"
+    },
+    "cosigned": true,
+    "cosignResult": {
+      "ok": true,
+      "noteId": 74,
+      "cosignedAt": "2026-10-27T15:25:08.046Z",
+      "isBillable": true
+    }
+  }
+]

@@ -1,0 +1,59 @@
+{
+  "agencyId": 450,
+  "clientId": 2271,
+  "syntheticOnly": true,
+  "realCollectionAttempted": false,
+  "payerAcceptance": {
+    "success": true
+  },
+  "allocations": [
+    {
+      "receivableId": 13,
+      "result": {
+        "success": true
+      }
+    },
+    {
+      "receivableId": 14,
+      "result": {
+        "success": true
+      }
+    },
+    {
+      "receivableId": 15,
+      "result": {
+        "success": true
+      }
+    }
+  ],
+  "balances": [
+    {
+      "receivableId": 13,
+      "clientId": 2271,
+      "payerUserId": 1440,
+      "totalCents": null,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    },
+    {
+      "receivableId": 14,
+      "clientId": 2271,
+      "payerUserId": 1440,
+      "totalCents": null,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    },
+    {
+      "receivableId": 15,
+      "clientId": 2271,
+      "payerUserId": 1440,
+      "totalCents": null,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    }
+  ],
+  "passed": true
+}

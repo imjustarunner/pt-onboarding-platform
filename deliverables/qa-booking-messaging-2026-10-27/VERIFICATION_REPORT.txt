@@ -1,0 +1,55 @@
+ITSCOLLC QA VERIFICATION — OCTOBER 27, 2026
+This is a new supplement. Earlier bot briefs/runbooks remain unchanged.
+Overall: READY FOR TARGETED RETESTING; full end-to-end QA is NOT yet a pass.
+
+LIVE VERIFIED
+- ITSCOLLC is agency 450, the same isolated ITSCO test workspace; its URL is still https://app.itsco.health/auricwell-qa-demo/login. No bot received admin or superadmin access.
+- ITSCO number +1 719-716-3661 is assigned to 450, linked to the ITSCO service campaign and inbound handler. Michael signed care/reminder and workforce consent. Three initial confirmation texts were accepted by the carrier; Michael confirmed receipt.
+- Four real demo appointments are retained for reminders: 68,69,70,71 (dates in the addendum). Email and SMS are scheduled 24 hours before; SMS also 4 hours before. UTC scheduling was corrected and covered across the Denver DST change. Actual future reminder receipt and N replies remain to be observed.
+- Family browser booking 72 succeeded after price/$80 late-cancel/$100 no-show acknowledgement and persisted after reload. Family cancellation preview showed $0, cancellation returned 200, and a separate authenticated read confirmed canceled_by_client. Screenshots accompany this report.
+- Avery's published hours now include current-client sessions; Cameron and Alex also have dated published hours. No real agency's availability was changed.
+- Supervision agreement 413 was signed in the browser by both participants.
+- Cameron: appointment 73, clinical session 122, draft 262, signed assessment note 73.
+- Alex: appointment 74, clinical session 123, draft 263, signed assessment note 74; Cameron cosigned it. These are synthetic initial assessments. Progress-note treatment-plan prerequisites still need their separate test.
+- Support 1434 and biller 1453: admin users/grid 403; signed note bodies 73/74 and clinical draft list 403; scoped provider list 200 with only three demo providers; foreign-agency selector 403; appointment detail 200. Biller's billing desk 200, ordinary support's billing desk 403. This is live endpoint evidence plus isolated permission tests, not a claim that every application endpoint has been audited.
+- Late-cancel appointment 75: exact $80 acknowledgement enforced (missing acknowledgement 409); one fee balance. No-show 76: $100, retry ALREADY_SETTLED. Completed 73/74: $120 each. Four synthetic ledger records 13–16, no collection.
+- Fictional parent 1440 accepted synthetic payer responsibility for Rowan only; restricted biller allocated balances 13/14/15 through normal APIs. Family reads succeed with payment disabled; amount-display verification follows deployment. Harper balance 16 remains unassigned pending that family’s payer case.
+- Inactive fixture 1454 returns 403. Expired temporary-password fixture 1455 returns 401 with passwordResetSent=true. Mail receipt for that specific reset has not been independently checked.
+- External contact retained for each provider. Avery's two external emails to michael@plottwistco.com are marked sent (7601,7602). A sent status is not recipient inbox confirmation.
+
+IMPLEMENTED AND TESTED
+- Support admin boundaries, guarded scheduling directory, clinical-content separation.
+- Demo booking/self-pay setup, family slot selection, policy acknowledgement, linked appointment/calendar/clinical session creation.
+- SMS registration ownership, purpose-specific consent review, nullable preference handling, exact owned-number lookup, ITSCO branding and inbound wiring.
+- Demo $80 late-cancel and $100 no-show terms; recorded policy at booking; idempotent family balance source per appointment; synthetic balance collection blocked.
+- Synthetic clearinghouse transmission denied in the application, including direct adapter paths. No insurance claim or eligibility request was transmitted.
+- Enrollment wording, current demo provider finder, session-linked Note Workspace, embedded notes layout, synthetic disclosure credentials/education, and provider mailbox collation fix.
+- Focused validation: support/guardian booking 38 tests; demo balances/settlement/booking 39 tests; family ledger policy 8 tests; demo display/ordinary copay presentation 15 tests; family billing component 10 tests; earlier SMS and clinical-link tests, frontend tests/build, and deployed scheduling regression workflows. Assertions passed; one initial ledger test command needed rerunning with startup DB connections disabled because its cleanup hook attempted a closed local pool.
+
+OPEN / NOT VERIFIED
+1. Cameron/Alex external sender registration: failed. Google returned an internal error when adding send-as aliases; shared transport currently has 100 identities. Possible capacity issue, not conclusively diagnosed. Existing senders were preserved. Messages 7578–7581 failed; do not count them as delivered.
+2. A real appointment reminder followed by Michael's N, the exact $80 acknowledgement, and final cancellation remains pending. N alone must not charge/cancel a late session. Email-link cancellation and real reply-threading also remain to be verified.
+3. Full EN/ES enrollment and portal localization, old-session leakage, signed-copy language/delivery, disclosure/ROI roster presentation, download-expiry copy, and every branded footer/link were not rerun here. The prior FAIL findings remain open until evidence closes them.
+4. Full Exchange apply/placement and exclusion diagnostics, natural-language client search, internal messages, family secure messages, and dual email appearance for every automated email need the bot cases in QA_ADDENDUM.txt.
+5. The calendar quick-note UI -> My work started -> chart sequence, treatment plans and progress-note signing, and complete billing-readiness UI require a separate browser pass. The two assessment signatures/cosign above do not replace those cases.
+6. Actual insurance/copay examples remain local-only simulations; all current demo clients stay self-pay. No real payment collection or Claim.MD transmission is authorized.
+
+ACCOUNTS
+1433 Avery Morgan QA — provider
+1434 Jordan Ellis QA Support — support (not admin)
+1438 Cameron Reed QA Supervisor — provider/supervisor
+1439 Alex Rivera QA Supervisee — provider/supervisee
+1440 Recovery parent QA — linked only to synthetic Rowan 2271
+1453 Jamie Chen QA Billing — support role with billing access in 450 only
+1454 Inactive QA fixture
+1455 Expired temporary-password QA fixture
+Private credential receipts are in the owner's secrets/auricwell-qa directory. Do not forward setup administrator credentials or put passwords/tokens in a report.
+
+DEPLOYMENT
+Main contains bb3ed812c (booking/support/UI), 1c9380e04 and 85571e372 (SMS), ba4325de3 (roster/UTC), a8f2499cb (support scheduling), 09df5db1b (demo fee ledger), and 9a04b4ffa (noncollection guard/clinical fixture setup).
+See the appended deployment/fee verification for final live status. Source changes, deployment success, API checks, carrier acceptance and human receipt are distinct evidence.
+
+DISPLAY CHANGE REQUESTED DURING VERIFICATION
+Families can see a recorded service price as reference while coverage/payment responsibility is pending, with their share marked Pending and $0 due. Previously recorded copays are clearly distinguished from a full service price. Confirmed self-pay remains payable through the existing completed-service and agreed-price path without an insurance eligibility response. Synthetic demo balances remain noncollectible. The same distinctions are included in downloadable statements.
+The frontend production build passed with an 8 GB Node heap; an initial default-heap attempt ran out of memory. The 9a04b4ffa backend deployment completed successfully: https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40531446423
+The subsequent reference-price display change still requires its own deployment verification below.

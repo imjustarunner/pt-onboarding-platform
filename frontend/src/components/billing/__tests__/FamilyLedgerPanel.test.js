@@ -50,3 +50,20 @@ it('shows only this guardian’s share as due while retaining authorized shared 
 it('clears previous financial rows when a refresh fails',async()=>{
  balances=[{receivableId:3,allocationId:30,isOwnShare:true,billingState:'due',dueCents:4500,balanceCents:4500}];const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();expect(w.text()).toContain('$45.00');api.get.mockRejectedValue(new Error('revoked'));await button(w,'Refresh').trigger('click');await flushPromises();expect(w.text()).not.toContain('$45.00');expect(w.find('[role="alert"]').exists()).toBe(true);w.unmount();
 });
+
+it('shows a synthetic fee amount without offering payment or counting it as debt',async()=>{
+ balances=[{receivableId:13,allocationId:13,isOwnShare:true,billingState:'review',status:'review',demoAmountCents:8000,dueCents:0,balanceCents:0,canPay:false,description:'Late cancellation',explanation:'Test balance only. Nothing is due and payments are disabled.'}];
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:450},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.text()).toContain('$80.00 · Test balance');expect(w.text()).toContain('Late cancellation');expect(w.find('.ledger-summary').text()).toContain('$0.00');expect(button(w,'Make a payment')).toBeUndefined();w.unmount();
+});
+
+it('shows the price before coverage review separately from zero due and pending responsibility',async()=>{
+ balances=[{receivableId:18,allocationId:18,isOwnShare:true,billingState:'review',status:'review',referencePrice:{amountCents:12000,label:'Service price before coverage review'},dueCents:0,balanceCents:0,canPay:false,explanation:'No payment is due yet.'}];
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.find('.coverage-review').text()).toContain('Service price before coverage review$120.00');expect(w.find('.coverage-review').text()).toContain('Your share after reviewPending');expect(w.find('.coverage-review').text()).toContain('Amount due now$0.00');expect(w.find('.ledger-summary').text()).toContain('$0.00');expect(button(w,'Make a payment')).toBeUndefined();w.unmount();
+});
+it('offers payment for confirmed self-pay instead of showing pending coverage',async()=>{
+ balances=[{receivableId:19,allocationId:19,isOwnShare:true,billingState:'due',status:'open',dueCents:12000,balanceCents:12000,canPay:true,description:'Visit · Self-pay'}];
+ const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.find('.ledger-summary').text()).toContain('$120.00');expect(w.find('.coverage-review').exists()).toBe(false);expect(button(w,'Make a payment')).toBeDefined();expect(w.text()).toContain('Visit · Self-pay');w.unmount();
+});

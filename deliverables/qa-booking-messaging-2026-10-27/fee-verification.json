@@ -1,0 +1,112 @@
+{
+  "agencyId": 450,
+  "clientId": 2271,
+  "late": {
+    "appointmentId": 75,
+    "startAt": "2026-10-27T19:00:00.000Z",
+    "endAt": "2026-10-27T20:00:00.000Z",
+    "timeZone": "America/Denver"
+  },
+  "preview": {
+    "scope": "single",
+    "fees": [
+      {
+        "appointmentId": 75,
+        "policyId": 3,
+        "feeCents": 8000,
+        "noticeHours": 24
+      }
+    ],
+    "totalFeeCents": 8000
+  },
+  "missingAcknowledgementBlocked": true,
+  "cancellation": {
+    "cancelledCount": 1,
+    "appointmentIds": [
+      75
+    ],
+    "scope": "single"
+  },
+  "noShow": {
+    "appointmentId": 76,
+    "settlement": {
+      "settled": true,
+      "outcome": "no_show",
+      "bookingPackage": null,
+      "practitionerPackage": null,
+      "paymentStatus": "fee_pending",
+      "feeCents": 10000
+    },
+    "retry": {
+      "settled": false,
+      "reason": "ALREADY_SETTLED",
+      "paymentStatus": "fee_pending"
+    }
+  },
+  "completed": [
+    {
+      "appointmentId": 73,
+      "settlement": {
+        "settled": true,
+        "outcome": "completed",
+        "bookingPackage": null,
+        "practitionerPackage": null,
+        "paymentStatus": "fee_pending",
+        "feeCents": 12000
+      }
+    },
+    {
+      "appointmentId": 74,
+      "settlement": {
+        "settled": true,
+        "outcome": "completed",
+        "bookingPackage": null,
+        "practitionerPackage": null,
+        "paymentStatus": "fee_pending",
+        "feeCents": 12000
+      }
+    }
+  ],
+  "balances": [
+    {
+      "id": 13,
+      "sourceKey": "75",
+      "clientId": 2271,
+      "payerUserId": null,
+      "totalCents": 8000,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    },
+    {
+      "id": 14,
+      "sourceKey": "76",
+      "clientId": 2271,
+      "payerUserId": null,
+      "totalCents": 10000,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    },
+    {
+      "id": 15,
+      "sourceKey": "73",
+      "clientId": 2271,
+      "payerUserId": null,
+      "totalCents": 12000,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    },
+    {
+      "id": 16,
+      "sourceKey": "74",
+      "clientId": 2272,
+      "payerUserId": null,
+      "totalCents": 12000,
+      "status": "review",
+      "holdReason": "insurance_review",
+      "canPay": false
+    }
+  ]
+}

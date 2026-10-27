@@ -104,6 +104,8 @@ export async function guardianStatementPdf({agencyId,userId,clientId,receivableI
     `Prepared: ${today()}`,
     ...balances.flatMap(b=>[`Service date: ${b.serviceDate?(b.serviceDate instanceof Date ? b.serviceDate.toISOString().slice(0,10) : String(b.serviceDate).slice(0,10)):'Not recorded'} · Reference ${b.receivableId}`,
       `${b.description} · Payer: ${b.payerName||'Awaiting assignment'}`,
+      ...(b.referencePrice?[`${b.referencePrice.label}: ${money(b.referencePrice.amountCents)} (for reference; no payment due yet)`]:[]),
+      ...(b.demoAmountCents!=null?[`Test balance: ${money(b.demoAmountCents)} (no payment due)`]:[]),
       `Assigned amount: ${money(b.amountCents)} · Paid: ${money(b.paidCents)} · Due: ${money(b.dueCents)}`,b.explanation]),
     'This statement records services and payments. It is not a superbill for insurance reimbursement. Contact billing for an insurance-ready superbill.'
   ]});

@@ -1,0 +1,110 @@
+[
+  {
+    "actor": "support",
+    "path": "/users/grid?agencyId=450",
+    "status": 403,
+    "error": "An administrator must manage user accounts."
+  },
+  {
+    "actor": "support",
+    "path": "/users?agencyId=450",
+    "status": 403,
+    "error": "Administrator access is required for agency configuration."
+  },
+  {
+    "actor": "support",
+    "path": "/users/me/providers-for-support?agencyId=450",
+    "status": 200,
+    "count": 3
+  },
+  {
+    "actor": "support",
+    "path": "/users/me/providers-for-support?agencyId=2",
+    "status": 403,
+    "error": "Agency access denied"
+  },
+  {
+    "actor": "support",
+    "path": "/medical-billing/notes/73?agencyId=450",
+    "status": 403,
+    "error": "Support can view documentation status, but cannot open clinical records."
+  },
+  {
+    "actor": "support",
+    "path": "/medical-billing/notes/74?agencyId=450",
+    "status": 403,
+    "error": "Support can view documentation status, but cannot open clinical records."
+  },
+  {
+    "actor": "support",
+    "path": "/clinical-notes/recent?agencyId=450",
+    "status": 403,
+    "error": "Support can view documentation status, but cannot open clinical records."
+  },
+  {
+    "actor": "support",
+    "path": "/appointments/72",
+    "status": 200,
+    "appointmentStatus": "canceled_by_client"
+  },
+  {
+    "actor": "support",
+    "path": "/family-billing/staff/desk?agencyId=450",
+    "status": 403,
+    "error": "Billing staff access is required for this organization"
+  },
+  {
+    "actor": "biller",
+    "path": "/users/grid?agencyId=450",
+    "status": 403,
+    "error": "An administrator must manage user accounts."
+  },
+  {
+    "actor": "biller",
+    "path": "/users?agencyId=450",
+    "status": 403,
+    "error": "Administrator access is required for agency configuration."
+  },
+  {
+    "actor": "biller",
+    "path": "/users/me/providers-for-support?agencyId=450",
+    "status": 200,
+    "count": 3
+  },
+  {
+    "actor": "biller",
+    "path": "/users/me/providers-for-support?agencyId=2",
+    "status": 403,
+    "error": "Agency access denied"
+  },
+  {
+    "actor": "biller",
+    "path": "/medical-billing/notes/73?agencyId=450",
+    "status": 403,
+    "error": "Support can view documentation status, but cannot open clinical records."
+  },
+  {
+    "actor": "biller",
+    "path": "/medical-billing/notes/74?agencyId=450",
+    "status": 403,
+    "error": "Support can view documentation status, but cannot open clinical records."
+  },
+  {
+    "actor": "biller",
+    "path": "/clinical-notes/recent?agencyId=450",
+    "status": 403,
+    "error": "Support can view documentation status, but cannot open clinical records."
+  },
+  {
+    "actor": "biller",
+    "path": "/appointments/72",
+    "status": 200,
+    "appointmentStatus": "canceled_by_client"
+  },
+  {
+    "actor": "biller",
+    "path": "/family-billing/staff/desk?agencyId=450",
+    "status": 200,
+    "balances": 0
+  }
+]

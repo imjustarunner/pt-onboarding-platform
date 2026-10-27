@@ -1,0 +1,27 @@
+{
+  "appointmentId": 72,
+  "clientId": 2271,
+  "actorId": 1440,
+  "preview": {
+    "scope": "single",
+    "fees": [
+      {
+        "appointmentId": 72,
+        "policyId": 3,
+        "feeCents": 0,
+        "noticeHours": 24
+      }
+    ],
+    "totalFeeCents": 0
+  },
+  "previewStatus": 200,
+  "cancelStatus": 200,
+  "result": {
+    "cancelledCount": 1,
+    "appointmentIds": [
+      72
+    ],
+    "scope": "single"
+  },
+  "after": "Skip to content\nAuricWell\nFamily portal · Beta\nITSCOLLC\nAgency\nITSCOLLC\n⌄\nViewing\nRowan QA-OfficeEN-1027\nFamily member\n⌄\nService & provider\nCounseling · Avery Morgan QA\nMy family / dashboard 1\nFAMILY & ACCOUNT\nMy family / dashboard\nBalances & payments\nAll secure messages\nNotification setup\nSettings\nAccounts I help with\nRequest my records\nPortal help & feedback\nVIEWING ROWAN\nDashboard\nRegistrations\nTasks & documents\nRowan’s care plan\nAppointments\nRowan QA-OfficeEN-1027 · information\nInvoices & receipts\nSecure messages\nInsurance & payments\nCheck-ins & trends\nEvaluations\nReminder contacts\nNotification history\nACCOUNT\nSign out\nWe’re here for you.\n\nQuestions about your care, services, or account? Your team can help.\n\nContact your team\nAppointments\n\nManage the information shared with your account.\n\nRP\nRecovery parent QA\n⌄\nAppointments\nRefresh\n\nYour next appointments are shown first. Open an appointment to make a change.\n\nFamily notification settings\n\nLoading appointments…"
+}
