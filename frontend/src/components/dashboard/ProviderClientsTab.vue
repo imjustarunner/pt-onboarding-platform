@@ -805,7 +805,7 @@ const isPosOfficeClient = (c) => {
 
 const filterActiveAssignedClients = (rows) =>
   (rows || []).filter((c) => {
-    if (isPendingStatus(c.status) || isPendingStatus(c.client_status_key)) return false;
+    // Assigned clients remain visible while enrollment review is pending.
     if (!showTerminated.value && isTerminatedClient(c)) return false;
     return true;
   });

@@ -3,23 +3,23 @@
     <QaRecipientEmailInbox />
     <div class="panel-head">
       <ConversaBrand compact />
-      <div class="panel-subtitle">Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.</div>
+      <div class="panel-subtitle">{{ ft("Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.") }}</div>
     </div>
 
     <div class="gmsg-tabs">
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'provider' }" @click="mode = 'provider'">
-        Secure messages
+        {{ ft("Secure messages") }}
       </button>
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'support' }" @click="switchToSupport">
-        Support
+        {{ ft("Support") }}
       </button>
 
     </div>
 
-    <div v-if="error" class="error">{{ error }}</div>
+    <div v-if="error" class="error">{{ ft(error) }}</div>
 
     <template v-if="mode === 'provider'">
-      <div v-if="loading" class="muted">Loading conversations…</div>
+      <div v-if="loading" class="muted">{{ ft("Loading conversations…") }}</div>
       <div v-else class="gmsg-body gmsg-provider-body" :class="{'has-conversation': selectedKey}">
         <aside class="gmsg-list" :class="{'conversation-picked': selectedKey}">
           <button
@@ -35,26 +35,26 @@
               <ConversaBadge :type="item.type" />
               {{ item.title }}
             </div>
-            <div class="gmsg-row-meta">{{ item.subtitle }}<small v-if="item.thread?.service_label"> · {{item.thread.agency_name}} · {{item.thread.service_label}}</small></div><span class="message-action">{{ item.provider || item.available ? 'Message your care team →' : 'Waiting for a provider assignment' }}</span>
-            <small v-if="item.type === 'secure'" class="group-label">Shared care conversation</small>
+            <div class="gmsg-row-meta">{{ item.subtitle }}<small v-if="item.thread?.service_label"> · {{item.thread.agency_name}} · {{item.thread.service_label}}</small></div><span class="message-action">{{ item.provider || item.available ? ft("Message your care team →") : ft("Waiting for a provider assignment") }}</span>
+            <small v-if="item.type === 'secure'" class="group-label">{{ ft("Shared care conversation") }}</small>
           </button>
-          <div v-if="!mailboxItems.length" class="muted pad">No care conversations are available for this profile yet. You can use Support for account questions.</div>
+          <div v-if="!mailboxItems.length" class="muted pad">{{ ft("No care conversations are available for this profile yet. You can use Support for account questions.") }}</div>
         </aside>
 
         <section class="gmsg-chat">
-          <div v-if="!selectedKey" class="muted pad message-placeholder">Open your care conversation using the button above.</div>
+          <div v-if="!selectedKey" class="muted pad message-placeholder">{{ ft("Open your care conversation using the button above.") }}</div>
           <template v-else>
-            <button class="back-conversations" type="button" @click="selected=null;selectedEmail=null;messages=[]">← Back to conversations</button>
+            <button class="back-conversations" type="button" @click="selected=null;selectedEmail=null;messages=[]">{{ ft("← Back to conversations") }}</button>
             <div class="gmsg-chat-head">
               <strong>{{ selectedTitle }}</strong>
               <span v-if="selectedType === 'email'" class="muted">{{ selectedSubtitle }}</span>
             </div>
-            <section v-if="selectedType === 'secure'" class="conversation-audience" aria-label="Who can see these messages">
-              <strong>Who can read and reply</strong>
-              <ul><li v-for="person in selected?.participants || []" :key="person.id">{{ person.name }}{{ Number(person.id) === Number(meId) ? ' (you)' : '' }} <span>· {{ person.role === 'guardian' ? 'Guardian' : person.role === 'client' ? 'Client' : person.role === 'provider' ? 'Provider' : 'Care team' }}</span></li></ul>
-              <p>This is a group conversation. Everyone listed can read your replies, including when you address one person.</p>
+            <section v-if="selectedType === 'secure'" class="conversation-audience" :aria-label="ft('Who can see these messages')">
+              <strong>{{ ft("Who can read and reply") }}</strong>
+              <ul><li v-for="person in selected?.participants || []" :key="person.id">{{ person.name }}{{ Number(person.id) === Number(meId) ? ' (you)' : '' }} <span>· {{ person.role === 'guardian' ? ft("Guardian") : person.role === 'client' ? ft("Client") : person.role === 'provider' ? ft("Provider") : ft("Care team") }}</span></li></ul>
+              <p>{{ ft("This is a group conversation. Everyone listed can read your replies, including when you address one person.") }}</p>
             </section>
-            <div v-if="messagesLoading" class="muted pad">Loading…</div>
+            <div v-if="messagesLoading" class="muted pad">{{ ft("Loading…") }}</div>
             <div v-else class="gmsg-thread" ref="threadEl">
               <div
                 v-for="m in messages"
@@ -62,17 +62,17 @@
                 class="gmsg-bubble"
                 :class="{ mine: m.isMine }"
               >
-                <div class="gmsg-meta">{{ m.senderName || (m.isMine ? 'You' : 'Care conversation') }} · {{ formatTime(m.created_at) }}</div>
+                <div class="gmsg-meta">{{ m.senderName || (m.isMine ? ft("You") : ft("Care conversation")) }} · {{ formatTime(m.created_at) }}</div>
                 <div class="gmsg-message-text">{{ m.body }}</div>
               </div>
-              <div v-if="!messages.length" class="muted">No messages yet. Say hello.</div>
+              <div v-if="!messages.length" class="muted">{{ ft("No messages yet. Say hello.") }}</div>
             </div>
-            <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.</p>
+            <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">{{ ft("Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.") }}</p>
             <div v-else class="gmsg-composer">
               <textarea
                 v-model="draft"
                 rows="2"
-                :placeholder="selectedType === 'email' ? 'Write an email reply…' : 'Write to everyone listed above…'"
+                :placeholder="selectedType === 'email' ? ft('Write an email reply…') : ft('Write to everyone listed above…')"
               />
               <button
                 type="button"
@@ -80,22 +80,22 @@
                 :disabled="sending || messagesLoading || (selectedType === 'secure' && !audienceReady) || !draft.trim()"
                 @click="send"
               >
-                {{ sending ? 'Sending…' : selectedType === 'email' ? 'Send reply' : 'Send to group' }}
+                {{ sending ? ft("Sending…") : selectedType === 'email' ? ft("Send reply") : ft("Send to group") }}
               </button>
             </div>
-            <details v-if="selectedType === 'secure'" class="muted pad"><summary>Message security & activity</summary><SecureMessageBanner :thread-id="selected?.thread_id" /><p>For emergencies, contact emergency services.</p></details>
+            <details v-if="selectedType === 'secure'" class="muted pad"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :thread-id="selected?.thread_id" /><p>{{ ft("For emergencies, contact emergency services.") }}</p></details>
           </template>
         </section>
       </div>
     </template>
 
     <template v-else>
-      <div v-if="ticketsLoading" class="muted">Loading support tickets…</div>
+      <div v-if="ticketsLoading" class="muted">{{ ft("Loading support tickets…") }}</div>
       <div v-else class="gmsg-body">
         <aside class="gmsg-list">
           <button type="button" class="gmsg-row gmsg-new" @click="startNewTicket">
-            <div class="gmsg-row-title">+ New support request</div>
-            <div class="gmsg-row-meta">Billing, access, or agency questions</div>
+            <div class="gmsg-row-title">{{ ft("+ New support request") }}</div>
+            <div class="gmsg-row-meta">{{ ft("Billing, access, or agency questions") }}</div>
           </button>
           <button
             v-for="t in tickets"
@@ -105,45 +105,45 @@
             :class="{ active: selectedTicketId === t.id && !creatingTicket }"
             @click="openTicket(t)"
           >
-            <div class="gmsg-row-title">#{{ t.id }} {{ t.subject || 'Support' }}</div>
+            <div class="gmsg-row-title">#{{ t.id }} {{ t.subject || ft("Support") }}</div>
             <div class="gmsg-row-meta">
               <span v-if="t.topic && t.topic !== 'general'">{{ ticketTopicLabel(t.topic) }} · </span>
               {{ t.display_status || t.status }} · {{ formatTime(t.created_at) }}
             </div>
           </button>
-          <div v-if="!tickets.length" class="muted pad">No support tickets yet.</div>
+          <div v-if="!tickets.length" class="muted pad">{{ ft("No support tickets yet.") }}</div>
         </aside>
 
         <section class="gmsg-chat">
           <template v-if="creatingTicket">
-            <p class="muted pad">{{ ['billing','technology'].includes(newTicket.topic) ? 'Only you and authorized support staff can view this request.' : 'This support request is shared with all authorized guardians and the support team.' }} Use secure messages for care conversations.</p>
+            <p class="muted pad">{{ ['billing','technology'].includes(newTicket.topic) ? ft("Only you and authorized support staff can view this request.") : ft("This support request is shared with all authorized guardians and the support team.") }} Use secure messages for care conversations.</p>
             <div class="gmsg-chat-head">
-              <strong>New support request</strong>
-              <span class="muted">Agency staff will reply here</span>
+              <strong>{{ ft("New support request") }}</strong>
+              <span class="muted">{{ ft("Agency staff will reply here") }}</span>
             </div>
             <div class="gmsg-composer pad">
               <label class="gmsg-field">
-                <span>Child</span>
+                <span>{{ ft("Child") }}</span>
                 <select v-model="newTicket.clientId">
-                  <option disabled value="">Select…</option>
+                  <option disabled value="">{{ ft("Select…") }}</option>
                   <option v-for="c in childOptions" :key="c.client_id" :value="String(c.client_id)">
                     {{ c.client_label }}
                   </option>
                 </select>
               </label>
               <label class="gmsg-field">
-                <span>Topic</span>
+                <span>{{ ft("Topic") }}</span>
                 <select v-model="newTicket.topic">
-                  <option v-for="t in guardianTopics" :key="t.id" :value="t.id">{{ t.label }}</option>
+                  <option v-for="t in guardianTopics" :key="t.id" :value="t.id">{{ ft(t.label) }}</option>
                 </select>
               </label>
               <label class="gmsg-field">
-                <span>Subject (optional)</span>
-                <input v-model="newTicket.subject" type="text" placeholder="e.g. Billing question" />
+                <span>{{ ft("Subject (optional)") }}</span>
+                <input v-model="newTicket.subject" type="text" :placeholder="ft('e.g. Billing question')" />
               </label>
               <label class="gmsg-field">
-                <span>Question</span>
-                <textarea v-model="newTicket.question" rows="4" placeholder="How can we help?" />
+                <span>{{ ft("Question") }}</span>
+                <textarea v-model="newTicket.question" rows="4" :placeholder="ft('How can we help?')" />
               </label>
               <button
                 type="button"
@@ -151,17 +151,17 @@
                 :disabled="ticketSending || !newTicket.clientId || !newTicket.question.trim()"
                 @click="createTicket"
               >
-                {{ ticketSending ? 'Submitting…' : 'Submit request' }}
+                {{ ticketSending ? ft("Submitting…") : ft("Submit request") }}
               </button>
             </div>
           </template>
           <template v-else-if="selectedTicket">
-            <p class="muted pad">{{ ['billing','technology'].includes(selectedTicket?.topic) ? 'Only you and authorized support staff can view this request.' : 'This support request is shared with all authorized guardians and the support team.' }} Use secure messages for care conversations.</p>
+            <p class="muted pad">{{ ['billing','technology'].includes(selectedTicket?.topic) ? ft("Only you and authorized support staff can view this request.") : ft("This support request is shared with all authorized guardians and the support team.") }} Use secure messages for care conversations.</p>
             <div class="gmsg-chat-head">
-              <strong>#{{ selectedTicket.id }} {{ selectedTicket.subject || 'Support' }}</strong>
+              <strong>#{{ selectedTicket.id }} {{ selectedTicket.subject || ft("Support") }}</strong>
               <span class="muted">{{ selectedTicket.display_status || selectedTicket.status }}</span>
             </div>
-            <div v-if="ticketMessagesLoading" class="muted pad">Loading…</div>
+            <div v-if="ticketMessagesLoading" class="muted pad">{{ ft("Loading…") }}</div>
             <div v-else class="gmsg-thread" ref="ticketThreadEl">
               <div
                 v-for="m in ticketMessages"
@@ -172,13 +172,13 @@
                 <div class="gmsg-meta">{{ formatTime(m.created_at) }}</div>
                 <div class="gmsg-message-text">{{ m.body }}</div>
               </div>
-              <div v-if="!ticketMessages.length" class="muted">No replies yet.</div>
+              <div v-if="!ticketMessages.length" class="muted">{{ ft("No replies yet.") }}</div>
             </div>
             <div class="gmsg-composer">
               <textarea
                 v-model="ticketDraft"
                 rows="2"
-                placeholder="Reply to support…"
+                :placeholder="ft('Reply to support…')"
                 :disabled="String(selectedTicket.status || '').toLowerCase() === 'closed'"
               />
               <button
@@ -191,11 +191,11 @@
                 "
                 @click="sendTicketReply"
               >
-                {{ ticketSending ? 'Sending…' : 'Send' }}
+                {{ ticketSending ? ft("Sending…") : ft("Send") }}
               </button>
             </div>
           </template>
-          <div v-else class="muted pad">Select a ticket or start a new support request.</div>
+          <div v-else class="muted pad">{{ ft("Select a ticket or start a new support request.") }}</div>
         </section>
       </div>
     </template>
@@ -203,6 +203,8 @@
 </template>
 
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import QaRecipientEmailInbox from '../messages/QaRecipientEmailInbox.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';

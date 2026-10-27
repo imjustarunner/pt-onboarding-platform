@@ -162,7 +162,9 @@ class IntakeSubmissionDocument {
               isd.signed_pdf_path,
               isd.pdf_hash,
               isd.signed_at,
-              CASE WHEN il.form_type = 'smart_school_roi' THEN 'Release of Information'
+              CASE WHEN il.form_type = 'smart_school_roi'
+                          OR JSON_UNQUOTE(JSON_EXTRACT(isd.audit_trail, '$.smartSchoolRoi')) = 'true'
+                   THEN CASE WHEN il.language_code = 'es' THEN 'Autorización para compartir información' ELSE 'Release of Information' END
                    ELSE COALESCE(dt.name, 'Signed enrollment agreement') END AS document_template_name,
               il.title AS intake_link_title
        FROM intake_submission_documents isd

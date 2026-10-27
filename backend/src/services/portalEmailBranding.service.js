@@ -37,9 +37,10 @@ export function portalMessageHtml({ text, linkUrl, linkLabel = 'Open your portal
 
 // This frame belongs to the portal, not to the staff member initiating a send.
 // All text identities remain visible when the recipient blocks remote images.
-export function renderPortalEmail({ brand, text, html, linkUrl, linkLabel }) {
+export function renderPortalEmail({ brand, text, html, linkUrl, linkLabel, locale = 'en' }) {
   if (/data-portal-email="v[12]"/.test(String(html || ''))) return html;
   const e = escapePortalHtml;
+  const spanish = locale === 'es';
   const mark = brand.clinical ? 'https://auricwell.com/auricwell/logo.png' : brand.agencyLogo;
   const name = brand.clinical ? 'AuricWell' : brand.name;
   const label = brand.clinical ? brand.displayName.replace(/^AuricWell\s*/, '') : 'Portal';
@@ -51,8 +52,8 @@ export function renderPortalEmail({ brand, text, html, linkUrl, linkLabel }) {
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" aria-label="${e(brand.displayName)}"><tr>
 ${mark ? `<td width="42" valign="middle"><img src="${e(mark)}" alt="" width="32" style="display:block;width:32px;height:auto;border:0"></td>` : ''}
 <td valign="middle"><div style="font-size:21px;line-height:1.15;font-weight:700;letter-spacing:-0.5px;color:#163e70">${e(name)}</div><div style="font-size:11px;line-height:1.4;letter-spacing:1.1px;color:#627187;margin-top:3px">${e(label).toUpperCase()}</div></td>${agencyTag}
-</tr></table>${school ? '<div style="font-size:11px;color:#627187;padding-top:10px">School coordination through SchoolCareBridge</div>' : ''}</td></tr>
+</tr></table>${school ? `<div style="font-size:11px;color:#627187;padding-top:10px">${spanish ? 'Coordinación escolar mediante SchoolCareBridge' : 'School coordination through SchoolCareBridge'}</div>` : ''}</td></tr>
 <tr><td style="padding:24px 22px 12px;font-size:15px;line-height:1.65;overflow-wrap:anywhere">${html || portalMessageHtml({ text, linkUrl, linkLabel })}</td></tr>
-<tr><td style="padding:16px 22px;border-top:1px solid #e6ebf1;font-size:12px;line-height:1.6;color:#627187"><strong style="color:#40536b">${e(brand.name)}</strong><span style="color:#a2adba"> &nbsp;·&nbsp; </span><a href="mailto:${e(brand.replyTo)}" style="color:#16457c;text-decoration:none">Contact your ${brand.clinical ? 'care team' : 'team'}</a><br>${brand.clinical ? `Delivered by ${e(brand.displayName)} for ${e(brand.name)}.` : `Delivered by ${e(brand.displayName)}.`}</td></tr>
+<tr><td style="padding:16px 22px;border-top:1px solid #e6ebf1;font-size:12px;line-height:1.6;color:#627187"><strong style="color:#40536b">${e(brand.name)}</strong><span style="color:#a2adba"> &nbsp;·&nbsp; </span><a href="mailto:${e(brand.replyTo)}" style="color:#16457c;text-decoration:none">${spanish ? 'Contacte a su equipo de atención' : `Contact your ${brand.clinical ? 'care team' : 'team'}`}</a><br>${spanish ? `Enviado por ${e(brand.displayName)} para ${e(brand.name)}.` : brand.clinical ? `Delivered by ${e(brand.displayName)} for ${e(brand.name)}.` : `Delivered by ${e(brand.displayName)}.`}</td></tr>
 </table></td></tr></table>`;
 }

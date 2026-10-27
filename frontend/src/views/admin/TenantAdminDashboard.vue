@@ -72,7 +72,7 @@
             <router-link :to="`${prefix}/admin/clients`" class="nav-item">Clients</router-link>
             <router-link :to="`${prefix}/admin/guardians`" class="nav-item">Guardians</router-link>
             <router-link :to="`${prefix}/client-exchange`" class="nav-item">Client Exchange</router-link>
-            <router-link :to="`${prefix}/admin/family-billing`" class="nav-item">Account Support</router-link>
+            <router-link :to="`${prefix}/admin/account-support`" class="nav-item">Account Support</router-link>
           </div>
           <div class="sidebar-section">
             <div class="section-header">COORDINATION</div>
@@ -1259,7 +1259,7 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'family_account_support', title: 'Account Support', description: 'Basic billing, insurance and account coordination',
-      to: `${p}/admin/family-billing`, emoji: '🧾', iconKey: 'manage_clients', category: 'Client support',
+      to: `${p}/admin/account-support`, emoji: '🧾', iconKey: 'manage_clients', category: 'Client support',
       roles: ['support', 'admin', 'super_admin'], capabilities: ['canAccessPlatform']
     },
     {

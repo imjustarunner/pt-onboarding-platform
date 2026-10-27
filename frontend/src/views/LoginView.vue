@@ -467,6 +467,7 @@
               </div>
             </div>
 
+            <button v-if="username && !showPassword" type="button" class="btn btn-link" @click="forgetRememberedAccount">Use another account</button>
             <div v-if="!needsOrgChoice" class="remember-row">
               <label class="remember-me">
                 <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" @change="saveRememberPreference" />
@@ -1620,7 +1621,7 @@ const identifyPasswordPolicy = ref(null);
 const needsOrgChoice = ref(false);
 const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
-const rememberLogin = ref(true);
+const rememberLogin = ref(false);
 const rememberedGoogleLogin = ref(null);
 const sstcClubBranding = ref(null); // populated after identify on Summit-family logins when we know the club context
 const identifiedLoginMethod = ref('password');

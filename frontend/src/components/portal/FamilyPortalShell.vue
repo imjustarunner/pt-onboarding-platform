@@ -1,12 +1,12 @@
 <template>
   <div class="family-portal" :style="theme">
-    <a class="portal-skip" href="#family-portal-content">Skip to content</a>
+    <a class="portal-skip" href="#family-portal-content">{{ ft("Skip to content") }}</a>
     <header ref="stickyHeader" class="portal-sticky-header">
       <div class="portal-brand-row">
-        <button class="portal-menu" type="button" :aria-expanded="menuOpen" aria-controls="family-portal-nav" @click="menuOpen = !menuOpen"><span aria-hidden="true">☰</span><span>{{ menuOpen ? 'Close' : 'Menu' }}</span></button>
+        <button class="portal-menu" type="button" :aria-expanded="menuOpen" aria-controls="family-portal-nav" @click="menuOpen = !menuOpen"><span aria-hidden="true">☰</span><span>{{ menuOpen ? ft('Close') : ft('Menu') }}</span></button>
         <div class="portal-brand" :class="{ 'portal-brand--symbol': logoIsSymbol }">
           <img v-if="logoUrl && !logoFailed" :src="logoUrl" :alt="logoIsSymbol ? '' : `${brandName} logo`" @error="logoFailed = true" />
-          <div><strong>{{ brandName || 'Your portal' }}</strong><small v-if="brandSubtitle">{{ brandSubtitle }}</small></div>
+          <div><strong>{{ brandName || ft('Your portal') }}</strong><small v-if="brandSubtitle">{{ brandSubtitle }}</small></div>
         </div>
         <div v-if="agencyName" class="portal-agency-mark"><img v-if="agencyLogo" :src="agencyLogo" alt=""/><span>{{ agencyName }}</span></div>
       </div>
@@ -15,7 +15,7 @@
     <button v-if="menuOpen" class="portal-menu-backdrop" aria-label="Close menu" @click="menuOpen=false" />
     <aside class="portal-sidebar" :class="{ 'portal-sidebar--open': menuOpen }">
       <div id="family-portal-nav" class="portal-nav-wrap" :class="{ expanded: menuOpen }" @keydown.esc="menuOpen = false">
-        <nav aria-label="Your portal">
+        <nav :aria-label="ft('Your portal')">
           <template v-for="(item,index) in navigation" :key="item.key"><h2 v-if="item.group && item.group !== navigation[index-1]?.group" class="portal-nav-group">{{ item.group }}</h2>
           <button type="button" :class="{ selected: active === item.key }" :aria-current="active === item.key ? 'page' : undefined" @click="navigate(item.key)">
             <PortalIcon :name="item.icon || item.key" /><span>{{ item.label }}</span><span v-if="item.count > 0" class="portal-count">{{ item.count }}</span>
@@ -23,8 +23,8 @@
         </nav>
         <div class="portal-support">
           <div class="portal-support-art" aria-hidden="true"><PortalIcon name="support" /></div>
-          <h2>We’re here for you.</h2><p>Questions about your care, services, or account? Your team can help.</p>
-          <button type="button" @click="navigate(supportKey)">Contact your team <PortalIcon name="arrow" /></button>
+          <h2>{{ ft("We’re here for you.") }}</h2><p>{{ ft("Questions about your care, services, or account? Your team can help.") }}</p>
+          <button type="button" @click="navigate(supportKey)">{{ ft("Contact your team") }} <PortalIcon name="arrow" /></button>
         </div>
       </div>
     </aside>
@@ -39,6 +39,8 @@
   </div>
 </template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import PortalIcon from './PortalIcon.vue';
 import { portalTheme } from '../../utils/familyPortalTheme';

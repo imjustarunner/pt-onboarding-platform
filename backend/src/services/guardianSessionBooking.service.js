@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { authorizedClient } from './guardianAppointments.service.js';
+import { authorizedAppointmentClient } from './guardianAppointments.service.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import { sessionBookingProviders, requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import TenantService from '../models/TenantService.model.js';
@@ -12,7 +12,7 @@ import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
 async function context(input) {
-  const client = await authorizedClient(input.userId, input.clientId, 'session_frequency', input);
+  const client = await authorizedAppointmentClient(input.userId, input.clientId, input);
   const [[agency]] = await pool.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=?', [client.agency_id]);
   // Pilot the standard appointment flow in the isolated ITSCO workspace first.
   if (!isAuricwellQaAgency(agency) || !await getAgencySelfPayOnly(agency.id)) throw fail('Online session booking is not enabled for this workspace.', 409);
@@ -48,7 +48,7 @@ export async function guardianBookingSlots(input) {
   if(!choice)throw fail('Choose an assigned provider and available service.',403);
   const date=new Date(`${input.weekStart}T12:00:00Z`);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(input.weekStart||'')||!Number.isFinite(+date)||Math.abs(+date-Date.now())>100*86400000)throw fail('Choose a week within the booking window.');
-  const client=await authorizedClient(input.userId,input.clientId,'session_frequency',input);
+  const client=await authorizedAppointmentClient(input.userId,input.clientId,input);
   const availability=await ProviderAvailability.computeWeekAvailability({agencyId:client.agency_id,providerId:choice.providerId,weekStartYmd:input.weekStart,slotMinutes:choice.durationMinutes,intakeOnly:false});
   const slots=[...(choice.modality!=='IN_PERSON'?availability.virtualSlots.map(s=>({...s,modality:'VIRTUAL'})):[]),
     ...(choice.modality!=='TELEHEALTH'?availability.inPersonSlots.map(s=>({...s,modality:'IN_PERSON'})):[])];
@@ -65,7 +65,7 @@ export async function bookGuardianSession(input) {
   if(!slot)throw fail('That time is no longer available. Choose another opening.',409);
   const terms=available.choice.terms;
   if(input.confirmed!==true||Object.keys(terms).some(key=>input.acknowledgedTerms?.[key]!==terms[key]))throw fail('Review and acknowledge the current session price and attendance policy.',409);
-  const client=await authorizedClient(input.userId,input.clientId,'session_frequency',input);
+  const client=await authorizedAppointmentClient(input.userId,input.clientId,input);
   const appointment=await createAppointment({agencyId:client.agency_id,tenantServiceId:available.choice.serviceId,providerUserId:available.choice.providerId,
     startAt:slot.startAt,endAt:slot.endAt,modality:slot.modality,officeLocationId:slot.buildingId,roomId:slot.roomId,timeZone:available.timeZone,
     source:'guardian_portal',title:available.choice.serviceName,createdByUserId:input.userId,

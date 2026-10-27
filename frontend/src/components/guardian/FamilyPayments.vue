@@ -1,5 +1,7 @@
-<template><section><p>Balances and payment methods for your linked agencies. Your card stays private to your account. Each agency processes its own payments.</p><div class="payment-agencies"><article v-for="agency in agencies" :key="agency.id"><h2>{{ agency.name }}</h2><details><summary>Balances, payments & receipts</summary><FamilyLedgerPanel :agency-id="agency.id" /></details><details><summary>Saved cards & payment authorization</summary><GuardianPaymentInsuranceTab :agency-id="agency.id" :guardian-user-id="guardianUserId" section="payment" /></details></article></div></section></template>
+<template><section><p>{{ ft("Balances and payment methods for your linked agencies. Your card stays private to your account. Each agency processes its own payments.") }}</p><div class="payment-agencies"><article v-for="agency in agencies" :key="agency.id"><h2>{{ agency.name }}</h2><details><summary>{{ ft("Balances, payments & receipts") }}</summary><FamilyLedgerPanel :agency-id="agency.id" /></details><details><summary>{{ ft("Saved cards & payment authorization") }}</summary><GuardianPaymentInsuranceTab :agency-id="agency.id" :guardian-user-id="guardianUserId" section="payment" /></details></article></div></section></template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import FamilyLedgerPanel from '../billing/FamilyLedgerPanel.vue';import GuardianPaymentInsuranceTab from './GuardianPaymentInsuranceTab.vue';
 defineProps({agencies:{type:Array,default:()=>[]},guardianUserId:[Number,String]});
 </script>

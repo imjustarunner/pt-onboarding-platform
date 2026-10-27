@@ -6,7 +6,7 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import { enrollmentMailBrand, renderPortalEmail } from './portalEmailBranding.service.js';
 export { enrollmentMailBrand } from './portalEmailBranding.service.js';
 
-export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId = null, schoolEnrollment = false, enrollmentChannel = null, ...message }) {
+export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId = null, schoolEnrollment = false, enrollmentChannel = null, locale = 'en', ...message }) {
   const agency = await Agency.findById(agencyId);
   const domain = await inferAgencyMailDomain(agencyId);
   if (!agency || !domain) throw new Error('An agency and its support mail domain are required for portal email.');
@@ -28,7 +28,7 @@ export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId
     ...message, subject, schoolOrganizationId, senderIdentityId: identity.id,
     replyToOverride: brand.replyTo, usedFallbackSender: false,
     text: `${label}\n\n${message.text || ''}`,
-    html: renderPortalEmail({ brand, ...message })
+    html: renderPortalEmail({ brand, ...message, locale })
   });
   const queued = !!(result?.queued || result?.pendingApproval);
   const sent = !!result?.id && !queued && !result.skipped && !result.blocked && !result.redirected;

@@ -1,3 +1,4 @@
+import { familyEnrollmentContext, familyRecoveryMessage } from './familyPortalLocale.service.js';
 import { intakeClientPortal, clientPortalAppUrl } from './clientPortalContext.service.js';
 import { fullSuiteIdentityAllowed } from './productIdentity.service.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
@@ -173,6 +174,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail, req, enr
   }
   if(enrollment){const portal=intakeClientPortal(agency,{channel:enrollment.channel,school:!!enrollment.schoolOrganizationId});if(portal.clinical_portal)resetLink=clientPortalAppUrl(portal,`reset-password/${encodeURIComponent(token)}`);}
   const firstSet = userNeedsFirstPasswordSet(user);
+  if (['client_guardian','guardian','client'].includes(user?.role)) return familyRecoveryMessage({locale:enrollment?.locale,firstSet,resetLink,loginEmail,expiresInHours});
   const reminder = loginReminderLines(loginEmail);
   let subject = firstSet ? 'Set your password' : 'Reset your password';
   let body = [
@@ -244,7 +246,7 @@ async function sendResetEmail({
   existingCommunicationId,
   enrollment = null
 }) {
-  if (enrollment) return sendEnrollmentPortalEmail({ agencyId, to, subject, text, html, userId, existingCommunicationId, schoolOrganizationId: enrollment.schoolOrganizationId || null, enrollmentChannel: enrollment.channel || null, source: 'manual', templateType: 'password_reset' });
+  if (enrollment) return sendEnrollmentPortalEmail({ agencyId, to, subject, text, html, userId, existingCommunicationId, locale: enrollment.locale || 'en', schoolOrganizationId: enrollment.schoolOrganizationId || null, enrollmentChannel: enrollment.channel || null, source: 'manual', templateType: 'password_reset' });
   const { identity, replyTo } = await resolveRecoverySender(agencyId);
   const result = await sendEmailFromIdentity({
     senderIdentityId: identity.id,
@@ -305,6 +307,10 @@ export async function requestPasswordRecoveryEmail({
     return { ok: true, outcome: 'sso_required' };
   }
   const agency = await resolveContextAgency({ userId: user.id, orgSlug });
+  if (['client_guardian','guardian','client'].includes(user.role)) {
+    const familyContext = await familyEnrollmentContext(user.id,agency.id);
+    enrollment = {...familyContext,...enrollment};
+  }
   if (enrollment?.agencyId && Number(agency.id) !== Number(enrollment.agencyId)) return { ok:true, outcome:'support_required' };
   const loginEmail = resolveLoginEmail(user);
   const to = pickRecipientEmail(user, requestedEmail);

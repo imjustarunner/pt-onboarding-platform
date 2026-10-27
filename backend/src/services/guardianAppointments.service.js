@@ -4,6 +4,7 @@ import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.se
 import pool from '../config/database.js';
 import {guardianServiceContext,serviceMatchesAppointment} from './clientServiceEnrollment.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import { ageOn } from './guardianClinicalAccess.service.js';
 import Appointment from '../models/Appointment.model.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -22,9 +23,26 @@ export async function authorizedClient(userId, clientId, requiredClinicalScope =
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
   return client;
 }
+// Appointment logistics have their own relationship permission. Treatment-plan
+// frequency and clinical documents continue to require a clinical disclosure grant.
+export async function authorizedAppointmentClient(userId, clientId, careContext = {}) {
+  const client = await authorizedClient(userId, clientId, null, careContext);
+  let permissions = client.permissions_json || {};
+  if (typeof permissions === 'string') {
+    try { permissions = JSON.parse(permissions); } catch { throw fail('Appointment access requires an access review.', 403); }
+  }
+  if (permissions.noView || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted || permissions.canViewAppointments === false) {
+    throw fail('Appointment access is not enabled for this relationship. Contact the care team.', 403);
+  }
+  // An adult's own login may schedule; a related adult's access still needs
+  // the existing disclosure review. Childhood enrollment alone is not enough.
+  if (client.relationship_type !== 'self' && ageOn(client.date_of_birth) >= 18) {
+    await authorizedClient(userId, clientId, 'session_frequency', { ...careContext, agencyId: careContext.agencyId || client.agency_id });
+  }
+  return client;
+}
 export async function requireGuardianCancellation({ userId, clientId, appointment }) {
-  const scope=['learning','tutoring'].includes(appointment.businessType||appointment.business_type)?null:'session_frequency';
-  const client = await authorizedClient(userId, clientId,scope,{agencyId:appointment.agencyId});
+  const client = await authorizedAppointmentClient(userId, clientId,{agencyId:appointment.agencyId});
   if (Number(client.agency_id) !== Number(appointment.agencyId)) throw fail('Appointment not found.', 404);
   const participants = await Appointment.listParticipants(appointment.id);
   const clientIds = [...new Set(participants.map(p => Number(p.clientId)).filter(Boolean))];
@@ -36,7 +54,7 @@ export async function cancelGuardianAppointments({ userId, clientId, appointment
   if (!previewOnly && confirmed !== true) throw fail('Review the cancellation fee and confirm cancellation.');
   if (!['single', 'future'].includes(scope)) throw fail('Choose this appointment or all future sessions in this series.');
   const clean = validateGuardianAppointmentRequest({ type: 'cancel', reason }).reason;
-  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
+  const client = await authorizedAppointmentClient(userId, clientId,{agencyId,serviceId});
   const db = await pool.getConnection();
   const lock = `guardian-cancel:${client.agency_id}:${clientId}`;
   let locked = false;
@@ -122,7 +140,7 @@ export async function appointmentRequests(appointmentId, db = pool) {
     decisionReason: row.decision_reason_encrypted ? decryptFamilyBilling(row.decision_reason_encrypted, context(row.agency_id, appointmentId))?.reason || '' : '' }));
 }
 export async function listGuardianAppointments({ userId, clientId, agencyId, serviceId }) {
-  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
+  const client = await authorizedAppointmentClient(userId, clientId,{agencyId,serviceId});
   const params=[clientId,client.agency_id];
   let serviceFilter='';
   if(client.service){
@@ -158,7 +176,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
 }
 export async function requestGuardianAppointmentChange({ userId, clientId, appointmentId, agencyId,serviceId, ...input }) {
   const request = validateGuardianAppointmentRequest(input);
-  const client = await authorizedClient(userId, clientId,'session_frequency',{agencyId,serviceId});
+  const client = await authorizedAppointmentClient(userId, clientId,{agencyId,serviceId});
   const encrypted = encryptFamilyBilling({ reason: request.reason }, context(client.agency_id, appointmentId));
   const db = await pool.getConnection();
   try {

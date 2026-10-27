@@ -1,31 +1,31 @@
 <template>
-  <section class="guardian-appointments" aria-label="Appointments">
-    <header><h2>Appointments</h2><button type="button" @click="load" :disabled="loading">Refresh</button></header>
+  <section class="guardian-appointments" :aria-label="ft('Appointments')">
+    <header><h2>{{ ft("Appointments") }}</h2><button type="button" @click="load" :disabled="loading">{{ ft("Refresh") }}</button></header>
     <GuardianClinicalBooking v-if="!preview" :client-id="clientId" @booked="load" />
-    <p>Your next appointments are shown first. Open an appointment to make a change.</p>
-    <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">Family notification settings</button>
+    <p>{{ ft("Your next appointments are shown first. Open an appointment to make a change.") }}</p>
+    <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">{{ ft("Family notification settings") }}</button>
     <details v-if="!familyNotifications && !preview && preferences">
-      <summary>My reminder preferences</summary>
-      <p>These choices apply to your notifications. Each other recipient has their own choices. Turning texts on requires recorded SMS consent and a working practice number; ask the care team for a consent link if needed. Reply STOP to stop texts from the program.</p>
-      <label><input v-model="preferences.channels.email" type="checkbox" /> Email reminders</label>
-      <label><input v-model="preferences.channels.sms" type="checkbox" /> Text reminders to my consented number</label>
-      <label><input v-model="preferences.optionalRemindersEnabled" type="checkbox" /> Additional reminders</label>
-      <label><input v-model="preferences.providerPushedUpdatesEnabled" type="checkbox" /> Provider schedule updates</label>
-      <button type="button" :disabled="busy" @click="savePreferences">Save my preferences</button>
+      <summary>{{ ft("My reminder preferences") }}</summary>
+      <p>{{ ft("These choices apply to your notifications. Each other recipient has their own choices. Turning texts on requires recorded SMS consent and a working practice number; ask the care team for a consent link if needed. Reply STOP to stop texts from the program.") }}</p>
+      <label><input v-model="preferences.channels.email" type="checkbox" /> {{ ft("Email reminders") }}</label>
+      <label><input v-model="preferences.channels.sms" type="checkbox" /> {{ ft("Text reminders to my consented number") }}</label>
+      <label><input v-model="preferences.optionalRemindersEnabled" type="checkbox" /> {{ ft("Additional reminders") }}</label>
+      <label><input v-model="preferences.providerPushedUpdatesEnabled" type="checkbox" /> {{ ft("Provider schedule updates") }}</label>
+      <button type="button" :disabled="busy" @click="savePreferences">{{ ft("Save my preferences") }}</button>
       <p v-if="preferenceNotice" role="status">{{ preferenceNotice }}</p>
     </details>
     <p v-if="notice" role="status">{{ notice }}</p>
-    <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">Loading appointments…</p>
-    <p v-else-if="!appointments.length">No appointments are available to display.</p>
+    <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
+    <p v-else-if="!appointments.length">{{ ft("No appointments are available to display.") }}</p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
-      <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? 'In person' : a.modality === 'VIRTUAL' ? 'Online' : a.modality }} · {{ a.status.replaceAll('_',' ') }}</p>
-      <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">Join online appointment →</a>
+      <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : a.modality === 'VIRTUAL' ? ft('Online') : a.modality }} · {{ ft(a.status.replaceAll('_',' ')) }}</p>
+      <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">{{ ft("Join online appointment →") }}</a>
       <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
       <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
-      <p v-if="a.serviceSetting?.isSchool">No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.</p>
+      <p v-if="a.serviceSetting?.isSchool">{{ ft("No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.") }}</p>
       <p v-if="a.canceledBy">Canceled by {{ a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
-      <section v-if="a.replacementOffer" class="replacement-offer" aria-label="Private replacement offer">
-        <h4>Private replacement offer</h4>
+      <section v-if="a.replacementOffer" class="replacement-offer" :aria-label="ft('Private replacement offer')">
+        <h4>{{ ft("Private replacement offer") }}</h4>
         <p v-if="a.replacementOffer.nextAppointment">Your next {{ a.replacementOffer.nextAppointment.recurring ? 'recurring ' : '' }}appointment is {{ a.replacementOffer.nextAppointment.displayWhen }} ({{ a.replacementOffer.nextAppointment.timeZone }}). It remains scheduled.</p>
         <p v-else>No next appointment is currently scheduled. Sign in to check for updates or message your care team with questions.</p>
         <template v-if="a.replacementOffer.status === 'open'">
@@ -33,43 +33,45 @@
           <div v-for="slot in a.replacementOffer.slots" :key="slot.key" class="offer-time">
             <label><span><input v-model="selectedSlots[a.id]" type="radio" :name="`replacement-${a.id}`" :value="slot.key" @change="selectedFormats[a.id]=formats(slot).length === 1 ? formats(slot)[0] : ''"> {{ slot.label }}</span></label>
             <fieldset v-if="selectedSlots[a.id] === slot.key && formats(slot).length > 1" class="offer-formats">
-              <legend>How would you like to attend?</legend>
-              <label v-for="format in formats(slot)" :key="format"><span><input v-model="selectedFormats[a.id]" type="radio" :name="`replacement-format-${a.id}`" :value="format"> {{ format === 'VIRTUAL' ? 'Virtual' : `In office — ${slot.buildingName || 'Office'} ${slot.roomLabel || ''}` }}</span></label>
+              <legend>{{ ft("How would you like to attend?") }}</legend>
+              <label v-for="format in formats(slot)" :key="format"><span><input v-model="selectedFormats[a.id]" type="radio" :name="`replacement-format-${a.id}`" :value="format"> {{ format === 'VIRTUAL' ? ft('Virtual') : `In office — ${slot.buildingName || 'Office'} ${slot.roomLabel || ''}` }}</span></label>
             </fieldset>
           </div>
           <p v-if="!a.replacementOffer.slots.length">No offered times are currently available. Your next appointment stays scheduled, if listed above. You can contact support for other options.</p>
-          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedChoice(a)" @click="respondToOffer(a, 'select')">Reserve this time</button>
-            <button type="button" :disabled="busy" @click="respondToOffer(a, 'decline')">{{ a.replacementOffer.nextAppointment ? `See you next session — ${a.replacementOffer.nextAppointment.displayWhen}` : 'Decline replacement offer' }}</button></div>
+          <div class="offer-actions"><button v-if="a.replacementOffer.slots.length" type="button" :disabled="busy || !selectedChoice(a)" @click="respondToOffer(a, 'select')">{{ ft("Reserve this time") }}</button>
+            <button type="button" :disabled="busy" @click="respondToOffer(a, 'decline')">{{ a.replacementOffer.nextAppointment ? `See you next session — ${a.replacementOffer.nextAppointment.displayWhen}` : ft('Decline replacement offer') }}</button></div>
         </template>
-        <div v-else-if="['requested','booking'].includes(a.replacementOffer.status)"><p>We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.</p><button type="button" :disabled="busy" @click="respondToOffer(a, 'select')">Refresh reservation</button></div>
-        <p v-else-if="a.replacementOffer.status === 'confirmed'">Your time has been reserved. Your provider will reach out if there are any changes to their schedule. See your upcoming appointments for the details.</p>
+        <div v-else-if="['requested','booking'].includes(a.replacementOffer.status)"><p>{{ ft("We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.") }}</p><button type="button" :disabled="busy" @click="respondToOffer(a, 'select')">{{ ft("Refresh reservation") }}</button></div>
+        <p v-else-if="a.replacementOffer.status === 'confirmed'">{{ ft("Your time has been reserved. Your provider will reach out if there are any changes to their schedule. See your upcoming appointments for the details.") }}</p>
         <p v-else-if="a.replacementOffer.status === 'declined_by_team'">The care team could not confirm this replacement. Contact support for other options. Your other appointments remain scheduled.</p>
-        <p v-else-if="a.replacementOffer.status === 'declined'">You declined this offer. Other appointments remain unchanged.</p>
-        <p v-else>This offer has expired. It did not change or cancel your other appointments. Please contact support if you need another time.</p>
+        <p v-else-if="a.replacementOffer.status === 'declined'">{{ ft("You declined this offer. Other appointments remain unchanged.") }}</p>
+        <p v-else>{{ ft("This offer has expired. It did not change or cancel your other appointments. Please contact support if you need another time.") }}</p>
       </section>
       <div v-for="request in a.requests" :key="request.id" class="request">
         <strong>{{ request.requestedBy }} requested {{ request.type === 'cancel' ? 'cancellation' : 'rescheduling' }}</strong>
-        <p>{{ request.reason }}</p><p>{{ request.status === 'pending' ? 'Waiting for provider approval' : request.status }}<span v-if="request.decidedBy"> · {{ request.decidedBy }}</span></p>
+        <p>{{ request.reason }}</p><p>{{ request.status === 'pending' ? ft('Waiting for provider approval') : request.status }}<span v-if="request.decidedBy"> · {{ request.decidedBy }}</span></p>
         <p v-if="request.decisionReason">{{ request.decisionReason }}</p>
       </div>
-      <div v-if="canRequest(a)" class="appointment-actions"><button type="button" @click="openAction(a,'reschedule')">Request a new time</button><button type="button" @click="openAction(a,'cancel')">{{ a.serviceSetting?.isSchool ? 'Report an absence' : 'Cancel appointment' }}</button></div>
+      <div v-if="canRequest(a)" class="appointment-actions"><button type="button" @click="openAction(a,'reschedule')">{{ ft("Request a new time") }}</button><button type="button" @click="openAction(a,'cancel')">{{ a.serviceSetting?.isSchool ? ft('Report an absence') : ft('Cancel appointment') }}</button></div>
       <form v-if="canRequest(a) && editingId === a.id" :ref="el => { if(el && editingId === a.id) actionForm = el; }" @submit.prevent="submit(a)">
-        <h4>{{ draft(a).type === 'reschedule' ? 'Request a new time' : a.serviceSetting?.isSchool ? 'Report an absence' : 'Cancel appointment' }}</h4><button type="button" @click="editingId=null">Close without changes</button>
-        <label>Action <select v-model="draft(a).type" @change="clearReview(a)"><option value="cancel">Cancel appointment</option><option value="reschedule">Request rescheduling</option></select></label>
-        <label v-if="draft(a).type === 'cancel'">Cancel <select v-model="draft(a).scope" @change="clearReview(a)"><option value="single">Only this appointment</option><option value="future">All future sessions in this recurring series</option></select></label>
-        <label>Reason (required)<textarea v-model="draft(a).reason" required maxlength="2000" rows="2" /></label>
-        <p>Your reason will be visible to the authorized guardians and care team.</p>
+        <h4>{{ draft(a).type === 'reschedule' ? ft('Request a new time') : a.serviceSetting?.isSchool ? ft('Report an absence') : ft('Cancel appointment') }}</h4><button type="button" @click="editingId=null">{{ ft("Close without changes") }}</button>
+        <label>{{ ft("Action") }} <select v-model="draft(a).type" @change="clearReview(a)"><option value="cancel">{{ ft("Cancel appointment") }}</option><option value="reschedule">{{ ft("Request rescheduling") }}</option></select></label>
+        <label v-if="draft(a).type === 'cancel'">{{ ft("Cancel") }} <select v-model="draft(a).scope" @change="clearReview(a)"><option value="single">{{ ft("Only this appointment") }}</option><option value="future">{{ ft("All future sessions in this recurring series") }}</option></select></label>
+        <label>{{ ft("Reason (required)") }}<textarea v-model="draft(a).reason" required maxlength="2000" rows="2" /></label>
+        <p>{{ ft("Your reason will be visible to the authorized guardians and care team.") }}</p>
         <section v-if="draft(a).type === 'cancel' && draft(a).review" aria-label="Cancellation fee review">
-          <p><strong>{{ draft(a).review.totalFeeCents ? `Cancellation fee: ${money(draft(a).review.totalFeeCents)}` : 'No cancellation fee applies.' }}</strong></p>
-          <p v-for="fee in draft(a).review.fees" :key="fee.appointmentId">Appointment #{{ fee.appointmentId }}: {{ money(fee.feeCents) }}</p>
-          <label><input v-model="draft(a).confirmed" type="checkbox" required /> I confirm cancellation of these sessions and acknowledge the {{ money(draft(a).review.totalFeeCents) }} total fee.</label>
+          <p><strong>{{ draft(a).review.totalFeeCents ? ft('Cancellation fee: {amount}', {amount:money(draft(a).review.totalFeeCents)}) : ft('No cancellation fee applies.') }}</strong></p>
+          <p v-for="fee in draft(a).review.fees" :key="fee.appointmentId">{{ ft('Appointment #{id}: {amount}', {id: fee.appointmentId, amount:money(fee.feeCents)}) }}</p>
+          <label><input v-model="draft(a).confirmed" type="checkbox" required /> {{ ft('I confirm cancellation of these sessions and acknowledge the {amount} total fee.', {amount: money(draft(a).review.totalFeeCents)}) }}</label>
         </section>
-        <button :disabled="busy || !draft(a).reason.trim() || (draft(a).type === 'cancel' && draft(a).review && !draft(a).confirmed)">{{ draft(a).type === 'cancel' ? (!draft(a).review ? 'Review cancellation' : draft(a).scope === 'future' ? 'Cancel all future sessions' : 'Confirm cancellation') : 'Request provider approval' }}</button>
+        <button :disabled="busy || !draft(a).reason.trim() || (draft(a).type === 'cancel' && draft(a).review && !draft(a).confirmed)">{{ draft(a).type === 'cancel' ? (!draft(a).review ? ft('Review cancellation') : draft(a).scope === 'future' ? ft('Cancel all future sessions') : ft('Confirm cancellation')) : ft('Request provider approval') }}</button>
       </form>
     </article>
   </section>
 </template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import { ref, reactive, watch, nextTick } from 'vue';
 import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
@@ -97,7 +99,7 @@ async function respondToOffer(a, action) {
     if (own === sequence) {
       notice.value = data.status === 'confirmed'
         ? 'Your time has been reserved. Your provider will reach out if there are any changes to their schedule. Your other appointments stay scheduled.'
-        : ['booking','requested'].includes(data.status) ? 'We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.'
+        : ['booking','requested'].includes(data.status) ? ft("We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.")
           : 'Replacement offer declined. Your other appointments stay scheduled.';
       await load();
     }
@@ -107,7 +109,7 @@ async function respondToOffer(a, action) {
 const draft=a=>drafts[a.id] ||= {type:'cancel',reason:'',scope:'single',confirmed:false};
 const appointmentDate=value=>new Date(typeof value==='string'&&!/(Z|[+-]\d\d:\d\d)$/.test(value)?value.replace(' ','T')+'Z':value);
 const canRequest=a=>!props.preview&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
-const when=(value,timeZone)=>appointmentDate(value).toLocaleString(undefined,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
+const when=(value,timeZone)=>appointmentDate(value).toLocaleString(familyLocale.value,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
 async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
   appointments.value=data.appointments||[];
   await nextTick();
@@ -116,9 +118,9 @@ async function load(){const own=++sequence;appointments.value=[];preferences.val
   if (props.familyNotifications) return;
   const response=await api.get(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,{skipGlobalLoading:true});
   if(own===sequence)preferences.value=response.data;
-}}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}
-async function savePreferences(){const own=sequence;busy.value=true;error.value='';preferenceNotice.value='';try{const{data}=await api.put(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,preferences.value);if(own===sequence){preferences.value=data;preferenceNotice.value='Your preferences were saved. Text delivery still requires recorded consent.';}}catch(e){error.value=e.response?.data?.error?.message||'Preferences could not be saved.';}finally{busy.value=false;}}
-const money = cents => new Intl.NumberFormat(undefined, {style:'currency',currency:'USD'}).format(cents / 100);
+}}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||ft("Appointments could not be loaded.");}finally{if(own===sequence)loading.value=false;}}
+async function savePreferences(){const own=sequence;busy.value=true;error.value='';preferenceNotice.value='';try{const{data}=await api.put(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,preferences.value);if(own===sequence){preferences.value=data;preferenceNotice.value=ft("Your preferences were saved. Text delivery still requires recorded consent.");}}catch(e){error.value=e.response?.data?.error?.message||ft("Preferences could not be saved.");}finally{busy.value=false;}}
+const money = cents => new Intl.NumberFormat(familyLocale.value, {style:'currency',currency:'USD'}).format(cents / 100);
 function clearReview(a) { draft(a).review=null; draft(a).confirmed=false; }
 async function submit(a) {
   if (busy.value) return;
@@ -135,7 +137,7 @@ async function submit(a) {
       ...draft(a), acknowledgedFees: cancel ? draft(a).review?.fees : undefined
     });
     delete drafts[a.id]; editingId.value=null;
-    if (own===sequence) { notice.value=cancel ? 'Cancellation confirmed.' : 'Rescheduling request sent for provider approval.'; await load(); }
+    if (own===sequence) { notice.value=cancel ? ft("Cancellation confirmed.") : ft("Rescheduling request sent for provider approval."); await load(); }
   } catch(e) {
     if (own===sequence) {
       if (cancel) clearReview(a);

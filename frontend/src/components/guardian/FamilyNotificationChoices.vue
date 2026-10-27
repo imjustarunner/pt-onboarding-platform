@@ -1,28 +1,30 @@
 <template>
-  <section class="family-notification-choices" aria-label="Notification choices">
-    <p v-if="loading" role="status">Loading your notification choices…</p>
-    <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
+  <section class="family-notification-choices" :aria-label="ft('Notification choices')">
+    <p v-if="loading" role="status">{{ ft("Loading your notification choices…") }}</p>
+    <p v-if="error" role="alert">{{ ft(error) }} <button type="button" @click="load">{{ ft("Try again") }}</button></p>
     <form v-if="data" @submit.prevent="save">
       <p>{{ targets.length > 1 ? "Choose updates once for all profiles linked to your account." : "Choose your account updates." }} Texts are optional; insurance-card requests use email only.</p>
-      <div class="choice-table"><table><thead><tr><th scope="col">Update</th><th v-for="channel in channels" :key="channel.key" scope="col">{{ channel.label }}</th></tr></thead><tbody><tr v-for="category in data.categories" :key="category.key"><th scope="row">{{ category.label }}<small>{{ category.detail }}</small></th><td v-for="channel in channels" :key="channel.key"><input v-if="!category.emailOnly || ['email','off'].includes(channel.key)" v-model="choices[category.key]" type="radio" :name="category.key" :value="channel.key" :aria-label="`${category.label}: ${channel.label}`" :disabled="busy" required/><span v-else aria-label="Unavailable">—</span></td></tr></tbody></table></div>
-      <p v-if="wantsTexts" class="text-disclosure">You are requesting text updates for the choices above. Texts remain off until your number and text permission are verified. Message and data rates may apply. STOP stops texts; HELP requests help; START requests a restart where supported.</p>
-      <p v-if="mixed">Some profiles had different preferences. Choose a channel for each marked row to apply one set of choices across your family.</p><details><summary>About these choices</summary><p>{{ data.disclosure }}</p></details>
-      <label class="confirm"><input v-model="confirmed" type="checkbox" required :disabled="busy"/> I confirm these notification choices.</label>
-      <button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Confirm my choices' }}</button>
+      <div class="choice-table"><table><thead><tr><th scope="col">{{ ft("Update") }}</th><th v-for="channel in channels" :key="channel.key" scope="col">{{ ft(channel.label) }}</th></tr></thead><tbody><tr v-for="category in data.categories" :key="category.key"><th scope="row">{{ category.label }}<small>{{ category.detail }}</small></th><td v-for="channel in channels" :key="channel.key"><input v-if="!category.emailOnly || ['email','off'].includes(channel.key)" v-model="choices[category.key]" type="radio" :name="category.key" :value="channel.key" :aria-label="`${category.label}: ${channel.label}`" :disabled="busy" required/><span v-else :aria-label="ft('Unavailable')">—</span></td></tr></tbody></table></div>
+      <p v-if="wantsTexts" class="text-disclosure">{{ ft("You are requesting text updates for the choices above. Texts remain off until your number and text permission are verified. Message and data rates may apply. STOP stops texts; HELP requests help; START requests a restart where supported.") }}</p>
+      <p v-if="mixed">{{ ft("Some profiles had different preferences. Choose a channel for each marked row to apply one set of choices across your family.") }}</p><details><summary>{{ ft("About these choices") }}</summary><p>{{ data.disclosure }}</p></details>
+      <label class="confirm"><input v-model="confirmed" type="checkbox" required :disabled="busy"/> {{ ft("I confirm these notification choices.") }}</label>
+      <button type="submit" :disabled="busy">{{ busy ? ft("Saving…") : ft("Confirm my choices") }}</button>
       <p v-if="saved" role="status">Your choices are saved.{{ wantsTexts ? ' Text preferences will apply when enrollment is active.' : '' }}</p>
     </form>
-    <section v-if="saved && wantsTexts" class="text-disclosure"><h3>Text enrollment</h3>
+    <section v-if="saved && wantsTexts" class="text-disclosure"><h3>{{ ft("Text enrollment") }}</h3>
       <article v-for="entry in smsEntries" :key="entry.agencyId"><h4>{{ entry.name }}</h4><p>{{ smsMessage(entry.setup?.smsStatus) }}</p>
-        <button v-if="entry.setup?.smsStatus==='needs_phone'" type="button" @click="editContact=!editContact">Update my phone number</button>
-        <button v-if="entry.setup?.smsStatus==='needs_consent' && !entry.path" type="button" :disabled="busy" @click="beginConsent(entry)">Review text consent</button>
-        <a v-if="entry.path" :href="entry.path" target="_blank" rel="noopener noreferrer">Open text consent form →</a>
+        <button v-if="entry.setup?.smsStatus==='needs_phone'" type="button" @click="editContact=!editContact">{{ ft("Update my phone number") }}</button>
+        <button v-if="entry.setup?.smsStatus==='needs_consent' && !entry.path" type="button" :disabled="busy" @click="beginConsent(entry)">{{ ft("Review text consent") }}</button>
+        <a v-if="entry.path" :href="entry.path" target="_blank" rel="noopener noreferrer">{{ ft("Open text consent form →") }}</a>
       </article>
       <FamilyAccountSettings v-if="editContact" :agency-id="agencyId || targets[0]?.agencyId" @notifications="editContact=false;checkSms()"/>
-      <button type="button" :disabled="busy" @click="checkSms">Check text enrollment</button><button type="button" @click="$emit('saved')">Continue</button>
+      <button type="button" :disabled="busy" @click="checkSms">{{ ft("Check text enrollment") }}</button><button type="button" @click="$emit('saved')">{{ ft("Continue") }}</button>
     </section>
   </section>
 </template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import FamilyAccountSettings from './FamilyAccountSettings.vue';
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import api from '../../services/api';

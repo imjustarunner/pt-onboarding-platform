@@ -1,3 +1,4 @@
+import { downloadEnrollmentCopy } from '../services/guardianEnrollmentCopies.service.js';
 import * as guardianSessionBooking from '../controllers/guardianSessionBooking.controller.js';
 import { listSharedFiles,sharedFile } from '../services/guardianFileShares.service.js';
 import { guardianCheckins } from '../services/guardianCheckins.service.js';
@@ -98,6 +99,13 @@ router.put('/account',requireActiveStatus,rateLimit({windowMs:60000,max:10}),asy
 router.get('/clients/:clientId/session-booking', guardianSessionBooking.options);
 router.get('/clients/:clientId/session-booking/slots', guardianSessionBooking.slots);
 router.post('/clients/:clientId/session-booking', guardianSessionBooking.book);
+router.get('/clients/:clientId/enrollment-copies/:submissionId/download', async(req,res,next)=>{
+  try {
+    if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview does not expose signed enrollment copies.'}});
+    const {body,filename}=await downloadEnrollmentCopy({userId:req.user.id,clientId:Number(req.params.clientId),submissionId:Number(req.params.submissionId),agencyId:Number(req.query.agencyId)||null});
+    res.set({'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="${filename}"`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}).send(body);
+  }catch(e){next(e);}
+});
 router.get('/clients/:clientId/appointments', guardianAppointments.list);
 router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
 router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);

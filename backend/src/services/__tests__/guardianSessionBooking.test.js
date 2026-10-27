@@ -1,7 +1,7 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),providers:vi.fn(),rollout:vi.fn(),services:vi.fn(),assigned:vi.fn(),availability:vi.fn(),policy:vi.fn(),quote:vi.fn(),selfPay:vi.fn(),create:vi.fn(),event:vi.fn(),link:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
-vi.mock('../guardianAppointments.service.js',()=>({authorizedClient:m.access}));
+vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:m.access}));
 vi.mock('../clientSessionBookingRollout.service.js',()=>({sessionBookingProviders:m.providers,requireClientSessionBooking:m.rollout}));
 vi.mock('../../models/TenantService.model.js',()=>({default:{listForAgency:m.services}}));
 vi.mock('../../models/StaffServiceAssignment.model.js',()=>({default:{listServiceIdsForUser:m.assigned}}));

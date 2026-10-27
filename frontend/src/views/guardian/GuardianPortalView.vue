@@ -1,13 +1,16 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
-  <FamilyPortalShell :logo-is-symbol="clinicalGuardianContext" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${portalAccountLabel}${clinicalGuardianContext ? ' · Beta' : ''}`" :logo-url="clinicalGuardianContext ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="clinicalGuardianContext ? careAgencyName : ''" :agency-logo="clinicalGuardianContext ? careAgencyLogo : ''" :primary-color="clinicalGuardianContext ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+  <FamilyPortalShell :logo-is-symbol="clinicalGuardianContext" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${ft(portalAccountLabel)}${clinicalGuardianContext ? ' · Beta' : ''}`" :logo-url="clinicalGuardianContext ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="clinicalGuardianContext ? careAgencyName : ''" :agency-logo="clinicalGuardianContext ? careAgencyLogo : ''" :primary-color="clinicalGuardianContext ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
     <template #context>
+      <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
+        <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select>
+      </label>
       <div v-if="allFamilyProfiles.length" class="family-context">
-        <PortalContextPicker label="Agency" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
-        <PortalContextPicker class="family-profile-picker" label="Viewing" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" placeholder="Choose a profile" hint="All family profiles, grouped by agency. Choosing a profile also switches the agency." @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
-        <PortalContextPicker v-if="selectedServices.length > 1" label="Service & provider" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
-        <div v-else-if="selectedService" class="single-profile"><small>Service &amp; provider</small><strong>{{selectedService.label}} · {{selectedService.provider_name || 'Provider being assigned'}}</strong></div>
-        <button class="more-family" type="button" @click="navigatePortal('family')">{{ familyHomeLabel }} <span>{{ allFamilyProfiles.length }}</span></button>
+        <PortalContextPicker :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
+        <PortalContextPicker class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('All family profiles, grouped by agency. Choosing a profile also switches the agency.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
+        <PortalContextPicker v-if="selectedServices.length > 1" :label="ft('Service & provider')" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
+        <div v-else-if="selectedService" class="single-profile"><small>{{ ft("Service & provider") }}</small><strong>{{selectedService.label}} · {{selectedService.provider_name || ft("Provider being assigned")}}</strong></div>
+        <button class="more-family" type="button" @click="navigatePortal('family')">{{ ft(familyHomeLabel) }} <span>{{ allFamilyProfiles.length }}</span></button>
       </div>
     </template>
     <PlatformPreviewBanner
@@ -16,7 +19,7 @@
       subtitle="This platform preview keeps guardian-linked private data hidden while preserving the tenant portal shell."
     />
     <div v-if="error" class="error">{{ error }}</div>
-    <div v-else-if="loading" class="loading">Loading your dashboard…</div>
+    <div v-else-if="loading" class="loading">{{ ft("Loading your dashboard…") }}</div>
 
     <div v-else :key="`${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" class="layout guardian-layout">
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
@@ -36,11 +39,11 @@
         <div class="detail guardian-detail">
           <div class="panel guardian-panel">
             <section v-if="activePanel === 'family'" class="family-overview" aria-label="All family profiles">
-              <FamilyDashboard :profiles="allFamilyProfiles" :preview="isSuperadminPreview" @navigate="navigatePortal" @profile="chooseFamilyProfile" /><h2>{{ allFamilyProfiles.length > 1 ? 'Your family members' : 'Your profile' }}</h2><p>Choose a profile to see their appointments, documents, and next steps.</p>
+              <FamilyDashboard :profiles="allFamilyProfiles" :preview="isSuperadminPreview" @navigate="navigatePortal" @profile="chooseFamilyProfile" /><h2>{{ allFamilyProfiles.length > 1 ? ft("Your family members") : ft("Your profile") }}</h2><p>{{ ft("Choose a profile to see their appointments, documents, and next steps.") }}</p>
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
-                <details><summary>Profile details</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? 'Tutoring' : 'Counseling and care' }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? 'Your own client profile' : 'Dependent linked to your account' }}</p></details>
-                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{service.label}}<small>{{service.provider_name || 'Provider being assigned'}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">Open profile →</button>
+                <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
+                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{service.label}}<small>{{service.provider_name || ft("Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
               </article></div>
             </section>
 
@@ -77,7 +80,7 @@
                   </p>
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
-                  {{ regCatalogLoading ? 'Loading…' : 'Refresh' }}
+                  {{ regCatalogLoading ? ft("Loading…") : ft("Refresh") }}
                 </button>
               </div>
               <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
@@ -104,7 +107,7 @@
             <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible"/>
             <template v-else-if="activePanel === 'documents'">
               <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
-              <template v-else><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>Other forms assigned to your account</summary><DocumentsTab /></details></template>
+              <template v-else><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -162,7 +165,7 @@
                       :disabled="learningProgressLoading || !selectedChildId"
                       @click="loadSelectedChildLearningProgress"
                     >
-                      {{ learningProgressLoading ? 'Loading…' : 'Refresh' }}
+                      {{ learningProgressLoading ? ft("Loading…") : ft("Refresh") }}
                     </button>
                   </div>
                   <p class="hint" style="margin: 6px 0 10px;">
@@ -383,7 +386,7 @@
                     PDFs you signed on a digital intake form for this child (when the submission is tied to your guardian
                     account).
                   </p>
-                  <div v-if="intakeDocsLoading" class="hint">Loading…</div>
+                  <div v-if="intakeDocsLoading" class="hint">{{ ft("Loading…") }}</div>
                   <ul v-else-if="intakeSignedDocs.length" class="intake-docs-list">
                     <li v-for="d in intakeSignedDocs" :key="d.id" class="intake-docs-row">
                       <div>
@@ -415,7 +418,7 @@
                     <label>Date</label>
                     <input v-model="guardianNoteDate" type="date" class="input" style="max-width: 160px;" @change="loadGuardianDailyNotes" />
                   </div>
-                  <div v-if="guardianNotesLoading" class="hint">Loading…</div>
+                  <div v-if="guardianNotesLoading" class="hint">{{ ft("Loading…") }}</div>
                   <div v-else-if="guardianDailyNotes.length > 0" class="guardian-notes-list">
                     <div v-for="n in guardianDailyNotes" :key="n.id" class="guardian-note-item">
                       <span class="guardian-note-initials">[{{ n.author_initials || '?' }}]</span>
@@ -491,7 +494,7 @@
 
             <template v-else-if="activePanel === 'contact'">
               <div class="panel-head">
-                <div class="panel-title">Reminder contacts</div>
+                <div class="panel-title">{{ ft("Reminder contacts") }}</div>
                 <div class="panel-subtitle">
                   Add people who should get appointment reminders for
                   {{ selectedChild ? childDisplayName(selectedChild) : 'your child' }} without portal access.
@@ -534,7 +537,7 @@
           {{ comingSoonMessage }}
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" type="button" @click="closeComingSoon">Close</button>
+          <button class="btn btn-secondary" type="button" @click="closeComingSoon">{{ ft("Close") }}</button>
         </div>
       </div>
     </div>
@@ -607,6 +610,7 @@
 
 <script setup>
 import {provide} from 'vue';
+import { provideFamilyLocale } from '../../composables/useFamilyLocale';
 import PortalSafetyPlans from '../../components/safetyPlans/PortalSafetyPlans.vue';
 import GuardianSharedFiles from '../../components/guardian/GuardianSharedFiles.vue';
 import GuardianProgressRecords from '../../components/guardian/GuardianProgressRecords.vue';
@@ -797,6 +801,11 @@ const selectedChild = computed(() => {
   return child?{...child,client_type:selectedService.value?({tutoring:'learning',counseling:'clinical'}[selectedService.value.service_kind]||selectedService.value.service_kind):child.client_type}:null;
 });
 
+const { ft, locale: familyLocale, setLocale: setFamilyLocale } = provideFamilyLocale({
+  userId: computed(() => authStore.user?.id),
+  enrollmentLocale: computed(() => selectedChild.value?.portal_language || allFamilyProfiles.value[0]?.portal_language)
+});
+
 const selectedChildAgencyId = computed(() => {
   const fromChild = Number(selectedChild.value?.agency_id || 0);
   if (fromChild) return fromChild;
@@ -984,7 +993,7 @@ let portalGrantRequest = 0;
 const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks'};
-  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · information` : 'Client information'};
+  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:standardsLearningVisible.value?`${selectedFirstName.value}’s learning plan`:`${selectedFirstName.value}’s care plan`,icon:'plan'});
@@ -996,10 +1005,10 @@ const portalNavigation = computed(() => {
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'notification_history',label:'Notification history',icon:'tasks'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
-  return ordered.map(i=>({...i,group:i.key==='signout'?'Account':accountKeys.includes(i.key)?'Family & account':`Viewing ${selectedFirstName.value}`}));
+  return ordered.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });
-const portalTitle = computed(() => activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `Welcome${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
-const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.` : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
+const portalTitle = computed(() => activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `${familyLocale.value === 'es' ? 'Bienvenido' : 'Welcome'}${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
+const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
 function navigatePortal(key) {
   if (key === 'signout') { authStore.logout(); return; }
   if (key === 'dependents') key = 'family';
@@ -1598,6 +1607,11 @@ const openIntakeSignedDoc = async (d) => {
   if (!cid || !d?.id) return;
   intakeDocOpeningId.value = d.id;
   try {
+    if (d.kind === 'enrollment_copy') {
+      const {data}=await api.get(`/guardian-portal/clients/${cid}/enrollment-copies/${d.submissionId}/download`,{params:{agencyId:selectedChildAgencyId.value},responseType:'blob'});
+      if(cid!==Number(selectedChildId.value))return;
+      const href=URL.createObjectURL(data),a=document.createElement('a');a.href=href;a.download=`enrollment-${d.submissionId}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(href),30000);return;
+    }
     const { data } = await api.get(`/guardian-portal/clients/${cid}/intake-documents/${d.id}/download-url`);
     const url = data?.url;
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
@@ -1927,6 +1941,7 @@ watch(
 </script>
 
 <style scoped>
+.family-language{display:flex;justify-content:flex-end;align-items:center;gap:8px;font-size:13px}.family-language select{padding:6px;border:1px solid #c7d6e6;border-radius:6px;background:white}
 .family-service-links{display:grid;gap:8px}.family-service-links small{display:block;font-weight:400;margin-top:4px}
 
 .family-context{display:flex;align-items:end;flex-wrap:wrap;gap:16px;margin-top:16px}.family-context>.context-picker{flex:1 1 180px}.family-context>.family-profile-picker{flex:1.4 1 240px}.family-context>.single-profile{flex:1 1 180px;overflow-wrap:anywhere}.family-context .single-profile small{font-size:13px;font-weight:600;margin-bottom:5px}.family-context .single-profile strong{font-size:15px;line-height:1.5}.single-profile{flex:1;min-width:0}.single-profile small,.single-profile strong{display:block}.single-profile small{font-size:11px;color:#52647c}.single-profile strong{font-size:14px}.more-family{padding:10px;border:1px solid #c9d8e7;border-radius:8px;color:#173451;background:white;cursor:pointer;white-space:nowrap}.more-family span{background:#e9f1fa;border-radius:20px;padding:2px 5px}.family-profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.family-profile-card{display:grid;gap:9px;text-align:left;padding:22px;background:#fff;border:1px solid #c9d8e7;border-radius:14px;color:#173451;cursor:pointer;font:inherit}.family-profile-card button{padding:12px;background:#16457c;color:white;border:0;border-radius:8px;font:600 14px system-ui;cursor:pointer}.family-profile-card details{font-size:13px}.account-documents{margin:20px 0;padding:16px;background:white;border:1px solid #dce5ef;border-radius:12px}.account-documents summary{cursor:pointer;font-weight:600}.profile-logos{display:flex;align-items:center;gap:20px}.family-profile-card img{width:100px;height:50px;object-fit:contain;object-position:left}.family-profile-card strong{font-size:18px}.family-profile-card small{color:#52647c}.family-profile-card button small{display:block;color:#e3edf9;margin-top:4px}.onboarding-prompt{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px;border:1px solid #b9cfe6;border-radius:12px;background:#eef5fc;color:#173451}.onboarding-prompt button{padding:10px;border-radius:8px;background:#16457c;border:0;color:#fff;cursor:pointer}.onboarding-dot{width:10px;height:10px;flex-shrink:0;border-radius:50%;background:#2467a7;animation:onboarding-pulse 2s ease-in-out infinite}.onboarding-billing-notice{padding:14px;background:#fff5dc;border-radius:10px;color:#644d1a}.guardian-layout{scroll-margin-top:160px}#family-portal-content{scroll-margin-top:160px}@keyframes onboarding-pulse{50%{box-shadow:0 0 0 6px #2467a720}}@media(prefers-reduced-motion:reduce){.onboarding-dot{animation:none}}@media(max-width:560px){.family-context{gap:12px}.family-context>.context-picker,.family-context>.single-profile{flex-basis:100%}.family-context>.more-family{width:100%}.more-family{font-size:12px}.family-profile-grid{grid-template-columns:1fr}}

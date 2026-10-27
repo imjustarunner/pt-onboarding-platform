@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getPortalLoginMemory, getRememberedGoogleLogin, setRememberedGoogleLogin, setRememberedLogin, clearRememberedLogin, clearRememberedGoogleLogin } from '../loginRemember';
+import { getPortalLoginMemory, getRememberedGoogleLogin, setRememberedGoogleLogin, setRememberedLogin, clearRememberedLogin, clearRememberedGoogleLogin, clearPortalLoginMemory } from '../loginRemember';
 
 beforeEach(() => localStorage.clear());
 describe('returning login accounts', () => {
@@ -64,4 +64,16 @@ describe('returning login accounts', () => {
     expect(getPortalLoginMemory('itsco').google).toBeNull();
     spy.mockRestore();
   });
+});
+
+it('clears the current portal shortcut when opening password recovery on a shared browser', () => {
+  setRememberedLogin({username:'old.staff@example.test',orgSlug:'auricwell-qa-demo'});
+  setRememberedGoogleLogin({username:'old.staff@example.test',orgSlug:'auricwell-qa-demo'});
+  setRememberedLogin({username:'another@example.test',orgSlug:'another-agency'});
+  sessionStorage.setItem('__pt_login_pending_username__','old.staff@example.test');
+  clearPortalLoginMemory('auricwell-qa-demo');
+  expect(getPortalLoginMemory('auricwell-qa-demo').username).toBe('');
+  expect(getPortalLoginMemory('auricwell-qa-demo').google).toBeNull();
+  expect(getPortalLoginMemory('another-agency').username).toBe('another@example.test');
+  expect(sessionStorage.getItem('__pt_login_pending_username__')).toBeNull();
 });

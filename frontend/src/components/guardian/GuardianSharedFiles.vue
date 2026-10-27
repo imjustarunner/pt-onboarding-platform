@@ -1,5 +1,7 @@
-<template><section class="shared-files"><h3>Shared files & enrollment copies</h3><p v-if="loading">Loading files…</p><p v-if="error" role="alert">{{error}}</p><p v-if="!loading&&!error&&!files.length">No additional files have been shared yet. Paper enrollment copies will appear here when the care team shares them.</p><article v-for="f in files" :key="f.id"><div><strong>{{f.title}}</strong><small>Shared {{new Date(f.sharedAt).toLocaleDateString()}}</small></div><button :disabled="busy" @click="download(f)">Download copy</button></article></section></template>
+<template><section class="shared-files"><h3>{{ ft("Shared files & enrollment copies") }}</h3><p v-if="loading">{{ ft("Loading files…") }}</p><p v-if="error" role="alert">{{ft(error)}}</p><p v-if="!loading&&!error&&!files.length">{{ ft("No additional files have been shared yet. Paper enrollment copies will appear here when the care team shares them.") }}</p><article v-for="f in files" :key="f.id"><div><strong>{{f.title}}</strong><small>Shared {{new Date(f.sharedAt).toLocaleDateString()}}</small></div><button :disabled="busy" @click="download(f)">{{ ft("Download copy") }}</button></article></section></template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import {ref,watch,onBeforeUnmount} from 'vue';import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:[Number,String]});const files=ref([]),loading=ref(false),busy=ref(false),error=ref('');let seq=0;

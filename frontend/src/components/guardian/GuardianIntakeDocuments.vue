@@ -1,22 +1,24 @@
 <template>
-  <section class="guardian-intake-docs" aria-label="Your signed copies">
-    <h3>Your signed copies</h3>
-    <p>Download documents you signed for this profile.</p>
-    <p v-if="!clientId">Select a profile to view their documents.</p>
-    <p v-else-if="loading" role="status">Loading documents…</p>
+  <section class="guardian-intake-docs" :aria-label="ft('Your signed copies')">
+    <h3>{{ ft("Your signed copies") }}</h3>
+    <p>{{ ft("Download documents you signed for this profile.") }}</p>
+    <p v-if="!clientId">{{ ft("Select a profile to view their documents.") }}</p>
+    <p v-else-if="loading" role="status">{{ ft("Loading documents…") }}</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
-    <ul v-else-if="documents.length"><li v-for="document in documents" :key="document.id"><span>{{ document.document_template_name || 'Signed document' }}<small>{{ document.intake_link_title }}</small></span><button :disabled="downloading" @click="download(document)">Download PDF</button></li></ul>
-    <p v-else>No signed copies for this profile yet.</p>
+    <ul v-else-if="documents.length"><li v-for="document in documents" :key="document.id"><span>{{ document.document_template_name || ft('Signed document') }}<small>{{ document.intake_link_title }}</small></span><button :disabled="downloading" @click="download(document)">{{ ft("Download PDF") }}</button></li></ul>
+    <p v-else>{{ ft("No signed copies for this profile yet.") }}</p>
   </section>
 </template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import {ref,watch,onUnmounted} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:[String,Number]});
 const documents=ref([]),loading=ref(false),error=ref(''),downloading=ref(false);let version=0;
-watch(()=>props.clientId,async id=>{const request=++version;documents.value=[];error.value='';loading.value=false;if(!id)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${id}/intake-documents`);if(request===version)documents.value=data.documents||[];}catch(e){if(request===version)error.value=e.response?.status===403?'These documents are not shared with this account. Contact your care team if you need help.':'Documents could not be loaded. Please try again.';}finally{if(request===version)loading.value=false;}},{immediate:true});
-async function download(document){const request=version;downloading.value=true;error.value='';try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/intake-documents/${document.id}/download-url`);if(request!==version)return;const url=new URL(data.url,window.location.origin);if(!['https:','http:'].includes(url.protocol))throw new Error('Invalid download');const a=window.document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.click();}catch{if(request===version)error.value='This document could not be downloaded. Please try again or contact your care team.';}finally{downloading.value=false;}}
+watch(()=>props.clientId,async id=>{const request=++version;documents.value=[];error.value='';loading.value=false;if(!id)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${id}/intake-documents`);if(request===version)documents.value=data.documents||[];}catch(e){if(request===version)error.value=e.response?.status===403?ft("These documents are not shared with this account. Contact your care team if you need help."):ft("Documents could not be loaded. Please try again.");}finally{if(request===version)loading.value=false;}},{immediate:true});
+async function download(document){const request=version;downloading.value=true;error.value='';try{if(document.kind==='enrollment_copy'){const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/enrollment-copies/${document.submissionId}/download`,{responseType:'blob'});if(request!==version)return;const href=URL.createObjectURL(data),a=window.document.createElement('a');a.href=href;a.download=`enrollment-${document.submissionId}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(href),30000);return;}const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/intake-documents/${document.id}/download-url`);if(request!==version)return;const url=new URL(data.url,window.location.origin);if(!['https:','http:'].includes(url.protocol))throw new Error('Invalid download');const a=window.document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.click();}catch{if(request===version)error.value=ft("This document could not be downloaded. Please try again or contact your care team.");}finally{downloading.value=false;}}
 onUnmounted(()=>{version++;});
 </script>
 <style scoped>

@@ -132,6 +132,7 @@ import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 import { checkPasswordBasics } from '../utils/passwordPolicy.js';
 import PasswordRecoveryBrand from '../components/PasswordRecoveryBrand.vue';
 import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.js';
+import { clearPortalLoginMemory } from '../utils/loginRemember.js';
 
 const successMessage = ref('');
 
@@ -253,6 +254,7 @@ const handleReset = async () => {
 };
 
 onMounted(async () => {
+  clearPortalLoginMemory(route.params.organizationSlug || null);
   if (route.params.organizationSlug) {
     await brandingStore.fetchAgencyTheme(route.params.organizationSlug);
   }

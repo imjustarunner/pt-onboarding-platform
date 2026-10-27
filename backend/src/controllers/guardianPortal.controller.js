@@ -1,3 +1,4 @@
+import { listEnrollmentCopies } from '../services/guardianEnrollmentCopies.service.js';
 import { attachGuardianSchoolAffiliations } from '../services/guardianSchoolAffiliations.service.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import pool from '../config/database.js';
@@ -1280,7 +1281,8 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
       guardianUserId: uid,
       clientId,agencyId:parsePositiveInt(req.query.agencyId)
     });
-    res.json({ documents: rows || [] });
+    const copies = await listEnrollmentCopies({userId:uid,clientId,agencyId:parsePositiveInt(req.query.agencyId)});
+    res.json({ documents: [...copies, ...(rows || [])] });
   } catch (e) {
     next(e);
   }

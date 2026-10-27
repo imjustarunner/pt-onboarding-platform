@@ -2,33 +2,35 @@
   <div class="portal-home">
     <div class="home-columns">
       <section class="home-card plan-card">
-        <div class="home-card-head"><h2>{{ clientFirstName ? `${clientFirstName}’s ${learning ? 'learning' : 'care'} plan` : learning ? 'Learning plan' : 'Care plan' }}</h2><PortalIcon name="plan" /></div>
+        <div class="home-card-head"><h2>{{ clientFirstName ? (familyLocale === 'es' ? `Plan de ${learning ? 'aprendizaje' : 'atención'} de ${clientFirstName}` : `${clientFirstName}’s ${learning ? 'learning' : 'care'} plan`) : learning ? ft("Learning plan") : ft("Care plan") }}</h2><PortalIcon name="plan" /></div>
         <GuardianPlanProgressPanel compact v-if="showPlan && clientId" :client-id="clientId" :agency-id="agencyId" :client-type="learning ? 'learning' : 'clinical'" />
-        <div v-else class="home-empty"><PortalIcon name="shield" /><h3>Your access, thoughtfully protected</h3><p>Care information appears here when your relationship has permission to view it. Contact the care team to review access.</p><button @click="$emit('navigate','messages')">Contact your team <span aria-hidden="true">→</span></button></div>
-        <button v-if="showPlan && clientId" class="home-link" @click="$emit('navigate','plan')">View full plan →</button>
+        <div v-else class="home-empty"><PortalIcon name="shield" /><h3>{{ ft("Your access, thoughtfully protected") }}</h3><p>{{ ft("Care information appears here when your relationship has permission to view it. Contact the care team to review access.") }}</p><button @click="$emit('navigate','messages')">{{ ft("Contact your team") }} <span aria-hidden="true">→</span></button></div>
+        <button v-if="showPlan && clientId" class="home-link" @click="$emit('navigate','plan')">{{ ft("View full plan →") }}</button>
       </section>
       <div class="home-stack">
-        <section v-if="events.length" class="home-card"><div class="home-card-head"><h2>Group activities</h2><PortalIcon name="sessions" /></div>
+        <section v-if="events.length" class="home-card"><div class="home-card-head"><h2>{{ ft("Group activities") }}</h2><PortalIcon name="sessions" /></div>
           <button v-for="event in events.slice(0,3)" :key="event.key" class="home-event" @click="$emit('event',event)"><span class="home-icon"><PortalIcon name="sessions" /></span><span><strong>{{ event.title }}</strong><small>{{ event.metaPrimary }}</small><small>{{ event.metaSecondary }}</small></span><span aria-hidden="true">→</span></button>
-          <p v-if="!events.length" class="home-muted">No shared program sessions to display.</p>
-          <button class="home-link" @click="$emit('navigate','registrations')">Explore available registrations →</button>
+          <p v-if="!events.length" class="home-muted">{{ ft("No shared program sessions to display.") }}</p>
+          <button class="home-link" @click="$emit('navigate','registrations')">{{ ft("Explore available registrations →") }}</button>
         </section>
-        <section class="home-card"><div class="home-card-head"><h2>Your tasks</h2><button class="home-link" @click="$emit('navigate','documents')">Documents →</button></div>
-          <p v-if="loading" role="status">Loading payment tasks…</p><p v-if="error" role="alert">{{ error }} <button class="home-link" @click="load">Retry</button></p>
-          <router-link v-for="task in tasks" :key="task.id" class="home-event" :to="{path:'/billing/complete',query:{task:task.id,agencyId}}"><span class="home-icon"><PortalIcon name="tasks" /></span><span><strong>{{ task.title }}</strong><small>Complete payment verification and authorization</small></span><span class="home-pill">To do</span></router-link>
-          <p v-if="!loading && !error && !tasks.length" class="home-muted">No pending payment setup tasks. Check Documents for forms and signatures.</p>
+        <section class="home-card"><div class="home-card-head"><h2>{{ ft("Your tasks") }}</h2><button class="home-link" @click="$emit('navigate','documents')">{{ ft("Documents →") }}</button></div>
+          <p v-if="loading" role="status">{{ ft("Loading payment tasks…") }}</p><p v-if="error" role="alert">{{ ft(error) }} <button class="home-link" @click="load">{{ ft("Retry") }}</button></p>
+          <router-link v-for="task in tasks" :key="task.id" class="home-event" :to="{path:'/billing/complete',query:{task:task.id,agencyId}}"><span class="home-icon"><PortalIcon name="tasks" /></span><span><strong>{{ task.title }}</strong><small>{{ ft("Complete payment verification and authorization") }}</small></span><span class="home-pill">{{ ft("To do") }}</span></router-link>
+          <p v-if="!loading && !error && !tasks.length" class="home-muted">{{ ft("No pending payment setup tasks. Check Documents for forms and signatures.") }}</p>
         </section>
       </div>
     </div>
     <GuardianAppointmentsPanel v-if="clientId" :client-id="clientId" :preview="preview" />
     <div class="home-bottom">
-      <section class="home-card"><div class="home-card-head"><h2>Secure messages</h2><PortalIcon name="messages" /></div><p class="home-muted">Read and reply to the care team for {{ clientFirstName || 'this profile' }}.</p><button class="home-link" @click="$emit('navigate','messages')">Open your conversations →</button></section>
-      <section class="home-card"><div class="home-card-head"><h2>{{ clientFirstName ? `${clientFirstName}’s services` : 'Services' }}</h2><PortalIcon name="child" /></div><button v-for="program in programs" :key="program.id" class="home-program" @click="$emit('program',program)">{{ program.name }} <span aria-hidden="true">→</span></button><p v-if="!programs.length" class="home-muted">Your linked programs will appear here.</p></section>
-      <section class="home-card"><div class="home-card-head"><h2>Invoices &amp; receipts</h2><PortalIcon name="billing" /></div><p class="home-muted">View your assigned balances, payment plans, and downloadable receipts.</p><button class="home-link" @click="$emit('navigate','billing')">Open billing &amp; receipts →</button></section>
+      <section class="home-card"><div class="home-card-head"><h2>{{ ft("Secure messages") }}</h2><PortalIcon name="messages" /></div><p class="home-muted">{{ familyLocale === 'es' ? `Lea y responda al equipo de atención de ${clientFirstName || 'este perfil'}.` : `Read and reply to the care team for ${clientFirstName || 'this profile'}.` }}</p><button class="home-link" @click="$emit('navigate','messages')">{{ ft("Open your conversations →") }}</button></section>
+      <section class="home-card"><div class="home-card-head"><h2>{{ clientFirstName ? (familyLocale === 'es' ? `Servicios de ${clientFirstName}` : `${clientFirstName}’s services`) : ft("Services") }}</h2><PortalIcon name="child" /></div><button v-for="program in programs" :key="program.id" class="home-program" @click="$emit('program',program)">{{ program.name }} <span aria-hidden="true">→</span></button><p v-if="!programs.length" class="home-muted">{{ ft("Your linked programs will appear here.") }}</p></section>
+      <section class="home-card"><div class="home-card-head"><h2>{{ ft("Invoices & receipts") }}</h2><PortalIcon name="billing" /></div><p class="home-muted">{{ ft("View your assigned balances, payment plans, and downloadable receipts.") }}</p><button class="home-link" @click="$emit('navigate','billing')">{{ ft("Open billing & receipts →") }}</button></section>
     </div>
   </div>
 </template>
 <script setup>
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft, locale: familyLocale } = useFamilyLocale();
 import GuardianAppointmentsPanel from '../guardian/GuardianAppointmentsPanel.vue';
 import { ref, watch } from 'vue';
 import api from '../../services/api';

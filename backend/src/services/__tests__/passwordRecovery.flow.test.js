@@ -11,6 +11,7 @@ vi.mock('../communicationLogging.service.js', () => ({ default: { logGeneratedCo
 vi.mock('../activityLog.service.js', () => ({ default: { logActivity: m.audit } }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../utils/hogwartsTestEmail.js', () => ({ looksLikeTestInboxRedirectAddress: () => false, shouldRedirectHogwartsOutboundEmail: async () => false }));
+vi.mock('../familyPortalLocale.service.js',async importOriginal=>({...await importOriginal(),familyEnrollmentContext:async(userId,agencyId)=>({agencyId,locale:'en'})}));
 vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.send}));
 vi.mock('../passwordRecoverySupport.service.js', () => ({ createPasswordRecoverySupportTicket: m.ticket }));
 import { requestPasswordRecoveryEmail } from '../passwordRecovery.service.js';

@@ -184,6 +184,11 @@ class ClientGuardian {
          c.agency_id,
          c.client_type,
          c.guardian_portal_enabled,
+         COALESCE((SELECT il.language_code FROM intake_submissions s
+           JOIN intake_links il ON il.id=s.intake_link_id
+           JOIN intake_submission_clients isc ON isc.intake_submission_id=s.id
+           WHERE isc.client_id=c.id AND s.guardian_user_id=cg.guardian_user_id AND s.status='submitted'
+           ORDER BY s.submitted_at DESC,s.id DESC LIMIT 1),'en') AS portal_language,
          o.name AS organization_name,
          o.organization_type AS organization_type,
          o.slug AS organization_slug,

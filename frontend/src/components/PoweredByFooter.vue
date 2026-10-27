@@ -11,7 +11,7 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome" href="https://plottwisthq.com/records-request" class="legal-link">Request my records</a>
+    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome" href="/records-request" class="legal-link">Request my records</a>
     <ServiceUseNotice v-if="includeLegal && scopedFamilyLegal" :organization-slug="brandingStore.activeRouteSlug" :role="auth.user?.role" />
     <div v-else-if="includeLegal && legalLinksToRender.length" class="legal-links">
       <span v-if="legalTitleToRender" class="legal-title">{{ legalTitleToRender }}</span>

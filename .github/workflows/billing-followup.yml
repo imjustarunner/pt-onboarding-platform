@@ -14,6 +14,13 @@ on:
       - 'backend/src/services/guardianPortalScreenshotEncryption.service.js'
       - 'backend/src/controllers/guardianPortalHelp.controller.js'
       - 'backend/src/routes/guardianPortal.routes.js'
+      - 'backend/vitest.qa-retest.config.js'
+      - 'backend/src/services/guardianEnrollmentCopies.service.js'
+      - 'backend/src/services/familyPortalLocale.service.js'
+      - 'frontend/src/composables/useFamilyLocale.js'
+      - 'frontend/src/locales/family.es.json'
+      - 'frontend/src/router/familyBillingRoutes.js'
+      - 'frontend/src/views/admin/AccountSupportView.vue'
       - 'backend/src/services/clinicalDraftAttendanceIntent.js'
       - 'backend/src/controllers/clinicalNoteGenerator.controller.js'
       - 'backend/src/models/ClinicalNoteDraft.model.js'
@@ -106,6 +113,13 @@ on:
       - 'backend/src/services/guardianPortalScreenshotEncryption.service.js'
       - 'backend/src/controllers/guardianPortalHelp.controller.js'
       - 'backend/src/routes/guardianPortal.routes.js'
+      - 'backend/vitest.qa-retest.config.js'
+      - 'backend/src/services/guardianEnrollmentCopies.service.js'
+      - 'backend/src/services/familyPortalLocale.service.js'
+      - 'frontend/src/composables/useFamilyLocale.js'
+      - 'frontend/src/locales/family.es.json'
+      - 'frontend/src/router/familyBillingRoutes.js'
+      - 'frontend/src/views/admin/AccountSupportView.vue'
       - 'backend/src/services/clinicalDraftAttendanceIntent.js'
       - 'backend/src/controllers/clinicalNoteGenerator.controller.js'
       - 'backend/src/models/ClinicalNoteDraft.model.js'
@@ -228,6 +242,10 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-followup.config.js
       - name: Standard family emails and appointment responses
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
+      - name: Guardian scheduling, signed copies, and password recovery regressions
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-retest.config.js
+      - name: Account support routing and family language isolation
+        run: npm --prefix frontend test -- src/views/admin/__tests__/AccountSupportView.test.js src/composables/__tests__/useFamilyLocale.test.js src/components/guardian/__tests__/GuardianIntakeDocuments.test.js src/utils/__tests__/loginRemember.test.js
       - name: Native SQL workflow and policy checks
         run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js backend/src/services/__tests__/familyLedger.planEligibility.test.js
       - name: Attendance copay authorization and timing

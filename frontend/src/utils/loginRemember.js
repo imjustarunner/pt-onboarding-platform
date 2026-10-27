@@ -166,6 +166,17 @@ export function clearRememberedGoogleLogin(orgSlug = null) {
   } catch { /* Storage may be disabled. */ }
 }
 
+// A recovery link may be opened on a shared browser. Returning to sign-in
+// must not restore a different person's remembered account for this portal.
+export function clearPortalLoginMemory(orgSlug) {
+  clearRememberedLogin(orgSlug);
+  clearRememberedGoogleLogin(orgSlug);
+  clearRememberedSchoolStaffPasswordLogin(orgSlug);
+  for (const key of ['username', 'verify', 'remember']) {
+    try { sessionStorage.removeItem(`__pt_login_pending_${key}__`); } catch { /* optional storage */ }
+  }
+}
+
 // A branded portal must never display another agency's saved account.
 export function getPortalLoginMemory(orgSlug, { username = '', allowGoogle = true } = {}) {
   const slug = normalizeOrgSlug(orgSlug);

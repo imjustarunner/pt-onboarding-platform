@@ -1,3 +1,4 @@
+import { familyBillingRoutes } from './familyBillingRoutes.js';
 import { consumeSsoHandoff, isTokenAuthenticationRoute } from '../utils/loginHandoff';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
 import { isPlotlineHost } from '../utils/plotline';
@@ -378,7 +379,7 @@ const routes = [
   { path: '/provider-update-security-verified', name: 'ProviderUpdateSecurityVerified', component: () => import('../views/public/ProviderUpdateSecurityVerifiedView.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
-  {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
+  ...familyBillingRoutes,
   { path: '/admin/support-review', name: 'SupportEmailReview', component: () => import('../views/admin/SupportEmailReviewView.vue'), meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'] } },
   { path: '/:organizationSlug/admin/support-review', name: 'OrganizationSupportEmailReview', component: () => import('../views/admin/SupportEmailReviewView.vue'), meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true } },
   // Public school finder (no auth). Must be before "/:organizationSlug".
