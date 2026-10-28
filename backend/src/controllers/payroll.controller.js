@@ -98,6 +98,7 @@ import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
 import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
 import {approvedPeriodSalaryOverride} from '../services/payrollSalaryOverridePolicy.js';
+import {separateHistoricalCarryovers} from '../services/payrollHistoricalCarryover.service.js';
 import {
   loadEventPayrollContext,
   resolveEventPayrollTreatment,
@@ -1256,7 +1257,8 @@ function mergeStagingAggregateRow(base, add) {
     carryoverMeta: mergeCarryoverMeta(base.carryoverMeta, add.carryoverMeta),
     clientPaidAmount: Number(base.clientPaidAmount || 0) + Number(add.clientPaidAmount || 0),
     finalizedUnits: basePresent + addPresent + oldDoneNotesUnits,
-    supervisionSource: base.supervisionSource || add.supervisionSource || undefined
+    supervisionSource: base.supervisionSource || add.supervisionSource || undefined,
+    datedUnits:base.datedUnits||add.datedUnits?[...(base.datedUnits||[]),...(add.datedUnits||[])]:undefined
   };
 }
 
@@ -5138,16 +5140,18 @@ async function buildSupervisionTrackingUnitsByUserCode({
   payrollPeriodId,
   agencyId,
   periodStart,
-  periodEnd
+  periodEnd,
+  datedUnitsByUserCode=null
 }) {
   const trackingByUserCode = new Map();
-  const addUnits = (uid, code, units) => {
+  const addUnits = (uid, code, units, serviceDate) => {
     const u = Number(uid || 0);
     const c = String(code || '').trim().toUpperCase();
     const n = Number(units || 0);
     if (!u || !c || !(Number.isFinite(n) && n > 0)) return;
     const key = `${u}:${c}`;
     trackingByUserCode.set(key, (trackingByUserCode.get(key) || 0) + n);
+    if(datedUnitsByUserCode)datedUnitsByUserCode.set(key,[...(datedUnitsByUserCode.get(key)||[]),{serviceDate:ymdFromDbDate(serviceDate),units:n}]);
   };
 
   const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 1))`;
@@ -5156,6 +5160,7 @@ async function buildSupervisionTrackingUnitsByUserCode({
     const [legacyRows] = await pool.execute(
       `SELECT
          pir.user_id,
+         DATE_FORMAT(pir.service_date,'%Y-%m-%d') AS service_date,
          UPPER(TRIM(pir.service_code)) AS service_code,
          SUM(COALESCE(pir.unit_count, 0)) AS units_total
        FROM payroll_import_rows pir
@@ -5164,11 +5169,11 @@ async function buildSupervisionTrackingUnitsByUserCode({
          AND pir.user_id IS NOT NULL
          AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
          AND ${payableClause}
-       GROUP BY pir.user_id, UPPER(TRIM(pir.service_code))`,
+       GROUP BY pir.user_id, DATE_FORMAT(pir.service_date,'%Y-%m-%d'), UPPER(TRIM(pir.service_code))`,
       [payrollPeriodId, agencyId, ...supervisionCodes]
     );
     for (const r of legacyRows || []) {
-      addUnits(r.user_id, r.service_code, Number(r.units_total || 0));
+      addUnits(r.user_id, r.service_code, Number(r.units_total || 0),r.service_date);
     }
   } catch {
     // import table may be empty
@@ -5183,6 +5188,7 @@ async function buildSupervisionTrackingUnitsByUserCode({
     const [appRows] = await pool.execute(
       `SELECT
          ssar.user_id,
+         DATE_FORMAT(ss.start_at,'%Y-%m-%d') AS service_date,
          LOWER(TRIM(COALESCE(ss.session_type, 'individual'))) AS session_type,
          LOWER(TRIM(COALESCE(ssa.participant_role,
            CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
@@ -5203,6 +5209,7 @@ async function buildSupervisionTrackingUnitsByUserCode({
          AND COALESCE(ssar.total_seconds, 0) > 0
        GROUP BY
          ssar.user_id,
+         DATE_FORMAT(ss.start_at,'%Y-%m-%d'),
          LOWER(TRIM(COALESCE(ss.session_type, 'individual'))),
          LOWER(TRIM(COALESCE(ssa.participant_role,
            CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
@@ -5219,7 +5226,7 @@ async function buildSupervisionTrackingUnitsByUserCode({
         participantUserRole: r.participant_user_role
       });
       for (const code of codes) {
-        addUnits(r.user_id, code, minutes);
+        addUnits(r.user_id, code, minutes,r.service_date);
       }
     }
   } catch {
@@ -5355,7 +5362,8 @@ export async function buildResolvedSupervisionUnitsByUserCode({
   payrollPeriodId,
   agencyId,
   periodStart,
-  periodEnd
+  periodEnd,
+  datedUnitsByUserCode=null
 }) {
   const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 1))`;
   const supervisionCodes = ['99414', '99415', '99416'];
@@ -5587,6 +5595,7 @@ export async function buildResolvedSupervisionUnitsByUserCode({
       if (!(Number.isFinite(units) && units > 0)) continue;
       const userCodeKey = `${uid}:${code}`;
       selectedByUserDateCode.set(userCodeKey, (selectedByUserDateCode.get(userCodeKey) || 0) + units);
+      if(datedUnitsByUserCode)datedUnitsByUserCode.set(userCodeKey,[...(datedUnitsByUserCode.get(userCodeKey)||[]),{serviceDate:d,units}]);
     }
   }
 
@@ -5687,23 +5696,28 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         agencyId,
         periodStart
       });
+      const resolvedSupervisionDates=new Map();
       const selectedByUserCode = await buildResolvedSupervisionUnitsByUserCode({
         payrollPeriodId,
         agencyId,
         periodStart,
-        periodEnd
+        periodEnd,
+        datedUnitsByUserCode:resolvedSupervisionDates
       });
+      const trackingDates=new Map();
       const trackingByUserCode = await buildSupervisionTrackingUnitsByUserCode({
         payrollPeriodId,
         agencyId,
         periodStart,
-        periodEnd
+        periodEnd,
+        datedUnitsByUserCode:trackingDates
       });
 
       const applyTrackingUnits = (row, code, uid) => {
         const trackingUnits = Number(trackingByUserCode.get(`${uid}:${code}`) || 0);
         if (!(trackingUnits > 1e-9)) return;
         const base = Number(row.oldDoneNotesUnits || 0);
+        if(base+trackingUnits>Number(row.finalizedUnits||0) || !row.datedUnits)row.datedUnits=trackingDates.get(`${uid}:${code}`)||[];
         row.finalizedUnits = Math.max(Number(row.finalizedUnits || 0), base + trackingUnits);
         row.supervisionTrackingUnits = trackingUnits;
       };
@@ -5724,6 +5738,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
             row.finalizedUnits = Number(row.oldDoneNotesUnits || 0) + units;
           }
           row.supervisionSource = 'resolved_app_or_legacy';
+          row.datedUnits=resolvedSupervisionDates.get(key)||[];
         } else {
           const [uid, code] = String(key).split(':');
           const newRow = {
@@ -5736,7 +5751,8 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
             oldDoneNotesNotes: 0,
             carryoverMeta: null,
             finalizedUnits: units,
-            supervisionSource: 'resolved_app_or_legacy'
+            supervisionSource: 'resolved_app_or_legacy',
+            datedUnits:resolvedSupervisionDates.get(key)||[]
           };
           out.push(newRow);
           outMap.set(key, newRow);
@@ -5762,6 +5778,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
             carryoverMeta: null,
             finalizedUnits: units,
             supervisionSource: 'requirement_tracking',
+            datedUnits:trackingDates.get(key)||[],
             supervisionTrackingUnits: units
           };
           out.push(newRow);
@@ -5808,6 +5825,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         const AgencyMeetingAttendanceRollup = (await import('../models/AgencyMeetingAttendanceRollup.model.js')).default;
         const meetingRows = await AgencyMeetingAttendanceRollup.listForAgencyInWindow(agencyId, periodStart, periodEnd);
         const meetingUnitsByUserCode = new Map(); // key: `${uid}:${code}`
+        const meetingDatesByUserCode = new Map();
         for (const r of meetingRows || []) {
           const uid = Number(r?.user_id || 0);
           if (!uid) continue;
@@ -5823,6 +5841,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
           const code = 'MEETING';
           const k = `${uid}:${code}`;
           meetingUnitsByUserCode.set(k, (meetingUnitsByUserCode.get(k) || 0) + units);
+          meetingDatesByUserCode.set(k,[...(meetingDatesByUserCode.get(k)||[]),{serviceDate:ymdFromDbDate(r.service_date),units}]);
         }
         for (const [k, units] of meetingUnitsByUserCode.entries()) {
           const parts = k.split(':');
@@ -5831,6 +5850,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
           if (outMap.has(k)) {
             const row = outMap.get(k);
             row.finalizedUnits = Number(row.finalizedUnits || 0) + units;
+            row.datedUnits=[...(row.datedUnits||[]),...(meetingDatesByUserCode.get(k)||[])];
           } else {
             out.push({
               userId: Number(uid),
@@ -5842,7 +5862,8 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
               oldDoneNotesNotes: 0,
               carryoverMeta: null,
               finalizedUnits: units,
-              meetingAttendanceSource: true
+              meetingAttendanceSource: true,
+              datedUnits:meetingDatesByUserCode.get(k)||[]
             });
           }
         }
@@ -5883,6 +5904,8 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
   if(!recomputePeriod || Number(recomputePeriod.agency_id)!==Number(agencyId) || isEffectivelyPostedOrFinalized(recomputePeriod)) {
     throw Object.assign(new Error('Only open payroll periods can be recalculated.'),{status:409});
   }
+  periodStart=ymdFromDbDate(recomputePeriod.period_start);
+  periodEnd=ymdFromDbDate(recomputePeriod.period_end);
   await materializeRecurring({agencyId,payrollPeriodId});
   const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
   // Percent-of-client-paid pay policy (agency default + feature flag). Best-effort:
@@ -6436,7 +6459,8 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         // supervisionTrackingHours holds the real earned minutes (admin display only).
         hours: isSupervisionTrackingRow ? 0 : creditsHours,
         creditsHours: isSupervisionTrackingRow ? 0 : creditsHours,
-        ...(isSupervisionTrackingRow ? { supervisionTrackingHours: creditsHours, supervisionTrackingOnly: true } : {}),
+        ...((isSupervisionTrackingRow || (['requirement_tracking','requirement_tracking_only'].includes(row.supervisionSource) && lineAmount===0))
+          ? { supervisionTrackingHours: creditsHours, supervisionTrackingOnly: true } : {}),
         payHours,
         rateSource
       };
@@ -7090,6 +7114,8 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
           if (!String(key).startsWith(prefix)) continue;
           datedForUser.set(String(key).slice(prefix.length), list);
         }
+        for(const row of userRows)if(row.datedUnits)datedForUser.set(String(row.serviceCode).toUpperCase(),row.datedUnits);
+        separateHistoricalCarryovers({breakdown,stagingRows:userRows,ratesByCode,rateCard,boundary:payCtx.status.agreementBoundary});
         const meta = applyPaySystemToBreakdown({
           breakdown,
           rateProfile: payCtx.rateProfile,
@@ -7171,6 +7197,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         }
       }
     } catch (paySysErr) {
+      paySysErr.message=`Employee ${userId}: ${paySysErr.message}`;
       // Never save a fallback total when the selected compensation calculation failed.
       // A failed re-run must also invalidate the earlier run's posting/export gate.
       await pool.execute(`UPDATE payroll_periods SET status='staged',ran_at=NULL,ran_by_user_id=NULL

@@ -846,7 +846,7 @@ function splitBreakdownByCutoff(breakdown, { cutoff, preStatus, postStatus, date
 function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCode}) {
   const boundary=status.agreementBoundary, args=status.agreementStatusArgs;
   for (const [key,row] of Object.entries({...breakdown})) {
-    if (!row || typeof row!=='object' || key.startsWith('__') || key==='AUTO INDIRECT' || ['percent_collected','percent_billed'].includes(row.payMethod)) continue;
+    if (!row || typeof row!=='object' || key.startsWith('__') || key==='AUTO INDIRECT' || row.supervisionTrackingOnly || ['percent_collected','percent_billed','historical_fixed'].includes(row.payMethod)) continue;
     const code=canonicalServiceCode(key,row), units=Number(row.finalizedUnits??row.units??0);
     if (!(units>0) || classifyPayType(code,row)==='skip') continue;
     const dates=datedUnitsByCode?.get(code) || [];
@@ -950,7 +950,8 @@ export function applyPaySystemToBreakdown({
     const units = Number(row.finalizedUnits ?? row.units ?? 0) || 0;
     if (units <= 1e-9) continue;
 
-    if (['percent_collected','percent_billed'].includes(row.payMethod)) { servicePay += Number(row.amount || 0); continue; }
+    if(row.supervisionTrackingOnly){row.amount=0;continue;}
+    if (['percent_collected','percent_billed','historical_fixed'].includes(row.payMethod)) { servicePay += Number(row.amount || 0); continue; }
     const lineStatus = row.rateEraStatus || status;
     const serviceCode = canonicalServiceCode(code, row);
     const rule = {
@@ -1079,6 +1080,7 @@ export function applyPaySystemToBreakdown({
       indirect: lineResults.filter(l=>isServiceCreditPolicy(l.compensationPolicyVersion)).reduce((v,l)=>v+(l.payType==='credit'?l.hourEquivalent*l.leaveAdminRatio:l.payType==='hcode'?l.autoIndirectHours:l.payType==='indirect'?l.hourEquivalent:0),0),
       support: lineResults.filter(l=>isServiceCreditPolicy(l.compensationPolicyVersion) && l.payType==='support_activity').reduce((v,l)=>v+l.hourEquivalent,0),
       legacyPaidBasis: lineResults.filter(l=>!isServiceCreditPolicy(l.compensationPolicyVersion)).reduce((v,l)=>v+l.hourEquivalent+l.autoIndirectHours,0)
+        + Object.values(breakdown).filter(r=>r?.payMethod==='historical_fixed').reduce((n,r)=>n+Number(r.creditsHours||0),0)
     }
   };
 
