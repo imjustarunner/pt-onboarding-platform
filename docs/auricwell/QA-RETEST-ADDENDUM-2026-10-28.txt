@@ -66,6 +66,11 @@ CHANGES IN THIS REPAIR
 
 Developer verification: 103 targeted tests passed and the frontend production
 build completed. These checks do not establish an end-to-end external QA pass.
+Repair commit: 573986f85a7cf2823c7020820cf0ca752ef3a8a7 (main).
+After the frontend deployment, a live Chrome retest with Jamie's saved school
+login and pending username kept both /auricwell-qa-demo/login and /login on
+app.itsco.health with a blank username. A subsequent clean Avery login returned
+success for user 1433. GitHub scheduling and guardian-billing checks passed.
 
 WHAT THE RETAINED RECORDS SHOW
 
@@ -83,6 +88,13 @@ WHAT THE RETAINED RECORDS SHOW
   treat that recovery as proof that first-time welcome mail worked.
 - Jules remains 2277 with Morgan 1459 and Casey 1460; signed copies 1285/1289
   remain retained. No new signatures or submissions were made for either.
+- Follow-up configuration: both Jules guardians lacked care-access grants. Only
+  these two synthetic relationships were configured for clinical messages and
+  individually shared documents, with an audit record and a November 28 review
+  date. Service checks now authorize both functions. There are currently zero
+  individually shared files. Each guardian still lists only their own signed
+  enrollment copy; attempts to download the other guardian's copy returned 404.
+  The external team must still verify the actual screens and message exchange.
 
 RETEST ORDER — ORDINARY BROWSER ACTIONS ONLY
 
@@ -154,9 +166,10 @@ KNOWN OPEN ITEMS — DO NOT REPORT THESE AS FIXED
 - Full-enrollment versus portal-only second-parent invitation mode in a client
   Portal tab remains a feature request requiring implementation/verification.
   Do not substitute recovery, impersonation, or admin access for that workflow.
-- Guardian shared messages, care-access, and shared-files 403 responses; empty
-  other-guardian lists and inconsistent name/email masking require further work.
-  Do not remove clinical disclosure protections merely to make a test pass.
+- Guardian shared messages, care-access, and shared-files need browser retesting
+  after the Jules fixture configuration above. Empty other-guardian lists and
+  inconsistent name/email masking are not yet verified as fixed. Do not remove
+  clinical disclosure protections merely to make a test pass.
 - Office ES and Spanish packet/portal translation gaps, duplicate disclosure
   entries, branding/support footer links, and used-link feedback remain open.
 - Legal-guardian authority-document flow, emergency-contact validation, typed
