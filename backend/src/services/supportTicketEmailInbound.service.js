@@ -287,6 +287,7 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
   const database = dependencies.database || pool;
   const generateSupportEmailDraft = dependencies.generateSupportEmailDraft || (await import('./supportEmailDraft.service.js')).generateSupportEmailDraft;
   const assessSupportEmailDraftReuse = dependencies.assessSupportEmailDraftReuse || (await import('./supportEmailDraft.service.js')).assessSupportEmailDraftReuse;
+  const prepareSupportEmailDraftInput = dependencies.prepareSupportEmailDraftInput || (await import('./supportEmailDraft.service.js')).prepareSupportEmailDraftInput;
   const { recordDraftSnapshot, getLatestDraftSnapshot } = dependencies.review || await import('./supportReplyReview.service.js');
   const [[raw]] = await database.execute('SELECT * FROM support_tickets WHERE id=? AND agency_id=?', [ticketId, agencyId]);
   if (!raw || raw.topic === 'technology') return null;
@@ -310,8 +311,8 @@ export async function generateInboundSupportDraft({ ticketId, sourceMessageId, a
     [[claimant]] = await database.execute('SELECT id,first_name,last_name FROM users WHERE id=?', [raw.claimed_by_user_id]);
   }
   const linkedClientFacts = await loadLinkedSupportClientDraftFacts(raw, { database, findClient: dependencies.findClient });
-  const draftInput = { ticket: decryptTicketRow(raw), ...linkedClientFacts,
-    messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete, intakeMessageId: sourceMessageId };
+  const draftInput = await prepareSupportEmailDraftInput({ ticket: decryptTicketRow(raw), ...linkedClientFacts,
+    messages: messages.map(decryptTicketMessageRow), attachments, claimant, intakeComplete, intakeMessageId: sourceMessageId }, { database });
   const existing = await getLatestDraftSnapshot({ ticketId, agencyId, sourceMessageId, threadRevision: revision });
   const reuse = assessSupportEmailDraftReuse(draftInput, existing);
   if (existing && reuse.reusable) return existing;

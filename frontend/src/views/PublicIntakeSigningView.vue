@@ -30,7 +30,7 @@
     :contact-compact="isOfficeInDepthIntake && showCompactSidebarContact"
     :show-intake-sidebar-security="!(isOfficeInDepthIntake && showCompactSidebarContact)"
     :intake-sidebar-max-reachable="isOfficeInDepthIntake ? (isAssistedIntakeSession ? 999 : maxReachedProgressIndex) : 0"
-    :intake-sidebar-interactive="isOfficeInDepthIntake"
+    :intake-sidebar-interactive="isOfficeInDepthIntake && !enrollmentStopped"
     @update:language="switchLinkedLanguage"
     @contact-support="openSplashSupportModal"
     @select-step="jumpToProgressStep"
@@ -80,6 +80,11 @@
     </template>
     <div v-if="showFullPageLoading" class="df-loading" role="status" aria-live="polite">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
+
+    <section v-else-if="enrollmentStopped" class="intake-card" role="status" aria-live="polite">
+      <h1>{{ t('enrollmentStoppedTitle') }}</h1>
+      <p>{{ t('enrollmentStoppedBody') }}</p>
+    </section>
 
     <div v-else class="intake-card" :class="{ 'intake-card--job-landing': isJobApplication && step === -1 }">
       <!-- Inline recoverable error banner — form stays fully visible and Back works -->
@@ -1325,7 +1330,7 @@
           >
             {{ consentLoading ? t('saving') : t('iConsentContinue') }}
           </button>
-          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
+          <button class="btn btn-outline" type="button" @click="cancelEnrollment" :disabled="consentLoading || submitLoading">
             {{ t('cancelDelete') }}
           </button>
           <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="consentLoading || submitLoading">
@@ -2345,7 +2350,7 @@
           class="actions"
           style="margin-top: 10px;"
         >
-          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
+          <button class="btn btn-outline" type="button" @click="cancelEnrollment" :disabled="submitLoading">
             {{ t('cancelDelete') }}
           </button>
           <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="submitLoading">
@@ -2971,6 +2976,18 @@
       </div>
     </div>
 
+    <EnrollmentTerminationDialog
+      v-if="stopEnrollmentOpen"
+      :title="t('terminateEnrollmentTitle')"
+      :description="t('cancelDeleteConfirm')"
+      :keep-label="t('keepCompletingEnrollment')"
+      :confirm-label="t('terminateEnrollment')"
+      :busy-label="t('terminatingEnrollment')"
+      :busy="stopEnrollmentLoading"
+      :error="stopEnrollmentFailed ? t('terminateEnrollmentFailed') : ''"
+      @cancel="keepCompletingEnrollment"
+      @confirm="terminateEnrollment"
+    />
     <OfficeSkipNowSplash
       v-if="officeSkipSplashOpen"
       :support-text="t('officeSkipSplashSupport')"
@@ -2985,6 +3002,8 @@
 </template>
 
 <script setup>
+import EnrollmentTerminationDialog from '../components/public-intake/EnrollmentTerminationDialog.vue';
+import { useEnrollmentTermination } from '../composables/useEnrollmentTermination.js';
 import EnrollmentPortalAccess from '../components/public-intake/EnrollmentPortalAccess.vue';
 import { i18n, setPublicLocale } from '../i18n.js';
 import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
@@ -3205,7 +3224,7 @@ const INTAKE_TRANSLATIONS = {
     loadingLinkMedical: 'Loading medical records request...',
     loadingLinkRegistration: 'Loading registration...',
     loadingLinkDisclosure: 'Loading disclosure...',
-    digitalIntake: 'Digital Intake',
+    digitalIntake: 'Digital Enrollment',
     digitalIntakeJob: 'Job Application',
     digitalIntakeMedical: 'Medical Records Request',
     digitalIntakeRegistration: 'Smart Registration',
@@ -3228,7 +3247,15 @@ const INTAKE_TRANSLATIONS = {
     next: 'Next',
     back: '← Back',
     backToWelcome: '← Back to welcome',
-    cancelDelete: 'End this intake',
+    cancelDelete: 'Stop my enrollment',
+    terminateEnrollmentTitle: 'Stop this enrollment?',
+    terminateEnrollment: 'Terminate enrollment',
+    keepCompletingEnrollment: 'Keep completing enrollment',
+    terminatingEnrollment: 'Stopping enrollment…',
+    submitEnrollment: 'Submit enrollment',
+    terminateEnrollmentFailed: 'We could not confirm that your enrollment was stopped. Your form is still available. Please try again or contact support.',
+    enrollmentStoppedTitle: 'Enrollment stopped',
+    enrollmentStoppedBody: 'This enrollment was not submitted. You will not receive reminders to finish it. You can close this page. Contact support if you decide to continue later.',
     restart: 'Restart',
     completed: 'Completed',
     untitled: 'Untitled',
@@ -3253,7 +3280,7 @@ const INTAKE_TRANSLATIONS = {
     acknowledgeAndContinue: 'Acknowledge & Continue',
     introAgencySubtitle: 'Acknowledging this agency as your service provider.',
     introSchoolSubtitle: 'Acknowledging this school as your partnering organization.',
-    introOrgSubtitle: 'Acknowledging this organization as your intake site.',
+    introOrgSubtitle: 'Acknowledging this organization as your enrollment site.',
     questions: 'Questions',
     aboutYou: 'About You',
     tellUsAboutYou: 'Tell us a bit about you so we can prepare the right forms.',
@@ -3291,15 +3318,15 @@ const INTAKE_TRANSLATIONS = {
     packetPdfStillPreparing: 'Signed legal form copies are still being prepared and will be emailed when ready.',
     downloadPackets: 'Download packets',
     custodyOtherGuardianTitle: 'Custody & other guardian',
-    custodyOtherGuardianLead: 'If another parent has legal rights, our team will reach out so they can complete their own intake. They will not see what you submit.',
-    custodyOtherGuardianLeadSchool: 'If another parent or guardian has medical decision-making rights, our team will follow up so they can complete their own consent and intake forms. They will not see what you submit. A portal login is not created unless they ask for one.',
-    otherGuardianLegalRights: 'Another parent/guardian with legal rights who will complete their own intake?',
-    otherGuardianLegalYes: 'Yes — send them their intake',
+    custodyOtherGuardianLead: 'If another parent has legal rights, our team will reach out so they can complete their own enrollment. They will not see what you submit.',
+    custodyOtherGuardianLeadSchool: 'If another parent or guardian has medical decision-making rights, our team will follow up so they can complete their own consent and enrollment forms. They will not see what you submit. A portal login is not created unless they ask for one.',
+    otherGuardianLegalRights: 'Another parent/guardian with legal rights who will complete their own enrollment?',
+    otherGuardianLegalYes: 'Yes — send them their enrollment',
     otherGuardianLegalYesSchool: 'Yes — they have decision-making rights and need their own forms',
     otherGuardianLegalShared: 'Yes — we share decision-making',
     otherGuardianLegalNo: 'No other guardian with those rights',
-    otherGuardianNoEmailWarning: 'We reach out on your behalf. A correct email is best; if you only have a phone number, our team will call to complete their intake. Missing contact information can delay start of care.',
-    otherGuardianRightsRequired: 'Please answer whether another parent or guardian with legal rights should complete their own intake.',
+    otherGuardianNoEmailWarning: 'We reach out on your behalf. A correct email is best; if you only have a phone number, our team will call to complete their enrollment. Missing contact information can delay start of care.',
+    otherGuardianRightsRequired: 'Please answer whether another parent or guardian with legal rights should complete their own enrollment.',
     otherGuardianContactRequired: 'Please enter their email or phone so we can reach out on your behalf.',
     ageOfConsentNote: 'We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice.',
     otherGuardianFirstName: 'First name',
@@ -3309,7 +3336,7 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhone: 'Phone',
     otherGuardianRelationship: 'Relationship',
     otherGuardianReachOutNote: 'We will reach out to them on your behalf. Please provide their correct email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
-    otherGuardianReachOutNoteSchool: 'Our team will follow up so they can complete their own consent and intake forms. Provide their email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
+    otherGuardianReachOutNoteSchool: 'Our team will follow up so they can complete their own consent and enrollment forms. Provide their email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
     otherGuardianCourtDocsLabel: 'Upload court documents (encrypted)',
     otherGuardianCourtDocsHelp: 'Files are stored encrypted.',
     otherGuardianViewConsent: 'View custody and consent details',
@@ -3322,11 +3349,11 @@ const INTAKE_TRANSLATIONS = {
     emailLoginDetails: 'Email these login details',
     loginDetailsSent: 'Login details sent. Keep that email private.',
     otherGuardianInviteTitle: 'Other guardian outreach',
-    otherGuardianInviteLead: 'Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.',
+    otherGuardianInviteLead: 'Our team will reach out on your behalf so they can complete their own enrollment. They will not see what you submitted.',
     otherGuardianInviteLeadSchool: 'Our team will follow up so the other parent/guardian can complete their own forms. They will not see what you submitted. A portal login is not created automatically.',
-    otherGuardianInviteQueuedSchool: 'Their intake is queued for our team to send when ready. We will follow up with them.',
+    otherGuardianInviteQueuedSchool: 'Their enrollment is queued for our team to send when ready. We will follow up with them.',
     otherGuardianInviteEmailed: 'We emailed them at {email}.',
-    otherGuardianInvitePhoneFollowUp: 'We have their phone number — our team will call to start their intake.',
+    otherGuardianInvitePhoneFollowUp: 'We have their phone number — our team will call to start their enrollment.',
     coGuardianIsolatedTitle: 'Your own guardian enrollment',
     coGuardianIsolatedLead: 'Complete your own agreements, observations, and expectations for the dependent(s) listed here. Your care team can review your answers separately. This does not replace your child’s identifying information or reveal the other parent’s private submission. Use your own email for your portal account.',
     whoIsThisForTitle: 'Who is this for?',
@@ -3379,7 +3406,7 @@ const INTAKE_TRANSLATIONS = {
     saveAndComeBackLater: 'Save & Come Back Later',
     progressSavedComeBack: 'Progress saved securely. Use this same link to pick up where you left off.',
     copyReturnLinkTitle: 'Copy your temporary return link',
-    copyReturnLinkBody: 'This private link lets you finish this intake on this or another device for the next 24 hours. After that, the link expires and you will need to start over. Saved records are retained.',
+    copyReturnLinkBody: 'This private link lets you finish this enrollment on this or another device for the next 24 hours. After that, the link expires and you will need to start over. Saved records are retained.',
     copyReturnLinkHipaa: 'Do not post this link, email it to a shared inbox, or text it to someone else. Anyone with the link can see the health information you have entered. We do not store this packet in your browser.',
     copyTemporaryLink: 'Copy temporary link',
     copied: 'Copied',
@@ -3412,7 +3439,7 @@ const INTAKE_TRANSLATIONS = {
     schoolRoi: 'School ROI',
     signingLinkAssigned: 'This signing link is already assigned to this client.',
     releaseOfInformation: 'Release of Information',
-    whoIsIntakeFor: 'Who is this intake for?',
+    whoIsIntakeFor: 'Who is this enrollment for?',
     myself: 'Myself',
     myDependents: 'My dependent(s)',
     yourFirstName: 'Your first name',
@@ -3429,7 +3456,7 @@ const INTAKE_TRANSLATIONS = {
     guardianQuestions: 'Guardian Questions',
     yourQuestions: 'Your Questions',
     oneTimeQuestions: 'One-time Questions',
-    oneTimeQuestionsDesc: 'These questions are asked once for the whole intake.',
+    oneTimeQuestionsDesc: 'These questions are asked once for the whole enrollment.',
     selectOption: 'Select an option',
     client: 'Client',
     clients: 'Clients',
@@ -3521,11 +3548,11 @@ const INTAKE_TRANSLATIONS = {
     confirmSignatureReuse: 'Please confirm signature reuse to continue.',
     signatureRequired: 'Signature is required.',
     completeRequiredFields: 'Please complete all required fields before continuing.',
-    cancelDeleteConfirm: 'End this intake and stop reminders? Saved records are retained. Contact the organization for records requests.',
-    restartConfirm: 'Restart this intake and clear all fields?',
-    endSessionConfirm: 'End this session and clear this intake from this browser?',
-    unableToStartSession: 'Unable to start a new intake session. Please try again.',
-    dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.',
+    cancelDeleteConfirm: 'Terminating stops this unfinished enrollment without submitting it. You will not receive reminders to finish it, and your return link will stop working. The organization retains saved records. To finish and submit instead, choose Keep completing enrollment.',
+    restartConfirm: 'Restart this enrollment and clear all fields?',
+    endSessionConfirm: 'End this session and clear this enrollment from this browser?',
+    unableToStartSession: 'Unable to start a new enrollment session. Please try again.',
+    dailyLimitReached: 'Daily enrollment start limit reached. Please try again tomorrow.',
     draftRestored: 'Picking up your saved progress.',
     beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.',
     beginSubtitleProgramEnrollment:
@@ -3620,7 +3647,15 @@ const INTAKE_TRANSLATIONS = {
     next: 'Siguiente',
     back: '← Atrás',
     backToWelcome: '← Volver al inicio',
-    cancelDelete: 'Terminar esta admisión',
+    cancelDelete: 'Detener mi inscripción',
+    terminateEnrollmentTitle: '¿Detener esta inscripción?',
+    terminateEnrollment: 'Cancelar definitivamente esta inscripción',
+    keepCompletingEnrollment: 'Seguir completando la inscripción',
+    terminatingEnrollment: 'Deteniendo la inscripción…',
+    submitEnrollment: 'Enviar inscripción',
+    terminateEnrollmentFailed: 'No pudimos confirmar que su inscripción se haya detenido. Su formulario sigue disponible. Inténtelo de nuevo o comuníquese con soporte.',
+    enrollmentStoppedTitle: 'Inscripción detenida',
+    enrollmentStoppedBody: 'Esta inscripción no se envió. No recibirá recordatorios para completarla. Puede cerrar esta página. Comuníquese con soporte si decide continuar más adelante.',
     restart: 'Reiniciar',
     completed: 'Completado',
     untitled: 'Sin título',
@@ -3897,7 +3932,7 @@ const INTAKE_TRANSLATIONS = {
     reviewAllPagesBeforeSigning: 'Por favor haga clic en Siguiente en el documento para revisar todas las páginas antes de firmar.',
     signatureRequired: 'Se requiere firma.',
     completeRequiredFields: 'Por favor complete todos los campos requeridos antes de continuar.',
-    cancelDeleteConfirm: '¿Terminar esta admisión y detener los recordatorios? Los registros guardados se conservan. Contacte a la organización para solicitar sus registros.',
+    cancelDeleteConfirm: 'Cancelar esta inscripción la detiene sin enviarla. No recibirá recordatorios para completarla y su enlace para continuar dejará de funcionar. La organización conserva los registros guardados. Para completarla y enviarla, elija Seguir completando la inscripción.',
     restartConfirm: '¿Reiniciar esta admisión y borrar todos los campos?',
     endSessionConfirm: '¿Terminar esta sesión y borrar esta admisión de este navegador?',
     unableToStartSession: 'No se pudo iniciar una nueva sesión de admisión. Por favor intente de nuevo.',
@@ -6930,6 +6965,20 @@ const registeredEventSummary = computed(() => {
 });
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
+const {
+  isOpen: stopEnrollmentOpen, busy: stopEnrollmentLoading, failed: stopEnrollmentFailed,
+  stopped: enrollmentStopped, open: cancelEnrollment, cancel: keepCompletingEnrollment, confirm: terminateEnrollment
+} = useEnrollmentTermination({
+  getSessionToken: () => sessionToken.value,
+  stopSession: async (token) => {
+    const { data } = await api.delete(`/public-intake/${publicKey}/session`, {
+      data: { sessionToken: token }, skipGlobalLoading: true
+    });
+    return data;
+  },
+  onStopped: () => { clearPersistedDraft(); resetIntakeState(); }
+});
+
 provide('intakeSessionToken', sessionToken);
 // Initial rendering must not autosave empty defaults over a returning parent's draft.
 const loadingSavedProgress = ref(Boolean(sessionToken.value));
@@ -8063,7 +8112,7 @@ const buildServerProgressIntakeData = () => ({
 });
 
 const saveServerProgress = async () => {
-  if (loadingSavedProgress.value || savedProgressLoadFailed.value) return;
+  if (loadingSavedProgress.value || savedProgressLoadFailed.value || stopEnrollmentLoading.value || enrollmentStopped.value) return;
   const token = String(sessionToken.value || '').trim();
   if (!token) return;
   try {
@@ -11671,6 +11720,8 @@ const handleCurrentFlowContinue = () => {
 };
 const currentFlowContinueLabel = computed(() => {
   const next = flowSteps.value[currentFlowIndex.value + 1];
+  if (!next && currentFlowStep.value && !isJobApplication.value && !isMedicalRecordsRequest.value
+    && !isPacketSectionStepType(currentFlowStep.value.type) && !['smart_disclosure', 'disclosure'].includes(currentFlowStep.value.type)) return t('submitEnrollment');
   if (usesSchoolChildDetails.value && Number.isInteger(currentFlowStep.value?.clientIndex)
     && Number.isInteger(next?.clientIndex) && next.clientIndex !== currentFlowStep.value.clientIndex) {
     const name = sharedSigningRoster.value[next.clientIndex]?.fullName || childDisplayName(next.clientIndex);
@@ -12106,23 +12157,6 @@ const resetIntakeState = () => {
   Object.keys(fieldValuesByTemplate || {}).forEach((k) => delete fieldValuesByTemplate[k]);
 };
 
-const cancelIntake = async () => {
-  const ok = window.confirm(t('cancelDeleteConfirm'));
-  if (!ok) return;
-  const token = String(sessionToken.value || '').trim();
-  if (token) {
-    try {
-      await api.delete(`/public-intake/${publicKey}/session`, {
-        data: { sessionToken: token },
-        skipGlobalLoading: true
-      });
-    } catch {
-      /* local clear still proceeds */
-    }
-  }
-  clearPersistedDraft();
-  resetIntakeState();
-};
 
 const restartIntake = () => {
   const ok = window.confirm(t('restartConfirm'));

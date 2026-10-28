@@ -5,8 +5,8 @@
         <router-link class="back-link" :to="backTo">{{ backLabel }}</router-link>
         <h1>Unfinished Digital Forms</h1>
         <p class="subtitle">
-          Active school and office enrollment packets that have not been submitted.
-          Completed or deleted drafts leave this list automatically.
+          Saved school and office enrollments that have not been submitted, including stopped and expired forms.
+          Open a form to see saved progress, reminder status, and support emails.
         </p>
       </div>
       <div class="header-actions">
@@ -56,8 +56,8 @@
         <div class="value">{{ fmt(totals.completedLast30Days) }}</div>
       </article>
       <article class="metric warn">
-        <div class="label">Deleted / expired (30d)</div>
-        <div class="value">{{ fmt(totals.deletedExpiredLast30Days) }}</div>
+        <div class="label">Needs attention</div>
+        <div class="value">{{ fmt(totals.needsAttention) }}</div>
       </article>
     </section>
 
@@ -86,7 +86,8 @@
             <th @click="sortBy('email')">Email</th>
             <th @click="sortBy('schoolName')">School</th>
             <th @click="sortBy('scope')">Scope</th>
-            <th @click="sortBy('startedAt')">Started</th>
+            <th @click="sortBy('lastSavedAt')">Last saved</th>
+            <th @click="sortBy('lastNotifiedAt')">Last notified</th>
             <th @click="sortBy('draftExpiresAt')">Expires</th>
             <th @click="sortBy('reminderConsentStatus')">Consent</th>
             <th @click="sortBy('reminder1SentAt')">R1 (24h)</th>
@@ -102,7 +103,7 @@
             class="row-click"
             @click="openDetails(row)"
           >
-            <td>{{ row.displayName || '—' }}</td>
+            <td>{{ row.displayName || '—' }}<small v-if="row.childNames?.length" class="child-names">{{ row.childNames.join(', ') }}</small></td>
             <td>{{ row.email || '—' }}</td>
             <td>{{ row.schoolName || (row.scope === 'office' ? 'Office' : '—') }}</td>
             <td>
@@ -110,7 +111,8 @@
                 {{ row.scope === 'school' ? 'School' : 'Office' }}
               </span>
             </td>
-            <td>{{ formatWhen(row.startedAt) }}</td>
+            <td>{{ formatWhen(row.lastSavedAt) }}</td>
+            <td>{{ row.lastNotifiedAt ? formatWhen(row.lastNotifiedAt) : 'No sent email recorded' }}</td>
             <td>{{ formatWhen(row.draftExpiresAt) }}</td>
             <td>
               <span class="pill" :class="consentPillClass(row.reminderConsentStatus)">
@@ -137,7 +139,7 @@
             </td>
           </tr>
           <tr v-if="!visibleRows.length">
-            <td colspan="11" class="empty">
+            <td colspan="12" class="empty">
               {{ loading ? 'Loading…' : 'No unfinished enrollment forms match this filter.' }}
             </td>
           </tr>
@@ -172,7 +174,7 @@
             <dd>{{ formatWhen(selected.startedAt) }}</dd>
           </div>
           <div>
-            <dt>Expires</dt>
+            <dt>Resume access expires</dt>
             <dd>{{ formatWhen(selected.draftExpiresAt) }}</dd>
           </div>
           <div>
@@ -184,7 +186,9 @@
             <dd>{{ selected.linkTitle || selected.formType || 'Enrollment packet' }}</dd>
           </div>
         </dl>
-        <h3 class="timeline-title">Reminder timeline</h3>
+        <p class="follow-up">{{ followUp(selected) }}</p>
+        <p class="meta">Resume link: {{ selected.resumeAvailable ? 'Available' : 'Unavailable — support review needed' }}. Saved answers are retained.</p>
+        <h3 class="timeline-title">Enrollment and notification history</h3>
         <ol class="timeline">
           <li v-for="ev in selected.timeline || []" :key="ev.id" class="timeline-item">
             <span class="timeline-dot" :class="`dot-${ev.status || 'info'}`" />
@@ -275,7 +279,7 @@ const visibleRows = computed(() => {
   let list = rows.value;
   if (q) {
     list = list.filter((row) => {
-      const hay = [row.displayName, row.email, row.schoolName, row.scope, row.linkTitle]
+      const hay = [row.displayName, row.email, row.schoolName, row.scope, row.linkTitle, ...(row.childNames || [])]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -364,8 +368,9 @@ function consentPillClass(status) {
 }
 
 function reminderCell(status, at) {
-  if (at) return formatShort(at);
   const s = String(status || '').toLowerCase();
+  if (s === 'queued' || s === 'pending') return 'Awaiting approval';
+  if (at && s !== 'skipped' && s !== 'failed') return formatShort(at);
   if (s === 'failed') return 'Failed';
   if (s === 'skipped') return 'Skipped';
   return '—';
@@ -394,7 +399,12 @@ function formatShort(iso) {
 
 function stageLabel(stage) {
   const map = {
-    awaiting_consent: 'Awaiting consent',
+    ended_without_submission: 'Enrollment stopped',
+    access_expired: 'Resume access expired',
+    reminders_stopped: 'Automatic reminders stopped',
+    resume_unavailable: 'Resume access unavailable',
+    missing_email: 'Parent email missing',
+    awaiting_consent: 'Reminder consent not recorded',
     declined_no_reminders: 'Declined',
     in_reminder_sequence: 'Reminders pending',
     reminder_1_sent: 'After reminder 1',
@@ -402,6 +412,15 @@ function stageLabel(stage) {
     reminder_3_sent: 'Final reminder sent'
   };
   return map[stage] || stage || '—';
+}
+
+function followUp(row) {
+  if (row.currentStage === 'ended_without_submission') return 'Confirm the family wants to continue, then have support restore access and send a recovery email. Do not restart reminders without consent.';
+  if (['access_expired', 'resume_unavailable'].includes(row.currentStage)) return 'Review the saved enrollment and arrange a working resume link before contacting the parent.';
+  if (row.currentStage === 'missing_email') return 'Verify a parent email address before sending an enrollment reminder.';
+  if (['awaiting_consent', 'declined_no_reminders', 'reminders_stopped'].includes(row.currentStage)) return 'Automatic reminders are off. Review contact history and any parent request before arranging a manual follow-up.';
+  if (row.currentStage === 'reminder_3_sent') return 'The final automatic reminder was sent. Review whether the family needs help completing enrollment.';
+  return 'Automatic reminders are scheduled at 24 hours, 72 hours, and 7 days after consent while the enrollment remains unfinished and accessible.';
 }
 
 function openDetails(row) {
@@ -424,6 +443,10 @@ function exportCsv() {
     'schoolName',
     'scope',
     'startedAt',
+    'lastSavedAt',
+    'lastNotifiedAt',
+    'remindersStoppedAt',
+    'resumeAvailable',
     'draftExpiresAt',
     'reminderConsentStatus',
     'reminder1SentAt',
@@ -593,6 +616,8 @@ h1 {
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
 th { cursor: pointer; color: #475569; font-weight: 600; white-space: nowrap; }
+.child-names { display: block; color: #64748b; margin-top: 4px; }
+.follow-up { background: #f0fdfa; padding: 12px; border-radius: 8px; line-height: 1.5; }
 .row-click { cursor: pointer; }
 .row-click:hover { background: #f8fafc; }
 .empty { text-align: center; color: #64748b; }

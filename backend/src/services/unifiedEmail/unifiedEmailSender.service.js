@@ -1047,6 +1047,12 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const { enrollmentReminderDeliveryGate } = await import('../enrollmentReminderDelivery.service.js');
+  const enrollmentGate = await enrollmentReminderDeliveryGate({ templateType, intakeSubmissionId, existingCommunicationId, agencyId: identity.agency_id });
+  if (!enrollmentGate.allowed) {
+    if (existingCommunicationId) await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=?", [enrollmentGate.reason, existingCommunicationId]);
+    return { skipped: true, reason: enrollmentGate.reason };
+  }
   const schoolEmailGate=await schoolSessionEmailDeliveryGate({templateType,schoolSessionScopeKey,existingCommunicationId,to,agencyId:identity.agency_id,clientId});
   if(!schoolEmailGate.allowed) {
     if(existingCommunicationId) await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=?",[schoolEmailGate.reason,existingCommunicationId]);
@@ -1444,6 +1450,8 @@ export async function sendEmailFromIdentity({
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
       replyTo,
+      ...(intakeSubmissionId ? { intakeSubmissionId: Number(intakeSubmissionId) } : {}),
+      ...(intakeLinkId ? { intakeLinkId: Number(intakeLinkId) } : {}),
       ...(cc ? { cc } : {}),
       ...redirectMeta
     }).catch(() => {});

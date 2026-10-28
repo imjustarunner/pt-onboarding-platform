@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn(), update: vi.fn(), find: vi.fn(), remove: vi.fn(), send: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: { execute: m.execute, query: m.query }, onTableWrite: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: m.execute, query: m.query, getConnection: async () => ({ execute: async () => [[{ acquired: 1 }]], release: vi.fn() }) }, onTableWrite: vi.fn() }));
 vi.mock('../../models/IntakeSubmission.model.js', () => ({ default: { updateById: m.update, findById: m.find, findBySessionToken: m.find, deleteById: m.remove } }));
 vi.mock('../../models/IntakeLink.model.js', () => ({ default: { findByPublicKey: async () => ({ id: 20 }) } }));
 vi.mock('../../models/EmailTemplate.model.js', () => ({ default: { findById: async () => null, findByTypeAndAgency: async () => null } }));

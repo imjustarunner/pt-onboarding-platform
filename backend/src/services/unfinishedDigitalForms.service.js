@@ -33,13 +33,18 @@ export function resolveRowScope(row) {
   return st === 'school' ? 'school' : 'office';
 }
 
-export function resolveCurrentStage(row) {
+export function resolveCurrentStage(row, now = Date.now()) {
+  if (row?.reminder_opt_out_at && !row?.has_session) return 'ended_without_submission';
+  if (row?.draft_expires_at && new Date(row.draft_expires_at).getTime() <= now) return 'access_expired';
+  if (row?.reminder_opt_out_at) return 'reminders_stopped';
   const consent = String(row?.reminder_consent_status || row?.reminderConsentStatus || '').toLowerCase();
   if (!consent) return 'awaiting_consent';
   if (consent === 'declined') return 'declined_no_reminders';
-  if (row?.reminder_7d_sent_at || row?.reminder3SentAt) return 'reminder_3_sent';
-  if (row?.reminder_72h_sent_at || row?.reminder2SentAt) return 'reminder_2_sent';
-  if (row?.reminder_24h_sent_at || row?.reminder1SentAt) return 'reminder_1_sent';
+  if (row?.has_session === 0) return 'resume_unavailable';
+  if ('signer_email' in row && !String(row.signer_email || '').trim()) return 'missing_email';
+  if (!['failed','skipped','queued'].includes(row?.reminder3_event_status) && (row?.reminder_7d_sent_at || row?.reminder3SentAt)) return 'reminder_3_sent';
+  if (!['failed','skipped','queued'].includes(row?.reminder2_event_status) && (row?.reminder_72h_sent_at || row?.reminder2SentAt)) return 'reminder_2_sent';
+  if (!['failed','skipped','queued'].includes(row?.reminder1_event_status) && (row?.reminder_24h_sent_at || row?.reminder1SentAt)) return 'reminder_1_sent';
   return 'in_reminder_sequence';
 }
 
@@ -101,8 +106,7 @@ function unfinishedWhereSql(scope) {
   return `
     LOWER(COALESCE(s.status, '')) IN ('started', 'consented')
     AND LOWER(COALESCE(s.status, '')) <> 'submitted'
-    AND s.reminder_opt_out_at IS NULL
-    AND (s.draft_expires_at IS NULL OR s.draft_expires_at > NOW())
+    AND s.submitted_at IS NULL
     AND ${excludedFormTypeSql('il')}
     AND ${scopeFilterSql(scope)}
     AND ${agencyMatchSql()}
@@ -166,19 +170,37 @@ function buildTimeline(row) {
   if (expiresAt) {
     events.push({
       id: 'expires',
-      label: 'Draft expires',
+      label: 'Resume access expires (answers retained)',
       at: expiresAt,
       status: 'info'
     });
   }
-  return events;
+  if (row.reminder_opt_out_at) events.push({ id: 'reminders_stopped', label: 'Automatic reminders stopped', at: isoOrNull(row.reminder_opt_out_at), status: 'warn' });
+  for (const notification of row.notifications || []) events.push({
+    id: `communication_${notification.id}`,
+    label: notification.template_type.endsWith('_manual') ? 'Support recovery email' : 'Enrollment reminder email',
+    at: isoOrNull(notification.sent_at || notification.created_at),
+    status: notification.delivery_status,
+  });
+  return events.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
 }
 
 export function mapUnfinishedRow(raw) {
   const scope = resolveRowScope(raw);
-  const reminder1SentAt = isoOrNull(raw.reminder_24h_sent_at);
-  const reminder2SentAt = isoOrNull(raw.reminder_72h_sent_at);
-  const reminder3SentAt = isoOrNull(raw.reminder_7d_sent_at);
+  let data = raw.intake_data || {};
+  if (typeof data === 'string') { try { data = JSON.parse(data); } catch { data = {}; } }
+  const saved = data.progressSnapshot || {};
+  const notifications = (raw.notifications || []).map(n => ({
+    id: Number(n.id), status: n.delivery_status, sentAt: isoOrNull(n.sent_at),
+    manual: n.template_type.endsWith('_manual')
+  }));
+  const sentNotifications = notifications.filter(n => ['sent', 'delivered'].includes(n.status) && n.sentAt);
+  const lastNotifiedAt = [...sentNotifications.map(n => n.sentAt),
+    ...['24h','72h','7d'].map((slot, i) => ['failed','skipped','queued'].includes(raw[`reminder${i+1}_event_status`])
+      ? null : isoOrNull(raw[`reminder_${slot}_sent_at`]))].filter(Boolean).sort().at(-1) || null;
+  const reminder1SentAt = ['failed','skipped','queued'].includes(raw.reminder1_event_status) ? null : isoOrNull(raw.reminder_24h_sent_at);
+  const reminder2SentAt = ['failed','skipped','queued'].includes(raw.reminder2_event_status) ? null : isoOrNull(raw.reminder_72h_sent_at);
+  const reminder3SentAt = ['failed','skipped','queued'].includes(raw.reminder3_event_status) ? null : isoOrNull(raw.reminder_7d_sent_at);
   const reminder1Status = raw.reminder1_event_status
     ? String(raw.reminder1_event_status)
     : (reminder1SentAt ? 'sent' : null);
@@ -199,6 +221,13 @@ export function mapUnfinishedRow(raw) {
     formType: String(raw.form_type || 'intake').toLowerCase() || 'intake',
     linkTitle: raw.link_title ? String(raw.link_title) : null,
     startedAt: isoOrNull(raw.created_at),
+    lastSavedAt: isoOrNull(saved.savedAt || raw.created_at),
+    childNames: (data.clients?.length ? data.clients : saved.clients || []).map(c =>
+      c.fullName || c.full_name || [c.firstName || c.first_name, c.lastName || c.last_name].filter(Boolean).join(' ')).filter(Boolean),
+    remindersStoppedAt: isoOrNull(raw.reminder_opt_out_at),
+    resumeAvailable: !!raw.has_session && (!raw.draft_expires_at || new Date(raw.draft_expires_at).getTime() > Date.now()),
+    lastNotifiedAt,
+    notifications,
     draftExpiresAt: isoOrNull(raw.draft_expires_at),
     reminderConsentStatus: raw.reminder_consent_status
       ? String(raw.reminder_consent_status).toLowerCase()
@@ -286,6 +315,8 @@ async function loadUnfinishedRows(agencyId, { scope, schoolOrganizationId }) {
       s.id,
       s.status,
       s.created_at,
+      s.intake_data,
+      (NULLIF(s.session_token,'') IS NOT NULL) AS has_session,
       s.draft_expires_at,
       s.reminder_consent_status,
       s.reminder_consent_at,
@@ -341,11 +372,20 @@ async function loadUnfinishedRows(agencyId, { scope, schoolOrganizationId }) {
 
   try {
     const [rows] = await pool.execute(sql, params);
-    return decryptIntakeSubmissionRows(rows || []);
+    const ids = (rows || []).map(r => Number(r.id));
+    const [notifications] = ids.length ? await pool.execute(`
+      SELECT id, delivery_status, sent_at, generated_at AS created_at, template_type,
+        JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.intakeSubmissionId')) AS submission_id
+      FROM user_communications WHERE agency_id=?
+        AND template_type LIKE 'enrollment_unfinished_reminder%'
+        AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.intakeSubmissionId')) IN (${ids.map(() => '?').join(',')})
+      ORDER BY id ASC`, [agencyId, ...ids.map(String)]) : [[]];
+    return decryptIntakeSubmissionRows(rows || []).map(row => ({ ...row,
+      notifications: notifications.filter(n => Number(n.submission_id) === Number(row.id))
+    }));
   } catch (e) {
     if (isMissingSchemaError(e)) {
-      // Older schema without reminder columns — return empty rather than 500.
-      return [];
+      throw new Error('Unfinished enrollment reporting is unavailable: required database fields are missing.', { cause: e });
     }
     throw e;
   }
@@ -396,7 +436,7 @@ export async function getUnfinishedDigitalFormsSnapshot(agencyId, opts = {}) {
 
   const inReminderSequence = rows.filter((r) => {
     const consent = String(r.reminderConsentStatus || '').toLowerCase();
-    return consent === 'agreed' && r.currentStage !== 'reminder_3_sent';
+    return consent === 'agreed' && ['in_reminder_sequence','reminder_1_sent','reminder_2_sent'].includes(r.currentStage);
   }).length;
 
   return {
@@ -406,6 +446,7 @@ export async function getUnfinishedDigitalFormsSnapshot(agencyId, opts = {}) {
     refreshedAt: new Date().toISOString(),
     totals: {
       unfinished: rows.length,
+      needsAttention: rows.filter(r => ['ended_without_submission','access_expired','reminders_stopped','resume_unavailable','missing_email'].includes(r.currentStage)).length,
       inReminderSequence,
       completedLast30Days,
       deletedExpiredLast30Days: deletedExpiredLast30Days

@@ -14,3 +14,7 @@ describe('localizePublicIntakeTitle', () => {
       .toBe('Paquete digital de inscripción escolar');
   });
 });
+
+it('uses enrollment for legacy public packet titles', () => {
+  expect(localizePublicIntakeTitle('Full School Intake (English)', 'en')).toBe('Full School Enrollment');
+});

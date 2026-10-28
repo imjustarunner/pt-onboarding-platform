@@ -5,6 +5,7 @@ import {
   classifySupportEmailDraft, parseSupportEmailDraftResult, validateSupportEmailDraft
 } from '../utils/supportEmailDraft.shared.js';
 import { summarizeLibrarySources } from '../utils/schoolSupportReplyLibrary.shared.js';
+import { lookupSupportEnrollment } from './supportEnrollmentLookup.service.js';
 
 function currentDraftContext(input) {
   return buildSupportEmailDraftContext({
@@ -12,6 +13,15 @@ function currentDraftContext(input) {
     ticket: decryptTicketRow(input.ticket),
     messages: (input.messages || []).map(decryptTicketMessageRow)
   });
+}
+
+/** Run the enrollment search before either cache reuse or model generation. */
+export async function prepareSupportEmailDraftInput(input, dependencies = {}) {
+  const context = currentDraftContext(input);
+  if (classifySupportEmailDraft(context).suppressed) return input;
+  const lookup = dependencies.lookupEnrollment || lookupSupportEnrollment;
+  const enrollmentLookup = await lookup(context, dependencies);
+  return enrollmentLookup ? { ...input, enrollmentLookup } : input;
 }
 
 /** Pure preflight. Current suppression evidence always takes priority over cache reuse. */
@@ -39,6 +49,7 @@ export function assessSupportEmailDraftReuse(input, snapshot = null) {
 
 /** No persistence and no email send: callers snapshot this result before offering it for review. */
 export async function generateSupportEmailDraft(input, dependencies = {}) {
+  if (!input.enrollmentLookup) input = await prepareSupportEmailDraftInput(input, dependencies);
   const context = currentDraftContext(input);
   const classification = classifySupportEmailDraft(context);
   const baseMetadata = {
@@ -49,6 +60,7 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     claimantUserId: context.claimant.id,
     claimantName: context.claimant.name,
     latestInboundMessageId: context.latestInbound.id || null,
+    ...(context.enrollmentLookup ? { enrollmentLookup: context.enrollmentLookup } : {}),
     generatedForTicketId: context.ticketId,
     standards: SUPPORT_EMAIL_REPLY_STANDARDS.map(({ id, source, evidence }) => ({ id, source, evidence, provenance: 'review_derived_standard', approval: 'not_reviewed_by_rachel' })),
     draftSources: [
@@ -57,7 +69,10 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
       ...context.attachments.files.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Current incoming email file; contents not reviewed', provenance: a.provenance, messageId: a.messageId })),
       ...context.attachments.conversationFiles.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Other conversation file; not proof of receipt with the latest email', provenance: a.provenance, messageId: a.messageId })),
       ...context.attachments.unattributedFiles.map((a) => ({ type: 'attachment', id: a.id, label: a.filename, detail: 'Email-message attribution unknown; not receipt evidence for the latest email', provenance: a.provenance, messageId: null })),
-      ...context.verifiedFacts.map((f) => ({ type: 'verified_fact', id: f.evidenceId, label: f.key, detail: f.source }))
+      ...context.verifiedFacts.map((f) => ({ type: 'verified_fact', id: f.evidenceId, label: f.key, detail: f.source })),
+      ...(context.enrollmentLookup?.records || []).map(r => ({ type: 'intake_submission', id: r.submissionId,
+        label: context.enrollmentLookup.status === 'verified_match' ? 'Matched digital enrollment' : 'Possible enrollment — confirm child identity',
+        detail: `${r.status}; ${r.language}; last saved ${r.lastSavedAt || 'unknown'}${r.lastSavedStep ? `; ${r.lastSavedStep}` : ''}` }))
     ]
   };
   if (classification.suppressed) {
@@ -82,7 +97,8 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
 
   let knowledgeMatches = input.knowledgeMatches;
   let promptNotes = input.promptNotes;
-  const reviewWarnings = [];
+  const reviewWarnings = context.enrollmentLookup && context.enrollmentLookup.status !== 'verified_match'
+    ? [`enrollment_${context.enrollmentLookup.status}`] : [];
   if (!Array.isArray(knowledgeMatches)) {
     try {
       const matchKnowledge = dependencies.matchKnowledge || (await import('./schoolSupportReplyRetrieval.service.js')).matchReplyKnowledgeForTicket;
@@ -122,7 +138,8 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     ...context.attachments.conversationFiles.map((a) => a.evidenceId),
     ...context.attachments.unattributedFiles.map((a) => a.evidenceId),
     ...context.verifiedFacts.map((f) => f.evidenceId),
-    ...context.verifiedActions.map((a) => a.evidenceId)
+    ...context.verifiedActions.map((a) => a.evidenceId),
+    ...(context.enrollmentLookup?.records || []).map(r => `intake_submission:${r.submissionId}`)
   ]);
   if (result.usedEvidenceIds.some((id) => !validEvidenceIds.has(id))) reviewWarnings.push('unrecognized_model_citation');
   // The sender appends its verified identity/signature at delivery. Keeping this

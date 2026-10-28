@@ -9,5 +9,5 @@ export function localizePublicIntakeTitle(title, locale = 'en') {
     }
     return 'Digital Enrollment Packet';
   }
-  return stripped;
+  return stripped.replace(/\bintake\b/gi, lang.startsWith('es') ? 'inscripción' : 'Enrollment');
 }

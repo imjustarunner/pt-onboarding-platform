@@ -1,8 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { assessSupportEmailDraftReuse, generateSupportEmailDraft } from '../supportEmailDraft.service.js';
+import { assessSupportEmailDraftReuse, generateSupportEmailDraft as generateWithLookup } from '../supportEmailDraft.service.js';
 import { encryptChatText } from '../chatEncryption.service.js';
 import { buildSupportEmailDraftContext, classifySupportEmailDraft, validateSupportEmailDraft } from '../../utils/supportEmailDraft.shared.js';
+
+// Enrollment lookup is tested separately; these model fixtures never access a live database.
+const generateSupportEmailDraft = (input, dependencies = {}) => generateWithLookup(input, { lookupEnrollment: async () => null, ...dependencies });
 
 const ticket = {
   id: 51, agency_id: 2, school_organization_id: 9, source_channel: 'email',
