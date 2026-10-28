@@ -41,13 +41,15 @@ function setup() {
  return { state, deps, send: createSupervisionRsvpSms(deps), request: { session, user, kind: 'join:5' } };
 }
 describe('mandatory pending RSVP Campaign 2 reminders', () => {
- it('sends once with the personal RSVP link, exact staff campaign and notification consent', async () => {
+ it('sends once with a personal join link first and a separate absence link, using staff notification consent', async () => {
   const f = setup();
   await f.send(f.request); await f.send(f.request);
   expect(f.deps.send).toHaveBeenCalledOnce();
   expect(f.deps.resolveSender).toHaveBeenCalledWith({ agencyId: 2, purpose: 'workforce', requiredPurpose: 'polling' });
-  expect(f.deps.send).toHaveBeenCalledWith(expect.objectContaining({ to: phone, staffNotificationKind: 'notifications', body: expect.stringContaining('Please RSVP your attendance') }));
-  expect(f.deps.send.mock.calls[0][0].body).toContain('/personal?rsvp=1&eventId=20');
+  expect(f.deps.send).toHaveBeenCalledWith(expect.objectContaining({ to: phone, staffNotificationKind: 'notifications', body: expect.stringContaining('Required group supervision is starting soon') }));
+  const body = f.deps.send.mock.calls[0][0].body;
+  expect(body).toContain("Join here: https://app.itsco.health/join/invitation/personal\n\nCan't make it? Click here to record your absence: https://app.itsco.health/join/invitation/personal?rsvp=absence&eventId=20");
+  expect(body).not.toContain('Please RSVP');
   const eligibilitySql = f.deps.db.execute.mock.calls[0][0];
   expect(eligibilitySql).toContain("a.status='INVITED'");
   expect(eligibilitySql).toContain('a.is_required=1 OR EXISTS');

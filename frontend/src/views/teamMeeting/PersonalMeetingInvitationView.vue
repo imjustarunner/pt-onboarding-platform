@@ -62,7 +62,11 @@ watch(() => [route.params.token, route.query.details, route.query.rsvp, route.qu
   try {
     const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details || route.query.rsvp ? {details:1,eventId:route.query.eventId} : {}});
     if(stale)return;
-    if (!data.joinUrl && data.meeting) { meeting.value = data.meeting; return; }
+    if (!data.joinUrl && data.meeting) {
+      meeting.value = data.meeting;
+      declining.value = route.query.rsvp === 'absence' && data.meeting.attendance?.tier === 'mandatory';
+      return;
+    }
     const url = new URL(data.joinUrl);
     if (data.supervisionAccess || data.teamMeetingAccess) {
       if (url.origin !== window.location.origin) {

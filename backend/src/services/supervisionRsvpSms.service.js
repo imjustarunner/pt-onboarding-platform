@@ -38,7 +38,7 @@ export function createSupervisionRsvpSms({db=pool,resolveSender=resolveRegistere
    assertCompanyEventSmsCampaign(await readSender(from),'staff','workforce');
    const link=(await invitation({...session,...row},user.id)).url;
    const when=new Intl.DateTimeFormat('en-US',{timeZone:row.event_timezone||'America/Denver',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(parseUtcDate(row.start_at));
-   const options={to,from,purpose:'workforce',agencyId:row.agency_id,staffNotificationKind:'notifications',body:`Please RSVP your attendance for required group supervision on ${when}. Choose attending or record an absence in the app: ${link}?rsvp=1&eventId=${session.id}`};
+   const options={to,from,purpose:'workforce',agencyId:row.agency_id,staffNotificationKind:'notifications',body:`Required group supervision is starting soon (${when}). Join here: ${link}\n\nCan't make it? Click here to record your absence: ${link}?rsvp=absence&eventId=${session.id}`};
    await prepare(options);
    // A response, removed requirement, cancellation, or changed time suppresses a queued text.
    row=await eligible(session.id,user.id);

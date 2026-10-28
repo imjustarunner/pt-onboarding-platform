@@ -28,6 +28,21 @@ describe('personal meeting entry',()=>{
     expect(wrapper.findAll('button')[2].element.disabled).toBe(true);await wrapper.get('textarea').setValue('School examination');await wrapper.findAll('button')[2].trigger('click');await flushPromises();
     expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'School examination'},{skipAuthRedirect:true});wrapper.unmount();
   });
+  it('opens the SMS absence form for the specified date without recording an absence until confirmed',async()=>{
+    Object.assign(m.query,{rsvp:'absence',eventId:'19'});
+    m.get.mockResolvedValue({data:{meeting:{attendance:{tier:'mandatory',label:'Required'},canSkipRecurring:true,sessionDate:'2026-10-27',title:'Group supervision'}}});
+    m.post.mockResolvedValue({data:{ok:true}});
+    const wrapper=render();await flushPromises();
+    expect(m.get).toHaveBeenCalledWith('/meeting-invitations/personal',{skipAuthRedirect:true,params:{details:1,eventId:'19'}});
+    expect(wrapper.get('textarea').exists()).toBe(true);
+    expect(wrapper.get('input[value="occurrence"]').element.checked).toBe(true);
+    expect(wrapper.findAll('button')[2].element.disabled).toBe(true);
+    expect(m.post).not.toHaveBeenCalled();expect(m.replace).not.toHaveBeenCalled();
+    await wrapper.get('textarea').setValue('Schedule conflict');
+    await wrapper.findAll('button')[2].trigger('click');await flushPromises();
+    expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:'Schedule conflict'},{skipAuthRedirect:true});
+    expect(wrapper.text()).toContain('Not attending this date');wrapper.unmount();
+  });
   it('stores a spring-attended reason when declining mandatory training',async()=>{
     Object.assign(m.query,{rsvp:'1',eventId:'19'});m.get.mockResolvedValue({data:{meeting:{isTraining:true,attendance:{tier:'mandatory',label:'Mandatory training'},title:'Crisis Training'}}});m.post.mockResolvedValue({data:{ok:true}});
     const wrapper=render();await flushPromises();await wrapper.findAll('button')[1].trigger('click');expect(wrapper.findAll('button')[2].element.disabled).toBe(true);
@@ -85,11 +100,12 @@ it('shows meeting details and agenda without signing in, then opens the session 
  expect(m.replace).toHaveBeenCalledWith('/join/supervision/19');wrapper.unmount();
 });
 
-it('lets an optional invitee stop reminders immediately without an absence reason',async()=>{
- Object.assign(m.query,{rsvp:'1',eventId:'19'});
+it.each(['1','absence'])('lets an optional invitee stop reminders immediately without an absence reason (rsvp=%s)',async rsvp=>{
+ Object.assign(m.query,{rsvp,eventId:'19'});
  m.get.mockResolvedValue({data:{meeting:{title:'Group supervision',attendance:{tier:'optional',label:'Optional'}}}});
  m.post.mockResolvedValue({data:{ok:true}});
  const wrapper=render();await flushPromises();
+ expect(wrapper.find('textarea').exists()).toBe(false);
  await wrapper.findAll('button').find(b=>b.text().includes('Stop reminders')).trigger('click');await flushPromises();
  expect(wrapper.find('textarea').exists()).toBe(false);
  expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:''},{skipAuthRedirect:true});
