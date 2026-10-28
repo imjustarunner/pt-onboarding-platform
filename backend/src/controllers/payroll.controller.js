@@ -7115,7 +7115,14 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
           datedForUser.set(String(key).slice(prefix.length), list);
         }
         for(const row of userRows)if(row.datedUnits)datedForUser.set(String(row.serviceCode).toUpperCase(),row.datedUnits);
-        separateHistoricalCarryovers({breakdown,stagingRows:userRows,ratesByCode,rateCard,boundary:payCtx.status.agreementBoundary});
+        let historicalSummaries=[];
+        if(userRows.some(r=>Number(r.oldDoneNotesUnits)>0)) {
+          [historicalSummaries]=await pool.execute(`SELECT s.breakdown,p.period_start,p.period_end
+            FROM payroll_summaries s JOIN payroll_periods p ON p.id=s.payroll_period_id
+            WHERE s.agency_id=? AND s.user_id=? AND p.status IN ('posted','finalized') AND p.period_end<? ORDER BY p.period_end DESC`,
+            [agencyId,userId,payCtx.status.agreementBoundary]);
+        }
+        separateHistoricalCarryovers({breakdown,stagingRows:userRows,ratesByCode,rateCard,historicalSummaries,boundary:payCtx.status.agreementBoundary});
         const meta = applyPaySystemToBreakdown({
           breakdown,
           rateProfile: payCtx.rateProfile,

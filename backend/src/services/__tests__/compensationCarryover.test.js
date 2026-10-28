@@ -21,6 +21,20 @@ it('accepts a saved legacy card only when it predates the carried-over service',
  separateHistoricalCarryovers({...args,rateCard:{updated_at:'2026-08-05'}});
  expect(args.breakdown['90837__historical'].amount).toBe(35);
 });
+it('uses the posted historical rate when the legacy card was edited afterward',()=>{
+ const args=inputs();args.ratesByCode.clear();args.breakdown['90837'].rateSource='rate_card';
+ separateHistoricalCarryovers({...args,rateCard:{updated_at:'2026-10-20'},historicalSummaries:[{period_start:'2026-09-26',period_end:'2026-10-09',breakdown:{'90837':{rateAmount:40,rateUnit:'per_unit',payDivisor:1,rateSource:'rate_card'}}}]});
+ expect(args.breakdown['90837__historical']).toMatchObject({amount:40,rateSource:'historical_payroll_snapshot'});
+});
+it('preserves the historical hourly divisor for carried-over H-code minutes',()=>{
+ const args=inputs();
+ args.breakdown={H0032:{category:'direct',units:100,finalizedUnits:100,oldDoneNotesUnits:40,payHours:100/60,hours:100/60,creditsHours:100/60,rateUnit:'per_hour',payDivisor:15,rateSource:'rate_card',rateAmount:28}};
+ args.stagingRows=[{serviceCode:'H0032',carryoverMeta:{rawAuditRows:[{serviceDate:'2026-10-08'}]}}];
+ args.ratesByCode.clear();
+ separateHistoricalCarryovers({...args,rateCard:{updated_at:'2026-10-13'},historicalSummaries:[{period_start:'2026-09-26',period_end:'2026-10-09',breakdown:{H0032:{rateAmount:24,rateUnit:'per_hour',payDivisor:60,rateSource:'rate_card'}}}]});
+ expect(args.breakdown.H0032__historical).toMatchObject({amount:16,payDivisor:60,payHours:40/60});
+ expect(args.breakdown.H0032.finalizedUnits).toBe(60);
+});
 it('holds undated or mixed-era carryovers for review',()=>{
  const args=inputs();args.stagingRows[0].carryoverMeta.rawAuditRows=[];expect(()=>separateHistoricalCarryovers(args)).toThrow('dated carryover');
  args.stagingRows[0].carryoverMeta.rawAuditRows=[{serviceDate:'2026-10-12'}];expect(()=>separateHistoricalCarryovers(args)).toThrow('dated carryover');
